@@ -1902,6 +1902,94 @@ GoRouter appRouter(Ref ref) {
           child: SalonCreateBookingScreen(salonId: state.extra! as String),
         ),
       ),
+      // Phase 344 — /salon/bookings/archive, the salon «Архів» page reached
+      // from the board header's «Архів» button.
+      //
+      // ⚠ DECLARED BEFORE the dynamic `:bookingId` sibling below, exactly
+      // like the literal `new` above it. `/salon/bookings/:bookingId` matches
+      // `/salon/bookings/archive` perfectly happily with
+      // `bookingId == 'archive'`, and go_router takes the FIRST sibling hit
+      // in declaration order — nothing about the path strings decides this.
+      // Shadowed, the request would render a `BookingDetailScreen` that
+      // fetches booking `'archive'` and fails like a backend problem.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for all three siblings.
+      //
+      // ⚠ NOT DEEP-LINKABLE — the `salonId` rides `state.extra` as a bare
+      // non-empty `String`, copying `salonStaffBookingNew`'s contract above
+      // VERBATIM (phase 344 D2), because nothing on this route's path carries
+      // it: `SalonBookingsScreen` takes its salon id by constructor from
+      // `SalonShellScreen`, and there is no `/salon/bookings` parent route to
+      // inherit a path parameter from. `extra` does not survive a cold link,
+      // so a link-in redirects to the role home rather than rendering an
+      // unscoped archive. Accepted: this screen is one tap from the board.
+      //
+      // The role gate is the EXISTING `/salon/*` prefix gate in
+      // `auth_redirect.dart` (`location.startsWith('/salon/')`, admitting
+      // SALON_OWNER + SALON_ADMIN only) — verified to be a prefix match, not
+      // an exact-path list, so this route is gated by construction and
+      // `/master/*` is NOT widened. `SALON_MASTER` is bounced here and keeps
+      // its own unchanged archive at `/staff/bookings/archive`.
+      //
+      // `showServiceFilter: false` is NOT redundant with `salonId` — phase
+      // 343 D1 keeps the two flags deliberately independent, and it defaults
+      // to `true`. Omitted, `_query` would build a salon-scoped
+      // `MasterArchiveQuery.of` with a non-empty `serviceIds` the moment the
+      // owner ticked a service, which that factory rejects with an
+      // `ArgumentError` thrown from `build`. Today an owner's
+      // `masterServiceCatalogProvider` happens to resolve empty; that is a
+      // coincidence, not a guarantee, and this flag is the actual contract.
+      //
+      // ⚠ DO NOT DELETE THIS FLAG AS DEAD. It is load-bearing BY CONTRACT and
+      // currently UNOBSERVABLE END-TO-END, which is a combination that reads
+      // like dead code and is not. Measured (phase 344 QA, 2026-09-19):
+      // `serviceRepositoryProvider` builds off `masterProfileProvider`, an
+      // owner has no master profile, so `masterServiceCatalogProvider` yields
+      // nothing — `getServicesCalls` stayed 0 under BOTH the shipped
+      // `false` and a mutated `true`. So no integration-tier arm can pin this
+      // flag, and the arm in
+      // `integration_test/salon_owner_bookings_board_flow_test.dart` is
+      // deliberately labelled a RENDER check rather than a pin.
+      //
+      // The REAL pin is at the widget tier:
+      // `test/features/booking/presentation/master_archive_screen_test.dart`
+      // («FILTER — `showServiceFilter: false` …» + the salon-scope arms
+      // around it), which drives `MasterArchiveScreen` directly with a
+      // non-empty catalogue and does reach the `ArgumentError` when the flag
+      // is flipped. Change this line and that suite is what will tell you.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` additionally
+      // asserts the value this route actually passes.
+      //
+      // `builder:` (MaterialPage), matching both master archive mounts, so
+      // the theme's `CupertinoPageTransitionsBuilder` installs the left-edge
+      // swipe-back gesture every pushed sub-route here has.
+      GoRoute(
+        path: RouteNames.salonStaffBookingsArchive,
+        redirect: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            // Copied VERBATIM from `salonStaffBookingNew` above — same
+            // prefix, same `extra` contract, same role-derived landing (this
+            // route's callers are staff, not CLIENT).
+            final session = ref.read(authProvider).value;
+            return session is Authenticated
+                ? roleHomePath(session.user.role)
+                : RouteNames.login;
+          }
+          return null;
+        },
+        builder: (context, state) => MasterArchiveScreen(
+          // Both route builders keep every push from this archive inside the
+          // `/salon/*` subtree. Left null, a row tap would land on
+          // `/master/bookings/:id`, whose INDEPENDENT_MASTER-only gate bounces
+          // an owner clean out of the salon shell to `/salons/mine`.
+          detailRouteBuilder: RouteNames.salonStaffBookingDetail,
+          reviewRouteBuilder: RouteNames.salonStaffClientReview,
+          salonId: state.extra! as String,
+          showServiceFilter: false,
+          showMasterAttribution: true,
+        ),
+      ),
       // Phase 21.12 — /salon/bookings/:bookingId. The owner/admin drill-in
       // from the salon «Записи» board.
       //

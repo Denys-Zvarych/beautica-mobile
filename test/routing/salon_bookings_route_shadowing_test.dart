@@ -28,6 +28,14 @@
 // detail case stays green. Restoring the order turns it back GREEN. This is
 // the falsification the old header said could not be performed yet.
 //
+// ## THE THIRD SIBLING — Phase 344
+//
+// `/salon/bookings/archive` joins `new` as a second literal above the same
+// dynamic `:bookingId`. The equivalent mutation is recorded beside its own
+// group below rather than as a second convention here: MOVING the `archive`
+// `GoRoute` below `:bookingId` turns that case RED, and DELETING its `extra`
+// redirect turns the missing-`extra` case RED. Both were run.
+//
 // MUTATION-VERIFIED (see phase-250 report) — commenting out the
 // `/salon/bookings/new` `GoRoute` in `app_router.dart` turns this test RED:
 // `router.go(RouteNames.salonStaffBookingNew, extra: ...)` then resolves
@@ -47,11 +55,17 @@ import 'package:beautica_mobile/features/booking/application/salon_master_covera
 import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
 import 'dart:async';
 
+import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
+import 'package:dio/dio.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -118,9 +132,29 @@ class _PendingBookingRepository implements BookingRepository {
   Future<Booking> getBookingById(String bookingId) =>
       Completer<Booking>().future;
 
+  /// Phase 344 — the SAME never-completing discipline for the `archive`
+  /// sibling: [MasterArchiveScreen] mounted on the salon scope reads
+  /// `masterArchiveProvider`, whose one salon arm is this call. A pending read
+  /// parks the screen in its skeleton branch, which is all these tests need —
+  /// they assert WHICH SCREEN RESOLVED, never what it renders.
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('unreachable from /salon/bookings/:bookingId');
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => Completer<PageResponse<Booking>>().future;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError(
+    'unreachable from /salon/bookings/{archive,:bookingId}',
+  );
 }
 
 class _RouterApp extends StatelessWidget {
@@ -261,6 +295,367 @@ void main() {
       expect(find.byType(SalonCreateBookingScreen), findsNothing);
     });
 
+    // ══════════════════════════════════════════════════════════════════════
+    // Phase 344 — the THIRD sibling under `/salon/bookings`.
+    //
+    // `archive` is a second literal joining `new` above the dynamic
+    // `:bookingId`. `/salon/bookings/:bookingId` matches
+    // `/salon/bookings/archive` perfectly happily with
+    // `bookingId == 'archive'`, and nothing but declaration order stops it —
+    // shadowed, the owner's «Архів» tap would land on a `BookingDetailScreen`
+    // fetching a booking literally called "archive" and failing like a
+    // backend problem.
+    //
+    // MUTATION RECIPE (extend the header's own two, do not write a second
+    // convention):
+    //   * MOVE the `archive` `GoRoute` in `app_router.dart` BELOW the
+    //     `:bookingId` route  ⇒  the case below goes RED
+    //     (`find.byType(MasterArchiveScreen)` reports zero matches and
+    //     `BookingDetailScreen` is found instead). This is the load-bearing
+    //     one: if it stays green the test is asserting a location string.
+    //   * DELETE the route's `extra` redirect  ⇒  the missing-`extra` case
+    //     goes RED (the route renders instead of bouncing — in fact it throws
+    //     on `state.extra! as String`).
+    // ══════════════════════════════════════════════════════════════════════
+    testWidgets('/salon/bookings/archive resolves MasterArchiveScreen, NOT '
+        'BookingDetailScreen with bookingId == "archive"', (tester) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.salonStaffBookingsArchive, extra: 'salon-1');
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        find.byType(MasterArchiveScreen),
+        findsOneWidget,
+        reason:
+            'the literal `archive` must win over the dynamic `:bookingId` '
+            'sibling — and only its DECLARATION ORDER in app_router.dart '
+            'makes that true',
+      );
+      // The other half of the same claim, stated as a TYPE (a location
+      // assertion passes while the wrong screen renders).
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+    });
+
+    testWidgets('the salon archive mount is SALON-SCOPED and drops the '
+        '«Послуга» facet — the flags the route must pass', (tester) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.salonStaffBookingsArchive, extra: 'salon-1');
+      await tester.pump();
+      await tester.pump();
+
+      final MasterArchiveScreen screen = tester.widget<MasterArchiveScreen>(
+        find.byType(MasterArchiveScreen),
+      );
+
+      expect(
+        screen.salonId,
+        'salon-1',
+        reason:
+            'the board pushes its own salon id on `extra`; dropped, this '
+            'mount would silently read the OWNER\'S OWN "mine" archive '
+            '(GET /bookings/me) while claiming to be the salon\'s',
+      );
+      expect(
+        screen.showServiceFilter,
+        isFalse,
+        reason:
+            'phase 343 D1 keeps this flag INDEPENDENT of `salonId`, and it '
+            'defaults to TRUE. Omitted at the route, a ticked service would '
+            'build a salon-scoped MasterArchiveQuery.of with non-empty '
+            'serviceIds, which that factory rejects with an ArgumentError '
+            'thrown from build. An owner\'s catalogue happening to resolve '
+            'empty today is a coincidence, not the contract',
+      );
+      expect(
+        screen.showMasterAttribution,
+        isTrue,
+        reason:
+            'every row here belongs to a DIFFERENT master, so "who performed '
+            'it" is the row\'s first unanswered question',
+      );
+
+      // ── THE TWO ROUTE BUILDERS (mobile-qa, phase 344) ──────────────────
+      //
+      // Added because nothing observed them: the route passes FIVE
+      // arguments and this test checked three. Both default to `null`, and
+      // `null` is not inert — `MasterArchiveScreen._openDetail` /
+      // `_openReview` fall back to `RouteNames.masterBookingDetail` and
+      // `RouteNames.masterClientReview`, both under the
+      // INDEPENDENT_MASTER-only `/master/*` gate, which ejects an owner from
+      // the salon shell to `/salons/mine`. That is the same shape as the
+      // phase-21.12 board bug.
+      //
+      // The DETAIL half is additionally driven end to end (a real row tap,
+      // through the real `auth_redirect.dart` gate) in
+      // `integration_test/salon_owner_bookings_board_flow_test.dart`'s
+      // phase-344 arm. The REVIEW half cannot be: the salon board's fixture
+      // rows hardcode `providerCanReviewClient: false` — the only value the
+      // real server returns for a viewer who is not the performing master —
+      // so the «Відгук» CTA is correctly never offered to an owner there.
+      // A function identity check is therefore the strongest honest pin
+      // available for it.
+      expect(
+        screen.detailRouteBuilder,
+        same(RouteNames.salonStaffBookingDetail),
+      );
+      expect(
+        screen.reviewRouteBuilder,
+        same(RouteNames.salonStaffClientReview),
+      );
+      // …and NOT the `/master/*` fallbacks the null default resolves to.
+      expect(
+        screen.detailRouteBuilder,
+        isNot(same(RouteNames.masterBookingDetail)),
+      );
+      expect(screen.detailRouteBuilder, isNotNull);
+      expect(screen.reviewRouteBuilder, isNotNull);
+    });
+
+    testWidgets('the salon archive AppBar reuses masterArchiveTitle («Архів») '
+        '— phase 344 D6 adds ZERO new ARB keys', (tester) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.salonStaffBookingsArchive, extra: 'salon-1');
+      await tester.pump();
+      await tester.pump();
+
+      final BuildContext context = tester.element(
+        find.byType(MasterArchiveScreen),
+      );
+      final String expected = AppLocalizations.of(context).masterArchiveTitle;
+
+      // The REUSE claim, positively stated — not merely "no failure". If a
+      // future phase introduces a distinct «Архів салону» string, this goes
+      // RED and `page_title_consistency_test.dart`'s ledger must be updated
+      // with it.
+      expect(expected, 'Архів');
+      expect(find.text(expected), findsWidgets);
+    });
+
+    testWidgets('/salon/bookings/archive reached with NO `extra` REDIRECTS to '
+        'the role home instead of rendering an unscoped archive', (
+      tester,
+    ) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      // A cold deep link: `extra` does not survive one, which is the accepted
+      // consequence of D2's `extra`-carries-the-salon-id contract. It must
+      // BOUNCE, never crash on `state.extra! as String`.
+      router.go(RouteNames.salonStaffBookingsArchive);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(MasterArchiveScreen), findsNothing);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(
+        router.state.matchedLocation,
+        equals(roleHomePath(UserRole.salonOwner)),
+      );
+    });
+
+    // The three arms above drive the redirect with `router.go`. Production
+    // reaches this route with `context.push` ONLY
+    // (`salon_bookings_screen.dart:810`), and `push` takes a materially
+    // different path through go_router: `RouteMatchList.push` grafts a nested
+    // `ImperativeRouteMatch` onto the EXISTING match list instead of
+    // replacing it, and a redirect returned during that graft has to unwind a
+    // push rather than a go. Pinning only the `go` shape would leave the one
+    // call shape that actually ships unproven — and the user-visible question
+    // («does a cold link-in bounce the owner somewhere sane, or does
+    // `state.extra! as String` throw?») is a question about `push`.
+    testWidgets('the PUSH shape production actually uses bounces too — a cold '
+        '`context.push` with no `extra` lands the owner on their role home '
+        'and throws nothing', (tester) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      // The router's OWN navigator context — the same one
+      // `SalonBookingsScreen`'s `context.push` resolves against. A context
+      // taken from above `MaterialApp.router` would reach a different
+      // (root) `GoRouter` inherited widget and prove nothing about this one.
+      final BuildContext navContext =
+          router.routerDelegate.navigatorKey.currentContext!;
+      // `unawaited`: the push future completes only when the pushed route
+      // is POPPED, which never happens here — the redirect resolves it away.
+      unawaited(navContext.push(RouteNames.salonStaffBookingsArchive));
+      await tester.pump();
+      await tester.pump();
+
+      // NOT A CRASH is half the assertion: without the redirect,
+      // `state.extra! as String` is a null-check on `null` thrown from
+      // `builder`, which surfaces as a red screen, not as a bounce.
+      expect(tester.takeException(), isNull);
+      expect(find.byType(MasterArchiveScreen), findsNothing);
+      // And not the SHADOWED alternative either — a `:bookingId` match on
+      // the literal `archive` would render a detail screen fetching booking
+      // `'archive'`, which reads to a user as a backend fault.
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      // ⚠ THE RESOLVED LOCATION DIFFERS FROM THE `go` ARM, and that is a
+      // real observation about `push`, not a weaker assertion. `go` replaces
+      // the match list, so `matchedLocation` reports the redirect's own
+      // target (`roleHomePath` = `/salons/home`). `push` grafts onto the
+      // EXISTING list, so what surfaces is the owner's already-resolved home
+      // leaf — `/salons/home` redirects onward into the salon shell, whose
+      // branch root is `/salons/mine`. Either way the owner is on their own
+      // home surface and NOT on the archive; the path string is asserted
+      // exactly rather than by prefix so a future redirect change cannot
+      // slide past this.
+      expect(router.state.matchedLocation, equals(RouteNames.mySalons));
+      expect(
+        router.state.matchedLocation,
+        isNot(equals(RouteNames.salonStaffBookingsArchive)),
+      );
+    });
+
+    testWidgets('an EMPTY-string `extra` redirects too — `isEmpty` is half of '
+        'the copied guard, not decoration', (tester) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(RouteNames.salonStaffBookingsArchive, extra: '');
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(MasterArchiveScreen), findsNothing);
+      expect(
+        router.state.matchedLocation,
+        equals(roleHomePath(UserRole.salonOwner)),
+      );
+    });
+
+    testWidgets('a NON-String `extra` redirects rather than cast-throwing', (
+      tester,
+    ) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      router.go(
+        RouteNames.salonStaffBookingsArchive,
+        extra: const <String, String>{'salonId': 'salon-1'},
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(MasterArchiveScreen), findsNothing);
+      expect(
+        router.state.matchedLocation,
+        equals(roleHomePath(UserRole.salonOwner)),
+      );
+    });
+
     // ── The salonId HANDOFF over `extra` (2026-09-19, mobile-qa re-audit) ──
     //
     // `salon_bookings_screen.dart:548` pushes this route with
@@ -397,6 +792,107 @@ void main() {
         reason:
             '/master/* is INDEPENDENT_MASTER-only, so it was never an option '
             'for this board either',
+      );
+    });
+
+    // Phase 344 D4 — the archive route's role gate, as a pure decision.
+    //
+    // `mobile-backlog.md:118` (2026-08-16) warned that the salon-archive
+    // phase must not widen `/master/*` to admit SALON_MASTER, because the
+    // archive offers a «Виконано» button that would 403 on tap for that role.
+    // The hazard is avoided BY CONSTRUCTION, not mitigated: the new route
+    // lives under `/salon/*`, whose EXISTING prefix gate (added by phase 250
+    // for `/salon/bookings/new`) already admits exactly SALON_OWNER and
+    // SALON_ADMIN. These arms verify that the gate is a PREFIX match and not
+    // an exact-path list — an exact-path list would let the new literal
+    // through ungated, which is the failure this group exists to catch.
+    test('the /salon/* gate covers /salon/bookings/archive by PREFIX: it '
+        'admits SALON_OWNER + SALON_ADMIN and bounces everyone else', () {
+      AsyncData<AuthSession> sessionFor(UserRole role) =>
+          AsyncData<AuthSession>(
+            AuthSession.authenticated(
+              user: User(
+                id: 'u-1',
+                email: 'u@example.com',
+                role: role,
+                firstName: 'Тест',
+                lastName: 'Тестенко',
+              ),
+              accessToken: 'token',
+            ),
+          );
+
+      for (final UserRole admitted in <UserRole>[
+        UserRole.salonOwner,
+        UserRole.salonAdmin,
+      ]) {
+        expect(
+          authRedirectForLocation(
+            sessionFor(admitted),
+            RouteNames.salonStaffBookingsArchive,
+          ),
+          isNull,
+          reason: '$admitted is the audience of the board this is pushed from',
+        );
+      }
+
+      for (final UserRole bounced in <UserRole>[
+        UserRole.salonMaster,
+        UserRole.client,
+        UserRole.independentMaster,
+      ]) {
+        expect(
+          authRedirectForLocation(
+            sessionFor(bounced),
+            RouteNames.salonStaffBookingsArchive,
+          ),
+          equals(roleHomePath(bounced)),
+          reason:
+              '$bounced must be bounced to its own landing. For SALON_MASTER '
+              'specifically this is mobile-backlog.md:118 — its own archive '
+              'is the UNCHANGED /staff/bookings/archive',
+        );
+      }
+
+      expect(
+        authRedirectForLocation(
+          const AsyncData<AuthSession>(AuthSession.unauthenticated()),
+          RouteNames.salonStaffBookingsArchive,
+        ),
+        equals(RouteNames.login),
+        reason: 'an unauthenticated visitor lands on login, not the archive',
+      );
+    });
+
+    test('/master/* is NOT widened by this phase — SALON_MASTER is still '
+        'bounced from the INDEPENDENT_MASTER archive, and keeps its own', () {
+      const AsyncData<AuthSession> salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(
+          user: User(
+            id: 'sm-1',
+            email: 'sm@example.com',
+            role: UserRole.salonMaster,
+            firstName: 'Ольга',
+            lastName: 'Майстер',
+          ),
+          accessToken: 'token',
+        ),
+      );
+
+      expect(
+        authRedirectForLocation(
+          salonMasterSession,
+          RouteNames.masterBookingsArchive,
+        ),
+        equals(roleHomePath(UserRole.salonMaster)),
+      );
+      expect(
+        authRedirectForLocation(
+          salonMasterSession,
+          RouteNames.salonMasterBookingsArchive,
+        ),
+        isNull,
+        reason: '/staff/bookings/archive is untouched by this phase',
       );
     });
   });

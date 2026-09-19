@@ -485,6 +485,13 @@ void main() {
       // (`app_router.dart`, near the `/salon/bookings/:bookingId` sibling
       // group) — see [RouteNames.salonStaffBookingNew]'s own doc.
       'salonStaffBookingNew': RouteNames.salonStaffBookingNew,
+      // Phase 344 — the salon board's «Архів», the SECOND literal sibling
+      // under `/salon/bookings`, registered (like `new`) BEFORE the dynamic
+      // `:bookingId` below. Reuses `MasterArchiveScreen` parameterised with
+      // the salon scope; see `route_names.dart`'s doc and
+      // `test/routing/salon_bookings_route_shadowing_test.dart` for the
+      // ordering pin.
+      'salonStaffBookingsArchive': RouteNames.salonStaffBookingsArchive,
       // Phase 21.12 — the salon «Записи» board's OWNER-gated drill-in,
       // registered as the dynamic sibling declared AFTER the literal `new`
       // above (the order is what resolves them — see

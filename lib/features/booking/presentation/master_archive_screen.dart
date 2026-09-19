@@ -162,9 +162,14 @@ void debugResetGroupArchiveByKyivDayCallCount() {
 /// (phase 328), which reads the session.
 ///
 /// Phase 343 — mounted a THIRD time, by the SAME mechanism and nothing else:
-/// `/salon/{salonId}/bookings/archive` (registered in phase 344) for the
+/// `/salon/bookings/archive` (registered in phase 344) for the
 /// `SALON_OWNER`/`SALON_ADMIN`, showing the whole roster's history in one
-/// list. Three more additive parameters — [salonId], [showServiceFilter],
+/// list. Note the path carries NO salon id: 344 D2 rides it on `state.extra`
+/// as a bare non-empty `String`, copying `/salon/bookings/new` verbatim,
+/// because there is no `/salon/bookings` parent route to inherit a path
+/// parameter from. (An earlier draft of this doc predicted
+/// `/salon/{salonId}/bookings/archive`; that path was never registered.)
+/// Three more additive parameters — [salonId], [showServiceFilter],
 /// [showMasterAttribution] — each defaulting so that the two master hosts
 /// pass NONE of them and render exactly as today. There is deliberately no
 /// `title` parameter (the salon host reuses `masterArchiveTitle`, «Архів» —
@@ -326,6 +331,46 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// mutated in place. The day-header LABEL itself is formatted separately,
   /// at widget-build time, in `_ArchiveDayHeader.build()` — so a locale
   /// change is unaffected by this cache.
+  ///
+  /// ## Why this memo is the WHOLE fix, and the regroup stays full-list
+  ///
+  /// The memo makes the grouping run exactly ONCE PER LANDED PAGE (`loadMore`
+  /// is the only `copyWith` in the tail path that reallocates `items`;
+  /// `isLoadingMore: true` reuses the reference, so the spinner frame
+  /// regroups nothing). It is therefore O(n) per page and O(n²/pageSize)
+  /// cumulative — never per-frame. Phase 344 audit-fix (2026-09-19)
+  /// considered making it INCREMENTAL (group only the appended page, merge
+  /// into the last bucket) and DECLINED, on measurement:
+  ///
+  ///  * 3.49 µs per row, of which ~99 % is [kyivDayOf]'s Europe/Kyiv
+  ///    conversion — the flattening itself is ~29 µs per 1000 rows, and the
+  ///    notifier's own `[...items, ...page]` spread is ~37 µs per 1000 rows.
+  ///    So the grouping's cost is the tz conversion, not the algorithm, and
+  ///    an incremental walk would leave the per-row constant untouched.
+  ///  * At 1000 accumulated rows (50 user-driven scroll-to-tail page loads,
+  ///    `kBookingsPageSize` 20) one pass is 3.2 ms — and that is debug JIT on
+  ///    the VirtualBox dev VM, the most pessimistic environment available.
+  ///    It lands on the frame a page arrives, which is already showing a tail
+  ///    spinner. No frame is dropped at any depth the product reaches.
+  ///  * Incrementality is not soundly expressible here anyway. The memo key
+  ///    would have to prove "the new list EXTENDS the cached one", and
+  ///    [MasterArchiveNotifier.markClientsReviewed] rewrites `items` 1:1 with
+  ///    fresh `Booking` identities — same length, same days, new references —
+  ///    which is indistinguishable from an extend-by-zero without an O(n)
+  ///    element-wise check that defeats the point. The only cheap sound
+  ///    signal is an append-offset field on `MasterArchiveState`, and phase
+  ///    342 D9 rejected forking this state's shape away from
+  ///    `MyBookingsNotifier`'s (which shares the accumulation shape but does
+  ///    NOT group at all — «Мої записи» has a day rail instead).
+  ///
+  /// REOPEN TRIGGER (falsifiable, check before re-raising): reopen when a
+  /// single pass exceeds 8 ms — half a 60 fps budget. At the measured
+  /// 3.49 µs/row that is ~2300 accumulated rows (~115 pages), so the cheap
+  /// proxy is `state.items.length > 2300` being routinely reachable in the
+  /// salon scope. Also reopen if this memo is ever removed or bypassed, which
+  /// would move the pass onto a per-frame path where 3.2 ms IS a dropped
+  /// frame. If it does reopen, the lever is a [kyivDayOf] memo (app-wide
+  /// shared infra, its own phase), not an incremental walk here.
   List<Booking>? _lastGroupedItems;
   List<ArchiveListEntry>? _lastGroupedEntries;
 

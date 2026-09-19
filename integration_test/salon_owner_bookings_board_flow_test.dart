@@ -44,6 +44,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
@@ -155,6 +156,47 @@ List<String> _renderedMasterIds(WidgetTester tester) => tester
     .entries
     .map((MasterColumnEntry e) => e.masterId)
     .toList(growable: false);
+
+/// Cold start → login as the fixture SALON_OWNER → their own salon shell →
+/// bottom-nav tile 1 → the «Записи» board, rendered and fetched.
+///
+/// The five flows above each inline this preamble; this helper is introduced
+/// for the phase-344 arm rather than retrofitted onto them, so no existing
+/// flow's observable behaviour is disturbed by a refactor shipped inside a
+/// QA pass.
+Future<void> _landOnSalonBoard(
+  WidgetTester tester,
+  FakeBackend fb,
+  GoRouter router,
+) async {
+  await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(SalonShellScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
+
+  final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+  await AppHarness.pumpUntilFound(
+    tester,
+    bookingsTab.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(bookingsTab);
+  await tester.pump();
+
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(SalonBookingsScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(BookingsTimelineGrid),
+    timeout: const Duration(seconds: 20),
+  );
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -1407,6 +1449,323 @@ void main() {
               'ANTI-VACUITY: the other master\'s card must still be there. '
               'Otherwise "the declined card is gone" would also be satisfied '
               'by a board that rendered nothing at all.',
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 344 — the salon «Архів», END TO END (Step 2.7 Rule 3b, mobile-qa).
+  //
+  // WHY THIS ARM EXISTS, AND WHY IT COULD NOT EXIST BEFORE. Phases 342 and
+  // 343 built the archive's salon arm — the scope on the family key, the
+  // `GET /bookings/salon/{id}?partition=HISTORY` branch, the per-row master
+  // attribution — behind NO ROUTE. Nothing in the app could reach it, so
+  // Rule 3b was explicitly waived for both. Phase 344 registers the route
+  // and lights the board's header button, which is the first moment a USER
+  // JOURNEY exists at all. This is that journey.
+  //
+  // WHAT ONLY THIS TIER CAN SEE. `salon_bookings_screen_test.dart` proves the
+  // board pushes a path with an extra (against a sentinel route);
+  // `salon_bookings_route_shadowing_test.dart` proves the production router
+  // resolves that path to `MasterArchiveScreen` ahead of the `:bookingId`
+  // sibling; `master_archive_screen_test.dart` proves the three parameters
+  // change the render (against a MOCKED repository). None of them joins the
+  // two halves: that the id the BOARD holds, carried through `extra`, through
+  // the real redirect, into the real family key, produces a real
+  // `GET /bookings/salon/{id}` — and NOT the `GET /bookings/me` the same
+  // screen serves its two master hosts. Only a real Dio round trip can tell
+  // those two apart, because the difference is a PATH.
+  //
+  // THE ANTI-VACUITY SHAPE, stated up front:
+  //   • TWO masters' rows. A single-master fixture renders identically
+  //     whether the scope is "this salon" or "mine", so it would pass against
+  //     a dropped `salonId`. Two DIFFERENT performing masters is the only
+  //     shape that distinguishes them, and both names are read off the
+  //     rendered `Text` and asserted DIFFERENT.
+  //   • The `/bookings/me` call counter is asserted UNCHANGED across the
+  //     whole archive visit. Dropping `salonId` swaps the branch inside
+  //     `_fetchPage`, and this is the assertion that sees it.
+  //   • The «Послуга» facet's absence is asserted with a POSITIVE CONTROL
+  //     (the status section) so it cannot pass on an empty sheet — but it is
+  //     labelled at its call site as a RENDER check, not as a pin of
+  //     `showServiceFilter: false`, because the M14 probe showed it stays
+  //     green under that mutation for a reason that has nothing to do with
+  //     the flag. See the note there; the flag's real pin is one tier down.
+  //
+  // NO PATROL FLOW: a header tap, a redirect and two GETs. No OS permission
+  // dialog, no deep/app link, no FCM or local notification, no WebView, no
+  // biometric. `integration_test/patrol/` does not apply — stated, not
+  // omitted.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'SALON_OWNER opens «Архів» from the board header and lands on the '
+    'SALON-scoped archive: rows performed by TWO DIFFERENT masters, each '
+    'attributed by name, fetched off GET /bookings/salon/{id} and never off '
+    '/bookings/me, with no «Послуга» facet and no read of the owner\'s own '
+    'service catalogue',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        // Seeded AFTER boot for the same reason every flow above does:
+        // `_atKyivHour` reads `beauticaZone`, which only exists once the
+        // harness has initialised the timezone database.
+        //
+        // TWO masters, one Kyiv day. COMPLETED rather than the file's usual
+        // CONFIRMED because this is a HISTORY read — a terminal outcome is
+        // what the partition actually returns, and it keeps the fixture
+        // honest about what an owner would be looking at.
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            // `booking-1` and not a bespoke id: the fake registers
+            // `GET /api/v1/bookings/booking-1` for exactly ONE id, and the
+            // drill-in at the end of this arm needs a detail response. The
+            // second row keeps an id of its own — the two-master assertion
+            // is about the PAIR, not about either id.
+            id: 'booking-1',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+            status: 'COMPLETED',
+          ),
+          fb.salonBoardBookingRow(
+            id: 'arch-ccc',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(12, 30),
+            status: 'COMPLETED',
+          ),
+        ];
+
+        await _landOnSalonBoard(tester, fb, router);
+
+        // Snapshotted, never assumed to be zero: login + the board's own
+        // render have already driven traffic through all three counters'
+        // neighbourhoods. Every assertion below is about the DELTA the
+        // archive visit itself causes.
+        final int salonCallsBefore = fb.getSalonBookingsCalls;
+        final int meCallsBefore = fb.getMyBookingsCalls;
+
+        // ── THE BUTTON, AND THE TAP ───────────────────────────────────────
+        //
+        // The SHARED key — `bookings_discovery_view.dart`'s own. This button
+        // did not render on this board at all before phase 344 (the screen
+        // passed `onOpenArchive: null`, which the shared widget renders as
+        // "no button"), so its presence here is a genuine phase-344
+        // observable and not a pre-existing affordance.
+        final Finder archiveButton = find.byKey(
+          const Key('master-bookings-open-archive'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          archiveButton,
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.tapVisible(tester, archiveButton);
+        await AppHarness.settle(tester);
+
+        // ── THE LANDING ───────────────────────────────────────────────────
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(MasterArchiveScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(find.byKey(const Key('master-archive-screen')), findsOneWidget);
+        // The PAGE TYPE above is the load-bearing half (this repo's
+        // literal-before-dynamic go_router trap: a location assertion passes
+        // while `BookingDetailScreen` renders booking `'archive'`). The
+        // location is asserted too, and the shadowed alternative explicitly
+        // denied.
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.salonStaffBookingsArchive),
+        );
+        expect(find.byType(BookingDetailScreen), findsNothing);
+
+        // ── THE SCOPE, ON THE WIRE ────────────────────────────────────────
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.getSalonBookingsCalls > salonCallsBefore,
+          description: 'the archive to issue its own GET /bookings/salon/{id}',
+          timeout: const Duration(seconds: 20),
+        );
+        final Map<String, dynamic> archiveQuery = fb.lastSalonBookingsQuery!;
+        expect(
+          archiveQuery['partition'],
+          'HISTORY',
+          reason:
+              'the archive hard-requires partition=HISTORY — only the server '
+              'can classify an elapsed CONFIRMED row, and `status` alone '
+              'cannot express it',
+        );
+        // THE salonId PIN. Dropped from the route builder, `_fetchPage` takes
+        // its `salonId == null` arm and reads `GET /bookings/me` — the
+        // SIGNED-IN OWNER's own history, which is not this salon's.
+        expect(
+          fb.getMyBookingsCalls,
+          meCallsBefore,
+          reason:
+              'the salon archive must never touch /bookings/me — that is the '
+              'two master hosts\' scope, and for an owner it is a different '
+              'list entirely',
+        );
+
+        // ── TWO MASTERS, NAMED ────────────────────────────────────────────
+        //
+        // Both rows first: an attribution assertion on a list that rendered
+        // only one row would be half a test.
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('master-booking-card-booking-1')),
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder secondRow = find.byKey(
+          const Key('master-booking-card-arch-ccc'),
+        );
+        // `-d flutter-tester` is 800×600 and the archive is a `ListView`, so
+        // the second full-layout card can sit below the fold where it is
+        // never BUILT and a bare finder resolves to nothing. Scroll it in
+        // first (the repo's lazily-inflated-tile trap).
+        if (secondRow.evaluate().isEmpty) {
+          await tester.scrollUntilVisible(
+            secondRow,
+            120,
+            scrollable: find
+                .descendant(
+                  of: find.byKey(const Key('master-archive-list')),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+            maxScrolls: 30,
+          );
+          await AppHarness.settle(tester);
+        }
+        expect(secondRow, findsOneWidget);
+
+        // `showMasterAttribution: true` is set on THIS route and nowhere else
+        // in `lib/` — the two master hosts leave it at its `false` default.
+        // So these two finders exist only because the route passes the flag.
+        final Finder attributionA = find.byKey(
+          const Key('master-booking-card-master-booking-1'),
+        );
+        final Finder attributionC = find.byKey(
+          const Key('master-booking-card-master-arch-ccc'),
+        );
+        expect(attributionA, findsOneWidget);
+        expect(attributionC, findsOneWidget);
+        final String? nameA = tester.widget<Text>(attributionA).data;
+        final String? nameC = tester.widget<Text>(attributionC).data;
+        // DIFFERENT, read off the render. A hardcoded label, a row-wide
+        // single name, or an attribution wired to the VIEWER rather than to
+        // the performing master all fail here; `findsOneWidget` twice would
+        // not.
+        expect(nameA, isNotNull);
+        expect(nameA, isNot(equals(nameC)));
+        expect(nameA, isNot(isEmpty));
+        expect(nameC, isNot(isEmpty));
+
+        // ── THE «ПОСЛУГА» FACET IS GONE, AND SO IS ITS FETCH ──────────────
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await AppHarness.settle(tester);
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsNothing,
+          reason:
+              'showServiceFilter: false — an owner has no master catalogue, '
+              'and a ticked service would make MasterArchiveQuery.of throw on '
+              'a salon scope',
+        );
+        // POSITIVE CONTROL: the sheet really did render its sections, so the
+        // absence above is about «Послуга» and not about an empty sheet.
+        expect(
+          find.byKey(const Key('master-bookings-filter-status-completed')),
+          findsOneWidget,
+        );
+        // ⚠ MEASURED, NOT ASSUMED (mobile-qa phase 344, M14 probe). The two
+        // assertions above are a RENDER check, and they do NOT pin
+        // `showServiceFilter: false`. Mutating the route builder to
+        // `showServiceFilter: true` leaves this arm GREEN, because a
+        // SALON_OWNER's `masterServiceCatalogProvider` never yields a
+        // catalogue at all: `serviceRepositoryProvider` is built from
+        // `masterProfileProvider`, which an owner has none of, so
+        // `_applyFilters`' `ref.read(...).asData?.value ?? const []` is empty
+        // on EITHER branch and the sheet omits «Послуга» either way. Probed
+        // directly — `fb.getServicesCalls` stayed 0 across the whole visit
+        // under BOTH the shipped flag and the mutation, so even a call-count
+        // pin cannot see the flag here.
+        //
+        // The flag IS pinned, and mutation-proven, one tier down where a
+        // catalogue can be stubbed:
+        // `master_archive_screen_test.dart`'s «FILTER — `showServiceFilter:
+        // false` drops the «Послуга» section» case. Do not "strengthen" this
+        // arm by adding a counter assertion — it would read as a pin while
+        // being unfalsifiable, which is worse than the honest render check
+        // above. What this tier genuinely adds is that the sheet an owner
+        // actually opens, on the real screen, has no service facet in it.
+
+        // ── THE DRILL-IN STAYS INSIDE `/salon/*` ──────────────────────────
+        //
+        // `detailRouteBuilder: RouteNames.salonStaffBookingDetail` is the
+        // third thing this route passes, and the only one nothing observed
+        // before this arm — the phase-344 shadowing suite asserts the other
+        // two flags as widget FIELDS and stops there. Left null,
+        // `_openDetail` falls back to `RouteNames.masterBookingDetail`
+        // (`/master/bookings/:id`), whose INDEPENDENT_MASTER-only gate
+        // bounces an owner clean out of the salon shell to `/salons/mine`.
+        //
+        // Not hypothetical: that is the EXACT bug this flow file was written
+        // for in phase 21.12, when the board shipped pushing the
+        // CLIENT-gated `/bookings/:id`. Every widget-tier test passed then
+        // too, because each registered its own router without the real
+        // `auth_redirect.dart` gate. Only this tier runs it.
+        //
+        // «Застосувати» with nothing ticked is the sheet's only close
+        // affordance and leaves the selection untouched, so the list under
+        // it is the same one asserted above.
+        await _applySheet(tester);
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('master-booking-card-booking-1')),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingDetailScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.salonStaffBookingDetail('booking-1')),
+          reason:
+              "the salon archive's rows must drill into the SALON detail "
+              'route; the master fallback is gated to INDEPENDENT_MASTER and '
+              'ejects an owner from the shell',
+        );
+        expect(
+          AppHarness.location(router),
+          isNot(equals(RouteNames.masterBookingDetail('booking-1'))),
+        );
+        // The archive stays MOUNTED underneath — a push, not a go, so
+        // swipe-back returns to the still-scrolled list.
+        expect(
+          find.byType(MasterArchiveScreen, skipOffstage: false),
+          findsOneWidget,
         );
         expect(tester.takeException(), isNull);
       });

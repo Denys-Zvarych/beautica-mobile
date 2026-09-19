@@ -21,8 +21,15 @@
 //      owns "which masters exist". Neither can do the other's half, which is
 //      exactly why the seam is a builder.
 //   3. the chrome differences an owner needs: the salon's name as a subtitle,
-//      no «Послуга» filter (the signed-in owner has no master catalogue) and
-//      no archive button.
+//      and no «Послуга» filter (the signed-in owner has no master catalogue).
+//
+//      ⚠ "and no archive button" stood here until PHASE 344 and is now false.
+//      The header's «Архів» button renders, aimed at
+//      `/salon/bookings/archive`, which mounts the SAME [MasterArchiveScreen]
+//      the two master hosts mount — scoped to this salon and attributing each
+//      row to the master who performed it (phase 343's additive parameters).
+//      Passing a non-null `onOpenArchive` is the whole mechanism; the shared
+//      widget was not touched.
 //   4. (Phase 335) the BOARD WINDOW BUILDER: the timeline's vertical bounds,
 //      taken from the UNION of every roster master's working hours for the
 //      selected day rather than from whichever bookings happen to exist. Same
@@ -788,8 +795,22 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         // sealed member — this flag only says "fetch them at all". See
         // [BookingsDiscoveryView.showBookedDayDots].
         showBookedDayDots: true,
-        // The salon board has no «Архів» page of its own yet.
-        onOpenArchive: null,
+        // Phase 344 — the salon «Архів» page. Passing a non-null callback IS
+        // the whole mechanism: `BookingsDiscoveryView` renders the header
+        // button only `if (onOpenArchive != null)`, so no second button and no
+        // parallel gate exist (see that field's doc). The shared widget is
+        // untouched by this phase — it keeps its own
+        // `l10n.masterArchiveOpenSemantics` label, reused verbatim (D6).
+        //
+        // `push`, not `go`, matching `master_bookings_screen.dart`'s identical
+        // wiring: `go` excludes `fullPath` from the match, which nav-detection
+        // depends on. The salon id rides `extra` because nothing on
+        // `/salon/bookings/archive` carries it — the same contract
+        // `/salon/bookings/new` already uses from this very screen.
+        onOpenArchive: () => context.push(
+          RouteNames.salonStaffBookingsArchive,
+          extra: widget.salonId,
+        ),
         // Phase 336 — the builder receives the SELECTED day (the same one
         // `boardWindowBuilder` below gets), which is what lets a master who is
         // not working it render as a greyed «Вихідний» column instead of an

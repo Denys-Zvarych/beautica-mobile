@@ -722,6 +722,45 @@ abstract final class RouteNames {
   /// fails on `Navigator` in `lib/features/`.
   static const String salonStaffBookingNew = '$salonStaffBookings/new';
 
+  /// Phase 344 — the SALON_OWNER/SALON_ADMIN's «Архів», pushed from the salon
+  /// «Записи» board header ([SalonBookingsScreen]).
+  ///
+  /// Renders the SAME [MasterArchiveScreen] that [masterBookingsArchive] and
+  /// [salonMasterBookingsArchive] render, parameterised by phase 343 with
+  /// `salonId` (scope = this salon's whole history, across every master) and
+  /// `showMasterAttribution: true` (each row names who performed it). No new
+  /// screen and no new strings — the title is `masterArchiveTitle` («Архів»),
+  /// reused verbatim (phase 344 D6), because the surrounding salon shell
+  /// already says whose archive it is.
+  ///
+  /// ⚠ DECLARATION ORDER: a second literal sibling of [salonStaffBookingNew]
+  /// under `/salon/bookings`, and therefore — exactly like it — it MUST be
+  /// registered BEFORE the dynamic [salonStaffBookingDetail]:
+  /// `/salon/bookings/:bookingId` matches `/salon/bookings/archive` perfectly
+  /// happily with `bookingId == 'archive'`, and go_router takes the FIRST
+  /// sibling hit in declaration order. Pinned by
+  /// `test/routing/salon_bookings_route_shadowing_test.dart`, which asserts
+  /// the resolved page TYPE, not the location string (a location assertion
+  /// passes while the wrong screen renders).
+  ///
+  /// ⚠ NOT DEEP-LINKABLE. Like [salonStaffBookingNew], the target salon id
+  /// rides `state.extra` as a bare non-empty `String` — nothing on this
+  /// route's own path carries it, and [SalonBookingsScreen] receives its own
+  /// `salonId` by constructor from [SalonShellScreen] rather than from a path
+  /// parameter. `extra` does not survive a cold link, so the route's redirect
+  /// bounces a link-in to the role home instead of rendering an unscoped
+  /// archive. Accepted (phase 344 D2): this screen is one tap from the board.
+  ///
+  /// Inherits the `/salon/*` `SALON_OWNER`/`SALON_ADMIN` role gate in
+  /// `auth_redirect.dart` (a `startsWith('/salon/')` PREFIX match, verified —
+  /// not an exact-path list, so no gate edit was needed). `SALON_MASTER` is
+  /// bounced here and keeps its own unchanged archive at
+  /// [salonMasterBookingsArchive]; `/master/*` is NOT widened.
+  ///
+  /// Reached with `context.push` (never `Navigator`, never `go` — `go`
+  /// excludes `fullPath` from the match, which nav-detection tests need).
+  static const String salonStaffBookingsArchive = '$salonStaffBookings/archive';
+
   /// Phase 21.12 — the SALON_OWNER/SALON_ADMIN's «Деталі запису», pushed from
   /// a card tap on the salon «Записи» board ([SalonBookingsScreen]).
   ///

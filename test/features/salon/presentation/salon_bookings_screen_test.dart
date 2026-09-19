@@ -1189,6 +1189,104 @@ void main() {
   });
 
   // ═════════════════════════════════════════════════════════════════════════
+  // 4b. THE «АРХІВ» ENTRY POINT (phase 344).
+  //
+  // The board's archive button is gated on ONE thing:
+  // `bookings_discovery_view.dart` renders it only `if (onOpenArchive !=
+  // null)`. Until this phase `salon_bookings_screen.dart` passed `null` with
+  // the comment "The salon board has no «Архів» page of its own yet", so the
+  // button did not exist here. Supplying the callback IS the whole change —
+  // no second button, no parallel gate, and the shared widget is untouched.
+  // ═════════════════════════════════════════════════════════════════════════
+  group('SalonBookingsScreen — the «Архів» entry point', () {
+    testWidgets('tapping «Архів» pushes RouteNames.salonStaffBookingsArchive '
+        'with the board\'s own salonId as extra', (WidgetTester tester) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
+
+      String? capturedExtra;
+      final GoRouter router = GoRouter(
+        initialLocation: '/board',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/board',
+            builder: (_, _) => const SalonBookingsScreen(salonId: _salonId),
+          ),
+          // Registered at the SAME path production uses
+          // (`RouteNames.salonStaffBookingsArchive` =
+          // `/salon/bookings/archive`). The REAL route's resolution — and
+          // that the literal beats the dynamic `:bookingId` sibling — is
+          // pinned against the production router in
+          // `test/routing/salon_bookings_route_shadowing_test.dart`; this
+          // sentinel proves only that the board pushes THAT path with THAT
+          // extra.
+          GoRoute(
+            path: RouteNames.salonStaffBookingsArchive,
+            builder: (_, GoRouterState s) {
+              capturedExtra = s.extra as String?;
+              return const Scaffold(key: Key('sentinel-salon-archive'));
+            },
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: overrides());
+      await tester.pumpAndSettle();
+
+      // The SHARED key — `bookings_discovery_view.dart`'s own, reused
+      // verbatim. A different key here would mean a forked button.
+      final Finder archive = find.byKey(
+        const Key('master-bookings-open-archive'),
+      );
+      expect(
+        archive,
+        findsOneWidget,
+        reason:
+            'the «Архів» affordance renders for an owner/admin the moment '
+            '`onOpenArchive` is non-null — it was ABSENT before phase 344, '
+            'so this assertion is not vacuous',
+      );
+
+      await tester.tap(archive);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('sentinel-salon-archive')),
+        findsOneWidget,
+        reason:
+            'tapping «Архів» must reach /salon/bookings/archive, not a no-op',
+      );
+      expect(
+        capturedExtra,
+        _salonId,
+        reason:
+            'the archive is scoped to THIS board\'s salon; dropped, the route '
+            'redirects to the role home and the owner sees nothing at all',
+      );
+      // A PUSH, not a `context.go` — `go` tears the board out of the stack,
+      // and nav-detection additionally needs `push`\'s `fullPath`. Same
+      // `skipOffstage: false` reasoning as the (+) case above.
+      expect(
+        find.byKey(const Key('salon-bookings-screen'), skipOffstage: false),
+        findsOneWidget,
+        reason:
+            'a context.push (not context.go) must leave the board mounted '
+            'underneath',
+      );
+      //
+      // SALON_MASTER never renders THIS screen — the salon shell and the
+      // whole `/salon/*` prefix are owner/admin-only
+      // (`auth_redirect.dart`'s prefix gate, five arms pinned in
+      // `salon_bookings_route_shadowing_test.dart`). That role's own archive
+      // is the unchanged `/staff/bookings/archive`, reached from
+      // `MasterBookingsScreen`. There is deliberately no second session
+      // fixture here: it would assert a state the router makes unreachable.
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
   // 5. THE DRILL-IN TARGET.
   // ═════════════════════════════════════════════════════════════════════════
   group('SalonBookingsScreen — the drill-in target', () {
