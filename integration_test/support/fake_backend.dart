@@ -8284,6 +8284,24 @@ final class FakeBackend {
             };
           }
         }
+        // Phase 345 — the SAME mutation on the SALON archive list, for
+        // exactly the reason the two paragraphs above give for the
+        // `/bookings/me` dataset. The salon archive re-reads
+        // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
+        // this, that re-read would hand back the unchanged CONFIRMED row and
+        // "the closed row left the «Підтверджено» filter" would be
+        // unprovable at the salon host while passing at the master host —
+        // a fake-fidelity divergence between two callers of one write.
+        final int salonIdx = salonArchiveBookings.indexWhere(
+          (Map<String, dynamic> row) => row['id'] == 'booking-1',
+        );
+        if (salonIdx != -1) {
+          salonArchiveBookings[salonIdx] = <String, dynamic>{
+            ...salonArchiveBookings[salonIdx],
+            'status': 'COMPLETED',
+            'awaitingClosure': false,
+          };
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch),
@@ -8424,6 +8442,27 @@ final class FakeBackend {
   /// [datasetBookingRow] uses, but with the MASTER parameterised — which is
   /// the whole point of a salon-wide board and the one field
   /// `SalonBookingsScreen.columnsFor` partitions on.
+  ///
+  /// [providerCanReviewClient] and [awaitingClosure] are ADDITIVE (phase 345
+  /// D3) and both default to the value every pre-345 caller already got
+  /// (`false`), so no existing board fixture changes shape. They exist for the
+  /// SALON ARCHIVE fixture, which must discriminate on axes a board row never
+  /// needed:
+  ///
+  ///  * `providerCanReviewClient` — the archive's «Відгук» CTA is gated on the
+  ///    SERVER FLAG, not on the viewer's role (phase 342 D7). A fixture whose
+  ///    rows are uniformly `false` cannot tell a flag-gated CTA from a
+  ///    role-gated one that happens to be off, so the 345 fixture carries BOTH
+  ///    values. The hardcoded-`false` reasoning below still holds for every
+  ///    row the BOARD serves; it is not a universal truth about the endpoint,
+  ///    and an owner-as-master row (the owner performing the booking
+  ///    themselves) genuinely comes back `true`.
+  ///  * `awaitingClosure` — server-computed (backend phase 29.1/29.2);
+  ///    `BookingMapper` reads `dto.awaitingClosure ?? false`, so a row that
+  ///    omits it never trips «Виконано» however elapsed and CONFIRMED it is.
+  ///    The elapsed-unclosed CONFIRMED row is D3's sharpest discriminator —
+  ///    the ONE row `_legacyStatusesFor`'s status-only fallback structurally
+  ///    cannot reach — so the archive fixture has to be able to build it.
   Map<String, dynamic> salonBoardBookingRow({
     required String id,
     required String masterId,
@@ -8434,6 +8473,8 @@ final class FakeBackend {
     Duration duration = const Duration(minutes: 60),
     String clientFirstName = 'Марія',
     String clientLastName = 'Іванюк',
+    bool providerCanReviewClient = false,
+    bool awaitingClosure = false,
   }) => <String, dynamic>{
     'id': id,
     'masterId': masterId,
@@ -8465,13 +8506,289 @@ final class FakeBackend {
     // `isPerformingMasterOfBooking(...)` alone, so `false` is the ONLY value
     // the real server can return for these rows. An owner-as-master board row
     // would need its own seeder that passes the owner's OWN master id.
-    'providerCanReviewClient': false,
+    //
+    // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
+    // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
+    // the owner-as-master rows — see the constructor doc above.
+    'providerCanReviewClient': providerCanReviewClient,
+    // Phase 345 D3 — see the constructor doc. `false` (the default) is
+    // semantically identical to omitting the key, which is what every pre-345
+    // board row did (`BookingMapper` reads `dto.awaitingClosure ?? false`).
+    'awaitingClosure': awaitingClosure,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': null,
     'masterProfessionalTitle': 'Майстриня манікюру',
     'locationNote': null,
   };
+
+  // ── Phase 345 — the SALON «Архів» read ────────────────────────────────────
+  //
+  // `GET /api/v1/bookings/salon/{salonId}` serves TWO DIFFERENT callers with
+  // two disjoint query shapes, and before this phase the fake could not tell
+  // them apart:
+  //
+  //   * the BOARD    — `from`/`to` (one Kyiv day), no `partition`;
+  //   * the ARCHIVE  — `partition=HISTORY`, `sort`, `page`, no `from`/`to`
+  //                    (`master_archive_notifier.dart`'s `_fetchPage` salon
+  //                    arm).
+  //
+  // The pre-345 handler ignored BOTH shapes and returned the whole
+  // [salonBoardBookings] list as a single page — which is exactly the D2
+  // hazard: a fake that ignores `partition` makes every archive assertion
+  // pass while the app could be sending anything at all, and it cannot model
+  // the one row that distinguishes a real HISTORY read from the legacy
+  // status-only approximation (an elapsed unclosed `CONFIRMED`).
+  //
+  // So the partition branch is served from its OWN list, with its OWN
+  // counter. The separation is the discriminator: a handler that stopped
+  // reading `partition` would serve the board's UPCOMING rows to the archive
+  // and every D1/D3 assertion goes red.
+
+  /// `GET /api/v1/bookings/salon/{id}` calls that carried a `partition` param
+  /// — i.e. the ARCHIVE's reads, never the board's. Counted separately from
+  /// [getSalonBookingsCalls] (which still counts EVERY call to the path, its
+  /// documented meaning) so a flow can assert "exactly one archive fetch"
+  /// without having to subtract the board's own traffic.
+  int getSalonArchiveCalls = 0;
+
+  /// The raw query of the most recent ARCHIVE fetch (the `partition`-carrying
+  /// branch). Distinct from [lastSalonBookingsQuery], which is last-write-wins
+  /// across BOTH shapes — a board refresh landing after the archive's fetch
+  /// would silently retarget an assertion written against that field.
+  Map<String, dynamic>? lastSalonArchiveQuery;
+
+  /// The rows the ARCHIVE branch pages over. Mutable and read at REQUEST time,
+  /// same contract as [salonBoardBookings].
+  ///
+  /// Deliberately a SEPARATE list from [salonBoardBookings]: the board shows
+  /// one day of mostly-UPCOMING rows and the archive shows the salon's whole
+  /// terminal history, so sharing one list would force every board fixture to
+  /// double as an archive fixture and would make "the handler read
+  /// `partition`" unobservable.
+  List<Map<String, dynamic>> salonArchiveBookings = <Map<String, dynamic>>[];
+
+  /// The ROSTER-SCALE salon-history fixture phase 345 D6 measures the
+  /// `_MasterArchiveScreenState._kMaxAutoContinueAttempts` walk against, and
+  /// phase 342 D10's reopen condition is evaluated against.
+  ///
+  /// Deterministic — no `DateTime.now()`, no randomness, no host-clock read.
+  /// [anchor] is the caller's already-pinned "now" (`kFixedNow` in the E2E
+  /// tier), and every row is derived from it, so the fixture clock and the app
+  /// clock are the SAME clock (`project_test_clock_coherence_invariant`).
+  ///
+  /// ## Composition, and why these numbers
+  ///
+  /// [masters] masters × [days] days, one booking per master per day,
+  /// newest-first. The outcome of row `i` (counting back from the most recent)
+  /// comes from a fixed 50-row cycle:
+  ///
+  /// | Outcome | Per 50 | Share | Why |
+  /// |---|---|---|---|
+  /// | `COMPLETED` | 43 | 86 % | the overwhelming majority of a working salon's history |
+  /// | `CANCELLED` | 2 | 4 % | client-initiated |
+  /// | `DECLINED` | 1 | 2 % | provider-initiated, rarer than a client cancel |
+  /// | `NOT_COMPLETED` | 2 | 4 % | no-shows |
+  /// | elapsed unclosed `CONFIRMED` | 2 | 4 % | the closure backlog — D3's sharpest row |
+  ///
+  /// These are a MODEL, stated so the measurement can be re-read against a
+  /// different one rather than presented as measured truth about real salons.
+  /// What the measurement actually turns on is not the percentages but the
+  /// LONGEST RUN of consecutive raw pages containing no row the active filter
+  /// matches — which is why [leadingMatchlessDays] exists.
+  ///
+  /// [leadingMatchlessDays] prepends that many days of pure `COMPLETED` rows
+  /// at the NEWEST end — a salon that simply has not cancelled anything
+  /// recently. It is the one knob that can starve the walk, and it is how the
+  /// exact budget boundary is probed rather than guessed.
+  ///
+  /// `providerCanReviewClient` is `true` on exactly the `COMPLETED` rows whose
+  /// master is [ownerAsMasterId] (D3 axis 2: the owner performing their own
+  /// booking is the one case the real backend answers `true` for), and `false`
+  /// everywhere else.
+  static List<Map<String, dynamic>> salonArchiveRosterScaleFixture(
+    FakeBackend fb, {
+    required DateTime anchor,
+    int masters = 8,
+    int days = 90,
+    int leadingMatchlessDays = 0,
+    String ownerAsMasterId = 'master-aaa',
+  }) {
+    final List<Map<String, dynamic>> rows = <Map<String, dynamic>>[];
+    final int totalDays = days + leadingMatchlessDays;
+    int cycle = 0;
+    for (int d = 0; d < totalDays; d++) {
+      final bool inLeadingGap = d < leadingMatchlessDays;
+      for (int m = 0; m < masters; m++) {
+        // Two hours apart, so no two rows on one day share an instant and the
+        // newest-first sort is total.
+        final DateTime startsAt = anchor.subtract(
+          Duration(days: d + 1, hours: m * 2),
+        );
+        final String status;
+        final bool awaitingClosure;
+        if (inLeadingGap) {
+          status = 'COMPLETED';
+          awaitingClosure = false;
+        } else {
+          final int i = cycle++;
+          if (i % 25 == 7) {
+            status = 'CANCELLED';
+            awaitingClosure = false;
+          } else if (i % 50 == 19) {
+            status = 'DECLINED';
+            awaitingClosure = false;
+          } else if (i % 25 == 11) {
+            status = 'NOT_COMPLETED';
+            awaitingClosure = false;
+          } else if (i % 25 == 23) {
+            status = 'CONFIRMED';
+            awaitingClosure = true;
+          } else {
+            status = 'COMPLETED';
+            awaitingClosure = false;
+          }
+        }
+        final String masterId = 'master-${String.fromCharCode(97 + m) * 3}';
+        rows.add(
+          fb.salonBoardBookingRow(
+            id: 'arch-$d-$m',
+            masterId: masterId,
+            masterFirstName: _kRosterFirstNames[m % _kRosterFirstNames.length],
+            masterLastName: _kRosterLastNames[m % _kRosterLastNames.length],
+            startsAt: startsAt,
+            status: status,
+            awaitingClosure: awaitingClosure,
+            providerCanReviewClient:
+                status == 'COMPLETED' && masterId == ownerAsMasterId,
+          ),
+        );
+      }
+    }
+    return rows;
+  }
+
+  /// Names for [salonArchiveRosterScaleFixture]'s roster. Ukrainian, and
+  /// carrying no place data at all — the occupied-territory ban is absolute.
+  static const List<String> _kRosterFirstNames = <String>[
+    'Софія',
+    'Олена',
+    'Марія',
+    'Ірина',
+    'Наталія',
+    'Дарина',
+    'Катерина',
+    'Оксана',
+  ];
+
+  static const List<String> _kRosterLastNames = <String>[
+    'Бондар',
+    'Ткаченко',
+    'Гриценко',
+    'Мельник',
+    'Савченко',
+    'Кравець',
+    'Лисенко',
+    'Полішук',
+  ];
+
+  /// The real (partition, sort, page) slice over [salonArchiveBookings] —
+  /// the salon twin of [_slicedBookingsPageEnvelope], and deliberately built
+  /// on the SAME [_matchesPartition] predicate so the two endpoints cannot
+  /// drift on what `HISTORY` means.
+  ///
+  /// Implements backend phase 322 D2's precedence rule verbatim: when
+  /// `partition` is present it wins OUTRIGHT and `status` is not consulted at
+  /// all. That is what makes the archive's outcome filter client-side, and it
+  /// is the rule the `_kMaxAutoContinueAttempts` walk exists to pay for — so a
+  /// fake that honoured `status` here would hide the cost entirely.
+  Map<String, dynamic> _slicedSalonArchiveEnvelope(Map<String, dynamic> query) {
+    final String? partition = _scalarQueryParam(query, 'partition');
+    final String sort = _scalarQueryParam(query, 'sort') ?? 'startsAt,desc';
+    final bool ascending = sort.endsWith(',asc');
+    final int page = _intQueryParam(query, 'page', 0);
+    final int size = _intQueryParam(query, 'size', 20);
+    final DateTime now = serverNow;
+    // Honoured even though the archive never sends them — a fake that answers
+    // a NARROWER question than it was asked is a divergence, and a fake that
+    // answers a WIDER one is the same divergence in mirror image.
+    final DateTime? fromDay = _dayWindowBound(query, 'from');
+    final DateTime? toDay = _dayWindowBound(query, 'to');
+
+    final List<Map<String, dynamic>> filtered =
+        salonArchiveBookings
+            .where(
+              (Map<String, dynamic> b) =>
+                  _withinDayWindow(b, fromDay, toDay) &&
+                  (partition == null || _matchesPartition(b, partition, now)),
+            )
+            .map(Map<String, dynamic>.from)
+            .toList(growable: false)
+          ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {
+            final DateTime aStart = DateTime.parse(a['startsAt'] as String);
+            final DateTime bStart = DateTime.parse(b['startsAt'] as String);
+            return ascending
+                ? aStart.compareTo(bStart)
+                : bStart.compareTo(aStart);
+          });
+
+    final int totalElements = filtered.length;
+    final int totalPages = totalElements == 0
+        ? 0
+        : (totalElements / size).ceil();
+    final int start = page * size;
+    final int end = (start + size) > totalElements
+        ? totalElements
+        : start + size;
+    final List<Map<String, dynamic>> rows = start >= totalElements
+        ? const <Map<String, dynamic>>[]
+        : filtered.sublist(start, end);
+
+    return <String, dynamic>{
+      'success': true,
+      'message': 'ok',
+      'data': <String, dynamic>{
+        'data': rows,
+        'page': page,
+        'size': size,
+        'totalElements': totalElements,
+        'totalPages': totalPages,
+      },
+    };
+  }
+
+  /// The ONE `GET /bookings/salon/{id}` handler body, shared by
+  /// [kOwnerSalonId] and [kAdminSalonId] so the two registrations cannot
+  /// disagree about which shape they are answering. Branches on `partition`
+  /// exactly as the real backend's own `getSalonBookings` does.
+  Map<String, dynamic> _salonBookingsReply(RequestOptions req) {
+    getSalonBookingsCalls++;
+    final Map<String, dynamic> query = Map<String, dynamic>.from(
+      req.queryParameters,
+    );
+    lastSalonBookingsQuery = query;
+
+    final String? partition = backendSupportsPartition
+        ? _scalarQueryParam(query, 'partition')
+        : null;
+    if (partition != null) {
+      getSalonArchiveCalls++;
+      lastSalonArchiveQuery = query;
+      return _slicedSalonArchiveEnvelope(query);
+    }
+
+    // The BOARD's own day fetch — byte-identical to the pre-345 handler.
+    // A COPY read at REQUEST time; the list is mutable by design.
+    final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
+      salonBoardBookings.map(Map<String, dynamic>.from),
+    );
+    return _searchEnvelope(
+      rows,
+      page: 0,
+      totalPages: 1,
+      totalElements: rows.length,
+    );
+  }
 
   /// `GET /api/v1/bookings/salon/{kOwnerSalonId}/booked-days` call count
   /// (backend Phase 319 — the salon rail's dots).
@@ -8539,23 +8856,11 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // The board's own day fetch.
+    // The board's own day fetch — AND, since phase 345, the archive's
+    // `partition=HISTORY` read. [_salonBookingsReply] branches; see its doc.
     _adapter.onRoute(
       '/api/v1/bookings/salon/$kOwnerSalonId',
-      (server) => server.replyCallback(200, (req) {
-        getSalonBookingsCalls++;
-        lastSalonBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
-        // A COPY read at REQUEST time — the list is mutable by design.
-        final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
-          salonBoardBookings.map(Map<String, dynamic>.from),
-        );
-        return _searchEnvelope(
-          rows,
-          page: 0,
-          totalPages: 1,
-          totalElements: rows.length,
-        );
-      }),
+      (server) => server.replyCallback(200, _salonBookingsReply),
       request: const Request(method: RequestMethods.get),
     );
 
@@ -8671,21 +8976,12 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // The SAME shared body as [kOwnerSalonId]'s registration (phase 345) —
+    // the two ids must not disagree about what `partition` means, and the
+    // SALON_ADMIN walks the identical archive arm.
     _adapter.onRoute(
       '/api/v1/bookings/salon/$kAdminSalonId',
-      (server) => server.replyCallback(200, (req) {
-        getSalonBookingsCalls++;
-        lastSalonBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
-        final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
-          salonBoardBookings.map(Map<String, dynamic>.from),
-        );
-        return _searchEnvelope(
-          rows,
-          page: 0,
-          totalPages: 1,
-          totalElements: rows.length,
-        );
-      }),
+      (server) => server.replyCallback(200, _salonBookingsReply),
       request: const Request(method: RequestMethods.get),
     );
 

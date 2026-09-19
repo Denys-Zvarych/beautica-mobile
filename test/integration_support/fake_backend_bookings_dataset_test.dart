@@ -433,4 +433,524 @@ void main() {
       expect(fb.lastMyBookingsQuery!['to'], '2026-07-20');
     });
   });
+
+  // Phase 345 D3/D6 — the salon-archive slice and the auto-continue
+  // measurement. Kept in a separate top-level function purely so the two
+  // concerns read apart; it runs in the SAME suite.
+  mainPhase345();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Phase 345 D3 / D6 — the SALON ARCHIVE slice, and the auto-continue
+// measurement phase 343 D6 deferred to this phase's fixture.
+//
+// WHY THIS LIVES HERE AND NOT ONLY IN THE E2E ARM
+// -----------------------------------------------
+// D2's hazard is that a fake which IGNORES `partition` makes every archive
+// assertion in `integration_test/salon_archive_flow_test.dart` pass while the
+// app could be sending anything at all. That is a property of the FAKE, and
+// the cheapest honest place to pin a property of the fake is against the fake
+// itself, with no widget tree in the loop to hide behind. The E2E arm then
+// gets to be about the app.
+//
+// It is also the measurement instrument for D6. The number D6 wants — how many
+// `_kMaxAutoContinueAttempts` a filtered salon archive actually burns — is
+// determined entirely by WHERE the first matching row sits in the newest-first
+// HISTORY stream. Simulating the walk against the real slice answers that
+// exactly, deterministically, and in milliseconds; driving 36 raw pages
+// through the widget tree would answer the same question slower and with more
+// ways to be wrong.
+// ════════════════════════════════════════════════════════════════════════════
+
+/// One `GET /bookings/salon/{id}` as the ARCHIVE sends it (`partition`, `sort`,
+/// `page`, no `from`/`to`) — or, with [partition] null, as the BOARD does.
+Future<Map<String, dynamic>> _salonFetch(
+  FakeBackend fb, {
+  String? partition,
+  int page = 0,
+  List<String> statuses = const <String>[],
+  String? from,
+  String? to,
+  String salonId = FakeBackend.kOwnerSalonId,
+}) async {
+  final response = await fb.dio.get<Map<String, dynamic>>(
+    '/api/v1/bookings/salon/$salonId',
+    queryParameters: <String, dynamic>{
+      'page': page,
+      'size': 20,
+      'sort': 'startsAt,desc',
+      'partition': ?partition,
+      if (statuses.isNotEmpty) 'status': statuses,
+      'from': ?from,
+      'to': ?to,
+    },
+  );
+  return response.data!;
+}
+
+List<Map<String, dynamic>> _rows(Map<String, dynamic> envelope) {
+  final data = envelope['data'] as Map<String, dynamic>;
+  return (data['data'] as List<dynamic>).cast<Map<String, dynamic>>().toList(
+    growable: false,
+  );
+}
+
+int _totalPages(Map<String, dynamic> envelope) =>
+    (envelope['data'] as Map<String, dynamic>)['totalPages'] as int;
+
+/// Replays `_MasterArchiveScreenState`'s auto-continue walk against the real
+/// slice and returns the number of EXTRA `loadMore` round trips it took before
+/// a raw page yielded at least one row matching [predicate] — i.e. the raw
+/// page index of the first match.
+///
+/// Returns `-1` when the server is exhausted with no match at all (which is
+/// the TERMINAL EMPTY state, not a budget problem — the walk stops on
+/// `hasMore == false` and the screen renders `_ArchiveEmptyState`).
+///
+/// This is the quantity `_kMaxAutoContinueAttempts` bounds: the counter starts
+/// at 0, the page-0 fetch is not an attempt, and attempts 1..N fetch raw pages
+/// 1..N. So the budget is exhausted — and `_ArchiveContinueState` renders —
+/// exactly when this returns a value strictly greater than the constant.
+Future<int> _attemptsUntilFirstMatch(
+  FakeBackend fb,
+  Set<String> predicate,
+) async {
+  int page = 0;
+  while (true) {
+    final Map<String, dynamic> envelope = await _salonFetch(
+      fb,
+      partition: 'HISTORY',
+      page: page,
+    );
+    final bool matched = _rows(
+      envelope,
+    ).any((Map<String, dynamic> r) => predicate.contains(r['status']));
+    if (matched) return page;
+    if (page >= _totalPages(envelope) - 1) return -1;
+    page++;
+  }
+}
+
+void mainPhase345() {
+  group('Phase 345 — GET /bookings/salon/{id} branches on `partition`', () {
+    late FakeBackend fb;
+    // A far-past anchor, pinned — never a host-clock read. `FakeBackend
+    // .serverNow` defaults to `kFixedNow`, and `_partitionOf` classifies
+    // CONFIRMED against it, so "elapsed" has to be measured from the same
+    // instant the fake will measure it from.
+    final DateTime anchor = kFixedNow;
+
+    setUp(() {
+      fb = FakeBackend();
+    });
+
+    test('WITHOUT `partition` the board branch is byte-identical to pre-345: '
+        'the whole salonBoardBookings list, one page, archive counters '
+        'untouched', () async {
+      fb.salonBoardBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'board-1',
+          masterId: 'master-aaa',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: anchor.add(const Duration(hours: 2)),
+        ),
+      ];
+      fb.salonArchiveBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'hist-1',
+          masterId: 'master-bbb',
+          masterFirstName: 'Олена',
+          masterLastName: 'Ткаченко',
+          startsAt: anchor.subtract(const Duration(days: 3)),
+          status: 'COMPLETED',
+        ),
+      ];
+
+      final Map<String, dynamic> envelope = await _salonFetch(
+        fb,
+        from: '2026-06-14',
+        to: '2026-06-14',
+      );
+
+      expect(
+        _rows(envelope).map((Map<String, dynamic> r) => r['id']),
+        <String>['board-1'],
+        reason:
+            'the board branch must keep serving salonBoardBookings — the '
+            'archive list is a different list and must not leak into it',
+      );
+      expect(fb.getSalonBookingsCalls, 1);
+      expect(
+        fb.getSalonArchiveCalls,
+        0,
+        reason: 'no `partition` was sent, so this was not an archive read',
+      );
+      expect(fb.lastSalonArchiveQuery, isNull);
+    });
+
+    test('WITH `partition=HISTORY` the archive branch serves '
+        'salonArchiveBookings — NOT the board list. This is the D2 '
+        'discriminator: a handler that stopped reading `partition` would '
+        'serve the board\'s rows here', () async {
+      fb.salonBoardBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'board-1',
+          masterId: 'master-aaa',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: anchor.add(const Duration(hours: 2)),
+        ),
+      ];
+      fb.salonArchiveBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'hist-1',
+          masterId: 'master-bbb',
+          masterFirstName: 'Олена',
+          masterLastName: 'Ткаченко',
+          startsAt: anchor.subtract(const Duration(days: 3)),
+          status: 'COMPLETED',
+        ),
+      ];
+
+      final Map<String, dynamic> envelope = await _salonFetch(
+        fb,
+        partition: 'HISTORY',
+      );
+
+      expect(_rows(envelope).map((Map<String, dynamic> r) => r['id']), <String>[
+        'hist-1',
+      ]);
+      expect(fb.getSalonArchiveCalls, 1);
+      expect(fb.lastSalonArchiveQuery!['partition'], 'HISTORY');
+    });
+
+    test('HISTORY is `everything except UPCOMING`: an elapsed unclosed '
+        'CONFIRMED row IS returned and a future CONFIRMED row is NOT — the '
+        'one row `_legacyStatusesFor`\'s status-only fallback structurally '
+        'cannot reach (D3 axis 3)', () async {
+      fb.salonArchiveBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'elapsed-open',
+          masterId: 'master-aaa',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: anchor.subtract(const Duration(days: 2)),
+          status: 'CONFIRMED',
+          awaitingClosure: true,
+        ),
+        fb.salonBoardBookingRow(
+          id: 'still-upcoming',
+          masterId: 'master-bbb',
+          masterFirstName: 'Олена',
+          masterLastName: 'Ткаченко',
+          startsAt: anchor.add(const Duration(days: 2)),
+          status: 'CONFIRMED',
+        ),
+        fb.salonBoardBookingRow(
+          id: 'done',
+          masterId: 'master-ccc',
+          masterFirstName: 'Марія',
+          masterLastName: 'Гриценко',
+          startsAt: anchor.subtract(const Duration(days: 4)),
+          status: 'COMPLETED',
+        ),
+        fb.salonBoardBookingRow(
+          id: 'gone',
+          masterId: 'master-ddd',
+          masterFirstName: 'Ірина',
+          masterLastName: 'Мельник',
+          startsAt: anchor.subtract(const Duration(days: 5)),
+          status: 'CANCELLED',
+        ),
+        fb.salonBoardBookingRow(
+          id: 'refused',
+          masterId: 'master-eee',
+          masterFirstName: 'Наталія',
+          masterLastName: 'Савченко',
+          startsAt: anchor.subtract(const Duration(days: 6)),
+          status: 'DECLINED',
+        ),
+        fb.salonBoardBookingRow(
+          id: 'no-show',
+          masterId: 'master-fff',
+          masterFirstName: 'Дарина',
+          masterLastName: 'Кравець',
+          startsAt: anchor.subtract(const Duration(days: 7)),
+          status: 'NOT_COMPLETED',
+        ),
+      ];
+
+      final Map<String, dynamic> envelope = await _salonFetch(
+        fb,
+        partition: 'HISTORY',
+      );
+      final List<Object?> ids = _rows(
+        envelope,
+      ).map((Map<String, dynamic> r) => r['id']).toList();
+
+      expect(
+        ids,
+        containsAll(<String>[
+          'elapsed-open',
+          'done',
+          'gone',
+          'refused',
+          'no-show',
+        ]),
+        reason: 'HISTORY = PAST ∪ CANCELLED = everything except UPCOMING',
+      );
+      expect(
+        ids,
+        isNot(contains('still-upcoming')),
+        reason:
+            'a CONFIRMED row that has NOT elapsed is UPCOMING — serving it '
+            'here would make the fixture unable to tell a partition read '
+            'from an unfiltered dump',
+      );
+      // Newest-first, which is what the archive's `sort: newest` asks for.
+      expect(ids.first, 'elapsed-open');
+    });
+
+    test('`status` is IGNORED when `partition` is present — backend 322 D2\'s '
+        'precedence rule, which is the WHOLE reason the outcome filter is '
+        'client-side and the auto-continue walk exists at all', () async {
+      fb.salonArchiveBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'done',
+          masterId: 'master-aaa',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: anchor.subtract(const Duration(days: 1)),
+          status: 'COMPLETED',
+        ),
+        fb.salonBoardBookingRow(
+          id: 'gone',
+          masterId: 'master-bbb',
+          masterFirstName: 'Олена',
+          masterLastName: 'Ткаченко',
+          startsAt: anchor.subtract(const Duration(days: 2)),
+          status: 'CANCELLED',
+        ),
+      ];
+
+      final Map<String, dynamic> envelope = await _salonFetch(
+        fb,
+        partition: 'HISTORY',
+        // The legacy rollout-valve set the notifier always sends alongside.
+        statuses: const <String>['COMPLETED'],
+      );
+
+      expect(
+        _rows(envelope).length,
+        2,
+        reason:
+            'if `status` narrowed this to 1 row, the fake would be modelling '
+            'a backend that does not exist and the client-side filter would '
+            'look free',
+      );
+    });
+
+    test(
+      'the archive branch PAGES for real: 25 HISTORY rows come back as '
+      '20 + 5 across two pages, newest-first, with no row served twice',
+      () async {
+        fb.salonArchiveBookings = <Map<String, dynamic>>[
+          for (int i = 0; i < 25; i++)
+            fb.salonBoardBookingRow(
+              id: 'h-$i',
+              masterId: 'master-aaa',
+              masterFirstName: 'Софія',
+              masterLastName: 'Бондар',
+              startsAt: anchor.subtract(Duration(days: i + 1)),
+              status: 'COMPLETED',
+            ),
+        ];
+
+        final Map<String, dynamic> p0 = await _salonFetch(
+          fb,
+          partition: 'HISTORY',
+        );
+        final Map<String, dynamic> p1 = await _salonFetch(
+          fb,
+          partition: 'HISTORY',
+          page: 1,
+        );
+
+        expect(_rows(p0).length, 20);
+        expect(_rows(p1).length, 5);
+        expect(_totalPages(p0), 2);
+        expect(
+          _rows(p0).first['id'],
+          'h-0',
+          reason: 'newest-first — h-0 is one day before the anchor',
+        );
+        expect(_rows(p1).first['id'], 'h-20');
+        final Set<Object?> allIds = <Object?>{
+          ..._rows(p0).map((Map<String, dynamic> r) => r['id']),
+          ..._rows(p1).map((Map<String, dynamic> r) => r['id']),
+        };
+        expect(allIds.length, 25, reason: 'no row served on both pages');
+        expect(fb.getSalonArchiveCalls, 2);
+      },
+    );
+
+    test('the SALON_ADMIN salon id shares the SAME branching body — the two '
+        'registrations cannot drift on what `partition` means', () async {
+      fb.salonArchiveBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'hist-admin',
+          masterId: 'master-aaa',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: anchor.subtract(const Duration(days: 3)),
+          status: 'COMPLETED',
+        ),
+      ];
+
+      final Map<String, dynamic> envelope = await _salonFetch(
+        fb,
+        partition: 'HISTORY',
+        salonId: FakeBackend.kAdminSalonId,
+      );
+
+      expect(_rows(envelope).map((Map<String, dynamic> r) => r['id']), <String>[
+        'hist-admin',
+      ]);
+      expect(fb.getSalonArchiveCalls, 1);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // D6 / D10 — THE MEASUREMENT
+  // ══════════════════════════════════════════════════════════════════════════
+  group('Phase 345 D6 — `_kMaxAutoContinueAttempts` measured against the '
+      'roster-scale salon fixture', () {
+    late FakeBackend fb;
+    final DateTime anchor = kFixedNow;
+
+    // Kept in lockstep with `_MasterArchiveScreenState._kMaxAutoContinueAttempts`
+    // by the assertions below reading as "budget", not as a bare 3. If that
+    // constant ever moves, these cases state what moving it would buy.
+    const int budget = 3;
+
+    setUp(() {
+      fb = FakeBackend();
+      fb.salonArchiveBookings = FakeBackend.salonArchiveRosterScaleFixture(
+        fb,
+        anchor: anchor,
+      );
+    });
+
+    test('the fixture is genuinely roster-scale: 8 masters × 90 days = 720 '
+        'HISTORY rows across 36 raw pages, all five outcomes present', () async {
+      expect(fb.salonArchiveBookings.length, 720);
+      final Map<String, dynamic> p0 = await _salonFetch(
+        fb,
+        partition: 'HISTORY',
+      );
+      expect(
+        _totalPages(p0),
+        36,
+        reason:
+            'every row is HISTORY — a fixture that lost rows to the partition '
+            'filter would make every attempt count below an understatement',
+      );
+      final Set<Object?> statuses = fb.salonArchiveBookings
+          .map((Map<String, dynamic> r) => r['status'])
+          .toSet();
+      expect(statuses, <String>{
+        'COMPLETED',
+        'CANCELLED',
+        'DECLINED',
+        'NOT_COMPLETED',
+        'CONFIRMED',
+      });
+      expect(
+        fb.salonArchiveBookings.where(
+          (Map<String, dynamic> r) => r['awaitingClosure'] == true,
+        ),
+        isNotEmpty,
+        reason: 'the elapsed-unclosed rows are what «Підтверджено» selects',
+      );
+      expect(
+        fb.salonArchiveBookings.where(
+          (Map<String, dynamic> r) => r['providerCanReviewClient'] == true,
+        ),
+        isNotEmpty,
+        reason: 'D3 axis 2 — the fixture must carry BOTH flag values',
+      );
+    });
+
+    test('MEASUREMENT: every filter the sheet can express finds its first '
+        'match INSIDE the budget — the walk terminates, so phase 342 D10 does '
+        'NOT reopen', () async {
+      final Map<String, Set<String>> filters = <String, Set<String>>{
+        'Виконано': <String>{'COMPLETED'},
+        'Скасовано': <String>{'CANCELLED', 'DECLINED'},
+        'Підтверджено': <String>{'CONFIRMED'},
+      };
+
+      final Map<String, int> measured = <String, int>{};
+      for (final MapEntry<String, Set<String>> f in filters.entries) {
+        measured[f.key] = await _attemptsUntilFirstMatch(fb, f.value);
+      }
+
+      // The numbers, pinned rather than merely asserted to be small — a
+      // fixture change that moved them would be a measurement change and
+      // should have to say so.
+      expect(measured['Виконано'], 0);
+      expect(measured['Скасовано'], 0);
+      expect(
+        measured['Підтверджено'],
+        1,
+        reason:
+            'the sparsest outcome in the fixture (4 %) — one extra round trip '
+            'out of a budget of 3',
+      );
+      for (final MapEntry<String, int> m in measured.entries) {
+        expect(
+          m.value,
+          lessThanOrEqualTo(budget),
+          reason:
+              '${m.key} exhausted the auto-continue budget — that is phase '
+              '342 D10\'s named reopen condition',
+        );
+      }
+    });
+
+    test('THE BOUNDARY, probed rather than reasoned about: the budget is '
+        'exhausted at exactly 4 leading matchless raw pages (80 rows). 9 '
+        'quiet days still resolve; 10 do not', () async {
+      Future<int> attemptsWithGap(int gapDays) async {
+        final FakeBackend probe = FakeBackend();
+        probe.salonArchiveBookings = FakeBackend.salonArchiveRosterScaleFixture(
+          probe,
+          anchor: anchor,
+          leadingMatchlessDays: gapDays,
+        );
+        return _attemptsUntilFirstMatch(probe, <String>{
+          'CANCELLED',
+          'DECLINED',
+        });
+      }
+
+      // 9 quiet days = 72 leading COMPLETED rows; the first cancel lands at
+      // index 79, still inside raw page 3 — the LAST page the budget reaches.
+      expect(
+        await attemptsWithGap(9),
+        budget,
+        reason: 'the budget is spent exactly, and the list still fills',
+      );
+      // 10 quiet days = 80 leading rows; the first cancel moves to index 87,
+      // raw page 4 — one page past the budget.
+      expect(
+        await attemptsWithGap(10),
+        budget + 1,
+        reason:
+            'this is the shape that renders `_ArchiveContinueState` with '
+            '«Завантажити ще» — short, with hasMore still true',
+      );
+    });
+  });
 }

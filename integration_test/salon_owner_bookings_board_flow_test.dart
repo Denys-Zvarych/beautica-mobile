@@ -1544,6 +1544,23 @@ void main() {
             status: 'COMPLETED',
           ),
         ];
+        // ⚠ ADDED BY PHASE 345 D2, AND THE REASON D2 EXISTS.
+        //
+        // This arm used to seed ONLY `salonBoardBookings` and still pass,
+        // because `GET /bookings/salon/{id}` ignored `partition` outright and
+        // handed the board's own day list back for ANY query — so "the archive
+        // rendered two attributed masters" was, at this tier, a statement about
+        // the board's fixture and not about a HISTORY read at all. Phase 345
+        // taught the fake to branch on `partition`, which turned this arm RED
+        // on its first run and is exactly the hazard D2 says to check for
+        // before trusting a green archive assertion.
+        //
+        // The same rows, now seeded where the ARCHIVE actually reads them. They
+        // are all `COMPLETED`, so they classify as HISTORY under
+        // `FakeBackend._partitionOf` against the pinned `serverNow`.
+        fb.salonArchiveBookings = List<Map<String, dynamic>>.from(
+          fb.salonBoardBookings,
+        );
 
         await _landOnSalonBoard(tester, fb, router);
 

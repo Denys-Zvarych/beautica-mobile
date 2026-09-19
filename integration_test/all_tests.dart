@@ -152,6 +152,7 @@ import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
+import 'salon_archive_flow_test.dart' as salon_archive;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
@@ -545,6 +546,13 @@ void main() {
   // cardinality regression phases 335-340 closed (the deleted
   // `_primaryService` shim used to send exactly one).
   group('salon_create_booking_flow', salon_create_booking.main);
+  // Phase 345 — the SALON «Архів» end to end: one
+  // `GET /bookings/salon/{id}?partition=HISTORY`, zero `/bookings/me`, two
+  // masters attributed apart, an elapsed unclosed CONFIRMED row present and an
+  // UPCOMING one absent, «Відгук» following the server flag, real page-1
+  // paging off the salon endpoint, both admitted roles, and SALON_MASTER
+  // bounced while keeping its own `/staff/bookings/archive`.
+  group('salon_archive_flow', salon_archive.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.
