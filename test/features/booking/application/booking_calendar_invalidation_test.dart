@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/booking/application/bookings_day_notifi
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
@@ -148,8 +149,13 @@ class _CountingBookingRepository implements BookingRepository {
 /// write under test just did, making a refetch's VALUE observable and not only
 /// its count.
 class _SalonCountingRepository implements BookingRepository {
-  final List<({String salonId, String? masterId, DateTime day})> salonCalls =
-      <({String salonId, String? masterId, DateTime day})>[];
+  /// `day` is nullable because phase 342 relaxed `getSalonBookings`' bounds to
+  /// optional — the salon ARCHIVE passes neither. Every caller this double
+  /// serves is the salon BOARD, which always passes a day, so a `null` here
+  /// means a genuinely unbounded read slipped into the board's path and must
+  /// NOT silently match a dated [callsFor] probe.
+  final List<({String salonId, String? masterId, DateTime? day})> salonCalls =
+      <({String salonId, String? masterId, DateTime? day})>[];
 
   List<Booking> serverItems = const <Booking>[];
 
@@ -159,7 +165,7 @@ class _SalonCountingRepository implements BookingRepository {
     String? masterId,
   }) => salonCalls
       .where(
-        (({String salonId, String? masterId, DateTime day}) c) =>
+        (({String salonId, String? masterId, DateTime? day}) c) =>
             c.salonId == salonId && c.masterId == masterId && c.day == day,
       )
       .length;
@@ -167,10 +173,11 @@ class _SalonCountingRepository implements BookingRepository {
   @override
   Future<PageResponse<Booking>> getSalonBookings({
     required String salonId,
-    required DateTime from,
-    required DateTime to,
+    DateTime? from,
+    DateTime? to,
     String? masterId,
-    BookingStatus? status,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
     required int page,
     int size = 100,
     BookingSort? sort,

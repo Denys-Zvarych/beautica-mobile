@@ -65,6 +65,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,11 +98,26 @@ const User _stubIndependentMaster = User(
   lastName: 'Майстер',
 );
 
+/// ## Why [SynchronousFuture] and not `build() async =>` (phase 342 D6)
+///
+/// `MasterArchiveNotifier.build` now `ref.watch`es
+/// `authProvider.select(authUserIdOrNull)`. An `async` stub passes through one
+/// `AsyncLoading` frame, so the archive's FIRST build sees `null` and its
+/// second sees the user id — a genuine identity change, which rebuilds the
+/// notifier and DOUBLES every `getMyBookings` count this file asserts (and
+/// hangs the seamless-reload test, whose stub only completes page 1). That is
+/// a pure stub artifact: in production `auth_redirect.dart` holds the splash
+/// until the session is settled, so no authed route ever mounts against an
+/// in-flight `authProvider`. Resolving synchronously reproduces production.
+/// The same reasoning is recorded, with the opposite remedy (no override at
+/// all), on the counting harness further down this file.
 class _IndependentMasterAuthNotifier extends AuthNotifier {
   @override
-  Future<AuthSession> build() async => const AuthSession.authenticated(
-    user: _stubIndependentMaster,
-    accessToken: 'tok',
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(
+    const AuthSession.authenticated(
+      user: _stubIndependentMaster,
+      accessToken: 'tok',
+    ),
   );
 }
 
@@ -119,11 +135,34 @@ const User _stubSalonMaster = User(
 );
 
 class _SalonMasterAuthNotifier extends AuthNotifier {
+  /// [SynchronousFuture] for the same phase 342 D6 reason as
+  /// [_IndependentMasterAuthNotifier] — see its doc.
   @override
-  Future<AuthSession> build() async => const AuthSession.authenticated(
-    user: _stubSalonMaster,
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(
+    const AuthSession.authenticated(user: _stubSalonMaster, accessToken: 'tok'),
+  );
+}
+
+/// A session that can be MOVED after the screen is mounted — the identity
+/// change `skipLoadingOnReload` governs (mobile-qa, phase 342 QA pass).
+///
+/// [SynchronousFuture] on the initial build for the same phase 342 D6 reason
+/// as [_IndependentMasterAuthNotifier]; [emit] is the only mutation, and it
+/// emits a settled `AsyncData` so the archive sees one clean id → id' step
+/// rather than an intermediate `null`.
+class _SettableAuthNotifier extends AuthNotifier {
+  AuthSession _session = const AuthSession.authenticated(
+    user: _stubIndependentMaster,
     accessToken: 'tok',
   );
+
+  @override
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(_session);
+
+  void emit(AuthSession session) {
+    _session = session;
+    state = AsyncData<AuthSession>(session);
+  }
 }
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -2834,6 +2873,128 @@ void main() {
             'and it must not even rewrite `items` to do nothing — the row is '
             'already false, so there is no pending id at all',
       );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // mobile-security LOW (phase 342 QA pass) — the `skipLoadingOnReload`
+  // FAIL-SAFE, pinned.
+  //
+  // `master_archive_screen.dart`'s comment above `async.when` says the flag is
+  // provably inert here because "`MasterArchiveNotifier.build` only ever
+  // `ref.read`s … so it has zero dependencies and `isReloading` can never be
+  // true". Phase 342 FALSIFIED that: `build()` now `ref.watch`es
+  // `authProvider.select(authUserIdOrNull)` (`master_archive_notifier.dart`),
+  // which is exactly the trigger `skipLoadingOnRefresh` does NOT cover.
+  //
+  // Today's behaviour is correct BY ACCIDENT — there is no flag, so an
+  // identity-change reload paints the skeleton. If someone re-adds
+  // `skipLoadingOnReload: true` trusting that stale comment, the PREVIOUS
+  // ACCOUNT'S ROWS would keep painting across the session boundary — and once
+  // phase 343 hands this same screen a `salonId`, those rows are client names
+  // across the whole salon roster. This test is the standing guard that makes
+  // re-adding the flag go RED.
+  //
+  // Mutation-verified: adding `skipLoadingOnReload: true` to the `async.when`
+  // turns this test red (the skeleton never appears and `session-1-row` keeps
+  // rendering); removing it again turns it green.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('session-boundary reload is NOT seamless (mobile-security LOW, phase '
+      '342)', () {
+    testWidgets('an IDENTITY CHANGE repaints the skeleton — the previous '
+        'account\'s rows never survive the reload', (
+      WidgetTester tester,
+    ) async {
+      final _SettableAuthNotifier auth = _SettableAuthNotifier();
+
+      // Page 0 for session 1 resolves immediately; the identity-change reload
+      // is held PENDING, because against an immediately-resolving stub no
+      // frame would ever OBSERVE the reload and the assertions below would be
+      // vacuous in both directions.
+      final List<Completer<PageResponse<Booking>>> fetches =
+          <Completer<PageResponse<Booking>>>[];
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((_) {
+        final Completer<PageResponse<Booking>> c =
+            Completer<PageResponse<Booking>>();
+        fetches.add(c);
+        if (fetches.length == 1) {
+          c.complete(
+            _page(<Booking>[
+              _booking(id: 'session-1-row', status: BookingStatus.completed),
+            ]),
+          );
+        }
+        return c.future;
+      });
+
+      await pump(tester, auth: () => auth);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('session-1-row')),
+        findsOneWidget,
+      );
+
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'master-archive-test-2',
+            email: 'other@beautica.ua',
+            role: UserRole.independentMaster,
+            firstName: 'Ірина',
+            lastName: 'Інша',
+          ),
+          accessToken: 'tok-2',
+        ),
+      );
+
+      // Deliberately NOT `pumpAndSettle` — `BookingsSkeleton` runs a PERPETUAL
+      // breathe animation, so a settle would hang rather than fail.
+      for (int frame = 0; frame < 8; frame++) {
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey<String>('session-1-row')),
+          findsNothing,
+          reason:
+              'frame $frame after the identity change: the signed-out '
+              'account\'s booking rows must not keep painting. If this fails, '
+              '`skipLoadingOnReload: true` is back on this screen\'s '
+              '`async.when` — see this group\'s header',
+        );
+      }
+      expect(
+        find.byKey(const Key('master-archive-skeleton')),
+        findsOneWidget,
+        reason: 'the identity-change reload renders the loading branch',
+      );
+      expect(
+        fetches,
+        hasLength(2),
+        reason:
+            'the identity change really did trigger a reload and it really is '
+            'still pending across every frame above — otherwise the loop '
+            'proved nothing',
+      );
+
+      // And the NEW session\'s rows are what lands, not the old ones.
+      fetches.last.complete(
+        _page(<Booking>[
+          _booking(id: 'session-2-row', status: BookingStatus.declined),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('session-2-row')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey<String>('session-1-row')), findsNothing);
     });
   });
 

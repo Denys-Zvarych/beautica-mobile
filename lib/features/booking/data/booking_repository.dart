@@ -245,19 +245,46 @@ abstract interface class BookingRepository {
   /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon` — an
   /// owner of a DIFFERENT salon, or an admin assigned elsewhere, gets 403.
   ///
-  /// ## THE FILTER SURFACE IS NARROWER THAN [getMyBookings]', ON THE WIRE
+  /// ## THE FILTER SURFACE — CORRECTED BY BACKEND PHASES 319 AND 322
   ///
-  /// This endpoint accepts exactly ONE optional [status] enum and NO service
-  /// predicate at all — not a repeated `status` list and not `serviceId`, both
-  /// of which `GET /bookings/me` does accept. Verified against
-  /// `BookingController.getSalonBookings` and the committed OpenAPI snapshot
-  /// rather than assumed by symmetry. `BookingsDayNotifier` therefore narrows
-  /// a salon day by status/service CLIENT-SIDE, which is sound only because
-  /// the whole day is fetched in one page — see
-  /// `bookings_day_query.dart`'s header.
+  /// This doc used to say the endpoint took exactly ONE optional `status` and
+  /// NO service predicate. That was true of backend Phase 23.4 and is now
+  /// **stale**: backend Phase 319 widened `status` to a repeatable list
+  /// (`@Size(max = 5)`) and added a repeatable `serviceId`, and backend Phase
+  /// 322 added `partition`. Verified against the regenerated OpenAPI snapshot
+  /// (`tool/openapi/api-spec.json`, operation `getSalonBookings`), not assumed
+  /// by symmetry with `GET /bookings/me`.
+  ///
+  /// [statuses] is therefore sent as REPEATED bare `status=` params, exactly
+  /// like [getMyBookings]', and omitted entirely when null/empty.
+  /// [BookingStatus.unknown] is a decode-only member with no wire
+  /// representation and is stripped rather than sent.
+  ///
+  /// `serviceId` is **deliberately not surfaced here** (YAGNI): the salon
+  /// board narrows by service client-side and the salon archive has its
+  /// service facet switched off, so no caller wants it. It stays purely
+  /// additive for whenever one does.
   ///
   /// [masterId] IS a real wire param and narrows to one of the salon's
   /// masters server-side.
+  ///
+  /// [partition] (backend Phase 322) is the same time-based partition
+  /// [getMyBookings] takes, sent as its [BookingPartition.wireValue] and
+  /// omitted entirely when null. Backend Phase 322's D2 contract: when
+  /// `partition` is present, `status` is IGNORED server-side — **not** a 400
+  /// — which is the additive-rollout safety valve, and omitting it is
+  /// byte-identical pre-322 behaviour. The salon «Архів» passes
+  /// [BookingPartition.history]; carries the SAME hard-sequencing hazard
+  /// [getMyBookings] documents for that value (an unrecognised VALUE on a
+  /// backend older than the partition work IS a 400, unlike an unrecognised
+  /// param NAME).
+  ///
+  /// [from]/[to] are each independently optional (phase 342). The board
+  /// passes both — it always has a day. The archive passes NEITHER: it wants
+  /// the salon's whole history, and the backend has always accepted
+  /// open-ended bounds on this route. Each is omitted from the query string
+  /// when null, applying no predicate — the same shape [getMyBookings] has
+  /// always had.
   ///
   /// ## Why this bypasses the generated client
   ///
@@ -277,10 +304,11 @@ abstract interface class BookingRepository {
   /// `assignLanes` requires ascending `startsAt` — see that file's header.
   Future<PageResponse<Booking>> getSalonBookings({
     required String salonId,
-    required DateTime from,
-    required DateTime to,
+    DateTime? from,
+    DateTime? to,
     String? masterId,
-    BookingStatus? status,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
     required int page,
     int size = kBookingsPageSize,
     BookingSort? sort,
@@ -683,21 +711,35 @@ final class HttpBookingRepository implements BookingRepository {
   @override
   Future<PageResponse<Booking>> getSalonBookings({
     required String salonId,
-    required DateTime from,
-    required DateTime to,
+    DateTime? from,
+    DateTime? to,
     String? masterId,
-    BookingStatus? status,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
     required int page,
     int size = kBookingsPageSize,
     BookingSort? sort,
     CancelToken? cancelToken,
   }) async {
-    // `unknown` is a DECODE-only member with no wire representation — sending
-    // `status=UNKNOWN` would be a 400. Dropped to "no status predicate",
-    // which is also what the caller means by it.
-    final BookingStatus? wireStatus = status == BookingStatus.unknown
+    // Canonicalised ONCE here at the serialisation boundary, byte-for-byte the
+    // same way [getMyBookings] does it (sorted by enum `index`, not by wire
+    // string, so the emitted URL is a pure function of the filter's VALUE and
+    // not of the order the caller happened to build the set in).
+    //
+    // `unknown` is stripped: it is a DECODE-only member with no wire
+    // representation, and `status=UNKNOWN` would be a 400 (the backend's
+    // `@Size(max = 5)` cap is sized to `BookingStatus.filterable` exactly).
+    final List<String>? statusParams = statuses == null
         ? null
-        : status;
+        : (statuses
+                  .where((BookingStatus s) => s != BookingStatus.unknown)
+                  .toList(growable: false)
+                ..sort(
+                  (BookingStatus a, BookingStatus b) =>
+                      a.index.compareTo(b.index),
+                ))
+              .map((BookingStatus s) => s.wireValue)
+              .toList(growable: false);
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         // Hardened via the promoted `encodePathSegment`
@@ -714,18 +756,38 @@ final class HttpBookingRepository implements BookingRepository {
           'page': page,
           'size': size,
           if (sort != null) 'sort': sort.wireValue,
-          // SINGLE-valued, unlike [getMyBookings]' repeated `status` list —
-          // this endpoint binds `@RequestParam BookingStatus status`, so a
-          // Dart `List` here would render as repeated params and Spring would
-          // bind only the first. See this method's doc.
-          'status': ?wireStatus?.wireValue,
+          // REPEATED bare `status=` params under Dio's default
+          // `ListFormat.multi`, identical to [getMyBookings]' — backend Phase
+          // 319 widened this route to bind an `EnumSet<BookingStatus>`. The
+          // pre-319 "SINGLE-valued, a List would bind only the first" note
+          // that stood here is obsolete; see this method's doc.
+          //
+          // ⚠ Do NOT switch this Dio instance to `ListFormat.multiCompatible`:
+          // that emits `status[]=CONFIRMED`, which Spring binds to a param
+          // literally NAMED `status[]`, so the filter silently does nothing
+          // and the endpoint returns unfiltered 200s.
+          if (statusParams != null && statusParams.isNotEmpty)
+            'status': statusParams,
           'masterId': ?masterId,
           // `yyyy-MM-dd` off the LOCAL calendar fields — never
           // `toIso8601String()`/`.toUtc()`, which would shift the day for any
           // device east of UTC. The backend reads both as `LocalDate` in
           // `Europe/Kyiv`. See `shared/formatters/api_date.dart`.
-          'from': toApiDate(from),
-          'to': toApiDate(to),
+          //
+          // Each bound is INDEPENDENTLY optional (phase 342) and omitted
+          // entirely when null rather than sent empty: `from` alone is an
+          // open-ended future window, `to` alone an open-ended past window,
+          // and neither is the salon archive's whole history.
+          if (from != null) 'from': toApiDate(from),
+          if (to != null) 'to': toApiDate(to),
+          // Backend Phase 322. Serialised through [BookingPartition.wireValue]
+          // — the sole hand-written string this method emits for it — and
+          // dropped entirely when null by the null-aware map element, never
+          // sent as `partition=null`/`''`. When present the backend IGNORES
+          // `status` above; both still travel, exactly as on
+          // [getMyBookings], so a caller picks its filtering mode by which
+          // params it populates.
+          'partition': ?partition?.wireValue,
         },
         cancelToken: cancelToken,
       );

@@ -407,10 +407,11 @@ class BookingControllerApi {
   /// * [salonId]
   /// * [pageable]
   /// * [masterId] - Filter to one master's bookings within the salon. Omit for every master.
-  /// * [status] - Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged.
+  /// * [status] - Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged. IGNORED whenever `partition` is present — see that parameter's doc for the precedence rule.
   /// * [from] - Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
   /// * [to] - Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
   /// * [serviceId] - Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
+  /// * [partition] - Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for the salon \"archive\" list, which must include cancelled and declined bookings alongside finished ones, across every master in the salon. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-322 behaviour.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -429,6 +430,7 @@ class BookingControllerApi {
     Date? from,
     Date? to,
     BuiltList<String>? serviceId,
+    String? partition,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -474,6 +476,9 @@ class BookingControllerApi {
           const FullType(BuiltList, [FullType(String)]),
           format: ListFormat.multi,
         ),
+      if (partition != null)
+        r'partition': encodeQueryParameter(
+            _serializers, partition, const FullType(String)),
       r'pageable': encodeQueryParameter(
           _serializers, pageable, const FullType(Pageable)),
     };

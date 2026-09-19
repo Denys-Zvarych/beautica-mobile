@@ -623,14 +623,22 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
         size: 100,
         cancelToken: cancelToken,
       ),
-      // `GET /bookings/salon/{salonId}` takes ONE optional status and no
-      // service predicate, so NOTHING status- or service-shaped goes on this
-      // wire — the day comes back whole and [_narrowSalonDay] below removes
-      // exactly the rows a server-side filter would have. Sending a single
-      // status when the selection happens to be a singleton was rejected:
-      // it would make the truncation boundary depend on which filter the
-      // owner picked, so a >100-booking day could report a different
-      // `isTruncated` for two filters that render the same cards.
+      // NOTHING status- or service-shaped goes on this wire — the day comes
+      // back whole and [_narrowSalonDay] below removes exactly the rows a
+      // server-side filter would have.
+      //
+      // This is a DELIBERATE CHOICE, no longer a limit of the endpoint. It
+      // used to read "the route takes ONE optional status and no service
+      // predicate"; that was true of backend phase 23.4 and is stale —
+      // backend phase 319 widened `status` to a repeatable list and added a
+      // repeatable `serviceId` (corrected in `booking_repository.dart`'s
+      // `getSalonBookings` doc, phase 342, verified against the regenerated
+      // OpenAPI snapshot). Narrowing server-side is now expressible and is
+      // still rejected here for the original reason: it would make the
+      // truncation boundary depend on which filter the owner picked, so a
+      // >100-booking day could report a different `isTruncated` for two
+      // filters that render the same cards. Client-side narrowing keeps
+      // `isTruncated` a property of the DAY, not of the filter.
       SalonDayQuery() => await repo.getSalonBookings(
         salonId: query.salonId,
         masterId: query.masterId,

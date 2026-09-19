@@ -232,7 +232,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **getSalonBookings**
-> ApiResponsePageResponseBookingDetailResponse getSalonBookings(salonId, pageable, masterId, status, from, to, serviceId)
+> ApiResponsePageResponseBookingDetailResponse getSalonBookings(salonId, pageable, masterId, status, from, to, serviceId, partition)
 
 List salon bookings (owner/admin)
 
@@ -244,13 +244,14 @@ final api = BeauticaApi().getBookingControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final Pageable pageable = ; // Pageable | 
 final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Filter to one master's bookings within the salon. Omit for every master.
-final BuiltList<String> status = ; // BuiltList<String> | Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged.
+final BuiltList<String> status = ; // BuiltList<String> | Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged. IGNORED whenever `partition` is present — see that parameter's doc for the precedence rule.
 final Date from = 2013-10-20; // Date | Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
 final Date to = 2013-10-20; // Date | Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
 final BuiltList<String> serviceId = ; // BuiltList<String> | Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
+final String partition = partition_example; // String | Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for the salon \"archive\" list, which must include cancelled and declined bookings alongside finished ones, across every master in the salon. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-322 behaviour.
 
 try {
-    final response = api.getSalonBookings(salonId, pageable, masterId, status, from, to, serviceId);
+    final response = api.getSalonBookings(salonId, pageable, masterId, status, from, to, serviceId, partition);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->getSalonBookings: $e\n');
@@ -264,10 +265,11 @@ Name | Type | Description  | Notes
  **salonId** | **String**|  | 
  **pageable** | [**Pageable**](.md)|  | 
  **masterId** | **String**| Filter to one master's bookings within the salon. Omit for every master. | [optional] 
- **status** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged. | [optional] 
+ **status** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged. IGNORED whenever `partition` is present — see that parameter's doc for the precedence rule. | [optional] 
  **from** | **Date**| Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window. | [optional] 
  **to** | **Date**| Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window. | [optional] 
  **serviceId** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate. | [optional] 
+ **partition** | **String**| Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for the salon \"archive\" list, which must include cancelled and declined bookings alongside finished ones, across every master in the salon. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-322 behaviour. | [optional] 
 
 ### Return type
 

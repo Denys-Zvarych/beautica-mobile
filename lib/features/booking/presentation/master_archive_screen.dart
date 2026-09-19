@@ -771,19 +771,36 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                   // `master_archive_screen_test.dart`'s frame-by-frame
                   // "«Виконано» reload keeps the list" test stays GREEN.
                   //
-                  // A `skipLoadingOnReload: true` used to sit below, justified
-                  // as covering the OTHER trigger `skipLoadingOnRefresh` does
-                  // not: a reload caused by one of the provider's own
-                  // dependencies changing. That justification is FALSE for THIS
-                  // provider (mobile-perf INFO, 2026-08-17 cycle 2) —
-                  // `MasterArchiveNotifier.build` only ever `ref.read`s
-                  // (`master_archive_notifier.dart:262,312`), so it has zero
-                  // dependencies and `isReloading` can never be true. The flag
-                  // was provably inert and is removed rather than left as a
-                  // comment a reader would trust. (It IS load-bearing on
+                  // A `skipLoadingOnReload: true` used to sit below, covering
+                  // the OTHER trigger `skipLoadingOnRefresh` does not: a
+                  // reload caused by one of the provider's own dependencies
+                  // changing. It was removed in 2026-08-17 cycle 2 on the
+                  // grounds that `MasterArchiveNotifier.build` had NO
+                  // dependencies, so `isReloading` could never be true.
+                  //
+                  // THAT JUSTIFICATION IS NOW DEAD — DO NOT RE-ADD THE FLAG.
+                  // Phase 342 gave `MasterArchiveNotifier.build` a real
+                  // dependency: `ref.watch(authProvider.select(
+                  // authUserIdOrNull))`, the session-boundary PII watch. So
+                  // `isReloading` CAN be true today — precisely on an identity
+                  // change (logout, or a different account signing in). With
+                  // the flag back, that reload would be seamless and the
+                  // PREVIOUS ACCOUNT'S ROWS would keep painting across the
+                  // session boundary; with the salon host (phase 343) those
+                  // rows are client names across the whole salon roster.
+                  // Removing the flag is now LOAD-BEARING, not a tidy-up.
+                  //
+                  // Pinned, not merely asserted here: see
+                  // `master_archive_screen_test.dart`'s «session-boundary
+                  // reload is NOT seamless» group — "an IDENTITY CHANGE
+                  // repaints the skeleton". Re-adding the flag turns it RED
+                  // (mutation-verified).
+                  //
+                  // (The flag IS load-bearing the other way on
                   // `leave_client_feedback_screen.dart`, whose
-                  // `bookingDetailProvider` really does `ref.watch` — do not
-                  // "consistency-clean" that one away.)
+                  // `bookingDetailProvider` really does `ref.watch` a detail
+                  // it wants to keep on screen — do not "consistency-clean"
+                  // that one away.)
                   //
                   // The FIRST load still shows the skeleton below — there is no
                   // previous value to keep. Pull-to-refresh is unaffected too,

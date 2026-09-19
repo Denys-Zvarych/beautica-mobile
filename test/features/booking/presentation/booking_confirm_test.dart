@@ -558,10 +558,11 @@ class _RecordingRescheduleRepository implements BookingRepository {
   @override
   Future<PageResponse<Booking>> getSalonBookings({
     required String salonId,
-    required DateTime from,
-    required DateTime to,
+    DateTime? from,
+    DateTime? to,
     String? masterId,
-    BookingStatus? status,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
     required int page,
     int size = kBookingsPageSize,
     BookingSort? sort,
