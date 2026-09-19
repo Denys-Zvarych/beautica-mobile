@@ -107,9 +107,19 @@ class MasterCreateBookingNotifier extends _$MasterCreateBookingNotifier {
   /// Returns the server's created [Appointment] on success, `null` on the
   /// no-op AND on a mapped [Failure] — see the file header's "PHASE 256"
   /// section for why this is a return value rather than a widened `state`.
+  ///
+  /// [salonId] is the SALON whose «Записи» board this walk-in was created
+  /// from, and is forwarded to the success fan-out so the board's day-rail dot
+  /// set (`salonBookedDaysProvider`) drops alongside the master-scoped one.
+  /// Optional and `null`-defaulted on purpose: the independent-master wizard
+  /// (`booking_confirm_screen.dart`) has no salon and passes nothing, keeping
+  /// its behaviour byte-for-byte what it is today. It is NEVER part of the
+  /// create request — see `salon_create_booking_screen.dart`'s header for why
+  /// the salon is not sent to the backend.
   Future<Appointment?> submit({
     required String masterId,
     required CreateMasterBookingRequest request,
+    String? salonId,
   }) async {
     if (state.isLoading) return null;
     state = const AsyncLoading<void>();
@@ -122,7 +132,7 @@ class MasterCreateBookingNotifier extends _$MasterCreateBookingNotifier {
       // invalidates the WHOLE `bookingsDayProvider` family rather than one
       // query member, and `booking_calendar_invalidation.dart` for why the
       // day-rail/month dot set (`bookedDaysProvider`) must drop alongside it.
-      invalidateBookingViewsAfterBookingCreated(ref);
+      invalidateBookingViewsAfterBookingCreated(ref, salonId: salonId);
     });
     return created;
   }

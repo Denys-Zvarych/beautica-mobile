@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -39,6 +40,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -158,6 +160,18 @@ PageResponse<Booking> _page(List<Booking> items) => PageResponse<Booking>(
   totalPages: 1,
   totalElements: items.length,
 );
+
+/// Captures a real `Ref` (NOT a `WidgetRef`) so the PASS A group at the
+/// bottom of this file can invoke the literal production
+/// [invalidateBookingViewsAfterBookingCreated] — that helper is typed on
+/// `Ref` because its only production call site is a notifier. Same technique
+/// as `master_create_booking_pin_race_test.dart:176`.
+final Provider<void Function(String)> _createdFanOutProvider =
+    Provider<void Function(String)>(
+      (Ref ref) =>
+          (String salonId) =>
+              invalidateBookingViewsAfterBookingCreated(ref, salonId: salonId),
+    );
 
 void main() {
   setUpAll(() {
@@ -1187,6 +1201,7 @@ void main() {
       stubSalonDay(<Booking>[_booking(id: 'bk-1', masterId: 'm1', hour: 10)]);
 
       final List<String> visited = <String>[];
+      final List<Object?> extras = <Object?>[];
       final GoRouter router = GoRouter(
         initialLocation: '/board',
         routes: <RouteBase>[
@@ -1201,6 +1216,7 @@ void main() {
             path: '${RouteNames.salonStaffBookings}/:bookingId',
             builder: (_, GoRouterState s) {
               visited.add('salon:${s.pathParameters['bookingId']}');
+              extras.add(s.extra);
               return const Scaffold(key: Key('sentinel-salon-detail'));
             },
           ),
@@ -1234,6 +1250,22 @@ void main() {
       );
       expect(find.byKey(const Key('sentinel-salon-detail')), findsOneWidget);
       expect(find.byKey(const Key('sentinel-client-detail')), findsNothing);
+
+      // 2026-09-19, mobile-qa re-audit — the OTHER half of the drill-in:
+      // the push must also hand the board's OWN salonId over as `extra`.
+      // `app_router.dart` folds it into `BookingDetailScreen.salonId`, which
+      // is what lets a close/reschedule from that screen drop
+      // `salonBookedDaysProvider` and extinguish the rail dot. Dropping
+      // `extra:` here leaves the destination assertion above green and the
+      // dot lit for the full 30-minute keepAlive TTL — the exact bug this
+      // track fixed. Pinned by VALUE: `null` and the wrong salon both fail.
+      expect(
+        extras,
+        <Object?>[_salonId],
+        reason:
+            'the salon detail route reads salonId off `extra`; a bare push '
+            'silently reinstates the stale-dot bug',
+      );
     });
   });
 
@@ -1637,6 +1669,145 @@ void main() {
         freeDay,
       );
       expect(find.text(off), findsNothing);
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // 2026-09-19 (mobile-qa, PASS A) — the salon rail's DOT after a walk-in.
+  //
+  // `salonBookedDaysProvider` was never invalidated anywhere in `lib/`, so a
+  // salon walk-in refreshed the day LIST underneath the rail while the rail's
+  // own DOT stayed absent for up to the provider's full thirty-minute
+  // `keepAlive` TTL. `invalidateBookingViewsAfterBookingCreated(ref,
+  // salonId:)` closes it.
+  //
+  // WHY THIS TIER, on top of the two unit-tier groups
+  // (`booking_calendar_invalidation_test.dart`'s KEYED group and
+  // `master_create_booking_notifier_test.dart`'s salonId arm): those count
+  // REFETCHES. A refetch is not a dot. This test asserts the RENDERED
+  // `dayDotKey(newDay)` — the thing the user reported missing — through the
+  // REAL `salonBookedDaysProvider` -> `BookingsDiscoveryView` -> rail chain,
+  // and it asserts it for the SPECIFIC DATE the booking landed on, not "some
+  // dot somewhere".
+  //
+  // THE FIXTURE MOVES. The dot is absent before the fan-out and present
+  // after, because the stub's answer is re-armed in between (the server
+  // genuinely gained a booking on the 16th). A stub that already contained
+  // the 16th would make the assertion pass identically with and without the
+  // fix — `project_fixture_values_can_defang_assertions`.
+  // ═════════════════════════════════════════════════════════════════════════
+  group('PASS A — a created walk-in re-dots the salon rail', () {
+    /// Kyiv 2026-06-16 — the day the hypothetical walk-in lands on. One day
+    /// after the board's pinned "today" (`_now`), so it is inside the rail's
+    /// initial viewport and needs no scroll.
+    final DateTime newlyBookedDay = DateTime(2026, 6, 16);
+
+    /// Re-arms `GET /bookings/salon/{id}/booked-days` to also report
+    /// [newlyBookedDay] — what the real endpoint would answer once the POST
+    /// has landed.
+    void serverNowHasTheNewDay() {
+      when(
+        () => bookingRepo.getSalonBookedDays(
+          salonId: any(named: 'salonId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer(
+        (_) async => <DateTime>[DateTime(2026, 6, 15), newlyBookedDay],
+      );
+    }
+
+    Future<void> mountBoard(WidgetTester tester) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[_booking(id: 'conf', masterId: 'm1', hour: 9)]);
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(dayDotKey(DateTime(2026, 6, 15))),
+        findsOneWidget,
+        reason: 'sanity: the pre-existing booked day is dotted',
+      );
+      expect(
+        find.byKey(dayDotKey(newlyBookedDay)),
+        findsNothing,
+        reason:
+            'CONTROL — the 16th carries no dot yet. Without this the test '
+            'below could not tell "the fan-out worked" from "the fixture '
+            'always said yes"',
+      );
+      expect(
+        find.byKey(dayChipKey(newlyBookedDay)),
+        findsOneWidget,
+        reason:
+            'and the 16th\'s rail cell IS built, so a missing dot is a '
+            'missing DOT, never an unbuilt cell scrolled out of view',
+      );
+    }
+
+    /// Runs the literal production fan-out with a real `Ref` (the helper is
+    /// typed on `Ref`, not `WidgetRef` — see
+    /// `booking_calendar_invalidation_test.dart`'s own note) against the
+    /// container the mounted board is living in.
+    void runCreatedFanOut(WidgetTester tester, {required String salonId}) {
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonBookingsScreen)),
+        listen: false,
+      );
+      container.read(_createdFanOutProvider)(salonId);
+    }
+
+    // MUTATION (observed 2026-09-19): deleting the
+    // `if (salonId != null) { ref.invalidate(salonBookedDaysProvider(salonId)); }`
+    // block from `booking_calendar_invalidation.dart:460` → this test FAILED
+    // (the 16th's dot never appeared). Restored by `cp` from a backup.
+    testWidgets('the newly-booked DAY gains its dot — the specific date, '
+        'rendered, through the real provider chain', (tester) async {
+      await mountBoard(tester);
+
+      serverNowHasTheNewDay();
+      runCreatedFanOut(tester, salonId: _salonId);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(dayDotKey(newlyBookedDay)),
+        findsOneWidget,
+        reason:
+            'the day the walk-in was just created on must gain its rail dot '
+            'immediately — not after the 30-minute keepAlive TTL expires',
+      );
+      expect(
+        find.byKey(dayDotKey(DateTime(2026, 6, 15))),
+        findsOneWidget,
+        reason: 'and the pre-existing dot must survive the refetch',
+      );
+    });
+
+    // MUTATION (observed 2026-09-19): changing the production arm to
+    // `ref.invalidate(salonBookedDaysProvider(salonId))` with the id taken
+    // from ANOTHER salon is exactly what this test simulates from the call
+    // side — it passes a foreign id and requires the board to be unmoved.
+    testWidgets('a walk-in created on a DIFFERENT salon\'s board leaves this '
+        'board\'s dots alone — the family key, at the rendered tier', (
+      tester,
+    ) async {
+      await mountBoard(tester);
+
+      serverNowHasTheNewDay();
+      runCreatedFanOut(tester, salonId: 'salon-somebody-else');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(dayDotKey(newlyBookedDay)),
+        findsNothing,
+        reason:
+            'this board\'s member must NOT have been dropped: a bare, '
+            'un-keyed family invalidate would refetch every salon an owner '
+            'manages — a full ±180-day sweep each — for a booking that '
+            'cannot have moved any of their dots',
+      );
     });
   });
 }

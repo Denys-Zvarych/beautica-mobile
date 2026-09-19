@@ -536,7 +536,18 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
   /// «Скасувати запис» → the decline endpoint — off
   /// `bookingViewerRoleProvider`. See the file header.
   void _onBookingTap(Booking booking) {
-    context.push(RouteNames.salonStaffBookingDetail(booking.id));
+    // `extra` carries THIS board's salon id (2026-09-19, mobile-perf MEDIUM).
+    // The detail screen role-branches its own provider actions, and a
+    // decline / complete / reschedule performed there must also drop
+    // `salonBookedDaysProvider(salonId)` — this board's day-rail dot set,
+    // which nothing on `/salon/bookings/:bookingId`'s own path identifies and
+    // which `BookingDetailResponse` does not carry. Same
+    // `extra`-carries-the-salon-id contract `_onCreateBooking` below already
+    // uses for the sibling `new` route on this exact prefix.
+    context.push(
+      RouteNames.salonStaffBookingDetail(booking.id),
+      extra: widget.salonId,
+    );
   }
 
   /// Phase 340 — opens the approved 6-step salon «Новий запис» wizard.

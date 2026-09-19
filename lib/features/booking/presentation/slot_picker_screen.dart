@@ -616,6 +616,10 @@ class SlotTimeScreen extends ConsumerWidget {
         idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
         rescheduleAppointmentId: args.rescheduleAppointmentId,
+        // SALON DOT SET (2026-09-19) — forwarded verbatim; `null` on every
+        // path but a reschedule started from a salon «Записи» board, so this
+        // chain link is inert everywhere else.
+        rescheduleSalonId: args.rescheduleSalonId,
         guest: args.guest,
         hideMasterIdentity: args.hideMasterIdentity,
         rescheduleTargetIsWalkIn: args.rescheduleTargetIsWalkIn,

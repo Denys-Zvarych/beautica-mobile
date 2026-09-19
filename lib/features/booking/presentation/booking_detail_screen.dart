@@ -113,7 +113,31 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
     super.key,
     required this.bookingId,
     this.clientReviewRouteBuilder,
+    this.salonId,
   });
+
+  /// 2026-09-19 (mobile-perf MEDIUM) — the SALON this detail screen was
+  /// drilled into FROM, when it was drilled into from a salon «Записи» board.
+  ///
+  /// The board reads its rail dots from `salonBookedDaysProvider(salonId)`
+  /// (`bookings_discovery_view.dart`'s `SalonDayQuery` arm), a thirty-minute
+  /// `keepAlive` family member that NOTHING on this screen used to drop — so
+  /// a decline / complete / reschedule performed here left the board's dot
+  /// lit (or unlit) for up to half an hour after the booking that justified
+  /// it was gone or moved. It is threaded as a ROUTE parameter rather than
+  /// read off the booking because `BookingDetailResponse` carries `masterId`
+  /// but NO `salonId` (see [_BookingDetailScreenState._onRebook]'s own note):
+  /// a salon booking's venue is not independently addressable from a booking
+  /// record, so the only honest source is the screen the viewer came from.
+  ///
+  /// ADDITIVE and NULLABLE — the same shape (and the same "a route parameter,
+  /// not a role" reasoning) as [clientReviewRouteBuilder] above. `null` — the
+  /// CLIENT `/bookings/:id` mount, the `/master/bookings/:id` mount, the
+  /// `/staff/bookings/:id` mount and every existing test — invalidates
+  /// exactly what it always did. It is NEVER a capability signal: the viewer
+  /// side is still resolved from the session (`bookingViewerRoleProvider`,
+  /// locked decision D5).
+  final String? salonId;
 
   /// Phase 330 — builds the leave-client-feedback path for the COMPLETED
   /// provider footer's «Залишити відгук про клієнта» CTA. `null` (the CLIENT
@@ -239,6 +263,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ref,
       booking.id,
       affectedDate: kyivDayOf(booking.startAt),
+      // `null` on every non-salon mount — see `widget.salonId`'s doc.
+      salonId: widget.salonId,
     );
   }
 
@@ -300,6 +326,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ref,
       booking.id,
       affectedDate: kyivDayOf(booking.startAt),
+      // `null` on every non-salon mount — see `widget.salonId`'s doc.
+      salonId: widget.salonId,
     );
   }
 
@@ -322,7 +350,14 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // rescheduleBookingId, and further swaps to the per-item endpoint when
     // the freshly-fetched booking's `appointmentId` is also non-null).
     unawaited(
-      startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
+      startBookingReschedule(
+        context: context,
+        ref: ref,
+        bookingId: booking.id,
+        // Rides the whole picker → confirm chain so the SUBMIT can drop this
+        // board's dot set too; `null` on every non-salon mount.
+        salonId: widget.salonId,
+      ),
     );
   }
 

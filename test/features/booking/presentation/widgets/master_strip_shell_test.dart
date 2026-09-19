@@ -91,7 +91,6 @@ void main() {
             name: 'Ірина Бондаренко',
             avatarGradient: const <Color>[Color(0xFFD8BE9C), Color(0xFF6A4A28)],
             avatarBordered: true,
-            middleGap: 4,
             middleLine: const Text(
               'Манікюр · Педикюр',
               key: Key('mid-services'),
@@ -298,6 +297,165 @@ void main() {
       );
 
       handle.dispose();
+    });
+  });
+
+  // ── The trailing-slot PLACEMENT contract (2026-09-19, mobile-qa re-audit) ──
+  //
+  // The name-truncation HIGH was closed by moving the trailing readout off the
+  // outer `Row` and onto the sub-line row, so the name keeps the column's full
+  // width. That decision lives HERE, in the shared shell — but until now it was
+  // pinned only by regenerated goldens and by one 320dp screen-level guard that
+  // carries ~59dp of slack before `didExceedMaxLines` flips. Neither pins the
+  // placement itself at the widget that owns it.
+  //
+  // Asserted as a RENDERED GEOMETRIC FACT (`tester.getRect`), never a widget
+  // field: on the outer row the readout is vertically centred and overlaps the
+  // name's band; on the sub-line it starts at or below the name's bottom edge.
+  group('MasterStripShell — trailing placement', () {
+    // Long enough to fill the name column in BOTH candidate layouts, so
+    // `name.right` reports the column's real right edge instead of a
+    // shrink-wrapped glyph run — that is what makes the horizontal assertion
+    // below able to tell the two placements apart at all.
+    // i18n-finder-ok: opaque slot stand-in, not UI copy.
+    const String kLongName = 'Олена Ковальчук-Мельниченко-Заболотна';
+
+    Future<void> pumpShell(
+      WidgetTester tester, {
+      required bool withMiddle,
+    }) async {
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 320,
+            child: MasterStripShell(
+              // i18n-finder-ok: opaque slot stand-ins, not UI copy.
+              semanticsLabel: 'placement-sem',
+              name: kLongName,
+              topLabel: 'Запис до майстра',
+              middleLine: withMiddle
+                  ? const Text('Майстер манікюру', key: Key('mid'))
+                  : null,
+              trailing: const SizedBox(
+                key: Key('trail'),
+                width: 70,
+                height: 16,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('with a middleLine the trailing rides the SUB-LINE row — it '
+        'starts below the name, so the name keeps the whole column width', (
+      tester,
+    ) async {
+      await pumpShell(tester, withMiddle: true);
+
+      final Rect name = tester.getRect(find.text(kLongName));
+      final Rect trail = tester.getRect(find.byKey(const Key('trail')));
+      final Rect mid = tester.getRect(find.byKey(const Key('mid')));
+
+      expect(
+        trail.top,
+        greaterThanOrEqualTo(name.bottom),
+        reason:
+            'the readout must sit on the sub-line, not beside the name — '
+            'hung off the outer Row its ~70dp comes out of the name column '
+            'and «Олена Ковальчук» ellipsizes at 320dp/1.0x',
+      );
+      expect(
+        mid.top,
+        lessThan(trail.bottom),
+        reason: 'the readout shares the sub-line row with the middleLine',
+      );
+      expect(
+        name.right,
+        greaterThan(trail.left),
+        reason:
+            'the name now extends INTO the horizontal band the readout used '
+            'to reserve — the whole point of the move',
+      );
+    });
+
+    // WAS a "KNOWN LIMIT" pin (2026-09-19, first audit pass): with no
+    // middleLine the shell used to fall back to the OUTER row, which is the
+    // pre-fix narrow-name layout — reachable by any caller passing
+    // `showRating: true` without `showRole: true`, one keyword away because
+    // `MasterStrip.showRole` defaults to FALSE on three of its four
+    // constructors. Audit pass 2 DELETED that fallback rather than keep
+    // testing it, so the coverage is kept and its invariant INVERTED: the
+    // readout now rides a synthesised sub-line row even with no middleLine,
+    // and the name keeps the whole column width in EVERY composition.
+    testWidgets('with NO middleLine the readout STILL drops to a synthesised '
+        'sub-line row — the narrow-name outer-row fallback is gone', (
+      tester,
+    ) async {
+      await pumpShell(tester, withMiddle: false);
+
+      final Rect name = tester.getRect(find.text(kLongName));
+      final Rect trail = tester.getRect(find.byKey(const Key('trail')));
+
+      expect(
+        trail.top,
+        greaterThanOrEqualTo(name.bottom),
+        reason:
+            'the readout must drop below the name even with no sub-line to '
+            'ride — the shell synthesises the row (empty Expanded + readout) '
+            'rather than falling back to the outer Row',
+      );
+      expect(
+        name.right,
+        greaterThan(trail.left),
+        reason:
+            'THE INVARIANT THIS FIX BUYS: the name extends into the '
+            'horizontal band the readout used to reserve, in EVERY slot '
+            'composition — not only when a middleLine happens to be present. '
+            'A showRating-without-showRole call site can no longer reinstate '
+            'the truncation HIGH.',
+      );
+    });
+
+    testWidgets('a card with NEITHER middleLine nor trailing emits no '
+        'sub-line row at all — the true name-only card is untouched', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Center(
+          child: SizedBox(
+            width: 320,
+            child: MasterStripShell(
+              // i18n-finder-ok: opaque slot stand-ins, not UI copy.
+              semanticsLabel: 'name-only-sem',
+              name: kLongName,
+              topLabel: 'Запис до майстра',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The name column's Column holds exactly the topLabel + its 2dp gap +
+      // the name — no third row was synthesised for an absent trailing slot.
+      final Column column = tester.widget<Column>(
+        find
+            .descendant(
+              of: find.byType(MasterStripShell),
+              matching: find.byType(Column),
+            )
+            .first,
+      );
+      expect(
+        column.children.length,
+        3,
+        reason:
+            'topLabel + 2dp gap + name only: with neither slot filled the '
+            'shell must render exactly the tree it rendered before the '
+            'trailing-placement work, not an empty synthesised sub-line.',
+      );
+      expect(find.byType(Expanded), findsOneWidget, reason: 'the name column');
     });
   });
 }

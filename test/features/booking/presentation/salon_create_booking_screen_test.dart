@@ -19,6 +19,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -35,6 +36,10 @@ import 'package:beautica_mobile/features/booking/domain/create_master_booking_re
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_top_bar.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart'
+    show MasterRatingReadout, MasterStrip;
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_avatar_badge.dart'
+    show MasterAvatarBadge;
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wizard_steps.dart'
     show StepIndicator;
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -51,7 +56,8 @@ import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -79,6 +85,34 @@ const SalonMasterSummary _kMasterB = SalonMasterSummary(
   type: MasterType.salonMaster,
   reviewCount: 0,
 );
+
+/// [_kMasterA] with REVIEWS — the confirm card's rating readout is gated on
+/// `reviewCount > 0`, so the default fixture (count `0`) can only ever prove
+/// the suppressed half. Same identity (`master-a`, so `_coverageAOnly` still
+/// covers it) and the SAME name/rating as `salon_confirm_recap_golden_test
+/// .dart`'s `_kMaster`, deliberately: the truncation guard at the bottom of
+/// this file measures the very string those goldens render.
+const SalonMasterSummary _kMasterARated = SalonMasterSummary(
+  masterId: 'master-a',
+  firstName: 'Олена',
+  lastName: 'Ковальчук',
+  type: MasterType.salonMaster,
+  reviewCount: 12,
+  avgRating: 4.8,
+);
+
+/// The display name [MasterStrip] joins [_kMasterARated] into — DERIVED from
+/// the fixture, never re-spelled, so a fixture rename cannot silently desync
+/// the finders below from what the widget actually renders.
+///
+/// Named rather than inlined at the call site because
+/// `scripts/forbid_cyrillic_finder.sh` scans the call site's own text: this
+/// string is fixture DATA (a person's name), not UI copy, so it is
+/// locale-invariant and will read identically the day EN ships — the same
+/// reasoning `integration_test/salon_create_booking_test.dart`'s header
+/// records for `FakeBackend.kSalonWizSvcAName`.
+final String _kMasterARatedName =
+    '${_kMasterARated.firstName} ${_kMasterARated.lastName}';
 
 const SalonCatalogService _kCatalogService = SalonCatalogService(
   id: 'salon-svc-1',
@@ -471,6 +505,11 @@ Future<GoRouter> _pump(
   List<SalonServiceCategoryEntry> catalog = _kCatalog,
   _FakeSlotRepository? slotRepository,
   _FakeBookingRepository? bookingRepository,
+
+  /// ADDITIVE (2026-09-19, PASS A) — appended AFTER the defaults below, so an
+  /// entry here wins for the provider it names and every existing call site
+  /// pumps byte-identically to before this knob existed.
+  List<Object> extraOverrides = const <Object>[],
 }) async {
   final GoRouter router = _router();
   await tester.pumpRoutedApp(
@@ -492,6 +531,7 @@ Future<GoRouter> _pump(
         (_) => bookingRepository ?? _FakeBookingRepository(),
       ),
       clockProvider.overrideWithValue(() => _kNow),
+      ...extraOverrides,
     ],
   );
   unawaited(router.push('/salon-test-target'));
@@ -2303,5 +2343,367 @@ void main() {
         );
       },
     );
+  });
+
+  _passAGroup();
+  _passBGroup();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PASS B (2026-09-19, mobile-qa) — the confirm card is THE shared MasterStrip.
+//
+// Until 2026-09-19 `_buildMasterCard` returned a private
+// `_SalonConfirmMasterCard` (95 lines) that hand-rebuilt the strip's row out
+// of `MasterStripShell`'s own text tokens. That fork is deleted; the method
+// now returns the shared [MasterStrip] itself (REUSE-FIRST, CLAUDE.md,
+// reversing phase-339 D3).
+//
+// A fork is not caught by a golden: regenerating a baseline is
+// self-referential (`feedback_golden_not_acceptance`), and a re-forked card
+// that happened to look the same would pass every one of the 12
+// `salon_confirm_recap_*` PNGs. These tests pin the STRUCTURE and the one
+// piece of BEHAVIOUR the fork carried (the `reviewCount > 0` rating gate),
+// so the de-fork cannot silently be undone.
+// ═══════════════════════════════════════════════════════════════════════════
+void _passBGroup() {
+  group('SalonCreateBookingScreen — confirm master card (PASS B de-fork)', () {
+    const Key kCard = Key('salon-create-booking-master-card');
+
+    Future<void> driveToConfirmWith(
+      WidgetTester tester, {
+      required SalonMasterSummary masterA,
+    }) async {
+      await _pump(
+        tester,
+        roster: <SalonMasterSummary>[masterA, _kMasterB],
+        slotRepository: _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            'master-a': <BookingSlot>[_kSlot],
+          },
+        ),
+      );
+      await _driveToMasters(tester);
+      await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          Key(
+            'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('master-create-booking-confirm-card')),
+        findsOneWidget,
+        reason: 'sanity: the drive landed on the confirm step',
+      );
+    }
+
+    testWidgets('the identity card IS the shared MasterStrip, mounted under '
+        'the key the fork used to own', (tester) async {
+      await driveToConfirmWith(tester, masterA: _kMasterARated);
+
+      // The key must keep resolving — it is what every sibling test and any
+      // future golden/E2E finder reaches this card by.
+      expect(find.byKey(kCard), findsOneWidget);
+      expect(
+        tester.widget(find.byKey(kCard)),
+        isA<MasterStrip>(),
+        reason:
+            'a re-fork would put some other widget back under this key and '
+            'nothing else in the suite would notice',
+      );
+      // A RENDERED structural fact the fork could not produce: the fork drew
+      // a bare `Container` circle with an `Icon`; the shared shell mounts
+      // `MasterAvatarBadge`. Asserting the badge — not just the class name —
+      // is what makes this about the widget TREE rather than a type label.
+      expect(
+        find.descendant(
+          of: find.byKey(kCard),
+          matching: find.byType(MasterAvatarBadge),
+        ),
+        findsOneWidget,
+        reason:
+            'the shared shell\'s avatar badge — the fork hand-rolled a raw '
+            'gradient Container here',
+      );
+      // Data binding, not a smoke check: the card renders THIS master.
+      expect(
+        find.descendant(
+          of: find.byKey(kCard),
+          matching: find.text(_kMasterARatedName),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    // The fork's own guard, transcribed: `if (master.reviewCount > 0)` around
+    // the trailing readout, plus the `reviewCount > 0 ? avgRating : null`
+    // fold that keeps an unrated master reading «—» and never «0.0».
+    testWidgets('the rating readout renders ONLY when reviewCount > 0 — with '
+        'the figure and the (n) suffix', (tester) async {
+      await driveToConfirmWith(tester, masterA: _kMasterARated);
+
+      final Finder readout = find.descendant(
+        of: find.byKey(kCard),
+        matching: find.byType(MasterRatingReadout),
+      );
+      expect(readout, findsOneWidget);
+      expect(
+        find.descendant(of: readout, matching: find.text('4.8')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: readout, matching: find.text('(12)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: readout,
+          matching: find.text(MasterStrip.noRatingLabel),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an UNREVIEWED master carries no rating readout at all — '
+        'never a «—» and never a damning «0.0»', (tester) async {
+      // `_kMasterA` is the default fixture: reviewCount 0, avgRating null.
+      await driveToConfirmWith(tester, masterA: _kMasterA);
+
+      expect(find.byKey(kCard), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(kCard),
+          matching: find.byType(MasterRatingReadout),
+        ),
+        findsNothing,
+        reason:
+            'showRating is gated on reviewCount > 0 — the fork\'s own guard, '
+            'transcribed onto the shared strip rather than widened',
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(kCard),
+          matching: find.text(MasterStrip.noRatingLabel),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: find.byKey(kCard), matching: find.text('0.0')),
+        findsNothing,
+      );
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // KNOWN-OPEN DEFECT (mobile-qa HIGH, IN-DIFF) — FAILING-FIRST GUARD.
+    //
+    // The shared strip puts its rating readout in the Row OUTSIDE the name's
+    // `Expanded` (`master_strip_shell.dart:140-170`); the deleted fork gave
+    // the name the full card width and shared only the SUBTITLE line with the
+    // rating. So the de-fork narrows the name column by ~19dp at 320 and
+    // ~15dp at 360, and «Олена Ковальчук» — the very name the 12 regenerated
+    // `salon_confirm_recap_*` goldens render — now ELLIPSIZES at 320dp@1.0x,
+    // 320dp@1.3x and 360dp@1.3x, with 360dp@1.0x at exactly zero slack.
+    //
+    // 320dp at text scale 1.0 is the DEFAULT setting on a small phone. This
+    // is not an accessibility-only edge case, which is why the guard is
+    // pinned at 1.0 and not at an inflated scale.
+    //
+    // MEASURED HERE (2026-09-19), via `RenderParagraph`'s own laid-out box vs
+    // its max intrinsic width, at text scale 1.0:
+    //     320dp -> box 116.25, needs 124.44  ->  8.19dp SHORT, ellipsized
+    //     360dp -> box 124.44, needs 124.44  ->  0.00dp slack (one glyph from
+    //                                            the same failure)
+    //     380dp / 414dp -> fits
+    // So the fix needs roughly 9dp back at 320 and any slack at all at 360;
+    // the two 1.3x cells the verifier flagged sit further the wrong side of
+    // the same boundary.
+    //
+    // CAUSATION, MEASURED (2026-09-19, not inferred): with
+    // `salon_create_booking_screen.dart` reverted to HEAD (`git show HEAD:…`
+    // into the file, restored by `cp` afterwards — never `git checkout`, the
+    // tree carries uncommitted work) this test PASSES; with Pass B applied it
+    // FAILS. The truncation is caused by the de-fork, and by nothing else.
+    //
+    // This test is EXPECTED TO FAIL until `mobile-dev` gives the name room
+    // back (the fix is theirs, not QA's). It is deliberately written against
+    // the LAID-OUT paragraph — `RenderParagraph.didExceedMaxLines` — and not
+    // against a widget field or a golden PNG: a field read proves only what
+    // was passed in, and a regenerated golden is self-referential.
+    // ═══════════════════════════════════════════════════════════════════════
+    testWidgets('REGRESSION GUARD — the master name does not truncate at '
+        '320dp @ text-scale 1.0 (default on a small phone)', (tester) async {
+      tester.view.physicalSize = const Size(320, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await driveToConfirmWith(tester, masterA: _kMasterARated);
+
+      final Finder nameText = find.descendant(
+        of: find.byKey(kCard),
+        matching: find.text(_kMasterARatedName),
+      );
+      expect(nameText, findsOneWidget);
+
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        nameText,
+      );
+      expect(
+        paragraph.didExceedMaxLines,
+        isFalse,
+        reason:
+            'the master name must fit the confirm card at 320dp/1.0x. The '
+            'shared strip\'s trailing rating readout takes the width out of '
+            'the name column that the removed `_SalonConfirmMasterCard` gave '
+            'it; the fix belongs in the LAYOUT (give the name the row, or '
+            'let the readout wrap/shrink), never in shortening the fixture '
+            'name — «Олена Ковальчук» is what the 12 salon_confirm_recap_* '
+            'goldens render',
+      );
+    });
+
+    // The CONTROL for the guard above: the identical card at a width where
+    // the verifier measured no truncation. Without it, a "fix" that simply
+    // stopped rendering the name at all would turn the guard green.
+    testWidgets('CONTROL — the same name at 414dp @ 1.0x is NOT truncated '
+        '(so the guard above is measuring width, not a broken finder)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(414, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await driveToConfirmWith(tester, masterA: _kMasterARated);
+
+      final Finder nameText = find.descendant(
+        of: find.byKey(kCard),
+        matching: find.text(_kMasterARatedName),
+      );
+      expect(nameText, findsOneWidget);
+      expect(
+        tester.renderObject<RenderParagraph>(nameText).didExceedMaxLines,
+        isFalse,
+      );
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PASS A (2026-09-19, mobile-qa) — the SCREEN end of the salonId chain.
+//
+// `master_create_booking_notifier_test.dart` proves the notifier forwards a
+// salonId it is HANDED; `booking_calendar_invalidation_test.dart` proves the
+// helper drops the right family member. Neither can prove the wizard actually
+// hands its own `widget.salonId` over — a `submit(...)` that simply omitted
+// the argument would leave both of those suites green and reinstate the bug
+// in full.
+//
+// Asserted through the invalidation's OBSERVABLE EFFECT (a counted refetch on
+// a live member), never by reading an argument off a spy: the point is that
+// the real screen -> real notifier -> real fan-out chain moves the board's dot
+// provider, for THIS salon and no other.
+// ═══════════════════════════════════════════════════════════════════════════
+void _passAGroup() {
+  group('SalonCreateBookingScreen — submit forwards its OWN salonId', () {
+    const String kOtherSalon = 'salon-somebody-else';
+
+    testWidgets('a successful submit drops salonBookedDaysProvider for the '
+        'wizard\'s own salon — and leaves another salon\'s member alone', (
+      tester,
+    ) async {
+      final Map<String, int> salonDotFetches = <String, int>{};
+      final fakeSlots = _FakeSlotRepository(
+        slotsByMaster: <String, List<BookingSlot>>{
+          _kMasterA.masterId: <BookingSlot>[_kSlot],
+        },
+      );
+      final fakeBookings = _FakeBookingRepository();
+
+      await _pump(
+        tester,
+        slotRepository: fakeSlots,
+        bookingRepository: fakeBookings,
+        extraOverrides: <Object>[
+          // Counting override rather than the real provider: the production
+          // body parks a 30-minute keepAlive `Timer` (and would call the
+          // fake repository's deliberately-unimplemented
+          // `getSalonBookedDays`), and a counted refetch is the only way to
+          // observe a SEAMLESS invalidate at all — `ref.invalidate` retains
+          // the previous `.value`, so no value assertion could ever fire.
+          salonBookedDaysProvider.overrideWith((ref, String id) async {
+            salonDotFetches[id] = (salonDotFetches[id] ?? 0) + 1;
+            return <DateTime>{};
+          }),
+        ],
+      );
+
+      // Both members LIVE — Riverpod DROPS an invalidated provider nobody is
+      // listening to instead of refetching it, which would make both halves
+      // of this assertion unobservable.
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonCreateBookingScreen)),
+        listen: false,
+      );
+      for (final String id in const <String>[_kSalonId, kOtherSalon]) {
+        final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+            .listen(
+              salonBookedDaysProvider(id),
+              (_, _) {},
+              fireImmediately: true,
+            );
+        addTearDown(sub.close);
+        await container.read(salonBookedDaysProvider(id).future);
+      }
+      expect(
+        salonDotFetches,
+        <String, int>{_kSalonId: 1, kOtherSalon: 1},
+        reason: 'sanity: one fetch per live member before the submit',
+      );
+
+      await _driveToMasters(tester);
+      await tester.tap(find.byKey(const Key('salon-master-tile-master-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          Key(
+            'salon-tile-slot-chip-master-a-${_kSlot.startAt.toIso8601String()}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('salon-create-booking-submit-cta')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        fakeBookings.calls,
+        hasLength(1),
+        reason: 'sanity: the walk-in was actually created',
+      );
+      for (final String id in const <String>[_kSalonId, kOtherSalon]) {
+        await container.read(salonBookedDaysProvider(id).future);
+      }
+
+      expect(
+        salonDotFetches[_kSalonId],
+        2,
+        reason:
+            'the wizard must pass `salonId: widget.salonId` into submit — '
+            'without it the board it was opened from keeps serving its '
+            'stale dot set for the provider\'s 30-minute keepAlive TTL, '
+            'which is the user-reported symptom (list updates, dot does '
+            'not)',
+      );
+      expect(
+        salonDotFetches[kOtherSalon],
+        1,
+        reason: 'and no other salon\'s ±180-day sweep may be re-issued',
+      );
+    });
   });
 }

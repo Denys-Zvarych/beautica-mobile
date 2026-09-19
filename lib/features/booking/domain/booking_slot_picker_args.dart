@@ -98,6 +98,22 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// file header.
     String? rescheduleAppointmentId,
 
+    /// 2026-09-19 (mobile-perf MEDIUM) — the SALON whose «Записи» board this
+    /// reschedule was started FROM, threaded so
+    /// `BookingConfirmScreen._submit`'s post-write fan-out can also drop
+    /// `salonBookedDaysProvider(salonId)`, the board's own day-rail dot set.
+    /// A reschedule genuinely MOVES a dot between days; without this the
+    /// board kept both the vacated day's dot and the new day's absence for
+    /// up to the provider's thirty-minute `keepAlive` TTL.
+    ///
+    /// Seeded by `startBookingReschedule` from `BookingDetailScreen.salonId`
+    /// (a ROUTE parameter — `BookingDetailResponse` carries no `salonId`, so
+    /// it cannot be read off the booking). `null` on EVERY other path: the
+    /// CLIENT reschedule, the independent master's own reschedule, and every
+    /// create/walk-in push — so this chain link is inert there, exactly like
+    /// the venue-address fields beside it.
+    String? rescheduleSalonId,
+
     /// Non-null only when this flow was entered from the master's own
     /// WALK-IN («Новий запис») entry point — the guest identity to submit
     /// with `CreateMasterBookingRequest`. See phase-258.

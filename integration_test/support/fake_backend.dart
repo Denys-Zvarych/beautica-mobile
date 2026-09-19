@@ -8207,6 +8207,27 @@ final class FakeBackend {
             };
           }
         }
+        // 2026-09-19 (mobile-qa) — the SALON-BOARD twin of the
+        // `_bookingsDataset` mutation above, added for the same reason and
+        // with the same shape. `GET /bookings/salon/{id}` reads
+        // [salonBoardBookings] at REQUEST time, so without this the board's
+        // very next fetch would still report `booking-1` as CONFIRMED and
+        // `salon_owner_bookings_board_flow_test.dart`'s post-decline
+        // invalidation guard could not tell "the board's cache never dropped"
+        // (the regression) from "the fake never learned about the write".
+        // Status-flip, not a row removal, because that is what the real
+        // backend does — the board's own client-side day-list narrowing
+        // (CANCELLED/DECLINED hidden by default, locked 2026-08-13) is what
+        // must then take the card off screen.
+        final int boardIdx = salonBoardBookings.indexWhere(
+          (Map<String, dynamic> row) => row['id'] == 'booking-1',
+        );
+        if (boardIdx != -1) {
+          salonBoardBookings[boardIdx] = <String, dynamic>{
+            ...salonBoardBookings[boardIdx],
+            'status': 'DECLINED',
+          };
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
@@ -8456,6 +8477,23 @@ final class FakeBackend {
   /// (backend Phase 319 — the salon rail's dots).
   int salonBookedDaysCalls = 0;
 
+  /// Kyiv date-only `yyyy-MM-dd` keys for walk-ins the salon wizard has
+  /// POSTed during this run (mobile-qa PASS A, 2026-09-19).
+  ///
+  /// The two `/booked-days` handlers derive their answer from
+  /// [salonBoardBookings], which a wizard POST does not touch — so before
+  /// this field a created walk-in could never make a NEW day appear in the
+  /// dot set, and any E2E assertion that "the rail gained its dot" would have
+  /// been vacuous in BOTH directions (`project_fixture_values_can_defang_
+  /// assertions`). The real backend obviously reports the day it just booked;
+  /// the fake now does too.
+  ///
+  /// Kept separate from [salonBoardBookings] deliberately: unioning a day is
+  /// all the dot set needs, and appending a synthetic row to the board's own
+  /// list would silently change what every existing board assertion in this
+  /// tier renders.
+  final Set<String> createdWalkInDayKeys = <String>{};
+
   /// The raw query of the MOST RECENT salon booked-days call, as Dio sent it.
   /// Lets a flow assert the Kyiv-anchored ±`kBookedDaysSpanDays` window
   /// `salonBookedDaysProvider` (`booked_days_notifier.dart`) sends — and that
@@ -8487,6 +8525,11 @@ final class FakeBackend {
             days.add(startsAt.substring(0, 10));
           }
         }
+        // Walk-ins POSTed through the salon wizard during this run — see
+        // [createdWalkInDayKeys]. A real server reports the day it just
+        // booked; without this the dot set can never gain a day and a
+        // post-create rail assertion is vacuous.
+        days.addAll(createdWalkInDayKeys);
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
@@ -8614,6 +8657,11 @@ final class FakeBackend {
             days.add(startsAt.substring(0, 10));
           }
         }
+        // Walk-ins POSTed through the salon wizard during this run — see
+        // [createdWalkInDayKeys]. A real server reports the day it just
+        // booked; without this the dot set can never gain a day and a
+        // post-create rail assertion is vacuous.
+        days.addAll(createdWalkInDayKeys);
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
@@ -8966,6 +9014,15 @@ final class FakeBackend {
             .cast<String, dynamic>();
         final List<dynamic> serviceIds =
             (body['masterServiceIds'] as List?) ?? const <dynamic>[];
+        // The Kyiv civil day this visit lands on — what the rail's dot set
+        // must gain (see [createdWalkInDayKeys]). Derived from the instant
+        // the wizard put on the WIRE, never from a host-clock read.
+        final DateTime bookedKyivDay = kyivDayOf(startsAt);
+        createdWalkInDayKeys.add(
+          '${bookedKyivDay.year.toString().padLeft(4, '0')}-'
+          '${bookedKyivDay.month.toString().padLeft(2, '0')}-'
+          '${bookedKyivDay.day.toString().padLeft(2, '0')}',
+        );
 
         const Duration itemBuffer = Duration(minutes: 10);
         DateTime cursor = startsAt;

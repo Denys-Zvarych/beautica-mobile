@@ -112,6 +112,8 @@
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart'
+    show dayDotKey;
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -473,6 +475,29 @@ void main() {
         tester,
         find.byKey(const Key('salon-create-booking-submit-cta')),
       );
+
+      // ── PASS A baseline (mobile-qa, 2026-09-19) ─────────────────────────
+      // How many times the board's rail has asked
+      // `GET /bookings/salon/{id}/booked-days` up to this point. `> 0`
+      // (the board mounted before «+» was tapped) — captured rather than
+      // hard-coded so the assertions below measure the DELTA this submit
+      // causes, not a count that shifts whenever the board's mount path
+      // changes.
+      final int dotFetchesBeforeSubmit = fb.salonBookedDaysCalls;
+      expect(
+        dotFetchesBeforeSubmit,
+        greaterThan(0),
+        reason: 'sanity: the board fetched its dot set when it mounted',
+      );
+      expect(
+        fb.createdWalkInDayKeys,
+        isEmpty,
+        reason:
+            'CONTROL — the server has no walk-in day to report yet, so the '
+            'dot asserted after the pop-back genuinely APPEARS rather than '
+            'having been in the fixture all along',
+      );
+
       await tester.tap(
         find.byKey(const Key('salon-create-booking-submit-cta')),
       );
@@ -516,6 +541,35 @@ void main() {
       expect(find.text(FakeBackend.kSalonWizSvcBName), findsOneWidget);
       expect(find.text(FakeBackend.kSalonWizSvcCName), findsOneWidget);
 
+      // ── PASS A: the fan-out fires, but NOT while the board is covered ──
+      //
+      // The wizard is pushed as a `fullscreenDialog`
+      // (`salon_bookings_screen.dart:570`), so the board below it is MOUNTED
+      // BUT PAUSED — `TickerMode` off turns its `Consumer`'s
+      // `ProviderSubscription` into a paused one. At the locked
+      // `flutter_riverpod 3.1.0` an `invalidate` whose only listeners are
+      // paused marks the element dirty and issues NO network call; the
+      // refetch happens when the board resumes.
+      //
+      // So the assertion has to be split, and the submit-time half asserts
+      // ZERO growth. Asserting a refetch HERE could not pass, and would be
+      // misread as a product bug rather than a wrong test.
+      expect(
+        fb.salonBookedDaysCalls,
+        dotFetchesBeforeSubmit,
+        reason:
+            'the covered board must not re-issue its ±180-day sweep while '
+            'the wizard is still on top of it — paused subscription, marked '
+            'dirty, no fetch',
+      );
+      expect(
+        fb.createdWalkInDayKeys,
+        isNotEmpty,
+        reason:
+            'sanity: the server now HAS a booked day to report, so the '
+            'refetch below has something new to find',
+      );
+
       await tester.tap(find.byKey(const Key('salon-create-booking-done-cta')));
       await AppHarness.settle(tester);
       expect(
@@ -523,6 +577,42 @@ void main() {
         findsOneWidget,
         reason: '«Готово» must return to the board',
       );
+
+      // ── PASS A: on pop-back the board refetches, and the DOT appears ────
+      //
+      // MUTATION (observed 2026-09-19): deleting the
+      // `if (salonId != null) { ref.invalidate(salonBookedDaysProvider(
+      // salonId)); }` block from `booking_calendar_invalidation.dart:460` →
+      // BOTH role runs FAILED here (1 dot fetch, not 2). Restored by `cp`
+      // from a backup — never `git checkout`, this tree carries uncommitted
+      // work.
+      //
+      // THE regression this pass closes. `salonBookedDaysProvider` is a
+      // 30-minute-TTL `keepAlive` family that nothing in `lib/` invalidated,
+      // so the day the owner had just booked carried no rail dot for up to
+      // half an hour while the list underneath it refreshed normally —
+      // exactly the reported symptom.
+      expect(
+        fb.salonBookedDaysCalls,
+        dotFetchesBeforeSubmit + 1,
+        reason:
+            'resuming the board must drop and refetch its dot set exactly '
+            'once — `invalidateBookingViewsAfterBookingCreated(ref, '
+            'salonId:)`',
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(dayDotKey(_kyivToday)),
+      );
+      expect(
+        find.byKey(dayDotKey(_kyivToday)),
+        findsOneWidget,
+        reason:
+            'and the RENDERED dot must be on the day the walk-in was booked '
+            '— a refetch that put the dot on the wrong day, or on another '
+            'salon\'s board, would satisfy the call-count alone',
+      );
+
       expect(tester.takeException(), isNull);
     });
   }

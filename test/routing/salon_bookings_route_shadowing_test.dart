@@ -261,6 +261,109 @@ void main() {
       expect(find.byType(SalonCreateBookingScreen), findsNothing);
     });
 
+    // ── The salonId HANDOFF over `extra` (2026-09-19, mobile-qa re-audit) ──
+    //
+    // `salon_bookings_screen.dart:548` pushes this route with
+    // `extra: widget.salonId`, and `app_router.dart` folds `state.extra` into
+    // `BookingDetailScreen.salonId`; the screen then threads it into
+    // `invalidateBookingViewsAfterProviderClose` / ...ItemReschedule so the
+    // board's rail dot drops with the list.
+    //
+    // NOTHING pinned that seam. `booking_calendar_invalidation_test.dart`
+    // proves the helpers drop the right member WHEN HANDED a salonId, but a
+    // push that dropped `extra:`, or a router that stopped reading it, would
+    // leave every one of those tests green while the dot went stale again —
+    // the identical hole PASS A was written to close on the wizard side.
+    //
+    // The assertion reads the resolved screen's `salonId`, which is the only
+    // observable this seam HAS: the router's whole job here is argument
+    // construction, and a null vs non-null salonId renders identically.
+    Future<BookingDetailScreen> pushDetail(
+      WidgetTester tester, {
+      required Object? extraArg,
+    }) async {
+      final container = makeContainer(
+        retry: (_, _) => null,
+        extra: <Object>[
+          bookingRepositoryProvider.overrideWithValue(
+            _PendingBookingRepository(),
+          ),
+        ],
+      );
+      final router = container.read(appRouterProvider);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: _RouterApp(router: router),
+        ),
+      );
+      await tester.pump();
+
+      // `push`, not `go` — the production call site is a push, and the two
+      // do not populate the same `GoRouterState` fields.
+      unawaited(
+        router.push(
+          RouteNames.salonStaffBookingDetail('bk-1'),
+          extra: extraArg,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      return tester.widget<BookingDetailScreen>(
+        find.byType(BookingDetailScreen),
+      );
+    }
+
+    testWidgets('/salon/bookings/:bookingId carries the board\'s salonId '
+        'through `extra` onto the resolved BookingDetailScreen', (
+      tester,
+    ) async {
+      final BookingDetailScreen screen = await pushDetail(
+        tester,
+        extraArg: 'salon-1',
+      );
+
+      expect(
+        screen.salonId,
+        'salon-1',
+        reason:
+            'without this the close/reschedule fan-out runs with a null '
+            'salonId and salonBookedDaysProvider is never dropped — the '
+            'board\'s rail dot then stays lit for the full 30-minute '
+            'keepAlive TTL, which is the bug this track fixed',
+      );
+    });
+
+    testWidgets('the SAME route reached with no `extra` resolves a NULL '
+        'salonId rather than throwing — the /master/* and deep-link mounts', (
+      tester,
+    ) async {
+      final BookingDetailScreen screen = await pushDetail(
+        tester,
+        extraArg: null,
+      );
+
+      expect(screen.salonId, isNull);
+    });
+
+    testWidgets('a NON-String `extra` is ignored, not cast-thrown — the '
+        'switch must degrade to null', (tester) async {
+      final BookingDetailScreen screen = await pushDetail(
+        tester,
+        extraArg: const <String, String>{'salonId': 'salon-1'},
+      );
+
+      expect(
+        screen.salonId,
+        isNull,
+        reason:
+            '`extra` is untyped; a future caller passing an args object down '
+            'this route must not crash the detail screen',
+      );
+    });
+
     // The gate itself, as a pure decision — this is WHY the route above had
     // to exist, and it is the assertion that fails if anyone ever "simplifies"
     // the board back onto `RouteNames.bookingDetail`.

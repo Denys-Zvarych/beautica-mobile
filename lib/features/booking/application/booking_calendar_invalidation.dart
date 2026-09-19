@@ -256,6 +256,59 @@ void invalidateBookingViewsAfterExternalDecline(
 ///     `keepAlive()` SINGLETON with a thirty-minute TTL
 ///     (`booked_days_notifier.dart`), not a member of the
 ///     [bookingsDayProvider] family invalidated above.
+///   • [salonBookedDaysProvider] — the SALON twin of the bullet above, and
+///     only when [salonId] is non-null (2026-09-19, mobile-perf MEDIUM).
+///
+///     The rail picks its dot provider by query VARIANT —
+///     `bookings_discovery_view.dart`'s `SalonDayQuery(:final String
+///     salonId) => ref.watch(salonBookedDaysProvider(salonId))` vs
+///     `MasterOwnDayQuery() => ref.watch(bookedDaysProvider)` — and this
+///     helper only ever dropped the master-scoped singleton. But the salon
+///     «Записи» board drills into THIS screen
+///     (`salon_bookings_screen.dart:_onBookingTap` →
+///     `RouteNames.salonStaffBookingDetail`), so an owner declining the day's
+///     last booking from their own board watched the list update while the
+///     rail dot stayed lit for up to the full thirty-minute `keepAlive` TTL —
+///     the exact staleness [invalidateBookingViewsAfterBookingCreated]'s own
+///     salon twin closed for the CREATE path, left open on the CLOSE path.
+///
+///     Same BARE member invalidate, for the same reason spelled out on that
+///     helper's own bullet: `salonBookedDaysProvider` is not pinned by
+///     [DayKeepAliveLru], so there is no keepAlive link to re-touch and no
+///     queued-disposal race to cancel.
+///
+///     Both arms are wired, not just DECLINE — the same "one answer per
+///     helper" rule the [bookedDaysProvider] bullet above argues at length.
+///     COMPLETE is mathematically redundant here for the identical reason
+///     (`CONFIRMED` and `COMPLETED` are both allow-listed by
+///     `BookingRepository#findBookedDatesBySalonId`, the salon twin of the
+///     query that bullet cites), and is kept for the identical reason.
+///
+///   • [bookingsDayProvider]'s SALON day-list members — the LIST half of the
+///     bullet above, and the self-contradiction that bullet's own fix
+///     introduced (2026-09-19, audit MEDIUM).
+///
+///     The `bookingsDayProvider` loop at the top of this function builds
+///     [BookingsDayQuery.dayList] / [BookingsDayQuery.of], i.e. two
+///     `MasterOwnDayQuery` keys. The salon «Записи» board watches NEITHER —
+///     it watches a `SalonDayQuery` (`bookings_discovery_view.dart`'s
+///     `_rebuildQuery` → [BookingsDayQuery.salonDayList]). So once the bullet
+///     above taught this helper to drop the salon rail DOT, an owner
+///     declining or completing from their own board watched the dot move
+///     correctly while the LIST underneath kept the booking at its old slot
+///     until a pull-to-refresh or an LRU eviction. Before that fix both
+///     halves went stale together; afterwards they disagreed, which is
+///     strictly worse.
+///
+///     Delegated to [_invalidateSalonDayLists], which ENUMERATES the live
+///     members rather than hand-building a key — see its doc for why a
+///     literal `salonDayList(salonId: …, masterId: null)` names a member
+///     nobody is watching the moment the owner has any filter applied.
+///
+/// [salonId] defaults to `null`, so every pre-existing caller — the
+/// INDEPENDENT_MASTER's own `/master/bookings/:id` mount and
+/// `master_archive_screen.dart`, neither of which has a salon board to
+/// refresh — behaves exactly as it did before this parameter existed.
 ///
 /// Cost: one refetch per LIVE subscriber, same accounting as
 /// [invalidateBookingViewsAfterExternalDecline] — calling this while none of
@@ -270,6 +323,7 @@ void invalidateBookingViewsAfterProviderClose(
   WidgetRef ref,
   String bookingId, {
   required DateTime affectedDate,
+  String? salonId,
 }) {
   ref.invalidate(bookingDetailProvider(bookingId));
 
@@ -292,6 +346,15 @@ void invalidateBookingViewsAfterProviderClose(
 
   ref.invalidate(masterArchiveProvider);
   ref.invalidate(bookedDaysProvider);
+  if (salonId != null) {
+    ref.invalidate(salonBookedDaysProvider(salonId));
+    _invalidateSalonDayLists(
+      ref,
+      lru: lru,
+      salonId: salonId,
+      affectedDays: <DateTime>{affectedDate},
+    );
+  }
 }
 
 /// Invalidates every master-facing booking cache the CREATION of a booking on
@@ -363,6 +426,34 @@ void invalidateBookingViewsAfterProviderClose(
 ///     both the rail and the month grid. Nothing else would have dropped it:
 ///     it is filter-independent, so it is not a member of any family the day
 ///     list invalidates.
+///   • [salonBookedDaysProvider] — the SALON twin of the bullet above, and
+///     only when [salonId] is non-null (the salon «Записи» board's wizard
+///     passes it; the independent-master wizard, `booking_confirm_screen
+///     .dart`, does not and must not — there is no salon to drop).
+///
+///     THE FIX (this track). The rail picks its dot provider by query
+///     variant — `bookings_discovery_view.dart`'s
+///     `SalonDayQuery(:final String salonId) =>
+///     ref.watch(salonBookedDaysProvider(salonId))` vs `MasterOwnDayQuery()
+///     => ref.watch(bookedDaysProvider)` — but this helper only ever dropped
+///     the master-scoped singleton. Since BOTH walk-in wizards funnel through
+///     the SAME `MasterCreateBookingNotifier.submit`, a salon manual booking
+///     refreshed the day LIST (the `bookingsDayProvider` loop above reaches
+///     `SalonDayQuery`, a sealed variant of `BookingsDayQuery`) while leaving
+///     the rail DOT absent for up to the full thirty-minute `keepAlive` TTL
+///     the two `booked_days_notifier.dart` providers share. Exactly the
+///     reported symptom: list updates, dot does not.
+///
+///     A BARE member invalidate — no `contains` gate, no eager `ref.read` —
+///     is the correct shape here, mirroring [bookedDaysProvider]'s line
+///     directly above it rather than the `bookingsDayProvider` loop's
+///     idiom: `salonBookedDaysProvider` is NOT pinned by [DayKeepAliveLru],
+///     so there is no keepAlive link to re-touch and no queued-disposal race
+///     to cancel. It is a family only because an owner may manage several
+///     salons (`booked_days_notifier.dart`'s own doc), not because any screen
+///     swaps its key from local mutable state — the shape
+///     `forbid_bare_keepalive_family_invalidation.sh`'s PASS 1 looks for, and
+///     correctly does not find here.
 ///
 /// Cost: one refetch per LIVE subscriber, same accounting as the two helpers
 /// above, PLUS at most 3 eager reads for pinned-but-unwatched members (the
@@ -402,7 +493,7 @@ void invalidateBookingViewsAfterProviderClose(
 ///
 /// Cycle-safe: neither target watches, even transitively,
 /// `masterCreateBookingProvider`, so this closes no back-edge.
-void invalidateBookingViewsAfterBookingCreated(Ref ref) {
+void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final BookingsDayQuery query in lru.liveQueries) {
     // FIX (mobile-debugger, this track) — `lru.contains(query)` here was
@@ -429,13 +520,22 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref) {
     }
   }
   ref.invalidate(bookedDaysProvider);
+  if (salonId != null) {
+    ref.invalidate(salonBookedDaysProvider(salonId));
+  }
 }
 
 /// Drops the master's own «Мої записи» day-calendar cache for
-/// [affectedDays] after a per-item VISIT reschedule
-/// (`booking_confirm_screen.dart`'s `rescheduleAppointmentId != null`
-/// branch) — the NEW day the item moved to and, if resolvable, the OLD day
-/// it moved from.
+/// [affectedDays] after a RESCHEDULE — the NEW day the booking moved to and,
+/// if resolvable, the OLD day it moved from.
+///
+/// Serves BOTH of `booking_confirm_screen.dart`'s reschedule arms, not only
+/// the per-item VISIT one it was named for (2026-09-19, mobile-perf LOW).
+/// `Booking.appointmentId` is nullable, so a legacy single-service booking
+/// takes the whole-booking arm; that arm moves the booking exactly the same
+/// way and therefore stales exactly the same caches. The name is kept as-is
+/// deliberately — renaming it would ripple through 31 references across nine
+/// files for no behavioural gain.
 ///
 /// Extracted into its own named, independently-testable function (rather
 /// than left inline at its one call site) for two reasons: it is the ONE
@@ -472,6 +572,41 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref) {
 ///     pinned-but-unwatched elements, so it is not subject to FIX A's
 ///     disposal race below — a bare `ref.invalidate` is correct here, exactly
 ///     as in this file's other three helpers.
+///   • [salonBookedDaysProvider] — the SALON twin of the bullet above, and
+///     only when [salonId] is non-null (2026-09-19, mobile-perf MEDIUM —
+///     the same gap [invalidateBookingViewsAfterProviderClose] had, and the
+///     WORSE case of the two: a reschedule genuinely MOVES a dot between
+///     days, where a close can only extinguish one).
+///
+///     ONE member invalidate covers BOTH the vacated day and the newly
+///     occupied one, however many days [affectedDays] holds — verified, not
+///     assumed: `salonBookedDays` is not keyed by date. It is a single
+///     unpaged `GET /bookings/salon/{salonId}/booked-days` over the whole
+///     Kyiv-anchored today ± [kBookedDaysSpanDays] window
+///     (`booked_days_notifier.dart`'s `_bookedDaysWindow`, shared verbatim
+///     with [bookedDaysProvider]), returning the complete `Set<DateTime>` of
+///     dotted days in one response. Dropping that member therefore re-derives
+///     EVERY day's dot from the server in a single refetch — there is no
+///     per-day member to miss, and no second call to make. That is exactly
+///     why the [bookedDaysProvider] line above is also a single bare
+///     invalidate outside the per-date loop rather than inside it.
+///
+///     Bare invalidate, no `wasPinned` gate, for the same reason as
+///     [bookedDaysProvider] above: not pinned by [DayKeepAliveLru], so there
+///     is no queued-disposal race to cancel.
+///
+///   • [bookingsDayProvider]'s SALON day-list members — the LIST half of the
+///     bullet above (2026-09-19, audit MEDIUM). The per-date loop below
+///     builds `MasterOwnDayQuery` keys only, and the salon board watches a
+///     `SalonDayQuery`, so without this a reschedule started from that board
+///     MOVED the rail dot between days while the board's own list still drew
+///     the booking at its old slot. Delegated to [_invalidateSalonDayLists]
+///     — ONE call covering every day in [affectedDays] — so this helper and
+///     [invalidateBookingViewsAfterProviderClose] cannot drift apart on it.
+///
+/// [salonId] defaults to `null`, so the CLIENT reschedule path and the
+/// INDEPENDENT_MASTER's own reschedule — neither of which has a salon board
+/// to refresh — behave exactly as they did before this parameter existed.
 ///
 /// ## FIX A (mobile-debugger, this session) — the crash this fixes
 ///
@@ -524,6 +659,7 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref) {
 void invalidateBookingsDayAfterAppointmentItemReschedule(
   WidgetRef ref, {
   required Set<DateTime> affectedDays,
+  String? salonId,
 }) {
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final DateTime day in affectedDays) {
@@ -539,4 +675,90 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
     }
   }
   ref.invalidate(bookedDaysProvider);
+  if (salonId != null) {
+    ref.invalidate(salonBookedDaysProvider(salonId));
+    _invalidateSalonDayLists(
+      ref,
+      lru: lru,
+      salonId: salonId,
+      affectedDays: affectedDays,
+    );
+  }
+}
+
+/// Drops every LIVE salon-board day-list member of [bookingsDayProvider] that
+/// belongs to [salonId] and sits on one of [affectedDays], eagerly re-reading
+/// the ones that are pinned-but-unwatched.
+///
+/// Shared by [invalidateBookingViewsAfterProviderClose] and
+/// [invalidateBookingsDayAfterAppointmentItemReschedule] — both reach the
+/// salon LIST through this one function so the two can never drift on it, the
+/// same "one answer per question" rule the whole file is built on.
+///
+/// ## Why this ENUMERATES rather than building the key (audit MEDIUM,
+/// 2026-09-19 — the trap that makes the obvious fix wrong)
+///
+/// The salon «Записи» board's live member is NOT
+/// `salonDayList(salonId: …, masterId: null)`. `bookings_discovery_view
+/// .dart`'s `_rebuildQuery` builds it from the screen's OWN mutable state —
+/// the «Майстер» filter's `masterId`, plus the filter sheet's `statuses` and
+/// `serviceIds` — and every one of those is part of the freezed family key.
+/// A hand-built literal therefore names a member nobody is watching the
+/// moment the owner has ANY filter applied, and the board would keep serving
+/// the closed / moved booking at its old slot exactly as it did before the
+/// fix — a fix that looks right and is inert.
+///
+/// So this mirrors [invalidateBookingViewsAfterBookingCreated]'s idiom
+/// instead (REUSE-FIRST: copy the shape that already survives this trap, do
+/// not invent a parallel one): iterate [DayKeepAliveLru.liveQueries] — which,
+/// because `DayKeepAliveLru.touch` runs unconditionally in every
+/// `BookingsDayNotifier.build`, holds EVERY member that currently exists,
+/// whatever filters key it — then select the ones this write actually stales
+/// by sealed VARIANT ([SalonDayQuery]), by `salonId` (never another salon's
+/// board) and by day. Nothing outside that bounded `_kMaxKeptDays` set can
+/// exist: an evicted query's [KeepAliveLink] closing is what let Riverpod
+/// dispose it in the first place.
+///
+/// ## Gating: `DayKeepAliveLru.isWatched`, NOT `contains`
+///
+/// Deliberately the CREATED helper's gate, not the `wasPinned =
+/// lru.contains(...)` spelling both callers use for their own hand-built
+/// MASTER keys. Those keys may never have been built, so `contains` is a real
+/// question there. Here every candidate is drawn from [liveQueries] itself,
+/// which makes `contains` TAUTOLOGICAL — the exact bug the created helper was
+/// already fixed for — and would fire the eager `ref.read` on a merely-PAUSED,
+/// still-watched member too. Which idiom is correct follows from how the key
+/// was obtained (hand-built → `contains`; enumerated → `isWatched`), so the
+/// two spellings are kept distinct rather than collapsed.
+///
+/// The eager read itself is the same FIX A/B mechanism documented above:
+/// re-touching the keepAlive link synchronously cancels the disposal
+/// `invalidateSelf()` just queued against a genuinely zero-listener element.
+void _invalidateSalonDayLists(
+  WidgetRef ref, {
+  required DayKeepAliveLru lru,
+  required String salonId,
+  required Set<DateTime> affectedDays,
+}) {
+  for (final BookingsDayQuery liveQuery in lru.liveQueries) {
+    if (liveQuery is! SalonDayQuery) continue;
+    if (liveQuery.salonId != salonId) continue;
+    // Both sides are date TOKENS produced by `dateOnly` — the callers pass
+    // `kyivDayOf(...)` / `dateOnly(toBeauticaTime(...))`, and
+    // `BookingsDayQuery.salonOf` truncates its own `day` the same way — so
+    // `Set.contains` compares like for like.
+    if (!affectedDays.contains(liveQuery.day)) continue;
+
+    final bool isGenuinelyOrphaned = !lru.isWatched(liveQuery);
+    // keepalive-safe: the enumerate → isWatched → eager-read idiom this
+    // function's doc describes, identical in shape and purpose to
+    // `invalidateBookingViewsAfterBookingCreated`'s loop (allow-listed for
+    // the same reason). A genuinely zero-listener pinned member gets its
+    // keepAlive link re-touched synchronously, cancelling the queued
+    // disposal; a paused-but-watched one is left to Riverpod's own recovery.
+    ref.invalidate(bookingsDayProvider(liveQuery));
+    if (isGenuinelyOrphaned) {
+      ref.read(bookingsDayProvider(liveQuery));
+    }
+  }
 }

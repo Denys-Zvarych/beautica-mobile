@@ -120,6 +120,7 @@ Future<void> startBookingReschedule({
   required BuildContext context,
   required WidgetRef ref,
   required String bookingId,
+  String? salonId,
 }) async {
   // Re-entrancy guard: a reschedule navigation is already loading its seeding
   // GETs — ignore this extra tap so a double-tap can't spawn two overlapping
@@ -264,6 +265,15 @@ Future<void> startBookingReschedule({
           services: <MasterService>[service],
           rescheduleBookingId: booking.id,
           rescheduleAppointmentId: booking.appointmentId,
+          // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the caller's own
+          // board scope, threaded through the picker/confirm chain so the
+          // submit can drop `salonBookedDaysProvider(salonId)` alongside the
+          // master-scoped `bookedDaysProvider`. NOT derivable here: the
+          // freshly-fetched [booking] carries `masterId` but no `salonId`
+          // (`BookingDetailResponse`), which is exactly why this is a
+          // parameter and not another field read off that fetch. `null` on
+          // the CLIENT and independent-master paths.
+          rescheduleSalonId: salonId,
           hideMasterIdentity: hideMasterIdentity,
           rescheduleTargetIsWalkIn: rescheduleTargetIsWalkIn,
           rescheduleClientName: rescheduleClientName,

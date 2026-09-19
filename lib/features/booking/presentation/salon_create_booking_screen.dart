@@ -58,12 +58,17 @@
 //      see its own doc) rather than a literal port of the design's
 //      `_CreateHeader`. Consistency with every other booking-flow screen's
 //      chrome.
-//   2. `confirm` shows a master identity card built from [MasterStrip]'s
-//      leaf pieces feeding [BookingSummaryCards.masterCard] (already a
-//      supported slot on that shared widget) rather than the design's
-//      bespoke `NeumorphicCard(color: 0xFFEDE4D5)` block — the SAME
-//      "who you're booking with" visual grammar the rest of this app's
-//      booking flow already uses, not a second bespoke card shape.
+//   2. `confirm` shows THE shared [MasterStrip] feeding
+//      [BookingSummaryCards.masterCard] (already a supported slot on that
+//      shared widget) rather than the design's bespoke
+//      `NeumorphicCard(color: 0xFFEDE4D5)` block — the SAME "who you're
+//      booking with" visual grammar the rest of this app's booking flow
+//      already uses, not a second bespoke card shape. Until 2026-09-19 this
+//      was a private `_SalonConfirmMasterCard` that hand-rebuilt the strip's
+//      row from [MasterStripShell]'s own text tokens; that fork is gone
+//      (REUSE-FIRST, reversing phase-339 D3) and `_buildMasterCard` now
+//      returns the strip itself, which also brings the design's shadow and
+//      the shared avatar badge back.
 //   3. `masters`-step status pill is not the design's eager three-state
 //      N-slots/Зайнятий/Не-виконує pill: a covering, bookable master carries
 //      NO pill at all, and a non-covering master is hidden outright rather
@@ -149,14 +154,11 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
-import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
@@ -177,7 +179,7 @@ import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_top_bar.dart';
 import 'widgets/booking_wizard_steps.dart';
-import 'widgets/master_strip.dart' show MasterRatingReadout;
+import 'widgets/master_strip.dart' show MasterStrip;
 import 'widgets/salon_avatar_gradients.dart';
 import 'widgets/salon_booking_wizard_steps.dart';
 import 'widgets/service_catalogue_accordion.dart'
@@ -366,7 +368,17 @@ class _SalonCreateBookingScreenState
     // — see `master_create_booking_notifier.dart`'s doc.
     final Appointment? created = await ref
         .read(masterCreateBookingProvider.notifier)
-        .submit(masterId: master.masterId, request: request);
+        // `salonId` is NOT part of `request` (see this file's header — the
+        // salon is never sent to the backend). It rides alongside it purely
+        // so the success fan-out can drop THIS board's day-rail dot set
+        // (`salonBookedDaysProvider(salonId)`) as well as the master-scoped
+        // one — without it the newly-booked day stayed undotted for up to the
+        // provider's thirty-minute `keepAlive` TTL.
+        .submit(
+          masterId: master.masterId,
+          request: request,
+          salonId: widget.salonId,
+        );
     if (!mounted) return;
     final AsyncValue<void> result = ref.read(masterCreateBookingProvider);
     if (result.hasError) {
@@ -506,10 +518,29 @@ class _SalonCreateBookingScreenState
     }
   }
 
+  /// The confirm step's «Запис до майстра» identity card.
+  ///
+  /// THE shared [MasterStrip] — the same widget the salon master picker, the
+  /// slot picker, «Деталі запису» and both success screens render. This used
+  /// to be a private `_SalonConfirmMasterCard` that hand-rebuilt the strip's
+  /// row out of [MasterStripShell]'s own `masterStripLabel`/`masterStripName`
+  /// tokens; reusing the strip itself is the REUSE-FIRST rule (CLAUDE.md) and
+  /// reverses phase-339 decision D3. No parameter had to be added: the strip
+  /// already takes every field as a primitive.
   Widget _buildMasterCard(SalonMasterSummary master) {
     final int gradientIndex = master.masterId.hashCode.abs() % 6;
-    return _SalonConfirmMasterCard(
-      master: master,
+    return MasterStrip(
+      key: const Key('salon-create-booking-master-card'),
+      name: '${master.firstName} ${master.lastName}'.trim(),
+      type: master.type,
+      professionalTitle: master.professionalTitle,
+      // Same "unrated reads «—», never «0.0»" fold the removed fork applied
+      // (and `MasterStrip.fromSchedule`'s own) — verbatim, not widened.
+      avgRating: master.reviewCount > 0 ? master.avgRating : null,
+      reviewCount: master.reviewCount,
+      showLabel: true,
+      showRole: true,
+      showRating: master.reviewCount > 0,
       avatarGradient: salonAvatarGradient(gradientIndex),
     );
   }
@@ -592,108 +623,6 @@ class _SalonCreateBookingScreenState
                 transitionBuilder: (Widget child, Animation<double> a) =>
                     FadeTransition(opacity: a, child: child),
                 child: _buildStep(l10n),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Confirm-step master identity card — leaf pieces reused (see file header
-// deviation #2), the row composition is new (no existing "chrome-less
-// identity row" widget fits inside another card without doubling chrome).
-// ---------------------------------------------------------------------------
-
-class _SalonConfirmMasterCard extends StatelessWidget {
-  const _SalonConfirmMasterCard({
-    required this.master,
-    required this.avatarGradient,
-  });
-
-  final SalonMasterSummary master;
-  final List<Color> avatarGradient;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final String name = '${master.firstName} ${master.lastName}'.trim();
-    final String? ownTitle = master.professionalTitle?.trim();
-    final String role = (ownTitle != null && ownTitle.isNotEmpty)
-        ? ownTitle
-        : masterRoleLabel(master.type, l10n);
-    final double? rating = master.reviewCount > 0 ? master.avgRating : null;
-
-    return DecoratedBox(
-      key: const Key('salon-create-booking-master-card'),
-      decoration: const BoxDecoration(
-        color: Color(0xFFEDE4D5),
-        borderRadius: BorderRadius.all(Radius.circular(VelvetRadii.card)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(VelvetSpacing.md),
-        child: Row(
-          children: <Widget>[
-            Container(
-              height: 48,
-              width: 48,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: avatarGradient,
-                ),
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.person_rounded,
-                  color: BrandColors.white.withValues(alpha: 0.85),
-                  size: 24,
-                ),
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  // The SAME caption `MasterStripShell` renders for the
-                  // identical string elsewhere in this booking flow — token
-                  // reuse, not a coincidence (see file header deviation #2).
-                  Text(
-                    l10n.bookingMasterStripLabel,
-                    style: VelvetText.masterStripLabel,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: VelvetText.masterStripName,
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(
-                          role,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: VelvetText.feedbackMutedSm,
-                        ),
-                      ),
-                      if (master.reviewCount > 0)
-                        MasterRatingReadout(
-                          avgRating: rating,
-                          reviewCount: master.reviewCount,
-                        ),
-                    ],
-                  ),
-                ],
               ),
             ),
           ],

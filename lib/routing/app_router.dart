@@ -1946,6 +1946,21 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => BookingDetailScreen(
           bookingId: state.pathParameters['bookingId']!,
           clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
+          // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
+          // `widget.salonId`, carried on `extra` because NOTHING on this
+          // route's path holds it (`/salon/bookings/:bookingId`) and
+          // `BookingDetailResponse` carries no `salonId` either. Same
+          // `extra`-carries-the-salon-id contract `RouteNames
+          // .salonStaffBookingNew` already uses on this very path prefix.
+          //
+          // Defensively typed: a deep link, a browser reload or any push that
+          // omits `extra` yields `null`, which is exactly the pre-2026-09-19
+          // behaviour (the screen simply does not drop the salon dot set).
+          // Never a cast — an unexpected `extra` must not crash the route.
+          salonId: switch (state.extra) {
+            final String id when id.isNotEmpty => id,
+            _ => null,
+          },
         ),
       ),
       // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»

@@ -1220,4 +1220,196 @@ void main() {
       });
     },
   );
+
+  // ── Step 2.7 Rule 3b — the SALON day-LIST invalidation, END TO END ────────
+  //
+  // THE BUG THIS FLOW WOULD HAVE CAUGHT (2026-09-19). Teaching
+  // `invalidateBookingViewsAfterProviderClose` to drop
+  // `salonBookedDaysProvider` refreshed the rail DOT, while the BOARD'S LIST
+  // kept serving the closed booking at its old slot: both that helper and its
+  // reschedule sibling built only `MasterOwnDayQuery` keys, and this board
+  // watches a `SalonDayQuery`. Before that arm existed both halves went stale
+  // together; afterwards they disagreed, which is strictly worse.
+  //
+  // WHY THIS TIER AND NOT ONLY THE WIDGET ONE. `booking_calendar_invalidation
+  // _test.dart`'s own salon day-LIST group pins the enumeration mechanism
+  // directly (filtered key, wrong salon, wrong day, null salonId, the
+  // `isWatched` gate) against a hand-built container. NONE of that tier drives
+  // the three things that have to line up for a real owner to see the fix:
+  //   • `BookingDetailScreen` being mounted from the SALON route so
+  //     `widget.salonId` is non-null at all (it is `null` on every /master/*
+  //     and archive mount — one wrong route and the whole arm is inert);
+  //   • the board's own live member being a PAUSED, pushed-over consumer
+  //     rather than a plain listener — the state in which this helper
+  //     deliberately does NOT eagerly re-read, leaving the refetch to land on
+  //     RESUME after the pop;
+  //   • the day actually matching: the fan-out is scoped to
+  //     `kyivDayOf(booking.startAt)`, so the detail's own start instant and
+  //     the board's day must agree or the sweep skips this board silently.
+  //
+  // CLOCK: one clock, both halves — `fb.bookingStartsAt` is set from the SAME
+  // `_atKyivHour` the board rows use, which is derived from `kFixedNow`
+  // through the same `kyivToday` the screen's seed query uses.
+  testWidgets(
+    'declining from the board\'s own drill-in takes the card OFF the board '
+    'list after the pop — not only off the rail dot set',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          // Same reasoning as the first flow: the owner is not `booking-1`'s
+          // performing master.
+          ..bookingProviderCanReviewClient = false;
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        // 16:00 Kyiv on the board's own day — FUTURE relative to `kFixedNow`
+        // (15:00 Kyiv), so the detail footer offers «Відхилити» at all, and on
+        // the SAME Kyiv calendar day the board is showing, so
+        // `kyivDayOf(booking.startAt)` lands inside the sweep's `affectedDays`.
+        // A fixture on any other day would make this test pass for the wrong
+        // reason — the sweep would skip the board and the card would linger.
+        final DateTime start = _atKyivHour(16, 0);
+        fb.bookingStartsAt = start.toIso8601String();
+        fb.bookingEndsAt = start
+            .add(const Duration(minutes: 60))
+            .toIso8601String();
+
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'booking-1',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: start,
+          ),
+          // A SECOND master's card, deliberately: it is what tells "the
+          // declined card left" apart from "the board failed to render", and
+          // it must SURVIVE — the sweep drops caches, it does not blank the
+          // board.
+          fb.salonBoardBookingRow(
+            id: 'board-booking-2',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            // 17:30, i.e. AFTER `booking-1` — so `booking-1` sits at the very
+            // TOP of the booking-derived timeline window and is built and
+            // on-screen at `-d flutter-tester`'s 800×600 surface without any
+            // scrolling. (A 12:30 sibling put the 16:00 card five hours down
+            // the grid, where it was never built and the finder resolved to
+            // nothing — the lazily-inflated-tile trap.)
+            startsAt: _atKyivHour(17, 30),
+          ),
+        ];
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          bookingsTab.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(bookingsTab);
+        await tester.pump();
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingsTimelineGrid),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder declinedCard = find.byKey(
+          const ValueKey<String>('timeline-card-booking-1'),
+        );
+        expect(
+          declinedCard,
+          findsOneWidget,
+          reason: 'sanity: the board draws the booking BEFORE the decline',
+        );
+        final int fetchesBefore = fb.getSalonBookingsCalls;
+
+        // ── Drill in ──────────────────────────────────────────────────────
+        try {
+          await tester.ensureVisible(declinedCard);
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          declinedCard.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(declinedCard);
+        await tester.pump();
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingDetailScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        AppHarness.expectLocation(
+          router,
+          RouteNames.salonStaffBookingDetail('booking-1'),
+        );
+
+        // ── The REAL provider decline ─────────────────────────────────────
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('booking-detail-decline')),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(find.byKey(const Key('booking-detail-decline')));
+        await AppHarness.settle(tester);
+        expect(find.byKey(const Key('decline-booking-dialog')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+        await AppHarness.pumpUntilGone(
+          tester,
+          find.byKey(const Key('decline-booking-dialog')),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          fb.declineBookingCalls,
+          1,
+          reason: 'the per-booking PATCH /bookings/{id}/decline must have run',
+        );
+
+        // ── Back to the board ─────────────────────────────────────────────
+        router.pop();
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingsTimelineGrid),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // THE ASSERTION. The board's own live `SalonDayQuery` must have been
+        // dropped, so the resumed consumer refetches and the now-DECLINED row
+        // is hidden by the day-list default (CANCELLED/DECLINED excluded,
+        // locked 2026-08-13). Without the salon day-LIST arm this stays on
+        // screen at its old slot until a pull-to-refresh or an LRU eviction.
+        await AppHarness.pumpUntilGone(
+          tester,
+          declinedCard,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          fb.getSalonBookingsCalls,
+          greaterThan(fetchesBefore),
+          reason:
+              'the board must have gone back to the wire — a cached list is '
+              'exactly the regression',
+        );
+        expect(
+          find.byKey(const ValueKey<String>('timeline-card-board-booking-2')),
+          findsOneWidget,
+          reason:
+              'ANTI-VACUITY: the other master\'s card must still be there. '
+              'Otherwise "the declined card is gone" would also be satisfied '
+              'by a board that rendered nothing at all.',
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
 }

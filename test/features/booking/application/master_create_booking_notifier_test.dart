@@ -376,4 +376,149 @@ void main() {
       expect(state.error, isA<MasterBookingNotPermittedFailure>());
     },
   );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-09-19 (mobile-qa, PASS A) — the `salonId` fan-out arm.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // `salonBookedDaysProvider` (`booked_days_notifier.dart:126`) is the SALON
+  // twin of the `bookedDaysProvider` singleton the first test in this file
+  // covers: same ±180-day sweep, same 30-minute `keepAlive` TTL — but a
+  // FAMILY, keyed by salon id. It was never invalidated anywhere in `lib/`,
+  // so after a salon walk-in the «Записи» board's day-rail DOT stayed absent
+  // for up to half an hour while the day LIST underneath it refreshed
+  // normally. Exactly the reported symptom.
+  //
+  // BOTH walk-in wizards funnel through THIS notifier's `submit`, so the
+  // salon id has to ride alongside the request (it is never part of the wire
+  // body — `salon_create_booking_screen.dart`'s header) and the
+  // independent-master wizard must keep passing nothing.
+  //
+  // WHY A FAMILY-KEY TEST AND NOT JUST "something got invalidated": the bug
+  // class here is a WRONG ARGUMENT. A test that only proves "some member of
+  // the family was dropped" passes just as well against
+  // `ref.invalidate(salonBookedDaysProvider('whatever'))`. Both members below
+  // are live-subscribed and counted independently, so the assertion can tell
+  // the right key from a wrong one.
+  //
+  // Asserted by REFETCH COUNT, like every other invalidation test in this
+  // file: `ref.invalidate` reloads seamlessly and retains the previous
+  // `.value`, so no value-shape assertion could ever fail here.
+  group('submit(): the salonId fan-out arm', () {
+    const String kSalonUnderTest = 'salon-1';
+    const String kOtherSalon = 'salon-2';
+
+    /// A container in which BOTH day-dot providers are counting overrides and
+    /// BOTH named salon members are LIVE — invalidating a member with no
+    /// active listener DROPS it instead of refetching, which would make the
+    /// distinction this group exists to draw unobservable in either
+    /// direction.
+    (ProviderContainer, Map<String, int>) countingContainer() {
+      final Map<String, int> salonFetches = <String, int>{};
+      final ProviderContainer c = ProviderContainer(
+        retry: beauticaProviderRetry,
+        // ignore: avoid_dynamic_calls
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          // Both overridden rather than real, for the reason the first test
+          // in this file states: the production bodies park a 30-minute
+          // keepAlive `Timer` that `flutter_test` fails on at teardown.
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          salonBookedDaysProvider.overrideWith((ref, String salonId) async {
+            salonFetches[salonId] = (salonFetches[salonId] ?? 0) + 1;
+            return <DateTime>{};
+          }),
+        ].cast(),
+      );
+      addTearDown(c.dispose);
+      for (final String id in const <String>[kSalonUnderTest, kOtherSalon]) {
+        final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = c.listen(
+          salonBookedDaysProvider(id),
+          (_, _) {},
+          fireImmediately: true,
+        );
+        addTearDown(sub.close);
+      }
+      return (c, salonFetches);
+    }
+
+    Future<void> settleBoth(ProviderContainer c) async {
+      await c.read(salonBookedDaysProvider(kSalonUnderTest).future);
+      await c.read(salonBookedDaysProvider(kOtherSalon).future);
+    }
+
+    test('a salon walk-in drops THIS salon\'s dot set — and leaves ANOTHER '
+        'salon\'s member alone (the family key is load-bearing)', () async {
+      _stubDayFetch(repo);
+      when(
+        () => repo.createMasterBooking(any(), any()),
+      ).thenAnswer((_) async => _appointmentFixture());
+
+      final (ProviderContainer c, Map<String, int> fetches) =
+          countingContainer();
+      await settleBoth(c);
+      expect(fetches, <String, int>{
+        kSalonUnderTest: 1,
+        kOtherSalon: 1,
+      }, reason: 'sanity: one fetch per live member before any submit');
+
+      await c.read(masterCreateBookingProvider.future);
+      await c
+          .read(masterCreateBookingProvider.notifier)
+          .submit(
+            masterId: 'master-1',
+            request: _request,
+            salonId: kSalonUnderTest,
+          );
+      await settleBoth(c);
+
+      expect(
+        fetches[kSalonUnderTest],
+        2,
+        reason:
+            'the board the walk-in was created FROM must refetch its dot '
+            'set — without it the newly-booked day stays undotted for the '
+            'provider\'s full 30-minute keepAlive TTL',
+      );
+      expect(
+        fetches[kOtherSalon],
+        1,
+        reason:
+            'and no OTHER salon\'s member may be dropped: an owner managing '
+            'several salons would pay a full ±180-day sweep per board for a '
+            'booking that cannot have moved any of their dots',
+      );
+    });
+
+    test(
+      'the INDEPENDENT-master wizard (no salonId) drops NO salon member — '
+      'its behaviour is byte-for-byte what it was before the arm existed',
+      () async {
+        _stubDayFetch(repo);
+        when(
+          () => repo.createMasterBooking(any(), any()),
+        ).thenAnswer((_) async => _appointmentFixture());
+
+        final (ProviderContainer c, Map<String, int> fetches) =
+            countingContainer();
+        await settleBoth(c);
+        expect(fetches, <String, int>{kSalonUnderTest: 1, kOtherSalon: 1});
+
+        await c.read(masterCreateBookingProvider.future);
+        await c
+            .read(masterCreateBookingProvider.notifier)
+            .submit(masterId: 'master-1', request: _request);
+        await settleBoth(c);
+
+        expect(
+          fetches,
+          <String, int>{kSalonUnderTest: 1, kOtherSalon: 1},
+          reason:
+              '`booking_confirm_screen.dart` has no salon to drop — the null '
+              'guard in invalidateBookingViewsAfterBookingCreated is what '
+              'keeps this arm inert for the solo flow',
+        );
+      },
+    );
+  });
 }
