@@ -53,6 +53,7 @@ import 'package:beautica_mobile/features/booking/domain/master_archive_query.dar
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -388,6 +389,30 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     AuthNotifier Function() auth = _IndependentMasterAuthNotifier.new,
+    // Phase 343 — the widget under test, in full.
+    //
+    // A `const MasterArchiveScreen()` LITERAL by default, NOT a set of
+    // pass-through named parameters carrying the screen's own defaults.
+    // That distinction is the whole point: this harness must exercise the
+    // screen's DECLARED defaults, exactly as `app_router.dart:1762` does,
+    // so flipping one of them in `master_archive_screen.dart` turns the
+    // unattributed/«mine»-scoped tests RED. A harness that re-stated
+    // `showMasterAttribution: false` would silently override the mutation
+    // and pass — mutation-verified 2026-09-19 (it did, before this was
+    // changed).
+    MasterArchiveScreen screen = const MasterArchiveScreen(),
+    // The catalogue `masterServiceCatalogProvider` resolves to. Empty by
+    // default — exactly what every pre-343 call site in this file got — so
+    // only the filter-facet tests below, which need a POSITIVE control for
+    // "the «Послуга» section really can render", opt into a non-empty one.
+    List<MasterService> services = const <MasterService>[],
+    // mobile-qa 2026-09-19 — incremented every time
+    // `masterServiceCatalogProvider` is BUILT. `null` (the default) leaves
+    // every existing call site untouched; the salon-scope test below passes
+    // a counter to pin that the owner never fires a catalogue fetch at all,
+    // which is a claim about a NETWORK CALL and therefore unobservable from
+    // the rendered sheet.
+    List<int>? catalogueBuilds,
   }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/from',
@@ -405,8 +430,7 @@ void main() {
         ),
         GoRoute(
           path: '/archive',
-          builder: (BuildContext context, GoRouterState state) =>
-              const MasterArchiveScreen(),
+          builder: (BuildContext context, GoRouterState state) => screen,
         ),
         // A probe standing in for `LeaveClientFeedbackScreen` at the SAME
         // path `RouteNames.clientReview` builds — proves the «Відгук» slot
@@ -442,9 +466,20 @@ void main() {
         authProvider.overrideWith(auth),
         screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
         bookingRepositoryProvider.overrideWithValue(repo),
-        masterServiceCatalogProvider.overrideWith(
-          (ref) async => const <MasterService>[],
-        ),
+        // SYNCHRONOUS on purpose (`=>`, not `async =>`). `_applyFilters`
+        // reads this provider COLD (`ref.read(...).asData?.value`) — nothing
+        // on this screen watches it — so an `async` override is still
+        // `AsyncLoading` on the frame the sheet is built and the «Послуга»
+        // section can never render, which would make the
+        // `showServiceFilter: false` assertion below pass vacuously. A
+        // `FutureOr` create that returns the value directly resolves to
+        // `AsyncData` immediately, so the section's presence is genuinely
+        // controlled by the flag under test. The default is still an empty
+        // catalogue, so every pre-343 test in this file is unaffected.
+        masterServiceCatalogProvider.overrideWith((ref) {
+          catalogueBuilds?.add(1);
+          return services;
+        }),
       ],
     );
     await tester.pump();
@@ -3054,6 +3089,477 @@ void main() {
               '`master_archive_screen.dart` starts passing a non-empty '
               '`masters:` to `BookingsFilterSheet.show`',
         );
+      },
+    );
+  });
+
+  // ==========================================================================
+  // Phase 343 — the SALON host: a third mount of this same screen, reached by
+  // three additive parameters and nothing else.
+  // ==========================================================================
+  group('phase 343 — the salon host', () {
+    const String kSalonId = 'salon-9';
+
+    final List<MasterService> catalogue = <MasterService>[
+      const MasterService(
+        id: 's-1',
+        serviceDefId: 'def-s-1',
+        name: 'Манікюр з покриттям',
+        durationMinutes: 60,
+      ),
+    ];
+
+    /// Stubs the SALON read and captures every invocation, so the assertions
+    /// below can read the ARGUMENTS the repository was actually called with
+    /// rather than a field of the widget
+    /// (`project_widget_field_assertion_is_vacuous`).
+    void stubSalonList(List<Booking> items) {
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((_) async => _page(items));
+    }
+
+    Booking bookingBy(
+      String id,
+      String first,
+      String last, {
+      bool providerCanReviewClient = false,
+    }) =>
+        _booking(
+          id: id,
+          status: BookingStatus.completed,
+          providerCanReviewClient: providerCanReviewClient,
+        ).copyWith(
+          masterId: 'm-$first',
+          masterFirstName: first,
+          masterLastName: last,
+        );
+
+    testWidgets(
+      'SCOPE — `salonId` reaches the REPOSITORY as the salon read; the '
+      '"mine" endpoint is never touched',
+      (WidgetTester tester) async {
+        stubList(<Booking>[]);
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The query IS the family key, so the only honest place to observe
+        // the scope is the call the notifier made through it. A screen that
+        // merely held `salonId` in a field would fail here.
+        final VerificationResult call = verify(
+          () => repo.getSalonBookings(
+            salonId: captureAny(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+        expect(call.captured.single, kSalonId);
+        verifyNever(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+      },
+    );
+
+    testWidgets('ATTRIBUTION — two rows performed by DIFFERENT masters render '
+        'different names; a hardcoded or row-wide attribution fails here', (
+      WidgetTester tester,
+    ) async {
+      stubSalonList(<Booking>[
+        bookingBy('b1', 'Оля', 'Коваль'),
+        bookingBy('b2', 'Дарина', 'Ткач'),
+      ]);
+
+      await pump(
+        tester,
+        screen: const MasterArchiveScreen(
+          salonId: kSalonId,
+          showServiceFilter: false,
+          showMasterAttribution: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-master-b1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-master-b2')),
+        findsOneWidget,
+      );
+      expect(
+        (tester.widget<Text>(
+          find.byKey(const Key('master-booking-card-master-b1')),
+        )).data,
+        'Оля Коваль',
+      );
+      expect(
+        (tester.widget<Text>(
+          find.byKey(const Key('master-booking-card-master-b2')),
+        )).data,
+        'Дарина Ткач',
+      );
+    });
+
+    testWidgets(
+      'the MASTER hosts stay unattributed on the SAME fixture — the flag is '
+      'opt-in at the screen level too, not just at the card',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsNothing,
+        );
+        // Positive control: the row itself really did render.
+        expect(find.byKey(const Key('master-booking-card-b1')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'FILTER — `showServiceFilter: false` drops the «Послуга» section while '
+      'the status section stays reachable AND functional',
+      (WidgetTester tester) async {
+        stubList(<Booking>[]);
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+          // A non-empty catalogue, so an absent section means the FLAG cut
+          // it — not that there was nothing to show. This is the anti-vacuity
+          // half; the positive control below pumps the same catalogue with
+          // the flag left at its default.
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+          reason: 'the status half of the sheet is untouched by the flag',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsNothing,
+        );
+
+        // FUNCTIONAL, not merely present: ticking a status group and applying
+        // must re-key the provider and re-read the salon endpoint.
+        await tester.tap(
+          find.byKey(
+            Key(
+              'master-bookings-filter-status-'
+              '${BookingStatusFilterGroup.completed.name}',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.getSalonBookings(
+            salonId: any(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        ).called(greaterThan(1));
+      },
+    );
+
+    testWidgets(
+      'POSITIVE CONTROL — the same catalogue DOES render a «Послуга» section '
+      'on a master host, so the absence above is the flag and nothing else',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester, services: catalogue);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '«Відгук» follows the SERVER flag on the salon host too — never the '
+      'role, and never the scope',
+      (WidgetTester tester) async {
+        stubSalonList(<Booking>[
+          bookingBy('yes', 'Оля', 'Коваль', providerCanReviewClient: true),
+          bookingBy('no', 'Дарина', 'Ткач'),
+        ]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+            showMasterAttribution: true,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-yes')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-no')),
+          findsNothing,
+        );
+      },
+    );
+
+    // ========================================================================
+    // mobile-qa 2026-09-19 — the three parameters are ORTHOGONAL by decision
+    // (343 D1), and nothing above pinned that. EVERY authored test binds the
+    // two render flags 1:1 with `salonId`, so deriving either one FROM the
+    // scope — the exact refactor D1 forbids, and the one that would force a
+    // future scope to fork this screen — passed the whole suite.
+    //
+    // MEASURED 2026-09-19 against the authored suite (48 tests, all green):
+    //   * `showMasterAttribution: widget.showMasterAttribution` replaced with
+    //     `widget.salonId != null`            -> 48/48 STILL GREEN;
+    //   * both `widget.showServiceFilter` reads in `_applyFilters` replaced
+    //     with `widget.salonId == null`       -> 48/48 STILL GREEN.
+    // Each of the four tests below turns one of those two red.
+    // ========================================================================
+
+    testWidgets(
+      'ORTHOGONAL (343 D1) — attribution is the FLAG, not the scope: the '
+      '«mine» scope with the flag ON does attribute',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(showMasterAttribution: true),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsOneWidget,
+        );
+        // The scope really was «mine» — otherwise this would be passing for
+        // the very reason it exists to rule out.
+        verifyNever(
+          () => repo.getSalonBookings(
+            salonId: any(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+      },
+    );
+
+    testWidgets(
+      'ORTHOGONAL (343 D1) — and the SALON scope with the flag left at its '
+      'default does NOT attribute',
+      (WidgetTester tester) async {
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsNothing,
+        );
+        // Positive control: the salon-scoped row itself rendered, and the
+        // fixture it rendered from does carry a master name.
+        expect(find.byKey(const Key('master-booking-card-b1')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ORTHOGONAL (343 D3) — the service facet is the FLAG, not the scope: '
+      '«mine» with `showServiceFilter: false` drops the «Послуга» section',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(showServiceFilter: false),
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the SALON host never BUILDS `masterServiceCatalogProvider` — the '
+      'skipped read is a skipped FETCH, which no rendered assertion can see',
+      (WidgetTester tester) async {
+        final List<int> builds = <int>[];
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+          services: catalogue,
+          catalogueBuilds: builds,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          builds,
+          isEmpty,
+          reason:
+              'the owner fetched a master service catalogue they have no use '
+              'for — `_applyFilters` read the provider before gating on the '
+              'flag',
+        );
+      },
+    );
+
+    testWidgets(
+      'POSITIVE CONTROL — a master host DOES build it, so the emptiness '
+      'above is the flag and not a dead override',
+      (WidgetTester tester) async {
+        final List<int> builds = <int>[];
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester, services: catalogue, catalogueBuilds: builds);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(builds, hasLength(1));
+      },
+    );
+
+    testWidgets(
+      'THE FACET FLAG IS THE GUARD — turn it on for a salon scope and '
+      "`MasterArchiveQuery.of`'s ArgumentError is genuinely reachable",
+      (WidgetTester tester) async {
+        // `_query`'s doc calls the forbidden salon+serviceIds combination
+        // "not a latent crash here" because the salon host offers no service
+        // facet. That is an argument, and this is the measurement behind it:
+        // the SAME screen, with the SAME salon scope, differing ONLY in
+        // `showServiceFilter`, does reach the throw. So the flag is load-
+        // bearing rather than cosmetic, and the three tests above — which
+        // pin that the route passes it — are guarding a real edge.
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(salonId: kSalonId),
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsOneWidget,
+          reason: 'the misconfiguration under test did not materialise',
+        );
+
+        await tester.tap(
+          find.byKey(
+            Key('master-bookings-filter-service-${catalogue.single.id}'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isA<ArgumentError>());
       },
     );
   });

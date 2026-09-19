@@ -363,6 +363,19 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
   /// cost is accepted, not worked around. Do not "optimise" it by dropping
   /// `partition` — that reintroduces the phase-231 bug where declined and
   /// cancelled visits never appeared here at all.
+  ///
+  /// DECIDED, NOT PENDING (phase 342 § D10 — recorded here because the two
+  /// paragraphs above otherwise read as an open TODO and have been re-raised
+  /// as one). The ruling is: **no backend change**, and none is planned. The
+  /// accepted cost above is the final answer at today's scale. It is
+  /// reopened under ONE named condition and no other — a FILTERED archive at
+  /// real roster scale that exhausts all three
+  /// `_kMaxAutoContinueAttempts` and STILL renders short while
+  /// `hasMore == true`. That is a measurement against the phase-345 fixture,
+  /// not a judgement call: if the walk terminates inside its budget, the
+  /// finding is recorded and nothing moves. Do not raise the constant
+  /// defensively — an unbounded walk is a spin (see
+  /// `_MasterArchiveScreenState._autoContinueAttempts`'s anti-spin doc).
   Future<PageResponse<Booking>> _fetchPage(
     MasterArchiveQuery query,
     Set<BookingStatus> predicate,

@@ -4183,6 +4183,465 @@ void main() {
       },
     );
   });
+
+  // Phase 343 — the salon archive's «row 1b». See
+  // `MasterBookingCard.showMasterAttribution`.
+  //
+  // THE DEFAULT IS THE LOAD-BEARING HALF of this group. Two hosts
+  // (`/master/bookings/archive`, `/staff/bookings/archive`) and two other
+  // card call sites (`declared_time_cards.dart`, `bookings_timeline_grid
+  // .dart`) pass nothing and must render EXACTLY as before, so "absent by
+  // default" is asserted against a fixture whose master name is distinctive
+  // and definitely present in the data — never by a smoke test that would
+  // pass just as well if the row were never wired at all.
+  group('phase 343 — the master-attribution row (showMasterAttribution)', () {
+    /// The fixture's own master, spelled out once. `_shortBooking` sets
+    /// «Оля Коваль», and `BookingDisplayX.masterName` is the join the card
+    /// prints — asserted through the extension rather than re-interpolated
+    /// here, so a change to the join cannot leave this suite agreeing with
+    /// itself while disagreeing with the card.
+    final Booking base = _shortBooking(id: 'attribution');
+    final String masterName = base.masterName;
+
+    Widget host(Booking b, {bool attribute = false, double? minHeight}) {
+      return Center(
+        child: SizedBox(
+          width: 272,
+          child: MasterBookingCard(
+            booking: b,
+            onTap: () {},
+            minHeight: minHeight ?? MasterBookingCard.fullLayoutMinHeight,
+            showMasterAttribution: attribute,
+          ),
+        ),
+      );
+    }
+
+    testWidgets(
+      'DEFAULT (flag omitted) renders NO master name — the fixture carries '
+      'one, so this fails the moment the row stops being opt-in',
+      (WidgetTester tester) async {
+        // Anti-vacuity first: the name really is in the data.
+        expect(masterName, 'Оля Коваль');
+
+        await tester.pumpApp(
+          Center(
+            child: SizedBox(
+              width: 272,
+              child: MasterBookingCard(
+                booking: base,
+                onTap: () {},
+                minHeight: MasterBookingCard.fullLayoutMinHeight,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.text(masterName), findsNothing);
+        expect(
+          find.byKey(const Key('master-booking-card-master-attribution')),
+          findsNothing,
+        );
+        // The pump landed on the FULL body, so the findsNothing above is a
+        // real absence and not a wrong-layout artefact.
+        expect(
+          find.byKey(const Key('master-booking-card-divider-attribution')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('true renders the performing master on the FULL body', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpApp(host(base, attribute: true));
+      await tester.pump();
+
+      expect(find.text(masterName), findsOneWidget);
+    });
+
+    testWidgets('TWO ROWS, TWO MASTERS — each card prints its OWN master, so a '
+        'hardcoded or first-row-wide attribution fails here', (
+      WidgetTester tester,
+    ) async {
+      final Booking a = base.copyWith(
+        id: 'row-a',
+        masterId: 'm-a',
+        masterFirstName: 'Оля',
+        masterLastName: 'Коваль',
+      );
+      final Booking b = base.copyWith(
+        id: 'row-b',
+        masterId: 'm-b',
+        masterFirstName: 'Дарина',
+        masterLastName: 'Ткач',
+      );
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 272,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                MasterBookingCard(
+                  booking: a,
+                  onTap: () {},
+                  minHeight: MasterBookingCard.fullLayoutMinHeight,
+                  showMasterAttribution: true,
+                ),
+                MasterBookingCard(
+                  booking: b,
+                  onTap: () {},
+                  minHeight: MasterBookingCard.fullLayoutMinHeight,
+                  showMasterAttribution: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // By KEY, then read the rendered `Text.data` — a
+      // `find.text('<Cyrillic literal>')` is banned by
+      // `scripts/forbid_cyrillic_finder.sh`, and keying the lookup also
+      // proves each name landed on ITS OWN card rather than both matching
+      // somewhere inside one subtree.
+      String nameOn(String id) => tester
+          .widget<Text>(find.byKey(Key('master-booking-card-master-$id')))
+          .data!;
+      expect(nameOn('row-a'), a.masterName);
+      expect(nameOn('row-b'), b.masterName);
+      // FIXTURE GUARD — the two masters really are different, so the pair of
+      // assertions above cannot both be satisfied by one hardcoded name.
+      expect(a.masterName, isNot(b.masterName));
+    });
+
+    testWidgets(
+      'the row is COMPACT/MICRO-exempt — the flag changes nothing on either '
+      'smaller body',
+      (WidgetTester tester) async {
+        for (final double floor in <double>[
+          1,
+          MasterBookingCard.microLayoutMaxHeight,
+        ]) {
+          await tester.pumpApp(host(base, attribute: true, minHeight: floor));
+          await tester.pump();
+          expect(
+            find.text(masterName),
+            findsNothing,
+            reason: 'the attribution leaked onto a sub-full body at $floor',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'an EMPTY master name renders no row at all — not a lone glyph against '
+      'blank space, and not 17dp spent on nothing',
+      (WidgetTester tester) async {
+        final Booking anonymous = base.copyWith(
+          masterFirstName: '',
+          masterLastName: '',
+        );
+        await tester.pumpApp(host(anonymous, attribute: true));
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-attribution')),
+          findsNothing,
+        );
+        final double height = tester
+            .getSize(find.byKey(const Key('master-booking-card-attribution')))
+            .height;
+        expect(
+          height,
+          MasterBookingCard.fullLayoutNaturalHeight,
+          reason:
+              'an unnamed master must cost the card nothing — the box is the '
+              'untouched full-layout natural',
+        );
+      },
+    );
+
+    // ACCEPTANCE CRITERION: the layout-height pin must MOVE, and for the
+    // stated reason. Asserted as an exact arithmetic identity against the
+    // published natural rather than a bare "it got taller", so a row that
+    // grew by the wrong amount (an extra gap, the wrong type token) is a
+    // failure and not a pass.
+    testWidgets(
+      'the flag costs EXACTLY the gap plus one caption line box, and costs '
+      'the default nothing',
+      (WidgetTester tester) async {
+        await tester.pumpApp(host(base));
+        await tester.pump();
+        final double off = tester
+            .getSize(find.byKey(const Key('master-booking-card-attribution')))
+            .height;
+
+        await tester.pumpApp(host(base, attribute: true));
+        await tester.pump();
+        final double on = tester
+            .getSize(find.byKey(const Key('master-booking-card-attribution')))
+            .height;
+
+        expect(
+          off,
+          MasterBookingCard.fullLayoutNaturalHeight,
+          reason: 'the default must still measure the published 115dp natural',
+        );
+        // 3dp gap + a 14dp line box (Nunito 10sp at `_feedbackBase`'s 1.4
+        // leading — `VelvetText.masterCardDateFull`, the row's recipe).
+        expect(on - off, 17.0);
+      },
+    );
+
+    for (final double scale in <double>[1.15, 1.3]) {
+      testWidgets('no overflow with the row on at textScaler $scale', (
+        WidgetTester tester,
+      ) async {
+        // A name long enough to saturate the row's remaining width after the
+        // avatar-column indent and the glyph — the ellipsis, not the layout,
+        // must absorb it.
+        final Booking longName = base.copyWith(
+          masterFirstName: 'Олександра-Вікторія',
+          masterLastName: 'Бондаренко-Ковальчук',
+        );
+        await tester.pumpApp(
+          host(longName, attribute: true),
+          textScaleFactor: scale,
+        );
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        // Anti-vacuity: the row really did render at this scale, so a silent
+        // "no overflow because nothing was there" cannot pass.
+        expect(
+          find.byKey(const Key('master-booking-card-master-attribution')),
+          findsOneWidget,
+        );
+      });
+    }
+
+    // ======================================================================
+    // mobile-qa 2026-09-19 — four properties the authored suite left open.
+    // Each carries the mutation that was OBSERVED to turn it red, and the
+    // measurement that showed the pre-existing suite stayed GREEN without it.
+    // ======================================================================
+
+    testWidgets(
+      'MEMO — flipping the flag on the SAME card element and the SAME booking '
+      'renders the row in BOTH directions',
+      (WidgetTester tester) async {
+        // `_fullBodyContent` is memoized on (booking, clientName, flag) and
+        // the State has NO `didUpdateWidget`, so the key is the only thing
+        // standing between a flag flip and a STALE subtree — which Flutter's
+        // `identical()` short-circuit in `updateChild` would then skip
+        // reconciling wholesale. Defensive today (the flag is constant per
+        // mount at all three `lib/` sites) — pinned here so it stays so.
+        //
+        // MEASURED 2026-09-19: dropping the flag from the cache key already
+        // turns the height test above red, so the OFF -> ON direction was
+        // covered — incidentally, by a test about arithmetic. The ON -> OFF
+        // direction and the element-reuse precondition were covered by
+        // nothing, and neither was the reason.
+        //
+        // The pin only means anything if the same State is reused across the
+        // three pumps, which is why the element identity is asserted rather
+        // than assumed: an unrelated refactor that gave the harness's card a
+        // `key` would rebuild the State from scratch on every pump and
+        // silently retire this test into a tautology.
+        await tester.pumpApp(host(base));
+        await tester.pump();
+        final Element first = tester.element(find.byType(MasterBookingCard));
+        expect(find.text(masterName), findsNothing);
+
+        await tester.pumpApp(host(base, attribute: true));
+        await tester.pump();
+        expect(
+          tester.element(find.byType(MasterBookingCard)),
+          same(first),
+          reason:
+              'the card was rebuilt from scratch, so the memo was never '
+              'consulted and this test proves nothing',
+        );
+        expect(
+          find.text(masterName),
+          findsOneWidget,
+          reason: 'OFF -> ON served the stale unattributed subtree',
+        );
+
+        // And back — the ON subtree must not survive the flag going false
+        // either. Only this direction fails when the memo is repopulated but
+        // the key term is dropped.
+        await tester.pumpApp(host(base));
+        await tester.pump();
+        expect(tester.element(find.byType(MasterBookingCard)), same(first));
+        expect(
+          find.text(masterName),
+          findsNothing,
+          reason: 'ON -> OFF served the stale attributed subtree',
+        );
+      },
+    );
+
+    testWidgets(
+      'LEAK — with the flag off the master name reaches NO paragraph and NO '
+      'semantics label, however it might be smuggled there',
+      (WidgetTester tester) async {
+        // Stronger than the group's `find.text` + `find.byKey` pair, on the
+        // one channel neither of them can see. MEASURED 2026-09-19, two
+        // mutations:
+        //
+        //   * folding the master into the client identity line («Марія
+        //     Іванюк · Оля Коваль») — caught anyway, by two PRE-EXISTING
+        //     exact-client-name assertions in this file, so the paragraph
+        //     sweep below is belt-and-braces and is kept for the reason it
+        //     is cheap: `find.text` matches a WHOLE `Text.data`, so the day
+        //     one of those two assertions is relaxed, nothing else would
+        //     notice;
+        //   * putting the master name into the CARD's own `Semantics(label:)`
+        //     unconditionally — a leak with NO visual change at all, caught
+        //     by NOTHING in this file (1 failure of 129, this test) and by
+        //     nothing in the screen suite either. That is what the semantics
+        //     half below exists for.
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await tester.pumpApp(host(base));
+        await tester.pump();
+
+        // Anti-vacuity: the sweep below only means something if it is looking
+        // at a card that HAS a master in its data and IS on the full body.
+        expect(masterName, isNotEmpty);
+        expect(
+          find.byKey(const Key('master-booking-card-divider-attribution')),
+          findsOneWidget,
+        );
+
+        final List<String> painted = tester
+            .renderObjectList<RenderParagraph>(find.byType(RichText))
+            .map((RenderParagraph p) => p.text.toPlainText())
+            .toList();
+        expect(
+          painted.where((String t) => t.contains(masterName)),
+          isEmpty,
+          reason: 'the master name is painted somewhere: $painted',
+        );
+        // Positive control — the sweep really can see this card's text.
+        expect(painted.any((String t) => t.contains(base.clientName!)), isTrue);
+
+        // SUBSTRING, via a `RegExp` label finder — `find.bySemanticsLabel`
+        // with a String argument matches the WHOLE label and would miss the
+        // name being appended to a label that already exists, which is
+        // exactly the shape of the mutation this half was written for.
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(masterName))),
+          findsNothing,
+          reason: 'the master name is on the a11y channel',
+        );
+        // Positive control for the a11y half too: the card DOES carry a
+        // label, and the finder can see it.
+        expect(
+          find.bySemanticsLabel(RegExp(RegExp.escape(base.clientName!))),
+          findsWidgets,
+        );
+        // Disposed inline, not via `addTearDown`: the framework's
+        // "a SemanticsHandle was active at the end of the test" verification
+        // runs BEFORE registered tear-downs (observed 2026-09-19).
+        handle.dispose();
+      },
+    );
+
+    testWidgets(
+      'INDENT — the master name starts on the SAME x as the client name, so '
+      'it reads as a second line of that row and not as a peer row',
+      (WidgetTester tester) async {
+        // The design substitution recorded on the row itself: the indent is
+        // `_ClientAvatarMark._kSize + VelvetSpacing.sm`, i.e. exactly the
+        // client name's own left edge. Asserted as a RENDERED x rather than
+        // against the private constant, so it survives the mark being
+        // resized and fails when the alignment is what actually broke.
+        // Measured 2026-09-19: deleting the indent `SizedBox` outright left
+        // all 125 tests in this file green.
+        await tester.pumpApp(host(base, attribute: true));
+        await tester.pump();
+
+        final double clientX = tester
+            .getTopLeft(find.text(base.clientName!))
+            .dx;
+        final double masterX = tester
+            .getTopLeft(
+              find.byKey(const Key('master-booking-card-master-attribution')),
+            )
+            .dx;
+        // The glyph sits left of the name, so the ROW's own left edge is what
+        // must line up with the client name — the name itself is one glyph +
+        // `VelvetSpacing.xs` further right by construction.
+        final double glyphX = tester
+            .getTopLeft(find.byIcon(Icons.person_outline_rounded))
+            .dx;
+        expect(glyphX, clientX);
+        expect(masterX, greaterThan(glyphX));
+      },
+    );
+
+    testWidgets(
+      'MUTED TIER — the row takes the card\'s 12dp/muted metadata recipe, not '
+      'a third glyph size and not the accent register',
+      (WidgetTester tester) async {
+        // The card runs a documented TWO-TIER glyph system (16dp/accent for
+        // the field that owns a row, 12dp/muted for trailing metadata), and
+        // this row was deliberately snapped to the muted tier rather than
+        // carrying the design's own 13dp. Nothing asserted that: measured
+        // 2026-09-19, recolouring the glyph to `BrandColors.accent` left all
+        // 125 tests green. Read off the RENDERED boxes and the RESOLVED
+        // paragraph styles — the file's own idiom — so no field read stands
+        // in for a rendered fact.
+        await tester.pumpApp(host(base, attribute: true));
+        await tester.pump();
+
+        expect(
+          tester.getSize(find.byIcon(Icons.person_outline_rounded)),
+          const Size(12, 12),
+        );
+        final RenderParagraph glyph = tester.renderObject<RenderParagraph>(
+          find.descendant(
+            of: find.byIcon(Icons.person_outline_rounded),
+            matching: find.byType(RichText),
+          ),
+        );
+        expect(glyph.text.style!.color, BrandColors.muted);
+
+        // The NAME's recipe, compared against the full body's existing muted
+        // caption (row 2's time range) rather than against a token import —
+        // so "no new token, reuse `masterCardDateFull`" is what is pinned,
+        // and a divergence shows up as a divergence between two things a
+        // reader can see side by side.
+        final RenderParagraph name = tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('master-booking-card-master-attribution')),
+        );
+        final RenderParagraph range = tester.renderObject<RenderParagraph>(
+          find.text(formatSlotTimeRange(base.startAt, base.endAt)),
+        );
+        expect(
+          <Object?>[
+            name.text.style!.fontFamily,
+            name.text.style!.fontSize,
+            name.text.style!.fontWeight,
+            name.text.style!.color,
+            name.text.style!.letterSpacing,
+          ],
+          <Object?>[
+            range.text.style!.fontFamily,
+            range.text.style!.fontSize,
+            range.text.style!.fontWeight,
+            range.text.style!.color,
+            range.text.style!.letterSpacing,
+          ],
+        );
+      },
+    );
+  });
 }
 
 /// Asserts NO date component renders anywhere on the card — the 2026-07-21

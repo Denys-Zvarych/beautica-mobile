@@ -160,11 +160,25 @@ void debugResetGroupArchiveByKyivDayCallCount() {
 /// renders byte-identically to before they existed. Read-only-ness itself is
 /// NOT a parameter: «Виконано» is gated off `bookingTransitionsEnabledProvider`
 /// (phase 328), which reads the session.
+///
+/// Phase 343 — mounted a THIRD time, by the SAME mechanism and nothing else:
+/// `/salon/{salonId}/bookings/archive` (registered in phase 344) for the
+/// `SALON_OWNER`/`SALON_ADMIN`, showing the whole roster's history in one
+/// list. Three more additive parameters — [salonId], [showServiceFilter],
+/// [showMasterAttribution] — each defaulting so that the two master hosts
+/// pass NONE of them and render exactly as today. There is deliberately no
+/// `title` parameter (the salon host reuses `masterArchiveTitle`, «Архів» —
+/// 343 D4, zero new ARB keys) and no `showMasterFilter` (343 D5 defers the
+/// facet; the independent archive has no master facet either, so building
+/// one would go beyond what was asked).
 class MasterArchiveScreen extends ConsumerStatefulWidget {
   const MasterArchiveScreen({
     super.key,
     this.detailRouteBuilder,
     this.reviewRouteBuilder,
+    this.salonId,
+    this.showServiceFilter = true,
+    this.showMasterAttribution = false,
   });
 
   /// Builds the booking-detail path from a booking id for a row tap. `null`
@@ -179,6 +193,54 @@ class MasterArchiveScreen extends ConsumerStatefulWidget {
   /// `SALON_MASTER` exactly this one write on their own booking, so the slot
   /// genuinely renders for them and genuinely needs somewhere to go.
   final String Function(String bookingId)? reviewRouteBuilder;
+
+  /// Phase 343 — the SCOPE this archive reads. `null` (the default, and what
+  /// both master hosts pass) means "mine": `GET /bookings/me`, byte-identical
+  /// to every pre-343 mount. A non-null salon id means "this salon's whole
+  /// history, across every master" (`GET /bookings/salon/{salonId}`).
+  ///
+  /// THIS SCREEN DOES NOT HOLD THE SCOPE — it is a pure pass-through into
+  /// [_query]'s `MasterArchiveQuery.of(salonId: …)`. `masterArchiveProvider`
+  /// is an autoDispose family keyed by `MasterArchiveQuery`, so the query IS
+  /// the cache key (342 D4): two scopes that compared `==` would share ONE
+  /// cache entry, and an owner who opened the salon archive and then their
+  /// own staff archive would be served the wrong list. Anything that asserts
+  /// on this must assert on the QUERY the provider was read with, never on a
+  /// field of this widget.
+  final String? salonId;
+
+  /// Phase 343 — whether the filter sheet offers its «Послуга» section.
+  /// `true` (the default) on both master hosts; the salon host passes
+  /// `false`, because an owner has no master service catalogue of their own.
+  ///
+  /// NOT A NEW IDEA: this is the SAME additive flag, with the same default,
+  /// that `BookingsDiscoveryView` has carried since phase 21.12 and that the
+  /// salon BOARD already passes (`salon_bookings_screen.dart:784`). It is
+  /// implemented here the same way too — by handing
+  /// `BookingsFilterSheet.show` an EMPTY `services` list, which the sheet
+  /// already renders as "no «Послуга» section" (`bookings_filter_sheet.dart`'s
+  /// `if (widget.services.isNotEmpty)`), so no new sheet parameter exists.
+  /// Reading `masterServiceCatalogProvider` is also SKIPPED on that scope, so
+  /// the owner never fires a fetch for a catalogue they have no use for.
+  ///
+  /// The status section is untouched and stays fully reachable — the salon
+  /// host's sheet is a SMALLER sheet, not a broken one, and [_ArchiveEmptyState]
+  /// still distinguishes "no history" from "no matches" off
+  /// `MasterArchiveQuery.hasFilters`.
+  final bool showServiceFilter;
+
+  /// Phase 343 — whether each row names the master who performed the booking.
+  /// `false` (the default) on both master hosts, where every row is the
+  /// viewer's own and the line would be noise; `true` on the salon host,
+  /// where it is the row's first unanswered question. Forwarded verbatim to
+  /// `MasterBookingCard.showMasterAttribution` — see that field for the row's
+  /// shape and for why the master's avatar is deliberately not part of it.
+  ///
+  /// Deliberately SEPARATE from [salonId] rather than derived from it (343
+  /// D1): deriving would make the render shape a silent consequence of the
+  /// data scope, so a future scope wanting one without the other would have
+  /// to fork this screen. Two flags, one decision each.
+  final bool showMasterAttribution;
 
   @override
   ConsumerState<MasterArchiveScreen> createState() =>
@@ -276,8 +338,20 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     return entries;
   }
 
-  MasterArchiveQuery get _query =>
-      MasterArchiveQuery.of(statuses: _statuses, serviceIds: _serviceIds);
+  /// The family key every `masterArchiveProvider` read on this screen goes
+  /// through — and, since phase 343, the ONLY place this screen's scope
+  /// lives. See [MasterArchiveScreen.salonId].
+  ///
+  /// `MasterArchiveQuery.of` THROWS on a salon scope carrying service ids
+  /// (that combination cannot reach the wire — see its doc). That is not a
+  /// latent crash here: [_serviceIds] can only ever become non-empty through
+  /// [_applyFilters], which resolves the sheet's result against the
+  /// catalogue it OFFERED, and the salon host offers none.
+  MasterArchiveQuery get _query => MasterArchiveQuery.of(
+    statuses: _statuses,
+    serviceIds: _serviceIds,
+    salonId: widget.salonId,
+  );
 
   int get _activeFilterCount => bookingsActiveFilterCount(
     hasStatuses: _statuses.isNotEmpty,
@@ -316,9 +390,17 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   Future<void> _applyFilters() async {
-    final List<MasterService> services =
-        ref.read(masterServiceCatalogProvider).asData?.value ??
-        const <MasterService>[];
+    // Phase 343 — an EMPTY list when [MasterArchiveScreen.showServiceFilter]
+    // is false, which the sheet already renders as "no «Послуга» section"
+    // (`bookings_filter_sheet.dart`'s `if (widget.services.isNotEmpty)`), so
+    // no new sheet parameter was needed. Verbatim the idiom
+    // `bookings_discovery_view.dart:1207` already uses for the same flag.
+    // Reading the provider here would also SUBSCRIBE to it, which is a fetch
+    // the salon scope has no use for.
+    final List<MasterService> services = widget.showServiceFilter
+        ? (ref.read(masterServiceCatalogProvider).asData?.value ??
+              const <MasterService>[])
+        : const <MasterService>[];
     final BookingsFilterSelection? applied = await BookingsFilterSheet.show(
       context,
       initial: BookingsFilterSelection(
@@ -328,9 +410,27 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       services: services,
     );
     if (!mounted || applied == null) return;
+    // RESOLVED AGAINST THE FLAG, not taken verbatim — the same discipline
+    // `bookings_discovery_view.dart:1239` applies to its own «Майстер» facet:
+    // on a surface with no «Послуга» section the result is ALWAYS empty, so
+    // the flag cannot be bypassed by any sheet result whatsoever. That is
+    // what keeps [_query] clear of `MasterArchiveQuery.of`'s salon-scope
+    // `ArgumentError` structurally rather than by assumption.
+    //
+    // Gated on the FLAG and not on membership of `services` deliberately.
+    // Resolving against the offered CATALOGUE — what the «Майстер» facet
+    // does — would silently wipe the master host's ticks whenever the
+    // catalogue happened to be unresolved at the moment the sheet opened
+    // (`asData?.value ?? const []`), which is a live state, not a
+    // hypothetical. The flag is constant per mount, so this branch cannot
+    // misfire that way; `bookings_discovery_view` takes its own
+    // `applied.serviceIds` verbatim for the very same reason.
+    final Set<String> resolvedServiceIds = widget.showServiceFilter
+        ? applied.serviceIds
+        : const <String>{};
     setState(() {
       _statuses = applied.statuses;
-      _serviceIds = applied.serviceIds;
+      _serviceIds = resolvedServiceIds;
       // A new filter combination is a different provider-family instance
       // (fresh page 0) — give it its own auto-continue budget.
       _autoContinueAttempts = 0;
@@ -1033,6 +1133,14 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         // decision in exactly ONE place (the card) rather than duplicated at
         // every call site.
         onReview: () => _openReview(booking),
+        // Phase 343 — «row 1b», the performing master's name. `false` on
+        // both master hosts (every row is the viewer's own), `true` on the
+        // salon host, where the list spans the whole roster. THE ONLY ONE OF
+        // the card's three `lib/` construction sites that passes it: the
+        // declared-times list is one master's own day, and the salon board
+        // already attributes by COLUMN. See
+        // `MasterBookingCard.showMasterAttribution`.
+        showMasterAttribution: widget.showMasterAttribution,
       ),
     );
   }
