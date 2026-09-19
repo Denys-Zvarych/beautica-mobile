@@ -821,7 +821,6 @@
 
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -2324,17 +2323,6 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
 /// `Element.updateChild` short-circuits on `identical(newWidget, oldWidget)`
 /// and skips the subtree entirely, so a re-anchor now rebuilds only the
 /// columns that actually crossed the band edge.
-///
-/// Phase 342 — the perceptibility floor every board wash's composited
-/// colour must clear, per RGB channel, against [BrandColors.base]. Exists
-/// because the alternating-column wash originally shipped at a per-channel
-/// delta of (3, 4, 5) — under 2%, exact-value pixel tests passed, and a
-/// human on a phone could not see it. `salon_bookings_alternating_column_
-/// test.dart` asserts every sampled band pixel clears this floor on every
-/// channel, not merely that it differs from [BrandColors.base] at all —
-/// that assertion is what would have caught the original regression.
-const int kAlternatingBandMinDelta = 10;
-
 class _BoardStack extends StatefulWidget {
   const _BoardStack({
     required this.density,
@@ -2388,19 +2376,26 @@ class _BoardStack extends StatefulWidget {
   /// The column separator — one hairline in each gutter, so a card always
   /// reads as belonging to the master whose chip it sits under.
   ///
-  /// Phase 342 hardening — was alpha 0.10, composited to `#DFD2C2`, a delta
-  /// of (7, 11, 14) per channel off [BrandColors.base]: the R channel sat
-  /// under the perceptibility floor this file now enforces for every board
-  /// wash (see [_alternatingBandColor]). Raised to 0.24 — `#DBCDBB`, delta
-  /// (11, 16, 21) — so the gutter hairline clears the same floor and reads
-  /// as a real seam next to the (now much stronger) alternating band, not a
-  /// wash-out. The hairline sits entirely in the 6dp gutter, which the band
-  /// painter never covers (`Rect.fromLTRB(left, top, left + columnWidth,
-  /// ...)` stops short of the gutter) — so this alpha composites against
-  /// [BrandColors.base] on every column, tinted or not, and needed no
-  /// re-tuning once the band changed direction.
+  /// `BrandColors.accent` at alpha **0.16**, transcribed verbatim from the
+  /// approved preview app
+  /// (`docs/signup-designs/SalonBookingsBoard/lib/widgets/
+  /// bookings_timeline_board.dart`, `_GridStack.build`'s column-separator
+  /// loop). That preview is the locked source of truth for this board, and
+  /// this hairline is the ONLY thing that separates one master's lane from
+  /// the next: the preview gives a master column no background whatsoever,
+  /// so [BrandColors.base] runs edge to edge behind every column, occupied
+  /// and empty alike.
+  ///
+  /// Phase 342 had raised this to 0.24 to hold its own against an
+  /// alternating-column wash that no longer exists — that wash was a
+  /// near-white fill (`shadowLightStrong@0.55`, composited `#F4EEE4`) which
+  /// read on a real device as "these columns are white", and it violated
+  /// `ARCHITECTURE-mobile.md` § 9's locked rule that depth is communicated
+  /// only through paired light/dark shadows, never through fills. Both the
+  /// wash and the 0.24 compensation are reverted together; do not re-tune
+  /// this alpha in isolation.
   static final Color _columnDividerColor = BrandColors.accent.withValues(
-    alpha: 0.24,
+    alpha: 0.16,
   );
 
   /// Phase 336 — the wash painted over a day-off master's whole column.
@@ -2422,94 +2417,29 @@ class _BoardStack extends StatefulWidget {
     alpha: 0.35,
   );
 
-  /// The alternating-column wash — every other WORKING master's column,
-  /// painted by [_AlternatingColumnBandPainter].
-  ///
-  /// Phase 342 fix — the original shipped as [BrandColors.shadowDarkCard]
-  /// (the same RECESS tone as [_dayOffWashColor]) at alpha 0.10, which
-  /// composites to `#E3D9CB`: a per-channel delta of only (3, 4, 5) off
-  /// [BrandColors.base]'s `#E6DDD0` — under 2%, and the pixel-sampling tests
-  /// passed because they compared exact values, not perceptibility. A user
-  /// on a real device, in daylight, reported it invisible on a build that
-  /// definitively contained the change.
-  ///
-  /// Fixed by changing DIRECTION, not only magnitude:
-  /// [BrandColors.shadowLightStrong] (`#FFFBF4`, the LIFT half of the paired
-  /// neumorphic shadow) at alpha 0.55, composited to `#F4EEE4` — a delta of
-  /// (14, 17, 20). Lifting the band instead of darkening it means it can
-  /// never be confused with [_dayOffWashColor], which keeps darkening with
-  /// [BrandColors.shadowDarkCard] at 0.35: the two now differ in DIRECTION
-  /// (lighter vs. darker than base) as well as strength, so "day off" cannot
-  /// read as merely "a stronger band" no matter how each alpha is tuned in
-  /// future. [kAlternatingBandMinDelta] pins the perceptibility floor this
-  /// value must clear; see the "NO GOLDENS ON THIS WIDGET" note and
-  /// `salon_bookings_alternating_column_test.dart` for how both properties
-  /// are verified. The hour gridlines and every card render on top in their
-  /// own opaque fills and are unaffected — see that test file's contrast
-  /// note.
-  static final Color _alternatingBandColor = BrandColors.shadowLightStrong
-      .withValues(alpha: 0.55);
+  // NO ALTERNATING-COLUMN WASH LIVES HERE, deliberately. A master column has
+  // NO background of its own: [BrandColors.base] runs behind every column,
+  // occupied and empty alike, exactly as the approved preview
+  // (`docs/signup-designs/SalonBookingsBoard/lib/widgets/
+  // bookings_timeline_board.dart`, `_GridStack.build`) draws it. Lanes are
+  // separated by [_columnDividerColor] alone.
+  //
+  // Phase 342 had painted every odd WORKING column with
+  // `shadowLightStrong@0.55` (composited `#F4EEE4`). On a real device that
+  // read as "the masters' columns are white": it showed between and below the
+  // opaque cards, and because the painter skipped day-off columns it lit up
+  // precisely the working masters — the ones carrying cards. It also broke
+  // `ARCHITECTURE-mobile.md` § 9's locked rule that every surface renders on
+  // the single warm-taupe base tone and depth comes only from paired
+  // light/dark shadows, never from fills. If lanes need to read more strongly
+  // again, that is a question for `mobile-designer` against the preview — not
+  // another fill reintroduced here.
+  //
+  // [_dayOffWashColor] above is unaffected: it is a documented STATE
+  // («Вихідний»), not decoration.
 
   @override
   State<_BoardStack> createState() => _BoardStackState();
-}
-
-/// Paints [_BoardStack]'s alternating-column wash in ONE pass instead of one
-/// [Positioned] + [ColoredBox] per tinted column — see the call site's
-/// comment for why that matters on this board. Tints every ODD column index
-/// that is NOT a day-off column (see [_BoardStack._alternatingBandColor]'s
-/// doc for how the two washes compose).
-///
-/// Reads [_BoardStack.columnWidth] / the caller's `columnPitch` / `nudge`
-/// verbatim — it never recomputes column geometry itself, so it cannot drift
-/// from the gridlines, the day-off wash or the column `Row` (this file's
-/// "THE SALON BOARD'S SCROLL LOCK" section is emphatic that this board reads
-/// ONE set of numbers everywhere).
-@immutable
-class _AlternatingColumnBandPainter extends CustomPainter {
-  const _AlternatingColumnBandPainter({
-    required this.columnCount,
-    required this.columnWidth,
-    required this.columnPitch,
-    required this.top,
-    required this.dayOff,
-  });
-
-  final int columnCount;
-  final double columnWidth;
-  final double columnPitch;
-
-  /// The wash's top edge — `nudge`, so it starts flush with the first
-  /// gridline and the column `Row`'s own top padding, exactly like
-  /// [_BoardStack._dayOffWashColor]'s `Positioned(top: nudge, bottom: 0)`.
-  final double top;
-
-  /// `dayOff[i]` — whether column `i`'s master is off that day. A day-off
-  /// column is skipped here entirely; see [_BoardStack._alternatingBandColor]
-  /// for why the two washes never layer.
-  final List<bool> dayOff;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint = Paint()..color = _BoardStack._alternatingBandColor;
-    for (int i = 1; i < columnCount; i += 2) {
-      if (dayOff[i]) continue;
-      final double left = i * columnPitch;
-      canvas.drawRect(
-        Rect.fromLTRB(left, top, left + columnWidth, size.height),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _AlternatingColumnBandPainter oldDelegate) {
-    return columnCount != oldDelegate.columnCount ||
-        columnWidth != oldDelegate.columnWidth ||
-        columnPitch != oldDelegate.columnPitch ||
-        top != oldDelegate.top ||
-        !listEquals(dayOff, oldDelegate.dayOff);
-  }
 }
 
 class _BoardStackState extends State<_BoardStack> {
@@ -2631,54 +2561,11 @@ class _BoardStackState extends State<_BoardStack> {
                 color: _BoardStack._dayOffWashColor,
               ),
             ),
-        // ── THE ALTERNATING COLUMN WASH ─────────────────────────────────
-        // Gives every other master's column a subtle warm recess so a lane
-        // reads at a glance without a divider — the divider hairline
-        // (`_columnDividerColor`) already exists and reads as too faint to
-        // scan by itself on a wide board. ONE `CustomPainter` pass over every
-        // odd column, not N stacked `Container`s: this `SingleChildScrollView`
-        // already paints its whole child (see the file header's mobile-perf
-        // finding), so a second per-column widget would multiply exactly the
-        // layer count that finding is about. `Positioned.fill` sizes the
-        // painter to the same `Stack` extent the sizing `Row` below produces,
-        // so it never has to duplicate that computation.
+        // NOTHING paints a per-column background between the day-off wash and
+        // the gridlines — see `_BoardStack`'s "NO ALTERNATING-COLUMN WASH
+        // LIVES HERE" note. The board base shows through every working
+        // master's column, per the approved preview.
         //
-        // Reads the SAME `columnPitch` / `columnWidth` / `nudge` locals the
-        // gridlines, the day-off wash and the column `Row` all read below —
-        // one geometry, not a second one that could drift off it (see this
-        // file's "THE SALON BOARD'S SCROLL LOCK" section for why that
-        // matters on this widget).
-        //
-        // AFTER the day-off wash in paint order, deliberately: the existing
-        // «the wash is the FIRST thing painted» contract
-        // (`salon_bookings_day_off_column_test.dart`) pins the day-off wash
-        // at `Stack` child index 0, and this band must never contest that —
-        // the two never overlap ANYWAY (see below), so where it sits relative
-        // to the day-off wash has no visual consequence, only a testing one.
-        // Still strictly BEFORE the gridlines and the cards.
-        //
-        // COMPOSITION WITH THE DAY-OFF WASH: a day-off column KEEPS its grey
-        // and never also gets the alternating tint — the painter skips any
-        // column with `header.dayOff` set. Day-off is the stronger, rarer
-        // signal ("this master is not working at all"); layering a second
-        // tint under or over it would either wash it out or dull the zebra
-        // stripe read for no benefit, since the day-off column is already
-        // visually distinct on its own.
-        Positioned.fill(
-          child: CustomPaint(
-            key: const ValueKey<String>('timeline-alternating-column-wash'),
-            painter: _AlternatingColumnBandPainter(
-              columnCount: columnCount,
-              columnWidth: widget.columnWidth,
-              columnPitch: columnPitch,
-              top: nudge,
-              dayOff: <bool>[
-                for (final TimelineBoardColumn c in widget.columns)
-                  c.header.dayOff,
-              ],
-            ),
-          ),
-        ),
         // Gridlines FIRST so they paint UNDER the cards — same Finding #8
         // ordering, and the same even/odd hour-vs-half-hour split, as the
         // master branch.
