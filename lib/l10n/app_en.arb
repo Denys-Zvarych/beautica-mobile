@@ -2773,6 +2773,31 @@
   "@serviceErrRateLimitedNoWait": {
     "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
   },
+  "boardErrRateLimited": "Too many requests. Wait {seconds} s, then try again.",
+  "@boardErrRateLimited": {
+    "description": "Error shown when one of the salon board's read routes (day board, archive, booked-days dots, roster effective-schedule) returns 429 with a usable Retry-After header. Names the wait so the owner knows the limit clears on its own; the retry action next to it stays disabled until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "boardErrRateLimitedNoWait": "Too many requests. Wait a moment, then try again.",
+  "@boardErrRateLimitedNoWait": {
+    "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
+  },
+  "boardRetryCooldown": "Try again in {seconds} s",
+  "@boardRetryCooldown": {
+    "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "masterArchiveLoadMorePaused": "Couldn't load. Retrying in {seconds} s",
+  "@masterArchiveLoadMorePaused": {
+    "description": "Footer notice at the bottom of the archive list after a failed next-page fetch. The list keeps its load-more affordance but pauses re-fetching for the cooldown named here, so an overscroll bounce cannot re-fire the same failing request once per frame.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "serviceSetupErrDuplicateAfterRetry": "These services are already in your menu. The earlier attempt may have gone through — check your services list.",
   "@serviceSetupErrDuplicateAfterRetry": {
     "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."
@@ -4231,7 +4256,7 @@
   "@salonCreateBookingDateHeading": {
     "description": "Body heading above the calendar on the salon booking wizard's date step."
   },
-  "salonCreateBookingDateNextCta": "Next — Masters",
+  "salonCreateBookingDateNextCta": "Next",
   "@salonCreateBookingDateNextCta": {
     "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
   },
@@ -5022,6 +5047,14 @@
   "@salonBookingNoCoveringMasterHint": {
     "description": "Empty-state hint guiding the client to adjust their service selection."
   },
+  "salonBookingNoCoveringMasterSingularTitle": "No master performs this service",
+  "@salonBookingNoCoveringMasterSingularTitle": {
+    "description": "Phase 335 — empty-state title when exactly ONE service is selected and no master performs it (distinct wording from the plural salonBookingNoCoveringMasterTitle, which reads oddly for a single service)."
+  },
+  "salonBookingNoCoveringMasterSingularHint": "Adjust the service to see available masters.",
+  "@salonBookingNoCoveringMasterSingularHint": {
+    "description": "Phase 335 — empty-state hint for the single-service no-covering-master case."
+  },
   "salonBookingMastersSectionLabel": "Available masters",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
@@ -5566,6 +5599,10 @@
   "bookingFilterSectionService": "Service",
   "@bookingFilterSectionService": {
     "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterSectionMaster": "Master",
+  "@bookingFilterSectionMaster": {
+    "description": "Filter-sheet section heading for the multi-select salon-master rows (salon bookings board only)."
   },
   "bookingFilterReset": "Clear filters",
   "@bookingFilterReset": {
@@ -6265,5 +6302,65 @@
   "masterNavTabProfile": "Profile",
   "@masterNavTabProfile": {
     "description": "VelvetBottomNavBar tile 3 label on the master surface."
+  },
+  "salonBookingsTitle": "Salon bookings",
+  "salonBookingsColumnFreeDay": "Free day",
+  "salonBookingsColumnDayOff": "Day off",
+  "salonBookingsMasterColumnFree": "free",
+  "salonBookingsMasterColumnSemantics": "{name}, {role}, {load}",
+  "salonBookingsRosterVisibleSemantics": "Masters shown: {visible} of {total}",
+  "salonBookingsAddSemantics": "Create booking",
+  "salonBookingsNoMastersTitle": "No masters in this salon yet",
+  "salonBookingsNoMastersBlurb": "Invite a master and their column will appear on the board.",
+  "@salonBookingsTitle": {
+    "description": "Phase 21.12 — header title of the salon-wide owner/admin bookings board (the «Записи» tab of the salon shell). The salon's own name renders as the subtitle beneath it."
+  },
+  "@salonBookingsColumnFreeDay": {
+    "description": "Phase 21.12 — marker centred in a salon board column whose master has no bookings on the shown day."
+  },
+  "@salonBookingsColumnDayOff": {
+    "description": "Phase 336 — the salon board's marker for a master who is NOT WORKING on the shown day. Used twice on the same board and deliberately one key: centred in that master's greyed-out grid column, and as the trailing readout on their roster chip. Distinct from salonBookingsColumnFreeDay, which means the master IS working and simply has nothing booked."
+  },
+  "@salonBookingsMasterColumnFree": {
+    "description": "Phase 21.12 — the roster chip's trailing readout when that master has nothing booked on the shown day. Lowercase: it sits inline beside the ★ rating, not as a heading."
+  },
+  "@salonBookingsMasterColumnSemantics": {
+    "description": "Phase 21.12 — accessibility label for one roster chip on the salon bookings board.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Стиліст"
+      },
+      "load": {
+        "type": "String",
+        "example": "3 записи"
+      }
+    }
+  },
+  "@salonBookingsRosterVisibleSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon board's horizontal scroll indicator, which encodes as a 3dp bar how much of the roster is off-screen.",
+    "placeholders": {
+      "visible": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "@salonBookingsAddSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon bookings board header's '+' button. PLACEHOLDER: the control renders in its final place and styling but its handler is a documented no-op until the salon walk-in wizard is wired to it."
+  },
+  "@salonBookingsNoMastersTitle": {
+    "description": "Phase 21.12 — empty state title on the salon bookings board when the salon's roster is empty."
+  },
+  "@salonBookingsNoMastersBlurb": {
+    "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
   }
 }

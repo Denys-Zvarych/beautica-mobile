@@ -133,10 +133,14 @@ Future<void> _pageMonthForward(WidgetTester tester) async {
     const Key('bookings-month-calendar-grid'),
     forward: true,
   );
-  // A resolved month step funnels through `_selectImmediate`, which does not
-  // itself debounce — but a REGRESSION that routed it through the debounced
-  // path instead would need this window to have elapsed before its query
-  // fired, so advancing past it keeps the assertions below honest.
+  // A resolved month step funnels through `_selectImmediate`, which SINCE
+  // 2026-09-20 debounces its query on the same 220 ms timer the rail tap uses
+  // (audit MEDIUM-2 — it was previously the only undebounced selection path,
+  // and therefore the only one that could reach the backend's shared 60/min
+  // budget at a sustained ~1 tap/s). This wait is what makes the assertions
+  // below observe the post-debounce state rather than the pre-tap one; it was
+  // already here, written as a guard against exactly this change landing, so
+  // the test needed no other edit.
   // fixed-wait-ok: advancing past the 220 ms day-select debounce.
   await tester.pump(const Duration(milliseconds: 300));
   await AppHarness.settle(tester);

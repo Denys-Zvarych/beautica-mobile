@@ -412,9 +412,12 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   /// SOMETHING to show (fresh or cached-stale), a full-screen spinner on a
   /// genuine first load with nothing cached yet, or a retry state on error.
   /// Mirrors `MasterScheduleScreen._body`'s three-way split, simplified for
-  /// this screen's single (unbounded-cache) data source — see
-  /// `working_days_notifier.dart`'s file header for why the full keepAlive
-  /// machinery isn't mirrored too.
+  /// this screen's single data source. `workingDaysProvider`'s phase-341
+  /// keepAlive TTL is scoped to `serviceIds == null` queries only (see that
+  /// file's `build()`) — this screen's `_workingDaysQuery` always carries
+  /// `serviceIds` (availability-aware mode), so it never opts in and the
+  /// error-retry below stays plain-autoDispose safe (see the `keepalive-safe`
+  /// note on it).
   ///
   /// [today] and [visibleMonth] are the caller's already-derived values — see
   /// [_today] for why they are threaded rather than re-read here.
@@ -428,6 +431,12 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
     if (workingDaysAsync.hasError) {
       return _WorkingDaysErrorBody(
         failure: workingDaysAsync.error!,
+        // keepalive-safe: `_workingDaysQuery` always sets `serviceIds`
+        // (availability-aware mode) — `working_days_notifier.dart`'s
+        // phase-341 keepAlive only opens for `serviceIds == null` queries,
+        // so this family member is never keepAlive-pinned and this invalidate
+        // keeps its pre-341 plain-autoDispose semantics (immediate disposal
+        // once unwatched, no queued-disposal race to lose).
         onRetry: () => ref.invalidate(
           workingDaysProvider(_workingDaysQuery(visibleMonth)),
         ),
@@ -607,11 +616,21 @@ class SlotTimeScreen extends ConsumerWidget {
         idempotencyKey: _uuid.v4(),
         rescheduleBookingId: args.rescheduleBookingId,
         rescheduleAppointmentId: args.rescheduleAppointmentId,
+        // SALON DOT SET (2026-09-19) — forwarded verbatim; `null` on every
+        // path but a reschedule started from a salon «Записи» board, so this
+        // chain link is inert everywhere else.
+        rescheduleSalonId: args.rescheduleSalonId,
         guest: args.guest,
         hideMasterIdentity: args.hideMasterIdentity,
         rescheduleTargetIsWalkIn: args.rescheduleTargetIsWalkIn,
         rescheduleClientName: args.rescheduleClientName,
         rescheduleClientPhone: args.rescheduleClientPhone,
+        // VENUE ADDRESS (2026-09-18) — forwarded verbatim; `null` on every
+        // create path, so this chain link is inert there.
+        venueStreet: args.venueStreet,
+        venueBuildingNo: args.venueBuildingNo,
+        venueCity: args.venueCity,
+        venueLocationNote: args.venueLocationNote,
       ),
     );
   }

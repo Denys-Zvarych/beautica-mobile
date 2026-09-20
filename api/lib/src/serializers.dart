@@ -39,6 +39,7 @@ import 'package:beautica_api/src/model/api_response_list_master_working_day_resp
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_category_usage_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
+import 'package:beautica_api/src/model/api_response_list_salon_master_effective_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
@@ -199,6 +200,7 @@ import 'package:beautica_api/src/model/salon_admin_response.dart';
 import 'package:beautica_api/src/model/salon_deletion_blocked_response.dart';
 import 'package:beautica_api/src/model/salon_invite_history_response.dart';
 import 'package:beautica_api/src/model/salon_invite_response.dart';
+import 'package:beautica_api/src/model/salon_master_effective_schedule_response.dart';
 import 'package:beautica_api/src/model/salon_response.dart';
 import 'package:beautica_api/src/model/salon_review_response.dart';
 import 'package:beautica_api/src/model/salon_review_summary_response.dart';
@@ -265,6 +267,7 @@ part 'serializers.g.dart';
   ApiResponseListOblastResponse,
   ApiResponseListPlatformCategoryUsageResponse,
   ApiResponseListPlatformServiceTypeResponse,
+  ApiResponseListSalonMasterEffectiveScheduleResponse,
   ApiResponseListSalonResponse,
   ApiResponseListSalonStaffMemberResponse,
   ApiResponseListScheduleOverrideResponse,
@@ -425,6 +428,7 @@ part 'serializers.g.dart';
   SalonDeletionBlockedResponse,
   SalonInviteHistoryResponse,
   SalonInviteResponse,
+  SalonMasterEffectiveScheduleResponse,
   SalonResponse,
   SalonReviewResponse,
   SalonReviewSummaryResponse,

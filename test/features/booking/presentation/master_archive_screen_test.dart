@@ -53,6 +53,7 @@ import 'package:beautica_mobile/features/booking/domain/master_archive_query.dar
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -65,6 +66,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,11 +99,26 @@ const User _stubIndependentMaster = User(
   lastName: 'Майстер',
 );
 
+/// ## Why [SynchronousFuture] and not `build() async =>` (phase 342 D6)
+///
+/// `MasterArchiveNotifier.build` now `ref.watch`es
+/// `authProvider.select(authUserIdOrNull)`. An `async` stub passes through one
+/// `AsyncLoading` frame, so the archive's FIRST build sees `null` and its
+/// second sees the user id — a genuine identity change, which rebuilds the
+/// notifier and DOUBLES every `getMyBookings` count this file asserts (and
+/// hangs the seamless-reload test, whose stub only completes page 1). That is
+/// a pure stub artifact: in production `auth_redirect.dart` holds the splash
+/// until the session is settled, so no authed route ever mounts against an
+/// in-flight `authProvider`. Resolving synchronously reproduces production.
+/// The same reasoning is recorded, with the opposite remedy (no override at
+/// all), on the counting harness further down this file.
 class _IndependentMasterAuthNotifier extends AuthNotifier {
   @override
-  Future<AuthSession> build() async => const AuthSession.authenticated(
-    user: _stubIndependentMaster,
-    accessToken: 'tok',
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(
+    const AuthSession.authenticated(
+      user: _stubIndependentMaster,
+      accessToken: 'tok',
+    ),
   );
 }
 
@@ -119,11 +136,34 @@ const User _stubSalonMaster = User(
 );
 
 class _SalonMasterAuthNotifier extends AuthNotifier {
+  /// [SynchronousFuture] for the same phase 342 D6 reason as
+  /// [_IndependentMasterAuthNotifier] — see its doc.
   @override
-  Future<AuthSession> build() async => const AuthSession.authenticated(
-    user: _stubSalonMaster,
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(
+    const AuthSession.authenticated(user: _stubSalonMaster, accessToken: 'tok'),
+  );
+}
+
+/// A session that can be MOVED after the screen is mounted — the identity
+/// change `skipLoadingOnReload` governs (mobile-qa, phase 342 QA pass).
+///
+/// [SynchronousFuture] on the initial build for the same phase 342 D6 reason
+/// as [_IndependentMasterAuthNotifier]; [emit] is the only mutation, and it
+/// emits a settled `AsyncData` so the archive sees one clean id → id' step
+/// rather than an intermediate `null`.
+class _SettableAuthNotifier extends AuthNotifier {
+  AuthSession _session = const AuthSession.authenticated(
+    user: _stubIndependentMaster,
     accessToken: 'tok',
   );
+
+  @override
+  Future<AuthSession> build() => SynchronousFuture<AuthSession>(_session);
+
+  void emit(AuthSession session) {
+    _session = session;
+    state = AsyncData<AuthSession>(session);
+  }
 }
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
@@ -349,6 +389,30 @@ void main() {
   Future<void> pump(
     WidgetTester tester, {
     AuthNotifier Function() auth = _IndependentMasterAuthNotifier.new,
+    // Phase 343 — the widget under test, in full.
+    //
+    // A `const MasterArchiveScreen()` LITERAL by default, NOT a set of
+    // pass-through named parameters carrying the screen's own defaults.
+    // That distinction is the whole point: this harness must exercise the
+    // screen's DECLARED defaults, exactly as `app_router.dart:1762` does,
+    // so flipping one of them in `master_archive_screen.dart` turns the
+    // unattributed/«mine»-scoped tests RED. A harness that re-stated
+    // `showMasterAttribution: false` would silently override the mutation
+    // and pass — mutation-verified 2026-09-19 (it did, before this was
+    // changed).
+    MasterArchiveScreen screen = const MasterArchiveScreen(),
+    // The catalogue `masterServiceCatalogProvider` resolves to. Empty by
+    // default — exactly what every pre-343 call site in this file got — so
+    // only the filter-facet tests below, which need a POSITIVE control for
+    // "the «Послуга» section really can render", opt into a non-empty one.
+    List<MasterService> services = const <MasterService>[],
+    // mobile-qa 2026-09-19 — incremented every time
+    // `masterServiceCatalogProvider` is BUILT. `null` (the default) leaves
+    // every existing call site untouched; the salon-scope test below passes
+    // a counter to pin that the owner never fires a catalogue fetch at all,
+    // which is a claim about a NETWORK CALL and therefore unobservable from
+    // the rendered sheet.
+    List<int>? catalogueBuilds,
   }) async {
     final GoRouter router = GoRouter(
       initialLocation: '/from',
@@ -366,8 +430,7 @@ void main() {
         ),
         GoRoute(
           path: '/archive',
-          builder: (BuildContext context, GoRouterState state) =>
-              const MasterArchiveScreen(),
+          builder: (BuildContext context, GoRouterState state) => screen,
         ),
         // A probe standing in for `LeaveClientFeedbackScreen` at the SAME
         // path `RouteNames.clientReview` builds — proves the «Відгук» slot
@@ -403,9 +466,20 @@ void main() {
         authProvider.overrideWith(auth),
         screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
         bookingRepositoryProvider.overrideWithValue(repo),
-        masterServiceCatalogProvider.overrideWith(
-          (ref) async => const <MasterService>[],
-        ),
+        // SYNCHRONOUS on purpose (`=>`, not `async =>`). `_applyFilters`
+        // reads this provider COLD (`ref.read(...).asData?.value`) — nothing
+        // on this screen watches it — so an `async` override is still
+        // `AsyncLoading` on the frame the sheet is built and the «Послуга»
+        // section can never render, which would make the
+        // `showServiceFilter: false` assertion below pass vacuously. A
+        // `FutureOr` create that returns the value directly resolves to
+        // `AsyncData` immediately, so the section's presence is genuinely
+        // controlled by the flag under test. The default is still an empty
+        // catalogue, so every pre-343 test in this file is unaffected.
+        masterServiceCatalogProvider.overrideWith((ref) {
+          catalogueBuilds?.add(1);
+          return services;
+        }),
       ],
     );
     await tester.pump();
@@ -2835,5 +2909,954 @@ void main() {
             'already false, so there is no pending id at all',
       );
     });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // mobile-security LOW (phase 342 QA pass) — the `skipLoadingOnReload`
+  // FAIL-SAFE, pinned.
+  //
+  // `master_archive_screen.dart`'s comment above `async.when` says the flag is
+  // provably inert here because "`MasterArchiveNotifier.build` only ever
+  // `ref.read`s … so it has zero dependencies and `isReloading` can never be
+  // true". Phase 342 FALSIFIED that: `build()` now `ref.watch`es
+  // `authProvider.select(authUserIdOrNull)` (`master_archive_notifier.dart`),
+  // which is exactly the trigger `skipLoadingOnRefresh` does NOT cover.
+  //
+  // Today's behaviour is correct BY ACCIDENT — there is no flag, so an
+  // identity-change reload paints the skeleton. If someone re-adds
+  // `skipLoadingOnReload: true` trusting that stale comment, the PREVIOUS
+  // ACCOUNT'S ROWS would keep painting across the session boundary — and once
+  // phase 343 hands this same screen a `salonId`, those rows are client names
+  // across the whole salon roster. This test is the standing guard that makes
+  // re-adding the flag go RED.
+  //
+  // Mutation-verified: adding `skipLoadingOnReload: true` to the `async.when`
+  // turns this test red (the skeleton never appears and `session-1-row` keeps
+  // rendering); removing it again turns it green.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('session-boundary reload is NOT seamless (mobile-security LOW, phase '
+      '342)', () {
+    testWidgets('an IDENTITY CHANGE repaints the skeleton — the previous '
+        'account\'s rows never survive the reload', (
+      WidgetTester tester,
+    ) async {
+      final _SettableAuthNotifier auth = _SettableAuthNotifier();
+
+      // Page 0 for session 1 resolves immediately; the identity-change reload
+      // is held PENDING, because against an immediately-resolving stub no
+      // frame would ever OBSERVE the reload and the assertions below would be
+      // vacuous in both directions.
+      final List<Completer<PageResponse<Booking>>> fetches =
+          <Completer<PageResponse<Booking>>>[];
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((_) {
+        final Completer<PageResponse<Booking>> c =
+            Completer<PageResponse<Booking>>();
+        fetches.add(c);
+        if (fetches.length == 1) {
+          c.complete(
+            _page(<Booking>[
+              _booking(id: 'session-1-row', status: BookingStatus.completed),
+            ]),
+          );
+        }
+        return c.future;
+      });
+
+      await pump(tester, auth: () => auth);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('session-1-row')),
+        findsOneWidget,
+      );
+
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'master-archive-test-2',
+            email: 'other@beautica.ua',
+            role: UserRole.independentMaster,
+            firstName: 'Ірина',
+            lastName: 'Інша',
+          ),
+          accessToken: 'tok-2',
+        ),
+      );
+
+      // Deliberately NOT `pumpAndSettle` — `BookingsSkeleton` runs a PERPETUAL
+      // breathe animation, so a settle would hang rather than fail.
+      for (int frame = 0; frame < 8; frame++) {
+        await tester.pump();
+        expect(
+          find.byKey(const ValueKey<String>('session-1-row')),
+          findsNothing,
+          reason:
+              'frame $frame after the identity change: the signed-out '
+              'account\'s booking rows must not keep painting. If this fails, '
+              '`skipLoadingOnReload: true` is back on this screen\'s '
+              '`async.when` — see this group\'s header',
+        );
+      }
+      expect(
+        find.byKey(const Key('master-archive-skeleton')),
+        findsOneWidget,
+        reason: 'the identity-change reload renders the loading branch',
+      );
+      expect(
+        fetches,
+        hasLength(2),
+        reason:
+            'the identity change really did trigger a reload and it really is '
+            'still pending across every frame above — otherwise the loop '
+            'proved nothing',
+      );
+
+      // And the NEW session\'s rows are what lands, not the old ones.
+      fetches.last.complete(
+        _page(<Booking>[
+          _booking(id: 'session-2-row', status: BookingStatus.declined),
+        ]),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey<String>('session-2-row')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey<String>('session-1-row')), findsNothing);
+    });
+  });
+
+  group('teammate filter section — absent on «Архів»', () {
+    // 2026-09-18 (mobile-qa LOW) — the salon board's «Майстер» section is
+    // driven entirely by `BookingsFilterSheet.masters`. `master_archive_screen
+    // .dart` calls `BookingsFilterSheet.show` DIRECTLY (no
+    // `BookingsDiscoveryView` in between, so no `showMasterFilter` flag to
+    // read) and passes no roster at all — it has none. Nothing pinned that:
+    // `bookings_filter_sheet_test.dart` pins the sheet's own empty-roster
+    // rule, but not that THIS screen keeps feeding it an empty roster.
+    //
+    // Asserted on the RENDERED sheet — there is no constructor field to read
+    // here even if a field read were acceptable, since the roster is an
+    // argument to a `show()` call made inside an async handler.
+    //
+    // Located by KEY, never by the section's Cyrillic label:
+    // `scripts/forbid_cyrillic_finder.sh` bans a Cyrillic literal inside a
+    // `find.text(...)` argument across `test/**`.
+    testWidgets(
+      'opening the filter sheet renders the status section but NO teammate '
+      'section',
+      (WidgetTester tester) async {
+        stubList(<Booking>[
+          _booking(id: 'b1', status: BookingStatus.completed),
+        ]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        // POSITIVE CONTROL — the sheet genuinely opened and built its other
+        // sections, so the absence assertion below cannot pass vacuously on a
+        // sheet that never mounted.
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOneWidget,
+          reason: 'the sheet is genuinely mounted',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+          reason:
+              'the sheet rendered its sections — so an absent teammate '
+              'section below means ABSENT, not "never built"',
+        );
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-master')),
+          findsNothing,
+          reason:
+              '«Архів» has no roster whatsoever; this fails the moment '
+              '`master_archive_screen.dart` starts passing a non-empty '
+              '`masters:` to `BookingsFilterSheet.show`',
+        );
+      },
+    );
+  });
+
+  // ==========================================================================
+  // Phase 343 — the SALON host: a third mount of this same screen, reached by
+  // three additive parameters and nothing else.
+  // ==========================================================================
+  group('phase 343 — the salon host', () {
+    const String kSalonId = 'salon-9';
+
+    final List<MasterService> catalogue = <MasterService>[
+      const MasterService(
+        id: 's-1',
+        serviceDefId: 'def-s-1',
+        name: 'Манікюр з покриттям',
+        durationMinutes: 60,
+      ),
+    ];
+
+    /// Stubs the SALON read and captures every invocation, so the assertions
+    /// below can read the ARGUMENTS the repository was actually called with
+    /// rather than a field of the widget
+    /// (`project_widget_field_assertion_is_vacuous`).
+    void stubSalonList(List<Booking> items) {
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((_) async => _page(items));
+    }
+
+    Booking bookingBy(
+      String id,
+      String first,
+      String last, {
+      bool providerCanReviewClient = false,
+    }) =>
+        _booking(
+          id: id,
+          status: BookingStatus.completed,
+          providerCanReviewClient: providerCanReviewClient,
+        ).copyWith(
+          masterId: 'm-$first',
+          masterFirstName: first,
+          masterLastName: last,
+        );
+
+    testWidgets(
+      'SCOPE — `salonId` reaches the REPOSITORY as the salon read; the '
+      '"mine" endpoint is never touched',
+      (WidgetTester tester) async {
+        stubList(<Booking>[]);
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The query IS the family key, so the only honest place to observe
+        // the scope is the call the notifier made through it. A screen that
+        // merely held `salonId` in a field would fail here.
+        final VerificationResult call = verify(
+          () => repo.getSalonBookings(
+            salonId: captureAny(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+        expect(call.captured.single, kSalonId);
+        verifyNever(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+      },
+    );
+
+    testWidgets('ATTRIBUTION — two rows performed by DIFFERENT masters render '
+        'different names; a hardcoded or row-wide attribution fails here', (
+      WidgetTester tester,
+    ) async {
+      stubSalonList(<Booking>[
+        bookingBy('b1', 'Оля', 'Коваль'),
+        bookingBy('b2', 'Дарина', 'Ткач'),
+      ]);
+
+      await pump(
+        tester,
+        screen: const MasterArchiveScreen(
+          salonId: kSalonId,
+          showServiceFilter: false,
+          showMasterAttribution: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-master-b1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-master-b2')),
+        findsOneWidget,
+      );
+      expect(
+        (tester.widget<Text>(
+          find.byKey(const Key('master-booking-card-master-b1')),
+        )).data,
+        'Оля Коваль',
+      );
+      expect(
+        (tester.widget<Text>(
+          find.byKey(const Key('master-booking-card-master-b2')),
+        )).data,
+        'Дарина Ткач',
+      );
+    });
+
+    testWidgets(
+      'the MASTER hosts stay unattributed on the SAME fixture — the flag is '
+      'opt-in at the screen level too, not just at the card',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsNothing,
+        );
+        // Positive control: the row itself really did render.
+        expect(find.byKey(const Key('master-booking-card-b1')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'FILTER — `showServiceFilter: false` drops the «Послуга» section while '
+      'the status section stays reachable AND functional',
+      (WidgetTester tester) async {
+        stubList(<Booking>[]);
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+          // A non-empty catalogue, so an absent section means the FLAG cut
+          // it — not that there was nothing to show. This is the anti-vacuity
+          // half; the positive control below pumps the same catalogue with
+          // the flag left at its default.
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+          reason: 'the status half of the sheet is untouched by the flag',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsNothing,
+        );
+
+        // FUNCTIONAL, not merely present: ticking a status group and applying
+        // must re-key the provider and re-read the salon endpoint.
+        await tester.tap(
+          find.byKey(
+            Key(
+              'master-bookings-filter-status-'
+              '${BookingStatusFilterGroup.completed.name}',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+        await tester.pumpAndSettle();
+
+        verify(
+          () => repo.getSalonBookings(
+            salonId: any(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        ).called(greaterThan(1));
+      },
+    );
+
+    testWidgets(
+      'POSITIVE CONTROL — the same catalogue DOES render a «Послуга» section '
+      'on a master host, so the absence above is the flag and nothing else',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester, services: catalogue);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '«Відгук» follows the SERVER flag on the salon host too — never the '
+      'role, and never the scope',
+      (WidgetTester tester) async {
+        stubSalonList(<Booking>[
+          bookingBy('yes', 'Оля', 'Коваль', providerCanReviewClient: true),
+          bookingBy('no', 'Дарина', 'Ткач'),
+        ]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+            showMasterAttribution: true,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-review-yes')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('master-booking-card-review-no')),
+          findsNothing,
+        );
+      },
+    );
+
+    // ========================================================================
+    // mobile-qa 2026-09-19 — the three parameters are ORTHOGONAL by decision
+    // (343 D1), and nothing above pinned that. EVERY authored test binds the
+    // two render flags 1:1 with `salonId`, so deriving either one FROM the
+    // scope — the exact refactor D1 forbids, and the one that would force a
+    // future scope to fork this screen — passed the whole suite.
+    //
+    // MEASURED 2026-09-19 against the authored suite (48 tests, all green):
+    //   * `showMasterAttribution: widget.showMasterAttribution` replaced with
+    //     `widget.salonId != null`            -> 48/48 STILL GREEN;
+    //   * both `widget.showServiceFilter` reads in `_applyFilters` replaced
+    //     with `widget.salonId == null`       -> 48/48 STILL GREEN.
+    // Each of the four tests below turns one of those two red.
+    // ========================================================================
+
+    testWidgets(
+      'ORTHOGONAL (343 D1) — attribution is the FLAG, not the scope: the '
+      '«mine» scope with the flag ON does attribute',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(showMasterAttribution: true),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsOneWidget,
+        );
+        // The scope really was «mine» — otherwise this would be passing for
+        // the very reason it exists to rule out.
+        verifyNever(
+          () => repo.getSalonBookings(
+            salonId: any(named: 'salonId'),
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            masterId: any(named: 'masterId'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+          ),
+        );
+      },
+    );
+
+    testWidgets(
+      'ORTHOGONAL (343 D1) — and the SALON scope with the flag left at its '
+      'default does NOT attribute',
+      (WidgetTester tester) async {
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-booking-card-master-b1')),
+          findsNothing,
+        );
+        // Positive control: the salon-scoped row itself rendered, and the
+        // fixture it rendered from does carry a master name.
+        expect(find.byKey(const Key('master-booking-card-b1')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ORTHOGONAL (343 D3) — the service facet is the FLAG, not the scope: '
+      '«mine» with `showServiceFilter: false` drops the «Послуга» section',
+      (WidgetTester tester) async {
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(showServiceFilter: false),
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'the SALON host never BUILDS `masterServiceCatalogProvider` — the '
+      'skipped read is a skipped FETCH, which no rendered assertion can see',
+      (WidgetTester tester) async {
+        final List<int> builds = <int>[];
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(
+            salonId: kSalonId,
+            showServiceFilter: false,
+          ),
+          services: catalogue,
+          catalogueBuilds: builds,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          builds,
+          isEmpty,
+          reason:
+              'the owner fetched a master service catalogue they have no use '
+              'for — `_applyFilters` read the provider before gating on the '
+              'flag',
+        );
+      },
+    );
+
+    testWidgets(
+      'POSITIVE CONTROL — a master host DOES build it, so the emptiness '
+      'above is the flag and not a dead override',
+      (WidgetTester tester) async {
+        final List<int> builds = <int>[];
+        stubList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(tester, services: catalogue, catalogueBuilds: builds);
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(builds, hasLength(1));
+      },
+    );
+
+    testWidgets(
+      'THE FACET FLAG IS THE GUARD — turn it on for a salon scope and '
+      "`MasterArchiveQuery.of`'s ArgumentError is genuinely reachable",
+      (WidgetTester tester) async {
+        // `_query`'s doc calls the forbidden salon+serviceIds combination
+        // "not a latent crash here" because the salon host offers no service
+        // facet. That is an argument, and this is the measurement behind it:
+        // the SAME screen, with the SAME salon scope, differing ONLY in
+        // `showServiceFilter`, does reach the throw. So the flag is load-
+        // bearing rather than cosmetic, and the three tests above — which
+        // pin that the route passes it — are guarding a real edge.
+        stubSalonList(<Booking>[bookingBy('b1', 'Оля', 'Коваль')]);
+
+        await pump(
+          tester,
+          screen: const MasterArchiveScreen(salonId: kSalonId),
+          services: catalogue,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-service')),
+          findsOneWidget,
+          reason: 'the misconfiguration under test did not materialise',
+        );
+
+        await tester.tap(
+          find.byKey(
+            Key('master-bookings-filter-service-${catalogue.single.id}'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isA<ArgumentError>());
+      },
+    );
+  });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // mobile-qa (2026-09-20) — LOAD-MORE RETRY STORM on the raw ScrollController
+  //
+  // `_onScroll` (`master_archive_screen.dart:421-429`) fires `loadMore()` on
+  // EVERY scroll notification whose position is within `_loadMoreThreshold`
+  // (320 px) of the bottom, gated only on `_hasMore && !_isLoadingMore` —
+  // both of which are mirrored off the async snapshot in `build()`
+  // (`:880-881`).
+  //
+  // `MasterArchiveNotifier.loadMore`'s failure arm
+  // (`master_archive_notifier.dart:506-510`) writes
+  // `copyWith(isLoadingMore: false)` and deliberately leaves `hasMore`
+  // untouched — so a FAILED page re-opens the gate while the position is
+  // still past the threshold. The next scroll notification re-fires, fails,
+  // re-opens, and so on: an unbounded fetch storm against a backend that is
+  // very often failing precisely because it is rate-limiting this user
+  // (backend PR #130 put a shared 60/min budget on this exact route).
+  //
+  // WHY THE EXISTING COVERAGE MISSES IT. `master_archive_notifier_test.dart`
+  // has «a FAILED salon load-more leaves the already-rendered list intact and
+  // clears isLoadingMore» (:1730) and its «mine» twin (:713), but both call
+  // `loadMore()` ONCE and neither asserts on `hasMore` afterwards. Every
+  // load-more test in THIS file drives the notifier directly through
+  // `ProviderContainer` (see the date-group-header test above, which says so
+  // explicitly) — so `_onScroll` itself, the component that actually decides
+  // HOW MANY times `loadMore()` is called, has never been driven by a real
+  // gesture in either tier.
+  //
+  // COUNTING IS AT THE REPOSITORY, not at the notifier: the notifier's
+  // in-flight guard collapses same-frame re-entry, so a notifier-level call
+  // count would under-report. What costs the user (and the limiter) is
+  // round-trips, and that is what `pageOneAttempts` counts.
+  group('load-more retry storm (raw ScrollController re-arm)', () {
+    late int pageOneAttempts;
+
+    /// Page 0 lands with enough rows to overflow the 800x600 test viewport
+    /// and reports `hasMore`; every page past it FAILS, for ever.
+    void stubFailingSecondPage() {
+      pageOneAttempts = 0;
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((Invocation invocation) async {
+        final int page = invocation.namedArguments[#page] as int;
+        if (page > 0) {
+          pageOneAttempts++;
+          // ASYNC throw, not `thenThrow`. A synchronous throw would resolve
+          // before the notifier's `state = AsyncData(isLoadingMore: true)`
+          // had a frame to be observed, which is not how a real Dio failure
+          // arrives and would change the re-arm timing under test.
+          throw const NetworkFailure();
+        }
+        return PageResponse<Booking>(
+          items: <Booking>[
+            for (int i = 0; i < 12; i++)
+              _booking(id: 'p0-$i', status: BookingStatus.completed),
+          ],
+          page: 0,
+          totalPages: 4,
+          totalElements: 40,
+        );
+      });
+    }
+
+    /// Drags the list to its bottom and keeps it there for [frames] frames —
+    /// the shape of a user who has hit the end of the list and is still
+    /// nudging it, which is exactly when `_onScroll` re-fires.
+    Future<void> holdAtBottom(WidgetTester tester, {int frames = 12}) async {
+      final Finder scrollable = find.byType(Scrollable).first;
+      // A single large drag lands the position past the 320 px threshold.
+      await tester.drag(scrollable, const Offset(0, -4000));
+      for (int i = 0; i < frames; i++) {
+        // fixed-wait-ok: this is not waiting FOR anything — it is ADVANCING
+        // the physics simulation one display frame at a time, because the
+        // quantity under measurement IS "fetches per frame of overscroll
+        // settle". `pumpUntilFound` would defeat the measurement outright:
+        // there is no awaited state to appear, and pumping until one did
+        // would make the frame count (and therefore the storm size) depend on
+        // machine speed. 16 ms is the frame period, not a guess at a
+        // duration.
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    // ── CLAMPING (Android / Linux / Windows — the shipping defaults) ──
+    //
+    // GREEN today, and it is NOT a formality: it is the control that makes
+    // the iOS measurement below mean something. `ClampingScrollPhysics`
+    // parks the position exactly at `maxScrollExtent`, so the controller
+    // stops notifying and the re-arm has nothing to fire it. One failed
+    // fetch per NEW gesture — survivable.
+    testWidgets(
+      'clamping physics: a failed load-more costs exactly one fetch per '
+      'gesture',
+      (WidgetTester tester) async {
+        stubFailingSecondPage();
+        await pump(tester);
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0-0')));
+
+        await holdAtBottom(tester);
+
+        // POSITIVE CONTROL first: without this, a harness where the drag
+        // never crossed the threshold (a viewport too tall, a scrollable
+        // that never overflowed) would pass the bound assertion below
+        // vacuously, having issued ZERO attempts.
+        expect(
+          pageOneAttempts,
+          greaterThanOrEqualTo(1),
+          reason:
+              'harness precondition: the gesture must actually cross '
+              '_loadMoreThreshold and fire loadMore at least once',
+        );
+
+        expect(
+          pageOneAttempts,
+          1,
+          reason:
+              'under clamping physics the position comes to rest AT '
+              'maxScrollExtent, so the controller stops notifying and the '
+              're-arm never fires again. A regression that made even this '
+              'configuration storm must turn this RED.',
+        );
+      },
+    );
+
+    // ── BOUNCING (iOS — a live target: `beautica-mobile/ios/` exists, and
+    //    `BouncingScrollPhysics` is named explicitly in 12+ lib/ screens) ──
+    //
+    // The archive list is `AlwaysScrollableScrollPhysics()` with NO parent
+    // (`master_archive_screen.dart:965,971,1025,1051,1084`), so `applyTo`
+    // chains it onto whatever the ambient `ScrollConfiguration` supplies —
+    // bouncing on iOS. An overscroll bounce keeps the position CHANGING for
+    // the whole settle, so `_onScroll` fires on every one of those frames,
+    // and each failed `loadMore` re-opens the gate before the next.
+    //
+    // MEASURED on this branch (2026-09-20, flutter-tester 800x600, page 1
+    // failing with NetworkFailure):
+    //     one drag-to-bottom ................  12 fetches
+    //     one fling .........................  109 fetches
+    //     four flings .......................  556 fetches
+    //     ~10 gestures total ................  687 fetches
+    // Against backend PR #130's shared 60/min per-user budget, a single
+    // flick spends the user's entire minute — and the 429 that follows maps
+    // to `UnknownFailure` with `Retry-After` discarded
+    // (`test/core/network/salon_board_429_contract_test.dart`), so the
+    // screen cannot even render a cooldown. The two defects compound.
+    //
+    // UN-SKIPPED AND GREEN (2026-09-20). This was the ACCEPTANCE GATE for the
+    // mobile-security HIGH on `master_archive_screen.dart:420-429`; the fix
+    // is `MasterArchiveState.retryNotBefore`, consulted by BOTH
+    // `_MasterArchiveScreenState._onScroll` and
+    // `MasterArchiveNotifier.loadMore`, so a failed page parks the tail for
+    // `kLoadMoreFailureBackoff` (or the server's own `Retry-After`) instead
+    // of re-arming itself once per frame. Measured RED at 12 before the fix
+    // and 1 after, with the clamping control above still green.
+    testWidgets(
+      'bouncing physics: a failed load-more must not re-arm a fetch storm '
+      'during the overscroll settle',
+      (WidgetTester tester) async {
+        // Cleared inside the BODY, not via `addTearDown`:
+        // `TestWidgetsFlutterBinding._verifyInvariants` runs
+        // `debugAssertAllFoundationVarsUnset` at the end of the test body,
+        // BEFORE tear-downs, so an `addTearDown` reset fails the test with
+        // "the value of a foundation debug variable was changed by the test"
+        // even when everything under assertion passed. (Found the moment this
+        // test was un-skipped — it had never actually run.) `try/finally` so
+        // a failed expectation still restores it for the next test.
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        try {
+          stubFailingSecondPage();
+          await pump(tester);
+          await tester.pumpUntilFound(
+            find.byKey(const ValueKey<String>('p0-0')),
+          );
+
+          await holdAtBottom(tester);
+
+          expect(
+            pageOneAttempts,
+            greaterThanOrEqualTo(1),
+            reason:
+                'harness precondition: the gesture must cross '
+                '_loadMoreThreshold at least once',
+          );
+          expect(
+            pageOneAttempts,
+            lessThanOrEqualTo(2),
+            reason:
+                'a failed page must not re-arm itself once per frame. '
+                '`loadMore`\'s catch arm clears isLoadingMore and leaves '
+                'hasMore true, so every scroll notification past the '
+                'threshold re-fires the same failing fetch for the whole '
+                'bounce settle. Fix by remembering the failure (a cooldown '
+                'deadline cleared by a landed page / refresh / filter '
+                'change), not by clearing hasMore — clearing hasMore also '
+                'kills the «Завантажити ще» affordance.',
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'the notifier leaves hasMore true after a failed load-more — the '
+      're-arm mechanism, pinned at its source',
+      (WidgetTester tester) async {
+        stubFailingSecondPage();
+        await pump(tester);
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0-0')));
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(MasterArchiveScreen)),
+        );
+        final MasterArchiveQuery query = MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{},
+          serviceIds: const <String>{},
+        );
+
+        await container.read(masterArchiveProvider(query).notifier).loadMore();
+        await tester.pump();
+
+        final MasterArchiveState after = container
+            .read(masterArchiveProvider(query))
+            .requireValue;
+
+        expect(pageOneAttempts, 1, reason: 'exactly one page-1 round trip');
+        expect(
+          after.isLoadingMore,
+          isFalse,
+          reason: 'the spinner must clear — existing, unchanged behaviour',
+        );
+        // THIS is what makes `_onScroll`\'s gate re-open. Asserted here, at
+        // the notifier, so a fix that bounds the storm in the SCREEN still
+        // documents the notifier contract it is compensating for — and a fix
+        // that instead clears `hasMore` turns this RED and must say so.
+        expect(
+          after.hasMore,
+          isTrue,
+          reason:
+              'GROUND TRUTH: the failure arm leaves hasMore untouched, which '
+              'is precisely what re-opens _onScroll\'s gate. If a fix clears '
+              'it here instead, update this and the storm test together.',
+        );
+
+        // ── THE FAILURE IS NOW REMEMBERED (updated with the fix, 2026-09-20)
+        //
+        // This block used to assert the OPPOSITE — `pageOneAttempts == 2`,
+        // "nothing in the notifier remembers that page 1 just failed" — and
+        // that was the DEFECT stated as ground truth, not a contract worth
+        // keeping. `MasterArchiveState.retryNotBefore` is the memory: a
+        // failed page parks the tail for `kLoadMoreFailureBackoff` (or the
+        // server's own `Retry-After` on a `SalonBoardRateLimitedFailure`), so
+        // an immediate identical call is a no-op at the NOTIFIER, not merely
+        // at the screen's scroll listener. The two assertions above are
+        // unchanged and still green: `hasMore` stays `true` (the
+        // «Завантажити ще» affordance survives) and the spinner still clears.
+        expect(
+          after.retryNotBefore,
+          isNotNull,
+          reason:
+              'the failure arm must record a cooldown deadline — that is what '
+              'both _onScroll and loadMore consult',
+        );
+        expect(
+          // The screen's own clock is un-overridden in this harness, so the
+          // deadline was built from `DateTime.now` too — one clock, both
+          // halves. The question asked is "is this deadline still in the
+          // future", which no zone conversion changes; no calendar DAY is
+          // resolved here, so `kyivToday` would be the wrong tool.
+          // instant-ok: an absolute-instant comparison against a deadline.
+          after.isRetryBlockedAt(DateTime.now()),
+          isTrue,
+          reason:
+              'the recorded deadline must actually be in the future right '
+              'after the failure, or the gate is inert',
+        );
+
+        await container.read(masterArchiveProvider(query).notifier).loadMore();
+        await tester.pump();
+        expect(
+          pageOneAttempts,
+          1,
+          reason:
+              'the notifier remembers that page 1 just failed, so an '
+              'identical call inside the cooldown must NOT re-issue it',
+        );
+      },
+    );
   });
 }

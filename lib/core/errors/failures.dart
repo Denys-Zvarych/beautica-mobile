@@ -694,6 +694,59 @@ final class ServiceRateLimitedFailure extends Failure {
   }
 }
 
+/// Emitted when one of the SALON BOARD's four read routes returns HTTP **429**
+/// because the shared per-user 60/min budget (backend PR #130) is exhausted:
+///
+///   GET /bookings/salon/{salonId}
+///   GET /bookings/salon/{salonId}?partition=HISTORY   («Архів», salon scope)
+///   GET /bookings/salon/{salonId}/booked-days
+///   GET /salons/{salonId}/masters/effective-schedule
+///
+/// ## Why this type had to exist
+///
+/// Before it, a board 429 fell all the way through `ErrorMapperInterceptor`'s
+/// status chain to the terminal [UnknownFailure]. That was not merely an
+/// imprecise label: the interceptor runs LAST in the production chain and
+/// re-rejects with a `DioException` whose `error` IS the mapped failure, and
+/// every repository mapper opens with `if (e.error is Failure) return e.error
+/// as Failure;` — so each repository's own `badResponse → ServerFailure(429)`
+/// arm is structurally unreachable on the wired chain. The `Retry-After` the
+/// backend sends reached [Failure.cause] and nowhere else, so no screen could
+/// render a cooldown and every retry affordance re-fired straight back into a
+/// live limiter. Pinned end-to-end by
+/// `test/core/network/salon_board_429_contract_test.dart`, which drives the
+/// REAL `dioProvider` rather than a fabricated `DioException`.
+///
+/// [retryAfterSeconds] is parsed by the interceptor's own
+/// `_extractRetryAfterSecondsNullable` — the same header-then-body resolver and
+/// the same [kMaxUxCooldownSeconds] ceiling every other throttle in this file
+/// uses. `null` means absent / unparsable / above the ceiling, and
+/// [userMessage] then drops the countdown.
+///
+/// **Never auto-retried.** [isTransientFailure] answers `true` (a limiter does
+/// clear on its own), and [beauticaProviderRetry] still refuses it because
+/// [isThrottleFailure] is consulted FIRST — the invariant
+/// `salon_board_429_contract_test.dart`'s group 1 pins alongside "never logs
+/// out" and "never refreshes the token".
+final class SalonBoardRateLimitedFailure extends Failure {
+  const SalonBoardRateLimitedFailure({this.retryAfterSeconds, super.cause});
+
+  /// Seconds until the board's next read is allowed, from `Retry-After`.
+  /// `null` when absent / unparsable / over the UX ceiling — the UI then shows
+  /// the wait-a-moment variant instead of a countdown.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    final seconds = retryAfterSeconds;
+    if (seconds == null || seconds <= 0) {
+      return l10n.boardErrRateLimitedNoWait;
+    }
+    return l10n.boardErrRateLimited(seconds);
+  }
+}
+
 /// Emitted when a booking write returns HTTP **409 Conflict** because the
 /// requested slot is no longer available.
 ///

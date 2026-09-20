@@ -142,8 +142,19 @@ scan() {
             depth += gsub(/\(/, "(", code[j]) - gsub(/\)/, ")", code[j])
           }
           if (ext !~ key) continue
-          if (match(code[i], /[A-Za-z_?<>]+[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*=/, m)) {
-            vars[m[1]] = 1
+          # 2-arg match + RSTART/RLENGTH, NOT gawk 3-arg match(str, re, arr)
+          # (2026-09-17, cycle-3 finding G4). The 3-arg form is a gawk
+          # EXTENSION and a PARSE error under mawk, which is Ubuntu default
+          # awk and what CI runner images ship — so both --self-test
+          # (pr-validate.yml) and normal mode died outright there. Loud, not
+          # silent, so nothing was ever wrongly green; fixed anyway because a
+          # gate that cannot run on the CI awk is not a gate.
+          if (match(code[i],
+                    /[A-Za-z_?<>]+[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/)) {
+            decl = substr(code[i], RSTART, RLENGTH)
+            sub(/[[:space:]]*=[[:space:]]*$/, "", decl)   # drop the trailing =
+            sub(/^.*[[:space:]]/, "", decl)               # keep the last ident
+            if (decl != "") vars[decl] = 1
           }
         }
 
@@ -168,8 +179,13 @@ scan() {
 
           hit = 0
           if (ext ~ key) hit = 1               # (A) inline
-          else if (match(ext, /\.tap\([[:space:]]*([A-Za-z_][A-Za-z0-9_]*)[[:space:]]*[,)]/, t)) {
-            if (t[1] in vars) hit = 1          # (B) via variable
+          # Same mawk-compatibility rewrite as pass 1 above (finding G4).
+          else if (match(ext,
+                         /\.tap\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*[,)]/)) {
+            arg = substr(ext, RSTART, RLENGTH)
+            sub(/^\.tap\([[:space:]]*/, "", arg)
+            sub(/[[:space:]]*[,)]$/, "", arg)
+            if (arg in vars) hit = 1           # (B) via variable
           }
           if (!hit) continue
 

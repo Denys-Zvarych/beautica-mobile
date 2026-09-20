@@ -38,6 +38,7 @@ import 'dart:developer';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -420,72 +421,12 @@ final class HttpServiceRepository implements ServiceRepository {
     }
   }
 
-  /// Percent-encodes [value] so it lands as EXACTLY ONE path segment of a
-  /// hand-built raw-[Dio] path, REJECTING any value that cannot be one.
-  ///
-  /// The single encoder for all three raw paths in this file
-  /// ([_listForSalonMaster], [bulkCreate], [_unassignFromSalonMaster]) — those
-  /// bypass the generated client's automatic encoding (see
-  /// `api/lib/src/api/service_controller_api.dart`), so an id carrying a
-  /// path-significant character would otherwise retarget the request on the
-  /// authenticated [_dio] that holds the bearer token. One helper, three call
-  /// sites: a fix here reaches every raw path at once.
-  ///
-  /// **Encoding alone is NOT sufficient, which is why this also rejects.**
-  /// [Uri.encodeComponent] does not escape `.`, so a bare `..` or `.` survives
-  /// it verbatim. Dio then issues the request as
-  /// `Uri.parse(url).normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`),
-  /// and `normalizePath` REMOVES dot-segments per RFC 3986 §5.2.4. Measured,
-  /// not assumed: with `masterId` and `serviceDefId` both `'..'`,
-  /// `DELETE /api/v1/salons/S/masters/../services/..` collapses to
-  /// `DELETE /api/v1/salons/S/` — one trailing slash away from the
-  /// delete-the-whole-salon endpoint (`SalonController.java:208`). A single
-  /// `'.'` deletes its own segment and shifts every later one left.
-  ///
-  /// REJECT rather than sanitise: these ids are server-issued UUIDs, so a
-  /// dot-segment here is a PROGRAMMING error, not user input to be repaired.
-  /// Silently rewriting a caller's id would send a well-formed request about
-  /// the wrong resource, which is strictly worse than not sending one.
-  ///
-  /// Composite values that merely CONTAIN dot-segments (`a/../../b`) are safe
-  /// and pass: the separators encode to `%2F`, and `normalizePath` splits on
-  /// literal `/` only. Nor can encoding manufacture a dot-segment —
-  /// [Uri.encodeComponent] emits `%2E` for no input (it never escapes `.`, and
-  /// any literal `%` becomes `%25`), so Dart's unreserved-character
-  /// normalization has nothing to decode back into `.`.
-  ///
-  /// Throws [UnknownFailure] wrapping an [ArgumentError]: unreachable in
-  /// production (nothing constructs a [SalonMasterTarget] yet and the ids are
-  /// UUIDs), non-transient in [failureRetryPolicy], and a [Failure] rather
-  /// than a raw [ArgumentError] so the repository never leaks an unmapped
-  /// error type past its boundary.
-  static String _pathSegment(String value, String name) {
-    final encoded = Uri.encodeComponent(value);
-    // `encoded.contains('/')` cannot fire for encodeComponent (it escapes `/`
-    // to `%2F`); it is kept so a future swap onto a laxer encoder — encodeFull
-    // does NOT escape `/` — trips here instead of shipping a path split.
-    if (encoded.isEmpty ||
-        encoded == '.' ||
-        encoded == '..' ||
-        encoded.contains('/')) {
-      if (kDebugMode) {
-        log(
-          '_pathSegment: refusing to build a path with $name="$value" — it is '
-          'empty or a dot-segment that Dio\'s normalizePath() would collapse',
-          name: _tag,
-          level: 1000,
-        );
-      }
-      throw UnknownFailure(
-        cause: ArgumentError.value(
-          value,
-          name,
-          'must be a single non-empty path segment (not "." or "..")',
-        ),
-      );
-    }
-    return encoded;
-  }
+  // The private `_pathSegment` that used to live here was PROMOTED (Phase
+  // 21.12) to `core/network/path_segment.dart` as `encodePathSegment`, with
+  // its doc and body moved verbatim — `booking_repository.dart` needed the
+  // same hardening and the alternative was a fourth hand-rolled variant. This
+  // file's raw paths call the promoted helper, passing [_tag] so the debug
+  // diagnostic still lands under this feature's log name.
 
   @override
   Future<List<MasterService>> listMyServices() async {
@@ -573,8 +514,8 @@ final class HttpServiceRepository implements ServiceRepository {
     // not enough, see that method's doc. Deliberately OUTSIDE the `try`: its
     // [UnknownFailure] must reach the caller as-is, not be reshaped by the
     // handlers below. Encoding a well-formed UUID is a no-op.
-    final salonId = _pathSegment(t.salonId, 'salonId');
-    final masterId = _pathSegment(t.masterId, 'masterId');
+    final salonId = encodePathSegment(t.salonId, 'salonId', logTag: _tag);
+    final masterId = encodePathSegment(t.masterId, 'masterId', logTag: _tag);
     try {
       final res = await _dio.get<Object?>(
         '/api/v1/salons/$salonId/masters/$masterId/services',
@@ -741,8 +682,8 @@ final class HttpServiceRepository implements ServiceRepository {
     // `normalizePath()`. Built before the `try` below, so [_pathSegment]'s
     // rejection propagates untouched by the DioException handlers.
     final path = t is SalonMasterTarget
-        ? '/api/v1/salons/${_pathSegment(t.salonId, 'salonId')}/masters/'
-              '${_pathSegment(t.masterId, 'masterId')}/services/bulk'
+        ? '/api/v1/salons/${encodePathSegment(t.salonId, 'salonId', logTag: _tag)}/masters/'
+              '${encodePathSegment(t.masterId, 'masterId', logTag: _tag)}/services/bulk'
         : '/api/v1/independent-masters/me/services/bulk';
 
     try {
@@ -1159,9 +1100,9 @@ final class HttpServiceRepository implements ServiceRepository {
     // a dot-segment would be collapsed by Dio's normalizePath() and retarget
     // the PATCH on the authenticated [_dio] instance. Encoding a well-formed
     // UUID is a no-op; [_pathSegment] REJECTS rather than sanitises.
-    final salonId = _pathSegment(t.salonId, 'salonId');
-    final masterId = _pathSegment(t.masterId, 'masterId');
-    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+    final salonId = encodePathSegment(t.salonId, 'salonId', logTag: _tag);
+    final masterId = encodePathSegment(t.masterId, 'masterId', logTag: _tag);
+    final defId = encodePathSegment(serviceDefId, 'serviceDefId', logTag: _tag);
 
     if (hasIdentity) {
       final identityRequest = MasterServiceMapper.toUpdateRequest(identity);
@@ -1342,9 +1283,9 @@ final class HttpServiceRepository implements ServiceRepository {
     // the other two. Deliberately OUTSIDE the `try`: the rejection is a
     // programming error, not a transport fault, and must not be reshaped by
     // [_mapUnassignException]. Encoding a well-formed UUID is a no-op.
-    final salonId = _pathSegment(t.salonId, 'salonId');
-    final masterId = _pathSegment(t.masterId, 'masterId');
-    final defId = _pathSegment(serviceDefId, 'serviceDefId');
+    final salonId = encodePathSegment(t.salonId, 'salonId', logTag: _tag);
+    final masterId = encodePathSegment(t.masterId, 'masterId', logTag: _tag);
+    final defId = encodePathSegment(serviceDefId, 'serviceDefId', logTag: _tag);
     try {
       await _dio.delete<Object?>(
         '/api/v1/salons/$salonId/masters/$masterId/services/$defId',

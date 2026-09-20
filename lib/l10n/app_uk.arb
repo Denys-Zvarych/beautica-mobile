@@ -2773,6 +2773,31 @@
   "@serviceErrRateLimitedNoWait": {
     "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
   },
+  "boardErrRateLimited": "Забагато запитів. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@boardErrRateLimited": {
+    "description": "Error shown when one of the salon board's read routes (day board, «Архів», booked-days dots, roster effective-schedule) returns 429 with a usable Retry-After header. Names the wait so the owner knows the limit clears on its own; the retry action next to it stays disabled until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "boardErrRateLimitedNoWait": "Забагато запитів. Зачекайте трохи й спробуйте ще раз.",
+  "@boardErrRateLimitedNoWait": {
+    "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
+  },
+  "boardRetryCooldown": "Спробувати знову через {seconds} с",
+  "@boardRetryCooldown": {
+    "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "masterArchiveLoadMorePaused": "Не вдалося завантажити. Повтор через {seconds} с",
+  "@masterArchiveLoadMorePaused": {
+    "description": "Footer notice at the bottom of the «Архів» list after a failed next-page fetch. The list keeps its «Завантажити ще» affordance but pauses re-fetching for the cooldown named here, so an overscroll bounce cannot re-fire the same failing request once per frame.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "serviceSetupErrDuplicateAfterRetry": "Ці послуги вже є у вашому переліку. Попередня спроба могла зберегтися — перевірте список послуг.",
   "@serviceSetupErrDuplicateAfterRetry": {
     "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."
@@ -4231,7 +4256,7 @@
   "@salonCreateBookingDateHeading": {
     "description": "Body heading above the calendar on the salon booking wizard's date step."
   },
-  "salonCreateBookingDateNextCta": "Далі — Майстри",
+  "salonCreateBookingDateNextCta": "Далі",
   "@salonCreateBookingDateNextCta": {
     "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
   },
@@ -5022,6 +5047,14 @@
   "@salonBookingNoCoveringMasterHint": {
     "description": "Empty-state hint guiding the client to adjust their service selection."
   },
+  "salonBookingNoCoveringMasterSingularTitle": "Жоден майстер не виконує цю послугу",
+  "@salonBookingNoCoveringMasterSingularTitle": {
+    "description": "Phase 335 — empty-state title when exactly ONE service is selected and no master performs it (distinct wording from the plural salonBookingNoCoveringMasterTitle, which reads oddly for a single service)."
+  },
+  "salonBookingNoCoveringMasterSingularHint": "Змініть послугу, щоб побачити доступних майстрів.",
+  "@salonBookingNoCoveringMasterSingularHint": {
+    "description": "Phase 335 — empty-state hint for the single-service no-covering-master case."
+  },
   "salonBookingMastersSectionLabel": "Доступні майстри",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
@@ -5566,6 +5599,10 @@
   "bookingFilterSectionService": "Послуга",
   "@bookingFilterSectionService": {
     "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterSectionMaster": "Майстер",
+  "@bookingFilterSectionMaster": {
+    "description": "Filter-sheet section heading for the multi-select salon-master rows (salon bookings board only)."
   },
   "bookingFilterReset": "Скинути фільтри",
   "@bookingFilterReset": {
@@ -6265,5 +6302,65 @@
   "masterNavTabProfile": "Профіль",
   "@masterNavTabProfile": {
     "description": "VelvetBottomNavBar tile 3 label on the master surface."
+  },
+  "salonBookingsTitle": "Записи салону",
+  "@salonBookingsTitle": {
+    "description": "Phase 21.12 — header title of the salon-wide owner/admin bookings board (the «Записи» tab of the salon shell). The salon's own name renders as the subtitle beneath it."
+  },
+  "salonBookingsColumnFreeDay": "Вільний день",
+  "@salonBookingsColumnFreeDay": {
+    "description": "Phase 21.12 — marker centred in a salon board column whose master has no bookings on the shown day."
+  },
+  "salonBookingsColumnDayOff": "Вихідний",
+  "@salonBookingsColumnDayOff": {
+    "description": "Phase 336 — the salon board's marker for a master who is NOT WORKING on the shown day. Used twice on the same board and deliberately one key: centred in that master's greyed-out grid column, and as the trailing readout on their roster chip. Distinct from salonBookingsColumnFreeDay («Вільний день»), which means the master IS working and simply has nothing booked. Mirrors workingHoursClosedLabel's wording but is a separate key: that one belongs to the Phase 6.2 schedule editor's day-toggle row, and a translator retuning one surface must not silently move the other."
+  },
+  "salonBookingsMasterColumnFree": "вільно",
+  "@salonBookingsMasterColumnFree": {
+    "description": "Phase 21.12 — the roster chip's trailing readout when that master has nothing booked on the shown day. Lowercase: it sits inline beside the ★ rating, not as a heading."
+  },
+  "salonBookingsMasterColumnSemantics": "{name}, {role}, {load}",
+  "@salonBookingsMasterColumnSemantics": {
+    "description": "Phase 21.12 — accessibility label for one roster chip on the salon bookings board.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Стиліст"
+      },
+      "load": {
+        "type": "String",
+        "example": "3 записи"
+      }
+    }
+  },
+  "salonBookingsRosterVisibleSemantics": "Показано майстрів: {visible} з {total}",
+  "@salonBookingsRosterVisibleSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon board's horizontal scroll indicator, which encodes as a 3dp bar how much of the roster is off-screen.",
+    "placeholders": {
+      "visible": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "salonBookingsAddSemantics": "Створити запис",
+  "@salonBookingsAddSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon bookings board header's '+' button. PLACEHOLDER: the control renders in its final place and styling but its handler is a documented no-op until the salon walk-in wizard is wired to it."
+  },
+  "salonBookingsNoMastersTitle": "У салоні ще немає майстрів",
+  "@salonBookingsNoMastersTitle": {
+    "description": "Phase 21.12 — empty state title on the salon bookings board when the salon's roster is empty."
+  },
+  "salonBookingsNoMastersBlurb": "Запросіть майстра — і його колонка з'явиться на дошці.",
+  "@salonBookingsNoMastersBlurb": {
+    "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
   }
 }

@@ -104,6 +104,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_str
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -400,6 +401,32 @@ void main() {
         find.text(successL10n.bookingRescheduleSuccessTitle),
         findsOneWidget,
         reason: 'the success screen must show the reschedule title',
+      );
+
+      // ── CALENDAR CTA — THE «CLIENT KEEPS IT» DIRECTION (2026-09-18). ──────
+      //
+      // `BookingSuccessArgs.isProviderViewer` now suppresses «Додати в
+      // календар» when a PROVIDER reaches this screen. That gate is
+      // one-directional at the widget tier unless BOTH arms are pinned
+      // end-to-end: this is the arm that must stay TRUE. A CLIENT
+      // rescheduling their OWN booking is a locked product decision — they
+      // KEEP the button — and this is the only E2E that drives a real CLIENT
+      // session through the real `startBookingReschedule` → confirm → submit
+      // chain, so nothing else can catch the gate silently inverting (the
+      // provider arm is pinned in
+      // `master_booking_provider_actions_flow_test.dart`'s reschedule
+      // journey).
+      //
+      // `isProviderViewer` is seeded from `hideMasterIdentity`, which the
+      // helper derives from the LIVE session role + this booking's real
+      // `clientId` — neither is a value this test hands in, so the assertion
+      // is a genuine round trip, not a restated fixture.
+      expect(
+        find.byKey(const Key('booking-success-add-calendar')),
+        findsOneWidget,
+        reason:
+            'a CLIENT rescheduling their OWN booking must KEEP «Додати в '
+            'календар» — the provider-viewer gate must never catch a client',
       );
 
       // Exactly one reschedule PATCH, carrying a real new start — and no
@@ -717,6 +744,174 @@ void main() {
             'the resubmit triggered by "Все одно записатись" must carry '
             'allowClientOverlap: true on the WIRE, decoded from the real '
             'PATCH body',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // ==========================================================================
+  // Test 3 (2026-09-18) — the VENUE-ADDRESS fix, and the CLIENT half of the
+  // calendar-CTA gate, on a SALON booking.
+  // ==========================================================================
+  //
+  // WHY THIS IS A SEPARATE TEST AND NOT AN ASSERTION BOLTED ONTO TEST 1
+  // ------------------------------------------------------------------
+  // Test 1 runs the DEFAULT fixture, where `master-aaa`'s public profile and
+  // `booking-1` carry the IDENTICAL address. An "the address renders"
+  // assertion there is VACUOUS: the `Master` fallback composes the very same
+  // string, so it passes byte-for-byte with the `venue*` override present OR
+  // removed. Only a fixture where the two DISAGREE can go red.
+  //
+  // So this test seeds the shape the bug actually occurred in:
+  //   • `publicMasterAddressSuppressed` — the real backend DELIBERATELY nulls
+  //     a salon master's USER-level street/buildingNo/city
+  //     (`MasterDetailResponse.java:104-127`), so the `Master` the reschedule
+  //     helper loads has NO address at all → `formatStreetCityLine` returns
+  //     `null` → the recap used to fall back to «Адресу не вказано».
+  //   • a DISTINCT salon address on the `Booking` itself (`kSalonVenue*` —
+  //     different street AND different building number), which the backend
+  //     resolved salon-vs-independent server-side
+  //     (`BookingDetailResponse.java:580-648`).
+  // The only way «вул. Спаська, 5, Київ» can reach the done screen is through
+  // `Booking` → `BookingSlotPickerArgs.venue*` → `BookingConfirmArgs.venue*` →
+  // `BookingSuccessArgs.venue*` → `_addressLine`. Every link is real: a real
+  // `GET /bookings/booking-1`, the real helper, the real picker, the real
+  // confirm submit.
+  //
+  // It ALSO carries the client half of the calendar gate on the salon shape:
+  // a CLIENT rescheduling their own booking keeps «Додати в календар» whether
+  // the provider is independent or a salon master (the gate is
+  // `isProviderViewer`, never `isReschedule` and never the master's type).
+  testWidgets(
+    'CLIENT reschedules a SALON booking end-to-end → the done screen renders '
+    'the SALON\'s own address (threaded off the Booking) instead of the '
+    '«address unknown» placeholder the nulled Master address used to '
+    'produce, keeps its arrival note, and still offers «Додати в календар»',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        // A genuine salon booking on the wire (the trio the fixture's own doc
+        // prescribes — `salon-xyz` is the id this fake already serves).
+        ..bookingMasterType = 'SALON_MASTER'
+        ..bookingSalonId = 'salon-xyz'
+        ..bookingSalonName = 'Студія Краси «Камелія»'
+        // ...whose master therefore has NO personal address on the public
+        // profile, exactly as the real backend serves it.
+        ..publicMasterAddressSuppressed = true
+        // ...while the BOOKING carries the salon's business address.
+        ..bookingStreet = FakeBackend.kSalonVenueStreet
+        ..bookingBuildingNo = FakeBackend.kSalonVenueBuildingNo
+        ..bookingCityLabel = FakeBackend.kSalonVenueCity
+        ..bookingLocationNote = FakeBackend.kSalonVenueLocationNote;
+
+      // Composed through the SAME shared formatter `lib/` uses, off the SAME
+      // fixture constants the fake serves — never a hand-typed literal (which
+      // `scripts/forbid_cyrillic_finder.sh` would reject, and which would
+      // silently rot the day the fixture address changed).
+      final String expectedVenueLine = formatStreetCityLine(
+        street: FakeBackend.kSalonVenueStreet,
+        buildingNo: FakeBackend.kSalonVenueBuildingNo,
+        city: FakeBackend.kSalonVenueCity,
+      )!;
+      // GUARD ON THE GUARD — if this ever stops holding, the fixture has been
+      // edited into one where the assertion below could not fail.
+      expect(
+        expectedVenueLine,
+        isNot(
+          formatStreetCityLine(
+            street: FakeBackend.kPublicMasterStreet,
+            buildingNo: FakeBackend.kPublicMasterBuildingNo,
+            city: FakeBackend.kPublicMasterCity,
+          ),
+        ),
+        reason:
+            'the venue address MUST differ from the master\'s own, or this '
+            'test cannot distinguish the fix from the fallback',
+      );
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MyBookingsScreen), findsOneWidget);
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('booking-detail-reschedule')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingSlots);
+
+      await pickNewDateAndTime(tester);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(router, RouteNames.bookingSuccess);
+      expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(fb.rescheduleBookingCalls, 1);
+
+      final AppLocalizations successL10n = l10nOf(tester, BookingSuccessScreen);
+      final Finder recap = find.byKey(const Key('booking-success-visit-card'));
+
+      // ── POSITIVE CONTROL, FIRST. ──────────────────────────────────────────
+      // Every assertion below is about what the recap says; if the recap were
+      // gone (or emptied) the absence assertions would all pass for the wrong
+      // reason. Pin that it is there AND rendering real booked data before
+      // asserting anything is missing from it.
+      expect(recap, findsOneWidget);
+      expect(
+        find.descendant(
+          of: recap,
+          // FakeBackend fixture DATA (the seeded serviceName for
+          // `pub-assign-1`) echoed back from the wire verbatim, never
+          // translated — the same exemption Test 1 takes.
+          // i18n-finder-ok: seeded serviceName, locale-invariant wire data
+          matching: find.text('Манікюр з покриттям'),
+        ),
+        findsOneWidget,
+        reason: 'the recap must still be a real recap, not an empty shell',
+      );
+
+      // ── THE FIX: the value MOVED. ─────────────────────────────────────────
+      expect(
+        find.descendant(of: recap, matching: find.text(expectedVenueLine)),
+        findsOneWidget,
+        reason:
+            'the done screen must render the SALON address the Booking '
+            'carries — the Master it was composing from has none',
+      );
+      expect(
+        find.descendant(
+          of: recap,
+          matching: find.text(successL10n.bookingAddressUnknown),
+        ),
+        findsNothing,
+        reason:
+            'the «address unknown» placeholder is exactly the defect this '
+            'change removed; its absence is only meaningful paired with the '
+            'positive assertion above',
+      );
+      // The arrival hint rides the same venue-first precedence.
+      expect(
+        find.descendant(
+          of: recap,
+          matching: find.text(FakeBackend.kSalonVenueLocationNote),
+        ),
+        findsOneWidget,
+        reason: 'venueLocationNote must reach the recap\'s detail row',
+      );
+
+      // ── The CLIENT still gets the calendar CTA on a SALON booking too. ────
+      expect(
+        find.byKey(const Key('booking-success-add-calendar')),
+        findsOneWidget,
+        reason:
+            'the provider-viewer gate keys off WHO is acting, never off the '
+            'master\'s type — a client keeps the button on a salon booking',
       );
     },
     timeout: const Timeout(Duration(seconds: 120)),

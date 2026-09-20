@@ -18,11 +18,21 @@
 //      [BookingsDayQuery.serviceIds] off whatever member it was handed and
 //      rebuilds through [BookingsDayQuery.of] on every change, which works
 //      identically for either member because `.of()` is scope-agnostic.
-//   2. [showMasterFilter] — gates the teammate-filter affordance in the
-//      toolbar. **False here, always** — a single master's own list never
-//      offers it. Nothing renders for it yet; the salon phase adds
-//      `_MasterFilterSheet` behind this one flag. Do NOT build that sheet
-//      here.
+//   2. [showMasterFilter] + [masterFilterOptions] — the teammate («Майстер»)
+//      filter section. `true` on the SALON BOARD since 2026-09-18 and `false`
+//      on both master routes, forever. The old rule ("false at every call
+//      site, because the endpoint takes exactly ONE `masterId` while the
+//      sheet is multi-select") was reversed by the user with the answer that
+//      dissolves it: the section is multi-select AND CLIENT-SIDE, so nothing
+//      about it reaches the wire and the endpoint's limit is irrelevant. The
+//      board keeps its side-by-side shape; it simply draws fewer columns. See
+//      [masterFilterOptions] for the whole mechanism.
+//   2b. [columnsBuilder] — Phase 21.12, and the ACTUAL scope switch. `null`
+//      (the default, and both master routes) keeps the single-master
+//      overlap-lane timeline. Non-null turns the SAME
+//      [BookingsTimelineGrid] into the salon master-column board and selects
+//      [TimelineDensity.salon] for it — derived, never a separate parameter,
+//      so a caller cannot hand in columns at master density.
 //   3. [onBookingTap] — navigation is the HOST's concern, keeping this widget
 //      route-agnostic. No `Navigator`/`context.push` anywhere in this file.
 //
@@ -169,6 +179,7 @@ import 'widgets/bookings_day_rail.dart';
 import 'widgets/bookings_filter_sheet.dart';
 import 'widgets/bookings_month_calendar_panel.dart';
 import 'widgets/bookings_timeline_grid.dart';
+import 'widgets/timeline_density.dart';
 import 'widgets/declared_time_cards.dart';
 import 'widgets/master_bookings_states.dart';
 import 'widgets/my_bookings_states.dart';
@@ -243,6 +254,26 @@ const EdgeInsets _kDeclaredBodyPadding = EdgeInsets.fromLTRB(
   VelvetSpacing.xxl,
 );
 
+/// Phase 21.12 — the SALON board's body inset: [_kTimelineLeftInset] on BOTH
+/// sides, where the master timeline keeps `VelvetSpacing.lg` (24) on the
+/// right.
+///
+/// WHY THE RIGHT EDGE MOVES ONLY HERE. On the master timeline the lane area
+/// holds ONE card and a 24dp right gutter is ordinary page rhythm. The salon
+/// board scrolls horizontally through master columns, so 24dp of dead space at
+/// the right edge is 24dp fewer of the NEXT column — and the partially-visible
+/// next column IS the scroll affordance. At the 360dp baseline the 12dp inset
+/// is what makes `TimelineDensity.columnWidth`'s two-column arithmetic land on
+/// 148dp (see that method's worked example); at 24dp it would be 142dp, still
+/// two columns but with the affordance eaten. Unchanged on both master routes,
+/// which never select this constant.
+const EdgeInsets _kBoardBodyPadding = EdgeInsets.fromLTRB(
+  _kTimelineLeftInset,
+  0,
+  _kTimelineLeftInset,
+  VelvetSpacing.xxl,
+);
+
 /// The shared «Записи» discovery composition: header, count toolbar, day
 /// rail, timeline body, and the four async states. Parameterised over scope
 /// so the salon-wide screen can reuse it verbatim — see the file header.
@@ -252,12 +283,20 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     required this.title,
     this.onBack,
     this.showMasterFilter = false,
+    this.masterFilterOptions = const <MasterFilterOption>[],
     this.useScheduleWindow = false,
     this.onAddWorkingHours,
     required this.onBookingTap,
     this.onOpenArchive,
     this.canCreateBooking = true,
     this.canAddWorkingHours = true,
+    this.subtitle,
+    this.columnsBuilder,
+    this.boardWindowBuilder,
+    this.onCreateBooking,
+    this.addSemanticsLabelOverride,
+    this.showServiceFilter = true,
+    this.showBookedDayDots = true,
     super.key,
   }) : assert(
          !useScheduleWindow || !canAddWorkingHours || onAddWorkingHours != null,
@@ -273,15 +312,58 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
 
   final String title;
 
+  /// Phase 21.12 — a muted second line under [title]. `null` (the default, and
+  /// both master routes) renders NOTHING at all, not an empty line: the header
+  /// keeps its exact current height and the `Row` its exact current children.
+  /// Only the salon board passes one — the salon's own name, so an owner of
+  /// several salons can tell whose board this is without leaving it.
+  final String? subtitle;
+
   /// The back affordance. `null` on a bottom-nav tab root (the master's own
   /// screen); non-null returns to a host shell's home tab.
   final VoidCallback? onBack;
 
-  /// Whether the teammate («Майстер») filter section is offered. **False
-  /// here, always** — a single master's own list never offers it. See the
-  /// file header; do not build `_MasterFilterSheet` behind this flag in this
-  /// phase.
+  /// Whether the teammate («Майстер») filter section is offered.
+  ///
+  /// `false` (the DEFAULT, and both master routes, forever) is byte-for-byte
+  /// the pre-2026-09-18 behaviour: [_masterIds] is pinned empty, the sheet is
+  /// handed no roster so it renders no section, and [_activeFilterCount] can
+  /// never count a master group. A single master's own list — and the master's
+  /// own «Архів», which shows this sheet directly — never offers it.
+  ///
+  /// `true` only on `SalonBookingsScreen`, which also supplies
+  /// [masterFilterOptions]. The two are ANDed: `true` with an empty roster
+  /// (a cold mount, a salon with no masters) still renders no section, so the
+  /// flag can never produce an empty heading.
   final bool showMasterFilter;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// 2026-09-18 — THE «Майстер» FILTER'S OPTION UNIVERSE
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// The masters the sheet may offer, supplied by the HOST for exactly
+  /// [columnsBuilder]'s reason: this view owns the day and the fetch, the host
+  /// owns "which masters exist". `SalonBookingsScreen` passes its already-
+  /// fetched roster — the SAME `salonMastersRosterProvider` list that builds
+  /// the board's columns — so the section adds no request of its own.
+  ///
+  /// EMPTY (the default, and both master routes) renders no section.
+  ///
+  /// ## WHERE THE SELECTION IS APPLIED — NOT HERE, AND NOT ON THE WIRE
+  ///
+  /// This view stores the ticked ids ([_masterIds]) and hands them to
+  /// [columnsBuilder] as its third argument. It does NOT filter
+  /// [BookingsDayState.items] itself and it does NOT put them on
+  /// [BookingsDayQuery] — `SalonDayQuery.masterId` is untouched by this
+  /// feature and stays `null`. Two consequences worth knowing:
+  ///
+  ///   * the board keeps its side-by-side shape (locked user decision);
+  ///     ticking two masters draws two columns, not a collapsed single-master
+  ///     timeline.
+  ///   * the header's «N записів» count already recomputes from the COLUMNS
+  ///     whenever [columnsBuilder] is non-null (see [_Loaded._body]), so it
+  ///     narrows with the filter for free and cannot disagree with the cards
+  ///     on screen.
+  final List<MasterFilterOption> masterFilterOptions;
 
   /// ═══════════════════════════════════════════════════════════════════════
   /// WORKING-HOURS WINDOW (the master's own booking timeline only)
@@ -365,6 +447,166 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// host's. See that field's doc for the full reasoning.
   final bool canAddWorkingHours;
 
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// PHASE 21.12 — THE SALON MASTER-COLUMN BOARD
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// Maps ONE day's fetched bookings onto master columns. `null` (the default,
+  /// and BOTH master routes) keeps the single-master overlap-lane timeline —
+  /// [BookingsTimelineGrid] is handed `columns: null` and
+  /// [TimelineDensity.master], which is byte-for-byte what it rendered before
+  /// this parameter existed.
+  ///
+  /// A BUILDER, not a `List`, for one reason: the columns are a function of
+  /// the day's fetched bookings, which this view owns and the HOST cannot see
+  /// (the host supplies a seed query; the day, the filters and the fetch all
+  /// live here). The host supplies the ROSTER — which masters exist, their
+  /// names and ratings — and this view supplies the bookings to partition
+  /// across them. See `SalonBookingsScreen`.
+  ///
+  /// The returned columns MUST partition the list handed in, in order: that
+  /// is what keeps the «N записів» header count and the rendered cards one
+  /// number rather than two agreeing computations. See
+  /// [TimelineBoardColumn.bookings].
+  ///
+  /// ## PHASE 336 — WHY THIS TAKES `day`
+  ///
+  /// Identical in shape to [boardWindowBuilder], and now literally so. The
+  /// host must mark a master who is NOT WORKING on the shown day
+  /// ([MasterColumnEntry.dayOff]), and "which day" is a fact this view owns
+  /// and the host cannot see — the host supplies a SEED query; the selected
+  /// day lives in `_BookingsDiscoveryViewState` and moves with the rail (see
+  /// "the day is NOT read from query"). So the day travels the same way the
+  /// bookings do: as an argument.
+  ///
+  /// Widening the arity rather than adding a third builder was the narrower
+  /// change, not the wider one: this callback has exactly ONE call site in
+  /// the repository (`SalonBookingsScreen`), both master routes pass `null`,
+  /// and the two host seams now have one signature between them instead of
+  /// two that differ for no reason a reader could recover.
+  ///
+  /// ## 2026-09-18 — WHY THIS ALSO TAKES `masterIds`
+  ///
+  /// Same argument as `day`, one step further. The «Майстер» filter's ticked
+  /// ids live in `_BookingsDiscoveryViewState`; WHICH masters those ids name
+  /// is a roster fact only the host holds. So the selection travels to the
+  /// host as an argument, and the host's one already-existing partition
+  /// narrows its roster — rather than this view post-filtering the returned
+  /// list, which would allocate a fresh `List` per rebuild and kill the
+  /// `identical(widget.columns, oldWidget.columns)` gate the board's whole
+  /// rebuild budget rests on (see `SalonBookingsScreen`'s state-class doc and
+  /// its 483 → 371 measurement).
+  ///
+  /// **EMPTY MEANS EVERY MASTER.** Every caller that offers no «Майстер»
+  /// section passes `const <String>{}` here forever, so the host's partition
+  /// must treat that as "no narrowing", never as "nobody".
+  ///
+  /// ⚠ A HOST THAT MEMOISES THIS MUST KEY ON `masterIds` TOO. The filter can
+  /// change while the day does NOT, so a memo keyed on `(dayItems, day,
+  /// roster)` alone serves stale columns on exactly the interaction this
+  /// parameter exists for. `SalonBookingsScreen._columnsFor` does.
+  final List<TimelineBoardColumn> Function(
+    List<Booking> dayItems,
+    DateTime day,
+    Set<String> masterIds,
+  )?
+  columnsBuilder;
+
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// PHASE 335 — THE SALON BOARD'S UNION WINDOW
+  /// ═══════════════════════════════════════════════════════════════════════
+  /// Resolves the timeline's vertical bounds for ONE day from something the
+  /// HOST knows and this view does not — on the salon board, every roster
+  /// master's working hours. Returns `null` when no such bound applies.
+  ///
+  /// `null` (the DEFAULT, and both master routes, and every test that pumps
+  /// this view without it) is byte-for-byte the behaviour that predates this
+  /// parameter: [_Loaded.build]'s `!useScheduleWindow` arm calls
+  /// `boardWindowBuilder?.call(...)`, gets `null`, and takes the same
+  /// `_body(context, window: null)` return it always has. Nothing else in this
+  /// file reads it. That is the whole compatibility argument — there is no
+  /// second code path to reason about.
+  ///
+  /// A BUILDER, not a `ScheduleTimelineWindow`, for exactly [columnsBuilder]'s
+  /// reason: the window is a function of the day's fetched bookings (which
+  /// this view owns and the host cannot see) AND of the roster's schedule
+  /// (which the host owns and this view must not learn about).
+  ///
+  /// ## Why this is NOT `useScheduleWindow: true`
+  ///
+  /// `useScheduleWindow` drags in two behaviours that are correct for one
+  /// master and wrong for a manager's board:
+  ///   * [MasterBookingsNoWorkingHoursState], which REPLACES the whole
+  ///     timeline. On a salon board that would hide a real walk-in behind a
+  ///     "no working hours" panel.
+  ///   * the EXPLICIT_TIMES free-card branch, which is a single master's
+  ///     declared-times list and has no meaning across a roster.
+  /// It also has ~30 production references, so widening its contract would
+  /// reach every one of them. This parameter is additive and reaches nothing.
+  ///
+  /// ## THE WINDOW THIS RETURNS MUST NOT EXCLUDE ANY BOOKING
+  ///
+  /// [_Loaded.build] runs the returned window through the SAME
+  /// `bookingsInsideScheduleWindow` the master path uses — no flag, no branch,
+  /// no divergent code path. On a manager's board a dropped booking is DATA
+  /// LOSS, so the host must return a window under which that filter is
+  /// VACUOUS: `salonBoardWindow` (`schedule_timeline_window.dart`) unions the
+  /// roster's hours with the day's own booking span for precisely that
+  /// reason, and [_Loaded.build] asserts the vacuity with `identical()` in
+  /// debug builds. Read that function's proof before writing another
+  /// implementation of this callback.
+  final ScheduleTimelineWindow? Function(List<Booking> dayItems, DateTime day)?
+  boardWindowBuilder;
+
+  /// Overrides where the header's (+) button goes. `null` (the default, and
+  /// both master routes) keeps the Phase 248 behaviour verbatim —
+  /// `context.push(RouteNames.masterBookingNew)`. [canCreateBooking] still
+  /// gates whether the button renders AT ALL, independently of this.
+  ///
+  /// Phase 340 — the salon board passes `SalonBookingsScreen
+  /// ._openCreateBooking`, which pushes the approved salon «Новий запис»
+  /// wizard (`RouteNames.salonStaffBookingNew`).
+  final VoidCallback? onCreateBooking;
+
+  /// Phase 340 — overrides the (+) button's semantics label. `null` (the
+  /// default, both master routes) keeps [AppLocalizations
+  /// .masterBookingsAddSemantics] verbatim — every pre-existing caller
+  /// renders byte-identically. The salon board passes
+  /// [AppLocalizations.salonBookingsAddSemantics] (an ARB key that existed
+  /// with no consumer since phase 21.12) so a screen-reader user hears
+  /// "Створити запис" rather than the master flow's own wording, which this
+  /// shared header previously hardcoded regardless of caller.
+  final String? addSemanticsLabelOverride;
+
+  /// Whether the «Послуга» filter section is offered, and — because the two
+  /// must not disagree — whether `masterServiceCatalogProvider` is subscribed
+  /// to at all.
+  ///
+  /// `true` (the default) is every pre-existing call site, unchanged.
+  /// The salon board passes `false`: that provider is the signed-in user's OWN
+  /// master service catalogue, which for a SALON_OWNER or SALON_ADMIN is
+  /// empty or irrelevant — offering it would be a filter that matches nothing,
+  /// and warming it would be a wasted request on every mount. (The sheet
+  /// already hides an empty section on its own; this additionally stops the
+  /// fetch.)
+  final bool showServiceFilter;
+
+  /// Whether the day rail's booked-day dots are fetched at all.
+  ///
+  /// `true` on every current call site. WHICH endpoint supplies them is NOT
+  /// this flag's business — [_bookedDaysAsync] dispatches on the seed query's
+  /// sealed member, exactly as [_rebuildQuery] does, so the master's own board
+  /// reads `bookedDaysProvider` (`GET /bookings/me/booked-days`) and the salon
+  /// board reads `salonBookedDaysProvider(salonId)`
+  /// (`GET /bookings/salon/{salonId}/booked-days`, backend Phase 319).
+  ///
+  /// The salon board passed `false` until that endpoint existed: `/me/booked-
+  /// days` is the CALLER's days — for an owner it aggregates every salon they
+  /// own and for a `SALON_ADMIN` the backend rejects it outright, so it is
+  /// never THIS board's days. Both of those are now moot; the flag is kept as
+  /// the "don't pay for the feature's heaviest request" seam (a full ±180-day
+  /// sweep) for any future host that wants a rail without dots.
+  final bool showBookedDayDots;
+
   @override
   ConsumerState<BookingsDiscoveryView> createState() =>
       _BookingsDiscoveryViewState();
@@ -415,12 +657,28 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   late Set<BookingStatus> _statuses;
   late Set<String> _serviceIds;
 
+  /// The ticked «Майстер» ids — EMPTY MEANS EVERY MASTER (see
+  /// [BookingsDiscoveryView.masterFilterOptions]).
+  ///
+  /// Seeded EMPTY, never from [BookingsDayQuery]: `SalonDayQuery.masterId` is
+  /// the wire's single-master narrowing and this feature deliberately does not
+  /// touch it. Pinned empty forever whenever
+  /// [BookingsDiscoveryView.showMasterFilter] is `false` — [_applyFilters]
+  /// resolves it against the offered options, and an unoffered section has no
+  /// options, so no sheet result can put anything here on a master route.
+  ///
+  /// A FRESH `Set` on every apply, never mutated in place: the host's column
+  /// memo may compare it, and an in-place mutation would be invisible to any
+  /// key at all.
+  Set<String> _masterIds = const <String>{};
+
   /// Whether the MASTER narrowed the list — the empty state's copy switch and
   /// the funnel badge both key off this, never off
   /// [BookingsDayQuery.hasFilters], which is a wire-shape question: `true` even
   /// on an untouched screen (the default exclusion is on the query) and `false`
   /// when every group is ticked (the maximal filter is genuinely unfiltered).
-  bool get _hasUserFilters => _statuses.isNotEmpty || _serviceIds.isNotEmpty;
+  bool get _hasUserFilters =>
+      _statuses.isNotEmpty || _serviceIds.isNotEmpty || _masterIds.isNotEmpty;
 
   /// The live query, rebuilt through [BookingsDayQuery.of] on every change —
   /// the single mutation path, mirroring the retired screen's `_setQuery`
@@ -453,20 +711,52 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   late final ScreenProtectionManager _screenProtection;
 
   /// Memoises [bookingsInsideScheduleWindow]'s result across rebuilds where
-  /// the inputs haven't actually changed — mobile-perf MEDIUM fix (this
-  /// session). `_Loaded` is a `StatelessWidget` (deliberately, see its class
-  /// doc) and calls this via [_visibleBookingsFor] instead of the free
-  /// function directly, so a rebuild triggered by `effectiveScheduleProvider`
+  /// the inputs haven't actually changed — mobile-perf MEDIUM fix (2026-09-17).
+  /// `_Loaded` is a `StatelessWidget` (deliberately, see its class doc) and
+  /// calls this via [_visibleBookingsFor] instead of the free function
+  /// directly, so a rebuild triggered by `effectiveScheduleProvider`
   /// re-fetching with an UNCHANGED resolved window (see
   /// `effective_schedule_notifier.dart:78`) reuses the SAME list instance
-  /// instead of reallocating one — which is what lets
-  /// [BookingsTimelineGrid]'s `identical(widget.bookings,
-  /// oldWidget.bookings)` gate (`didUpdateWidget`) short-circuit again.
+  /// instead of reallocating one.
+  ///
+  /// ## WHAT THIS ACTUALLY BUYS, PER ROUTE (mobile-perf LOW, 2026-09-17)
+  ///
+  /// An earlier revision of this doc ended "— which is what lets
+  /// [BookingsTimelineGrid]'s `identical(widget.bookings, oldWidget.bookings)`
+  /// gate (`didUpdateWidget`) short-circuit again", full stop. That is true on
+  /// ONE of the two routes and overstated on the other, and the difference is
+  /// worth knowing before anyone "simplifies" this away or copies the claim:
+  ///
+  ///   * MASTER board (`useScheduleWindow: true`) — identity IS on this memo.
+  ///     When the working-hours window genuinely excludes a booking,
+  ///     [bookingsInsideScheduleWindow] must allocate a filtered copy, and a
+  ///     fresh copy per rebuild is exactly what defeats the grid's gate. This
+  ///     memo is the only thing holding that identity stable.
+  ///   * SALON board (`columnsBuilder` + `boardWindowBuilder`) — identity is
+  ///     ALREADY preserved without it. `salonBoardWindow` is the union of the
+  ///     roster's hours WIDENED to cover every booking, so the filter is
+  ///     provably vacuous there (the proof is in
+  ///     `schedule_timeline_window.dart`; `_Loaded.build` asserts it with
+  ///     `identical()` in debug), and
+  ///     [bookingsInsideScheduleWindow]'s own "nothing was excluded → hand
+  ///     back the input instance" short-circuit returns the same list anyway.
+  ///     Here this memo saves only the O(N) window scan — ~8 µs on a full
+  ///     board — never an identity.
+  ///
+  /// Load-bearing on the master route, a micro-optimisation on the salon one.
+  /// Do NOT remove it on the strength of the salon measurement alone.
   ///
   /// Single-slot, not a per-day map: a day switch is a genuine cache miss
   /// anyway ([BookingsDayState.items] changes identity as soon as
   /// `bookingsDayProvider` re-fetches for the new day), so there is nothing
   /// to gain from keeping more than the last result.
+  ///
+  /// THIS MEMO WAS INERT UNTIL 2026-09-17 and every call missed. Its identity
+  /// key is only meaningful because [BookingsDayState.items] is now
+  /// identity-stable; before `stableBookingList` (see its doc in
+  /// `bookings_day_state.dart`) freezed's getter allocated a fresh
+  /// `EqualUnmodifiableListView` on every access, so `identical` below could
+  /// never hit. Do not "simplify" that wrapping away.
   List<Booking>? _cachedVisibleSource;
   DateTime? _cachedVisibleDay;
   int? _cachedVisibleFirstMinute;
@@ -475,7 +765,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   List<Booking> _cachedVisibleResult = const <Booking>[];
 
   /// See [_cachedVisibleSource]'s doc. Compares [items] by IDENTITY (a list
-  /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch) and
+  /// [BookingsDayState] only ever hands out fresh on a genuine re-fetch —
+  /// true only because the notifier stores it via `stableBookingList`) and
   /// [window] by its three VALUE fields — [ScheduleTimelineWindow] has no
   /// `==` override and a fresh instance is constructed on every schedule
   /// resolve regardless of whether the working hours actually changed (see
@@ -648,15 +939,55 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   /// The single mutation point for every date-navigation control BESIDES a
   /// rail-chip tap: a grid-cell tap, the «Сьогодні» pill, and a resolved
-  /// month step. All three are single deliberate actions, unlike a rail
-  /// flick, so — mirroring the retired `_goToToday`'s own shape — this
-  /// cancels any pending rail-tap debounce, applies the selection
-  /// immediately, and recentres the rail so the collapsed strip already
-  /// agrees with the grid the moment the master collapses it back down.
+  /// month step.
+  ///
+  /// ## THE SELECTION IS IMMEDIATE; ONLY THE FETCH IS DEBOUNCED
+  /// (audit MEDIUM-2, 2026-09-20)
+  ///
+  /// The name is exact and stays exact. `_day`, `_visibleMonth` and the rail's
+  /// viewport all move on the very frame of the tap, so the `_TopRow` label,
+  /// the grid's selected cell and the collapsed strip are instant — every one
+  /// of those is a locked contract with its own test (notably
+  /// `bookings_discovery_view_visible_month_test.dart`'s "relabels
+  /// IMMEDIATELY — not only after the rail's own animateToPage settle" case,
+  /// which a whole-method debounce turns RED, and correctly so).
+  ///
+  /// What moved behind [_dayDebounce] is exactly one thing: [_rebuildQuery],
+  /// i.e. the network request. This path used to issue one fetch per tap with
+  /// no debounce at all, unlike [_selectDay]'s 220 ms, which made it the ONLY
+  /// reachable route to the backend's shared 60/min per-user budget (PR #130)
+  /// — the month grid is a field of cells a finger walks across, and a
+  /// sustained ~1 tap/s for a minute lands exactly on the ceiling. Sharing
+  /// [_selectDay]'s timer also collapses a rail-tap-then-grid-tap sequence
+  /// into ONE request rather than two racing ones.
+  ///
+  /// The 220 ms gap between "the UI says the 14th" and "the list is the 14th's"
+  /// is the same gap the rail tap has always had, and the list keeps showing
+  /// the previous day's cards for it rather than flashing empty.
+  ///
+  /// ⚠ A TEST THAT ASSERTS ON THE FETCH MUST PUMP THE DEBOUNCE EXPLICITLY.
+  /// `pumpAndSettle` fires no `Timer` when nothing is animating, so a test
+  /// that taps and settles measures the PRE-TAP query and passes vacuously.
+  /// Use `await tester.pump(const Duration(milliseconds: 250))`. Tests that
+  /// assert on the LABEL or the rail need no such pump — those are still
+  /// synchronous.
   void _selectImmediate(DateTime day) {
     _dayDebounce?.cancel();
-    _applySelectedDay(day);
+    final DateTime selected = dateOnly(day);
+    setState(() {
+      _day = selected;
+      // Relabels on the tap's own frame — see [_visibleMonth] and
+      // [_applySelectedDay] for the mid-animation case this is load-bearing
+      // for.
+      _visibleMonth = DateTime(selected.year, selected.month);
+    });
     _showRailWeekOf(day, animated: true);
+    _dayDebounce = Timer(_kDaySelectionDebounce, () {
+      if (!mounted) return;
+      // The ONLY deferred term. Reads the CURRENT `_day`, so a burst of taps
+      // coalesces to one request for wherever the master ended up.
+      setState(_rebuildQuery);
+    });
   }
 
   /// Resolves a month step ([BookingsMonthCalendarPanel.onStepMonth] — a
@@ -705,8 +1036,31 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// so they target the member this screen actually watches. Passing
   /// [_statuses] RAW is load-bearing — the mapping is not idempotent. The UI's
   /// own notion of "is a filter active" stays [_hasUserFilters].
+  ///
+  /// Phase 21.12 — dispatches on the SEED query's sealed member, which is what
+  /// the file header always promised ("[query] — the scope AND the seed
+  /// filters … the salon phase adds `.salon(...)`"). The scope therefore
+  /// travels on the seed the host already passes, and this view still never
+  /// branches on scope anywhere else. Both branches resolve the SAME
+  /// non-idempotent status mapping through the SAME
+  /// [BookingStatus.dayListWireStatuses], exactly once.
   void _rebuildQuery() {
-    _liveQuery = BookingsDayQuery.dayList(
+    _liveQuery = switch (widget.query) {
+      SalonDayQuery(:final String salonId, :final String? masterId) =>
+        BookingsDayQuery.salonDayList(
+          day: _day,
+          salonId: salonId,
+          masterId: masterId,
+          statuses: _statuses,
+          serviceIds: _serviceIds,
+          maximalStatuses: _kMaximalFilterStatuses,
+        ),
+      MasterOwnDayQuery() => _masterOwnQuery(),
+    };
+  }
+
+  BookingsDayQuery _masterOwnQuery() {
+    return BookingsDayQuery.dayList(
       day: _day,
       statuses: _statuses,
       serviceIds: _serviceIds,
@@ -719,6 +1073,31 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       // the module-level `_kMaximalFilterStatuses` — see its doc for why.
       maximalStatuses: _kMaximalFilterStatuses,
     );
+  }
+
+  /// The booked-day dot set for THIS view's scope, or `null` when
+  /// [BookingsDiscoveryView.showBookedDayDots] is `false` (nothing is watched
+  /// at all, so no request is issued).
+  ///
+  /// Dispatches on the SEED query's sealed member, exactly as [_rebuildQuery]
+  /// does and for the same reason — the scope travels on the seed the host
+  /// already passes, so this view still never branches on "am I a salon?"
+  /// anywhere else. The two endpoints are strictly scope twins (same window,
+  /// same 366-day cap, same filter-independence, one shared provider body in
+  /// `booked_days_notifier.dart`), so everything downstream of here is
+  /// identical for both.
+  ///
+  /// Takes the `Consumer`'s own [WidgetRef], NOT the `State`'s: the watch must
+  /// stay scoped to that builder, which is what keeps a dot-set emission from
+  /// rebuilding the timeline subtree above it (see the call site's comment).
+  AsyncValue<Set<DateTime>>? _bookedDaysAsync(WidgetRef ref) {
+    if (!widget.showBookedDayDots) return null;
+    return switch (widget.query) {
+      SalonDayQuery(:final String salonId) => ref.watch(
+        salonBookedDaysProvider(salonId),
+      ),
+      MasterOwnDayQuery() => ref.watch(bookedDaysProvider),
+    };
   }
 
   /// Selecting a rail day narrows to exactly that day. Debounced; see
@@ -760,11 +1139,21 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// the calendar still shows `_day`'s month, unmoved.
   void _selectDay(DateTime day) {
     _dayDebounce?.cancel();
-    _dayDebounce = Timer(const Duration(milliseconds: 220), () {
+    _dayDebounce = Timer(_kDaySelectionDebounce, () {
       if (!mounted) return;
       _applySelectedDay(day);
     });
   }
+
+  /// The ONE debounce window every date-selection path now shares — the rail
+  /// chip ([_selectDay]) and, since audit MEDIUM-2 (2026-09-20), the grid
+  /// cell / «Сьогодні» / month-step path ([_selectImmediate]).
+  ///
+  /// 220 ms was the rail's own value and is kept verbatim: long enough that a
+  /// flick's worth of chips collapses to one request, short enough that a
+  /// single deliberate tap still feels like it fetched on contact. Spelled
+  /// once so the two paths cannot drift into two different windows.
+  static const Duration _kDaySelectionDebounce = Duration(milliseconds: 220);
 
   /// The single mutation a rail-day selection resolves to — sets [_day] and
   /// rebuilds [_liveQuery]. Called after [_dayDebounce] elapses
@@ -840,6 +1229,10 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     setState(() {
       _statuses = <BookingStatus>{};
       _serviceIds = <String>{};
+      // «Майстер» is CLIENT-SIDE and so is invisible to `_rebuildQuery` — but
+      // it is still a filter the owner set, so «Скинути фільтри» must clear it
+      // too or the board stays narrowed after the user was told it was reset.
+      _masterIds = const <String>{};
       _rebuildQuery();
     });
   }
@@ -855,21 +1248,55 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   Future<void> _applyFilters() async {
     _dayDebounce?.cancel();
     // `asData?.value`, NEVER `.value` — see the file header.
-    final List<MasterService> services =
-        ref.read(masterServiceCatalogProvider).asData?.value ??
-        const <MasterService>[];
+    //
+    // Phase 21.12 — an EMPTY list when [showServiceFilter] is false, which the
+    // sheet already renders as "no «Послуга» section" (`bookings_filter_sheet
+    // .dart`'s `if (widget.services.isNotEmpty)`), so no new sheet parameter
+    // was needed. Reading the provider here would also SUBSCRIBE to it, which
+    // is the very fetch `_ServiceCatalogueWarmer` is skipping on that scope.
+    final List<MasterService> services = widget.showServiceFilter
+        ? (ref.read(masterServiceCatalogProvider).asData?.value ??
+              const <MasterService>[])
+        : const <MasterService>[];
+    // The «Майстер» universe — EMPTY unless the host both offers the section
+    // and has a roster, which is what makes the flag and the options one
+    // decision rather than two that can disagree.
+    final List<MasterFilterOption> masters = widget.showMasterFilter
+        ? widget.masterFilterOptions
+        : const <MasterFilterOption>[];
     final BookingsFilterSelection? applied = await BookingsFilterSheet.show(
       context,
       initial: BookingsFilterSelection(
         statuses: _statuses,
         serviceIds: _serviceIds,
+        masterIds: _masterIds,
       ),
       services: services,
+      masters: masters,
     );
     if (!mounted || applied == null) return;
+    // RESOLVED AGAINST THE OFFERED OPTIONS, not taken verbatim. Two things
+    // fall out of this one line:
+    //   * on a surface with no «Майстер» section (`masters` empty — both
+    //     master routes) the result is ALWAYS empty, so the flag cannot be
+    //     bypassed by any sheet result whatsoever;
+    //   * a master who left the salon between two opens of the sheet cannot
+    //     linger as an INVISIBLE tick — the sheet offers only the current
+    //     roster, so their id is dropped the next time the owner applies.
+    //     (`columnsFor` independently refuses to render an empty board for a
+    //     selection that matches nobody; this is the half that stops the
+    //     situation arising in the first place.)
+    final Set<String> offered = <String>{
+      for (final MasterFilterOption m in masters) m.id,
+    };
+    final Set<String> resolvedMasterIds = <String>{
+      for (final String id in applied.masterIds)
+        if (offered.contains(id)) id,
+    };
     setState(() {
       _statuses = applied.statuses;
       _serviceIds = applied.serviceIds;
+      _masterIds = resolvedMasterIds;
       _rebuildQuery();
     });
   }
@@ -887,6 +1314,11 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   int get _activeFilterCount => bookingsActiveFilterCount(
     hasStatuses: _statuses.isNotEmpty,
     hasServiceIds: _serviceIds.isNotEmpty,
+    // GROUPS, not values — ticking three masters is ONE active filter, exactly
+    // as ticking three statuses is. See [bookingsActiveFilterCount]. Counted
+    // here so a narrowed board shows its badge without the owner opening the
+    // sheet, which is the whole reason the badge exists.
+    hasMasterIds: _masterIds.isNotEmpty,
   );
 
   /// Phase 248 — the header's "+" add-booking affordance.
@@ -917,6 +1349,14 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// false. Keep the tear-off for the allocation, not for a skip that never
   /// happened; do not reintroduce the `BuildContext` parameter.
   void _openCreateBooking() {
+    // Phase 21.12 — the HOST may redirect this. `null` (both master routes)
+    // keeps the Phase 248 destination verbatim. See
+    // [BookingsDiscoveryView.onCreateBooking].
+    final VoidCallback? hostHandler = widget.onCreateBooking;
+    if (hostHandler != null) {
+      hostHandler();
+      return;
+    }
     context.push(RouteNames.masterBookingNew);
   }
 
@@ -1009,8 +1449,15 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                 // shows it. See the widget's own doc for why no flash is
                 // possible.
                 MyBookingsSlowLoadNotice(
+                  // `.fetchKey`, not `_liveQuery` (audit M2) — on the SALON
+                  // member a filtered query DERIVES from the unfiltered one
+                  // and issues no request of its own, so invalidating it
+                  // would rebuild a derivation over the same cached (and,
+                  // here, still-pending) base. `fetchKey` is identity on the
+                  // master member, so this line is unchanged for it. See
+                  // `BookingsDayQuery.fetchKey`.
                   onRetry: () =>
-                      ref.invalidate(bookingsDayProvider(_liveQuery)),
+                      ref.invalidate(bookingsDayProvider(_liveQuery.fetchKey)),
                 ),
               ],
             ),
@@ -1025,8 +1472,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               children: <Widget>[
                 MyBookingsErrorState(
                   error: e,
+                  // `.fetchKey` — same reason as the `loading:` branch above.
+                  // A derived salon member's error IS the base member's error;
+                  // invalidating the derivation alone would re-read the cached
+                  // failure and the retry button would do nothing.
                   onRetry: () =>
-                      ref.invalidate(bookingsDayProvider(_liveQuery)),
+                      ref.invalidate(bookingsDayProvider(_liveQuery.fetchKey)),
                 ),
               ],
             ),
@@ -1049,6 +1500,18 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onBookingTap: widget.onBookingTap,
               onAddWorkingHours: widget.onAddWorkingHours,
               canAddWorkingHours: widget.canAddWorkingHours,
+              // Phase 21.12 — `null` on both master routes, which is what
+              // keeps `_body` selecting the single-master grid verbatim.
+              columnsBuilder: widget.columnsBuilder,
+              // 2026-09-18 — the «Майстер» selection, threaded to the HOST's
+              // partition. `const {}` on both master routes (the section is
+              // never offered there), which is what keeps
+              // `columnsBuilder?.call(...)` a no-narrowing call everywhere it
+              // was one before.
+              masterIds: _masterIds,
+              // Phase 335 — `null` on both master routes, which is what keeps
+              // `_Loaded.build`'s `!useScheduleWindow` arm identical.
+              boardWindowBuilder: widget.boardWindowBuilder,
             ),
           );
         },
@@ -1065,6 +1528,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
           children: <Widget>[
             _Header(
               title: widget.title,
+              subtitle: widget.subtitle,
               onBack: widget.onBack,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
@@ -1073,9 +1537,17 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               // than disabling it. See
               // [BookingsDiscoveryView.canCreateBooking].
               onAdd: widget.canCreateBooking ? _openCreateBooking : null,
+              addSemanticsLabelOverride: widget.addSemanticsLabelOverride,
               onOpenArchive: widget.onOpenArchive,
             ),
-            const _ServiceCatalogueWarmer(),
+            // Phase 21.12 — skipped entirely on a scope with no «Послуга»
+            // section, so the salon board never subscribes to the signed-in
+            // user's own master catalogue. A `SizedBox.shrink()` either way,
+            // so the column's layout is identical in both branches.
+            if (widget.showServiceFilter)
+              const _ServiceCatalogueWarmer()
+            else
+              const SizedBox.shrink(),
             // mobile-perf HIGH fix (finding #2), current shape — displacement
             // without relayout. `timeline` (built once above, at the top of
             // this `build()`) is threaded through UNCHANGED into
@@ -1108,11 +1580,13 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   // narrows. Feeds BOTH the collapsed rail's dots and the
                   // expanded grid's density dots inside the panel — same
                   // source, unchanged.
-                  final AsyncValue<Set<DateTime>> bookedDaysAsync = ref.watch(
-                    bookedDaysProvider,
-                  );
+                  // Which ENDPOINT is a scope question, answered once in
+                  // [_bookedDaysAsync] off the seed query's sealed member —
+                  // see [BookingsDiscoveryView.showBookedDayDots].
+                  final AsyncValue<Set<DateTime>>? bookedDaysAsync =
+                      _bookedDaysAsync(ref);
                   final Set<DateTime> bookedDays =
-                      bookedDaysAsync.value ?? const <DateTime>{};
+                      bookedDaysAsync?.value ?? const <DateTime>{};
 
                   return BookingsMonthCalendarPanel(
                     railController: _railController,
@@ -1184,6 +1658,9 @@ class _Loaded extends StatelessWidget {
     required this.onBookingTap,
     required this.onAddWorkingHours,
     required this.canAddWorkingHours,
+    required this.columnsBuilder,
+    required this.masterIds,
+    required this.boardWindowBuilder,
   }) : assert(
          !useScheduleWindow || scheduleAsync != null,
          'scheduleAsync must be set whenever useScheduleWindow is true — '
@@ -1258,10 +1735,152 @@ class _Loaded extends StatelessWidget {
   /// `useScheduleWindow: true` mount.
   final bool canAddWorkingHours;
 
+  /// `widget.columnsBuilder` — `null` on both master routes, which is what
+  /// makes [_body] hand [BookingsTimelineGrid] `columns: null` and
+  /// [TimelineDensity.master], i.e. the pre-existing call verbatim.
+  final List<TimelineBoardColumn> Function(
+    List<Booking> dayItems,
+    DateTime day,
+    Set<String> masterIds,
+  )?
+  columnsBuilder;
+
+  /// `_BookingsDiscoveryViewState._masterIds` — the ticked «Майстер» ids, or
+  /// EMPTY for "every master". Consumed ONLY as [columnsBuilder]'s third
+  /// argument; this widget never filters anything with it itself.
+  final Set<String> masterIds;
+
+  /// `widget.boardWindowBuilder` — see that field's doc on
+  /// [BookingsDiscoveryView], which carries the full contract (including why
+  /// the window it returns must make `bookingsInsideScheduleWindow` vacuous).
+  /// `null` on both master routes and on every pre-existing test mount.
+  final ScheduleTimelineWindow? Function(List<Booking> dayItems, DateTime day)?
+  boardWindowBuilder;
+
   @override
   Widget build(BuildContext context) {
     if (!useScheduleWindow) {
-      return _body(context, window: null);
+      // ═══════════════════════════════════════════════════════════════════
+      // PHASE 335 — THE SALON BOARD'S UNION WINDOW
+      // ═══════════════════════════════════════════════════════════════════
+      // `null` on every pre-existing call site (both master routes, every
+      // test that pumps this view without the new parameter), and a `null`
+      // builder yields a `null` window, so the next two statements collapse
+      // to the single `return _body(context, window: null)` this arm has
+      // always been. There is no second path for those callers to take.
+      //
+      // DEGRADATION IS DELIBERATE AND IS THE HOST'S TO DECIDE. The builder
+      // also returns `null` when the salon's working-hours fetch has FAILED
+      // or is still LOADING — see `salon_bookings_screen.dart`, which owns
+      // that rule and states it in full. Summary for whoever reads this file
+      // first and is tempted to "fix" it by surfacing an error here: the
+      // roster and the salon profile are STRUCTURAL (there are no columns
+      // without them, so the screen shows `MyBookingsErrorState`); the
+      // schedule is ADORNMENT — it moves the timeline's top and bottom and
+      // nothing else. A board that renders today's bookings against a
+      // booking-derived window is completely usable; an error panel in its
+      // place is not. Do not fold the schedule fetch into that error gate.
+      // READ `state.items` EXACTLY ONCE, into a local, and use THAT local
+      // everywhere below (mobile-qa HIGH, 2026-09-17). This is not style.
+      // `BookingsDayState` is freezed, and freezed's generated `items` getter
+      // is:
+      //
+      //     if (_items is EqualUnmodifiableListView) return _items;
+      //     return EqualUnmodifiableListView(_items);
+      //
+      // so whenever the stored list is RAW it allocates a BRAND NEW wrapper on
+      // every single access, and reading the getter twice yields two DIFFERENT
+      // objects over the same rows. The `identical` assert below — whose whole
+      // job is to police the WINDOW — then fired on that wrapper identity
+      // instead, red-screening the board in every asserts-enabled build with
+      // the nonsense diagnostic "0 of N would be dropped".
+      //
+      // THE STORED LIST WAS RAW ON EVERY ROUTE, not just the salon board's.
+      // `PageResponse` is hand-written rather than freezed (see
+      // `core/network/page_response.dart`), so `page.items` is a plain
+      // `List<Booking>` and every `BookingsDayState` the notifier built stored
+      // one. `_narrowSalonDay`'s `sublist` branch is NOT what caused this — it
+      // merely yields another plain list. Falsified 2026-09-17 by reverting
+      // this hoist and running the vacuity group's own "a VACUOUS window
+      // passes straight through" case, which pumps a plain `MyBookingsQuery`
+      // with no narrowing, no `sublist` and no CANCELLED row: it went red too.
+      //
+      // FIXED AT THE ROOT as well — `BookingsDayNotifier` now stores
+      // `stableBookingList(...)` (see its doc in `bookings_day_state.dart`), so
+      // the getter is identity-stable and three further gates that silently
+      // depended on it work again. This hoist is kept as the local guarantee:
+      // it is correct regardless of what any future writer of that state does,
+      // and it is one fewer getter call either way.
+      //
+      // `state` is a `final` field of an immutable widget and nothing between
+      // this read and the assert can reach it — `boardWindowBuilder` receives
+      // the list as an argument and `visibleBookingsFor` only touches the
+      // memo's own fields — so ONE read is genuinely sufficient.
+      //
+      // Release behaviour is unchanged (the assert is stripped, and the rows
+      // are the same either way).
+      final List<Booking> items = state.items;
+      final ScheduleTimelineWindow? boardWindow = boardWindowBuilder?.call(
+        items,
+        day,
+      );
+      if (boardWindow == null) {
+        return _body(context, window: null);
+      }
+
+      // THE SAME `bookingsInsideScheduleWindow` THE MASTER PATH USES — no
+      // flag, no branch, no second predicate. What differs is the WINDOW: on
+      // a manager's board a dropped booking is DATA LOSS (a 22:00 walk-in
+      // must not vanish because its master finishes at 20:00), so
+      // `salonBoardWindow` returns a union wide enough that this call is
+      // provably VACUOUS. See its proof in `schedule_timeline_window.dart`.
+      final List<Booking> visible = visibleBookingsFor(items, day, boardWindow);
+      // THE VACUITY, ASSERTED — as TWO separate claims, because they fail for
+      // entirely different reasons and a single `identical` could not tell
+      // them apart. That ambiguity is not hypothetical: it is exactly what
+      // made the original one-assert form report "0 of 1 would be dropped"
+      // when nothing was being dropped at all (mobile-qa HIGH, 2026-09-17).
+      //
+      // Both are debug-only and neither can change shipped behaviour.
+      //
+      // (1) THE WINDOW EXCLUDED NOTHING. `bookingsInsideScheduleWindow` only
+      // ever REMOVES elements (it never adds or reorders), so equal length is
+      // an EXACT "excluded nothing" oracle — and, unlike identity, it stays
+      // exact even if that function ever loses its return-the-input
+      // optimisation. This is the claim about the WINDOW, and it is the one
+      // the negative control in `bookings_discovery_view_schedule_window_test
+      // .dart` ("a builder whose window EXCLUDES a booking") trips.
+      assert(
+        visible.length == items.length,
+        'boardWindowBuilder returned a window that EXCLUDES bookings — '
+        '${items.length - visible.length} of ${items.length} '
+        'would be dropped from the board. On a salon board that is data '
+        'loss. The window must satisfy salonBoardWindow\'s vacuity proof '
+        '(schedule_timeline_window.dart): min over master starts AND the '
+        'earliest booking start, max over master ends AND the latest '
+        'booking END.',
+      );
+      // (2) …AND HANDED BACK THE INPUT INSTANCE. Given (1) this is no longer a
+      // statement about the window at all — it is the IDENTITY contract three
+      // shipped gates depend on: `visibleBookingsFor`'s memo,
+      // `BookingsTimelineGrid.didUpdateWidget`'s `identical(widget.bookings,
+      // oldWidget.bookings)` (which decides whether to re-run `assignLanes`
+      // plus every card's layout), and `bookingsInsideScheduleWindow`'s own
+      // return-the-input optimisation that exists to feed them. Breaking it
+      // costs frames, not rows, so it gets its own message rather than
+      // masquerading as data loss.
+      assert(
+        identical(visible, items),
+        'the board window excluded nothing (both lists hold '
+        '${items.length} booking(s)) but visibleBookingsFor returned a '
+        'DIFFERENT list instance. No booking is lost, but every identity gate '
+        'downstream now misses on every rebuild — BookingsTimelineGrid will '
+        're-run assignLanes and re-lay-out every card. Either '
+        'bookingsInsideScheduleWindow stopped returning its input instance, '
+        'or BookingsDayState.items lost its identity stability (see '
+        'stableBookingList in bookings_day_state.dart).',
+      );
+      return _body(context, window: boardWindow, visibleItems: visible);
     }
 
     // No `!` (repo style) — the constructor assert above guarantees
@@ -1419,6 +2038,24 @@ class _Loaded extends StatelessWidget {
   }) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<Booking> items = visibleItems ?? state.items;
+    // Phase 21.12 — built from the SAME `items` the header count below reads
+    // and the grid renders, so the columns cannot partition a different list
+    // than the one that was counted.
+    // Phase 336 — `day` is this widget's own field, the SAME one
+    // [boardWindowBuilder] is handed in [build] and the same one the grid
+    // renders, so the columns' day-off marks and the timeline's bounds can
+    // never describe two different dates.
+    // 2026-09-18 — [masterIds] is the «Майстер» selection, EMPTY for "every
+    // master". It narrows the ROSTER inside the host's partition, never this
+    // `items` list: the count recomputed from `columns` a few lines down
+    // therefore follows the filter automatically and still cannot disagree
+    // with the cards on screen. Both master routes pass `const {}` here and
+    // a `null` builder ignores it outright, so neither is touched.
+    final List<TimelineBoardColumn>? columns = columnsBuilder?.call(
+      items,
+      day,
+      masterIds,
+    );
     // `totalElements` is the SERVER's whole-day count (see
     // `bookings_day_state.dart`'s header) — kept ONLY as the legacy/loading/
     // error fallback. Once a window has resolved, `visibleItems!.length` is
@@ -1432,7 +2069,22 @@ class _Loaded extends StatelessWidget {
     // rows, so under a filter this line reads the number of BOOKINGS
     // matching that filter — which is now also the exact number of cards on
     // screen.
-    final int count = visibleItems?.length ?? state.totalElements;
+    int count = visibleItems?.length ?? state.totalElements;
+    // Phase 21.12 — on the salon board the RENDERED set is the columns, not
+    // `items`: a booking whose master has since left the salon has no column
+    // to sit in and is not drawn. Counting `items` there would print a number
+    // one higher than the cards on screen — the exact header-vs-cards
+    // divergence `bookingsInsideScheduleWindow` was extracted to close on the
+    // master branch. Recomputed from the same `columns` the grid is handed, so
+    // the two come off one source. `null` columns leaves the line above
+    // untouched, so both master routes are unaffected.
+    if (columns != null) {
+      int rendered = 0;
+      for (final TimelineBoardColumn column in columns) {
+        rendered += column.bookings.length;
+      }
+      count = rendered;
+    }
 
     // Whether the EXPLICIT_TIMES branch below will emit NO free cards — see
     // `declared_time_cards.dart`'s "FREE CARDS ARE A CLAIM" section. Needed
@@ -1501,7 +2153,17 @@ class _Loaded extends StatelessWidget {
     // that predates this feature (`useScheduleWindow: false`, and
     // `useScheduleWindow: true`'s own loading/error fallbacks — see [build]),
     // which keep the illustrated empty states exactly as before.
-    if (items.isEmpty && (window == null || suppressesFreeCards)) {
+    // Phase 21.12 — `columns == null` keeps the two illustrated empty states
+    // exactly where they were on both master routes. On the salon board an
+    // empty day still draws the roster strip and the ruled, card-less grid
+    // (the same locked decision that makes a resolved-window master day render
+    // its empty grid rather than an illustration): the owner must be able to
+    // see WHICH masters are free, which an illustration cannot say. A salon
+    // with no masters AT ALL is a different situation — `columns` is then
+    // non-null but EMPTY, and the board's own roster empty state covers it.
+    if (items.isEmpty &&
+        columns == null &&
+        (window == null || suppressesFreeCards)) {
       // The two empties are genuinely different situations — see
       // `master_bookings_states.dart`'s header. `hasFilters` is the whole
       // distinction: with no filter active, an empty result means this day is
@@ -1554,9 +2216,16 @@ class _Loaded extends StatelessWidget {
             // Only the ruler-bearing timeline grid moves left; the
             // declared-times branch keeps `VelvetSpacing.lg` so its flush
             // cards stay aligned with the 24dp day header above.
+            // Phase 21.12 — three branches now, and the THIRD is selected by
+            // `columns != null` alone. A `declaredTimes` day cannot occur on
+            // the salon board (`useScheduleWindow` is false there, so
+            // `declaredTimes` is always null on that scope), so the order of
+            // these two tests is not load-bearing — only their independence.
             padding: declaredTimes != null
                 ? _kDeclaredBodyPadding
-                : _kTimelineBodyPadding,
+                : (columns != null
+                      ? _kBoardBodyPadding
+                      : _kTimelineBodyPadding),
             child: declaredTimes != null
                 ? DeclaredTimeCards(
                     declaredTimes: declaredTimes,
@@ -1565,12 +2234,21 @@ class _Loaded extends StatelessWidget {
                     showsAllOccupancy: showsAllOccupancy,
                     onTapBooking: onBookingTap,
                   )
+                // ONE widget, two scopes. `columns` is null and `density` is
+                // the default on every pre-existing call site, so the two
+                // master routes reach the identical constructor invocation
+                // they always have. See `bookings_timeline_grid.dart`'s
+                // "ADDENDUM 10".
                 : BookingsTimelineGrid(
                     bookings: items,
                     day: day,
                     onBookingTap: onBookingTap,
                     scheduleFirstMinute: window?.firstMinute,
                     scheduleWindowEndMinute: window?.windowEndMinute,
+                    density: columns == null
+                        ? TimelineDensity.master
+                        : TimelineDensity.salon,
+                    columns: columns,
                   ),
           ),
         ),
@@ -1587,11 +2265,19 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.activeFilterCount,
     required this.onOpenFilters,
+    this.subtitle,
     this.onAdd,
+    this.addSemanticsLabelOverride,
     this.onOpenArchive,
   });
 
   final String title;
+
+  /// Phase 21.12 — `null` (both master routes) emits NOTHING: the title stays
+  /// a bare `Text` in the `Expanded`, so the header's height, its `Row`'s
+  /// children and their vertical centring are all byte-identical. Non-null
+  /// wraps the title in a two-line `Column` — see [build].
+  final String? subtitle;
   final VoidCallback? onBack;
   final int activeFilterCount;
   final VoidCallback onOpenFilters;
@@ -1610,6 +2296,11 @@ class _Header extends StatelessWidget {
   /// track that gives an invited `SALON_MASTER` this same screen read-only is
   /// what made the affordance conditional.
   final VoidCallback? onAdd;
+
+  /// Phase 340 — overrides [onAdd]'s semantics label. `null` (both master
+  /// routes) keeps [AppLocalizations.masterBookingsAddSemantics] — see
+  /// [BookingsDiscoveryView.addSemanticsLabelOverride]'s own doc.
+  final String? addSemanticsLabelOverride;
 
   /// Phase 231 — the archive button. `null` hides it entirely; see
   /// [BookingsDiscoveryView.onOpenArchive]'s doc.
@@ -1664,12 +2355,33 @@ class _Header extends StatelessWidget {
               const SizedBox(width: VelvetSpacing.md),
             ],
             Expanded(
-              child: Text(
-                title,
-                style: VelvetText.pageTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              child: subtitle == null
+                  // The pre-existing shape, untouched — see [subtitle].
+                  ? Text(
+                      title,
+                      style: VelvetText.pageTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          title,
+                          style: VelvetText.pageTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          subtitle!,
+                          key: const Key('bookings-discovery-subtitle'),
+                          style: VelvetText.feedbackMutedSm,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
             ),
             const SizedBox(width: VelvetSpacing.sm),
             if (onOpenArchive != null) ...<Widget>[
@@ -1697,7 +2409,9 @@ class _Header extends StatelessWidget {
               const SizedBox(width: VelvetSpacing.sm),
               Semantics(
                 button: true,
-                label: l10n.masterBookingsAddSemantics,
+                label:
+                    addSemanticsLabelOverride ??
+                    l10n.masterBookingsAddSemantics,
                 child: GestureDetector(
                   key: const Key('master-bookings-add'),
                   onTap: onAdd,

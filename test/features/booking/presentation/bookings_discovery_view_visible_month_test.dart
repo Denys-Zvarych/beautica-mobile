@@ -677,6 +677,17 @@ void main() {
         // no reveal fires here.
         await tester.tapCalendarDay(1);
         await tester.pumpAndSettle();
+        // THE DEBOUNCE PUMP (audit MEDIUM-2, 2026-09-20). `_selectImmediate`
+        // still moves `_day` and the label on the tap's own frame, but the
+        // QUERY REBUILD — the only thing `result.calls` records — now waits
+        // out the same 220 ms window the rail tap has always used, so the
+        // grid tap can no longer reach the backend's shared 60/min budget at
+        // a sustained tap rate. `pumpAndSettle` fires no `Timer` when nothing
+        // is animating, so without this explicit advance the assertion below
+        // reads the PRE-TAP call list and fails (which is exactly how it
+        // failed when the debounce landed — it did not pass vacuously).
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 250));
 
         expect(
           result.calls,
@@ -718,6 +729,17 @@ void main() {
         await tester.pumpAndSettle();
 
         await pageMonthForward(tester);
+        // THE DEBOUNCE PUMP (audit MEDIUM-2, 2026-09-20). `_selectImmediate`
+        // still moves `_day` and the label on the tap's own frame, but the
+        // QUERY REBUILD — the only thing `result.calls` records — now waits
+        // out the same 220 ms window the rail tap has always used, so the
+        // grid tap can no longer reach the backend's shared 60/min budget at
+        // a sustained tap rate. `pumpAndSettle` fires no `Timer` when nothing
+        // is animating, so without this explicit advance the assertion below
+        // reads the PRE-TAP call list and fails (which is exactly how it
+        // failed when the debounce landed — it did not pass vacuously).
+        // fixed-wait-ok: advancing past the 220 ms day-select debounce.
+        await tester.pump(const Duration(milliseconds: 250));
 
         // `_stepMonth(1)` keeps the day-of-month (1, no clamping needed), so
         // the selection is now Sunday 2026-11-01, whose week starts Monday

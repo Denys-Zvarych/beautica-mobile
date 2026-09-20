@@ -1238,6 +1238,39 @@ final class FakeBackend {
   int getSalonStaffCalls = 0;
   String? lastGetSalonStaffId;
 
+  /// Per-salon breakdown of [getSalonStaffCalls] — keyed by the `{salonId}`
+  /// whose route served the request.
+  ///
+  /// WHY THE AGGREGATE COUNTER CANNOT CARRY A PER-SALON ASSERTION.
+  /// [getSalonStaffCalls] is ONE counter bumped by THREE route registrations
+  /// (`salon-xyz`, `salon-admin-1`, [kOwnerSalonId]). A SALON_OWNER journey
+  /// legitimately touches two of them: `AppHarness.loginAs(salonOwner)` lands
+  /// on `/salons/home` -> `SalonShellScreen(salonId: kOwnerSalonId)`, whose
+  /// slot 0 mounts the management profile and fetches THAT salon's roster —
+  /// before the test ever navigates to `salon-xyz`. Two distinct
+  /// `salonManagementProfileProvider` FAMILY ELEMENTS, one build and one fetch
+  /// each; no rebuild, no invalidation, no redundant watch. An
+  /// `expect(getSalonStaffCalls, 1)` therefore reads <2> and indicts
+  /// production code that is behaving correctly — in production the
+  /// management surface IS the shell (same salonId, same family element), and
+  /// the jump to a second salon is a test-only `router.go`.
+  ///
+  /// This ledger makes "did SALON X's roster get re-fetched?" expressible
+  /// without that cross-talk. Assert on `getSalonStaffCallsById[salonId]`
+  /// (and on a DELTA across the interaction under test); keep the aggregate
+  /// only for `greaterThanOrEqualTo` "it happened at all" checks.
+  ///
+  /// HISTORICAL NOTE (why this only started biting on this branch):
+  /// `origin/dev` registers only TWO `getSalonStaffCalls++` sites —
+  /// `/api/v1/salons/$kOwnerSalonId/staff` is UNREGISTERED there, so the
+  /// shell's roster fetch goes unmatched, uncounted, and every SALON_OWNER
+  /// integration test renders the shell's «Салон» slot in a SILENT ERROR
+  /// STATE. Commit `cb79331a` (phase 21.12) registered that route and thereby
+  /// made the pre-existing fetch countable; it did not introduce the fetch
+  /// (`lib/routing/role_home.dart` is byte-identical dev<->HEAD, and dev's
+  /// shell already mounts the same slot-0 screen).
+  final Map<String, int> getSalonStaffCallsById = <String, int>{};
+
   // ─── Phase 21.6 — admin management (remove / rotate / sibling salons) ────
   //
   // `DELETE /salons/{salonId}/admins/{userId}`,
@@ -2656,14 +2689,47 @@ final class FakeBackend {
   ///
   /// INSTANCE (not static) because the rating block MOVES once the client's
   /// `POST /reviews` lands — see [publicMasterReviewLanded].
+  ///
+  /// The USER-level address `MasterDetailResponse` carries for an
+  /// INDEPENDENT_MASTER. Named constants (not inline literals) so a test can
+  /// assert against the value the fake actually serves instead of
+  /// hard-coding a Cyrillic literal into a `find.text(...)`, which
+  /// `scripts/forbid_cyrillic_finder.sh` forbids.
+  static const String kPublicMasterCity = 'Київ';
+  static const String kPublicMasterStreet = 'вул. Хрещатик';
+  static const String kPublicMasterBuildingNo = '12';
+  static const String kPublicMasterLocationNote = '2 поверх';
+
+  /// VENUE-ADDRESS SEAM (2026-09-18) — when `true`, the PUBLIC master-detail
+  /// envelope OMITS `city`/`street`/`buildingNo`/`locationNote` entirely,
+  /// reproducing what the real backend does for a `SALON_MASTER` /
+  /// `SALON_OWNER`: `MasterDetailResponse.java:104-127` deliberately nulls a
+  /// salon master's USER-level address because "a salon master's precise
+  /// address is the salon's business address".
+  ///
+  /// This is the ONLY fixture shape under which the done screen's `venue*`
+  /// override is DISCRIMINATING. With the default (address present) the
+  /// `Master` fallback composes «вул. Хрещатик, 12, Київ» — the very same
+  /// string the booking carries — so an address assertion would pass
+  /// identically with and without the fix. Seed this together with a
+  /// DISTINCT [bookingStreet]/[bookingBuildingNo]/[bookingCityLabel] to get a
+  /// test that can actually go red.
+  ///
+  /// Defaults to `false`; every pre-existing flow is untouched.
+  bool publicMasterAddressSuppressed = false;
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
     'lastName': 'Бондар',
-    'city': 'Київ',
-    'street': 'вул. Хрещатик',
-    'buildingNo': '12',
-    'locationNote': '2 поверх',
+    // VENUE-ADDRESS SEAM (2026-09-18) — see [publicMasterAddressSuppressed].
+    // Present by default, so every pre-existing flow's body is byte-identical.
+    if (!publicMasterAddressSuppressed) ...<String, dynamic>{
+      'city': kPublicMasterCity,
+      'street': kPublicMasterStreet,
+      'buildingNo': kPublicMasterBuildingNo,
+      'locationNote': kPublicMasterLocationNote,
+    },
     'bio': 'Майстриня манікюру з 6-річним досвідом.',
     'instagram': '@sofia_nails',
     'avgRating': publicMasterReviewLanded
@@ -3837,6 +3903,23 @@ final class FakeBackend {
   /// detail re-fetch (triggered by the screen's `bookingDetailProvider`
   /// invalidation on success) re-resolves the CTA away, mirroring
   /// [bookingCanReview]'s post-review flip.
+  ///
+  /// ⚠ WHOSE VIEW THE `true` DEFAULT MODELS (Phase 320). The real value is
+  /// computed by `BookingService#computeProviderCanReviewClient` (backend
+  /// `a0df4cf`), whose provider-authority leg is the SINGLE term
+  /// `isPerformingMasterOfBooking(...)`; the former
+  /// `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted the
+  /// salon's owner and its assigned admin whoever performed the service, is
+  /// gone. The seeded booking's master is `master-aaa`, so the `true` default
+  /// is the PERFORMING MASTER's answer — correct for the INDEPENDENT_MASTER
+  /// and `SALON_MASTER` personas that drive the review flows, and for an
+  /// owner-as-master flow if one is ever written.
+  ///
+  /// A flow driving a `SALON_OWNER`/`SALON_ADMIN` session that is NOT the
+  /// performing master into `GET /bookings/{id}` MUST seed this `false` — the
+  /// real server does. Leaving the default would let such a flow pass against
+  /// a CTA the real app never renders.
+  /// `salon_owner_bookings_board_flow_test.dart` does exactly that.
   bool bookingProviderCanReviewClient = true;
 
   /// Phase 334 — the CLIENT's review of the master (`{rating, comment?}`,
@@ -4272,6 +4355,36 @@ final class FakeBackend {
   String? bookingSalonName;
   String? bookingSalonId;
 
+  /// VENUE ADDRESS (2026-09-18) — the seeded booking's OWN address, i.e. the
+  /// place the visit happens, as `BookingDetailResponse.java:580-648` resolves
+  /// it server-side (the SALON's business address for a salon master, the
+  /// master's own for an independent one).
+  ///
+  /// Defaults are byte-for-byte the literals `_seededBookingJson` used to
+  /// hard-code, so every pre-existing flow sees the identical wire body.
+  ///
+  /// ⚠ A test that means to PROVE the done screen's `venue*` override is
+  /// load-bearing must seed these to something DIFFERENT from the public
+  /// master's own address AND set [publicMasterAddressSuppressed] — otherwise
+  /// the `Master` fallback composes the very same string and the assertion is
+  /// vacuous in both directions. [kSalonVenueStreet] and friends below are
+  /// the ready-made distinct salon address for exactly that.
+  String bookingStreet = kPublicMasterStreet;
+  String bookingBuildingNo = kPublicMasterBuildingNo;
+  String bookingCityLabel = kPublicMasterCity;
+  String? bookingLocationNote;
+
+  /// A SALON business address, deliberately distinct from
+  /// [kPublicMasterStreet] / [kPublicMasterBuildingNo] in every part, so a
+  /// rendered assertion against it can only pass when the value came off the
+  /// `Booking` and not off the `Master`. Borrowed from the sibling-salon
+  /// fixture's own «вул. Спаська, 5», so the address is one this fake already
+  /// treats as a real salon's.
+  static const String kSalonVenueStreet = 'вул. Спаська';
+  static const String kSalonVenueBuildingNo = '5';
+  static const String kSalonVenueCity = 'Київ';
+  static const String kSalonVenueLocationNote = 'вхід з двору';
+
   /// The enriched `BookingDetailResponse` body for the seeded booking, built
   /// from the CURRENT mutable status/note so a post-cancel re-fetch reflects
   /// the new state. Wire keys mirror the DTO the [BookingMapper] reads.
@@ -4313,10 +4426,15 @@ final class FakeBackend {
     'masterServiceId': 'pub-assign-1',
     'serviceName': 'Манікюр з покриттям',
     'categoryName': 'NAIL_SERVICE',
-    'cityLabel': 'Київ',
+    // VENUE ADDRESS (2026-09-18) — the address the BACKEND already resolved
+    // salon-vs-independent server-side (`BookingDetailResponse.java:580-648`),
+    // i.e. the place the visit actually happens. Seam-backed so a flow can
+    // make it DIFFER from the master's USER-level address — see
+    // [bookingStreet]. Defaults reproduce the pre-seam literals exactly.
+    'cityLabel': bookingCityLabel,
     'districtLabel': 'Печерський',
-    'street': 'вул. Хрещатик',
-    'buildingNo': '12',
+    'street': bookingStreet,
+    'buildingNo': bookingBuildingNo,
     'durationMinutesAtBooking': 90,
     'priceAtBooking': bookingPrice,
     'priceMaxAtBooking': bookingPriceMax,
@@ -4342,7 +4460,7 @@ final class FakeBackend {
       'masterAvgRating': bookingMasterAvgRating,
     if (bookingMasterReviewCount != null)
       'masterReviewCount': bookingMasterReviewCount,
-    'locationNote': null,
+    'locationNote': bookingLocationNote,
     'appointmentId': bookingAppointmentId,
   };
 
@@ -6927,6 +7045,11 @@ final class FakeBackend {
       '/api/v1/salons/salon-xyz/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          'salon-xyz',
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
         lastGetSalonStaffId = 'salon-xyz';
         // A COPY read at REQUEST time — `salonStaff` is mutated by the admin
         // remove/rotate handlers, and capturing it at registration would
@@ -7062,6 +7185,11 @@ final class FakeBackend {
       '/api/v1/salons/salon-admin-1/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          'salon-admin-1',
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
         lastGetSalonStaffId = 'salon-admin-1';
         return _okList(
           List<Map<String, dynamic>>.from(
@@ -8043,6 +8171,9 @@ final class FakeBackend {
     );
 
     _wireBookingDetail();
+    _wireSalonBoard();
+    _wireSalonAdminBoard();
+    _wireSalonMultiServiceWizard();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -8119,6 +8250,27 @@ final class FakeBackend {
             };
           }
         }
+        // 2026-09-19 (mobile-qa) — the SALON-BOARD twin of the
+        // `_bookingsDataset` mutation above, added for the same reason and
+        // with the same shape. `GET /bookings/salon/{id}` reads
+        // [salonBoardBookings] at REQUEST time, so without this the board's
+        // very next fetch would still report `booking-1` as CONFIRMED and
+        // `salon_owner_bookings_board_flow_test.dart`'s post-decline
+        // invalidation guard could not tell "the board's cache never dropped"
+        // (the regression) from "the fake never learned about the write".
+        // Status-flip, not a row removal, because that is what the real
+        // backend does — the board's own client-side day-list narrowing
+        // (CANCELLED/DECLINED hidden by default, locked 2026-08-13) is what
+        // must then take the card off screen.
+        final int boardIdx = salonBoardBookings.indexWhere(
+          (Map<String, dynamic> row) => row['id'] == 'booking-1',
+        );
+        if (boardIdx != -1) {
+          salonBoardBookings[boardIdx] = <String, dynamic>{
+            ...salonBoardBookings[boardIdx],
+            'status': 'DECLINED',
+          };
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
@@ -8175,6 +8327,24 @@ final class FakeBackend {
             };
           }
         }
+        // Phase 345 — the SAME mutation on the SALON archive list, for
+        // exactly the reason the two paragraphs above give for the
+        // `/bookings/me` dataset. The salon archive re-reads
+        // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
+        // this, that re-read would hand back the unchanged CONFIRMED row and
+        // "the closed row left the «Підтверджено» filter" would be
+        // unprovable at the salon host while passing at the master host —
+        // a fake-fidelity divergence between two callers of one write.
+        final int salonIdx = salonArchiveBookings.indexWhere(
+          (Map<String, dynamic> row) => row['id'] == 'booking-1',
+        );
+        if (salonIdx != -1) {
+          salonArchiveBookings[salonIdx] = <String, dynamic>{
+            ...salonArchiveBookings[salonIdx],
+            'status': 'COMPLETED',
+            'awaitingClosure': false,
+          };
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.patch),
@@ -8230,6 +8400,1080 @@ final class FakeBackend {
   /// doc for why a plain field cannot work. [getBookingDetailCalls] is bumped on
   /// BOTH branches: a flow proving a manual retry re-issues the request needs
   /// the failing replies counted too.
+  // ── Phase 21.12 — the SALON «Записи» board ────────────────────────────────
+  //
+  // `GET /api/v1/bookings/salon/{salonId}` had NO registration in this file at
+  // all before Phase 21.12's QA pass (verified by enumerating every
+  // `_adapter.onRoute` path), and neither did `salon-owner-1`'s own
+  // `/salons/{id}` / `/staff` / `/masters` reads — every existing salon
+  // fixture is keyed to `salon-xyz` or `salon-admin-1`. So the owner's OWN
+  // primary salon (the one `roleHomePath` lands them on, and therefore the one
+  // the board actually mounts for) could not be served at all, and the board
+  // was unreachable at the E2E tier.
+  //
+  // `DioAdapter.onRoute` matches the PATH ONLY — query params are ignored —
+  // so one registration covers every day the rail navigates to. The handler
+  // captures the query instead, which is what lets a flow assert the Kyiv day
+  // window that went on the wire.
+
+  /// The salon id these handlers serve — the id [mySalons] defaults its ONE
+  /// primary salon to, i.e. the one an owner's `roleHomePath` lands on.
+  static const String kOwnerSalonId = 'salon-owner-1';
+
+  /// mobile-qa (phase 341) — the SALON_ADMIN's own salon (`_adminUserJson
+  /// .salonId`), the id their `roleHomePath` lands on. A DIFFERENT id than
+  /// [kOwnerSalonId] on purpose (see `_adminUserJson`'s own doc) — reused
+  /// here, rather than re-declaring the literal a third time, so the Phase
+  /// 341 multi-service wizard E2E arm can drive the SAME journey as either
+  /// role against ITS OWN salon.
+  static const String kAdminSalonId = 'salon-admin-1';
+
+  /// `GET /api/v1/bookings/salon/{kOwnerSalonId}` call count.
+  int getSalonBookingsCalls = 0;
+
+  /// The raw query of the MOST RECENT salon-board fetch, as Dio sent it.
+  /// The endpoint takes NO status/service predicate (the narrowing is
+  /// client-side — see `bookings_day_query.dart`), so a flow can assert that
+  /// nothing filter-shaped ever appears here.
+  Map<String, dynamic>? lastSalonBookingsQuery;
+
+  /// The rows `GET /bookings/salon/{id}` serves. Mutable and read at REQUEST
+  /// time so a flow can reseed it between navigations.
+  List<Map<String, dynamic>> salonBoardBookings = <Map<String, dynamic>>[];
+
+  /// `GET /api/v1/salons/{kOwnerSalonId}/masters/effective-schedule` call
+  /// count (Phase 335 — the board's roster-wide working-hours fetch).
+  int getSalonRosterEffectiveScheduleCalls = 0;
+
+  /// The rows that endpoint serves — a list of
+  /// `SalonMasterEffectiveScheduleResponse` maps
+  /// (`{masterId, days: [EffectiveDayResponse…]}`). EMPTY by default, which is
+  /// every pre-existing flow's behaviour byte-for-byte: no master contributes
+  /// a window, `SalonBookingsScreen.boardWindowFor` returns `null`, and the
+  /// board's timeline stays on the booking-derived bounds it had before this
+  /// phase. Read at REQUEST time so a flow can reseed between navigations.
+  ///
+  /// Query params (`from`/`to`) are ignored, same as every other route in this
+  /// file — the whole seeded list comes back for any range requested.
+  List<Map<String, dynamic>> salonRosterEffectiveSchedule =
+      <Map<String, dynamic>>[];
+
+  /// One `SalonMasterEffectiveScheduleResponse` entry: [masterId] working the
+  /// given [intervals] on each of [dates].
+  ///
+  /// ROSTER-COMPLETENESS is the caller's to model: the real endpoint emits an
+  /// entry for EVERY active master, including one with no schedule rows (pass
+  /// `dayOff: true`, or an empty [dates] list). A flow that seeds only the
+  /// masters it cares about is modelling a roster that small, not a partial
+  /// response — the client cannot tell the difference and must not need to.
+  static Map<String, dynamic> salonRosterScheduleEntry({
+    required String masterId,
+    required List<DateTime> dates,
+    bool dayOff = false,
+    List<(String start, String end)> intervals = const <(String, String)>[
+      ('09:00:00', '18:00:00'),
+    ],
+  }) => <String, dynamic>{
+    'masterId': masterId,
+    'days': <Map<String, dynamic>>[
+      for (final DateTime date in dates)
+        seedEffectiveScheduleDay(date, dayOff: dayOff, intervals: intervals),
+    ],
+  };
+
+  /// One salon-board row, in the same `BookingResponse` wire shape
+  /// [datasetBookingRow] uses, but with the MASTER parameterised — which is
+  /// the whole point of a salon-wide board and the one field
+  /// `SalonBookingsScreen.columnsFor` partitions on.
+  ///
+  /// [providerCanReviewClient] and [awaitingClosure] are ADDITIVE (phase 345
+  /// D3) and both default to the value every pre-345 caller already got
+  /// (`false`), so no existing board fixture changes shape. They exist for the
+  /// SALON ARCHIVE fixture, which must discriminate on axes a board row never
+  /// needed:
+  ///
+  ///  * `providerCanReviewClient` — the archive's «Відгук» CTA is gated on the
+  ///    SERVER FLAG, not on the viewer's role (phase 342 D7). A fixture whose
+  ///    rows are uniformly `false` cannot tell a flag-gated CTA from a
+  ///    role-gated one that happens to be off, so the 345 fixture carries BOTH
+  ///    values. The hardcoded-`false` reasoning below still holds for every
+  ///    row the BOARD serves; it is not a universal truth about the endpoint,
+  ///    and an owner-as-master row (the owner performing the booking
+  ///    themselves) genuinely comes back `true`.
+  ///  * `awaitingClosure` — server-computed (backend phase 29.1/29.2);
+  ///    `BookingMapper` reads `dto.awaitingClosure ?? false`, so a row that
+  ///    omits it never trips «Виконано» however elapsed and CONFIRMED it is.
+  ///    The elapsed-unclosed CONFIRMED row is D3's sharpest discriminator —
+  ///    the ONE row `_legacyStatusesFor`'s status-only fallback structurally
+  ///    cannot reach — so the archive fixture has to be able to build it.
+  Map<String, dynamic> salonBoardBookingRow({
+    required String id,
+    required String masterId,
+    required String masterFirstName,
+    required String masterLastName,
+    required DateTime startsAt,
+    String status = 'CONFIRMED',
+    Duration duration = const Duration(minutes: 60),
+    String clientFirstName = 'Марія',
+    String clientLastName = 'Іванюк',
+    bool providerCanReviewClient = false,
+    bool awaitingClosure = false,
+  }) => <String, dynamic>{
+    'id': id,
+    'masterId': masterId,
+    'masterFirstName': masterFirstName,
+    'masterLastName': masterLastName,
+    'masterAvatarUrl': null,
+    'masterType': 'SALON_MASTER',
+    'clientFirstName': clientFirstName,
+    'clientLastName': clientLastName,
+    'salonName': 'Салон Оксани',
+    'masterServiceId': 'pub-assign-1',
+    'serviceName': 'Манікюр',
+    'categoryName': 'NAIL_SERVICE',
+    'cityLabel': 'Київ',
+    'districtLabel': 'Печерський',
+    'street': 'вул. Хрещатик',
+    'buildingNo': '12',
+    'durationMinutesAtBooking': duration.inMinutes,
+    'priceAtBooking': bookingPrice,
+    'priceMaxAtBooking': null,
+    'startsAt': startsAt.toIso8601String(),
+    'endsAt': startsAt.add(duration).toIso8601String(),
+    'status': status,
+    'canReview': false,
+    // Phase 320 — HARDCODED `false`, and deliberately NOT parameterised. This
+    // row is served to the salon board's SALON_OWNER/SALON_ADMIN viewer, who
+    // by construction is not [masterId]. `BookingService`'s page-scoped form
+    // of `computeProviderCanReviewClient` (backend `a0df4cf`) now answers on
+    // `isPerformingMasterOfBooking(...)` alone, so `false` is the ONLY value
+    // the real server can return for these rows. An owner-as-master board row
+    // would need its own seeder that passes the owner's OWN master id.
+    //
+    // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
+    // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
+    // the owner-as-master rows — see the constructor doc above.
+    'providerCanReviewClient': providerCanReviewClient,
+    // Phase 345 D3 — see the constructor doc. `false` (the default) is
+    // semantically identical to omitting the key, which is what every pre-345
+    // board row did (`BookingMapper` reads `dto.awaitingClosure ?? false`).
+    'awaitingClosure': awaitingClosure,
+    'clientComment': null,
+    'providerComment': null,
+    'clientCancellationNote': null,
+    'masterProfessionalTitle': 'Майстриня манікюру',
+    'locationNote': null,
+  };
+
+  // ── Phase 345 — the SALON «Архів» read ────────────────────────────────────
+  //
+  // `GET /api/v1/bookings/salon/{salonId}` serves TWO DIFFERENT callers with
+  // two disjoint query shapes, and before this phase the fake could not tell
+  // them apart:
+  //
+  //   * the BOARD    — `from`/`to` (one Kyiv day), no `partition`;
+  //   * the ARCHIVE  — `partition=HISTORY`, `sort`, `page`, no `from`/`to`
+  //                    (`master_archive_notifier.dart`'s `_fetchPage` salon
+  //                    arm).
+  //
+  // The pre-345 handler ignored BOTH shapes and returned the whole
+  // [salonBoardBookings] list as a single page — which is exactly the D2
+  // hazard: a fake that ignores `partition` makes every archive assertion
+  // pass while the app could be sending anything at all, and it cannot model
+  // the one row that distinguishes a real HISTORY read from the legacy
+  // status-only approximation (an elapsed unclosed `CONFIRMED`).
+  //
+  // So the partition branch is served from its OWN list, with its OWN
+  // counter. The separation is the discriminator: a handler that stopped
+  // reading `partition` would serve the board's UPCOMING rows to the archive
+  // and every D1/D3 assertion goes red.
+
+  /// `GET /api/v1/bookings/salon/{id}` calls that carried a `partition` param
+  /// — i.e. the ARCHIVE's reads, never the board's. Counted separately from
+  /// [getSalonBookingsCalls] (which still counts EVERY call to the path, its
+  /// documented meaning) so a flow can assert "exactly one archive fetch"
+  /// without having to subtract the board's own traffic.
+  int getSalonArchiveCalls = 0;
+
+  /// The raw query of the most recent ARCHIVE fetch (the `partition`-carrying
+  /// branch). Distinct from [lastSalonBookingsQuery], which is last-write-wins
+  /// across BOTH shapes — a board refresh landing after the archive's fetch
+  /// would silently retarget an assertion written against that field.
+  Map<String, dynamic>? lastSalonArchiveQuery;
+
+  /// The rows the ARCHIVE branch pages over. Mutable and read at REQUEST time,
+  /// same contract as [salonBoardBookings].
+  ///
+  /// Deliberately a SEPARATE list from [salonBoardBookings]: the board shows
+  /// one day of mostly-UPCOMING rows and the archive shows the salon's whole
+  /// terminal history, so sharing one list would force every board fixture to
+  /// double as an archive fixture and would make "the handler read
+  /// `partition`" unobservable.
+  List<Map<String, dynamic>> salonArchiveBookings = <Map<String, dynamic>>[];
+
+  /// The ROSTER-SCALE salon-history fixture phase 345 D6 measures the
+  /// `_MasterArchiveScreenState._kMaxAutoContinueAttempts` walk against, and
+  /// phase 342 D10's reopen condition is evaluated against.
+  ///
+  /// Deterministic — no `DateTime.now()`, no randomness, no host-clock read.
+  /// [anchor] is the caller's already-pinned "now" (`kFixedNow` in the E2E
+  /// tier), and every row is derived from it, so the fixture clock and the app
+  /// clock are the SAME clock (`project_test_clock_coherence_invariant`).
+  ///
+  /// ## Composition, and why these numbers
+  ///
+  /// [masters] masters × [days] days, one booking per master per day,
+  /// newest-first. The outcome of row `i` (counting back from the most recent)
+  /// comes from a fixed 50-row cycle:
+  ///
+  /// | Outcome | Per 50 | Share | Why |
+  /// |---|---|---|---|
+  /// | `COMPLETED` | 43 | 86 % | the overwhelming majority of a working salon's history |
+  /// | `CANCELLED` | 2 | 4 % | client-initiated |
+  /// | `DECLINED` | 1 | 2 % | provider-initiated, rarer than a client cancel |
+  /// | `NOT_COMPLETED` | 2 | 4 % | no-shows |
+  /// | elapsed unclosed `CONFIRMED` | 2 | 4 % | the closure backlog — D3's sharpest row |
+  ///
+  /// These are a MODEL, stated so the measurement can be re-read against a
+  /// different one rather than presented as measured truth about real salons.
+  /// What the measurement actually turns on is not the percentages but the
+  /// LONGEST RUN of consecutive raw pages containing no row the active filter
+  /// matches — which is why [leadingMatchlessDays] exists.
+  ///
+  /// [leadingMatchlessDays] prepends that many days of pure `COMPLETED` rows
+  /// at the NEWEST end — a salon that simply has not cancelled anything
+  /// recently. It is the one knob that can starve the walk, and it is how the
+  /// exact budget boundary is probed rather than guessed.
+  ///
+  /// `providerCanReviewClient` is `true` on exactly the `COMPLETED` rows whose
+  /// master is [ownerAsMasterId] (D3 axis 2: the owner performing their own
+  /// booking is the one case the real backend answers `true` for), and `false`
+  /// everywhere else.
+  static List<Map<String, dynamic>> salonArchiveRosterScaleFixture(
+    FakeBackend fb, {
+    required DateTime anchor,
+    int masters = 8,
+    int days = 90,
+    int leadingMatchlessDays = 0,
+    String ownerAsMasterId = 'master-aaa',
+  }) {
+    final List<Map<String, dynamic>> rows = <Map<String, dynamic>>[];
+    final int totalDays = days + leadingMatchlessDays;
+    int cycle = 0;
+    for (int d = 0; d < totalDays; d++) {
+      final bool inLeadingGap = d < leadingMatchlessDays;
+      for (int m = 0; m < masters; m++) {
+        // Two hours apart, so no two rows on one day share an instant and the
+        // newest-first sort is total.
+        final DateTime startsAt = anchor.subtract(
+          Duration(days: d + 1, hours: m * 2),
+        );
+        final String status;
+        final bool awaitingClosure;
+        if (inLeadingGap) {
+          status = 'COMPLETED';
+          awaitingClosure = false;
+        } else {
+          final int i = cycle++;
+          if (i % 25 == 7) {
+            status = 'CANCELLED';
+            awaitingClosure = false;
+          } else if (i % 50 == 19) {
+            status = 'DECLINED';
+            awaitingClosure = false;
+          } else if (i % 25 == 11) {
+            status = 'NOT_COMPLETED';
+            awaitingClosure = false;
+          } else if (i % 25 == 23) {
+            status = 'CONFIRMED';
+            awaitingClosure = true;
+          } else {
+            status = 'COMPLETED';
+            awaitingClosure = false;
+          }
+        }
+        final String masterId = 'master-${String.fromCharCode(97 + m) * 3}';
+        rows.add(
+          fb.salonBoardBookingRow(
+            id: 'arch-$d-$m',
+            masterId: masterId,
+            masterFirstName: _kRosterFirstNames[m % _kRosterFirstNames.length],
+            masterLastName: _kRosterLastNames[m % _kRosterLastNames.length],
+            startsAt: startsAt,
+            status: status,
+            awaitingClosure: awaitingClosure,
+            providerCanReviewClient:
+                status == 'COMPLETED' && masterId == ownerAsMasterId,
+          ),
+        );
+      }
+    }
+    return rows;
+  }
+
+  /// Names for [salonArchiveRosterScaleFixture]'s roster. Ukrainian, and
+  /// carrying no place data at all — the occupied-territory ban is absolute.
+  static const List<String> _kRosterFirstNames = <String>[
+    'Софія',
+    'Олена',
+    'Марія',
+    'Ірина',
+    'Наталія',
+    'Дарина',
+    'Катерина',
+    'Оксана',
+  ];
+
+  static const List<String> _kRosterLastNames = <String>[
+    'Бондар',
+    'Ткаченко',
+    'Гриценко',
+    'Мельник',
+    'Савченко',
+    'Кравець',
+    'Лисенко',
+    'Полішук',
+  ];
+
+  /// The real (partition, sort, page) slice over [salonArchiveBookings] —
+  /// the salon twin of [_slicedBookingsPageEnvelope], and deliberately built
+  /// on the SAME [_matchesPartition] predicate so the two endpoints cannot
+  /// drift on what `HISTORY` means.
+  ///
+  /// Implements backend phase 322 D2's precedence rule verbatim: when
+  /// `partition` is present it wins OUTRIGHT and `status` is not consulted at
+  /// all. That is what makes the archive's outcome filter client-side, and it
+  /// is the rule the `_kMaxAutoContinueAttempts` walk exists to pay for — so a
+  /// fake that honoured `status` here would hide the cost entirely.
+  Map<String, dynamic> _slicedSalonArchiveEnvelope(Map<String, dynamic> query) {
+    final String? partition = _scalarQueryParam(query, 'partition');
+    final String sort = _scalarQueryParam(query, 'sort') ?? 'startsAt,desc';
+    final bool ascending = sort.endsWith(',asc');
+    final int page = _intQueryParam(query, 'page', 0);
+    final int size = _intQueryParam(query, 'size', 20);
+    final DateTime now = serverNow;
+    // Honoured even though the archive never sends them — a fake that answers
+    // a NARROWER question than it was asked is a divergence, and a fake that
+    // answers a WIDER one is the same divergence in mirror image.
+    final DateTime? fromDay = _dayWindowBound(query, 'from');
+    final DateTime? toDay = _dayWindowBound(query, 'to');
+
+    final List<Map<String, dynamic>> filtered =
+        salonArchiveBookings
+            .where(
+              (Map<String, dynamic> b) =>
+                  _withinDayWindow(b, fromDay, toDay) &&
+                  (partition == null || _matchesPartition(b, partition, now)),
+            )
+            .map(Map<String, dynamic>.from)
+            .toList(growable: false)
+          ..sort((Map<String, dynamic> a, Map<String, dynamic> b) {
+            final DateTime aStart = DateTime.parse(a['startsAt'] as String);
+            final DateTime bStart = DateTime.parse(b['startsAt'] as String);
+            return ascending
+                ? aStart.compareTo(bStart)
+                : bStart.compareTo(aStart);
+          });
+
+    final int totalElements = filtered.length;
+    final int totalPages = totalElements == 0
+        ? 0
+        : (totalElements / size).ceil();
+    final int start = page * size;
+    final int end = (start + size) > totalElements
+        ? totalElements
+        : start + size;
+    final List<Map<String, dynamic>> rows = start >= totalElements
+        ? const <Map<String, dynamic>>[]
+        : filtered.sublist(start, end);
+
+    return <String, dynamic>{
+      'success': true,
+      'message': 'ok',
+      'data': <String, dynamic>{
+        'data': rows,
+        'page': page,
+        'size': size,
+        'totalElements': totalElements,
+        'totalPages': totalPages,
+      },
+    };
+  }
+
+  /// The ONE `GET /bookings/salon/{id}` handler body, shared by
+  /// [kOwnerSalonId] and [kAdminSalonId] so the two registrations cannot
+  /// disagree about which shape they are answering. Branches on `partition`
+  /// exactly as the real backend's own `getSalonBookings` does.
+  Map<String, dynamic> _salonBookingsReply(RequestOptions req) {
+    getSalonBookingsCalls++;
+    final Map<String, dynamic> query = Map<String, dynamic>.from(
+      req.queryParameters,
+    );
+    lastSalonBookingsQuery = query;
+
+    final String? partition = backendSupportsPartition
+        ? _scalarQueryParam(query, 'partition')
+        : null;
+    if (partition != null) {
+      getSalonArchiveCalls++;
+      lastSalonArchiveQuery = query;
+      return _slicedSalonArchiveEnvelope(query);
+    }
+
+    // The BOARD's own day fetch — byte-identical to the pre-345 handler.
+    // A COPY read at REQUEST time; the list is mutable by design.
+    final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
+      salonBoardBookings.map(Map<String, dynamic>.from),
+    );
+    return _searchEnvelope(
+      rows,
+      page: 0,
+      totalPages: 1,
+      totalElements: rows.length,
+    );
+  }
+
+  /// `GET /api/v1/bookings/salon/{kOwnerSalonId}/booked-days` call count
+  /// (backend Phase 319 — the salon rail's dots).
+  int salonBookedDaysCalls = 0;
+
+  /// Kyiv date-only `yyyy-MM-dd` keys for walk-ins the salon wizard has
+  /// POSTed during this run (mobile-qa PASS A, 2026-09-19).
+  ///
+  /// The two `/booked-days` handlers derive their answer from
+  /// [salonBoardBookings], which a wizard POST does not touch — so before
+  /// this field a created walk-in could never make a NEW day appear in the
+  /// dot set, and any E2E assertion that "the rail gained its dot" would have
+  /// been vacuous in BOTH directions (`project_fixture_values_can_defang_
+  /// assertions`). The real backend obviously reports the day it just booked;
+  /// the fake now does too.
+  ///
+  /// Kept separate from [salonBoardBookings] deliberately: unioning a day is
+  /// all the dot set needs, and appending a synthetic row to the board's own
+  /// list would silently change what every existing board assertion in this
+  /// tier renders.
+  final Set<String> createdWalkInDayKeys = <String>{};
+
+  /// The raw query of the MOST RECENT salon booked-days call, as Dio sent it.
+  /// Lets a flow assert the Kyiv-anchored ±`kBookedDaysSpanDays` window
+  /// `salonBookedDaysProvider` (`booked_days_notifier.dart`) sends — and that
+  /// nothing filter-shaped ever appears on it.
+  Map<String, dynamic>? lastSalonBookedDaysQuery;
+
+  void _wireSalonBoard() {
+    // GET /api/v1/bookings/salon/{id}/booked-days?from=&to= — the dot set
+    // behind the salon «Записи» day rail (backend Phase 319). Registered
+    // BEFORE `/api/v1/bookings/salon/{id}` deliberately, for the same reason
+    // `/me/booked-days` precedes `/me`: DioAdapter matches on the path, and
+    // the longer path must get first refusal.
+    //
+    // Derived from [salonBoardBookings] at REQUEST time (that list is mutable
+    // by design), so a dot can never point at a day the board itself renders
+    // empty — the invariant the backend's own `getSalonBookedDays` javadoc
+    // pins by reusing one query with no status predicate on either side.
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kOwnerSalonId/booked-days',
+      (server) => server.replyCallback(200, (req) {
+        salonBookedDaysCalls++;
+        lastSalonBookedDaysQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        final Set<String> days = <String>{};
+        for (final Map<String, dynamic> row in salonBoardBookings) {
+          final Object? startsAt = row['startsAt'];
+          if (startsAt is String && startsAt.length >= 10) {
+            days.add(startsAt.substring(0, 10));
+          }
+        }
+        // Walk-ins POSTed through the salon wizard during this run — see
+        // [createdWalkInDayKeys]. A real server reports the day it just
+        // booked; without this the dot set can never gain a day and a
+        // post-create rail assertion is vacuous.
+        days.addAll(createdWalkInDayKeys);
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': days.toList()..sort(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's own day fetch — AND, since phase 345, the archive's
+    // `partition=HISTORY` read. [_salonBookingsReply] branches; see its doc.
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kOwnerSalonId',
+      (server) => server.replyCallback(200, _salonBookingsReply),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's ROSTER — `salonMastersRosterProvider`. Serves the SAME
+    // [_salonMasters] fixture the `salon-xyz` rail does, so a column header
+    // rendered here and a rail card rendered there cannot disagree.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = kOwnerSalonId;
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's WORKING-HOURS union (Phase 335) —
+    // `salonEffectiveScheduleProvider`. Registered unconditionally so the
+    // board's fetch never 404s into the silent-degradation path by accident;
+    // it serves an EMPTY list unless [salonRosterEffectiveSchedule] is seeded,
+    // which IS the degradation path and is what every pre-existing flow gets.
+    //
+    // MUST be its own registration: `DioAdapter.onRoute` matches the whole
+    // path, so the `/masters` route above does NOT cover `/masters/
+    // effective-schedule`.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/masters/effective-schedule',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterEffectiveScheduleCalls++;
+        return _okList(salonRosterEffectiveSchedule);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The board's SUBTITLE — `salonManagementProfileProvider` `.wait`s these
+    // two, so BOTH must answer or the subtitle stays null and the provider
+    // parks in AsyncError.
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId',
+      (server) => server.replyCallback(200, (_) {
+        getSalonByIdCalls++;
+        lastGetSalonId = kOwnerSalonId;
+        return _ok(<String, dynamic>{
+          ...mySalons.first,
+          'description': null,
+          'phone': null,
+          'instagramUrl': null,
+          'districtId': null,
+          'locationNote': null,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kOwnerSalonId/staff',
+      (server) => server.replyCallback(200, (_) {
+        getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          kOwnerSalonId,
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
+        lastGetSalonStaffId = kOwnerSalonId;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            salonStaff.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// mobile-qa (phase 341) — the board wiring [kAdminSalonId] never had.
+  ///
+  /// Every existing admin E2E flow (`salon_admin_edit_master_schedule_flow_
+  /// test.dart`, `salon_management_profile_flow_test.dart`, …) reaches
+  /// `/staff` (roster) or `/profile` — none of them ever opened the «Записи»
+  /// tab, so `GET /bookings/salon/$kAdminSalonId` and its siblings were never
+  /// registered. The Phase 341 E2E arm is the first admin flow to open that
+  /// tab, so it needs the same four routes [_wireSalonBoard] already gives
+  /// [kOwnerSalonId] — reusing the SAME backing fields ([salonBoardBookings],
+  /// [_salonMasters], [salonRosterEffectiveSchedule]): a single `FakeBackend`
+  /// instance only ever logs in as ONE role per test, so there is no risk of
+  /// the two salon ids' board data disagreeing within one run.
+  void _wireSalonAdminBoard() {
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kAdminSalonId/booked-days',
+      (server) => server.replyCallback(200, (req) {
+        salonBookedDaysCalls++;
+        lastSalonBookedDaysQuery = Map<String, dynamic>.from(
+          req.queryParameters,
+        );
+        final Set<String> days = <String>{};
+        for (final Map<String, dynamic> row in salonBoardBookings) {
+          final Object? startsAt = row['startsAt'];
+          if (startsAt is String && startsAt.length >= 10) {
+            days.add(startsAt.substring(0, 10));
+          }
+        }
+        // Walk-ins POSTed through the salon wizard during this run — see
+        // [createdWalkInDayKeys]. A real server reports the day it just
+        // booked; without this the dot set can never gain a day and a
+        // post-create rail assertion is vacuous.
+        days.addAll(createdWalkInDayKeys);
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': days.toList()..sort(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // The SAME shared body as [kOwnerSalonId]'s registration (phase 345) —
+    // the two ids must not disagree about what `partition` means, and the
+    // SALON_ADMIN walks the identical archive arm.
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$kAdminSalonId',
+      (server) => server.replyCallback(200, _salonBookingsReply),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kAdminSalonId/masters',
+      (server) => server.replyCallback(200, (_) {
+        getSalonMastersCalls++;
+        lastGetSalonMastersId = kAdminSalonId;
+        return _searchEnvelope(
+          _salonMasters,
+          page: 0,
+          totalPages: 1,
+          totalElements: _salonMasters.length,
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$kAdminSalonId/masters/effective-schedule',
+      (server) => server.replyCallback(200, (_) {
+        getSalonRosterEffectiveScheduleCalls++;
+        return _okList(salonRosterEffectiveSchedule);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  // ── Phase 341 (mobile-qa) — the SALON multi-service wizard's OWN
+  // catalogue, coverage, and booking-create fixtures ────────────────────────
+  //
+  // Phases 335-340 widened `SalonCreateBookingScreen`'s `masters` step to
+  // resolve an assignment id per SELECTED service (not just the first) and
+  // `_submit` to send every one of them. Neither the client-facing `salon-
+  // xyz` fixture (2 services, no "covers some but not all" master) nor
+  // [kOwnerSalonId]'s own board fixture (no catalogue/coverage/create routes
+  // at all, before this method) can prove the regression this track closes:
+  // a master must be bookable ONLY if they cover EVERY selected service, and
+  // the wire request must carry every one of them, in order.
+  //
+  // THREE services (not two) — a 2-service fixture cannot express "covers 2
+  // of 3", the exact case an `any` filter would get wrong and `every`
+  // (phase 335 D2) must get right.
+  //
+  // FOUR roster masters, reusing existing [_salonMasters] identities (no
+  // new master rows minted, so the roster's own rendering/ordering tests
+  // stay byte-identical):
+  //   * [kSalonWizardMasterFull] (`master-aaa`) — covers ALL THREE and HAS
+  //     free time on the picked day -> the one bookable tile.
+  //   * [kSalonWizardMasterPartial] (`master-eee`) — covers TWO of three
+  //     (svc A, B — NOT C) -> the DISCRIMINATING case: an `any` filter would
+  //     still show this master as covering; `every` must exclude it
+  //     (`project_fixture_values_can_defang_assertions` — an all-covering
+  //     fixture could never catch the `any`→`every` regression this track
+  //     fixes). 2026-09-18 real-device fix: a non-covering master is now
+  //     HIDDEN outright (never rendered as a tile at all), not merely
+  //     dimmed — see [SalonMastersStep]'s own header.
+  //   * [kSalonWizardMasterNone] (`master-fff`) — covers NONE -> absent from
+  //     every coverage response below, hidden for the ordinary reason.
+  //   * [kSalonWizardMasterSlotless] (`master-ggg`, mobile-qa phase 341
+  //     device-pass addition) — covers ALL THREE (same as `master-aaa`) but
+  //     its OWN `/slots` route always answers an EMPTY list -> the THIRD
+  //     tile state the 2026-09-18 device pass introduced: a covering master
+  //     with genuinely zero free time renders DISABLED with «Немає вільного
+  //     часу» rather than hidden or tappable. A second `/working-days`
+  //     registration lets it also participate in the date step's covering-
+  //     master fan-out (`_unionAvailability`) without ever confirming a day
+  //     non-working on its own (its schedule-shape working-days answer is
+  //     the ordinary wide-window "working every day" envelope — its slots,
+  //     not its schedule shape, are what's empty).
+  //
+  // Registered for BOTH [kOwnerSalonId] and [kAdminSalonId] — the SAME
+  // catalogue/coverage DATA under two different salon-scoped paths, mirroring
+  // [_wireSalonBoard]'s own precedent of serving [_salonMasters] under both
+  // `salon-xyz` and [kOwnerSalonId] — so the Phase 341 E2E arm can drive the
+  // identical multi-service journey as either SALON_OWNER or SALON_ADMIN.
+  //
+  // Assignment ids are minted by [_bookableMasterEnvelope] as
+  // `assign-$masterId-$serviceDefId` — DIFFERENT from the serviceDefId on
+  // every entry (`wiz-svc-a` -> `assign-master-aaa-wiz-svc-a`), which is what
+  // keeps the id-space pin (`SalonMastersStep.onPick`'s own doc — NEVER
+  // `service.serviceDefId`) non-vacuous.
+  static const String kSalonWizardMasterFull = 'master-aaa';
+  static const String kSalonWizardMasterPartial = 'master-eee';
+  static const String kSalonWizardMasterNone = 'master-fff';
+  static const String kSalonWizardMasterSlotless = 'master-ggg';
+
+  static const String kSalonWizSvcA = 'wiz-svc-a';
+  static const String kSalonWizSvcB = 'wiz-svc-b';
+  static const String kSalonWizSvcC = 'wiz-svc-c';
+
+  /// Cyrillic service NAMES — kept as NAMED constants and never spelled
+  /// inline inside a `find.text(...)` call site, so no call site ever
+  /// carries a raw Cyrillic literal (`scripts/forbid_cyrillic_finder.sh`
+  /// scans the call site's own text, not the constant's resolved value —
+  /// same precedent as `master_create_booking_test.dart`'s `_kSvc1Name`).
+  static const String kSalonWizSvcAName = 'Манікюр';
+  static const String kSalonWizSvcBName = 'Брови';
+  static const String kSalonWizSvcCName = 'Вії';
+
+  /// `POST /api/v1/masters/$kSalonWizardMasterFull/bookings` call count —
+  /// deliberately a SEPARATE counter from [createStaffBookingCalls]
+  /// ([_wire]'s `$masterRowId`-keyed route): that route models an
+  /// INDEPENDENT_MASTER booking THEMSELVES; this one models a
+  /// SALON_OWNER/SALON_ADMIN booking a ROSTER master. Same backend
+  /// operation, different caller shape — kept distinct so a count assertion
+  /// here can never be satisfied by the other flow's traffic.
+  int createSalonWizardBookingCalls = 0;
+
+  /// The wire body of the MOST RECENT `POST …/$kSalonWizardMasterFull
+  /// /bookings` call.
+  Map<String, dynamic>? lastSalonWizardBookingRequestBody;
+
+  List<Map<String, dynamic>> _salonWizardCatalog() => <Map<String, dynamic>>[
+    <String, dynamic>{
+      'category': 'NAILS',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcA,
+          'name': kSalonWizSvcAName,
+          'description': null,
+          'category': 'NAILS',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 60,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 400,
+          'priceMax': null,
+          'priceDisplay': '400 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+    <String, dynamic>{
+      'category': 'BROWS',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcB,
+          'name': kSalonWizSvcBName,
+          'description': null,
+          'category': 'BROWS',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 45,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300,
+          'priceMax': null,
+          'priceDisplay': '300 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+    <String, dynamic>{
+      'category': 'LASHES',
+      'count': 1,
+      'services': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': kSalonWizSvcC,
+          'name': kSalonWizSvcCName,
+          'description': null,
+          'category': 'LASHES',
+          'serviceTypeSlug': null,
+          'baseDurationMinutes': 90,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 600,
+          'priceMax': null,
+          'priceDisplay': '600 ₴',
+          'photoUrl': null,
+        },
+      ],
+    },
+  ];
+
+  /// The per-service assignment-id lookup [_wireSalonMultiServiceWizard]'s
+  /// coverage routes mint via [_bookableMasterEnvelope], reused here to
+  /// resolve `POST …/bookings`'s `masterServiceIds` back to a
+  /// name/duration/price for the response `items[]` — kept as ONE literal
+  /// map (rather than re-deriving the `assign-$masterId-$serviceDefId`
+  /// string twice) so the two can never drift apart.
+  static const Map<String, Map<String, dynamic>> _kSalonWizardAssignments =
+      <String, Map<String, dynamic>>{
+        'assign-master-aaa-wiz-svc-a': <String, dynamic>{
+          'name': kSalonWizSvcAName,
+          'duration': 60,
+          'priceMin': 400.0,
+          'priceMax': null,
+        },
+        'assign-master-aaa-wiz-svc-b': <String, dynamic>{
+          'name': kSalonWizSvcBName,
+          'duration': 45,
+          'priceMin': 300.0,
+          'priceMax': null,
+        },
+        'assign-master-aaa-wiz-svc-c': <String, dynamic>{
+          'name': kSalonWizSvcCName,
+          'duration': 90,
+          'priceMin': 600.0,
+          'priceMax': null,
+        },
+      };
+
+  void _wireSalonMultiServiceWizardCatalogFor(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services',
+      (server) => server.replyCallback(
+        200,
+        // Same envelope shape as the `salon-xyz` catalogue route
+        // (`{'categories': [...]}`, wrapped in `_ok`, NOT `_okList`) —
+        // `SalonServiceCatalogMapper.fromDto` reads `.categories`.
+        (_) => _ok(<String, dynamic>{'categories': _salonWizardCatalog()}),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcA/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterPartial,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Тетяна',
+            lastName: 'Мельник',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcA,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcB/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterPartial,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Тетяна',
+            lastName: 'Мельник',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcB,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+    // svc C — the full-covering master AND the slotless master (both cover
+    // ALL three). `master-eee` (partial) is absent here, on purpose: this is
+    // what makes it "covers two of three".
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services/$kSalonWizSvcC/masters',
+      (server) => server.replyCallback(
+        200,
+        (_) => _okList(<Map<String, dynamic>>[
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterFull,
+            serviceDefId: kSalonWizSvcC,
+            firstName: 'Софія',
+            lastName: 'Бондар',
+          ),
+          _bookableMasterEnvelope(
+            masterId: kSalonWizardMasterSlotless,
+            serviceDefId: kSalonWizSvcC,
+            firstName: 'Юлія',
+            lastName: 'Шевченко',
+          ),
+        ]),
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  void _wireSalonMultiServiceWizard() {
+    _wireSalonMultiServiceWizardCatalogFor(kOwnerSalonId);
+    _wireSalonMultiServiceWizardCatalogFor(kAdminSalonId);
+
+    // `POST /api/v1/masters/$kSalonWizardMasterFull/bookings` — the salon
+    // wizard's OWN submit, addressed at a ROSTER master (never
+    // `$masterRowId` — see [createSalonWizardBookingCalls]'s own doc).
+    // `salonId` is NEVER part of the wire body (phase 338 D2 — structurally
+    // nowhere to put it), so ONE registration serves whichever of
+    // [kOwnerSalonId]/[kAdminSalonId] the caller opened the wizard from.
+    //
+    // Reads the PLURAL `masterServiceIds` field — the exact regression this
+    // whole track closes (`_submit` used to send a one-element list built
+    // from `_primaryService` alone). A fake that silently accepted a
+    // singular `masterServiceId` here would mask that regression completely
+    // (phase 256's own pre-existing-defect note, cited again by phase 341
+    // D2) — there is no such fallback below.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterFull/bookings',
+      (server) => server.replyCallback(201, (req) {
+        createSalonWizardBookingCalls++;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastSalonWizardBookingRequestBody = body;
+        final DateTime startsAt = DateTime.parse(body['startsAt'] as String);
+        final Map<String, dynamic> guest = (body['guest'] as Map)
+            .cast<String, dynamic>();
+        final List<dynamic> serviceIds =
+            (body['masterServiceIds'] as List?) ?? const <dynamic>[];
+        // The Kyiv civil day this visit lands on — what the rail's dot set
+        // must gain (see [createdWalkInDayKeys]). Derived from the instant
+        // the wizard put on the WIRE, never from a host-clock read.
+        final DateTime bookedKyivDay = kyivDayOf(startsAt);
+        createdWalkInDayKeys.add(
+          '${bookedKyivDay.year.toString().padLeft(4, '0')}-'
+          '${bookedKyivDay.month.toString().padLeft(2, '0')}-'
+          '${bookedKyivDay.day.toString().padLeft(2, '0')}',
+        );
+
+        const Duration itemBuffer = Duration(minutes: 10);
+        DateTime cursor = startsAt;
+        final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+        double totalPrice = 0;
+        double totalPriceMaxSum = 0;
+        bool anyRange = false;
+        for (final dynamic rawId in serviceIds) {
+          final String assignId = rawId as String;
+          final Map<String, dynamic>? assignment =
+              _kSalonWizardAssignments[assignId];
+          if (assignment == null) {
+            throw StateError(
+              'FakeBackend: unknown salon-wizard masterServiceId '
+              '"$assignId" — seed it in _kSalonWizardAssignments first',
+            );
+          }
+          final int duration = assignment['duration'] as int;
+          final double priceMin = assignment['priceMin'] as double;
+          final double? priceMax = assignment['priceMax'] as double?;
+          final DateTime itemStart = cursor;
+          final DateTime itemEnd = itemStart.add(Duration(minutes: duration));
+          items.add(<String, dynamic>{
+            'bookingId': 'salon-wizard-booking-${items.length + 1}',
+            'masterServiceId': assignId,
+            'serviceName': assignment['name'],
+            'status': 'CONFIRMED',
+            'startsAt': itemStart.toIso8601String(),
+            'endsAt': itemEnd.toIso8601String(),
+            'durationMinutesAtBooking': duration,
+            'priceAtBooking': priceMin,
+            'priceMaxAtBooking': priceMax,
+          });
+          totalPrice += priceMin;
+          totalPriceMaxSum += priceMax ?? priceMin;
+          if (priceMax != null) anyRange = true;
+          cursor = itemEnd.add(itemBuffer);
+        }
+        final DateTime visitEnd = items.isEmpty
+            ? startsAt
+            : cursor.subtract(itemBuffer);
+
+        final Map<String, dynamic> row = <String, dynamic>{
+          ...datasetBookingRow(
+            id: 'salon-wizard-booking-1',
+            status: 'CONFIRMED',
+            startsAt: startsAt,
+            duration: visitEnd.difference(startsAt),
+          ),
+          'masterServiceId': serviceIds.isNotEmpty ? serviceIds.first : null,
+          'clientId': null,
+          'clientFirstName': guest['name'],
+          'clientLastName': guest['surname'],
+          'endsAt': visitEnd.toIso8601String(),
+          'totalDurationMinutes': visitEnd.difference(startsAt).inMinutes,
+          'totalPrice': totalPrice,
+          'totalPriceMax': anyRange ? totalPriceMaxSum : null,
+          'items': items,
+        };
+        return _ok(row);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // `GET /api/v1/masters/$kSalonWizardMasterSlotless/slots` — mobile-qa
+    // phase 341 device-pass addition. ALWAYS answers an empty slot list
+    // (path-only route match, same caveat as every other `/slots`
+    // registration in this file), regardless of the requested date/
+    // serviceIds — this master's whole reason for existing in the fixture
+    // is "covers everything, has nothing free", so there is no scenario in
+    // this journey where it should ever answer non-empty.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterSlotless/slots',
+      (server) => server.replyCallback(200, (_) {
+        getMasterSlotsCalls++;
+        final DateTime day = kyivDayOf(serverNow);
+        return _ok(<String, dynamic>{
+          'date':
+              '${day.year.toString().padLeft(4, '0')}-'
+              '${day.month.toString().padLeft(2, '0')}-'
+              '${day.day.toString().padLeft(2, '0')}',
+          'slots': const <Map<String, dynamic>>[],
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // `GET /api/v1/masters/$kSalonWizardMasterSlotless/working-days` — lets
+    // this master also participate in `SalonDateStep`'s covering-master
+    // fan-out (it covers all three wizard services, same as `master-aaa`)
+    // without ever confirming a day non-working on its own: reuses the SAME
+    // wide-window "working every day" envelope [_workingDaysEnvelope]
+    // builds for `master-aaa` (including [forceNonWorkingDate], so a test
+    // that forces a day off for the UNION check forces it off for BOTH
+    // covering masters at once, proving the union rather than one master's
+    // schedule alone). This master's SLOTS are what's empty, never its
+    // schedule shape.
+    _adapter.onRoute(
+      '/api/v1/masters/$kSalonWizardMasterSlotless/working-days',
+      (server) => server.replyCallback(200, (_) {
+        getWorkingDaysCalls++;
+        return _workingDaysEnvelope();
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   void _wireBookingDetail() {
     final int? failStatus = _bookingDetailFailStatus;
     _adapter.onRoute(

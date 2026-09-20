@@ -125,6 +125,10 @@ void main() {
   const List<String> shadowFillFiles = <String>[
     'lib/features/booking/presentation/widgets/calendar_button.dart',
     'lib/features/booking/presentation/widgets/master_strip_shell.dart',
+    // Phase 21.12 — the salon «Записи» board's pinned master roster strip.
+    // Its chip is the same repair shape as the two above: one BoxDecoration
+    // carrying `color` + `borderedButton` + a hairline border.
+    'lib/features/booking/presentation/widgets/master_column_strip.dart',
   ];
 
   group('Impeller-GLES circle+shadow guard', () {
@@ -423,10 +427,21 @@ void main() {
     // `VelvetShadows` recipe at all any more. Keeping it listed would have
     // made this guard pass VACUOUSLY (see the "not vacuous" check below,
     // which is exactly what caught this when the button was removed).
+    //
+    // 2026-09-17 — `master_column_strip.dart` joins the list. It is new in
+    // Phase 21.12 (the salon «Записи» board's pinned roster strip) and shipped
+    // the artifact AGAIN, on `VelvetShadows.extrudedSmall` (opaque
+    // `shadowDarkButton` at `Offset(5,5)` + opaque `shadowLightStrong` at
+    // `Offset(-5,-5)`) — the owner reported background bleeding through the
+    // chip corners. This guard stayed GREEN the whole time for one structural
+    // reason: the list below is an ENUMERATED allow-list, and a file nobody
+    // adds is a file nobody guards. Adding a NEW shadowed rounded booking
+    // surface to this list is part of building it, not a follow-up.
     const List<String> surfaceFiles = <String>[
       'lib/features/booking/presentation/widgets/master_strip_shell.dart',
       'lib/features/booking/presentation/widgets/calendar_button.dart',
       'lib/features/booking/presentation/widgets/master_booking_card.dart',
+      'lib/features/booking/presentation/widgets/master_column_strip.dart',
     ];
 
     Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));
@@ -453,8 +468,19 @@ void main() {
           containsAll(<String>['borderedCard', 'borderedButton']),
         );
         expect(
+          all.keys,
+          contains('extrudedSmall'),
+          reason:
+              'extrudedSmall is the recipe the Phase 21.12 roster chip shipped '
+              'the artifact on; if it was renamed, repoint this pin',
+        );
+        expect(
           unsafe,
-          containsAll(<String>['extrudedCard', 'extrudedButton']),
+          containsAll(<String>[
+            'extrudedCard',
+            'extrudedButton',
+            'extrudedSmall',
+          ]),
           reason:
               'the extruded* recipes pair an opaque shadow with a diagonal '
               'Offset — the exact corner-square trigger',
@@ -469,28 +495,32 @@ void main() {
       final Set<String> unsafe = unsafeRecipes();
       final Set<String> safe = recipes().keys.toSet().difference(unsafe);
       final List<String> offenders = <String>[];
+      final List<String> vacuous = <String>[];
 
       for (final String path in surfaceFiles) {
         final Set<String> refs = _referencedRecipes(_readStripped(path));
         final Set<String> refdUnsafe = refs.intersection(unsafe);
         if (refdUnsafe.isNotEmpty) {
           offenders.add('$path → ${refdUnsafe.join(', ')}');
+          // An offending file is emphatically NOT vacuous — the guard has
+          // something real to protect there. Skipping the vacuity note keeps
+          // the two diagnoses from colliding on the same file.
+          continue;
         }
         // Not vacuous: the surface must still consume a real, safe recipe. If a
         // refactor dropped the shadow entirely, repoint/trim this list on
         // purpose rather than let the guard pass with nothing to protect.
-        expect(
-          refs.intersection(safe),
-          isNotEmpty,
-          reason:
-              '"$path" no longer references any known-safe VelvetShadows '
-              'recipe — the offset-opaque-light-shadow guard would pass '
-              'vacuously. If the shadowed surface moved, repoint '
-              '`surfaceFiles`; if the shadow was removed on purpose, drop the '
-              'file from the list.',
-        );
+        if (refs.intersection(safe).isEmpty) vacuous.add(path);
       }
 
+      // ORDER MATTERS. The offender assertion runs FIRST and the vacuity
+      // bookkeeping is now collected rather than asserted inside the loop.
+      // Before 2026-09-17 the vacuity `expect` fired from inside the loop, so a
+      // surface whose ONLY recipe regressed safe → unsafe (exactly what
+      // `master_column_strip.dart` did) aborted the test on the VACUITY
+      // message — whose stated remedy is "drop the file from the list", i.e.
+      // delete the guard entry that just caught a live regression. Reported as
+      // the real bug, an unsafe recipe reads as an unsafe recipe.
       expect(
         offenders,
         isEmpty,
@@ -506,6 +536,17 @@ void main() {
             '`color:` fill is NOT enough — the shipped bugs HAD a fill; the '
             'offset opaque shadow is the offender. '
             'Offending surface(s): ${offenders.join(' | ')}.',
+      );
+
+      expect(
+        vacuous,
+        isEmpty,
+        reason:
+            'These surface(s) no longer reference any known-safe VelvetShadows '
+            'recipe — the offset-opaque-shadow guard would pass vacuously over '
+            'them. If the shadowed surface moved, repoint `surfaceFiles`; if '
+            'the shadow was removed on purpose, drop the file from the list. '
+            'Vacuous entr(ies): ${vacuous.join(', ')}.',
       );
     });
 

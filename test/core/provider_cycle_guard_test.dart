@@ -98,6 +98,7 @@ import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/salon_effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -170,6 +171,20 @@ class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
 
 ScheduleRepository _buildCycleGuardScheduleRepo() =>
     _CycleGuardScheduleRepository();
+
+/// Phase 335 — the leaf behind `salonEffectiveScheduleProvider`, the THIRD
+/// family `logout()`'s session-boundary sweep invalidates. A hand-written
+/// [Fake] for the same pre-`setUpAll` reason as
+/// [_CycleGuardScheduleRepository] above.
+class _CycleGuardSalonRosterScheduleRepository extends Fake
+    implements SalonRosterScheduleRepository {
+  @override
+  Future<Map<String, List<EffectiveDay>>> salonRosterEffectiveSchedule(
+    String salonId,
+    DateTime from,
+    DateTime to,
+  ) async => const <String, List<EffectiveDay>>{};
+}
 
 /// The salon id the `SalonManagementProfile.save()` / `.deleteSalon()`
 /// entrypoints below operate on.
@@ -378,14 +393,70 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
   // listeners (populating `EffectiveScheduleRangeTracker` for the
   // `effectiveScheduleProvider` sweep to enumerate), then `logout()` must
   // complete without `CircularDependencyError`.
+  //
+  // PHASE 335 — EXTENDED ADDITIVELY (mobile-security MEDIUM, 2026-09-17) with
+  // a THIRD family: `logout()` also bare-invalidates
+  // `salonEffectiveScheduleProvider` (the salon board's roster-hours cache),
+  // whose chain is `salonRosterScheduleRepositoryProvider` ->
+  // `scheduleSalonApiProvider` -> `dioProvider` — none of which watch
+  // `authProvider` either. A NEW row was deliberately NOT appended: the
+  // entrypoint under test is the SAME `logout()` call, and the cycle risk is
+  // a property of the call, not of each family it touches.
+  //
+  // WHAT THIS ROW ACTUALLY DOES — and what it does NOT (correction,
+  // 2026-09-17; an earlier version of this comment claimed it "proves all
+  // three back-edge claims in one real graph", which is false). It builds all
+  // three families on a REAL container, then drives the real `logout()`: a
+  // genuine `CircularDependencyError` — the kind a `ref.watch` back-edge
+  // raises while a provider is BUILDING — would be caught. It does NOT
+  // discriminate an `authProvider` back-edge in any of the three families.
+  // mobile-build-verifier injected a live `ref.watch(authProvider)` into
+  // `SalonEffectiveScheduleNotifier.build()` and this guard stayed green,
+  // 8/8; the same mutation on `weeklyScheduleProvider` is also green, so the
+  // blind spot is PRE-EXISTING, not introduced by the phase-335 extension.
+  // The MECHANISM is narrower than an earlier version of this comment claimed
+  // (correction #2, 2026-09-17: that version said the assert "simply never
+  // raises" for a notifier-METHOD `ref.invalidate` of an auth-watching
+  // dependent — mobile-security falsified that by mutation). Riverpod's
+  // `_debugAssertCanDependOn` IS reached for a CONCRETE provider and for a
+  // PER-MEMBER family invalidate; it is bypassed ONLY by a BARE-FAMILY
+  // `ref.invalidate(familyProvider)`. Of the three sweeps in `logout()`, the
+  // per-key one (`effectiveScheduleProvider`, `auth_notifier.dart:1312`) is
+  // therefore fully covered: injecting `ref.watch(authProvider)` into
+  // `EffectiveScheduleNotifier.build()` turns THIS row RED with
+  // `CircularDependencyError ... Ref.exists ...
+  // effective_schedule_notifier.dart:201`. The blind spot is exactly the two
+  // BARE-FAMILY sweeps — `weeklyScheduleProvider` (`auth_notifier.dart:1310`)
+  // and `salonEffectiveScheduleProvider` (`:1337`). So for those two the
+  // `cycle-safe:` annotations in `auth_notifier.dart` are upheld by the grep
+  // gate plus code review, and this row adds real-graph EXERCISE, not a
+  // discriminating assertion. Do not cite it as proof of their no-back-edge
+  // claim.
+  //
+  // RISK ASSESSMENT (mobile-security, 2026-09-17), so the next reader inherits
+  // it. While those two sweeps stay BARE-FAMILY, an added auth watch raises
+  // nothing at RUNTIME either — the failure mode the annotation denies CANNOT
+  // FIRE, so the untested claim costs nothing today. It becomes a REAL gap the
+  // moment the boxed `onDayChanged` follow-up lands, because that mandates a
+  // PER-KEY LRU swept from `logout()` — exactly the shape the existing oracle
+  // already catches, so the coverage arrives for free at that point. The
+  // wanted detector is (a), the `ProviderObserver` probe: it asserts the claim
+  // directly, is shape-independent, catches transitive watches, and closes the
+  // two bare-family gaps as well. (b), a static prose-parsing gate over the
+  // `cycle-safe:` annotations, is REJECTED — brittle and blind to unnamed
+  // transitive hops. (a) rides with the `onDayChanged` follow-up, not now.
   // -------------------------------------------------------------------------
   _TeardownEntrypoint(
     description:
         'authProvider.notifier.logout() -> weeklyScheduleProvider + '
-        'effectiveScheduleProvider session-boundary invalidate',
+        'effectiveScheduleProvider + salonEffectiveScheduleProvider '
+        'session-boundary invalidate',
     extraOverrides: <Object>[
       scheduleRepositoryProvider.overrideWith(
         (ref, scope) => _buildCycleGuardScheduleRepo(),
+      ),
+      salonRosterScheduleRepositoryProvider.overrideWithValue(
+        _CycleGuardSalonRosterScheduleRepository(),
       ),
     ],
     subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
@@ -396,6 +467,14 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       ),
       container.listen<Object?>(
         effectiveScheduleProvider(_cycleGuardScope, _cycleGuardMonthRange),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+      container.listen<Object?>(
+        salonEffectiveScheduleProvider(
+          _cycleGuardSalonId,
+          _cycleGuardMonthRange,
+        ),
         (_, _) {},
         fireImmediately: true,
       ),
@@ -411,6 +490,12 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
       await container.read(
         effectiveScheduleProvider(
           _cycleGuardScope,
+          _cycleGuardMonthRange,
+        ).future,
+      );
+      await container.read(
+        salonEffectiveScheduleProvider(
+          _cycleGuardSalonId,
           _cycleGuardMonthRange,
         ).future,
       );

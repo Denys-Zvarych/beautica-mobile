@@ -25,8 +25,15 @@ Every golden covers: **{320, 360, 414} dp × {textScale 1.0, 1.3}**
 | `error_state_golden_test.dart` | shared ErrorState (4 failure variants + no-retry) + ResultsError (2 variants) | 7 |
 | `velvet_snack_golden_test.dart` | VelvetSnack (4 variants + action+close combo), single 360dp width | 5 |
 | `passport_golden_test.dart` | PassportScreen (DATA + NO HISTORY) — identity strip, derived block, wish-list line/empty card | 12 |
+| `salon_bookings_board_golden_test.dart` | `BookingsTimelineGrid` / `_BoardStack` — occupied column beside a DAY-OFF column, and beside an odd WORKING-EMPTY one, single 360dp width | 2 |
 
-**Total: 90 goldens**
+**Total: 90 goldens** (count predates the files added after Phase 17.4; `ls test/golden/goldens/ | wc -l` is authoritative)
+
+> `salon_bookings_board_golden_test.dart` is the salon board's FIRST pixel baseline. The board
+> shipped a near-white alternating-column wash twice because every review of it was a number in a
+> diff, never an image. The baselines are a drift guard only — the column background's correctness
+> is measured directly in
+> `test/features/booking/presentation/widgets/salon_bookings_board_pixel_census_test.dart`.
 
 > `passport_golden_test.dart`'s baselines are a DRIFT GUARD, not acceptance. They encode a
 > known divergence from the approved preview in `PassportIdentityStrip`'s blush gradient

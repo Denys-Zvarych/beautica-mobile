@@ -1836,6 +1836,57 @@ abstract final class VelvetText {
   );
 
   // ---------------------------------------------------------------------------
+  // SALON BOARD ROSTER CHIP (Phase 21.12) — `MasterColumnStrip`
+  // ---------------------------------------------------------------------------
+  // One chip is 148dp wide at the 360dp baseline, so its three lines (name,
+  // subtitle, rating — the trailing load readout was removed) are set a
+  // step below the identity card they mirror (`masterStripName` 13 sp →
+  // `timelineColumnName` 12 sp, and so on). Cached as tokens rather than
+  // inlined `copyWith`s for the same two reasons the ruler labels above are:
+  // the strip rebuilds on every layout pass that resolves a new column width,
+  // and `forbid_inline_fontsize.sh` has to stay green.
+
+  /// Roster-chip master name — Comfortaa subheading at 12 sp, the tightest
+  /// line height that still clears Comfortaa's descenders.
+  static final TextStyle timelineColumnName = _subheadingStyle.copyWith(
+    fontSize: 12,
+    height: 1.15,
+  );
+
+  /// [timelineColumnName] for a master with NOTHING booked on the shown day —
+  /// same metrics, demoted to textSecondary so a free column reads as quiet
+  /// rather than absent.
+  static final TextStyle timelineColumnNameMuted = timelineColumnName.copyWith(
+    color: BrandColors.textSecondary,
+  );
+
+  /// Roster-chip role/title sub-line — Nunito feedback at 9.5 sp, muted.
+  static final TextStyle timelineColumnRole = _feedbackBase.copyWith(
+    fontSize: 9.5,
+    height: 1.15,
+    color: BrandColors.muted,
+  );
+
+  /// Roster-chip ★ figure — the compact form of [MasterRatingReadout], which
+  /// renders [bodyStrong14] at every other call site.
+  static final TextStyle timelineColumnRating = _statCaptionStyle.copyWith(
+    fontSize: 9.5,
+    letterSpacing: 0,
+    color: BrandColors.textSecondary,
+  );
+
+  /// The salon board's empty-column marker, centred in a master column with
+  /// no cards — Nunito feedback at 11 sp, muted. Carries BOTH quiet states'
+  /// wording: «Вільний день» (working, nothing booked) and, since phase 336,
+  /// «Вихідний» (not working at all). One style deliberately: the two states
+  /// are distinguished by the WORD and by the column's grey wash, not by a
+  /// second type token that could drift away from this one.
+  static final TextStyle timelineColumnEmptyDay = _feedbackBase.copyWith(
+    fontSize: 11,
+    color: BrandColors.muted,
+  );
+
+  // ---------------------------------------------------------------------------
   // Design-parity pass (finding #4/#5) — the master timeline's month
   // switcher (`_MonthSwitcher` in `bookings_discovery_view.dart`), above the
   // day rail.

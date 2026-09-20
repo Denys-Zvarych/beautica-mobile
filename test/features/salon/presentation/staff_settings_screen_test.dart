@@ -1259,6 +1259,32 @@ void main() {
             'staff tab is what renders.',
       );
     });
+
+    // Added 2026-09-20 with audit LOW-4, which gave this index a SECOND,
+    // off-shell reader: `booking_calendar_invalidation.dart` compares
+    // `salonShellProvider(salonId)` against `kSalonBookingsNavTab` to decide
+    // whether the «Записи» board is the visible tab before spending the
+    // booking-created fan-out on it. A silent re-order of `ownerAdminItems`
+    // would therefore not merely mis-highlight a tab — it would defer the
+    // WRONG screen's refresh, with nothing on screen to show for it.
+    test(
+      'kSalonBookingsNavTab indexes the «Записи» bottom-nav destination',
+      () {
+        final List<SalonNavItem> items = SalonBottomNav.ownerAdminItems(l10n);
+        expect(
+          items[kSalonBookingsNavTab].label,
+          l10n.salonShellTabBookings,
+          reason:
+              'kSalonBookingsNavTab is the board\'s index, read by the shell '
+              'AND by the created-booking fan-out gate.',
+        );
+        expect(
+          kSalonBookingsNavTab,
+          isNot(kSalonTeamNavTab),
+          reason: 'two distinct destinations, two distinct indices',
+        );
+      },
+    );
   });
 
   // -------------------------------------------------------------------

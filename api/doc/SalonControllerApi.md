@@ -16,6 +16,7 @@ Method | HTTP request | Description
 [**getMastersBySalon**](SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
 [**getOwnedSalons**](SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [**getSalon**](SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
+[**getSalonMastersEffectiveSchedule**](SalonControllerApi.md#getsalonmasterseffectiveschedule) | **GET** /api/v1/salons/{salonId}/masters/effective-schedule | Effective schedule for every active master of a salon
 [**getSalonStaff**](SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
 [**getSiblingSalons**](SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [**inviteMaster**](SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
@@ -302,6 +303,53 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponsePublicSalonResponse**](ApiResponsePublicSalonResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getSalonMastersEffectiveSchedule**
+> ApiResponseListSalonMasterEffectiveScheduleResponse getSalonMastersEffectiveSchedule(salonId, from, to)
+
+Effective schedule for every active master of a salon
+
+One entry per ACTIVE roster master, each carrying the effective availability of every day in [from, to] (inclusive, Europe/Kyiv civil days). Every active master appears even when all of their days are NO_SCHEDULE — an absent masterId means 'not loaded', never 'not working'. Range required; span capped at 62 days. Requires management access to the salon (owner or assigned admin).
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getSalonControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final Date from = 2013-10-20; // Date | Range start (inclusive), local Europe/Kyiv day. Required.
+final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required.
+
+try {
+    final response = api.getSalonMastersEffectiveSchedule(salonId, from, to);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling SalonControllerApi->getSalonMastersEffectiveSchedule: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **from** | **Date**| Range start (inclusive), local Europe/Kyiv day. Required. | 
+ **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. | 
+
+### Return type
+
+[**ApiResponseListSalonMasterEffectiveScheduleResponse**](ApiResponseListSalonMasterEffectiveScheduleResponse.md)
 
 ### Authorization
 

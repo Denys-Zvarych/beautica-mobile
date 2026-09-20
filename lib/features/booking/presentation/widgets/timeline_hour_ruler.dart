@@ -20,12 +20,15 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+import 'timeline_density.dart';
+
 /// The gutter column of hour labels beside [BookingsTimelineGrid]'s lane
 /// area — one label per hour from [firstHour] to [lastHour] inclusive.
 class TimelineHourRuler extends StatelessWidget {
   const TimelineHourRuler({
     required this.firstHour,
     required this.lastHour,
+    this.density = TimelineDensity.master,
     super.key,
   }) : assert(lastHour >= firstHour, 'lastHour must not precede firstHour');
 
@@ -35,29 +38,47 @@ class TimelineHourRuler extends StatelessWidget {
   /// Hours-since-day-start of the last (bottommost, emphasised) label.
   final int lastHour;
 
-  /// Column width — wide enough for "23:00" right-aligned.
+  /// Phase 21.12 — the scope's geometry token. Defaults to
+  /// [TimelineDensity.master], which resolves [TimelineDensity.rulerWidth] to
+  /// `42` and [TimelineDensity.hourHeight] to `120` — byte-for-byte the two
+  /// constants this widget used to hold, so every pre-existing call site (the
+  /// grid's own, and the tests that pump this widget bare) renders exactly as
+  /// before without passing anything.
+  ///
+  /// The salon board passes [TimelineDensity.salon]. It MUST be the same token
+  /// the hosting [BookingsTimelineGrid] was handed — the grid passes its own
+  /// down, so they cannot disagree.
+  final TimelineDensity density;
+
+  /// The retired `_kRulerWidth`, kept as the name the ADDENDUM prose in
+  /// `bookings_timeline_grid.dart` and `bookings_discovery_view.dart` cites.
+  /// Equal to `TimelineDensity.master.rulerWidth` by construction (pinned by
+  /// `test/features/booking/presentation/widgets/salon_bookings_board_test
+  /// .dart`'s «TimelineDensity.master reduces to the shipped constants» group
+  /// — NOT by `bookings_timeline_grid_test.dart`, which this doc used to name
+  /// and which asserts nothing about these two constants); read [density] on
+  /// any render path.
   ///
   /// Finding #7 (design-parity pass): 42dp, down from the design's own 46dp —
   /// combined with `BookingsTimelineGrid`'s own reduced ruler↔grid gap, this
   /// nudges the whole timeline grid slightly left, closer to the approved
   /// design. Still comfortably fits "23:00" at [VelvetText.timelineHourLabel]'s
   /// 11 sp at ordinary and moderately scaled-up text sizes.
-  static const double _kRulerWidth = 42;
+  static const double kMasterRulerWidth = 42;
 
-  /// One hour of vertical space — MUST match
-  /// `BookingsTimelineGrid._kHourH` so the ruler and the lane hairlines line
-  /// up pixel-for-pixel.
+  /// The retired `_kHourH`, kept for the same reason as [kMasterRulerWidth].
   ///
-  /// History: `72` → `112` → `168` → **`120`**. MUST stay in LOCKSTEP with
-  /// `BookingsTimelineGrid._kHourH` or the ruler labels and the lane hairlines
-  /// desync — the two constants are a single number spelled twice, and there
-  /// is a test that asserts they agree. See `bookings_timeline_grid.dart`'s
-  /// "ADDENDUM 8" for why `120` (short version: the MICRO card layout removed
-  /// the `56dp` legibility floor that was forcing the scale up to `168`, and
-  /// `120` is the smallest round scale at which a 60-minute band still clears
-  /// the full layout's natural height — `117dp` when that was written, `118dp`
-  /// since the card's ROW-1 GLYPH pass, so the clearance is now `2dp`).
-  static const double _kHourH = 120;
+  /// History: `72` → `112` → `168` → **`120`**. It used to be a single number
+  /// spelled TWICE — here and as `BookingsTimelineGrid._kHourH` — coupled only
+  /// by a comment plus a test asserting they agree. Both now read
+  /// [TimelineDensity.hourHeight], so they cannot desync at all; see
+  /// `timeline_density.dart`'s header. `bookings_timeline_grid.dart`'s
+  /// "ADDENDUM 8" is still where the MASTER scope's `120` is justified (short
+  /// version: the MICRO card layout removed the `56dp` legibility floor that
+  /// was forcing the scale up to `168`, and `120` is the smallest round scale
+  /// at which a 60-minute band still clears the full layout's natural height —
+  /// `118dp` since the card's ROW-1 GLYPH pass, so the clearance is `2dp`).
+  static const double kMasterHourHeight = 120;
 
   /// The vertical distance each label's text visually sits ABOVE its own
   /// hour line so the text centres on the line instead of hanging below it.
@@ -78,8 +99,16 @@ class TimelineHourRuler extends StatelessWidget {
   /// physics giving no overscroll) that permanently clipped the very top of
   /// the first hour label. Shifting the OTHER stack down instead means no
   /// label `top` can ever go negative in the first place — the ruler's own
-  /// labels are always laid out at `top: i * _kHourH`, i.e. `>= 0` by
+  /// labels are always laid out at `top: i * hourHeight`, i.e. `>= 0` by
   /// construction, for every `i` including `0`.
+  ///
+  /// Phase 21.12 — DELIBERATELY NOT scaled by [density]. It is half a MEASURED
+  /// label height, and [TimelineDensity]'s locked rule is that geometry scales
+  /// and typography does not: the label is the same 11 sp glyph at every
+  /// scale, so the distance that centres it on its line is the same too.
+  /// Scaling it (as the partial design preview does) would hang every
+  /// salon-scope label ~2dp below its own hour line. See
+  /// `timeline_density.dart`'s "WHAT IS NOT HERE, AND WHY".
   static const double labelCenteringNudge = 7;
 
   /// Blank space kept below the LAST hour label so the bottom-most card is not
@@ -101,14 +130,39 @@ class TimelineHourRuler extends StatelessWidget {
   /// The string is "00:00" and not the real label because every label is five
   /// characters of tabular-width digits and a colon — same line box, and this
   /// way the measurement does not depend on which hours the day spans.
+  /// MEMOISED BY [TextScaler] (mobile-perf LOW, 2026-09-20).
+  ///
+  /// A prior audit (H1) moved the culling band onto a `ValueNotifier` so a
+  /// SCROLL tick no longer rebuilds this widget — but this measurement sits in
+  /// [build], so it still ran a full `TextPainter.layout()` on every PARENT
+  /// rebuild: every data refresh, every filter apply, every `_BoardStack`
+  /// update. The result is a pure function of the text style (a compile-time
+  /// constant) and the ambient [TextScaler], so the scaler is the whole key.
+  ///
+  /// `static`, i.e. process-wide rather than per-instance: the master ruler
+  /// and the salon board's ruler measure the identical string in the identical
+  /// style, so a per-instance cache would measure it twice for one answer. The
+  /// style is `const` and the app ships one font, so nothing else can
+  /// invalidate it; a scaler change still does, because [TextScaler]'s `==` is
+  /// value equality on its scale factor (`TextScaler.noScaling` is a const
+  /// singleton, and `_LinearTextScaler` compares its factor).
+  static TextScaler? _cachedScaler;
+  static double? _cachedLabelHeight;
+
   static double _labelHeight(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final double? cached = _cachedLabelHeight;
+    if (cached != null && _cachedScaler == scaler) return cached;
+
     final TextPainter painter = TextPainter(
       text: TextSpan(text: '00:00', style: VelvetText.timelineHourLabelAccent),
       textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
+      textScaler: scaler,
     )..layout();
     final double height = painter.height;
     painter.dispose();
+    _cachedScaler = scaler;
+    _cachedLabelHeight = height;
     return height;
   }
 
@@ -116,17 +170,22 @@ class TimelineHourRuler extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final int totalHours = lastHour - firstHour;
+    // Phase 21.12 — read off [density] rather than the retired per-file
+    // constants. At [TimelineDensity.master] these resolve to 42 / 120, which
+    // is exactly what the constants held.
+    final double rulerWidth = density.rulerWidth;
+    final double hourHeight = density.hourHeight;
     return Semantics(
       label: l10n.masterBookingsTimelineHourRulerSemantics,
       container: true,
       child: SizedBox(
-        width: _kRulerWidth,
+        width: rulerWidth,
         // THE TRAILING DEAD HOUR IS GONE (2026-07-24)
         // -----------------------------------------------------------------
-        // This was `(totalHours + 1) * _kHourH`, i.e. one FULL empty hour
+        // This was `(totalHours + 1) * hourHeight`, i.e. one FULL empty hour
         // below the last label — 168dp at the old scale, on every single day.
         // `BookingsTimelineGrid` draws its last gridline at
-        // `totalHours * _kHourH`, so that extra hour was pure dead scroll
+        // `totalHours * hourHeight`, so that extra hour was pure dead scroll
         // beyond the end of the ruled area, and (since the ruler and the lane
         // stack sit in the same `Row`) it usually DOMINATED the row's height,
         // making the whole timeline scroll past its own content.
@@ -135,13 +194,14 @@ class TimelineHourRuler extends StatelessWidget {
         // room to actually draw that label, plus a bottom margin so the last
         // card is not flush against the scroll end. Nothing is guessed — the
         // label term is measured (see [_labelHeight]).
-        height: totalHours * _kHourH + _labelHeight(context) + _kTrailingMargin,
+        height:
+            totalHours * hourHeight + _labelHeight(context) + _kTrailingMargin,
         child: Stack(
           clipBehavior: Clip.none,
           children: <Widget>[
             for (int i = 0; i <= totalHours; i++)
               Positioned(
-                top: i * _kHourH,
+                top: i * hourHeight,
                 right: 0,
                 child: Text(
                   _wallClockLabel(firstHour + i),

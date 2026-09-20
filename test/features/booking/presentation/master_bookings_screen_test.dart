@@ -738,6 +738,85 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // The teammate filter section is NOT offered here
+  // -------------------------------------------------------------------------
+
+  group('teammate filter section — absent on a master\'s OWN list', () {
+    // 2026-09-18 (mobile-qa LOW) — `bookings_discovery_view_reuse_test.dart`
+    // already pins `BookingsDiscoveryView`'s own behaviour under BOTH values of
+    // `showMasterFilter`, and `bookings_filter_sheet_test.dart` pins the
+    // sheet's empty-roster rule. What nothing pinned was THIS SCREEN's half of
+    // the contract: that `master_bookings_screen.dart` keeps the teammate
+    // section switched off (`showMasterFilter: false`, no roster) — a single
+    // master's own list has no teammates to filter by.
+    //
+    // Asserted on the RENDERED sheet rather than by reading
+    // `BookingsDiscoveryView.showMasterFilter` off the element. A widget-field
+    // read only restates the source line it is meant to guard, and would stay
+    // green for a regression that reached the section by some OTHER route
+    // (a roster handed straight to `BookingsFilterSheet.show`, say) — whereas
+    // the section's own `Key` is downstream of every path that can produce it.
+    //
+    // Located by KEY, never by the section's Cyrillic label:
+    // `scripts/forbid_cyrillic_finder.sh` bans a Cyrillic literal inside a
+    // `find.text(...)` argument across `test/**`.
+    testWidgets(
+      'opening the filter sheet renders the status section but NO teammate '
+      'section',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        // POSITIVE CONTROL — the sheet genuinely opened and built its other
+        // sections. Without these two, a regression that failed to open the
+        // sheet at all would satisfy the absence assertion below vacuously,
+        // which is exactly the failure mode this test exists to rule out.
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOne,
+          reason: 'the sheet is genuinely mounted',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOne,
+          reason:
+              'the sheet rendered its sections — so an absent teammate '
+              'section below means ABSENT, not "never built"',
+        );
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-master')),
+          findsNothing,
+          reason:
+              'a single master filtering their own day has no teammates; '
+              'this fails the moment `master_bookings_screen.dart` starts '
+              'passing `showMasterFilter: true` WITH a roster, or hands the '
+              'sheet a roster by any other route',
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
   // Day rail behaviour
   // -------------------------------------------------------------------------
 

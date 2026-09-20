@@ -24,7 +24,9 @@
 // [UnauthorizedFailure] via the repository's `_assertAuthenticated` guard,
 // unchanged from before this phase.
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
+import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../domain/schedule_scope.dart';
@@ -47,3 +49,33 @@ ScheduleRepository scheduleRepository(Ref ref, ScheduleScope scope) {
     masterId: scope.masterId,
   );
 }
+
+/// Provides the generated [SalonControllerApi] for the salon-roster schedule
+/// read.
+///
+/// A dedicated provider local to THIS feature file rather than importing
+/// `features/salon/data/salon_repository.dart`'s `salonApiProvider`, per the
+/// architecture's cross-feature import rule (data/ may only import its OWN
+/// feature's domain/, never another feature's data/) — the identical pattern
+/// and identical justification `salon_repository.dart` itself writes out for
+/// its `salonServiceApiProvider` / `salonMediaApiProvider` siblings. The
+/// generated API class and the shared `standardSerializers` are what is
+/// reused; only the one-line provider is local.
+@Riverpod(keepAlive: true)
+SalonControllerApi scheduleSalonApi(Ref ref) =>
+    SalonControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the [SalonRosterScheduleRepository] singleton.
+///
+/// NOT a family: the salon id is a call parameter, not a scope key — see
+/// [SalonRosterScheduleRepository]'s doc for why this deliberately does not
+/// go through [ScheduleScope].
+///
+/// Override in tests with a mocktail mock — never construct
+/// [HttpSalonRosterScheduleRepository] directly outside this provider and its
+/// tests.
+@Riverpod(keepAlive: true)
+SalonRosterScheduleRepository salonRosterScheduleRepository(Ref ref) =>
+    HttpSalonRosterScheduleRepository(
+      salonApi: ref.watch(scheduleSalonApiProvider),
+    );

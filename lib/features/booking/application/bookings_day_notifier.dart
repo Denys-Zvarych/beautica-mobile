@@ -226,6 +226,7 @@ import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
 import '../domain/booking_sort.dart';
+import '../domain/booking_status.dart';
 import '../domain/bookings_day_query.dart';
 import '../domain/bookings_day_state.dart';
 
@@ -499,6 +500,61 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
       ),
     );
 
+    // ── THE SALON FILTER DELEGATION (audit M2, 2026-09-16) ───────────────
+    // `statuses`/`serviceIds` never reach the salon WIRE — the endpoint takes
+    // neither, and `_narrowSalonDay` applies them client-side. They are still
+    // part of the freezed key, so before this branch every filter combination
+    // was its own family member issuing a byte-identical
+    // `GET /bookings/salon/{id}?from=X&to=X&size=100`: five status chips, five
+    // fetches of the same day.
+    //
+    // A filtered salon member now DERIVES from the unfiltered one
+    // ([BookingsDayQuery.fetchKey]) instead of fetching. One HTTP request per
+    // (day, salon, masterId) no matter how the board is filtered; the narrowed
+    // list is still this member's own value, so every existing watcher,
+    // `ref.invalidate` target and test that reads
+    // `bookingsDayProvider(<filtered query>)` is unchanged in shape.
+    //
+    // NON-RECURSIVE BY CONSTRUCTION: `fetchKey` is identity whenever both list
+    // fields are already empty, which is exactly the condition this branch
+    // excludes — so the delegate is always a DIFFERENT family member, and that
+    // member always takes the fetching path below.
+    //
+    // NO `lru.touch` HERE, deliberately. A derived member holds no response of
+    // its own and is cheap to rebuild; the keepAlive budget must count DAYS,
+    // not filter combinations, or four combos on one day would evict every
+    // other day the owner visited — the compounding half of the same finding.
+    // The delegate it watches is what takes the slot, and this member is a
+    // live listener of it for as long as it exists.
+    final BookingsDayQuery fetchKey = query.fetchKey;
+    if (fetchKey != query) {
+      assert(
+        query is SalonDayQuery,
+        'fetchKey must be identity on every non-salon member — see its doc.',
+      );
+      final BookingsDayState base = await ref.watch(
+        bookingsDayProvider(fetchKey).future,
+      );
+      final List<Booking> narrowed = _narrowSalonDay(
+        base.items,
+        query as SalonDayQuery,
+      );
+      return BookingsDayState(
+        // `stableBookingList`, not the bare list — see its doc: freezed's
+        // `items` getter allocates a fresh wrapper on EVERY access unless the
+        // stored list already IS one, which silently defeated three shipped
+        // identity gates and misfired `_Loaded.build`'s vacuity assert.
+        items: stableBookingList(narrowed),
+        // Same invariant as the fetching branch below: the header prints this
+        // and it must equal the cards on screen.
+        totalElements: narrowed.length,
+        // Carried from the RAW page — "did the server have more than it could
+        // send" is a property of the FETCH, which this member does not do and
+        // whose answer a client-side narrowing cannot change.
+        isTruncated: base.isTruncated,
+      );
+    }
+
     // Bounded keepAlive (MEDIUM-2) — see the file header. Registered before
     // the fetch so a query that ultimately errors is still tracked; an
     // errored member is cheap to keep and its own «retry» affordance
@@ -542,27 +598,66 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
   /// Fetches [query]'s WHOLE day in ONE request — see the file header for
   /// why this can never need a second one in practice, and why no loop is
   /// written to handle it if it somehow does.
+  ///
+  /// Phase 21.12 — dispatches on the sealed [BookingsDayQuery] member. The two
+  /// branches differ in the ENDPOINT and in WHERE the status/service
+  /// narrowing happens, and in nothing else: both fetch one Kyiv day whole,
+  /// both fix [BookingSort.oldest], both pass the same [cancelToken], and both
+  /// resolve to the same [BookingsDayState]. See
+  /// `bookings_day_query.dart`'s "The two members DO NOT filter alike".
   Future<BookingsDayState> _fetchDay(
     BookingsDayQuery query,
     CancelToken cancelToken,
   ) async {
     final BookingRepository repo = ref.read(bookingRepositoryProvider);
-    final PageResponse<Booking> page = await repo.getMyBookings(
-      statuses: query.statuses,
-      serviceIds: query.serviceIds,
-      from: query.day,
-      to: query.day,
-      // Fixed, not user-chosen — see the file header on why ascending order
-      // is load-bearing for Phase 7.10's lane assignment.
-      sort: BookingSort.oldest,
-      page: 0,
-      size: 100,
-      cancelToken: cancelToken,
-    );
+    final PageResponse<Booking> page = switch (query) {
+      MasterOwnDayQuery() => await repo.getMyBookings(
+        statuses: query.statuses,
+        serviceIds: query.serviceIds,
+        from: query.day,
+        to: query.day,
+        // Fixed, not user-chosen — see the file header on why ascending order
+        // is load-bearing for Phase 7.10's lane assignment.
+        sort: BookingSort.oldest,
+        page: 0,
+        size: 100,
+        cancelToken: cancelToken,
+      ),
+      // NOTHING status- or service-shaped goes on this wire — the day comes
+      // back whole and [_narrowSalonDay] below removes exactly the rows a
+      // server-side filter would have.
+      //
+      // This is a DELIBERATE CHOICE, no longer a limit of the endpoint. It
+      // used to read "the route takes ONE optional status and no service
+      // predicate"; that was true of backend phase 23.4 and is stale —
+      // backend phase 319 widened `status` to a repeatable list and added a
+      // repeatable `serviceId` (corrected in `booking_repository.dart`'s
+      // `getSalonBookings` doc, phase 342, verified against the regenerated
+      // OpenAPI snapshot). Narrowing server-side is now expressible and is
+      // still rejected here for the original reason: it would make the
+      // truncation boundary depend on which filter the owner picked, so a
+      // >100-booking day could report a different `isTruncated` for two
+      // filters that render the same cards. Client-side narrowing keeps
+      // `isTruncated` a property of the DAY, not of the filter.
+      SalonDayQuery() => await repo.getSalonBookings(
+        salonId: query.salonId,
+        masterId: query.masterId,
+        from: query.day,
+        to: query.day,
+        sort: BookingSort.oldest,
+        page: 0,
+        size: 100,
+        cancelToken: cancelToken,
+      ),
+    };
 
     // The server reported more matches than this single page returned — the
     // "day too dense" case the locked single-fetch decision explicitly
     // accepted rather than looping for. No second request is issued.
+    //
+    // Computed from the RAW page on BOTH branches, before any client-side
+    // narrowing: it answers "did the server have more than it could send",
+    // which the narrowing below cannot change and must not appear to.
     final bool isTruncated = page.totalElements > page.items.length;
     if (isTruncated && kDebugMode) {
       log(
@@ -575,10 +670,82 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
       );
     }
 
+    if (query is SalonDayQuery) {
+      final List<Booking> narrowed = _narrowSalonDay(page.items, query);
+      return BookingsDayState(
+        // `stableBookingList`, not the bare list — see its doc: freezed's
+        // `items` getter allocates a fresh wrapper on EVERY access unless the
+        // stored list already IS one, which silently defeated three shipped
+        // identity gates and misfired `_Loaded.build`'s vacuity assert.
+        items: stableBookingList(narrowed),
+        // `narrowed.length`, NOT `page.totalElements`: on this branch the
+        // narrowing is ours, so the server's count describes a list the
+        // screen does not render. The host's «N записів» header reads
+        // `totalElements` whenever no working-hours window has resolved — and
+        // the salon board never resolves one — so this IS what it prints, and
+        // it must equal what is on screen. Same invariant
+        // `bookingsInsideScheduleWindow` protects on the master branch, held
+        // here by making the two come off one list.
+        totalElements: narrowed.length,
+        isTruncated: isTruncated,
+      );
+    }
+
     return BookingsDayState(
-      items: page.items,
+      // See `stableBookingList`'s doc. `PageResponse` is hand-written, so
+      // `page.items` is a PLAIN list — storing it raw is exactly what made
+      // `state.items` allocate a new wrapper per read on the master routes too.
+      items: stableBookingList(page.items),
       totalElements: page.totalElements,
       isTruncated: isTruncated,
     );
+  }
+
+  /// Applies a [SalonDayQuery]'s status/service selection to a day the server
+  /// returned UNFILTERED — the client-side half of the contract in
+  /// `bookings_day_query.dart`'s header.
+  ///
+  /// Order is preserved (the list is filtered, never re-sorted), which is
+  /// load-bearing: `assignLanes` walks its input once and is only correct on
+  /// an ascending-`startsAt` stream. An EMPTY [statuses] means "no status
+  /// predicate" exactly as it does on the wire — that is what ticking every
+  /// filter group resolves to (see [BookingStatus.dayListWireStatuses]) and it
+  /// means MORE here, not less. Same for [serviceIds].
+  ///
+  /// Returns [items] ITSELF — the same instance, not an equal copy — when
+  /// nothing is excluded, mirroring `bookingsInsideScheduleWindow`'s identical
+  /// optimisation and for the identical reason: a fresh list on every fetch
+  /// would defeat `BookingsTimelineGrid`'s
+  /// `identical(widget.bookings, oldWidget.bookings)` memoisation gate.
+  /// The predicate sets are built ONCE per call, not consulted as `List`s
+  /// (mobile-perf LOW, 2026-09-16). `List.contains` is linear, so the old
+  /// shape cost `items.length × (statuses.length + serviceIds.length)`
+  /// comparisons — ~5 000 on a 100-booking day narrowed by 50 services, per
+  /// fetch. `Set.contains` is O(1), so the whole narrowing is now linear in
+  /// `items`. The query's own `List` shape is unchanged and must stay a
+  /// `List` — see `bookings_day_query.dart`'s "Why `List`, not `Set`": it is
+  /// the FAMILY KEY's ordering that needs a list, not this lookup.
+  static List<Booking> _narrowSalonDay(
+    List<Booking> items,
+    SalonDayQuery query,
+  ) {
+    final List<BookingStatus> statuses = query.statuses;
+    final List<String> serviceIds = query.serviceIds;
+    if (statuses.isEmpty && serviceIds.isEmpty) return items;
+    final Set<BookingStatus> statusSet = statuses.toSet();
+    final Set<String> serviceIdSet = serviceIds.toSet();
+    List<Booking>? filtered;
+    for (int i = 0; i < items.length; i++) {
+      final Booking b = items[i];
+      final bool keep =
+          (statusSet.isEmpty || statusSet.contains(b.status)) &&
+          (serviceIdSet.isEmpty || serviceIdSet.contains(b.serviceId));
+      if (filtered == null) {
+        if (!keep) filtered = items.sublist(0, i);
+      } else if (keep) {
+        filtered.add(b);
+      }
+    }
+    return filtered ?? items;
   }
 }

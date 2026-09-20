@@ -1,4 +1,5 @@
-// Shared 48×48 master avatar badge.
+// Shared master avatar badge — 48×48 by default, [MasterAvatarBadge.size]
+// elsewhere.
 //
 // The single home of the booking flow's avatar glyph (a circular gradient +
 // `person_rounded`), rendered through [MasterStripShell] by every booking
@@ -21,15 +22,35 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 /// A small raised circular avatar glyph — a two-stop diagonal [gradient] wash
 /// behind a white `person_rounded` icon, lifted by the small extruded shadow.
 class MasterAvatarBadge extends StatelessWidget {
-  const MasterAvatarBadge({super.key, this.gradient, this.bordered = false});
+  const MasterAvatarBadge({
+    super.key,
+    this.gradient,
+    this.bordered = false,
+    this.size = 48,
+  }) : assert(size > 0, 'size must be positive');
 
   /// Two-stop diagonal gradient; defaults to the independent-master flow's
   /// camel→mocha wash.
   final List<Color>? gradient;
 
   /// Adds the salon flow's 2 dp translucent-white ring. The independent flow
-  /// leaves it off.
+  /// leaves it off. The ring, the corner radius and the glyph all track
+  /// [size], so a smaller badge stays proportionate rather than carrying a
+  /// full-size ring on a half-size circle.
   final bool bordered;
+
+  /// Phase 21.12 — the badge's side length. `48` (the default) is what every
+  /// pre-existing call site renders, unchanged: [MasterStripShell] and its
+  /// nine hosting screens pass nothing.
+  ///
+  /// The salon board's roster chip ([MasterColumnStrip]) passes `28` — a
+  /// 148dp-wide column cannot hold a 48dp glyph beside a name, a role line and
+  /// a rating. ADDITIVE and derived rather than a second set of literals: the
+  /// radius stays exactly half the side (the Impeller RRect workaround above
+  /// depends on that identity), and the ring width and glyph size scale with
+  /// it, so there is still ONE avatar glyph in the booking flow rather than a
+  /// forked "small" copy.
+  final double size;
 
   static const List<Color> _defaultGradient = <Color>[
     Color(0xFFD8BE9C),
@@ -39,14 +60,14 @@ class MasterAvatarBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 48,
-      width: 48,
+      height: size,
+      width: size,
       decoration: BoxDecoration(
-        // RRect (radius = half the 48 dp side) reads as a circle but avoids
+        // RRect (radius = half the side) reads as a circle but avoids
         // Impeller-GLES's broken circle box-shadow blur path (a blurred
         // BoxShadow on BoxShape.circle rasterizes as a hard white square under
         // the opengles backend).
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(size / 2),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -56,7 +77,7 @@ class MasterAvatarBadge extends StatelessWidget {
         border: bordered
             ? Border.all(
                 color: BrandColors.white.withValues(alpha: 0.35),
-                width: 2,
+                width: size / 24,
               )
             : null,
       ),
@@ -64,7 +85,7 @@ class MasterAvatarBadge extends StatelessWidget {
         child: Icon(
           Icons.person_rounded,
           color: BrandColors.white.withValues(alpha: 0.82),
-          size: 24,
+          size: size / 2,
         ),
       ),
     );

@@ -95,13 +95,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart'
+    show drainSalonBoardRefresh;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
@@ -111,8 +112,8 @@ import '../application/salon_shell_provider.dart';
 import '../domain/salon.dart';
 import 'admin_own_profile_screen.dart';
 import 'owner_own_profile_screen.dart';
+import 'salon_bookings_screen.dart';
 import 'salon_management_profile_screen.dart';
-import 'widgets/salon_shell_tab_placeholder.dart';
 
 /// The `SALON_OWNER`/`SALON_ADMIN` bottom-nav shell for one salon.
 class SalonShellScreen extends ConsumerStatefulWidget {
@@ -301,6 +302,13 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// (`staff_settings_screen_test.dart`) covers this call site too.
   static const int _navTeam = kSalonTeamNavTab;
 
+  /// «Записи» (the board). Aliases the constant declared beside
+  /// `SalonBottomNav.ownerAdminItems` for the same reason [_navTeam] does —
+  /// and this one is load-bearing off-shell too: `booking_calendar_
+  /// invalidation.dart` compares `salonShellProvider(salonId)` against the
+  /// SAME constant to decide whether the board is worth refreshing.
+  static const int _navBookings = kSalonBookingsNavTab;
+
   /// The in-screen sub-tab index that the bottom-nav destination implies.
   /// [_navTeam] IS the profile screen's staff sub-tab (1); [_navSalon] is its
   /// «Про салон» sub-tab (0). Any other destination hosts no profile screen
@@ -344,6 +352,21 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// distinguishes them.
   void _onNavSelected(int navIndex) {
     ref.read(salonShellProvider(widget.salonId).notifier).select(navIndex);
+    if (navIndex == _navBookings) {
+      // AUDIT LOW-4 — «Записи» just became the selected tab, so replay any
+      // board refresh `invalidateBookingViewsAfterBookingCreated` deferred
+      // while it was not. THE ONE drain point: this is the only path that can
+      // make the board the selected slot (`_onSubTabSelected` only ever
+      // selects «Салон»/«Команда», and a fresh shell starts on «Салон»), and
+      // a user callback is deliberately OUTSIDE the build phase, which is
+      // where a `ref.invalidate` belongs.
+      //
+      // Ordering is deliberate: the index is written FIRST, so anything that
+      // re-reads visibility during the resulting rebuild already sees
+      // «Записи». The board's own listeners were never paused or dropped —
+      // see `salon_board_refresh_gate.dart` for why that is the whole point.
+      drainSalonBoardRefresh(ref, widget.salonId);
+    }
     if (navIndex == _navSalon) {
       ref
           .read(salonManageTabProvider(widget.salonId).notifier)
@@ -400,19 +423,31 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
           onTabSelected: _onSubTabSelected,
         ),
       ),
-      // Slot 1 — «Записи» (nav 1). No host screen exists yet
-      // (`/salon/bookings` — see `app_router.dart`'s own note on why this
-      // route is unregistered).
+      // Slot 1 — «Записи» (nav 1). Phase 21.12 replaced the placeholder with
+      // the real salon-wide bookings board.
+      //
+      // Still a TAB, not a route: the shell adds no path segment and the
+      // board has nothing to deep-link INTO — its own drill-in is
+      // `RouteNames.salonStaffBookingDetail` (`/salon/bookings/:bookingId`),
+      // a standalone top-level route registered in `app_router.dart`. The
+      // `Key` is unchanged so the shell's existing slot assertions keep
+      // pointing at the same slot.
+      //
+      // NO `visible:` HERE, deliberately (audit LOW-4). The board's off-screen
+      // refetch cost is solved at the DISPATCH end — [_onNavSelected] drains a
+      // deferred refresh, and `booking_calendar_invalidation.dart` reads
+      // `salonShellProvider` to decide whether to defer — precisely so this
+      // screen's `Consumer`s can stay ACTIVE. Handing it a `visible:` flag it
+      // would gate a `ref.watch` on is the Riverpod 3 dispose footgun: an
+      // autoDispose provider invalidated with only PAUSED listeners is
+      // disposed, and `invalidate` retains `.value` so nothing can detect it.
       _lazySlot(
         1,
-        () => SalonShellTabPlaceholder(
+        () => SalonBookingsScreen(
           key: const Key('salon-shell-tab-bookings'),
-          icon: Symbols.calendar_month_rounded,
-          title: l10n.salonShellBookingsSoonTitle,
-          blurb: l10n.salonShellBookingsSoonBlurb,
+          salonId: widget.salonId,
         ),
       ),
-      // TODO(phase-21.12): swap in the real salon-wide schedule host.
 
       // Slot 2 — «Профіль» (nav 3). Phase 21.14 shipped the OWNER host and
       // Phase 21.16 the ADMIN one; both branches are now real screens.

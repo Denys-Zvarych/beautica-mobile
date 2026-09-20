@@ -65,6 +65,14 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // it FIRST. The two are asserted separately below — a `true` here does not
   // mean an automatic retry, and the throttle test is what proves it.
   'ServiceRateLimitedFailure': true,
+  // 429 from the salon board's shared 60/min READ budget (backend PR #130).
+  // Same honest answer as the rows above — a limiter clears on its own. Unlike
+  // those two the classification is NOT advisory here: every board route is
+  // read through a provider BUILD, so `beauticaProviderRetry` really is on
+  // this failure's path and `isThrottleFailure` is the only thing stopping an
+  // automatic re-issue into a live limit. Asserted in the throttle group below
+  // and end-to-end in `test/core/network/salon_board_429_contract_test.dart`.
+  'SalonBoardRateLimitedFailure': true,
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
@@ -180,6 +188,9 @@ Map<String, Failure> _instances() {
     'BulkSetupBusyFailure': const BulkSetupBusyFailure(),
     'ServiceRateLimitedFailure': const ServiceRateLimitedFailure(
       retryAfterSeconds: 20,
+    ),
+    'SalonBoardRateLimitedFailure': const SalonBoardRateLimitedFailure(
+      retryAfterSeconds: 37,
     ),
     'ConflictFailure': const ConflictFailure(),
     'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
@@ -418,6 +429,9 @@ void main() {
             ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
         'ServiceRateLimitedFailure': ServiceRateLimitedFailure(
           retryAfterSeconds: 20,
+        ),
+        'SalonBoardRateLimitedFailure': SalonBoardRateLimitedFailure(
+          retryAfterSeconds: 37,
         ),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
         'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),

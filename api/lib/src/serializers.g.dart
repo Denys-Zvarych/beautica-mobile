@@ -33,6 +33,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListOblastResponse.serializer)
       ..add(ApiResponseListPlatformCategoryUsageResponse.serializer)
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
+      ..add(ApiResponseListSalonMasterEffectiveScheduleResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
       ..add(ApiResponseListSalonStaffMemberResponse.serializer)
       ..add(ApiResponseListScheduleOverrideResponse.serializer)
@@ -220,6 +221,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonDeletionBlockedResponse.serializer)
       ..add(SalonInviteHistoryResponse.serializer)
       ..add(SalonInviteResponse.serializer)
+      ..add(SalonMasterEffectiveScheduleResponse.serializer)
       ..add(SalonResponse.serializer)
       ..add(SalonReviewResponse.serializer)
       ..add(SalonReviewSummaryResponse.serializer)
@@ -340,6 +342,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => ListBuilder<EffectiveDayResponse>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(EffectiveDayResponse)]),
+          () => ListBuilder<EffectiveDayResponse>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),
           () => MapBuilder<String, String>())
       ..addBuilderFactory(
@@ -444,6 +450,14 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(SalonInviteResponse)]),
           () => ListBuilder<SalonInviteResponse>())
+      ..addBuilderFactory(
+          const FullType(BuiltList,
+              const [const FullType(SalonMasterEffectiveScheduleResponse)]),
+          () => ListBuilder<SalonMasterEffectiveScheduleResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SalonResponse)]),
           () => ListBuilder<SalonResponse>())

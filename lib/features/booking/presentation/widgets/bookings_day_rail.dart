@@ -384,6 +384,28 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     if (!identical(widget.controller, oldWidget.controller)) {
       _lastSettledPage = widget.controller.initialPage;
     }
+    // Render-identity cache eviction — a SEPARATE concern from the baseline
+    // re-seed above, deliberately not folded into that `if`. See [_cached]'s
+    // doc for the full enumeration of what `build()` reads, and for why
+    // `onVisibleWeekChanged` is absent from this list.
+    //
+    // `!=` on `onSelectDay`, NOT `!identical` — the host hands over an
+    // instance-method tear-off (`_selectDay` in `bookings_discovery_view
+    // .dart`), and Dart mints a FRESH closure object for each tear-off, so two
+    // of the same method on the same receiver are `==` but never `identical`.
+    // `!identical` would clear the cache on every single rebuild and silently
+    // delete this optimisation with no test failing. Same trap, same
+    // reasoning, as `_BoardStack.didUpdateWidget`'s `onBookingTap` line in
+    // `bookings_timeline_grid.dart`.
+    if (!identical(widget.controller, oldWidget.controller) ||
+        widget.weekCount != oldWidget.weekCount ||
+        widget.firstWeekStart != oldWidget.firstWeekStart ||
+        widget.today != oldWidget.today ||
+        widget.selectedDay != oldWidget.selectedDay ||
+        !identical(widget.bookedDays, oldWidget.bookedDays) ||
+        widget.onSelectDay != oldWidget.onSelectDay) {
+      _cached = null;
+    }
   }
 
   /// The rail's page-turn analogue of `bookings_month_calendar_panel.dart`'s
@@ -436,12 +458,71 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     return metrics.pixels / metrics.viewportDimension;
   }
 
+  /// The last built rail, and the [AppLocalizations] instance it was built
+  /// from. Returned UNCHANGED — the same instance — whenever nothing
+  /// [build] reads has moved, so `Element.updateChild` skips the whole
+  /// `PageView` subtree.
+  ///
+  /// ## WHY (mobile-perf LOW, 2026-09-17)
+  ///
+  /// The rail is SHAPE-INDEPENDENT chrome that was paying a full rebuild on
+  /// every rebuild of the board above it: **161 of 175** elements took a fresh
+  /// widget instance per no-op rebuild, byte-constant across all seven
+  /// measured board shapes. It already sits behind an `AnimatedBuilder`'s
+  /// `child:` in `bookings_month_calendar_panel.dart`, so animation ticks
+  /// never reached it — this closes the other door, the host's own rebuilds.
+  ///
+  /// It holds no state; the cache is a pure render-identity optimisation, the
+  /// same shape as `_BoardStack._columnCache` in `bookings_timeline_grid.dart`
+  /// and `MasterColumnStrip`'s.
+  ///
+  /// ## THE GATE'S INPUTS, ENUMERATED AGAINST WHAT `build()` ACTUALLY READS
+  ///
+  /// A gate narrower than the recompute ships a stale rail, so every read is
+  /// accounted for — including the two deliberately absent:
+  ///
+  /// | read by `build()`                          | in the gate? |
+  /// |--------------------------------------------|--------------|
+  /// | `AppLocalizations.of(context)`             | yes — [_cachedL10n] |
+  /// | `_weekdayShorts(l10n)`                     | via `l10n` (its own key) |
+  /// | `widget.controller` (`PageView.controller`)| yes |
+  /// | `widget.weekCount` (`itemCount`)           | yes |
+  /// | `widget.firstWeekStart` (itemBuilder capture) | yes |
+  /// | `widget.today` / `selectedDay` / `bookedDays` (captures) | yes |
+  /// | `widget.onSelectDay` (capture)             | yes, via `!=` |
+  /// | `widget.onVisibleWeekChanged`              | NO — see below |
+  /// | `_onRailScroll` (bound tear-off)           | NO — see below |
+  ///
+  /// `onVisibleWeekChanged` is never captured into the built tree: it is read
+  /// through `widget.` inside [_onRailScroll], at notification time, so it is
+  /// always the CURRENT value no matter which build produced the widget the
+  /// cache is holding. Putting it in the gate would only throw the cache away
+  /// whenever the host minted a new tear-off. `_onRailScroll` is likewise a
+  /// method on THIS `State`, so a cached `NotificationListener` still calls
+  /// the live implementation.
+  ///
+  /// `bookedDays` is compared with `identical`, not `setEquals`: the host
+  /// passes `bookedDaysAsync?.value ?? const <DateTime>{}` (see
+  /// `bookings_discovery_view.dart`), which is the provider's own `Set`
+  /// instance and is therefore stable between emissions. A caller that
+  /// rebuilt an equal-but-fresh set simply gets no cache hit — the
+  /// conservative direction, never a stale render, and it keeps the gate O(1)
+  /// instead of hashing up to 361 dates per board rebuild.
+  Widget? _cached;
+  AppLocalizations? _cachedL10n;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // Read from the TREE, not from `widget`, so a locale change (which marks
+    // this element dirty without running `didUpdateWidget`) has to be caught
+    // here rather than in the gate above.
+    final Widget? cached = _cached;
+    if (cached != null && identical(l10n, _cachedL10n)) return cached;
+
     final List<String> weekdayShort = _weekdayShorts(l10n);
 
-    return SizedBox(
+    final Widget built = SizedBox(
       // The design's strip is 70dp. It is 78 here because the app's
       // `VelvetText` styles carry line-height multipliers the preview's raw
       // `TextStyle`s did not, so the same three-element column measures ~8dp
@@ -516,6 +597,9 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
         ),
       ),
     );
+    _cached = built;
+    _cachedL10n = l10n;
+    return built;
   }
 }
 

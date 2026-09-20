@@ -32,6 +32,10 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -98,16 +102,114 @@ PageResponse<Booking> _page(
   totalElements: items.length,
 );
 
-ProviderContainer _container(_MockBookingRepository repo) {
+/// Waits until [read] stops returning an `AsyncLoading` — i.e. until the
+/// provider has reached a TERMINAL state.
+///
+/// M12: `beauticaProviderRetry` (which these containers install for real, on
+/// purpose) gives a transient `NetworkFailure` one automatic re-attempt with
+/// ~200 ms of backoff. During that window Riverpod's state is
+/// `AsyncLoading(error: …, retrying: true)` — runtime type `AsyncLoading`,
+/// but `hasError == true` and `error` already holding the real failure. A
+/// fixed short delay therefore samples the MID-RETRY state, and any test
+/// asserting only `hasError`/`error` passes without ever reaching the
+/// terminal `AsyncError` it claims to prove. Measured 2026-09-20: three such
+/// tests in this track were being satisfied mid-retry.
+Future<AsyncValue<T>> _settleToTerminal<T>(
+  AsyncValue<T> Function() read, {
+  Duration budget = const Duration(seconds: 2),
+}) async {
+  final Stopwatch sw = Stopwatch()..start();
+  while (sw.elapsed < budget) {
+    final AsyncValue<T> v = read();
+    if (v is! AsyncLoading) return v;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return read();
+}
+
+ProviderContainer _container(
+  _MockBookingRepository repo, {
+  List<Object> extraOverrides = const <Object>[],
+}) {
   final ProviderContainer c = ProviderContainer(
     retry: beauticaProviderRetry,
     // ignore: avoid_dynamic_calls
     overrides: <Object>[
       bookingRepositoryProvider.overrideWithValue(repo),
+      ...extraOverrides,
     ].cast(),
   );
   addTearDown(c.dispose);
   return c;
+}
+
+/// Stubs the "mine" arm (`salonId == null`) for ANY page.
+///
+/// Phase 342: paired with [_stubSalon] so a scope test can assert the OTHER
+/// arm was never taken. Stubbing only the arm under test would make
+/// `verifyNever` pass for the wrong reason — mocktail would have thrown on the
+/// unstubbed call instead.
+void _stubMine(
+  _MockBookingRepository repo, {
+  List<Booking> items = const <Booking>[],
+}) {
+  when(
+    () => repo.getMyBookings(
+      statuses: any(named: 'statuses'),
+      partition: any(named: 'partition'),
+      serviceIds: any(named: 'serviceIds'),
+      sort: any(named: 'sort'),
+      page: any(named: 'page'),
+    ),
+  ).thenAnswer((_) async => _page(items));
+}
+
+/// Stubs the salon arm (`salonId != null`) for ANY page. Re-callable: a later
+/// call re-stubs with a new fixture, which is how the D6 session test proves
+/// the SECOND identity gets the SECOND account's rows.
+void _stubSalon(
+  _MockBookingRepository repo, {
+  List<Booking> items = const <Booking>[],
+}) {
+  when(
+    () => repo.getSalonBookings(
+      salonId: any(named: 'salonId'),
+      statuses: any(named: 'statuses'),
+      partition: any(named: 'partition'),
+      from: any(named: 'from'),
+      to: any(named: 'to'),
+      masterId: any(named: 'masterId'),
+      sort: any(named: 'sort'),
+      page: any(named: 'page'),
+    ),
+  ).thenAnswer((_) async => _page(items));
+}
+
+/// A settable [AuthNotifier] for the phase 342 D6 cases.
+///
+/// [emit] drives a genuine identity change (logout / a different account);
+/// the TOKEN-refresh counter-case deliberately goes through the inherited,
+/// production [AuthNotifier.setAccessToken] instead, so it exercises the real
+/// path `RefreshInterceptor` takes rather than a test-only shortcut.
+class _StubAuthNotifier extends AuthNotifier {
+  AuthSession _session = const AuthSession.authenticated(
+    user: User(
+      id: 'owner-1',
+      email: 'owner1@beautica.ua',
+      role: UserRole.salonOwner,
+      firstName: 'Оля',
+      lastName: 'Коваль',
+    ),
+    accessToken: 'token-1',
+  );
+
+  @override
+  Future<AuthSession> build() async => _session;
+
+  void emit(AuthSession session) {
+    _session = session;
+    state = AsyncData<AuthSession>(session);
+  }
 }
 
 void main() {
@@ -925,11 +1027,15 @@ void main() {
 
       c.listen(masterArchiveProvider(MasterArchiveQuery.of()), (_, _) {});
       c.read(masterArchiveProvider(MasterArchiveQuery.of()));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-
-      final AsyncValue<MasterArchiveState> state = c.read(
-        masterArchiveProvider(MasterArchiveQuery.of()),
-      );
+      final AsyncValue<MasterArchiveState> state =
+          await _settleToTerminal<MasterArchiveState>(
+            () => c.read(masterArchiveProvider(MasterArchiveQuery.of())),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<MasterArchiveState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
     });
@@ -1223,9 +1329,15 @@ void main() {
           .read(masterArchiveProvider(MasterArchiveQuery.of()).notifier)
           .markClientReviewed('a');
 
-      final AsyncValue<MasterArchiveState> state = c.read(
-        masterArchiveProvider(MasterArchiveQuery.of()),
-      );
+      final AsyncValue<MasterArchiveState> state =
+          await _settleToTerminal<MasterArchiveState>(
+            () => c.read(masterArchiveProvider(MasterArchiveQuery.of())),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<MasterArchiveState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
       expect(
@@ -1281,6 +1393,672 @@ void main() {
           page: 0,
         ),
       ).called(1);
+    });
+
+    // mobile-qa (phase 342 QA pass) — `hasFilters` had NO test at all, and
+    // phase 342's new field arrived with an explicit decision attached to it
+    // ("[salonId] is deliberately NOT counted", `master_archive_query.dart`).
+    // That decision is load-bearing for phase 343: `hasFilters` is what
+    // `master_archive_screen.dart:893` passes as `filtered:`, which picks
+    // between the TRUE-empty copy and the filtered-empty copy and decides
+    // whether «Скинути» is offered. A salon archive with nothing ticked that
+    // read as "filtered" would offer a reset for a filter that does not
+    // exist.
+    test('hasFilters ignores salonId — a salon-scoped query with nothing '
+        'ticked is UNFILTERED, and one with a status ticked is filtered '
+        'regardless of scope', () {
+      expect(
+        MasterArchiveQuery.of(salonId: 'salon-42').hasFilters,
+        isFalse,
+        reason:
+            'the scope selects WHICH history is read, not how it is narrowed',
+      );
+      expect(MasterArchiveQuery.of().hasFilters, isFalse);
+
+      // Non-vacuity in the other direction: the getter must still be able to
+      // say `true`, on BOTH scopes, or the assertions above are satisfied by
+      // a getter hardcoded to `false`.
+      expect(
+        MasterArchiveQuery.of(
+          salonId: 'salon-42',
+          statuses: const <BookingStatus>{BookingStatus.cancelled},
+        ).hasFilters,
+        isTrue,
+      );
+      expect(
+        MasterArchiveQuery.of(serviceIds: const <String>{'svc-1'}).hasFilters,
+        isTrue,
+      );
+    });
+
+    test('salonId defaults to null on `of` — the shape every pre-342 caller, '
+        'including `master_archive_screen.dart`, still builds', () {
+      expect(
+        MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{BookingStatus.completed},
+        ),
+        MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{BookingStatus.completed},
+          salonId: null,
+        ),
+      );
+      expect(MasterArchiveQuery.of().salonId, isNull);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 342 — the archive read takes a SCOPE. Nothing renders differently;
+  // these cases pin the data layer alone, through a bare ProviderContainer
+  // with no widget at all.
+  // ─────────────────────────────────────────────────────────────────────────
+  group('phase 342 — the SCOPE branch (MasterArchiveQuery.salonId)', () {
+    test('salonId == null hits getMyBookings and NEVER getSalonBookings, with '
+        'the pre-342 argument set unchanged — the byte-identical claim, '
+        'asserted on the captured args rather than on the absence of a '
+        'failure', () async {
+      final repo = _MockBookingRepository();
+      _stubMine(repo);
+      _stubSalon(repo);
+      final c = _container(repo);
+
+      await c.read(masterArchiveProvider(MasterArchiveQuery.of()).future);
+
+      // Asserted as EXACT argument values rather than by index into
+      // `captured`: mocktail's `captured` ordering is not the order the
+      // matchers are written in, so an index-based read silently compares the
+      // wrong slots. An exact-value `verify` that matches zero calls fails,
+      // which is the assertion wanted here.
+      verify(
+        () => repo.getMyBookings(
+          statuses: const <BookingStatus>{
+            BookingStatus.completed,
+            BookingStatus.notCompleted,
+            BookingStatus.cancelled,
+            BookingStatus.declined,
+          },
+          partition: BookingPartition.history,
+          serviceIds: <String>[],
+          sort: BookingSort.newest,
+          page: 0,
+        ),
+      ).called(1);
+
+      verifyNever(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      );
+    });
+
+    test('salonId != null hits getSalonBookings with that salonId, '
+        'partition=HISTORY and NO from/to bounds — and getMyBookings is never '
+        'called', () async {
+      final repo = _MockBookingRepository();
+      _stubMine(repo);
+      _stubSalon(repo);
+      final c = _container(repo);
+
+      await c.read(
+        masterArchiveProvider(
+          MasterArchiveQuery.of(salonId: 'salon-42'),
+        ).future,
+      );
+
+      // Exact argument values, not an index into `captured` — see the
+      // `salonId == null` case above for why. `from`/`to`/`masterId` are
+      // asserted as literal `null`, which is the whole point of this case:
+      // the archive wants the salon's WHOLE history across every master, and
+      // any bound or master narrowing here would silently truncate it.
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: const <BookingStatus>{
+            BookingStatus.completed,
+            BookingStatus.notCompleted,
+            BookingStatus.cancelled,
+            BookingStatus.declined,
+          },
+          partition: BookingPartition.history,
+          from: null,
+          to: null,
+          masterId: null,
+          sort: BookingSort.newest,
+          page: 0,
+        ),
+      ).called(1);
+
+      verifyNever(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      );
+    });
+
+    test('two queries differing ONLY in salonId are TWO family members '
+        'holding DISTINCT lists — the autoDispose cache-key claim, which '
+        'fails loudly the moment the scope is put on the notifier or the '
+        'screen instead of on the key', () async {
+      final repo = _MockBookingRepository();
+      _stubMine(
+        repo,
+        items: <Booking>[
+          _booking(id: 'mine-1', status: BookingStatus.completed),
+        ],
+      );
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'salon-1', status: BookingStatus.completed),
+          _booking(id: 'salon-2', status: BookingStatus.declined),
+        ],
+      );
+      final c = _container(repo);
+
+      final MasterArchiveQuery mine = MasterArchiveQuery.of();
+      final MasterArchiveQuery salon = MasterArchiveQuery.of(
+        salonId: 'salon-42',
+      );
+      expect(
+        mine,
+        isNot(salon),
+        reason:
+            'if these compare equal the two scopes collapse into ONE cache '
+            'entry and the owner is served the wrong list',
+      );
+
+      final MasterArchiveState mineState = await c.read(
+        masterArchiveProvider(mine).future,
+      );
+      final MasterArchiveState salonState = await c.read(
+        masterArchiveProvider(salon).future,
+      );
+
+      expect(mineState.items.map((Booking b) => b.id), <String>['mine-1']);
+      expect(
+        salonState.items.map((Booking b) => b.id),
+        <String>['salon-1', 'salon-2'],
+        reason:
+            'the fixtures differ in LENGTH and in ids, so a shared cache '
+            'entry cannot satisfy both assertions',
+      );
+
+      // Two members, so two fetches — one down each arm.
+      verify(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).called(1);
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).called(1);
+    });
+
+    test('loadMore on the salon arm requests page fromPage + 1 FROM '
+        'getSalonBookings — not from getMyBookings (a half-migration that '
+        'branches only in _fetchFirstPage passes the shaping case above and '
+        'fails here)', () async {
+      final repo = _MockBookingRepository();
+      _stubMine(repo);
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).thenAnswer(
+        (_) async => _page(<Booking>[
+          _booking(id: 'p0', status: BookingStatus.completed),
+        ], totalPages: 2),
+      );
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 1,
+        ),
+      ).thenAnswer(
+        (_) async => _page(
+          <Booking>[_booking(id: 'p1', status: BookingStatus.completed)],
+          page: 1,
+          totalPages: 2,
+        ),
+      );
+      final c = _container(repo);
+
+      final MasterArchiveQuery q = MasterArchiveQuery.of(salonId: 'salon-42');
+      await c.read(masterArchiveProvider(q).future);
+      await c.read(masterArchiveProvider(q).notifier).loadMore();
+
+      final MasterArchiveState after = c
+          .read(masterArchiveProvider(q))
+          .requireValue;
+      expect(
+        after.items.map((Booking b) => b.id),
+        <String>['p0', 'p1'],
+        reason: 'the second page must be APPENDED, not replace the first',
+      );
+      expect(after.page, 1);
+
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: BookingPartition.history,
+          from: null,
+          to: null,
+          masterId: null,
+          sort: BookingSort.newest,
+          page: 1,
+        ),
+      ).called(1);
+      verifyNever(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      );
+    });
+
+    test('a salon-scoped query carrying serviceIds is REJECTED AT '
+        'CONSTRUCTION with an ArgumentError rather than silently dropping '
+        'them — the doc\'s "forward serviceIds on the salon arm" mutation is '
+        'not expressible (getSalonBookings has no serviceId param, '
+        'deliberately: phase 343 D3 switches the facet off), so this is the '
+        'equivalent guard — a non-forwardable filter must fail loudly, never '
+        'become a predicate that is quietly wrong. '
+        'MOVED off `MasterArchiveNotifier._fetchPage`\'s `assert` in audit-fix '
+        'MEDIUM-2: an assert is STRIPPED in profile/release, so shipped it '
+        'dropped the ids while `hasFilters` still read `true`. An '
+        'ArgumentError holds in EVERY build mode, which an assert could never '
+        'be tested for (`flutter test --release` does not exist and the test '
+        'VM always runs with asserts enabled).', () async {
+      final repo = _MockBookingRepository();
+      _stubMine(repo);
+      _stubSalon(repo);
+      final c = _container(repo);
+
+      expect(
+        () => MasterArchiveQuery.of(
+          salonId: 'salon-42',
+          serviceIds: const <String>{'svc-1'},
+        ),
+        throwsA(isA<ArgumentError>()),
+        reason:
+            'the invalid combination must be unrepresentable, so the notifier '
+            'never has to decide what to do with it',
+      );
+
+      // The provider is therefore unreachable with such a key at all: the
+      // only unguarded way to build one is the freezed pass-through
+      // `MasterArchiveQuery.raw`, which `lib/` never calls. Driving the
+      // notifier through it proves no request escapes even then.
+      await expectLater(
+        c.read(
+          masterArchiveProvider(
+            const MasterArchiveQuery.raw(
+              statuses: <BookingStatus>[],
+              serviceIds: <String>['svc-1'],
+              salonId: 'salon-42',
+            ),
+          ).future,
+        ),
+        completes,
+      );
+
+      verifyNever(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      );
+      // getSalonBookings has no serviceId param at all, so the ids cannot
+      // reach the wire by ANY route — the guard above is what stops a caller
+      // believing they did. This pins the shape that actually went out.
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: BookingPartition.history,
+          from: null,
+          to: null,
+          masterId: null,
+          sort: BookingSort.newest,
+          page: 0,
+        ),
+      ).called(1);
+    });
+
+    test('a FAILED salon load-more leaves the already-rendered list intact '
+        'and clears isLoadingMore', () async {
+      final repo = _MockBookingRepository();
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).thenAnswer(
+        (_) async => _page(<Booking>[
+          _booking(id: 'kept-1', status: BookingStatus.completed),
+          _booking(id: 'kept-2', status: BookingStatus.declined),
+        ], totalPages: 2),
+      );
+      when(
+        () => repo.getSalonBookings(
+          salonId: any(named: 'salonId'),
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 1,
+        ),
+      ).thenThrow(const NetworkFailure());
+      final c = _container(repo);
+
+      final MasterArchiveQuery q = MasterArchiveQuery.of(salonId: 'salon-42');
+      await c.read(masterArchiveProvider(q).future);
+      await c.read(masterArchiveProvider(q).notifier).loadMore();
+
+      final AsyncValue<MasterArchiveState> snapshot = c.read(
+        masterArchiveProvider(q),
+      );
+      expect(
+        snapshot.hasError,
+        isFalse,
+        reason: 'a failed load-more must never blow the whole list away',
+      );
+      final MasterArchiveState after = snapshot.requireValue;
+      expect(after.items.map((Booking b) => b.id), <String>[
+        'kept-1',
+        'kept-2',
+      ]);
+      expect(after.isLoadingMore, isFalse);
+      expect(after.page, 0, reason: 'the cursor must not advance past a hole');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Phase 342 D6 — the session watch (`mobile-backlog.md:120`, filed
+  // 2026-08-16 against exactly this moment: the family gaining a second host).
+  // ─────────────────────────────────────────────────────────────────────────
+  group('phase 342 D6 — build() watches the SESSION IDENTITY via .select', () {
+    test('a session IDENTITY change tears the cached page down — the next '
+        'read refetches and returns the NEW account\'s rows, never the '
+        'previous one\'s salon history', () async {
+      final repo = _MockBookingRepository();
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'acct-1-row', status: BookingStatus.completed),
+        ],
+      );
+      final _StubAuthNotifier auth = _StubAuthNotifier();
+      final ProviderContainer c = _container(
+        repo,
+        extraOverrides: <Object>[authProvider.overrideWith(() => auth)],
+      );
+      await c.read(authProvider.future);
+
+      final MasterArchiveQuery q = MasterArchiveQuery.of(salonId: 'salon-42');
+      // A LIVE subscription — otherwise the autoDispose member is gone before
+      // the session even moves and this would prove nothing.
+      c.listen(
+        masterArchiveProvider(q),
+        (
+          AsyncValue<MasterArchiveState>? _,
+          AsyncValue<MasterArchiveState> _,
+        ) {},
+        fireImmediately: true,
+      );
+      final MasterArchiveState first = await c.read(
+        masterArchiveProvider(q).future,
+      );
+      expect(first.items.map((Booking b) => b.id), <String>['acct-1-row']);
+
+      // The SECOND account's salon history — deliberately a different row set,
+      // so a cache that survived would fail on the VALUE and not merely on a
+      // call count (`project_fixture_values_can_defang_assertions`).
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'acct-2-row', status: BookingStatus.declined),
+        ],
+      );
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'owner-2',
+            email: 'owner2@beautica.ua',
+            role: UserRole.salonOwner,
+            firstName: 'Ірина',
+            lastName: 'Мельник',
+          ),
+          accessToken: 'token-2',
+        ),
+      );
+      await c.pump();
+
+      final MasterArchiveState second = await c.read(
+        masterArchiveProvider(q).future,
+      );
+      expect(
+        second.items.map((Booking b) => b.id),
+        <String>['acct-2-row'],
+        reason:
+            'the cached page belonged to the previous identity — salon '
+            'history carries client names across the whole roster, so it must '
+            'not survive a session boundary',
+      );
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).called(2);
+    });
+
+    test('a plain TOKEN REFRESH does NOT rebuild the notifier — the case a '
+        'bare ref.watch(authProvider) fails, and the reason D6 specifies '
+        '.select(authUserIdOrNull)', () async {
+      final repo = _MockBookingRepository();
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'row-1', status: BookingStatus.completed),
+        ],
+      );
+      final _StubAuthNotifier auth = _StubAuthNotifier();
+      final ProviderContainer c = _container(
+        repo,
+        extraOverrides: <Object>[authProvider.overrideWith(() => auth)],
+      );
+      await c.read(authProvider.future);
+
+      final MasterArchiveQuery q = MasterArchiveQuery.of(salonId: 'salon-42');
+      c.listen(
+        masterArchiveProvider(q),
+        (
+          AsyncValue<MasterArchiveState>? _,
+          AsyncValue<MasterArchiveState> _,
+        ) {},
+        fireImmediately: true,
+      );
+      await c.read(masterArchiveProvider(q).future);
+
+      // The REAL production path `RefreshInterceptor` takes on every silent
+      // refresh: a new `Authenticated` carrying the SAME user and a different
+      // access token.
+      c.read(authProvider.notifier).setAccessToken('token-1-rotated');
+      await c.pump();
+      expect(
+        (c.read(authProvider).value as Authenticated?)?.accessToken,
+        'token-1-rotated',
+        reason:
+            'if the rotation did not actually land, this test passes '
+            'vacuously — it would be asserting that nothing rebuilt after '
+            'nothing happened',
+      );
+
+      await c.read(masterArchiveProvider(q).future);
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).called(1);
+    });
+
+    // mobile-qa (phase 342 QA pass) — the LOGOUT arm of the same watch.
+    //
+    // The identity-CHANGE case above moves `owner-1 → owner-2`; it never
+    // exercises `authUserIdOrNull`'s OTHER branch, `Unauthenticated() || null
+    // => null`. mobile-perf flagged the residual: on logout the member
+    // rebuilds and, while a listener is still attached for that frame, fires
+    // ONE fetch against a wiped session. It cannot storm
+    // (`refresh_interceptor.dart:182-183` bails on the null refresh token),
+    // and the belt asked for here is the COUNT: exactly one refetch, and no
+    // page of the signed-out account's roster-wide client PII left readable
+    // behind the autoDispose element.
+    //
+    // Mutation-proven distinct from the identity-change test above: flipping
+    // `authUserIdOrNull`'s `Unauthenticated() || null => null` to a constant
+    // leaves that test GREEN and turns THIS one red.
+    test('LOGOUT (id → null) tears the cached salon page down and fires '
+        'EXACTLY ONE refetch — no storm, and no previous session\'s '
+        'roster-wide client PII served after the session ended', () async {
+      final repo = _MockBookingRepository();
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'session-1-row', status: BookingStatus.completed),
+        ],
+      );
+      final _StubAuthNotifier auth = _StubAuthNotifier();
+      final ProviderContainer c = _container(
+        repo,
+        extraOverrides: <Object>[authProvider.overrideWith(() => auth)],
+      );
+      await c.read(authProvider.future);
+
+      final MasterArchiveQuery q = MasterArchiveQuery.of(salonId: 'salon-42');
+      // A LIVE subscription — the screen still being mounted for that frame
+      // is the exact condition mobile-perf's residual is about. Without it
+      // the autoDispose member is already gone and this proves nothing.
+      c.listen(
+        masterArchiveProvider(q),
+        (
+          AsyncValue<MasterArchiveState>? _,
+          AsyncValue<MasterArchiveState> _,
+        ) {},
+        fireImmediately: true,
+      );
+      final MasterArchiveState signedIn = await c.read(
+        masterArchiveProvider(q).future,
+      );
+      expect(signedIn.items.map((Booking b) => b.id), <String>[
+        'session-1-row',
+      ]);
+
+      // A DIFFERENT fixture, so a cache that survived the logout fails on the
+      // VALUE and not merely on a call count
+      // (`project_fixture_values_can_defang_assertions`).
+      _stubSalon(
+        repo,
+        items: <Booking>[
+          _booking(id: 'post-logout-row', status: BookingStatus.declined),
+        ],
+      );
+
+      auth.emit(const AuthSession.unauthenticated());
+      await c.pump();
+      expect(
+        c.read(authProvider).value,
+        isA<Unauthenticated>(),
+        reason:
+            'if the logout never landed this test passes vacuously — it '
+            'would be asserting that nothing rebuilt after nothing happened',
+      );
+
+      final MasterArchiveState afterLogout = await c.read(
+        masterArchiveProvider(q).future,
+      );
+      expect(
+        afterLogout.items.map((Booking b) => b.id),
+        <String>['post-logout-row'],
+        reason:
+            'the page cached under the previous session must not be re-served '
+            'across the session boundary',
+      );
+
+      // Settle several more frames: a rebuild loop (the "storm" shape) would
+      // keep issuing fetches here rather than stopping at one.
+      await c.pump();
+      await c.pump();
+      verify(
+        () => repo.getSalonBookings(
+          salonId: 'salon-42',
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          masterId: any(named: 'masterId'),
+          sort: any(named: 'sort'),
+          page: 0,
+        ),
+      ).called(2);
     });
   });
 }

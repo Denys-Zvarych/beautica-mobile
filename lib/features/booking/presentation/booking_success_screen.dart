@@ -17,7 +17,9 @@
 // SEC: the recap renders the INDEPENDENT master's address (street/buildingNo/
 // city/locationNote — a solo master's may be a HOME address), so this screen
 // acquires the app-wide screenshot guard in `initState`. Do not remove in a
-// future audit pass.
+// future audit pass. The 2026-09-18 `venue*` override (see `_addressLine`) only
+// ever REPLACES that line with the booking's own resolved address, so the guard
+// covers the same class of data either way.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -85,6 +87,45 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
     (int sum, MasterService s) => sum + s.durationMinutes,
   );
 
+  /// VENUE ADDRESS (2026-09-18) — the visit's address, resolved ONCE for BOTH
+  /// the recap card and the OS-calendar event's `location` (the two used to
+  /// compose it separately from the same broken source and could drift).
+  ///
+  /// PREFERS the `venue*` fields — the address the backend already resolved
+  /// salon-vs-independent on the `Booking`
+  /// (`BookingDetailResponse.java:580-648`), threaded in by
+  /// `reschedule_navigation.dart`. FALLS BACK to [Master], whose USER-level
+  /// street/buildingNo/city the backend DELIBERATELY nulls for a
+  /// `SALON_MASTER`/`SALON_OWNER` (`MasterDetailResponse.java:104-127`) — the
+  /// reason a salon reschedule used to render «Адресу не вказано».
+  ///
+  /// Every CREATE call site passes no `venue*` field, so the first compose
+  /// returns `null` and this is byte-identical to the pre-existing
+  /// master-only line for them.
+  late final String? _addressLine =
+      formatStreetCityLine(
+        street: widget.args.venueStreet,
+        buildingNo: widget.args.venueBuildingNo,
+        city: widget.args.venueCity,
+      ) ??
+      formatStreetCityLine(
+        street: widget.args.master.street,
+        buildingNo: widget.args.master.buildingNo,
+        city: widget.args.master.city,
+      );
+
+  /// The arrival hint, same venue-first precedence as [_addressLine]. Never
+  /// part of the composed line (see `composeAddressLine`'s doc) — rendered as
+  /// the recap's separate detail row.
+  late final String? _addressDetail =
+      _trimmedOrNull(widget.args.venueLocationNote) ??
+      _trimmedOrNull(widget.args.master.locationNote);
+
+  static String? _trimmedOrNull(String? value) {
+    final String? trimmed = value?.trim();
+    return (trimmed?.isNotEmpty ?? false) ? trimmed : null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -100,18 +141,7 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final master = widget.args.master;
     final DateTime startAt = widget.args.startAt;
-
-    final String? addressLine = formatStreetCityLine(
-      street: master.street,
-      buildingNo: master.buildingNo,
-      city: master.city,
-    );
-    final String? addressDetail =
-        (master.locationNote?.trim().isNotEmpty ?? false)
-        ? master.locationNote!.trim()
-        : null;
 
     // Phase 263 D1 — three-way copy switch. Precedence is reschedule > walk-in
     // > client create, matched in that ORDER.
@@ -253,8 +283,8 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           showBorder: true,
           compactText: true,
           dense: true,
-          addressLine: addressLine,
-          addressDetail: addressDetail,
+          addressLine: _addressLine,
+          addressDetail: _addressDetail,
           dateLabel: formatFullDate(startAt),
           timeLabel: formatTimeRange(startAt, _totalDurationMinutes),
           selections: _selections,
@@ -267,7 +297,20 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           // that also pass no `trailingAction` do. The CLIENT path
           // (`isWalkIn` always `false`) is UNCHANGED — this ternary's other
           // arm is byte-for-byte the pre-existing unconditional call.
-          trailingAction: widget.args.isWalkIn
+          //
+          // PROVIDER-VIEWER GATE (2026-09-18) — `isProviderViewer` widens the
+          // same suppression to a salon owner / salon admin / master who just
+          // rescheduled a REGISTERED client's booking. That path keeps
+          // `clientId != null` → `isGuestBooking == false` →
+          // `rescheduleTargetIsWalkIn == false` → `isWalkIn == false`, so the
+          // pre-existing walk-in arm never caught it and the button rendered
+          // for a provider who has no use for someone else's visit in their
+          // own OS calendar. Deliberately NOT `isReschedule`: a CLIENT
+          // rescheduling their OWN booking must KEEP the button (locked
+          // product decision). `isProviderViewer` defaults to `false` and is
+          // seeded ONLY from `BookingConfirmArgs.hideMasterIdentity`, so every
+          // create path and every client path renders exactly as before.
+          trailingAction: (widget.args.isProviderViewer || widget.args.isWalkIn)
               ? null
               : CalendarButton(
                   buttonKey: const Key('booking-success-add-calendar'),
@@ -294,11 +337,10 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
         Duration(minutes: _totalDurationMinutes),
       );
 
-      final String? location = formatStreetCityLine(
-        street: master.street,
-        buildingNo: master.buildingNo,
-        city: master.city,
-      );
+      // VENUE ADDRESS (2026-09-18) — the SAME resolved line the recap card
+      // renders, not a second master-only compose (which rendered an empty
+      // location for a salon booking). See [_addressLine].
+      final String? location = _addressLine;
       final String provider = '${master.firstName} ${master.lastName}'.trim();
       final String serviceLabel = widget.args.services
           .map((MasterService s) => s.name)

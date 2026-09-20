@@ -471,6 +471,30 @@ jobs:
         shell: bash
         run: ./scripts/forbid_undeclared_scoped_service_dep.sh
 
+      # 2026-09-17 (mobile-security S-L2) — enforce the path-encoding
+      # invariant `lib/core/network/path_segment.dart` had only ASSERTED.
+      # That file's promotion comment claimed the encoder moved to core "so a
+      # fix reaches every raw path in the app at once"; it had not — four
+      # sites kept a bare `Uri.encodeComponent` (which does not escape `.`, so
+      # `..` survives into Dio's `normalizePath()` and retargets the request
+      # on the bearer-token-carrying Dio) and two more interpolated an id with
+      # no encoding at all. All six were fixed in the same commit that added
+      # this gate, AFTER watching it catch every one of them on the unfixed
+      # tree. It checks hand-built `/api/v1/…` literals only — the provenance
+      # half of the invariant stays a code-review obligation, and the guard's
+      # header says so.
+      #
+      # 2026-09-17, same day: the first revision scanned ONE LINE AT A TIME
+      # and was therefore blind to a path `dart format` had wrapped into
+      # ADJACENT STRING LITERALS — which is how two of the six fixed sites
+      # (`location_repository.dart:96`, `:107`) are spelled, so the gate could
+      # not re-detect a regression at them. The scan is now group-aware and
+      # both directions are sentinelled in `--self-test`; see the guard's
+      # header, section "MULTI-LINE, and why that is not a detail".
+      - name: Forbid unencoded interpolation into a hand-built API path
+        shell: bash
+        run: ./scripts/forbid_unencoded_path_interpolation.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).

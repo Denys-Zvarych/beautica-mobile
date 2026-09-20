@@ -407,9 +407,11 @@ class BookingControllerApi {
   /// * [salonId]
   /// * [pageable]
   /// * [masterId] - Filter to one master's bookings within the salon. Omit for every master.
-  /// * [status] - Filter by a single status. Omit for no status predicate.
+  /// * [status] - Repeatable status filter, e.g. ?status=CONFIRMED&status=DECLINED. Omit for no status predicate. A single ?status=CONFIRMED still works unchanged. IGNORED whenever `partition` is present — see that parameter's doc for the precedence rule.
   /// * [from] - Bookings starting on/after the start of this local day (Europe/Kyiv). Omit for an open-ended future window.
   /// * [to] - Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
+  /// * [serviceId] - Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
+  /// * [partition] - Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for the salon \"archive\" list, which must include cancelled and declined bookings alongside finished ones, across every master in the salon. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-322 behaviour.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -424,9 +426,11 @@ class BookingControllerApi {
     required String salonId,
     required Pageable pageable,
     String? masterId,
-    String? status,
+    BuiltList<String>? status,
     Date? from,
     Date? to,
+    BuiltList<String>? serviceId,
+    String? partition,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -455,12 +459,26 @@ class BookingControllerApi {
         r'masterId': encodeQueryParameter(
             _serializers, masterId, const FullType(String)),
       if (status != null)
-        r'status':
-            encodeQueryParameter(_serializers, status, const FullType(String)),
+        r'status': encodeCollectionQueryParameter<String>(
+          _serializers,
+          status,
+          const FullType(BuiltList, [FullType(String)]),
+          format: ListFormat.multi,
+        ),
       if (from != null)
         r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
       if (to != null)
         r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+      if (serviceId != null)
+        r'serviceId': encodeCollectionQueryParameter<String>(
+          _serializers,
+          serviceId,
+          const FullType(BuiltList, [FullType(String)]),
+          format: ListFormat.multi,
+        ),
+      if (partition != null)
+        r'partition': encodeQueryParameter(
+            _serializers, partition, const FullType(String)),
       r'pageable': encodeQueryParameter(
           _serializers, pageable, const FullType(Pageable)),
     };
@@ -769,6 +787,95 @@ class BookingControllerApi {
     }
 
     return Response<ApiResponsePageResponseBookingDetailResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// List the salon&#39;s booked days (owner/admin)
+  /// Distinct local (Europe/Kyiv) days on which this salon has at least one booking, ascending. Range REQUIRED; span capped at 366 inclusive days. The shipped mobile client requests 361 days (today +/- 180), so this ceiling is a frozen contract - see BookingService#getSalonBookedDays. Filter-independent: no status/serviceId/masterId parameter.
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [from] - Range start (inclusive), local Europe/Kyiv day. Required.
+  /// * [to] - Range end (inclusive), local Europe/Kyiv day. Required. The span `[from, to]` is at most 366 inclusive days; wider is a 400.
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseListLocalDate] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseListLocalDate>> listSalonBookedDays({
+    required String salonId,
+    required Date from,
+    required Date to,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/salon/{salonId}/booked-days'.replaceAll(
+        '{' r'salonId' '}',
+        encodeQueryParameter(_serializers, salonId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
+      r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseListLocalDate? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseListLocalDate),
+            ) as ApiResponseListLocalDate;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseListLocalDate>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

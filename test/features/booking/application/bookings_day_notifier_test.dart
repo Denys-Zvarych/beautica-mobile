@@ -147,6 +147,29 @@ ProviderContainer _containerWith(BookingRepository repo) {
   return container;
 }
 
+/// Waits until [read] stops returning an `AsyncLoading` — i.e. until the
+/// provider has reached a TERMINAL state.
+///
+/// M12: these containers install `beauticaProviderRetry` for real, which
+/// gives a transient `NetworkFailure` one automatic re-attempt with ~200 ms
+/// of backoff. During that window the state is
+/// `AsyncLoading(error: …, retrying: true)` — `hasError == true` and `error`
+/// already populated, but NOT the terminal `AsyncError`. A fixed short delay
+/// samples that mid-retry state, so a test asserting only `hasError`/`error`
+/// can never fail.
+Future<AsyncValue<T>> _settleToTerminal<T>(
+  AsyncValue<T> Function() read, {
+  Duration budget = const Duration(seconds: 2),
+}) async {
+  final Stopwatch sw = Stopwatch()..start();
+  while (sw.elapsed < budget) {
+    final AsyncValue<T> v = read();
+    if (v is! AsyncLoading) return v;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return read();
+}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(<BookingStatus>{});
@@ -281,11 +304,16 @@ void main() {
 
       container.listen(bookingsDayProvider(query), (_, _) {});
       container.read(bookingsDayProvider(query));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      final AsyncValue<BookingsDayState> state = container.read(
-        bookingsDayProvider(query),
-      );
+      final AsyncValue<BookingsDayState> state =
+          await _settleToTerminal<BookingsDayState>(
+            () => container.read(bookingsDayProvider(query)),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<BookingsDayState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
     });
@@ -328,6 +356,71 @@ void main() {
         'morning',
         'evening',
       ]);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // QA 2026-09-17 — THE MASTER BRANCH'S `items` IS IDENTITY-STABLE TOO.
+  //
+  // `BookingsDayState` is freezed, so its generated `items` getter returns a
+  // freshly-allocated `EqualUnmodifiableListView` on EVERY access unless the
+  // stored list already is one. `PageResponse` is hand-written (see
+  // `core/network/page_response.dart`), so `page.items` is a plain `List` —
+  // which means this branch, the plainest one in the file, stored a raw list
+  // and every `state.items` read handed back a different object.
+  //
+  // Three shipped optimisations key off that identity and were all inert:
+  // `_visibleBookingsFor`'s memo, `BookingsTimelineGrid.didUpdateWidget`'s
+  // `identical(widget.bookings, oldWidget.bookings)` gate (an O(N log N)
+  // `assignLanes` plus every card's layout rides on it), and
+  // `bookingsInsideScheduleWindow`'s return-the-input contract that feeds
+  // them. `stableBookingList` (`bookings_day_state.dart`) is the fix.
+  //
+  // This is invisible to every other assertion in the repo: the wrapper's
+  // `==` is value-based, so contents compare equal either way. Only two
+  // reads of the getter compared by IDENTITY can see it.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('bookingsDayProvider — BookingsDayState.items identity', () {
+    test('two reads of state.items hand back the SAME instance — the identity '
+        'three downstream memo gates depend on', () async {
+      stubBookings(
+        _page(<Booking>[
+          _booking(id: 'a', price: 500, startAt: DateTime(2026, 7, 20, 9)),
+          _booking(id: 'b', price: 700, startAt: DateTime(2026, 7, 20, 11)),
+        ]),
+      );
+
+      final BookingsDayState state = await _containerWith(repo).read(
+        bookingsDayProvider(
+          BookingsDayQuery.of(day: DateTime(2026, 7, 20)),
+        ).future,
+      );
+
+      expect(state.items, hasLength(2));
+      expect(
+        identical(state.items, state.items),
+        isTrue,
+        reason:
+            'freezed re-wrapped a raw stored list on every read. Restore '
+            'stableBookingList(page.items) in BookingsDayNotifier — without '
+            'it BookingsTimelineGrid re-runs assignLanes and re-lays-out '
+            'every card on every rebuild, and _Loaded.build\'s vacuity '
+            'assert red-screens the salon board',
+      );
+    });
+
+    test('and an EMPTY day is stable too — the state a cold open renders '
+        'against', () async {
+      stubBookings(_page(const <Booking>[]));
+
+      final BookingsDayState state = await _containerWith(repo).read(
+        bookingsDayProvider(
+          BookingsDayQuery.of(day: DateTime(2026, 7, 20)),
+        ).future,
+      );
+
+      expect(state.items, isEmpty);
+      expect(identical(state.items, state.items), isTrue);
     });
   });
 

@@ -308,8 +308,21 @@
 // unchanged BY THIS PASS (measured, not argued — see
 // [MasterBookingCard.fullLayoutNaturalHeight], now 115dp after the
 // UNRELATED 2026-08-15 font-size pass — that later pass, not this one, is
-// what moved the number). The 42dp row, the second identity line and the
-// master name all remain out.
+// what moved the number). The 42dp row and the second identity line remain
+// out.
+//
+// THE MASTER-NAME ROW CAME BACK — OPT-IN, FOR THE HOST IT WAS ALWAYS FOR
+// (phase 343, 2026-09-19). The reasoning above is unchanged and still
+// governs every host it was written about: the row is meaningless on a
+// card rendering one master's OWN bookings, so it stays out of them. What
+// changed is that a host with teammates now exists — the salon-wide
+// «Архів» (`MasterArchiveScreen` with a `salonId`) lists the history of
+// every master in the salon in ONE list, where "whose booking was this" is
+// the row's first unanswered question. [MasterBookingCard
+// .showMasterAttribution] renders exactly the design's "Row 1b" for that
+// host and `false` for every other, so the decision above was narrowed to
+// its actual scope rather than reversed. The master's AVATAR is still out
+// — see that field's doc.
 //
 // PRICE MAY BE A FROZEN BAND — «450 ₴» OR «300–500 ₴»
 // -----------------------------------------------------------------------
@@ -490,6 +503,7 @@ class MasterBookingCard extends StatefulWidget {
     this.completing = false,
     this.onReview,
     this.now,
+    this.showMasterAttribution = false,
   }) : assert(
          onComplete == null || now != null,
          'A caller that offers «Виконано» must also supply `now` (from '
@@ -611,6 +625,58 @@ class MasterBookingCard extends StatefulWidget {
   /// startAt`. See that gate's comment for why it is asserted locally rather
   /// than trusted from [Booking.awaitingClosure] alone.
   final DateTime? now;
+
+  /// Phase 343 (the salon-wide «Архів») — an ADDITIVE, opt-in "row 1b"
+  /// naming WHICH MASTER performed the booking, rendered directly under the
+  /// client-identity row and above the hairline, on the FULL layout only.
+  ///
+  /// `false` (the default, and what EVERY call site outside
+  /// `master_archive_screen.dart`'s salon host passes) renders nothing here
+  /// — byte-identically to this widget before this field existed. The three
+  /// construction sites in `lib/`:
+  ///
+  ///   * `master_archive_screen.dart` — forwards the screen's own
+  ///     `showMasterAttribution`, which is `false` on both master hosts
+  ///     (`/master/bookings/archive`, `/staff/bookings/archive`) and `true`
+  ///     only on the salon host;
+  ///   * `widgets/declared_time_cards.dart` — passes nothing. That list is
+  ///     ONE master's own declared day;
+  ///   * `widgets/bookings_timeline_grid.dart` — passes nothing. The salon
+  ///     board already attributes by COLUMN (`MasterColumnStrip`), so a
+  ///     second in-row attribution there would be duplication, not
+  ///     information.
+  ///
+  /// ## Why this is not derived from the data scope
+  ///
+  /// `MasterArchiveScreen` keeps this flag SEPARATE from its `salonId`
+  /// (phase 343 D1) rather than deriving one from the other: deriving would
+  /// make the render shape a silent consequence of which endpoint was read,
+  /// so a future scope wanting one without the other would have to fork the
+  /// screen. Two flags, one decision each.
+  ///
+  /// ## NO AVATAR — deliberately cut from this first pass
+  ///
+  /// [Booking.masterAvatarUrl] is on the wire and an avatar would be the
+  /// richer treatment, but it drags in [_ClientAvatarMark]'s decode path
+  /// (three dedicated guard suites of its own) and real overflow risk on a
+  /// card whose full/compact boundary is pinned. A text line is the smallest
+  /// change that makes the row attributable. An avatar, if wanted, is a
+  /// SECOND additive flag in its own pass — phase 343 D2.
+  ///
+  /// ## HEIGHT — this one DOES move the naturals, and only for opted-in
+  /// callers
+  ///
+  /// Unlike [onComplete]/[onReview] (both gated on per-booking state),
+  /// this row renders unconditionally whenever the flag is `true` and the
+  /// name is non-empty, so an opted-in caller's card is taller than
+  /// [fullLayoutNaturalHeight] by [_MasterBookingCardState._kAttributionGap]
+  /// plus the row's own line box (measured 3 + 14 = 17dp at textScaler 1.0).
+  /// [fullLayoutNaturalHeight], [estimatedNaturalHeight],
+  /// [microLayoutNaturalHeight], [occupiedHeightFor] and
+  /// [fullLayoutMinHeight] are ALL unchanged and stay exact for every caller
+  /// that leaves this `false` — which is every timeline/declared-times
+  /// caller, i.e. every caller whose layout math reads them.
+  final bool showMasterAttribution;
 
   /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
   /// the derivation below) — the middle of this card's three naturals,
@@ -892,6 +958,20 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// closes that gap.
   String? _fullBodyContentCacheClientName;
 
+  /// The [MasterBookingCard.showMasterAttribution] [_fullBodyContent] was
+  /// built from — the third term of the same cache key, and load-bearing for
+  /// exactly the reason [_fullBodyContentCacheClientName] is.
+  ///
+  /// The attribution row lives INSIDE the memoized subtree (unlike the
+  /// «Виконано»/«Відгук» slots, which are built fresh outside it — see
+  /// [_buildFullBody]), because it is static content keyed on the [Booking]
+  /// like every other row in there. That makes the flag part of what the
+  /// cache renders, so a caller that flips it between rebuilds of an
+  /// otherwise-unchanged [Booking] would otherwise be served the stale
+  /// subtree AND have it skipped wholesale by Flutter's `identical()`
+  /// short-circuit in `updateChild`.
+  bool? _fullBodyContentCacheAttribution;
+
   /// The card's two decoration states, hoisted out of [build] (mobile-perf
   /// MEDIUM-4): `build()` reruns on every press
   /// (`onTapDown`/`onTapCancel`/`onTapUp` each call `setState`) and on every
@@ -937,6 +1017,21 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// the border-visibility test in `master_booking_card_test.dart`.
   static const double _kBorderAlpha = 0.38;
   static const double _kBorderWidth = 1.5;
+
+  /// The gap between row 1 (the client identity) and row 1b (the phase-343
+  /// master attribution), when the latter renders at all.
+  ///
+  /// `3`, not [VelvetSpacing.xs] (4), transcribed from the design's own
+  /// `const SizedBox(height: 3)` between those two rows
+  /// (`booking_widgets.dart:227`). It is deliberately TIGHTER than every
+  /// other vertical gap in this body (`VelvetSpacing.sm + 2` either side of
+  /// the hairline, `VelvetSpacing.xs + 2` before the price row): the
+  /// attribution belongs to the identity block above it, and a gap equal to
+  /// the block separators would have read as a fourth peer row instead of a
+  /// second line of the first one. Named rather than inlined so it appears
+  /// in the height arithmetic on
+  /// [MasterBookingCard.showMasterAttribution] by symbol.
+  static const double _kAttributionGap = 3;
 
   static final BoxDecoration _decorationUnpressed = BoxDecoration(
     color: BrandColors.base,
@@ -1375,9 +1470,11 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// (date-free — see this file's "The time is a RANGE" header section), then
   /// price + status. Only ever built once [build] has already confirmed the
   /// box is >= [_kFullLayoutMinHeight] — see this file's "Adaptive
-  /// full/compact layout" header section. Still has NO 42dp avatar ROW and NO
-  /// master-name row — see that same section's "WHAT DID NOT COME BACK", which
-  /// the 16dp inline mark does not reopen.
+  /// full/compact layout" header section. Still has NO 42dp avatar ROW — see
+  /// that same section's "WHAT DID NOT COME BACK", which neither the 16dp
+  /// inline mark nor the opt-in master-name row reopens. The MASTER-NAME row
+  /// is back, for the one host it was ever meant for, behind
+  /// [MasterBookingCard.showMasterAttribution] (`false` by default).
   Widget _buildFullBody(Booking b, String clientName, AppLocalizations l10n) {
     final Widget content = _fullBodyContent(b, clientName);
     // See [MasterBookingCard.onComplete] / [MasterBookingCard.onReview]'s
@@ -1472,12 +1569,28 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     // subtree reads, and would then silently serve STALE content the day a new
     // field is rendered here without the key being updated in lockstep. Value
     // equality over the whole freezed record cannot drift that way.
+    final bool attribute = widget.showMasterAttribution;
     final Widget? cached = _fullBodyContentCache;
     if (cached != null &&
         _fullBodyContentCacheBooking == b &&
-        _fullBodyContentCacheClientName == clientName) {
+        _fullBodyContentCacheClientName == clientName &&
+        _fullBodyContentCacheAttribution == attribute) {
       return cached;
     }
+    // Phase 343 — the master-attribution row's own text, resolved ONCE here
+    // rather than inside the `if` below so the "is there anything to show"
+    // test and the string rendered can never disagree. `masterName` is the
+    // shared `BookingDisplayX` join (`'$masterFirstName $masterLastName'
+    // .trim()`) — NOT a second hand-rolled interpolation; it is what
+    // `cancel_booking_dialog.dart` and the salon board already print.
+    //
+    // EMPTY IS A REAL CASE, not defensive padding: `booking_mapper.dart`
+    // maps both name fields through `?? ''`, so a wire row that omitted them
+    // joins to the empty string. Rendering the row anyway would print a lone
+    // muted glyph against blank space — worse than the honest absence, and
+    // it would spend 17dp of a card whose budget is already exact.
+    final String masterName = b.masterName;
+    final bool showAttribution = attribute && masterName.isNotEmpty;
     final Widget content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -1552,6 +1665,78 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             ),
           ],
         ),
+        // ROW 1b — WHICH MASTER PERFORMED IT (phase 343, opt-in). See
+        // [MasterBookingCard.showMasterAttribution].
+        //
+        // THIS IS THE DESIGN'S OWN ROW, NOT AN INVENTION. This file's
+        // "WHAT DID NOT COME BACK" header section records that the design's
+        // `BookingCard` (`docs/signup-designs/SalonManagementDesign/lib/
+        // widgets/booking_widgets.dart:226-248`, its "Row 1b") opens with a
+        // 42dp client avatar row AND a master-name row under it, and that
+        // NEITHER returns here because this card rendered the INDEPENDENT
+        // master's own bookings — "naming which teammate served the client
+        // (the master-name row's whole purpose) is meaningless". The salon
+        // archive is the first host that DOES have teammates, so this is
+        // that row arriving for its stated purpose, gated so the hosts the
+        // original reasoning covered are untouched. The 42dp avatar ROW
+        // still does not come back, and neither does a master avatar.
+        //
+        // TRANSCRIBED FROM THE DESIGN, WITH TWO DELIBERATE SUBSTITUTIONS:
+        //   * INDENT — the design offsets by its own `46 + VelvetSpacing.sm
+        //     + 2` (its 42dp avatar plus that card's wider gap). Ours is
+        //     `_ClientAvatarMark._kSize + VelvetSpacing.sm`, the identical
+        //     intent against THIS card's 16dp mark: the master's name starts
+        //     on the same x as the client's, so it reads as subordinate to
+        //     that name rather than as a new row of its own.
+        //   * GLYPH SIZE — the design's is 13dp. This body runs a documented
+        //     TWO-TIER glyph system (see row 1's comment): 16dp/accent for
+        //     the field that OWNS a row, 12dp/muted for a trailing metadata
+        //     cluster. A third size is exactly what that comment rejects, so
+        //     the design's glyph IDENTITY (`person_outline_rounded`) is kept
+        //     and its size is snapped to this card's muted tier.
+        //
+        // MUTED, NOT ACCENT, AND THAT IS THE WHOLE POINT. The card's primary
+        // identity field is the CLIENT — the person the master is scanning
+        // the row for. Rendering the performing master in the same register
+        // would give the row two competing identities. It is answering
+        // "whose booking was this", which is metadata about the row, so it
+        // takes [VelvetText.masterCardDateFull] — the FULL layout's existing
+        // muted caption recipe, the same one row 2's time range uses. No new
+        // token: a fourth 10sp muted recipe would be three tokens that must
+        // be kept in sync by hand.
+        //
+        // NOT LOCALIZED, and `no_raw_ui_strings` is unaffected: an
+        // interpolated first+last name is DATA, the same shape the salon
+        // board's own column strip already prints.
+        if (showAttribution) ...<Widget>[
+          const SizedBox(height: _kAttributionGap),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              const SizedBox(
+                width: _ClientAvatarMark._kSize + VelvetSpacing.sm,
+              ),
+              const Icon(
+                Icons.person_outline_rounded,
+                size: 12,
+                color: BrandColors.muted,
+              ),
+              const SizedBox(width: VelvetSpacing.xs),
+              // `Expanded` for the same reason row 1's name has it: an
+              // unbounded child makes `maxLines: 1` + `ellipsis` inert and
+              // lets a long name overflow instead of truncating.
+              Expanded(
+                child: Text(
+                  masterName,
+                  key: Key('master-booking-card-master-${b.id}'),
+                  style: VelvetText.masterCardDateFull,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: VelvetSpacing.sm + 2),
         // The hairline divider — its canonical role in the design is
         // separating the client-identity row above from the service/booking
@@ -1657,6 +1842,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     _fullBodyContentCache = content;
     _fullBodyContentCacheBooking = b;
     _fullBodyContentCacheClientName = clientName;
+    _fullBodyContentCacheAttribution = attribute;
     return content;
   }
 }

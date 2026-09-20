@@ -262,6 +262,7 @@ class MasterRatingReadout extends StatelessWidget {
     required this.avgRating,
     required this.reviewCount,
     this.opacity = 1.0,
+    this.compact = false,
   });
 
   /// `null` renders [MasterStrip.noRatingLabel] — never a `0.0`.
@@ -279,6 +280,21 @@ class MasterRatingReadout extends StatelessWidget {
   /// `saveLayer` per non-covering tile on screen).
   final double opacity;
 
+  /// Phase 21.12 — the roster-chip size. `false` (the default) renders exactly
+  /// what every pre-existing call site renders today: a 16dp star, the
+  /// [VelvetText.bodyStrong14] figure and a 2dp gap between them.
+  ///
+  /// `true` drops both to the salon board's roster-chip scale (an 11dp star,
+  /// [VelvetText.timelineColumnRating], a 1dp gap). ADDITIVE, so the strip's
+  /// star is still THIS widget's star — the alternative was a second, drifting
+  /// «★ 4.8» spelling inside `master_column_strip.dart`, which is exactly what
+  /// this class was extracted to prevent (see its doc above).
+  ///
+  /// [reviewCount] is still honoured when non-zero; the roster chip simply
+  /// passes `0`, because at 148dp the trailing figure must unambiguously be
+  /// the DAY'S BOOKING COUNT.
+  final bool compact;
+
   @override
   Widget build(BuildContext context) {
     final double? rating = avgRating;
@@ -289,15 +305,19 @@ class MasterRatingReadout extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        Icon(Icons.star_rounded, size: 16, color: fade(BrandColors.accent)),
-        const SizedBox(width: 2),
+        Icon(
+          Icons.star_rounded,
+          size: compact ? 11 : 16,
+          color: fade(BrandColors.accent),
+        ),
+        SizedBox(width: compact ? 1 : 2),
         Text(
           rating == null
               ? MasterStrip.noRatingLabel
               : rating.toStringAsFixed(1),
-          style: VelvetText.bodyStrong14.copyWith(
-            color: fade(BrandColors.text),
-          ),
+          style: compact
+              ? VelvetText.timelineColumnRating
+              : VelvetText.bodyStrong14.copyWith(color: fade(BrandColors.text)),
         ),
         if (reviewCount > 0) ...<Widget>[
           const SizedBox(width: 3),

@@ -1902,6 +1902,178 @@ GoRouter appRouter(Ref ref) {
           child: SalonCreateBookingScreen(salonId: state.extra! as String),
         ),
       ),
+      // Phase 344 — /salon/bookings/archive, the salon «Архів» page reached
+      // from the board header's «Архів» button.
+      //
+      // ⚠ DECLARED BEFORE the dynamic `:bookingId` sibling below, exactly
+      // like the literal `new` above it. `/salon/bookings/:bookingId` matches
+      // `/salon/bookings/archive` perfectly happily with
+      // `bookingId == 'archive'`, and go_router takes the FIRST sibling hit
+      // in declaration order — nothing about the path strings decides this.
+      // Shadowed, the request would render a `BookingDetailScreen` that
+      // fetches booking `'archive'` and fails like a backend problem.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for all three siblings.
+      //
+      // ⚠ NOT DEEP-LINKABLE — the `salonId` rides `state.extra` as a bare
+      // non-empty `String`, copying `salonStaffBookingNew`'s contract above
+      // VERBATIM (phase 344 D2), because nothing on this route's path carries
+      // it: `SalonBookingsScreen` takes its salon id by constructor from
+      // `SalonShellScreen`, and there is no `/salon/bookings` parent route to
+      // inherit a path parameter from. `extra` does not survive a cold link,
+      // so a link-in redirects to the role home rather than rendering an
+      // unscoped archive. Accepted: this screen is one tap from the board.
+      //
+      // The role gate is the EXISTING `/salon/*` prefix gate in
+      // `auth_redirect.dart` (`location.startsWith('/salon/')`, admitting
+      // SALON_OWNER + SALON_ADMIN only) — verified to be a prefix match, not
+      // an exact-path list, so this route is gated by construction and
+      // `/master/*` is NOT widened. `SALON_MASTER` is bounced here and keeps
+      // its own unchanged archive at `/staff/bookings/archive`.
+      //
+      // `showServiceFilter: false` is NOT redundant with `salonId` — phase
+      // 343 D1 keeps the two flags deliberately independent, and it defaults
+      // to `true`. Omitted, `_query` would build a salon-scoped
+      // `MasterArchiveQuery.of` with a non-empty `serviceIds` the moment the
+      // owner ticked a service, which that factory rejects with an
+      // `ArgumentError` thrown from `build`. Today an owner's
+      // `masterServiceCatalogProvider` happens to resolve empty; that is a
+      // coincidence, not a guarantee, and this flag is the actual contract.
+      //
+      // ⚠ DO NOT DELETE THIS FLAG AS DEAD. It is load-bearing BY CONTRACT and
+      // currently UNOBSERVABLE END-TO-END, which is a combination that reads
+      // like dead code and is not. Measured (phase 344 QA, 2026-09-19):
+      // `serviceRepositoryProvider` builds off `masterProfileProvider`, an
+      // owner has no master profile, so `masterServiceCatalogProvider` yields
+      // nothing — `getServicesCalls` stayed 0 under BOTH the shipped
+      // `false` and a mutated `true`. So no integration-tier arm can pin this
+      // flag, and the arm in
+      // `integration_test/salon_owner_bookings_board_flow_test.dart` is
+      // deliberately labelled a RENDER check rather than a pin.
+      //
+      // The REAL pin is at the widget tier:
+      // `test/features/booking/presentation/master_archive_screen_test.dart`
+      // («FILTER — `showServiceFilter: false` …» + the salon-scope arms
+      // around it), which drives `MasterArchiveScreen` directly with a
+      // non-empty catalogue and does reach the `ArgumentError` when the flag
+      // is flipped. Change this line and that suite is what will tell you.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` additionally
+      // asserts the value this route actually passes.
+      //
+      // `builder:` (MaterialPage), matching both master archive mounts, so
+      // the theme's `CupertinoPageTransitionsBuilder` installs the left-edge
+      // swipe-back gesture every pushed sub-route here has.
+      GoRoute(
+        path: RouteNames.salonStaffBookingsArchive,
+        redirect: (context, state) {
+          final Object? extra = state.extra;
+          if (extra is! String || extra.isEmpty) {
+            // Copied VERBATIM from `salonStaffBookingNew` above — same
+            // prefix, same `extra` contract, same role-derived landing (this
+            // route's callers are staff, not CLIENT).
+            final session = ref.read(authProvider).value;
+            return session is Authenticated
+                ? roleHomePath(session.user.role)
+                : RouteNames.login;
+          }
+          return null;
+        },
+        builder: (context, state) => MasterArchiveScreen(
+          // Both route builders keep every push from this archive inside the
+          // `/salon/*` subtree. Left null, a row tap would land on
+          // `/master/bookings/:id`, whose INDEPENDENT_MASTER-only gate bounces
+          // an owner clean out of the salon shell to `/salons/mine`.
+          detailRouteBuilder: RouteNames.salonStaffBookingDetail,
+          reviewRouteBuilder: RouteNames.salonStaffClientReview,
+          salonId: state.extra! as String,
+          showServiceFilter: false,
+          showMasterAttribution: true,
+        ),
+      ),
+      // Phase 21.12 — /salon/bookings/:bookingId. The owner/admin drill-in
+      // from the salon «Записи» board.
+      //
+      // ⚠ DECLARED AFTER the literal `new` above — and that ordering, not the
+      // path string, is the only thing that keeps `/salon/bookings/new`
+      // resolving to the wizard: this dynamic route matches it just as well,
+      // with `bookingId == 'new'`. This is the exact shadowing the `new`
+      // route's own banner (and [RouteNames.salonStaffBookingNew]'s doc)
+      // predicted a `:bookingId` sibling would create.
+      // `test/routing/salon_bookings_route_shadowing_test.dart` pins the
+      // resolved page TYPE for both.
+      //
+      // The SAME [BookingDetailScreen] the CLIENT, INDEPENDENT_MASTER and
+      // SALON_MASTER routes render; the viewer side is resolved from the
+      // session (`booking_viewer_role.dart`, locked decision D5), never from
+      // this route. It exists only because `RouteNames.bookingDetail`
+      // (`/bookings/:id`) is CLIENT-gated in `auth_redirect.dart` and bounces
+      // an owner to their role home — see that RouteName's doc.
+      //
+      // `clientReviewRouteBuilder` re-aims the ONE push that would otherwise
+      // leave the `/salon/*` subtree. It is NOT optional here — but Phase 320
+      // narrowed WHO it serves, and this comment asserted the opposite until
+      // then. `Booking.providerCanReviewClient` is computed by
+      // `BookingService#computeProviderCanReviewClient` (read at backend
+      // `a0df4cf`), whose provider-authority leg is now the SINGLE term
+      // `isPerformingMasterOfBooking(...)`; the former
+      // `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted
+      // the salon's OWNER and the assigned SALON_ADMIN whoever performed the
+      // service, is GONE. An owner or admin may still COMPLETE a booking;
+      // only the master who performed it may rate its client.
+      //
+      // So the audience is OWNER-AS-MASTER: an owner who personally performed
+      // the booking still gets the flag, and views that booking through THIS
+      // mount. Left null, their push falls through to
+      // `/master/bookings/:id/review`, whose INDEPENDENT_MASTER-only gate
+      // bounces them to `/salons/mine`. `_providerActions` in
+      // `booking_detail_screen.dart` renders the CTA ABOVE the
+      // `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
+      // suppress it either — the server flag is the only gate.
+      GoRoute(
+        path: '${RouteNames.salonStaffBookings}/:bookingId',
+        builder: (context, state) => BookingDetailScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
+          // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
+          // `widget.salonId`, carried on `extra` because NOTHING on this
+          // route's path holds it (`/salon/bookings/:bookingId`) and
+          // `BookingDetailResponse` carries no `salonId` either. Same
+          // `extra`-carries-the-salon-id contract `RouteNames
+          // .salonStaffBookingNew` already uses on this very path prefix.
+          //
+          // Defensively typed: a deep link, a browser reload or any push that
+          // omits `extra` yields `null`, which is exactly the pre-2026-09-19
+          // behaviour (the screen simply does not drop the salon dot set).
+          // Never a cast — an unexpected `extra` must not crash the route.
+          salonId: switch (state.extra) {
+            final String id when id.isNotEmpty => id,
+            _ => null,
+          },
+        ),
+      ),
+      // Phase 21.12 — /salon/bookings/:bookingId/review, «ВІДГУК ПРО КЛІЄНТА»
+      // for the OWNER-AS-MASTER viewer of the salon board (Phase 320 narrowed
+      // this from "every SALON_OWNER/SALON_ADMIN"; see the `:bookingId`
+      // route's comment above for the backend method that decides it).
+      // Mirrors the `/staff/*` twin
+      // registered further down (`salonMasterClientReview`) exactly, including
+      // its `extra`-carries-the-entry-point contract — see
+      // [RouteNames.clientReview]'s registration for why an absent or
+      // unexpected `extra` falls back to `bookingDetail`.
+      //
+      // A deeper path than the `:bookingId` route above, so the two cannot
+      // shadow each other; the literal `new` ordering constraint is unaffected
+      // (it is a `/salon/bookings` child, this is a grandchild).
+      GoRoute(
+        path: '${RouteNames.salonStaffBookings}/:bookingId/review',
+        builder: (context, state) => LeaveClientFeedbackScreen(
+          bookingId: state.pathParameters['bookingId']!,
+          entry: switch (state.extra) {
+            final ClientReviewEntry entry => entry,
+            _ => ClientReviewEntry.bookingDetail,
+          },
+        ),
+      ),
       // Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
       // Registered as a STANDALONE top-level route carrying the SAME full
       // path [RouteNames.clientReview] resolves to

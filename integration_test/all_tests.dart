@@ -152,7 +152,9 @@ import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
+import 'salon_archive_flow_test.dart' as salon_archive;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
+import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
@@ -166,6 +168,8 @@ import 'salon_master_services_target_flow_test.dart'
 import 'salon_owner_unassign_master_service_flow_test.dart'
     as salon_owner_unassign_master_service;
 import 'salon_master_bookings_nav_flow_test.dart' as salon_master_bookings_nav;
+import 'salon_owner_bookings_board_flow_test.dart'
+    as salon_owner_bookings_board;
 import 'salon_master_client_review_flow_test.dart'
     as salon_master_client_review;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
@@ -535,6 +539,20 @@ void main() {
   // isolation reaching the wire) — registered beside `salon_booking_flow`,
   // whose confirm/success screens and fixtures it shares.
   group('salon_booking_pager_flow', salon_booking_pager.main);
+  // Phase 341 (mobile-qa, Step 2.7 Rule 3b) — the salon multi-service
+  // walk-in wizard, end to end, for BOTH SALON_OWNER and SALON_ADMIN: pick
+  // three services -> the wire request carries all three assignment ids, in
+  // order -> the done step renders all three server items. Proves the
+  // cardinality regression phases 335-340 closed (the deleted
+  // `_primaryService` shim used to send exactly one).
+  group('salon_create_booking_flow', salon_create_booking.main);
+  // Phase 345 — the SALON «Архів» end to end: one
+  // `GET /bookings/salon/{id}?partition=HISTORY`, zero `/bookings/me`, two
+  // masters attributed apart, an elapsed unclosed CONFIRMED row present and an
+  // UPCOMING one absent, «Відгук» following the server flag, real page-1
+  // paging off the salon endpoint, both admitted roles, and SALON_MASTER
+  // bounced while keeping its own `/staff/bookings/archive`.
+  group('salon_archive_flow', salon_archive.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.
@@ -570,6 +588,9 @@ void main() {
   // absent — and on into the SAME `MasterArchiveScreen`. Registered beside
   // `salon_master_schedule_nav_flow`, the direct sibling this flow mirrors.
   group('salon_master_bookings_nav_flow', salon_master_bookings_nav.main);
+  // Phase 21.12 — the SALON_OWNER's «Записи» board, the sibling journey to
+  // the SALON_MASTER one above.
+  group('salon_owner_bookings_board_flow', salon_owner_bookings_board.main);
   group('salon_master_client_review_flow', salon_master_client_review.main);
   // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
   // journey: real post-login landing dispatch onto `/staff/profile`, a real
