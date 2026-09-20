@@ -22,6 +22,28 @@ import '../../../../helpers/pump_app.dart';
 /// Asserts the shell's avatar is the shared RRect badge, not a circle — the
 /// Impeller-GLES box-shadow safety invariant, checked structurally here so the
 /// shell can never route an avatar through a broken circle path.
+///
+/// ## A FIELD READ IS THE RIGHT CHECK HERE, AND IT WAS REVIEWED (LOW-8,
+/// 2026-09-20)
+///
+/// The LOW-8 sweep converted several `border.top.width` / `icon.size` /
+/// `divider.color` assertions to rasterised ones, because those asked "does
+/// the user SEE this" and a configuration read cannot answer that. This one is
+/// NOT that shape, on two counts, so it stays as written:
+///
+///   * The question is genuinely about CONFIGURATION. `BoxShape.circle` and
+///     `BoxShape.rectangle + borderRadius` rasterize to the SAME disc — the
+///     defect is not visible at all under Skia, and under Impeller-GLES it
+///     manifests as a hard white square only when a blurred `BoxShadow` is
+///     ALSO present. "Which shape enum did this decoration take" is the
+///     failure's actual cause and the only thing a stable assertion can name.
+///   * The pixel side already has a dedicated guard:
+///     `impeller_circle_shadow_guard_test.dart`. Duplicating it here would add
+///     a second place for the same claim to drift.
+///
+/// What this check is really pinning is composition — that the shell routes
+/// its avatar through [MasterAvatarBadge] rather than drawing one itself — and
+/// the `findsOneWidget` above is the load-bearing half of that.
 void _expectImpellerSafeAvatar(WidgetTester tester) {
   expect(find.byType(MasterAvatarBadge), findsOneWidget);
   final Container avatarBox = tester.widget<Container>(

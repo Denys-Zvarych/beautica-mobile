@@ -39,7 +39,11 @@ import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
+import 'package:beautica_mobile/features/booking/application/salon_board_refresh_gate.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
+    show kSalonBookingsNavTab;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -953,6 +957,26 @@ void main() {
       );
       addTearDown(container.dispose);
 
+      // AUDIT LOW-4 (2026-09-20) — this group models a walk-in created FROM
+      // the board, which means the shell is standing on «Записи». Since the
+      // fix, `invalidateBookingViewsAfterBookingCreated` reads that index and
+      // DEFERS the board-scoped half when it is any other tab, so a container
+      // that left `salonShellProvider` at its default 0 would now be
+      // asserting the deferred path while claiming to assert the live one.
+      // Held live by a listener because the provider is `autoDispose`.
+      // The NOT-selected case is covered by its own group at the bottom of
+      // this file.
+      for (final String id in const <String>[kSalonUnderTest, kOtherSalon]) {
+        final ProviderSubscription<int> shell = container.listen(
+          salonShellProvider(id),
+          (_, _) {},
+        );
+        addTearDown(shell.close);
+        container
+            .read(salonShellProvider(id).notifier)
+            .select(kSalonBookingsNavTab);
+      }
+
       for (final String id in const <String>[kSalonUnderTest, kOtherSalon]) {
         final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
             .listen(
@@ -1711,6 +1735,285 @@ void main() {
         ),
         2,
         reason: 'the watched member refetches on the ordinary flush',
+      );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // AUDIT LOW-4 (2026-09-20, user-directed) — the board's share of the
+  // booking-created fan-out is DEFERRED while «Записи» is not the selected
+  // tab, and REPLAYED when it becomes one.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // THE DEFECT. `salon_shell_screen.dart` hosts the board in a plain
+  // `IndexedStack`, which sets neither `Offstage` nor `TickerMode` on its
+  // non-current children, so the board's `Consumer`s stay ACTIVE while the
+  // owner stands on «Салон» or «Профіль» — and every `ref.invalidate` aimed at
+  // them genuinely refetched, against the backend's per-user 60/min budget,
+  // with nothing on screen.
+  //
+  // WHAT THIS TEST MUST NOT MEASURE. The rejected fix was to pause or drop the
+  // board's watch; an autoDispose provider invalidated with only PAUSED
+  // listeners is DISPOSED rather than refreshed, and `invalidate` retains
+  // `.value`, so a test that gated on `value == null` would sail straight
+  // through that bug. So the "still alive" half below asserts on
+  // `ProviderContainer.exists` and on the ELEMENT's own `AsyncValue` — never
+  // on a null value.
+  //
+  // FIXTURE SHAPE is inherited wholesale from the group above (REUSE-FIRST):
+  // the board's real live member is FILTERED (non-null `masterId` + the
+  // day-list default status set), because a gate written against a naive
+  // `masterId: null` literal is inert the moment the owner filters anything.
+  group('audit LOW-4 — the created-booking fan-out is deferred while the '
+      'board tab is not selected', () {
+    const String kSalon = 'salon-1';
+    const String kBoardMaster = 'master-7';
+
+    /// «Салон» — the shell's default, and NOT the board.
+    const int kSalonNavTab = 0;
+
+    // future-date-ok: bare family key; no `isPast`/`hasStarted` predicate and
+    // no wall-clock read is reachable from this group, so it cannot expire.
+    final DateTime day = DateTime(2026, 7, 20);
+
+    BookingsDayQuery board({String salonId = kSalon}) =>
+        BookingsDayQuery.salonDayList(
+          day: day,
+          salonId: salonId,
+          masterId: kBoardMaster,
+        );
+
+    Future<
+      ({
+        ProviderContainer container,
+        _SalonCountingRepository repo,
+        Map<String, int> salonDotFetches,
+        void Function(void Function(WidgetRef ref)) fire,
+      })
+    >
+    pumpProbe(WidgetTester tester, {required int navTab}) async {
+      final _SalonCountingRepository repo = _SalonCountingRepository();
+      final Map<String, int> salonDotFetches = <String, int>{};
+      late WidgetRef captured;
+
+      await tester.pumpApp(
+        Scaffold(
+          body: Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) {
+              captured = ref;
+              return const SizedBox(key: Key('probe'));
+            },
+          ),
+        ),
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          // Overridden rather than left real, for the reason stated on every
+          // sibling group: the production bodies park a 30-minute keepAlive
+          // `Timer` that `flutter_test` fails on at teardown. The salon one
+          // COUNTS here — it is half of what "board-scoped calls" means.
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          salonBookedDaysProvider.overrideWith((ref, String id) async {
+            salonDotFetches[id] = (salonDotFetches[id] ?? 0) + 1;
+            return <DateTime>{};
+          }),
+        ],
+      );
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('probe'))),
+        listen: false,
+      );
+      await container.read(authProvider.future);
+
+      // THE VISIBILITY SIGNAL UNDER TEST — the shell's own selected nav index,
+      // the same `int` its `IndexedStack` indexes on. Held live by a listener
+      // because it is `autoDispose`; `select` then puts the owner on the tab
+      // this run is about. NOTHING here touches the board's listeners.
+      final ProviderSubscription<int> shell = container.listen(
+        salonShellProvider(kSalon),
+        (_, _) {},
+      );
+      addTearDown(shell.close);
+      container.read(salonShellProvider(kSalon).notifier).select(navTab);
+      expect(container.read(salonShellProvider(kSalon)), navTab);
+
+      return (
+        container: container,
+        repo: repo,
+        salonDotFetches: salonDotFetches,
+        fire: (void Function(WidgetRef ref) run) => run(captured),
+      );
+    }
+
+    /// Holds [query] live for the whole test — a watched, ACTIVE board member,
+    /// exactly as the `IndexedStack`-hosted screen leaves it on every tab.
+    Future<void> watch(ProviderContainer c, BookingsDayQuery query) async {
+      final ProviderSubscription<AsyncValue<BookingsDayState>> sub = c.listen(
+        bookingsDayProvider(query),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await c.read(bookingsDayProvider(query).future);
+    }
+
+    /// Holds the salon's day-dot member live too, so an invalidation of it is
+    /// OBSERVABLE as a refetch rather than a silent drop.
+    Future<void> watchDots(ProviderContainer c) async {
+      final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = c.listen(
+        salonBookedDaysProvider(kSalon),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await c.read(salonBookedDaysProvider(kSalon).future);
+    }
+
+    // MUTATION LOG (observed 2026-09-20, against the pre-fix tree restored by
+    // `cp` from a backup — never `git checkout`): with
+    // `invalidateBookingViewsAfterBookingCreated` reverted to its
+    // unconditional form, THIS test FAILED on both counts (2 day-list fetches
+    // and 2 dot fetches, expected 1 and 1). The two tests below it stayed
+    // green, which is exactly right: they pin the behaviour the fix must NOT
+    // change.
+    testWidgets('a create while «Салон» is selected issues ZERO board-scoped '
+        'calls — neither the board\'s day list nor its day dots refetch', (
+      tester,
+    ) async {
+      final probe = await pumpProbe(tester, navTab: kSalonNavTab);
+      await watch(probe.container, board());
+      await watchDots(probe.container);
+      expect(
+        probe.repo.callsFor(salonId: kSalon, day: day, masterId: kBoardMaster),
+        1,
+        reason:
+            'sanity: one fetch for the live board member before the '
+            'fan-out',
+      );
+      expect(probe.salonDotFetches[kSalon], 1, reason: 'sanity');
+
+      probe.container.read(_createdFanOutProvider)(kSalon);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        probe.repo.callsFor(salonId: kSalon, day: day, masterId: kBoardMaster),
+        1,
+        reason:
+            'THE FIX: the board is not the selected tab, so its day list must '
+            'not be re-fetched at all — not eagerly, and not on the flush',
+      );
+      expect(
+        probe.salonDotFetches[kSalon],
+        1,
+        reason:
+            'the salon day-dot member is board-scoped too and is deferred '
+            'with it',
+      );
+    });
+
+    testWidgets('…and the board provider is STILL ALIVE afterwards — the '
+        'deferral changes no listener state', (tester) async {
+      final probe = await pumpProbe(tester, navTab: kSalonNavTab);
+      await watch(probe.container, board());
+      await watchDots(probe.container);
+      final BookingsDayState before = probe.container
+          .read(bookingsDayProvider(board()))
+          .requireValue;
+
+      probe.container.read(_createdFanOutProvider)(kSalon);
+      await tester.pump();
+      await tester.pump();
+
+      // NOT `value == null` — `invalidate` retains `.value`, so that predicate
+      // is satisfied by the dispose bug it is supposed to catch. These three
+      // are the honest questions: does an ELEMENT still exist, is it in a
+      // settled data state, and is it the same data.
+      expect(
+        probe.container.exists(bookingsDayProvider(board())),
+        isTrue,
+        reason:
+            'the board element must survive an off-screen create — the whole '
+            'reason the rejected pause/`visible:` shape was not used',
+      );
+      final AsyncValue<BookingsDayState> after = probe.container.read(
+        bookingsDayProvider(board()),
+      );
+      expect(after, isA<AsyncData<BookingsDayState>>());
+      expect(after.requireValue, same(before));
+      expect(
+        probe.container.exists(salonBookedDaysProvider(kSalon)),
+        isTrue,
+        reason: 'and so must its day-dot member',
+      );
+    });
+
+    testWidgets('a create while «Записи» IS selected refetches exactly as it '
+        'does today — the visible path is untouched', (tester) async {
+      final probe = await pumpProbe(tester, navTab: kSalonBookingsNavTab);
+      await watch(probe.container, board());
+      await watchDots(probe.container);
+
+      probe.container.read(_createdFanOutProvider)(kSalon);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        probe.repo.callsFor(salonId: kSalon, day: day, masterId: kBoardMaster),
+        2,
+        reason:
+            'no behaviour change on the visible path — the owner is standing '
+            'on the board and must see the booking they just made',
+      );
+      expect(probe.salonDotFetches[kSalon], 2);
+      expect(
+        probe.container.read(salonBoardRefreshGateProvider).isStale(kSalon),
+        isFalse,
+        reason: 'nothing was deferred, so nothing is owed',
+      );
+    });
+
+    testWidgets('the deferred refresh is REPLAYED when «Записи» becomes the '
+        'selected tab — postponed, never dropped', (tester) async {
+      final probe = await pumpProbe(tester, navTab: kSalonNavTab);
+      await watch(probe.container, board());
+      await watchDots(probe.container);
+
+      probe.container.read(_createdFanOutProvider)(kSalon);
+      await tester.pump();
+      expect(
+        probe.container.read(salonBoardRefreshGateProvider).isStale(kSalon),
+        isTrue,
+        reason: 'the skipped fan-out records what it owes',
+      );
+
+      // What `SalonShellScreen._onNavSelected` does on a «Записи» tap.
+      probe.container
+          .read(salonShellProvider(kSalon).notifier)
+          .select(kSalonBookingsNavTab);
+      probe.fire((WidgetRef ref) => drainSalonBoardRefresh(ref, kSalon));
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        probe.repo.callsFor(salonId: kSalon, day: day, masterId: kBoardMaster),
+        2,
+        reason:
+            'the board refetches on RETURN — the deferral must not cost the '
+            'owner a stale board, only a later refresh',
+      );
+      expect(probe.salonDotFetches[kSalon], 2);
+      expect(
+        probe.container.read(salonBoardRefreshGateProvider).isStale(kSalon),
+        isFalse,
+        reason: 'takeStale clears as it reads, so a second tap replays nothing',
+      );
+
+      // A second drain is a genuine no-op, not a second refetch.
+      probe.fire((WidgetRef ref) => drainSalonBoardRefresh(ref, kSalon));
+      await tester.pump();
+      expect(
+        probe.repo.callsFor(salonId: kSalon, day: day, masterId: kBoardMaster),
+        2,
       );
     });
   });

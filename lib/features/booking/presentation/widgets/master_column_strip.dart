@@ -422,6 +422,21 @@ class StripScrollIndicator extends StatelessWidget {
   static final Color _trackColor = BrandColors.faint.withValues(alpha: 0.45);
   static final BorderRadius _radius = BorderRadius.circular(2);
 
+  /// The two painted boxes, hoisted OUT of the per-tick builder (mobile-perf
+  /// LOW, 2026-09-20).
+  ///
+  /// Neither depends on the scroll position, so allocating a fresh
+  /// `DecoratedBox` + `BoxDecoration` pair on every scroll notification was
+  /// pure garbage; worse, a fresh instance is never `identical` to the last
+  /// one, so `Element.updateChild` could not skip either subtree. As `static
+  /// final` singletons they are the same instance every tick.
+  static final Widget _track = DecoratedBox(
+    decoration: BoxDecoration(color: _trackColor, borderRadius: _radius),
+  );
+  static final Widget _thumb = DecoratedBox(
+    decoration: BoxDecoration(color: BrandColors.accent, borderRadius: _radius),
+  );
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -432,7 +447,11 @@ class StripScrollIndicator extends StatelessWidget {
           builder: (BuildContext context, BoxConstraints constraints) {
             return AnimatedBuilder(
               animation: controller,
-              builder: (BuildContext context, Widget? _) {
+              // `child:` hoist — handed straight back below, so the thumb's
+              // own element is preserved across every tick and only its
+              // TRANSFORM changes.
+              child: _thumb,
+              builder: (BuildContext context, Widget? thumbChild) {
                 if (!controller.hasClients) return const SizedBox.shrink();
                 final ScrollPosition position = controller.position;
                 if (!position.hasContentDimensions ||
@@ -455,24 +474,25 @@ class StripScrollIndicator extends StatelessWidget {
                     (track - thumb);
                 return Stack(
                   children: <Widget>[
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: _trackColor,
-                          borderRadius: _radius,
-                        ),
-                      ),
-                    ),
+                    Positioned.fill(child: _track),
+                    // `Positioned(left: 0)` + `Transform.translate`, NOT
+                    // `Positioned(left: left)`. The thumb moves once per
+                    // scroll notification, and `left` is parent data — writing
+                    // it marks the `Stack` for RELAYOUT every tick, for a box
+                    // whose size never changes. A transform is a PAINT-only
+                    // change (`Transform` does not participate in layout), so
+                    // the same movement costs a layer offset instead of a
+                    // layout pass. `width` stays a `Positioned` field because
+                    // it genuinely changes only when the viewport or the
+                    // content extent does — never on scroll.
                     Positioned(
-                      left: left,
+                      left: 0,
                       width: thumb,
                       top: 0,
                       bottom: 0,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: BrandColors.accent,
-                          borderRadius: _radius,
-                        ),
+                      child: Transform.translate(
+                        offset: Offset(left, 0),
+                        child: thumbChild,
                       ),
                     ),
                   ],

@@ -77,6 +77,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../../helpers/pixel_census.dart';
 import '../../../../helpers/pump_app.dart';
 
 // future-date-ok: fixed PAST Kyiv day; colour-only assertions, no isPast.
@@ -127,18 +128,31 @@ Future<void> _pump(
   List<TimelineBoardColumn> columns,
 ) async {
   await tester.pumpApp(
-    Padding(
-      // Same fixture the day-off column test pins — 360dp viewport, 12dp
-      // padding resolves to a 148dp column / 6dp gutter / 7dp nudge.
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: BookingsTimelineGrid(
-        bookings: <Booking>[
-          for (final TimelineBoardColumn c in columns) ...c.bookings,
-        ]..sort((Booking a, Booking b) => a.startAt.compareTo(b.startAt)),
-        day: _day,
-        onBookingTap: (_) {},
-        density: TimelineDensity.salon,
-        columns: columns,
+    // ADDITIVE WRAPPER (LOW-8, 2026-09-20) — a census boundary plus the
+    // production ground, so the one assertion in this file that is genuinely
+    // about a PIXEL (the gutter divider's rendered tint) can rasterize. Both
+    // wrappers are layout pass-throughs, so every widget-walking assertion
+    // below sees exactly the tree it always did; `_boardFills` still finds
+    // the same `ColoredBox`es because it searches under
+    // `BookingsTimelineGrid`, which is inside the wrapper.
+    RepaintBoundary(
+      key: kCensusBoundary,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          // Same fixture the day-off column test pins — 360dp viewport, 12dp
+          // padding resolves to a 148dp column / 6dp gutter / 7dp nudge.
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: BookingsTimelineGrid(
+            bookings: <Booking>[
+              for (final TimelineBoardColumn c in columns) ...c.bookings,
+            ]..sort((Booking a, Booking b) => a.startAt.compareTo(b.startAt)),
+            day: _day,
+            onBookingTap: (_) {},
+            density: TimelineDensity.salon,
+            columns: columns,
+          ),
+        ),
       ),
     ),
     width: 360,
@@ -363,6 +377,51 @@ void main() {
       expect(_channel8(divider.r), lessThan(_channel8(base.r)));
       expect(_channel8(divider.g), lessThan(_channel8(base.g)));
       expect(_channel8(divider.b), lessThan(_channel8(base.b)));
+
+      // ── AND IT ACTUALLY PAINTS (LOW-8, 2026-09-20) ────────────────────
+      //
+      // Everything above this point reads a WIDGET FIELD, which this file's
+      // header is explicit about: a divider configured correctly and then
+      // overpainted, clipped, or drawn under an `Opacity` keeps every one of
+      // those assertions green. One rasterised sample closes that for the
+      // divider specifically, through the same
+      // `RenderRepaintBoundary.toImage()` recipe
+      // `salon_bookings_board_pixel_census_test.dart` uses (promoted to
+      // `test/helpers/pixel_census.dart` so neither file owns a private copy).
+      //
+      // TOTAL INK down a horizontal band, not one sample: the divider is 1dp
+      // wide at a `columnPitch − gutter / 2` offset that need not land on a
+      // pixel boundary, so summing `base − pixel` across a band wider than
+      // the rule is the coverage-independent reading.
+      final Raster raster = await rasterize(tester);
+      final Rect dividerRect = tester.getRect(
+        find.byKey(const ValueKey<String>('timeline-column-divider-1')),
+      );
+      final double y = dividerRect.center.dy;
+      double ink(int Function((int, int, int)) pick, int baseChannel) {
+        double total = 0;
+        for (
+          double x = dividerRect.left - 2;
+          x < dividerRect.left + 3;
+          x += 1
+        ) {
+          total += baseChannel - pick(raster.at(x, y));
+        }
+        return total;
+      }
+
+      expect(
+        ink((c) => c.$1, _channel8(base.r)),
+        closeTo(_channel8(base.r) - _channel8(divider.r), 2),
+        reason:
+            'the gutter divider must actually rasterize as accent@0.16 over '
+            'base — a divider that paints nothing reads ~0 ink here while '
+            'every field read above stays green',
+      );
+      expect(
+        ink((c) => c.$3, _channel8(base.b)),
+        closeTo(_channel8(base.b) - _channel8(divider.b), 2),
+      );
 
       // Two working masters, no day-off wash, no band: the divider is the
       // whole separation story on this board.

@@ -29,6 +29,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
+    show kSalonBookingsNavTab;
 
 import '../domain/booking_tab.dart';
 import '../domain/bookings_day_query.dart';
@@ -37,6 +40,7 @@ import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
 import 'master_archive_notifier.dart';
 import 'my_bookings_notifier.dart';
+import 'salon_board_refresh_gate.dart';
 
 /// Invalidates every cached master-facing booking view after an external
 /// write declined [declinedBookingIds], scoped to the calendar days
@@ -159,6 +163,12 @@ void invalidateBookingViewsAfterExternalDecline(
       BookingsDayQuery.of(day: day),
     ]) {
       final bool wasPinned = lru.contains(affectedQuery);
+      // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
+      // `lru.contains` answers "does an element already exist for this
+      // hand-built key" BEFORE the invalidate, and the conditional
+      // `ref.read` below re-touches the keepAlive link synchronously, so the
+      // disposal `invalidateSelf()` queues against a zero-listener pinned
+      // element is cancelled before the scheduler can run it.
       ref.invalidate(bookingsDayProvider(affectedQuery));
       if (wasPinned) {
         ref.read(bookingsDayProvider(affectedQuery));
@@ -338,6 +348,8 @@ void invalidateBookingViewsAfterProviderClose(
     BookingsDayQuery.of(day: affectedDate),
   ]) {
     final bool wasPinned = lru.contains(affectedQuery);
+    // keepalive-safe: same wasPinned + eager-read idiom as the two sites
+    // above — see them for the full reasoning.
     ref.invalidate(bookingsDayProvider(affectedQuery));
     if (wasPinned) {
       ref.read(bookingsDayProvider(affectedQuery));
@@ -491,11 +503,70 @@ void invalidateBookingViewsAfterProviderClose(
 /// `bookings_day_notifier.dart`'s header ("What the queued refresh does and
 /// does NOT guarantee") for the full mechanism.
 ///
+/// ## THE SALON BOARD'S SHARE OF THIS FAN-OUT IS DEFERRED WHILE ITS TAB IS
+/// NOT SELECTED (audit LOW-4, FIXED 2026-09-20 at the user's direction)
+///
+/// `salon_shell_screen.dart` hosts the board in a plain `IndexedStack`, which
+/// sets neither `Offstage` nor `TickerMode` on its non-current children. So
+/// the board's `Consumer`s stay ACTIVE (not paused) while the owner is on
+/// another tab, and this fan-out used to genuinely re-fetch for them with
+/// nothing on screen: the [SalonDayQuery] members of [bookingsDayProvider]
+/// keyed on this salon, plus [salonBookedDaysProvider] — up to 4 calls
+/// against the backend's per-user 60/min budget, once per CREATE.
+///
+/// THE FIX CHANGES NO LISTENER STATE. The tempting shape — hand the board a
+/// `visible:` flag (the shell already does exactly that for slot 2) and drop
+/// the watch when it is false — remains REJECTED, and for the reason it
+/// always was: it converts an active listener into a paused or absent one,
+/// and an autoDispose provider invalidated with ONLY PAUSED listeners is
+/// DISPOSED outright rather than refreshed, while `invalidate` retains
+/// `.value` so nothing downstream can gate on `value == null` to notice. The
+/// board would come back to a bare `AsyncLoading` and a lost scroll position.
+///
+/// What moved is the DISPATCH, not the subscription. This function reads the
+/// shell's own selected tab ([salonShellProvider], the same `int` the
+/// `IndexedStack` indexes on) at fan-out time; when it is not
+/// [kSalonBookingsNavTab] the board-scoped half of the fan-out is skipped and
+/// the salon is marked on [salonBoardRefreshGateProvider] instead.
+/// `SalonShellScreen._onNavSelected` calls [drainSalonBoardRefresh] the moment
+/// «Записи» becomes the selected tab, which replays exactly the invalidations
+/// that were skipped. The board is therefore as correct on return as it was
+/// before — one refetch later rather than one refetch earlier — while an owner
+/// who never opens «Записи» pays nothing.
+///
+/// Nothing about the MASTER-scoped half changes: [MasterOwnDayQuery] members
+/// and [bookedDaysProvider] are invalidated unconditionally, exactly as
+/// before, because no board visibility question applies to them.
+///
+/// Reading [salonShellProvider] from here is not a layering violation: it
+/// lives in `salon/application/`, the same layer as this file, and this file
+/// already reaches cross-feature into `home/application/` for the same kind of
+/// reason. If no shell is mounted the family member builds its default 0,
+/// which is "«Салон», not «Записи»" — the correct answer, since a board that
+/// is not mounted is certainly not visible.
+///
 /// Cycle-safe: neither target watches, even transitively,
 /// `masterCreateBookingProvider`, so this closes no back-edge.
 void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
+  // Read ONCE, before the loop: one `ref.read` of the shell's index, not one
+  // per live query. `salonId == null` is the independent master's own create,
+  // which has no board to defer for at all.
+  final bool boardVisible =
+      salonId != null &&
+      ref.read(salonShellProvider(salonId)) == kSalonBookingsNavTab;
+
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final BookingsDayQuery query in lru.liveQueries) {
+    // AUDIT LOW-4 — the board-scoped members, skipped while «Записи» is not
+    // the selected tab and replayed by [drainSalonBoardRefresh] when it
+    // becomes one. Narrowed by sealed VARIANT and by `salonId` so another
+    // salon's board, and every master-scoped member, are untouched.
+    if (salonId != null &&
+        !boardVisible &&
+        query is SalonDayQuery &&
+        query.salonId == salonId) {
+      continue;
+    }
     // FIX (mobile-debugger, this track) — `lru.contains(query)` here was
     // TAUTOLOGICAL: every `query` in `liveQueries` is drawn from the exact
     // same `_links` key set `contains` checks, so it could never read
@@ -514,6 +585,12 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
     // class this function exists to close, see
     // `master_create_booking_pin_race_test.dart`).
     final bool isGenuinelyOrphaned = !lru.isWatched(query);
+    // keepalive-safe: the ENUMERATED variant of the same idiom — the key came
+    // from `lru.liveQueries`, so `contains` would be tautological and
+    // `isWatched` (backed by real onAddListener/onRemoveListener tracking in
+    // `BookingsDayNotifier.build`) is the honest gate. A genuinely
+    // zero-listener pinned member still gets the eager read that cancels the
+    // queued disposal; a paused-but-watched one is left to Riverpod.
     ref.invalidate(bookingsDayProvider(query));
     if (isGenuinelyOrphaned) {
       ref.read(bookingsDayProvider(query));
@@ -521,8 +598,48 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
   }
   ref.invalidate(bookedDaysProvider);
   if (salonId != null) {
-    ref.invalidate(salonBookedDaysProvider(salonId));
+    if (boardVisible) {
+      ref.invalidate(salonBookedDaysProvider(salonId));
+    } else {
+      // Nothing was dropped — it was POSTPONED. See the doc's LOW-4 section.
+      ref.read(salonBoardRefreshGateProvider).markStale(salonId);
+    }
   }
+}
+
+/// Replays the board-scoped invalidations that
+/// [invalidateBookingViewsAfterBookingCreated] skipped while the salon
+/// «Записи» tab was not selected — see that function's LOW-4 section for the
+/// whole mechanism and for why this is a deferral rather than a drop.
+///
+/// Called from `SalonShellScreen._onNavSelected` when the owner/admin selects
+/// [kSalonBookingsNavTab], and a no-op (not even a provider read past the
+/// gate) on every other tap and on every selection where nothing was deferred.
+/// [SalonBoardRefreshGate.takeStale] clears as it reads, so a second tap on an
+/// already-selected «Записи» replays nothing.
+///
+/// Safe to call before the board has ever been mounted: the [DayKeepAliveLru]
+/// then holds no [SalonDayQuery] for this salon and [salonBookedDaysProvider]
+/// has no element, so both halves are no-ops and the freshly-mounted board
+/// fetches for itself.
+void drainSalonBoardRefresh(WidgetRef ref, String salonId) {
+  if (!ref.read(salonBoardRefreshGateProvider).takeStale(salonId)) return;
+
+  // REUSE-FIRST — the existing salon day-list helper, with `affectedDays`
+  // left off to mean "every live day of this salon's board". Deferral is not
+  // day-scoped (a create can land on any day the board has cached), so there
+  // is no day set to pass and no second enumeration to write.
+  _invalidateSalonDayLists(
+    ref,
+    lru: ref.read(dayKeepAliveLruProvider),
+    salonId: salonId,
+  );
+  // keepalive-safe: `salonBookedDaysProvider` is a `keepAlive` SINGLETON per
+  // salon, not a family member watched through local mutable state, so the
+  // key-swap-on-a-still-mounted-screen precondition this gate exists for
+  // cannot arise. Identical call, identical reasoning, to the one in
+  // `invalidateBookingViewsAfterBookingCreated` that this replays.
+  ref.invalidate(salonBookedDaysProvider(salonId));
 }
 
 /// Drops the master's own «Мої записи» day-calendar cache for
@@ -668,6 +785,12 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
       BookingsDayQuery.of(day: day),
     ]) {
       final bool wasPinned = lru.contains(affectedQuery);
+      // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
+      // `lru.contains` answers "does an element already exist for this
+      // hand-built key" BEFORE the invalidate, and the conditional
+      // `ref.read` below re-touches the keepAlive link synchronously, so the
+      // disposal `invalidateSelf()` queues against a zero-listener pinned
+      // element is cancelled before the scheduler can run it.
       ref.invalidate(bookingsDayProvider(affectedQuery));
       if (wasPinned) {
         ref.read(bookingsDayProvider(affectedQuery));
@@ -738,7 +861,7 @@ void _invalidateSalonDayLists(
   WidgetRef ref, {
   required DayKeepAliveLru lru,
   required String salonId,
-  required Set<DateTime> affectedDays,
+  Set<DateTime>? affectedDays,
 }) {
   for (final BookingsDayQuery liveQuery in lru.liveQueries) {
     if (liveQuery is! SalonDayQuery) continue;
@@ -747,7 +870,13 @@ void _invalidateSalonDayLists(
     // `kyivDayOf(...)` / `dateOnly(toBeauticaTime(...))`, and
     // `BookingsDayQuery.salonOf` truncates its own `day` the same way — so
     // `Set.contains` compares like for like.
-    if (!affectedDays.contains(liveQuery.day)) continue;
+    // `null` means EVERY live day of this salon's board — the shape
+    // [drainSalonBoardRefresh] needs, since a deferred create is not
+    // day-scoped. Additive: both pre-existing callers still pass a set and
+    // still filter by it exactly as before.
+    if (affectedDays != null && !affectedDays.contains(liveQuery.day)) {
+      continue;
+    }
 
     final bool isGenuinelyOrphaned = !lru.isWatched(liveQuery);
     // keepalive-safe: the enumerate → isWatched → eager-read idiom this

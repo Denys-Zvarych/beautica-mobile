@@ -11,6 +11,8 @@
 //   connectionTimeout | connectionError | sendTimeout
 //                                         → NetworkFailure(mayHaveReachedServer: false)
 //   receiveTimeout    → NetworkFailure(mayHaveReachedServer: true)
+//   HTTP 429 on a salon-board read route
+//                                         → SalonBoardRateLimitedFailure
 //   HTTP 401          → UnauthorizedFailure
 //   HTTP 404          → NotFoundFailure
 //   HTTP 409          → ServerFailure(statusCode: 409)
@@ -196,6 +198,49 @@ final class ErrorMapperInterceptor extends Interceptor {
               path.endsWith('/auth/reset-password') ||
               path.endsWith('/auth/verify-password-reset-otp'))) {
         return PasswordResetRateLimitedFailure(cause: err);
+      }
+
+      // Backend PR #130 — the SALON BOARD's shared per-user 60/min read
+      // budget. Four routes, ONE budget, one typed failure:
+      //
+      //   GET /bookings/salon/{salonId}                       (the day board)
+      //   GET /bookings/salon/{salonId}?partition=HISTORY     («Архів»)
+      //   GET /bookings/salon/{salonId}/booked-days           (the rail dots)
+      //   GET /salons/{salonId}/masters/effective-schedule    (working hours)
+      //
+      // WHY THE MAPPING MUST LIVE HERE AND NOT IN THE REPOSITORIES. Both
+      // repositories already carry a `badResponse → ServerFailure(429)` arm,
+      // and it is UNREACHABLE on the wired chain: this interceptor runs LAST
+      // (`dio_provider.dart`) and re-rejects with a DioException whose `error`
+      // IS the mapped Failure, while every repository mapper opens with
+      // `if (e.error is Failure) return e.error as Failure;`. Measured through
+      // the real `dioProvider`, not read statically — see
+      // `test/core/network/salon_board_429_contract_test.dart`, which is what
+      // settled two audits that disagreed about it.
+      //
+      // CONTAINS, not `endsWith` — unlike every path test above this one, the
+      // matched segment is followed by a path PARAMETER (and, for booked-days,
+      // a further literal), so a suffix match cannot express it. Both patterns
+      // are anchored on a leading slash and a literal the app owns, so they
+      // stay immune to `AppConfig.baseUrl` prefix drift exactly as the suffix
+      // matches above do.
+      //
+      // The WRITE routes under `/bookings/...` are deliberately NOT matched:
+      // they keep their own typed 429 ([BookingRateLimitedFailure]) mapped by
+      // the booking repository, and widening this branch to swallow them would
+      // change what a create/cancel surfaces.
+      if (statusCode == 429 &&
+          (path.contains('/bookings/salon/') ||
+              path.contains('/masters/effective-schedule'))) {
+        return SalonBoardRateLimitedFailure(
+          // The SAME resolver every other throttle here uses — header first,
+          // `data.retryAfterSeconds` second, [kMaxUxCooldownSeconds] ceiling.
+          // Deliberately NOT a second parser: `HttpScheduleRepository` and
+          // `ServiceRepository` each have a private copy of this logic, and a
+          // third would be a third thing to drift.
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
+          cause: err,
+        );
       }
 
       if (statusCode == 401) {

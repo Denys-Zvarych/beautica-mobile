@@ -549,6 +549,273 @@ void main() {
   // AUDIT H2 / M1 (2026-09-16) — horizontal culling, and a scroll extent that
   // is a FLOOR rather than a frozen textScaler-1.0 estimate.
   // ═════════════════════════════════════════════════════════════════════════
+  // ── VERTICAL culling on the board — the SAFETY invariant ────────────────
+  //
+  // WHAT THIS REPLACED, AND WHY (2026-09-20, after the mobile-debugger's
+  // measurement). The previous version of this test pinned that *the band's
+  // boundary moved* when the board was given a tighter slack. That was the
+  // wrong shape twice over:
+  //
+  //   • It measured a surface that does not exist. It pumped the grid BARE —
+  //     a `Padding` in a 600dp harness with no `SalonShellScreen`, app bar,
+  //     tab bar, day rail or filter row — which gave its scroller a 536dp
+  //     viewport. The SHIPPING board attaches `_scrollController` to the
+  //     INNER scroller, beneath the roster strip and inside the horizontal
+  //     one, where the real figure is 174dp: 3.1x smaller. Its
+  //     "discriminating" card was a 17:00 booking at `plannedTop` 672, deep
+  //     off-screen on either slack, so it never touched the region where a
+  //     card a user must actually reach lives.
+  //   • "the boundary moved" is self-referential — band versus viewport, true
+  //     at ANY slack — and says nothing about whether a reachable card is
+  //     still in the tree. The integration flow caught what this could not,
+  //     for one structural reason worth writing down: SEVEN assertions in
+  //     `integration_test/salon_owner_bookings_board_flow_test.dart` look a
+  //     booking up by key WITHOUT first scrolling it into view, which makes
+  //     every one of them an implicit cull-band assertion on the real board.
+  //
+  // The band is NOT inert here, and never was — see `bookings_timeline_grid
+  // .dart`'s `_columnCullingBand` for the numbers. At the shared
+  // `_kWindowSlack` (0.5) the band is 254dp against 924dp of an 11-hour day,
+  // so ~73 % of it already culls at rest. The non-vacuity half below asserts
+  // exactly that, so "vertical culling contributes nothing on the board" can
+  // never be re-raised from this file either.
+  group('the board never culls a card the user can reach (cull-band safety)', () {
+    List<TimelineBoardColumn> tallColumns() => <TimelineBoardColumn>[
+      for (int m = 0; m < 2; m++)
+        TimelineBoardColumn(
+          header: _entry('m$m', 'Майстер $m', 12),
+          bookings: <Booking>[
+            for (int h = 9; h < 21; h++)
+              _booking(id: 'v$m-$h', masterId: 'm$m', hour: h),
+          ],
+        ),
+    ];
+
+    /// The chrome the SHIPPING «Записи» screen stacks above the grid — app
+    /// bar, day rail, filter row — as one opaque spacer.
+    ///
+    /// 362 is not a guess and not a fraction: it is the height at which the
+    /// grid's INNER vertical scroller measures **174.0dp** on the 800x600
+    /// `flutter-tester` surface, which is the figure the mobile-debugger
+    /// measured on the real board in `salon_owner_bookings_board_flow_test`.
+    /// The grid's own roster strip accounts for the remaining 64dp
+    /// (600 - 362 - 64 = 174). Pinning the CHROME rather than shrinking the
+    /// whole harness keeps `MediaQuery.sizeOf(context).height` at 600, exactly
+    /// as on the real screen — which matters, because that seed is precisely
+    /// what the falsified "the vertical band is inert" finding mistook for the
+    /// scroller's viewport.
+    const double kBoardChromeHeight = 362;
+
+    /// Pumps the grid under [kBoardChromeHeight] of stand-in chrome and
+    /// returns the board's own vertical `ScrollableState`.
+    Future<ScrollableState> pumpBoard(WidgetTester tester) async {
+      final List<TimelineBoardColumn> cols = tallColumns();
+      await tester.pumpApp(
+        Column(
+          children: <Widget>[
+            const SizedBox(height: kBoardChromeHeight),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: BookingsTimelineGrid(
+                  bookings:
+                      <Booking>[
+                        for (final TimelineBoardColumn c in cols) ...c.bookings,
+                      ]..sort(
+                        (Booking a, Booking b) =>
+                            a.startAt.compareTo(b.startAt),
+                      ),
+                  day: _day,
+                  onBookingTap: (_) {},
+                  density: TimelineDensity.salon,
+                  columns: cols,
+                ),
+              ),
+            ),
+          ],
+        ),
+        width: 360,
+        height: 600,
+      );
+      // TWO pumps. The real viewport HEIGHT is only readable from the
+      // post-frame callback after the frame that laid the scroller out, so
+      // frame 1 still runs on the `MediaQuery`-seeded over-estimate and culls
+      // nothing. Frame 2 is the one that matters — and it is the frame on
+      // which a too-tight slack drops a midday card out of the tree.
+      await tester.pump();
+      await tester.pump();
+      return tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(BookingsTimelineGrid),
+              matching: find.byType(Scrollable),
+            )
+            .last,
+      );
+    }
+
+    testWidgets('PRECONDITION: the harness reproduces the shipping board\'s '
+        'vertical viewport, not the screen height', (
+      WidgetTester tester,
+    ) async {
+      final ScrollableState scrollable = await pumpBoard(tester);
+      final double viewport = scrollable.position.viewportDimension;
+
+      // Everything in the test below is a MULTIPLE of this number, so a
+      // harness that drifts off the real screen measures a fiction. The band
+      // is deliberately generous (the real screen varies with text scale and
+      // with whether the filter row is showing) but nowhere near the 536dp the
+      // bare-grid harness produced, nor the ~635dp `MediaQuery` seed.
+      expect(
+        viewport,
+        inInclusiveRange(150, 250),
+        reason:
+            'the board attaches its scroll controller to the INNER scroller, '
+            'under the roster strip and inside the horizontal one — the real '
+            'figure measured on `salon_owner_bookings_board_flow_test` is '
+            '174dp on an 800x600 surface. A harness outside this band is not '
+            'measuring the board.',
+      );
+      expect(
+        scrollable.position.pixels,
+        0,
+        reason:
+            'the invariant below is stated at REST; a scrolled harness would '
+            'need the offset folded into the reachable range',
+      );
+    });
+
+    testWidgets('every card within one card-height of the viewport is LIVE — '
+        'and the band still culls the rest of the day', (
+      WidgetTester tester,
+    ) async {
+      final ScrollableState scrollable = await pumpBoard(tester);
+      final double viewport = scrollable.position.viewportDimension;
+      final double offset = scrollable.position.pixels;
+
+      // A CONTENT-relative margin, deliberately NOT a viewport fraction: the
+      // thing that must never be culled is a card a user can reach, and the
+      // unit a card is measured in is its own height. One hour of ruler at
+      // salon density is 84dp, which is exactly one full-hour card.
+      const double guaranteedMargin = 84; // TimelineDensity.salon.hourHeight
+      expect(guaranteedMargin, TimelineDensity.salon.hourHeight);
+      final double reachable = offset + viewport + guaranteedMargin;
+
+      int liveChecked = 0;
+      int culledBeyond = 0;
+      for (int h = 9; h < 21; h++) {
+        // The grid's own floored-hour origin arithmetic: the day starts at
+        // 09:00, so the card for hour `h` is planned at `(h - 9) * hourHeight`.
+        final double plannedTop = (h - 9) * TimelineDensity.salon.hourHeight;
+        final Finder card = find.byKey(ValueKey<String>('timeline-card-v0-$h'));
+        final Finder culled = find.byKey(
+          ValueKey<String>('timeline-card-culled-v0-$h'),
+        );
+        if (plannedTop <= reachable) {
+          liveChecked++;
+          expect(
+            card,
+            findsOneWidget,
+            reason:
+                'THE SAFETY INVARIANT: the $h:00 card is planned at '
+                '${plannedTop}dp, inside the reachable range '
+                '[$offset, $reachable] (viewport ${viewport}dp + one '
+                '${guaranteedMargin}dp card), so it must be a REAL card. '
+                'MUTATION-VERIFIED: narrowing the board\'s vertical slack to '
+                '0.25 turns this RED on the 12:00 card — which is exactly the '
+                'regression the two `salon_owner_bookings_board_flow_test` '
+                'assertions caught and this test could not, before it was '
+                'rewritten onto the real viewport.',
+          );
+          expect(
+            culled,
+            findsNothing,
+            reason: 'a reachable card must not be a placeholder either',
+          );
+        } else if (culled.evaluate().isNotEmpty) {
+          culledBeyond++;
+        }
+      }
+
+      expect(
+        liveChecked,
+        greaterThanOrEqualTo(4),
+        reason:
+            'harness precondition: the fixture must actually POPULATE the '
+            'reachable range, or every assertion above is vacuous',
+      );
+      // NON-VACUITY, and the falsification of "the vertical band is inert at
+      // salon density" in one line: the band genuinely ends above the content,
+      // so the deep end of an 11-hour day IS culled at rest.
+      expect(
+        culledBeyond,
+        greaterThanOrEqualTo(4),
+        reason:
+            'the shared 0.5 slack gives a 254dp band against 924dp of an '
+            '11-hour day — ~73 % of it culls at rest. If this ever reads 0, '
+            'vertical culling really has gone inert and the band, not the '
+            'safety margin, is what needs looking at.',
+      );
+    });
+
+    testWidgets('a culled card reserves EXACTLY the height it would have '
+        'occupied — nothing below it moves', (WidgetTester tester) async {
+      final List<TimelineBoardColumn> cols = tallColumns();
+      await tester.pumpApp(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: BookingsTimelineGrid(
+            bookings: <Booking>[
+              for (final TimelineBoardColumn c in cols) ...c.bookings,
+            ]..sort((Booking a, Booking b) => a.startAt.compareTo(b.startAt)),
+            day: _day,
+            onBookingTap: (_) {},
+            density: TimelineDensity.salon,
+            columns: cols,
+          ),
+        ),
+        width: 360,
+        height: 600,
+      );
+      await tester.pump();
+      await tester.pump();
+
+      // A live card and a culled one, one hour apart in the same column, must
+      // be exactly one hour of ruler apart on screen. That is what makes the
+      // placeholder's height a real substitute rather than a guess — the
+      // whole reason ADDENDUM 6 culls only BELOW the band.
+      final Rect live = tester.getRect(
+        find.byKey(const ValueKey<String>('timeline-card-v0-9')),
+      );
+      final Rect culledFirst = tester.getRect(
+        find
+            .byWidgetPredicate(
+              (Widget w) =>
+                  w is SizedBox &&
+                  w.key == const ValueKey<String>('timeline-card-culled-v0-20'),
+            )
+            .first,
+      );
+      // 20:00 is culled at either slack, which is exactly what this second
+      // test wants: it is about the PLACEHOLDER's geometry, not about where
+      // the band's edge falls.
+      expect(
+        culledFirst.top - live.top,
+        closeTo(11 * TimelineDensity.salon.hourHeight, 1.0),
+        reason:
+            '09:00 → 20:00 is 11 hours of ruler; a placeholder that reserved '
+            'the wrong height would shift every card below it',
+      );
+      expect(
+        culledFirst.width,
+        closeTo(live.width, 0.01),
+        reason:
+            'the placeholder must be as WIDE as a live card too, or the lane '
+            'collapses and drags its neighbours sideways',
+      );
+    });
+  });
+
   group('the board culls columns horizontally (audit H2)', () {
     /// Ten masters, each with a full working day, on the 360dp baseline where
     /// only ~2 columns fit. This is the shape the finding measured: 110 cards

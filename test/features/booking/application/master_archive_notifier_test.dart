@@ -102,6 +102,31 @@ PageResponse<Booking> _page(
   totalElements: items.length,
 );
 
+/// Waits until [read] stops returning an `AsyncLoading` — i.e. until the
+/// provider has reached a TERMINAL state.
+///
+/// M12: `beauticaProviderRetry` (which these containers install for real, on
+/// purpose) gives a transient `NetworkFailure` one automatic re-attempt with
+/// ~200 ms of backoff. During that window Riverpod's state is
+/// `AsyncLoading(error: …, retrying: true)` — runtime type `AsyncLoading`,
+/// but `hasError == true` and `error` already holding the real failure. A
+/// fixed short delay therefore samples the MID-RETRY state, and any test
+/// asserting only `hasError`/`error` passes without ever reaching the
+/// terminal `AsyncError` it claims to prove. Measured 2026-09-20: three such
+/// tests in this track were being satisfied mid-retry.
+Future<AsyncValue<T>> _settleToTerminal<T>(
+  AsyncValue<T> Function() read, {
+  Duration budget = const Duration(seconds: 2),
+}) async {
+  final Stopwatch sw = Stopwatch()..start();
+  while (sw.elapsed < budget) {
+    final AsyncValue<T> v = read();
+    if (v is! AsyncLoading) return v;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return read();
+}
+
 ProviderContainer _container(
   _MockBookingRepository repo, {
   List<Object> extraOverrides = const <Object>[],
@@ -1002,11 +1027,15 @@ void main() {
 
       c.listen(masterArchiveProvider(MasterArchiveQuery.of()), (_, _) {});
       c.read(masterArchiveProvider(MasterArchiveQuery.of()));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-
-      final AsyncValue<MasterArchiveState> state = c.read(
-        masterArchiveProvider(MasterArchiveQuery.of()),
-      );
+      final AsyncValue<MasterArchiveState> state =
+          await _settleToTerminal<MasterArchiveState>(
+            () => c.read(masterArchiveProvider(MasterArchiveQuery.of())),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<MasterArchiveState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
     });
@@ -1300,9 +1329,15 @@ void main() {
           .read(masterArchiveProvider(MasterArchiveQuery.of()).notifier)
           .markClientReviewed('a');
 
-      final AsyncValue<MasterArchiveState> state = c.read(
-        masterArchiveProvider(MasterArchiveQuery.of()),
-      );
+      final AsyncValue<MasterArchiveState> state =
+          await _settleToTerminal<MasterArchiveState>(
+            () => c.read(masterArchiveProvider(MasterArchiveQuery.of())),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<MasterArchiveState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
       expect(

@@ -3563,4 +3563,300 @@ void main() {
       },
     );
   });
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // mobile-qa (2026-09-20) — LOAD-MORE RETRY STORM on the raw ScrollController
+  //
+  // `_onScroll` (`master_archive_screen.dart:421-429`) fires `loadMore()` on
+  // EVERY scroll notification whose position is within `_loadMoreThreshold`
+  // (320 px) of the bottom, gated only on `_hasMore && !_isLoadingMore` —
+  // both of which are mirrored off the async snapshot in `build()`
+  // (`:880-881`).
+  //
+  // `MasterArchiveNotifier.loadMore`'s failure arm
+  // (`master_archive_notifier.dart:506-510`) writes
+  // `copyWith(isLoadingMore: false)` and deliberately leaves `hasMore`
+  // untouched — so a FAILED page re-opens the gate while the position is
+  // still past the threshold. The next scroll notification re-fires, fails,
+  // re-opens, and so on: an unbounded fetch storm against a backend that is
+  // very often failing precisely because it is rate-limiting this user
+  // (backend PR #130 put a shared 60/min budget on this exact route).
+  //
+  // WHY THE EXISTING COVERAGE MISSES IT. `master_archive_notifier_test.dart`
+  // has «a FAILED salon load-more leaves the already-rendered list intact and
+  // clears isLoadingMore» (:1730) and its «mine» twin (:713), but both call
+  // `loadMore()` ONCE and neither asserts on `hasMore` afterwards. Every
+  // load-more test in THIS file drives the notifier directly through
+  // `ProviderContainer` (see the date-group-header test above, which says so
+  // explicitly) — so `_onScroll` itself, the component that actually decides
+  // HOW MANY times `loadMore()` is called, has never been driven by a real
+  // gesture in either tier.
+  //
+  // COUNTING IS AT THE REPOSITORY, not at the notifier: the notifier's
+  // in-flight guard collapses same-frame re-entry, so a notifier-level call
+  // count would under-report. What costs the user (and the limiter) is
+  // round-trips, and that is what `pageOneAttempts` counts.
+  group('load-more retry storm (raw ScrollController re-arm)', () {
+    late int pageOneAttempts;
+
+    /// Page 0 lands with enough rows to overflow the 800x600 test viewport
+    /// and reports `hasMore`; every page past it FAILS, for ever.
+    void stubFailingSecondPage() {
+      pageOneAttempts = 0;
+      when(
+        () => repo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          partition: any(named: 'partition'),
+          serviceIds: any(named: 'serviceIds'),
+          sort: any(named: 'sort'),
+          page: any(named: 'page'),
+        ),
+      ).thenAnswer((Invocation invocation) async {
+        final int page = invocation.namedArguments[#page] as int;
+        if (page > 0) {
+          pageOneAttempts++;
+          // ASYNC throw, not `thenThrow`. A synchronous throw would resolve
+          // before the notifier's `state = AsyncData(isLoadingMore: true)`
+          // had a frame to be observed, which is not how a real Dio failure
+          // arrives and would change the re-arm timing under test.
+          throw const NetworkFailure();
+        }
+        return PageResponse<Booking>(
+          items: <Booking>[
+            for (int i = 0; i < 12; i++)
+              _booking(id: 'p0-$i', status: BookingStatus.completed),
+          ],
+          page: 0,
+          totalPages: 4,
+          totalElements: 40,
+        );
+      });
+    }
+
+    /// Drags the list to its bottom and keeps it there for [frames] frames —
+    /// the shape of a user who has hit the end of the list and is still
+    /// nudging it, which is exactly when `_onScroll` re-fires.
+    Future<void> holdAtBottom(WidgetTester tester, {int frames = 12}) async {
+      final Finder scrollable = find.byType(Scrollable).first;
+      // A single large drag lands the position past the 320 px threshold.
+      await tester.drag(scrollable, const Offset(0, -4000));
+      for (int i = 0; i < frames; i++) {
+        // fixed-wait-ok: this is not waiting FOR anything — it is ADVANCING
+        // the physics simulation one display frame at a time, because the
+        // quantity under measurement IS "fetches per frame of overscroll
+        // settle". `pumpUntilFound` would defeat the measurement outright:
+        // there is no awaited state to appear, and pumping until one did
+        // would make the frame count (and therefore the storm size) depend on
+        // machine speed. 16 ms is the frame period, not a guess at a
+        // duration.
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    // ── CLAMPING (Android / Linux / Windows — the shipping defaults) ──
+    //
+    // GREEN today, and it is NOT a formality: it is the control that makes
+    // the iOS measurement below mean something. `ClampingScrollPhysics`
+    // parks the position exactly at `maxScrollExtent`, so the controller
+    // stops notifying and the re-arm has nothing to fire it. One failed
+    // fetch per NEW gesture — survivable.
+    testWidgets(
+      'clamping physics: a failed load-more costs exactly one fetch per '
+      'gesture',
+      (WidgetTester tester) async {
+        stubFailingSecondPage();
+        await pump(tester);
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0-0')));
+
+        await holdAtBottom(tester);
+
+        // POSITIVE CONTROL first: without this, a harness where the drag
+        // never crossed the threshold (a viewport too tall, a scrollable
+        // that never overflowed) would pass the bound assertion below
+        // vacuously, having issued ZERO attempts.
+        expect(
+          pageOneAttempts,
+          greaterThanOrEqualTo(1),
+          reason:
+              'harness precondition: the gesture must actually cross '
+              '_loadMoreThreshold and fire loadMore at least once',
+        );
+
+        expect(
+          pageOneAttempts,
+          1,
+          reason:
+              'under clamping physics the position comes to rest AT '
+              'maxScrollExtent, so the controller stops notifying and the '
+              're-arm never fires again. A regression that made even this '
+              'configuration storm must turn this RED.',
+        );
+      },
+    );
+
+    // ── BOUNCING (iOS — a live target: `beautica-mobile/ios/` exists, and
+    //    `BouncingScrollPhysics` is named explicitly in 12+ lib/ screens) ──
+    //
+    // The archive list is `AlwaysScrollableScrollPhysics()` with NO parent
+    // (`master_archive_screen.dart:965,971,1025,1051,1084`), so `applyTo`
+    // chains it onto whatever the ambient `ScrollConfiguration` supplies —
+    // bouncing on iOS. An overscroll bounce keeps the position CHANGING for
+    // the whole settle, so `_onScroll` fires on every one of those frames,
+    // and each failed `loadMore` re-opens the gate before the next.
+    //
+    // MEASURED on this branch (2026-09-20, flutter-tester 800x600, page 1
+    // failing with NetworkFailure):
+    //     one drag-to-bottom ................  12 fetches
+    //     one fling .........................  109 fetches
+    //     four flings .......................  556 fetches
+    //     ~10 gestures total ................  687 fetches
+    // Against backend PR #130's shared 60/min per-user budget, a single
+    // flick spends the user's entire minute — and the 429 that follows maps
+    // to `UnknownFailure` with `Retry-After` discarded
+    // (`test/core/network/salon_board_429_contract_test.dart`), so the
+    // screen cannot even render a cooldown. The two defects compound.
+    //
+    // UN-SKIPPED AND GREEN (2026-09-20). This was the ACCEPTANCE GATE for the
+    // mobile-security HIGH on `master_archive_screen.dart:420-429`; the fix
+    // is `MasterArchiveState.retryNotBefore`, consulted by BOTH
+    // `_MasterArchiveScreenState._onScroll` and
+    // `MasterArchiveNotifier.loadMore`, so a failed page parks the tail for
+    // `kLoadMoreFailureBackoff` (or the server's own `Retry-After`) instead
+    // of re-arming itself once per frame. Measured RED at 12 before the fix
+    // and 1 after, with the clamping control above still green.
+    testWidgets(
+      'bouncing physics: a failed load-more must not re-arm a fetch storm '
+      'during the overscroll settle',
+      (WidgetTester tester) async {
+        // Cleared inside the BODY, not via `addTearDown`:
+        // `TestWidgetsFlutterBinding._verifyInvariants` runs
+        // `debugAssertAllFoundationVarsUnset` at the end of the test body,
+        // BEFORE tear-downs, so an `addTearDown` reset fails the test with
+        // "the value of a foundation debug variable was changed by the test"
+        // even when everything under assertion passed. (Found the moment this
+        // test was un-skipped — it had never actually run.) `try/finally` so
+        // a failed expectation still restores it for the next test.
+        debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+        try {
+          stubFailingSecondPage();
+          await pump(tester);
+          await tester.pumpUntilFound(
+            find.byKey(const ValueKey<String>('p0-0')),
+          );
+
+          await holdAtBottom(tester);
+
+          expect(
+            pageOneAttempts,
+            greaterThanOrEqualTo(1),
+            reason:
+                'harness precondition: the gesture must cross '
+                '_loadMoreThreshold at least once',
+          );
+          expect(
+            pageOneAttempts,
+            lessThanOrEqualTo(2),
+            reason:
+                'a failed page must not re-arm itself once per frame. '
+                '`loadMore`\'s catch arm clears isLoadingMore and leaves '
+                'hasMore true, so every scroll notification past the '
+                'threshold re-fires the same failing fetch for the whole '
+                'bounce settle. Fix by remembering the failure (a cooldown '
+                'deadline cleared by a landed page / refresh / filter '
+                'change), not by clearing hasMore — clearing hasMore also '
+                'kills the «Завантажити ще» affordance.',
+          );
+        } finally {
+          debugDefaultTargetPlatformOverride = null;
+        }
+      },
+    );
+
+    testWidgets(
+      'the notifier leaves hasMore true after a failed load-more — the '
+      're-arm mechanism, pinned at its source',
+      (WidgetTester tester) async {
+        stubFailingSecondPage();
+        await pump(tester);
+        await tester.pumpUntilFound(find.byKey(const ValueKey<String>('p0-0')));
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(MasterArchiveScreen)),
+        );
+        final MasterArchiveQuery query = MasterArchiveQuery.of(
+          statuses: const <BookingStatus>{},
+          serviceIds: const <String>{},
+        );
+
+        await container.read(masterArchiveProvider(query).notifier).loadMore();
+        await tester.pump();
+
+        final MasterArchiveState after = container
+            .read(masterArchiveProvider(query))
+            .requireValue;
+
+        expect(pageOneAttempts, 1, reason: 'exactly one page-1 round trip');
+        expect(
+          after.isLoadingMore,
+          isFalse,
+          reason: 'the spinner must clear — existing, unchanged behaviour',
+        );
+        // THIS is what makes `_onScroll`\'s gate re-open. Asserted here, at
+        // the notifier, so a fix that bounds the storm in the SCREEN still
+        // documents the notifier contract it is compensating for — and a fix
+        // that instead clears `hasMore` turns this RED and must say so.
+        expect(
+          after.hasMore,
+          isTrue,
+          reason:
+              'GROUND TRUTH: the failure arm leaves hasMore untouched, which '
+              'is precisely what re-opens _onScroll\'s gate. If a fix clears '
+              'it here instead, update this and the storm test together.',
+        );
+
+        // ── THE FAILURE IS NOW REMEMBERED (updated with the fix, 2026-09-20)
+        //
+        // This block used to assert the OPPOSITE — `pageOneAttempts == 2`,
+        // "nothing in the notifier remembers that page 1 just failed" — and
+        // that was the DEFECT stated as ground truth, not a contract worth
+        // keeping. `MasterArchiveState.retryNotBefore` is the memory: a
+        // failed page parks the tail for `kLoadMoreFailureBackoff` (or the
+        // server's own `Retry-After` on a `SalonBoardRateLimitedFailure`), so
+        // an immediate identical call is a no-op at the NOTIFIER, not merely
+        // at the screen's scroll listener. The two assertions above are
+        // unchanged and still green: `hasMore` stays `true` (the
+        // «Завантажити ще» affordance survives) and the spinner still clears.
+        expect(
+          after.retryNotBefore,
+          isNotNull,
+          reason:
+              'the failure arm must record a cooldown deadline — that is what '
+              'both _onScroll and loadMore consult',
+        );
+        expect(
+          // The screen's own clock is un-overridden in this harness, so the
+          // deadline was built from `DateTime.now` too — one clock, both
+          // halves. The question asked is "is this deadline still in the
+          // future", which no zone conversion changes; no calendar DAY is
+          // resolved here, so `kyivToday` would be the wrong tool.
+          // instant-ok: an absolute-instant comparison against a deadline.
+          after.isRetryBlockedAt(DateTime.now()),
+          isTrue,
+          reason:
+              'the recorded deadline must actually be in the future right '
+              'after the failure, or the gate is inert',
+        );
+
+        await container.read(masterArchiveProvider(query).notifier).loadMore();
+        await tester.pump();
+        expect(
+          pageOneAttempts,
+          1,
+          reason:
+              'the notifier remembers that page 1 just failed, so an '
+              'identical call inside the cooldown must NOT re-issue it',
+        );
+      },
+    );
+  });
 }

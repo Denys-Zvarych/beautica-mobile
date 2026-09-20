@@ -58,6 +58,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
+    show kSalonBookingsNavTab;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -2658,6 +2661,23 @@ void _passAGroup() {
             );
         addTearDown(sub.close);
         await container.read(salonBookedDaysProvider(id).future);
+
+        // AUDIT LOW-4 (2026-09-20) — the salon walk-in wizard is opened FROM
+        // the board, so in production the shell is standing on «Записи» when
+        // this fan-out fires. Since the fix,
+        // `invalidateBookingViewsAfterBookingCreated` reads that index and
+        // DEFERS the board-scoped half for any other tab, so a harness that
+        // left `salonShellProvider` at its default 0 would assert the deferred
+        // path while claiming to assert the live one. The NOT-selected case has
+        // its own group in `booking_calendar_invalidation_test.dart`.
+        final ProviderSubscription<int> shell = container.listen(
+          salonShellProvider(id),
+          (_, _) {},
+        );
+        addTearDown(shell.close);
+        container
+            .read(salonShellProvider(id).notifier)
+            .select(kSalonBookingsNavTab);
       }
       expect(
         salonDotFetches,

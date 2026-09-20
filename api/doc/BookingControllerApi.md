@@ -422,6 +422,8 @@ No authorization required
 
 List the salon's booked days (owner/admin)
 
+Distinct local (Europe/Kyiv) days on which this salon has at least one booking, ascending. Range REQUIRED; span capped at 366 inclusive days. The shipped mobile client requests 361 days (today +/- 180), so this ceiling is a frozen contract - see BookingService#getSalonBookedDays. Filter-independent: no status/serviceId/masterId parameter.
+
 ### Example
 ```dart
 import 'package:beautica_api/api.dart';
@@ -429,7 +431,7 @@ import 'package:beautica_api/api.dart';
 final api = BeauticaApi().getBookingControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
 final Date from = 2013-10-20; // Date | Range start (inclusive), local Europe/Kyiv day. Required.
-final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required.
+final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required. The span `[from, to]` is at most 366 inclusive days; wider is a 400.
 
 try {
     final response = api.listSalonBookedDays(salonId, from, to);
@@ -445,7 +447,7 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **salonId** | **String**|  | 
  **from** | **Date**| Range start (inclusive), local Europe/Kyiv day. Required. | 
- **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. | 
+ **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. The span `[from, to]` is at most 366 inclusive days; wider is a 400. | 
 
 ### Return type
 

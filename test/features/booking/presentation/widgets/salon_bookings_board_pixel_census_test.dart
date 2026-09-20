@@ -90,9 +90,6 @@
 // Recorded by mobile-qa in the audit that authored this file; see the report
 // for the observed RED/GREEN transitions.
 
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -102,9 +99,9 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_d
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../../helpers/pixel_census.dart';
 import '../../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -246,60 +243,14 @@ void _noop(Booking _) {}
 // Raster
 // ---------------------------------------------------------------------------
 
-/// A captured frame plus the global-coordinate origin it was captured at, so
-/// a rect measured with `tester.getRect` can be read straight out of it.
-class _Raster {
-  const _Raster(this.px, this.width, this.height, this.origin);
-
-  final Uint8List px;
-  final int width;
-  final int height;
-  final Offset origin;
-
-  bool contains(int x, int y) => x >= 0 && y >= 0 && x < width && y < height;
-
-  /// The opaque RGB triple at GLOBAL logical position ([gx], [gy]).
-  ///
-  /// `devicePixelRatio` is pinned to 1 by `pumpApp(width:)` and `toImage`'s
-  /// default `pixelRatio` is 1, so one image pixel IS one logical pixel and
-  /// no scaling is folded in here.
-  (int, int, int) at(double gx, double gy) {
-    final int x = (gx - origin.dx).round();
-    final int y = (gy - origin.dy).round();
-    expect(
-      contains(x, y),
-      isTrue,
-      reason: 'sample ($gx, $gy) fell outside the captured frame',
-    );
-    final int i = (y * width + x) * 4;
-    return (px[i], px[i + 1], px[i + 2]);
-  }
-}
-
-Future<_Raster> _rasterize(WidgetTester tester) async {
-  final RenderRepaintBoundary boundary = tester
-      .renderObject<RenderRepaintBoundary>(find.byKey(_kBoundary));
-
-  late final ByteData? raw;
-  late final int w;
-  late final int h;
-  await tester.runAsync(() async {
-    final ui.Image image = await boundary.toImage();
-    w = image.width;
-    h = image.height;
-    raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    image.dispose();
-  });
-
-  final ByteData? bytes = raw;
-  expect(bytes, isNotNull, reason: 'the board boundary must rasterize');
-  return _Raster(
-    bytes!.buffer.asUint8List(),
-    w,
-    h,
-    tester.getTopLeft(find.byKey(_kBoundary)),
-  );
-}
+// PROMOTED, not owned here (LOW-8, 2026-09-20). `Raster`/`_rasterize` used to
+// live in this file as private helpers. The audit that reviewed this branch
+// found the same blind spot they close — assertions that read a widget FIELD
+// and can never see what rasterized — in several other tests, so rather than
+// copy the mechanism a second time it was moved to
+// `test/helpers/pixel_census.dart` and this file now imports it. The class
+// gained `colorsIn`/`dominantIn` for those callers; `at()` is byte-identical
+// to the version this file authored, and every assertion below is unchanged.
 
 // ---------------------------------------------------------------------------
 // Geometry, read back off the real render
@@ -452,7 +403,7 @@ double _cleanRow(_BoardGeometry g, double lo, double hi, String what) {
 /// gutter and a few pixels into the NEIGHBOURING column. Insetting keeps this
 /// run measuring column [index]'s own background.
 void _expectRowIsBase(
-  _Raster r,
+  Raster r,
   _BoardGeometry g,
   int index,
   double y,
@@ -510,7 +461,7 @@ void main() {
           await tester.pumpAndSettle();
 
           final _BoardGeometry g = _geometry(tester);
-          final _Raster r = await _rasterize(tester);
+          final Raster r = await rasterize(tester, boundary: _kBoundary);
 
           // Columns 0 and 2 run the same two bookings, so ONE gap row and ONE
           // below-the-last-card row are clean in both — and in the empty
@@ -562,7 +513,7 @@ void main() {
           await tester.pumpAndSettle();
 
           final _BoardGeometry g = _geometry(tester);
-          final _Raster r = await _rasterize(tester);
+          final Raster r = await rasterize(tester, boundary: _kBoundary);
 
           const int baseR = 0xE6;
           const int baseG = 0xDD;
@@ -626,7 +577,7 @@ void main() {
           await tester.pumpAndSettle();
 
           final _BoardGeometry g = _geometry(tester);
-          final _Raster r = await _rasterize(tester);
+          final Raster r = await rasterize(tester, boundary: _kBoundary);
 
           final Rect second = g.cards[1];
           final double row = _cleanRow(

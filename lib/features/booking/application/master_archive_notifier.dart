@@ -138,7 +138,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/booking_providers.dart';
@@ -151,8 +153,15 @@ import '../domain/master_archive_query.dart';
 
 part 'master_archive_notifier.g.dart';
 
+/// Sentinel for [MasterArchiveState.copyWith]'s nullable [retryNotBefore]:
+/// `copyWith(retryNotBefore: null)` has to mean "CLEAR the cooldown", which a
+/// plain `?? this.x` idiom cannot express. Compare-by-identity, so no real
+/// value can ever collide with it.
+const Object _kUnset = Object();
+
 /// Immutable snapshot of the archive's accumulated, already-filtered
-/// bookings + paging cursor. Mirrors `MyBookingsState`.
+/// bookings + paging cursor. Mirrors `MyBookingsState`, plus the one field
+/// that shape does not carry — [retryNotBefore].
 @immutable
 class MasterArchiveState {
   const MasterArchiveState({
@@ -160,6 +169,7 @@ class MasterArchiveState {
     required this.page,
     required this.hasMore,
     this.isLoadingMore = false,
+    this.retryNotBefore,
   });
 
   /// The VISIBLE bookings accumulated so far — already narrowed by the
@@ -178,20 +188,97 @@ class MasterArchiveState {
   /// flight.
   final bool isLoadingMore;
 
+  /// THE FAILURE MEMORY (mobile-security HIGH, 2026-09-20). The instant before
+  /// which no further [MasterArchiveNotifier.loadMore] may be issued, or
+  /// `null` when the tail is free to fetch.
+  ///
+  /// ## The storm this closes
+  ///
+  /// `loadMore` swallows its own failure and restores `isLoadingMore: false`
+  /// while `hasMore` stays `true` — so BOTH of the screen's scroll-listener
+  /// guards re-satisfy immediately and the same failing request re-fires on
+  /// every subsequent scroll notification. Under `ClampingScrollPhysics`
+  /// (Android/Linux/Windows) the position comes to rest exactly at
+  /// `maxScrollExtent`, the controller stops notifying, and the cost is one
+  /// fetch per gesture. Under `BouncingScrollPhysics` (iOS — `ios/` exists in
+  /// this repo, and the archive list passes a parentless
+  /// `AlwaysScrollableScrollPhysics()` that inherits ambient physics) the
+  /// overscroll settle keeps the position CHANGING for its whole duration.
+  /// Measured on flutter-tester 800×600 with page 1 failing: 12 fetches for a
+  /// single drag, 109 for one fling, 556 for four — ~687 across ten gestures,
+  /// against the backend's 60/min per-user budget.
+  ///
+  /// ## Why a DEADLINE and not `hasMore = false`
+  ///
+  /// Clearing `hasMore` would stop the storm and also delete the
+  /// «Завантажити ще» affordance, the `ListView`'s tail spinner slot, and the
+  /// screen's auto-continue branch — a paging list permanently convinced it
+  /// had reached the end because one request failed once. The deadline stops
+  /// the re-arm while leaving every one of those intact.
+  ///
+  /// An ABSOLUTE instant, never a Kyiv day token — see `kyiv_day.dart`'s
+  /// header for why the two must not be confused. Set from the server's own
+  /// `Retry-After` when the failure is a [SalonBoardRateLimitedFailure] and
+  /// from [kLoadMoreFailureBackoff] otherwise, and CLEARED (to `null`) by
+  /// every page-0 fetch, so a pull-to-refresh or a filter change always starts
+  /// the tail unblocked.
+  final DateTime? retryNotBefore;
+
+  /// Whether [retryNotBefore] is still in the future at [now] — the single
+  /// predicate both [MasterArchiveNotifier.loadMore] and the screen's scroll
+  /// listener consult, so the gate cannot be spelled two subtly different ways.
+  ///
+  /// instant-ok: a cooldown deadline is a genuine absolute-instant comparison
+  /// (`kyiv_day.dart` exemption) — nothing here resolves a calendar DAY, so
+  /// `kyivToday` would be the wrong tool and `.toUtc()`/`.toLocal()` on either
+  /// side would be meaningless.
+  bool isRetryBlockedAt(DateTime now) {
+    final DateTime? until = retryNotBefore;
+    return until != null && now.isBefore(until);
+  }
+
+  /// Seconds still to wait at [now], rounded UP so a partially-elapsed second
+  /// never renders as «0 с». `0` when nothing is blocked.
+  ///
+  /// instant-ok: see [isRetryBlockedAt].
+  int retrySecondsRemainingAt(DateTime now) {
+    final DateTime? until = retryNotBefore;
+    if (until == null || !now.isBefore(until)) return 0;
+    final int ms = until.difference(now).inMilliseconds;
+    return (ms + 999) ~/ 1000;
+  }
+
   MasterArchiveState copyWith({
     List<Booking>? items,
     int? page,
     bool? hasMore,
     bool? isLoadingMore,
+    Object? retryNotBefore = _kUnset,
   }) {
     return MasterArchiveState(
       items: items ?? this.items,
       page: page ?? this.page,
       hasMore: hasMore ?? this.hasMore,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      // Sentinel, not `??` — passing `null` explicitly must CLEAR the
+      // cooldown, which is how an explicit retry re-arms the tail.
+      retryNotBefore: identical(retryNotBefore, _kUnset)
+          ? this.retryNotBefore
+          : retryNotBefore as DateTime?,
     );
   }
 }
+
+/// How long the archive tail parks itself after a load-more failure that
+/// carries no server-supplied `Retry-After`.
+///
+/// Five seconds, sized against the thing it has to outlast rather than picked
+/// round: an iOS overscroll bounce settles in well under two seconds, and a
+/// fling's whole ballistic simulation in well under four. Anything shorter
+/// re-opens the gate mid-settle and the storm resumes at a lower rate; much
+/// longer starts punishing a master who genuinely wants to re-tap
+/// «Завантажити ще» after a transient blip.
+const Duration kLoadMoreFailureBackoff = Duration(seconds: 5);
 
 /// The full status coverage `BookingsFilterSheet`'s three rows
 /// (`widgets/bookings_filter_sheet.dart`'s `BookingStatusFilterGroup`) can
@@ -471,6 +558,17 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
     if (current == null) return;
     if (current.isLoadingMore) return; // double-fetch guard
     if (!current.hasMore) return; // last raw page no-op
+    // FAILURE-MEMORY guard (mobile-security HIGH, 2026-09-20). Gated HERE as
+    // well as in `_MasterArchiveScreenState._onScroll`, deliberately: the
+    // screen has three other entry points into this method (the
+    // auto-continue post-frame callback, the `_ArchiveContinueState` tap, and
+    // the tail affordance), and a gate that lived only in the scroll listener
+    // would leave each of them free to re-fire the same failing request. See
+    // [MasterArchiveState.retryNotBefore].
+    //
+    // instant-ok: a cooldown deadline compared against the injected clock —
+    // an absolute-instant question, not a calendar-day one.
+    if (current.isRetryBlockedAt(ref.read(clockProvider)())) return;
 
     // The pagination generation this call belongs to — see [_mergeTargetFor].
     final int generation = _generation;
@@ -499,15 +597,57 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
           page: page.page,
           hasMore: page.hasMore,
           isLoadingMore: false,
+          // A page that LANDED clears any cooldown a previous failure left —
+          // explicitly, because `copyWith` preserves the field otherwise.
+          retryNotBefore: null,
         ),
       );
-    } catch (_) {
+    } catch (e) {
       // A failed load-more must not blow away the already-rendered list —
       // mirrors `MyBookingsNotifier.loadMore`'s identical catch.
+      //
+      // What is NEW (mobile-security HIGH, 2026-09-20) is that the failure is
+      // now REMEMBERED. Restoring `isLoadingMore: false` with `hasMore` still
+      // `true` re-satisfies every caller's guard instantly, which under iOS
+      // bouncing physics re-fired this exact request once per frame for the
+      // whole overscroll settle. `retryNotBefore` is what the callers now
+      // consult instead — see that field's doc for the measurement.
+      //
+      // instant-ok: a deadline built from the injected clock.
       final MasterArchiveState? target = _mergeTargetFor(generation);
       if (target == null) return;
-      state = AsyncData(target.copyWith(isLoadingMore: false));
+      state = AsyncData(
+        target.copyWith(
+          isLoadingMore: false,
+          retryNotBefore: ref.read(clockProvider)().add(_backoffFor(e)),
+        ),
+      );
     }
+  }
+
+  /// How long the tail parks after [error].
+  ///
+  /// The SERVER's own number wins when it sent one: backend PR #130 answers a
+  /// board 429 with `Retry-After`, which `ErrorMapperInterceptor` now surfaces
+  /// as [SalonBoardRateLimitedFailure.retryAfterSeconds] (it used to reach the
+  /// app as an `UnknownFailure` with the header discarded). Re-fetching before
+  /// that window closes cannot succeed and spends the budget the master's next
+  /// deliberate tap needs.
+  ///
+  /// Everything else — a dropped connection, a 5xx, a deserialization
+  /// breakdown — takes the flat [kLoadMoreFailureBackoff], which exists to
+  /// outlast the SCROLL GESTURE rather than to model the server.
+  Duration _backoffFor(Object error) {
+    if (error is SalonBoardRateLimitedFailure) {
+      final int? seconds = error.retryAfterSeconds;
+      // `null` means absent / unparsable / above the 10-minute UX ceiling —
+      // there is no honest server number, so the gesture-scale backoff is
+      // still strictly better than none.
+      if (seconds != null && seconds > 0) {
+        return Duration(seconds: seconds);
+      }
+    }
+    return kLoadMoreFailureBackoff;
   }
 
   /// The state a completed [loadMore] round trip may write into, re-read AFTER

@@ -130,14 +130,39 @@ class TimelineHourRuler extends StatelessWidget {
   /// The string is "00:00" and not the real label because every label is five
   /// characters of tabular-width digits and a colon — same line box, and this
   /// way the measurement does not depend on which hours the day spans.
+  /// MEMOISED BY [TextScaler] (mobile-perf LOW, 2026-09-20).
+  ///
+  /// A prior audit (H1) moved the culling band onto a `ValueNotifier` so a
+  /// SCROLL tick no longer rebuilds this widget — but this measurement sits in
+  /// [build], so it still ran a full `TextPainter.layout()` on every PARENT
+  /// rebuild: every data refresh, every filter apply, every `_BoardStack`
+  /// update. The result is a pure function of the text style (a compile-time
+  /// constant) and the ambient [TextScaler], so the scaler is the whole key.
+  ///
+  /// `static`, i.e. process-wide rather than per-instance: the master ruler
+  /// and the salon board's ruler measure the identical string in the identical
+  /// style, so a per-instance cache would measure it twice for one answer. The
+  /// style is `const` and the app ships one font, so nothing else can
+  /// invalidate it; a scaler change still does, because [TextScaler]'s `==` is
+  /// value equality on its scale factor (`TextScaler.noScaling` is a const
+  /// singleton, and `_LinearTextScaler` compares its factor).
+  static TextScaler? _cachedScaler;
+  static double? _cachedLabelHeight;
+
   static double _labelHeight(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final double? cached = _cachedLabelHeight;
+    if (cached != null && _cachedScaler == scaler) return cached;
+
     final TextPainter painter = TextPainter(
       text: TextSpan(text: '00:00', style: VelvetText.timelineHourLabelAccent),
       textDirection: TextDirection.ltr,
-      textScaler: MediaQuery.textScalerOf(context),
+      textScaler: scaler,
     )..layout();
     final double height = painter.height;
     painter.dispose();
+    _cachedScaler = scaler;
+    _cachedLabelHeight = height;
     return height;
   }
 

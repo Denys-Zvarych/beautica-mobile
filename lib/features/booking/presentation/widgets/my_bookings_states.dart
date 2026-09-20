@@ -13,6 +13,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/cooldown_ticker.dart';
 
 /// Shared padding for every state (skeleton / empty / error / real list) so
 /// the layout never jumps between them.
@@ -186,6 +187,7 @@ class _MyBookingsNoticePanel extends StatelessWidget {
     required this.actionKey,
     required this.actionLabel,
     required this.onAction,
+    this.cooldownSeconds = 0,
   });
 
   final IconData icon;
@@ -193,6 +195,13 @@ class _MyBookingsNoticePanel extends StatelessWidget {
   final Key actionKey;
   final String actionLabel;
   final VoidCallback onAction;
+
+  /// Seconds the action must stay disabled for before [onAction] is offered.
+  ///
+  /// ADDITIVE, defaulting to `0` — at which point no [CooldownTicker] is built
+  /// at all and this panel renders the exact widget tree it always has, for
+  /// [MyBookingsSlowLoadNotice] and every non-throttle error alike.
+  final int cooldownSeconds;
 
   @override
   Widget build(BuildContext context) {
@@ -214,12 +223,39 @@ class _MyBookingsNoticePanel extends StatelessWidget {
               const SizedBox(height: VelvetSpacing.lg),
               SizedBox(
                 width: double.infinity,
-                child: NeumorphicButton(
-                  key: actionKey,
-                  label: actionLabel,
-                  icon: Icons.refresh_rounded,
-                  onPressed: onAction,
-                ),
+                // The ZERO case builds no ticker and no closure — the
+                // `NeumorphicButton` below is the same widget, with the same
+                // key and the same callback, this panel has always emitted.
+                child: cooldownSeconds <= 0
+                    ? NeumorphicButton(
+                        key: actionKey,
+                        label: actionLabel,
+                        icon: Icons.refresh_rounded,
+                        onPressed: onAction,
+                      )
+                    : CooldownTicker(
+                        seconds: cooldownSeconds,
+                        builder:
+                            (
+                              BuildContext context,
+                              int remaining,
+                              Widget? child,
+                            ) {
+                              return NeumorphicButton(
+                                key: actionKey,
+                                label: remaining > 0
+                                    ? AppLocalizations.of(
+                                        context,
+                                      ).boardRetryCooldown(remaining)
+                                    : actionLabel,
+                                icon: Icons.refresh_rounded,
+                                // `null` is the button's own long-standing
+                                // disabled contract — dimmed CTA label, no
+                                // press animation, `Semantics.enabled: false`.
+                                onPressed: remaining > 0 ? null : onAction,
+                              );
+                            },
+                      ),
               ),
             ],
           ),
@@ -230,6 +266,29 @@ class _MyBookingsNoticePanel extends StatelessWidget {
 }
 
 /// The error state — the failure message + a retry button.
+///
+/// ## The retry is GATED for a rate limit (audit MEDIUM-1, 2026-09-20)
+///
+/// Every caller hands this widget a bare `ref.invalidate(...)` as [onRetry].
+/// Against an HTTP 429 that is the one action that cannot work: the button
+/// re-issues the request the limiter just refused, spending the budget the
+/// owner's next deliberate try needs. Backend PR #130 put a shared per-user
+/// 60/min budget in front of the four salon-board read routes and answers with
+/// `Retry-After`, which now reaches the UI as
+/// [SalonBoardRateLimitedFailure.retryAfterSeconds].
+///
+/// So when — and ONLY when — [error] is that failure carrying a usable
+/// cooldown, the action renders DISABLED with a live countdown
+/// (`AppLocalizations.boardRetryCooldown`) and becomes the ordinary
+/// «Спробувати знову» the instant the window closes. The countdown is the
+/// shared [CooldownTicker], so the 1 Hz rebuild is confined to the button
+/// itself and never reaches the host screen's `State`.
+///
+/// NO NEW PARAMETER, and deliberately so: the cooldown is derived from the
+/// [error] this widget is already given, so every existing call site — the
+/// three in `bookings_discovery_view.dart`, `my_bookings_screen.dart` and
+/// `master_archive_screen.dart` — gets the gate with no edit and renders
+/// EXACTLY as before for every other failure type.
 class MyBookingsErrorState extends StatelessWidget {
   const MyBookingsErrorState({
     super.key,
@@ -240,20 +299,40 @@ class MyBookingsErrorState extends StatelessWidget {
   final Object error;
   final VoidCallback onRetry;
 
+  /// The cooldown this failure asks the UI to sit out, or `0` when there is
+  /// none to sit out.
+  ///
+  /// `null`/`<= 0` on [SalonBoardRateLimitedFailure] means the header was
+  /// absent, unparsable, or above [kMaxUxCooldownSeconds] — there is no honest
+  /// number to count down, so the button stays enabled and the failure's own
+  /// «Зачекайте трохи» copy carries the message instead. That is the same
+  /// no-wait fallback `ServiceRateLimitedFailure` already takes.
+  static int cooldownSecondsFor(Object error) => switch (error) {
+    SalonBoardRateLimitedFailure(:final int? retryAfterSeconds) =>
+      (retryAfterSeconds != null && retryAfterSeconds > 0)
+          ? retryAfterSeconds
+          : 0,
+    _ => 0,
+  };
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final String message = error is Failure
         ? (error as Failure).userMessage(context)
         : l10n.errUnknown;
+    final int cooldown = cooldownSecondsFor(error);
 
     return _MyBookingsNoticePanel(
       key: const Key('my_bookings_error'),
-      icon: Icons.cloud_off_rounded,
+      icon: cooldown > 0
+          ? Icons.hourglass_bottom_rounded
+          : Icons.cloud_off_rounded,
       message: message,
       actionKey: const Key('my_bookings_error_retry'),
       actionLabel: l10n.retryLabel,
       onAction: onRetry,
+      cooldownSeconds: cooldown,
     );
   }
 }

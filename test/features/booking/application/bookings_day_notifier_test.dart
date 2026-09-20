@@ -147,6 +147,29 @@ ProviderContainer _containerWith(BookingRepository repo) {
   return container;
 }
 
+/// Waits until [read] stops returning an `AsyncLoading` — i.e. until the
+/// provider has reached a TERMINAL state.
+///
+/// M12: these containers install `beauticaProviderRetry` for real, which
+/// gives a transient `NetworkFailure` one automatic re-attempt with ~200 ms
+/// of backoff. During that window the state is
+/// `AsyncLoading(error: …, retrying: true)` — `hasError == true` and `error`
+/// already populated, but NOT the terminal `AsyncError`. A fixed short delay
+/// samples that mid-retry state, so a test asserting only `hasError`/`error`
+/// can never fail.
+Future<AsyncValue<T>> _settleToTerminal<T>(
+  AsyncValue<T> Function() read, {
+  Duration budget = const Duration(seconds: 2),
+}) async {
+  final Stopwatch sw = Stopwatch()..start();
+  while (sw.elapsed < budget) {
+    final AsyncValue<T> v = read();
+    if (v is! AsyncLoading) return v;
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  return read();
+}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(<BookingStatus>{});
@@ -281,11 +304,16 @@ void main() {
 
       container.listen(bookingsDayProvider(query), (_, _) {});
       container.read(bookingsDayProvider(query));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      final AsyncValue<BookingsDayState> state = container.read(
-        bookingsDayProvider(query),
-      );
+      final AsyncValue<BookingsDayState> state =
+          await _settleToTerminal<BookingsDayState>(
+            () => container.read(bookingsDayProvider(query)),
+          );
+      // M12 — `hasError` ALONE cannot pin a terminal error: Riverpod emits
+      // `AsyncLoading(error: …, retrying: true)` mid-retry, whose `hasError`
+      // is ALSO true. Without this line the test is satisfied by the
+      // mid-retry loading state and can never fail.
+      expect(state, isA<AsyncError<BookingsDayState>>());
       expect(state.hasError, isTrue);
       expect(state.error, isA<NetworkFailure>());
     });

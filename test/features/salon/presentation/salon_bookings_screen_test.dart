@@ -25,6 +25,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
+    show kSalonBookingsNavTab;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -57,6 +59,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
+import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
@@ -1854,6 +1857,25 @@ void main() {
         tester.element(find.byType(SalonBookingsScreen)),
         listen: false,
       );
+      // AUDIT LOW-4 (2026-09-20) — this group models a walk-in created FROM
+      // the board, i.e. with the shell standing on «Записи». Since the fix,
+      // `invalidateBookingViewsAfterBookingCreated` reads that index and
+      // DEFERS the board-scoped half of the fan-out for any other tab, so a
+      // harness that left `salonShellProvider` at its default 0 would be
+      // asserting the deferred path while claiming to assert the live one.
+      // This screen is mounted WITHOUT its shell here (that is the point of
+      // the tier), so the index has to be stated explicitly. Held live by a
+      // listener because the provider is `autoDispose`; the NOT-selected case
+      // has its own group in `booking_calendar_invalidation_test.dart`.
+      final ProviderSubscription<int> shell = container.listen(
+        salonShellProvider(salonId),
+        (_, _) {},
+      );
+      addTearDown(shell.close);
+      container
+          .read(salonShellProvider(salonId).notifier)
+          .select(kSalonBookingsNavTab);
+
       container.read(_createdFanOutProvider)(salonId);
     }
 

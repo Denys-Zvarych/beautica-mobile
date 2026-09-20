@@ -179,6 +179,7 @@ bool isThrottleFailure(Failure failure) =>
     failure is ScheduleOverrideRateLimitedFailure ||
     failure is ServiceRateLimitedFailure ||
     failure is AccountDeleteRateLimitedFailure ||
+    failure is SalonBoardRateLimitedFailure ||
     failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
@@ -209,6 +210,20 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // service-catalogue write runs through a notifier mutation, never a provider
   // build, so `beauticaProviderRetry` is not on this failure's path at all.)
   ServiceRateLimitedFailure() => true,
+  // 429 from the salon board's shared 60/min read budget (backend PR #130).
+  // Same honest answer as the two arms above: a limiter clears on its own, so
+  // an identical later attempt genuinely can succeed. What must NOT happen is
+  // the CONTAINER picking when that attempt is — and unlike the two advisory
+  // classifications above, this one really is on `beauticaProviderRetry`'s
+  // path: every board route is read through a provider BUILD
+  // (`bookingsDayProvider`, `salonBookedDaysProvider`,
+  // `salonEffectiveScheduleProvider`, `masterArchiveProvider`). So
+  // [isThrottleFailure] is the only thing standing between a rate limit and
+  // an automatic re-issue into it, and it is checked FIRST. Flipping this arm
+  // to `false` would hide that dependence rather than remove it; the guard is
+  // asserted directly in `failure_retry_policy_test.dart` and end-to-end in
+  // `salon_board_429_contract_test.dart`.
+  SalonBoardRateLimitedFailure() => true,
 
   // ---- deterministic: invite-accept post-success hand-off (2026-09-01) ---
   // The 2xx already happened server-side; a retry would resend a mutation

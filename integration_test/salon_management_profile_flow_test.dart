@@ -797,7 +797,29 @@ void main() {
         // fixed-wait-ok: settles the real async route-transition step.
         await tester.pumpAndSettle(const Duration(seconds: 1));
 
-        expect(fb.getSalonStaffCalls, 1);
+        // PER-SALON, not aggregate. `fb.getSalonStaffCalls` is one counter
+        // shared by three route registrations, and a SALON_OWNER session
+        // legitimately fetches a SECOND salon's roster before this point:
+        // `loginAs` lands on `/salons/home` -> `SalonShellScreen(kOwnerSalonId)`
+        // -> slot 0 mounts the management profile for THAT salon. A different
+        // family element, a different salon, one fetch each — so the aggregate
+        // reads 2 while `salon-xyz`, the salon this test is about, was fetched
+        // exactly once. See `getSalonStaffCallsById`'s doc in fake_backend.dart.
+        expect(
+          fb.getSalonStaffCallsById[_kSalonId],
+          1,
+          reason:
+              'entering /manage must fetch THIS salon roster exactly once — '
+              'an exact count, not >=1, so a reintroduced redundant fetch '
+              'fails loudly',
+        );
+        expect(fb.lastGetSalonStaffId, _kSalonId);
+        // The DELTA baseline. The absolute `== 1` above still passes
+        // vacuously if the entry fetch were ever removed and a per-drill-in
+        // fetch added in its place; only a delta across the drill-ins pins
+        // "reaching a staff profile from the cached roster adds NOTHING".
+        final int staffCallsAfterManageEntry =
+            fb.getSalonStaffCallsById[_kSalonId] ?? 0;
 
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         await tester.tap(find.text(l10n.salonManageTabStaff));
@@ -845,12 +867,18 @@ void main() {
         // mobile-perf INFO follow-up — reaching a MASTER's profile from the
         // ALREADY-cached «Персонал» roster must NOT re-fetch GET /staff.
         expect(
-          fb.getSalonStaffCalls,
-          1,
+          fb.getSalonStaffCallsById[_kSalonId],
+          staffCallsAfterManageEntry,
           reason:
+              'the MASTER drill-in must add ZERO GET /staff for this salon — '
               'salonStaffMemberProfileProvider watches the already-cached '
               'salonManagementProfileProvider roster, not a fresh '
               'GET /staff round trip',
+        );
+        expect(
+          fb.getSalonStaffCallsById[_kSalonId],
+          1,
+          reason: 'and the absolute count is still the single entry fetch',
         );
         expect(
           fb.getPublicMasterServicesCalls,
@@ -901,7 +929,18 @@ void main() {
         // Still no second GET /staff, and the admin branch never calls
         // getMasterServices — so master-aaa's own services call count is
         // unchanged from the master branch above.
-        expect(fb.getSalonStaffCalls, 1);
+        expect(
+          fb.getSalonStaffCallsById[_kSalonId],
+          staffCallsAfterManageEntry,
+          reason:
+              'the ADMIN drill-in must likewise add ZERO GET /staff for this '
+              'salon',
+        );
+        expect(
+          fb.getSalonStaffCallsById[_kSalonId],
+          1,
+          reason: 'and the absolute count is still the single entry fetch',
+        );
       });
     },
   );

@@ -65,6 +65,7 @@ import '../../schedule/presentation/effective_schedule_notifier.dart';
 import '../../schedule/presentation/overrides_notifier.dart';
 import '../../schedule/presentation/overrides_revision_provider.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
+import '../../schedule/presentation/salon_schedule_keep_alive_lru.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
@@ -615,7 +616,14 @@ class AuthNotifier extends _$AuthNotifier {
         case VerificationRequired(:final email):
           if (kDebugMode) {
             log(
-              'Registration success (verification-required) for $email',
+              // `maskEmail`, never the raw address — the same discipline the
+              // eight sibling logs in this file already apply. A debug-mode
+              // guard is not a licence to print PII: `flutter run` output is
+              // shared in bug reports and screen shares, and this particular
+              // line fires on the ONE path where the address is known and the
+              // account is not yet verified (mobile-security LOW, 2026-09-20).
+              'Registration success (verification-required) for '
+              '${maskEmail(email)}',
               name: 'auth',
               level: 800,
             );
@@ -1392,6 +1400,15 @@ class AuthNotifier extends _$AuthNotifier {
       // keepalive-safe: session-boundary sweep (logout) — the one watch site (salon_bookings_screen.dart:351) keys this family off `salonId` + `ScheduleRange.month(kyivToday(clock))`, both derived from route/clock, NEVER from local mutable widget state, so the swap-key-then-invalidate shape this guard protects against (a pinned-but-unwatched member racing invalidateSelf's queued disposal) cannot arise; a member with a live listener rebuilds, one without is disposed outright, and either outcome is the eviction intended here.
       // cycle-safe: salonEffectiveScheduleProvider watches only salonRosterScheduleRepositoryProvider -> scheduleSalonApiProvider -> dioProvider — grep-proven to contain zero authProvider references (that absence IS the finding being fixed), so invalidating it from inside this notifier records no back-edge and closes no dependency cycle. HOW THAT ABSENCE IS MAINTAINED, precisely: this annotation is grep-enforced by scripts/forbid_provider_self_invalidation.sh (which checks the annotation EXISTS, never that its reason is true), and the chain staying auth-free is a CODE-REVIEW obligation — there is no test that fails if someone adds `ref.watch(authProvider)` to SalonEffectiveScheduleNotifier.build(). provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider + salonEffectiveScheduleProvider" entrypoint (extended additively by this fix to subscribe and pre-build this third family) EXERCISES the family on a real container and would surface a genuine CircularDependencyError, but it carries no assertion that discriminates an authProvider back-edge: mobile-build-verifier injected exactly that watch and the guard stayed green 8/8 (2026-09-17). The blind spot is pre-existing and applies equally to weeklyScheduleProvider — do not read that entrypoint as proof of this claim.
       ref.invalidate(salonEffectiveScheduleProvider);
+      // …and the LRU that PINS that family's members, for exactly the reason
+      // `dayKeepAliveLruProvider.clear()` above exists: the invalidate severs
+      // each element's keepAlive links, but it does not touch
+      // [SalonScheduleKeepAliveLru]'s own map, so a logged-out window's slot
+      // would keep pointing at an already-severed link — a zombie entry
+      // silently spending the bounded budget — until some future touch
+      // overwrote it. Added 2026-09-20 with that budget; before it the family
+      // had no LRU to sweep.
+      ref.read(salonScheduleKeepAliveLruProvider).clear();
       // NOTE — this belt-and-braces list is NOT the app's full inventory of
       // keepAlive, user-scoped state, and must not be read as one (mobile-security
       // INFO, 2026-08-17). `clientReviewSignalProvider` (a `keepAlive` set of

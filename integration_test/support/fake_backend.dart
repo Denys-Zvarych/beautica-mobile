@@ -1238,6 +1238,39 @@ final class FakeBackend {
   int getSalonStaffCalls = 0;
   String? lastGetSalonStaffId;
 
+  /// Per-salon breakdown of [getSalonStaffCalls] — keyed by the `{salonId}`
+  /// whose route served the request.
+  ///
+  /// WHY THE AGGREGATE COUNTER CANNOT CARRY A PER-SALON ASSERTION.
+  /// [getSalonStaffCalls] is ONE counter bumped by THREE route registrations
+  /// (`salon-xyz`, `salon-admin-1`, [kOwnerSalonId]). A SALON_OWNER journey
+  /// legitimately touches two of them: `AppHarness.loginAs(salonOwner)` lands
+  /// on `/salons/home` -> `SalonShellScreen(salonId: kOwnerSalonId)`, whose
+  /// slot 0 mounts the management profile and fetches THAT salon's roster —
+  /// before the test ever navigates to `salon-xyz`. Two distinct
+  /// `salonManagementProfileProvider` FAMILY ELEMENTS, one build and one fetch
+  /// each; no rebuild, no invalidation, no redundant watch. An
+  /// `expect(getSalonStaffCalls, 1)` therefore reads <2> and indicts
+  /// production code that is behaving correctly — in production the
+  /// management surface IS the shell (same salonId, same family element), and
+  /// the jump to a second salon is a test-only `router.go`.
+  ///
+  /// This ledger makes "did SALON X's roster get re-fetched?" expressible
+  /// without that cross-talk. Assert on `getSalonStaffCallsById[salonId]`
+  /// (and on a DELTA across the interaction under test); keep the aggregate
+  /// only for `greaterThanOrEqualTo` "it happened at all" checks.
+  ///
+  /// HISTORICAL NOTE (why this only started biting on this branch):
+  /// `origin/dev` registers only TWO `getSalonStaffCalls++` sites —
+  /// `/api/v1/salons/$kOwnerSalonId/staff` is UNREGISTERED there, so the
+  /// shell's roster fetch goes unmatched, uncounted, and every SALON_OWNER
+  /// integration test renders the shell's «Салон» slot in a SILENT ERROR
+  /// STATE. Commit `cb79331a` (phase 21.12) registered that route and thereby
+  /// made the pre-existing fetch countable; it did not introduce the fetch
+  /// (`lib/routing/role_home.dart` is byte-identical dev<->HEAD, and dev's
+  /// shell already mounts the same slot-0 screen).
+  final Map<String, int> getSalonStaffCallsById = <String, int>{};
+
   // ─── Phase 21.6 — admin management (remove / rotate / sibling salons) ────
   //
   // `DELETE /salons/{salonId}/admins/{userId}`,
@@ -7012,6 +7045,11 @@ final class FakeBackend {
       '/api/v1/salons/salon-xyz/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          'salon-xyz',
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
         lastGetSalonStaffId = 'salon-xyz';
         // A COPY read at REQUEST time — `salonStaff` is mutated by the admin
         // remove/rotate handlers, and capturing it at registration would
@@ -7147,6 +7185,11 @@ final class FakeBackend {
       '/api/v1/salons/salon-admin-1/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          'salon-admin-1',
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
         lastGetSalonStaffId = 'salon-admin-1';
         return _okList(
           List<Map<String, dynamic>>.from(
@@ -8924,6 +8967,11 @@ final class FakeBackend {
       '/api/v1/salons/$kOwnerSalonId/staff',
       (server) => server.replyCallback(200, (_) {
         getSalonStaffCalls++;
+        getSalonStaffCallsById.update(
+          kOwnerSalonId,
+          (int n) => n + 1,
+          ifAbsent: () => 1,
+        );
         lastGetSalonStaffId = kOwnerSalonId;
         return _okList(
           List<Map<String, dynamic>>.from(

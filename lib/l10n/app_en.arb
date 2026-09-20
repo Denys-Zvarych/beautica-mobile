@@ -2773,6 +2773,31 @@
   "@serviceErrRateLimitedNoWait": {
     "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
   },
+  "boardErrRateLimited": "Too many requests. Wait {seconds} s, then try again.",
+  "@boardErrRateLimited": {
+    "description": "Error shown when one of the salon board's read routes (day board, archive, booked-days dots, roster effective-schedule) returns 429 with a usable Retry-After header. Names the wait so the owner knows the limit clears on its own; the retry action next to it stays disabled until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "boardErrRateLimitedNoWait": "Too many requests. Wait a moment, then try again.",
+  "@boardErrRateLimitedNoWait": {
+    "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
+  },
+  "boardRetryCooldown": "Try again in {seconds} s",
+  "@boardRetryCooldown": {
+    "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "masterArchiveLoadMorePaused": "Couldn't load. Retrying in {seconds} s",
+  "@masterArchiveLoadMorePaused": {
+    "description": "Footer notice at the bottom of the archive list after a failed next-page fetch. The list keeps its load-more affordance but pauses re-fetching for the cooldown named here, so an overscroll bounce cannot re-fire the same failing request once per frame.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "serviceSetupErrDuplicateAfterRetry": "These services are already in your menu. The earlier attempt may have gone through — check your services list.",
   "@serviceSetupErrDuplicateAfterRetry": {
     "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."

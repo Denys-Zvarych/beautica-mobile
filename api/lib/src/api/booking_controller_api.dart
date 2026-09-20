@@ -799,12 +799,12 @@ class BookingControllerApi {
   }
 
   /// List the salon&#39;s booked days (owner/admin)
-  ///
+  /// Distinct local (Europe/Kyiv) days on which this salon has at least one booking, ascending. Range REQUIRED; span capped at 366 inclusive days. The shipped mobile client requests 361 days (today +/- 180), so this ceiling is a frozen contract - see BookingService#getSalonBookedDays. Filter-independent: no status/serviceId/masterId parameter.
   ///
   /// Parameters:
   /// * [salonId]
   /// * [from] - Range start (inclusive), local Europe/Kyiv day. Required.
-  /// * [to] - Range end (inclusive), local Europe/Kyiv day. Required.
+  /// * [to] - Range end (inclusive), local Europe/Kyiv day. Required. The span `[from, to]` is at most 366 inclusive days; wider is a 400.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request

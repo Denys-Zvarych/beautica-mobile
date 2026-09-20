@@ -17,6 +17,26 @@
 //     backend — including that NOTHING filter-shaped goes on that wire;
 //   • the REAL `auth_redirect.dart` gate deciding where a card tap lands.
 //
+// SEVEN ASSERTIONS HERE ARE IMPLICIT CULL-BAND ASSERTIONS (2026-09-20)
+// ---------------------------------------------------------------------
+// Seven `find.byKey(ValueKey('timeline-card-<id>'))` lookups below — at lines
+// 362, 366, 575, 886, 1131, 1446 and the `_id`-driven loop at 1055 — resolve a
+// card WITHOUT first scrolling it into view. `findsOneWidget` on an unscrolled
+// key is therefore also a claim that the card is inside
+// `bookings_timeline_grid.dart`'s vertical culling band at rest, on the REAL
+// board's viewport (174dp on the 800x600 `flutter-tester` surface, because the
+// board attaches its controller to the INNER scroller).
+//
+// That is why this file, and not the widget tier, caught the 2026-09-20
+// attempt to narrow the board's vertical slack to 0.25: a 12:00 card on an
+// 09:00–20:00 board is planned at 252dp and fell out of the tree on frame 2.
+// `salon_bookings_board_test.dart` could not see it — it pumped the grid bare
+// on a 536dp viewport, 3.1x the real one. It has since been rewritten onto a
+// faithful 174dp harness; keep BOTH, they fail for different reasons.
+//
+// Practical consequence: DO NOT "fix" a red assertion here by adding a scroll
+// before it. The absence of the scroll is the assertion.
+//
 // THE BUG THIS FLOW WOULD HAVE CAUGHT
 // -----------------------------------
 // The board shipped pushing `RouteNames.bookingDetail` (`/bookings/:id`).

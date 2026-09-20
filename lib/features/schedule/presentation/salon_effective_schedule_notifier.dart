@@ -45,10 +45,12 @@
 // (there is no cache-hit short-circuit), so the "both paths must re-pin" rule
 // that fix guards against cannot apply here.
 //
-// There is deliberately NO member budget (no LRU) on the family. That is safe
-// ONLY because of today's key — and the named `onDayChanged` follow-up would
-// invalidate that reasoning. See the boxed REQUIREMENT at the `ref.keepAlive()`
-// call below BEFORE re-keying this on the selected month.
+// The pin is BOUNDED by [SalonScheduleKeepAliveLru] (3 windows,
+// `salon_schedule_keep_alive_lru.dart`), which owns the TTL timer. At today's
+// key — Kyiv-today's month, one member per salon — the budget is never
+// reached and evicts nothing; it exists so that the named `onDayChanged`
+// re-key, which would make members multiply per month reached, cannot silently
+// unbound the cache. See the boxed note at the `ref.keepAlive()` call below.
 //
 // ## Session boundary
 //
@@ -61,13 +63,18 @@
 // `test/features/schedule/presentation/
 // salon_effective_schedule_cross_session_isolation_test.dart`.
 
-import 'dart:async';
-
+// `KeepAliveLink` is not part of `riverpod_annotation`'s show-list — it lives
+// on the dedicated advanced-API surface, `misc.dart` (mirrors
+// `package:riverpod/misc.dart`; imported via `flutter_riverpod`, an existing
+// direct dependency, rather than adding `riverpod` itself as one). Same
+// reasoning, same spelling, as `bookings_day_notifier.dart`'s own import.
+import 'package:flutter_riverpod/misc.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/weekly_schedule.dart';
+import 'salon_schedule_keep_alive_lru.dart';
 import 'schedule_range.dart';
 
 part 'salon_effective_schedule_notifier.g.dart';
@@ -103,41 +110,52 @@ class SalonEffectiveScheduleNotifier extends _$SalonEffectiveScheduleNotifier {
     // can never leave a pending timer behind.
     //
     // ╔═════════════════════════════════════════════════════════════════════╗
-    // ║ ⛔ STOP — READ THIS BEFORE WIRING `onDayChanged`.                   ║
+    // ║ THE MEMBER BUDGET — SHIPPED 2026-09-20, AHEAD OF THE `onDayChanged` ║
+    // ║ RE-KEY IT EXISTS FOR.                                               ║
     // ║                                                                     ║
-    // ║ THERE IS NO MEMBER BUDGET ON THIS FAMILY, AND THAT IS ONLY SAFE     ║
-    // ║ BECAUSE OF THE CURRENT KEY. The board's single watch site            ║
-    // ║ (`salon_bookings_screen.dart:351`) passes                            ║
-    // ║ `ScheduleRange.month(kyivToday(clock))` — TODAY's month, NOT the     ║
-    // ║ selected day's. So exactly ONE member exists per salon per session   ║
-    // ║ no matter how the owner pages (mobile-perf measured 1 fetch across   ║
-    // ║ 21 day taps and 6 week pages, 2026-09-17), and an unbounded pin of   ║
-    // ║ "one" needs no eviction policy.                                      ║
+    // ║ This block used to be a boxed REQUIREMENT asking the next author to ║
+    // ║ ship a budget IN THE SAME CHANGE as that re-key, because the pin     ║
+    // ║ below was unbounded and only safe by accident of the current key:    ║
+    // ║ the board's single watch site (`salon_bookings_screen.dart:351`)     ║
+    // ║ passes `ScheduleRange.month(kyivToday(clock))` — TODAY's month, NOT  ║
+    // ║ the selected day's — so exactly ONE member exists per salon per      ║
+    // ║ session however the owner pages (measured: 1 fetch across 21 day     ║
+    // ║ taps and 6 week pages, 2026-09-17). A re-key on the SELECTED month   ║
+    // ║ turns that into one member PER MONTH REACHED: ±180 days of rail →    ║
+    // ║ ~12 concurrent members, each pinned 5 minutes with nothing evicting  ║
+    // ║ them, ~3,700 live [EffectiveDay] objects at a roster of 10. Riverpod ║
+    // ║ autoDispose cannot help — the `keepAlive()` link is what defeats it. ║
     // ║                                                                     ║
-    // ║ THE NAMED FOLLOW-UP BREAKS THAT PRECONDITION. Re-keying this on the  ║
-    // ║ SELECTED month (the additive `onDayChanged` seam that                ║
-    // ║ `salon_bookings_screen.dart`'s "⚠ THE MONTH IS KYIV-TODAY'S"        ║
-    // ║ section describes) turns one member into one PER MONTH REACHED. The  ║
-    // ║ rail spans ±180 days → ~12 concurrent members, each pinned 5 minutes ║
-    // ║ by the `keepAlive` below with NOTHING evicting them: at a roster of  ║
-    // ║ 10 that is ~3,700 live [EffectiveDay] objects held past the last     ║
-    // ║ look. Riverpod's autoDispose cannot help — the `keepAlive()` link is ║
-    // ║ precisely what defeats it.                                           ║
-    // ║                                                                     ║
-    // ║ REQUIREMENT (mobile-perf LOW, 2026-09-17): a bounded member budget   ║
-    // ║ MUST SHIP IN THE SAME CHANGE AS THE `onDayChanged` RE-KEY — not as a ║
-    // ║ follow-up to the follow-up. Model it on                              ║
-    // ║ `bookings_day_notifier.dart`'s `DayKeepAliveLru` (`_kMaxKeptDays`):  ║
-    // ║ a small LRU of [KeepAliveLink]s keyed the same way this family is,   ║
-    // ║ closing the least-recently-touched link once the budget is exceeded, ║
-    // ║ swept at the session boundary by `AuthNotifier.logout` alongside the ║
-    // ║ bare invalidate it already performs on this family. A reviewer who   ║
-    // ║ sees an `onDayChanged`-keyed range arrive here WITHOUT such a budget ║
-    // ║ should treat it as an incomplete change and send it back.            ║
+    // ║ A requirement written in a comment is a guard made of attention, so  ║
+    // ║ it was replaced by the real thing: [SalonScheduleKeepAliveLru], a    ║
+    // ║ bounded LRU of [KeepAliveLink]s keyed exactly as this family is      ║
+    // ║ (`salon_schedule_keep_alive_lru.dart` — modelled on                  ║
+    // ║ `bookings_day_notifier.dart`'s `DayKeepAliveLru`, and that file      ║
+    // ║ states why that class could not simply be reused). At today's key it ║
+    // ║ never evicts anything and changes NO behaviour; the day the key      ║
+    // ║ widens, the bound is already in place.                               ║
     // ╚═════════════════════════════════════════════════════════════════════╝
-    final link = ref.keepAlive();
-    final Timer timer = Timer(_kSalonRangeCacheTtl, link.close);
-    ref.onDispose(timer.cancel);
+    final KeepAliveLink link = ref.keepAlive();
+    final SalonScheduleKey key = (salonId, range);
+    // CAPTURED into a local BEFORE `onDispose`, never read from inside it.
+    // Riverpod 3 asserts `_debugCallbackStack == 0` in `Ref.read`, so a
+    // `ref.read(...)` inside a life-cycle callback throws "Cannot use Ref or
+    // modify other providers inside life-cycles/selectors" — and it throws
+    // from `AuthNotifier.logout`'s own invalidate, which is where the
+    // disposal actually runs. Caught by
+    // `test/core/provider_cycle_guard_test.dart`'s logout entrypoint on the
+    // first run of this code. The LRU is `keepAlive: true` and
+    // container-scoped, so a captured reference is valid for this element's
+    // whole life.
+    final SalonScheduleKeepAliveLru lru = ref.read(
+      salonScheduleKeepAliveLruProvider,
+    );
+    // The LRU owns the TTL timer now — it has to, or an eviction would close
+    // the link while a stray timer still pointed at the slot. `onDispose`
+    // FORGETS (cancels the timer, drops the entry) rather than closing: by
+    // then the element's keepAlive links are already gone.
+    lru.touch(key, link, _kSalonRangeCacheTtl);
+    ref.onDispose(() => lru.forget(key));
 
     return byMaster;
   }

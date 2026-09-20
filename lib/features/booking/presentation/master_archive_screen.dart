@@ -108,6 +108,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/cooldown_ticker.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -418,12 +419,34 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     super.dispose();
   }
 
+  /// The deadline a FAILED load-more parked the tail behind, mirrored out of
+  /// the watched provider each build exactly as [_hasMore]/[_isLoadingMore]
+  /// are — `_onScroll` runs outside `build`, so it cannot read the provider
+  /// itself.
+  ///
+  /// See [MasterArchiveState.retryNotBefore] for the storm this closes and for
+  /// why the memory is a deadline rather than `hasMore = false`.
+  DateTime? _retryNotBefore;
+
   void _onScroll() {
     if (!_hasMore || _isLoadingMore) return;
+    // THE THIRD GUARD (mobile-security HIGH, 2026-09-20). The two above both
+    // re-satisfy the instant a failed `loadMore` restores
+    // `isLoadingMore: false` with `hasMore` still `true`, so under iOS
+    // bouncing physics — which keeps the position CHANGING for the whole
+    // overscroll settle, firing this listener every frame — the same failing
+    // request went out 12 times per drag and 109 times per fling. Measured;
+    // see `master_archive_screen_test.dart`'s bouncing-physics test, which is
+    // the acceptance gate for this line.
+    //
+    // instant-ok: a cooldown deadline, compared against the injected clock.
+    final DateTime? until = _retryNotBefore;
+    if (until != null && ref.read(clockProvider)().isBefore(until)) return;
     if (!_scrollController.hasClients) return;
     final ScrollPosition pos = _scrollController.position;
     if (pos.pixels >= pos.maxScrollExtent - _loadMoreThreshold) {
-      // The notifier itself guards against double-fetch + last-page no-op.
+      // The notifier itself guards against double-fetch, last-page no-op AND
+      // the same cooldown — this local check only avoids the provider read.
       ref.read(masterArchiveProvider(_query).notifier).loadMore();
     }
   }
@@ -879,6 +902,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     final MasterArchiveState? data = async.value;
     _hasMore = data?.hasMore ?? false;
     _isLoadingMore = data?.isLoadingMore ?? false;
+    _retryNotBefore = data?.retryNotBefore;
     _scheduleClientReviewSignalPatch(async, reviewSignals);
 
     return Scaffold(
@@ -995,7 +1019,19 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                         // Keep advancing instead — bounded, see
                         // [_autoContinueAttempts]'s doc for the anti-spin
                         // reasoning and the bounded-vs-indefinite UX choice.
+                        // The SAME failure memory the scroll listener and the
+                        // notifier consult — without it this branch would
+                        // burn its whole three-attempt budget against a
+                        // cooldown that makes every attempt a guaranteed
+                        // no-op, and then fall through to the manual
+                        // affordance as if the pages had genuinely been
+                        // walked. See
+                        // [MasterArchiveState.retryNotBefore].
+                        final int autoCooldown = state.retrySecondsRemainingAt(
+                          now,
+                        );
                         final bool budgetLeft =
+                            autoCooldown == 0 &&
                             _autoContinueAttempts < _kMaxAutoContinueAttempts;
                         if (budgetLeft) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1025,7 +1061,20 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: kMyBookingsListPadding,
                           children: <Widget>[
-                            if (budgetLeft)
+                            if (autoCooldown > 0)
+                              _ArchiveRetryCooldown(
+                                seconds: autoCooldown,
+                                // Fired from the ticker's TIMER, never from
+                                // its builder, so this `setState` is legal —
+                                // see [CooldownTicker.onElapsed]. It re-runs
+                                // the branch above, which now reads a zero
+                                // cooldown and re-arms the auto-continue.
+                                onElapsed: () {
+                                  if (!mounted) return;
+                                  setState(() {});
+                                },
+                              )
+                            else if (budgetLeft)
                               Semantics(
                                 label: l10n.masterArchiveScanningSemantics,
                                 liveRegion: true,
@@ -1106,6 +1155,24 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                         },
                         itemBuilder: (BuildContext context, int i) {
                           if (i >= entries.length) {
+                            // THE COOLDOWN IS SURFACED, NOT SWALLOWED
+                            // (mobile-security HIGH, 2026-09-20). A failed
+                            // next-page fetch used to leave this slot
+                            // spinning forever while the scroll listener
+                            // silently re-fired the same request; it now
+                            // parks the tail behind
+                            // `MasterArchiveState.retryNotBefore` and says
+                            // so. `_ArchiveRetryCooldown` counts the window
+                            // down in its own subtree — the 1 Hz rebuild
+                            // never reaches this `State` — and falls back to
+                            // the ordinary spinner the instant it elapses,
+                            // which is also when `_onScroll` is free again.
+                            final int cooldown = state.retrySecondsRemainingAt(
+                              now,
+                            );
+                            if (cooldown > 0) {
+                              return _ArchiveRetryCooldown(seconds: cooldown);
+                            }
                             return const MyBookingsLoadMoreSpinner();
                           }
                           final ArchiveListEntry entry = entries[i];
@@ -1368,6 +1435,60 @@ class _ArchiveEmptyState extends StatelessWidget {
 /// (see [_MasterArchiveScreenState._autoContinueAttempts]'s doc for why an
 /// unbounded auto-spin is its own UX problem). [onLoadMore] resumes fetching
 /// and re-arms a fresh auto-continue burst.
+/// The tail slot while a failed `loadMore` is parked behind
+/// [MasterArchiveState.retryNotBefore] — the footer that SURFACES the
+/// cooldown instead of leaving a spinner turning over a request that will not
+/// be re-issued (mobile-security HIGH, 2026-09-20).
+///
+/// Counts down inside its own [CooldownTicker] subtree, so the 1 Hz rebuild
+/// never reaches `_MasterArchiveScreenState` and never regroups the list; and
+/// it falls back to the ordinary [MyBookingsLoadMoreSpinner] the instant the
+/// window elapses — which is the same instant `_onScroll` and
+/// `MasterArchiveNotifier.loadMore` are free again, so the two cannot disagree
+/// about whether the tail is live.
+///
+/// Reuses the shared ticker rather than owning a second `Timer`; see
+/// `shared/widgets/cooldown_ticker.dart`'s header for the relationship to
+/// `OtpResendRow`, which owns the original of this mechanism.
+class _ArchiveRetryCooldown extends StatelessWidget {
+  const _ArchiveRetryCooldown({required this.seconds, this.onElapsed});
+
+  final int seconds;
+
+  /// Lets the HOST re-evaluate when the window closes. Load-bearing in the
+  /// auto-continue branch, which decides inside `build` whether to schedule
+  /// the next `loadMore`: without it a lapsed cooldown would leave that
+  /// branch parked on a spinner with nothing in flight and nothing to wake
+  /// it. `null` on the tail slot, where the next scroll notification is the
+  /// natural wake-up.
+  final VoidCallback? onElapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CooldownTicker(
+      seconds: seconds,
+      onElapsed: onElapsed,
+      builder: (BuildContext context, int remaining, Widget? _) {
+        if (remaining <= 0) return const MyBookingsLoadMoreSpinner();
+        return Padding(
+          key: const Key('master-archive-retry-cooldown'),
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              AppLocalizations.of(
+                context,
+              ).masterArchiveLoadMorePaused(remaining),
+              textAlign: TextAlign.center,
+              style: VelvetText.body(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _ArchiveContinueState extends StatelessWidget {
   const _ArchiveContinueState({required this.onLoadMore});
 

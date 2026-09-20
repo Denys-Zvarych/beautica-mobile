@@ -48,6 +48,24 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 /// viewer on «Записи».
 const int kSalonTeamNavTab = 2;
 
+/// The «Записи» destination's index in [SalonBottomNav.ownerAdminItems] — the
+/// salon-wide bookings board.
+///
+/// Declared here for the same reason as [kSalonTeamNavTab]: a constant that
+/// names a position in a list belongs next to that list, where a re-order and
+/// the constant are reviewed together.
+///
+/// Read OUTSIDE the shell too — `booking_calendar_invalidation.dart` compares
+/// `salonShellProvider(salonId)` against it to decide whether the board is the
+/// visible tab before spending the booking-created fan-out on it (audit
+/// LOW-4), so a silent re-order would not merely mis-highlight a tab, it would
+/// defer the wrong screen's refresh.
+///
+/// PINNED — `test/features/salon/presentation/salon_shell_screen_test.dart`
+/// asserts `ownerAdminItems(l10n)[kSalonBookingsNavTab].label` is
+/// `l10n.salonShellTabBookings`.
+const int kSalonBookingsNavTab = 1;
+
 /// One destination in the salon bottom navigation bar. Carries an
 /// outline/filled icon pair so the active tab swaps to the filled glyph.
 ///

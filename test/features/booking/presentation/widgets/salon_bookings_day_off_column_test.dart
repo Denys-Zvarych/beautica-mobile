@@ -267,6 +267,24 @@ void main() {
       // A greyed column must stay a readable timeline. Asserted as paint
       // ORDER inside the `Stack`: the wash is emitted before the gridlines,
       // so it appears earlier among the `Stack`'s children.
+      //
+      // TWO HOPS SINCE 2026-09-20, not one. The banding children (day-off
+      // washes, gridlines, gutter dividers) now live inside a
+      // `Positioned.fill(RepaintBoundary(Stack(...)))` so a sibling repaint
+      // cannot drag ~42 render objects with it (mobile-perf MEDIUM). The
+      // invariant this test asserts is UNCHANGED and is now expressed in two
+      // parts, both of which have to hold for "under the gridlines and under
+      // the cards" to be true:
+      //
+      //   1. the whole banding layer is the FIRST child of the board `Stack`,
+      //      so it paints under the column boxes (and therefore under every
+      //      card);
+      //   2. the wash is the FIRST child WITHIN that layer, so it paints under
+      //      the gridlines and dividers that share it.
+      //
+      // Asserting only (2) would go green with the layer moved on top of the
+      // cards; asserting only (1) would go green with the wash moved over the
+      // gridlines. Both are required.
       await _pump(tester, <TimelineBoardColumn>[
         TimelineBoardColumn(
           header: _entry('m1', 'Оля Коваль', 1, dayOff: true),
@@ -283,7 +301,27 @@ void main() {
           )
           .first;
       final List<Widget> children = tester.widget<Stack>(stack).children;
-      final int washIndex = children.indexWhere(
+
+      // (1) The banding layer is the board `Stack`'s first child.
+      final Widget first = children.first;
+      expect(
+        first,
+        isA<Positioned>(),
+        reason: 'the banding layer is a Positioned.fill',
+      );
+      final Widget boundary = (first as Positioned).child;
+      expect(
+        boundary,
+        isA<RepaintBoundary>(),
+        reason:
+            'the banding layer must keep its own retained layer — without the '
+            'boundary a sibling repaint drags every gridline with it',
+      );
+
+      // (2) The wash is that layer's own first child.
+      final Widget bandingStack = (boundary as RepaintBoundary).child!;
+      expect(bandingStack, isA<Stack>());
+      final int washIndex = (bandingStack as Stack).children.indexWhere(
         (Widget w) =>
             w is Positioned &&
             w.child.key ==

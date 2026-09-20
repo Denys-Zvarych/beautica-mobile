@@ -1276,9 +1276,12 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   // no matter how far off-screen it sat: measured at 110 cards live, 0 culled,
   // 77 of them entirely beyond x = 360. The documented "~100-card ceiling" is
   // PER MASTER — at 6–10 masters the board carried N× it with nothing culling
-  // it. The vertical band could not rescue that either: at `salonScale` 0.7 an
-  // 11-hour day compresses to ~924dp, inside the ~953dp band on a 640dp
-  // screen, so `plannedTop > visibleBottom` was never true for any card.
+  // it. The vertical band could not rescue that, because the two bands are
+  // ORTHOGONAL: the vertical one thins each column, never the number of
+  // columns. (This paragraph used to say the vertical band was inert here — a
+  // 924dp day inside a ~953dp band. That figure was the `MediaQuery` SEED, not
+  // the inner scroller's viewport, and it is false; see [_columnCullingBand]
+  // for the measurement.)
   //
   // This is the SAME mechanism as the vertical one, not a second one: the same
   // `_kWindowSlack` / `_kWindowReanchorFraction` pair, the same re-anchor
@@ -1343,9 +1346,36 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// viewport-fraction slack left **88 cards live and 2 columns culled** —
   /// within 12 of this file's own ~100-card ceiling, i.e. the band admitted
   /// ~2 viewports of columns at the density it exists to thin. One pitch per
-  /// side leaves **66 live and 4 culled** on the same board. The vertical band
-  /// is inert at salon density (a 924dp day inside a ~953dp band), so
-  /// horizontal culling carries this win alone and must not be handed back.
+  /// side leaves **66 live and 4 culled** on the same board.
+  ///
+  /// ⚠ THE VERTICAL BAND IS *NOT* INERT ON THE BOARD — MEASURED 2026-09-20.
+  /// This doc once read "the vertical band is inert at salon density (a 924dp
+  /// day inside a ~953dp band), so horizontal culling carries this win alone",
+  /// and a mobile-perf finding built on it narrowed the board's vertical slack
+  /// to 0.25. That premise is FALSE and the narrowing was reverted.
+  ///
+  /// The ~953dp figure came from `MediaQuery.sizeOf(context).height` — the
+  /// [didChangeDependencies] SEED — not from the scroller's real
+  /// `viewportDimension`. The board attaches [_scrollController] to the INNER
+  /// scroller, beneath the roster strip and inside the horizontal scroller
+  /// (see "THE SALON BOARD'S SCROLL LOCK"), where the measured viewport on an
+  /// 800×600 surface is **174dp**, not ~635dp. The master scope attaches to
+  /// the OUTER scroller and sees the whole page — that nesting, not
+  /// `salonScale`, is the entire scope asymmetry.
+  ///
+  /// At the shared [_kWindowSlack] (0.5) the band is therefore **254dp against
+  /// 924dp of content**: ~73 % of the day already culls AT REST. There is
+  /// nothing left to win. At 0.25 the band is 210.5dp while a 12:00 card on an
+  /// 09:00–20:00 board sits at `plannedTop` 252.0 — it leaves the tree on the
+  /// second frame (the first is fine; the post-frame viewport sync correctly
+  /// lowers V to 174 and the card falls out then), which is exactly what two
+  /// `salon_owner_bookings_board_flow_test` assertions caught. The margin the
+  /// narrowing claimed (`0.15 × V ≈ 95dp`) is really `0.15 × 174 = 26.1dp`,
+  /// under a third of one card's height; the 12:00 card cleared the 0.5 band
+  /// by 2.0dp, a coincidence rather than a margin.
+  ///
+  /// Do not re-derive a board viewport from `MediaQuery` or from the master
+  /// scope's numbers, and do not re-raise "the vertical band is inert".
   ///
   /// Re-anchoring is unchanged ([_kWindowReanchorFraction] of the viewport),
   /// and the margin argument still holds: a re-anchor fires after at most
@@ -1574,14 +1604,28 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // per-card Kyiv-minute offsets — unfiltered, always — which is also
     // byte-for-byte the legacy (`scheduleFirstMinute == null`) behaviour.
     final List<Booking> bookings = widget.bookings;
+    // ONE Kyiv conversion per DISTINCT instant, not per booking-per-pass
+    // (mobile-perf LOW, 2026-09-20). On the salon board this list is the
+    // FLATTENED union of every column's bookings, and [_modelForColumn] then
+    // converts each column's bookings again — so every card's `startAt` went
+    // through `_minutesSinceDayStart`'s Europe/Kyiv table lookup TWICE per
+    // recompute, which the file header itself measures as ~99 % of the cost.
+    //
+    // Keyed on the INSTANT rather than on the `Booking` instance, deliberately:
+    // `_minutesSinceDayStart` is pure over `(instant, midnight)` and `midnight`
+    // is fixed for this whole pass, so two bookings sharing a start time share
+    // an answer BY DEFINITION. Keying on identity would additionally depend on
+    // the flattened list and the column lists holding the same objects, which
+    // is true today and is not a property this file should need.
+    final Map<DateTime, int> minuteCache = <DateTime, int>{};
+    int minutesOf(DateTime instant) => minuteCache.putIfAbsent(
+      instant,
+      () => _minutesSinceDayStart(instant, midnight),
+    );
     final List<int> startMinutes = <int>[
-      for (final Booking b in bookings)
-        _minutesSinceDayStart(b.startAt, midnight),
+      for (final Booking b in bookings) minutesOf(b.startAt),
     ];
     _visibleBookings = bookings;
-
-    final List<int> lanes = assignLanes(bookings);
-    _lanesCount = laneCount(lanes);
 
     final int? schedFirst = widget.scheduleFirstMinute;
     final int? schedWindowEnd = widget.scheduleWindowEndMinute;
@@ -1636,23 +1680,10 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
       _firstMinute + 60,
     );
 
-    // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
-    // [bookings] is already ascending by `startAt` (the class doc's
-    // invariant), and this grouping preserves relative order, so each lane's
-    // list below is ascending by `startAt` too without a second sort —
-    // exactly the order [_LaneColumn] needs to lay its cards out
-    // top-to-bottom. See the file header's "R3" section.
-    final List<List<int>> indicesByLane = List<List<int>>.generate(
-      _lanesCount,
-      (_) => <int>[],
-    );
-    for (int i = 0; i < bookings.length; i++) {
-      indicesByLane[lanes[i]].add(i);
-    }
-
-    // ADDENDUM 6 — the per-card geometry, memoised alongside the lanes. Every
-    // term below is a pure function of `bookings` + `day`, so none of it
-    // belongs on the culling rebuild path.
+    // ADDENDUM 6 — the per-card geometry's shared terms. Every one is a pure
+    // function of `bookings` + `day`, so none of it belongs on the culling
+    // rebuild path — and all three are needed by BOTH scopes, so they stay
+    // above the branch below.
     final double hourHeight = widget.density.hourHeight;
     // ADDENDUM 7 (part 2) — the card layer's vertical ORIGIN is the FLOORED
     // hour (`firstHour * 60`), NOT the raw `_firstMinute`. The gridlines and
@@ -1674,17 +1705,6 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // why such a card is repositioned rather than dropped.
     final double maxTopPx =
         ((_lastMinute / 60.0).ceil() - _firstMinute ~/ 60) * hourHeight;
-    _laneGeometry = <List<_CardGeometry>>[
-      for (final List<int> indices in indicesByLane)
-        _geometryForLane(
-          bookings: bookings,
-          indices: indices,
-          startMinutes: startMinutes,
-          originMinute: originMinute,
-          hourHeight: hourHeight,
-          maxTopPx: maxTopPx,
-        ),
-    ];
 
     // ADDENDUM 10 part (a) — the SALON scope's per-master model, built from
     // the very same [_geometryForLane] and the very same [assignLanes] as the
@@ -1711,13 +1731,64 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     );
     if (columns == null) {
       _columnModels = const <_ColumnModel>[];
+
+      // ── THE MASTER-SCOPE LANE MODEL, BUILT ONLY FOR THE MASTER SCOPE ──
+      //
+      // (mobile-perf MEDIUM, 2026-09-20.) All of this used to run ABOVE the
+      // branch, so the salon board paid for a layout it never reads: on a
+      // 100-booking day that is one `assignLanes` O(N log N) sort plus 100
+      // `_CardGeometry` allocations, discarded on every data change AND every
+      // filter apply. `build` reads `_lanesCount`/`_laneGeometry` before the
+      // `columns != null` early return, so they are still ASSIGNED on both
+      // paths (they are `late` fields) — just emptied rather than computed on
+      // the board, where `lanesCount == 0` already means "no lane `Row`".
+      //
+      // Nothing else moved. `_firstMinute`/`_lastMinute`/`originMinute`/
+      // `maxTopPx` are derived from `startMinutes` alone, never from lanes, so
+      // the ruler extent and every column's shared origin are bit-identical to
+      // before.
+      final List<int> lanes = assignLanes(bookings);
+      _lanesCount = laneCount(lanes);
+
+      // R3 FIX — group each booking's ORIGINAL index by its assigned lane.
+      // [bookings] is already ascending by `startAt` (the class doc's
+      // invariant), and this grouping preserves relative order, so each lane's
+      // list below is ascending by `startAt` too without a second sort —
+      // exactly the order [_LaneColumn] needs to lay its cards out
+      // top-to-bottom. See the file header's "R3" section.
+      final List<List<int>> indicesByLane = List<List<int>>.generate(
+        _lanesCount,
+        (_) => <int>[],
+      );
+      for (int i = 0; i < bookings.length; i++) {
+        indicesByLane[lanes[i]].add(i);
+      }
+
+      _laneGeometry = <List<_CardGeometry>>[
+        for (final List<int> indices in indicesByLane)
+          _geometryForLane(
+            bookings: bookings,
+            indices: indices,
+            startMinutes: startMinutes,
+            originMinute: originMinute,
+            hourHeight: hourHeight,
+            maxTopPx: maxTopPx,
+          ),
+      ];
       return;
     }
+
+    // The salon board reads neither — see the master branch above. Assigned
+    // (not left `late`-uninitialised) because `build` touches `_lanesCount`
+    // before it dispatches on `columns`.
+    _lanesCount = 0;
+    _laneGeometry = const <List<_CardGeometry>>[];
+
     _columnModels = <_ColumnModel>[
       for (final TimelineBoardColumn column in columns)
         _modelForColumn(
           column: column,
-          midnight: midnight,
+          minutesOf: minutesOf,
           originMinute: originMinute,
           hourHeight: hourHeight,
           maxTopPx: maxTopPx,
@@ -2529,75 +2600,123 @@ class _BoardStackState extends State<_BoardStack> {
     return Stack(
       clipBehavior: Clip.none,
       children: <Widget>[
-        // ── PHASE 336 — THE DAY-OFF WASH ────────────────────────────────
-        // One flat band per NOT-WORKING master, the exact width and left
-        // offset of that master's column (`i * columnPitch`, the same
-        // arithmetic the `Row` of column boxes below lays out with, so the
-        // wash cannot drift off its column).
+        // ══════════════════════════════════════════════════════════════════
+        // THE BANDING LAYER — ONE CACHEABLE LAYER, NOT ~42 LOOSE CHILDREN
+        // (mobile-perf MEDIUM, 2026-09-20)
+        // ══════════════════════════════════════════════════════════════════
         //
-        // PAINTED FIRST — before the gridlines, therefore under them and
-        // under every card. The greyed column must still read as a timeline:
-        // an owner has to see WHICH hours are shaded, and a card belonging to
-        // an off master (a walk-in booked onto their day off — rare, but the
-        // salon board deliberately never drops one) must stay at full
-        // contrast rather than being veiled by the state of its column.
+        // Everything under this boundary — the day-off washes, the half-hour
+        // and hour gridlines, the gutter dividers — is a pure function of
+        // `(firstHour, lastHour, slotHeight, columnWidth, gutter, dayOffMask)`
+        // and changes for NO reason a scroll can produce. It used to sit as
+        // `2(2H+1) + 2(R−1) + 2D` bare `Positioned`/`ColoredBox` pairs
+        // DIRECTLY in this `Stack`, with no boundary of its own — so the
+        // `ValueListenableBuilder` below (which rebuilds the column `Row` on
+        // every horizontal re-anchor) dirtied the shared layer and repainted
+        // all ~42 of them with it, every re-anchor frame, at R=10/H=11.
         //
-        // `top: nudge` aligns it with the first gridline and with the column
-        // boxes' own `nudge` padding; `bottom: 0` lets it run the full
-        // `Stack` extent, which is content-sized off those same boxes.
-        for (int i = 0; i < columnCount; i++)
-          if (widget.columns[i].header.dayOff)
-            Positioned(
-              left: i * columnPitch,
-              width: widget.columnWidth,
-              top: nudge,
-              bottom: 0,
-              // The key sits on the [ColoredBox], NOT on the [Positioned]:
-              // `Positioned` is a `ParentDataWidget` and owns no render
-              // object, so a test measuring the band by key would be
-              // measuring whatever descendant happened to be found first.
-              child: ColoredBox(
-                key: ValueKey<String>('timeline-column-day-off-wash-$i'),
-                color: _BoardStack._dayOffWashColor,
-              ),
-            ),
-        // NOTHING paints a per-column background between the day-off wash and
-        // the gridlines — see `_BoardStack`'s "NO ALTERNATING-COLUMN WASH
-        // LIVES HERE" note. The board base shows through every working
-        // master's column, per the approved preview.
+        // `Positioned.fill` + `RepaintBoundary` gives them a retained layer:
+        // the sibling `Row` repainting no longer touches them, and the
+        // compositor reuses the cached raster. Geometry is UNCHANGED — the
+        // inner `Stack` fills exactly the box the outer one sized to, so every
+        // `left`/`top`/`bottom`/`width` below means the same thing it always
+        // did, and `getRect` by key returns the same rect.
         //
-        // Gridlines FIRST so they paint UNDER the cards — same Finding #8
-        // ordering, and the same even/odd hour-vs-half-hour split, as the
-        // master branch.
-        for (int half = 0; half <= totalHalfHours; half++)
-          Positioned(
-            top: nudge + half * slotHeight,
-            left: 0,
-            right: 0,
-            height: 1,
-            child: ColoredBox(
-              color: half.isEven
-                  ? BrandColors.faint
-                  : BookingsTimelineGrid.halfHourLineColor,
+        // ⚠ THE FILLS STAY WIDGETS, AND THAT IS DELIBERATE — DO NOT FOLD THEM
+        // INTO A `CustomPainter`. The perf finding that prompted this fix
+        // proposed exactly that, and it would UNDO the guard for a bug that
+        // has shipped twice (`fix(booking): make the board's column banding
+        // actually visible`, `fix(salon-board): drop the near-white column
+        // wash`). `salon_bookings_board_pixel_census_test.dart`'s own header
+        // records why: the wash that shipped invisible WAS a `CustomPainter`
+        // (`_AlternatingColumnBandPainter`) drawing straight to the canvas,
+        // which is precisely what let it evade both
+        // `salon_bookings_alternating_column_test.dart`'s `ColoredBox` census
+        // AND its keyed-widget guard. `timeline-column-day-off-wash-$i` and
+        // `timeline-column-divider-$i` are read by FOUR test files — for
+        // existence, for composited colour, and for rect — and a painter
+        // configures nothing a finder can see. The repaint cost is what the
+        // boundary fixes; the widget count is not what was hurting.
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                // ── PHASE 336 — THE DAY-OFF WASH ────────────────────────────────
+                // One flat band per NOT-WORKING master, the exact width and left
+                // offset of that master's column (`i * columnPitch`, the same
+                // arithmetic the `Row` of column boxes below lays out with, so the
+                // wash cannot drift off its column).
+                //
+                // PAINTED FIRST — before the gridlines, therefore under them and
+                // under every card. The greyed column must still read as a timeline:
+                // an owner has to see WHICH hours are shaded, and a card belonging to
+                // an off master (a walk-in booked onto their day off — rare, but the
+                // salon board deliberately never drops one) must stay at full
+                // contrast rather than being veiled by the state of its column.
+                //
+                // `top: nudge` aligns it with the first gridline and with the column
+                // boxes' own `nudge` padding; `bottom: 0` lets it run the full
+                // `Stack` extent, which is content-sized off those same boxes.
+                for (int i = 0; i < columnCount; i++)
+                  if (widget.columns[i].header.dayOff)
+                    Positioned(
+                      left: i * columnPitch,
+                      width: widget.columnWidth,
+                      top: nudge,
+                      bottom: 0,
+                      // The key sits on the [ColoredBox], NOT on the [Positioned]:
+                      // `Positioned` is a `ParentDataWidget` and owns no render
+                      // object, so a test measuring the band by key would be
+                      // measuring whatever descendant happened to be found first.
+                      child: ColoredBox(
+                        key: ValueKey<String>(
+                          'timeline-column-day-off-wash-$i',
+                        ),
+                        color: _BoardStack._dayOffWashColor,
+                      ),
+                    ),
+                // NOTHING paints a per-column background between the day-off wash and
+                // the gridlines — see `_BoardStack`'s "NO ALTERNATING-COLUMN WASH
+                // LIVES HERE" note. The board base shows through every working
+                // master's column, per the approved preview.
+                //
+                // Gridlines FIRST so they paint UNDER the cards — same Finding #8
+                // ordering, and the same even/odd hour-vs-half-hour split, as the
+                // master branch.
+                for (int half = 0; half <= totalHalfHours; half++)
+                  Positioned(
+                    top: nudge + half * slotHeight,
+                    left: 0,
+                    right: 0,
+                    height: 1,
+                    child: ColoredBox(
+                      color: half.isEven
+                          ? BrandColors.faint
+                          : BookingsTimelineGrid.halfHourLineColor,
+                    ),
+                  ),
+                for (int i = 1; i < columnCount; i++)
+                  Positioned(
+                    left: i * columnPitch - gutter / 2,
+                    top: nudge,
+                    bottom: 0,
+                    width: 1,
+                    // Phase 342 — keyed so
+                    // `salon_bookings_alternating_column_test.dart` can read the
+                    // divider's own composited colour directly (it is a flat
+                    // `ColoredBox`, not a `CustomPainter`, so no rasterisation is
+                    // needed) instead of trusting the alpha literal by inspection —
+                    // the exact trust that let the 0.16 band ship invisible.
+                    child: ColoredBox(
+                      key: ValueKey<String>('timeline-column-divider-$i'),
+                      color: _BoardStack._columnDividerColor,
+                    ),
+                  ),
+              ],
             ),
           ),
-        for (int i = 1; i < columnCount; i++)
-          Positioned(
-            left: i * columnPitch - gutter / 2,
-            top: nudge,
-            bottom: 0,
-            width: 1,
-            // Phase 342 — keyed so
-            // `salon_bookings_alternating_column_test.dart` can read the
-            // divider's own composited colour directly (it is a flat
-            // `ColoredBox`, not a `CustomPainter`, so no rasterisation is
-            // needed) instead of trusting the alpha literal by inspection —
-            // the exact trust that let the 0.16 band ship invisible.
-            child: ColoredBox(
-              key: ValueKey<String>('timeline-column-divider-$i'),
-              color: _BoardStack._columnDividerColor,
-            ),
-          ),
+        ),
         // ── THE SIZING CHILD (audit M1 + H2) ────────────────────────────
         // Every column used to be its own `Positioned`, which left this
         // `Stack` with NO non-`Positioned` child — so it could only ever size
@@ -2850,7 +2969,7 @@ class _BoardStackState extends State<_BoardStack> {
 /// above card N's real bottom edge, so same-lane cards can never intersect
 /// regardless of how [build]'s per-card `spacer` estimates the gap between
 /// them.
-class _LaneColumn extends StatelessWidget {
+class _LaneColumn extends StatefulWidget {
   const _LaneColumn({
     required this.bookings,
     required this.geometry,
@@ -2882,8 +3001,59 @@ class _LaneColumn extends StatelessWidget {
   final ValueChanged<Booking> onBookingTap;
 
   @override
+  State<_LaneColumn> createState() => _LaneColumnState();
+}
+
+/// STATEFUL only to hold [_keys]/[_taps] (mobile-perf LOW, 2026-09-20) — this
+/// widget has no state of its own, mutates nothing, and calls `setState`
+/// nowhere.
+class _LaneColumnState extends State<_LaneColumn> {
+  /// Per-booking-id caches for the two things that were re-ALLOCATED on every
+  /// culling re-anchor: the card's `ValueKey` (which interpolates a string) and
+  /// its `onTap` closure.
+  ///
+  /// The closure is the one that actually cost something. A fresh closure is
+  /// never `==` to the last one, so `MasterBookingCard`'s widget was never
+  /// equal to its predecessor, so `Element.updateChild` could not skip it and
+  /// every one of the ~100 cards in a lane ran `State.build` on every vertical
+  /// re-anchor — the exact cost the culling band exists to avoid, paid by the
+  /// cards that were NOT culled. Cached, an unchanged card rebuilds to an
+  /// `==`-identical widget and the subtree is skipped.
+  ///
+  /// Cleared whenever an input the cached values depend on changes: `bookings`
+  /// (a new list can carry new ids, or the same ids as different rows) and
+  /// `onBookingTap` (the closure captures it). `visibleBottom` deliberately
+  /// does NOT clear them — it is the scroll-driven value, and preserving the
+  /// cache across it is the entire point.
+  final Map<String, ValueKey<String>> _keys = <String, ValueKey<String>>{};
+  final Map<String, ValueKey<String>> _culledKeys =
+      <String, ValueKey<String>>{};
+  final Map<String, VoidCallback> _taps = <String, VoidCallback>{};
+
+  @override
+  void didUpdateWidget(_LaneColumn oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `!identical` on the list (it is rebuilt wholesale by
+    // `_recomputeLayoutModel`, so identity is exactly right) and `!=` on the
+    // callback — it arrives as an instance-method TEAR-OFF, which is `==` but
+    // never `identical` across rebuilds, the same trap `_BoardStack
+    // .didUpdateWidget` documents at length. Using `!identical` here would
+    // clear the cache on every single rebuild and delete the optimisation.
+    if (!identical(oldWidget.bookings, widget.bookings) ||
+        oldWidget.onBookingTap != widget.onBookingTap) {
+      _keys.clear();
+      _culledKeys.clear();
+      _taps.clear();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final List<Widget> children = <Widget>[];
+    final List<Booking> bookings = widget.bookings;
+    final List<_CardGeometry> geometry = widget.geometry;
+    final double cardWidth = widget.cardWidth;
+    final double visibleBottom = widget.visibleBottom;
 
     for (final _CardGeometry geo in geometry) {
       final Booking booking = bookings[geo.bookingIndex];
@@ -2910,7 +3080,10 @@ class _LaneColumn extends StatelessWidget {
       children.add(
         culled
             ? SizedBox(
-                key: ValueKey<String>('timeline-card-culled-${booking.id}'),
+                key: _culledKeys.putIfAbsent(
+                  booking.id,
+                  () => ValueKey<String>('timeline-card-culled-${booking.id}'),
+                ),
                 width: cardWidth,
                 height: geo.occupiedHeight,
               )
@@ -2925,9 +3098,19 @@ class _LaneColumn extends StatelessWidget {
                 child: SizedBox(
                   width: cardWidth,
                   child: MasterBookingCard(
-                    key: ValueKey<String>('timeline-card-${booking.id}'),
+                    key: _keys.putIfAbsent(
+                      booking.id,
+                      () => ValueKey<String>('timeline-card-${booking.id}'),
+                    ),
                     booking: booking,
-                    onTap: () => onBookingTap(booking),
+                    // Cached per id — a FRESH closure here is what made every
+                    // unculled card's widget unequal to its predecessor and
+                    // forced ~100 `State.build`s per re-anchor. See [_taps].
+                    onTap: _taps.putIfAbsent(
+                      booking.id,
+                      () =>
+                          () => widget.onBookingTap(booking),
+                    ),
                     minHeight: geo.minHeight,
                   ),
                 ),
@@ -3103,17 +3286,24 @@ class _ColumnModel {
 /// input is shared with the master scope — most importantly [originMinute],
 /// which is the whole grid's floored-hour origin, so a card in column 3 lands
 /// on the same gridline as a same-time card in column 0.
+///
+/// [minutesOf] is the CALLER's memo over [_minutesSinceDayStart], not a bare
+/// `midnight` to convert against (mobile-perf LOW, 2026-09-20). Every booking
+/// in [column] also appears in the flattened list
+/// `_recomputeLayoutModel` already converted for the ruler's minute extent, so
+/// taking `midnight` here meant a second Europe/Kyiv table lookup per card per
+/// recompute — and that lookup is ~99 % of this whole pass's cost by the file
+/// header's own measurement. Sharing the memo makes it one.
 _ColumnModel _modelForColumn({
   required TimelineBoardColumn column,
-  required tz.TZDateTime midnight,
+  required int Function(DateTime instant) minutesOf,
   required int originMinute,
   required double hourHeight,
   required double maxTopPx,
 }) {
   final List<Booking> bookings = column.bookings;
   final List<int> startMinutes = <int>[
-    for (final Booking b in bookings)
-      _minutesSinceDayStart(b.startAt, midnight),
+    for (final Booking b in bookings) minutesOf(b.startAt),
   ];
   final List<int> lanes = assignLanes(bookings);
   final int lanesCount = laneCount(lanes);

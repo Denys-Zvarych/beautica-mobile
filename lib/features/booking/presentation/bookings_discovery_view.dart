@@ -939,15 +939,55 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   /// The single mutation point for every date-navigation control BESIDES a
   /// rail-chip tap: a grid-cell tap, the «Сьогодні» pill, and a resolved
-  /// month step. All three are single deliberate actions, unlike a rail
-  /// flick, so — mirroring the retired `_goToToday`'s own shape — this
-  /// cancels any pending rail-tap debounce, applies the selection
-  /// immediately, and recentres the rail so the collapsed strip already
-  /// agrees with the grid the moment the master collapses it back down.
+  /// month step.
+  ///
+  /// ## THE SELECTION IS IMMEDIATE; ONLY THE FETCH IS DEBOUNCED
+  /// (audit MEDIUM-2, 2026-09-20)
+  ///
+  /// The name is exact and stays exact. `_day`, `_visibleMonth` and the rail's
+  /// viewport all move on the very frame of the tap, so the `_TopRow` label,
+  /// the grid's selected cell and the collapsed strip are instant — every one
+  /// of those is a locked contract with its own test (notably
+  /// `bookings_discovery_view_visible_month_test.dart`'s "relabels
+  /// IMMEDIATELY — not only after the rail's own animateToPage settle" case,
+  /// which a whole-method debounce turns RED, and correctly so).
+  ///
+  /// What moved behind [_dayDebounce] is exactly one thing: [_rebuildQuery],
+  /// i.e. the network request. This path used to issue one fetch per tap with
+  /// no debounce at all, unlike [_selectDay]'s 220 ms, which made it the ONLY
+  /// reachable route to the backend's shared 60/min per-user budget (PR #130)
+  /// — the month grid is a field of cells a finger walks across, and a
+  /// sustained ~1 tap/s for a minute lands exactly on the ceiling. Sharing
+  /// [_selectDay]'s timer also collapses a rail-tap-then-grid-tap sequence
+  /// into ONE request rather than two racing ones.
+  ///
+  /// The 220 ms gap between "the UI says the 14th" and "the list is the 14th's"
+  /// is the same gap the rail tap has always had, and the list keeps showing
+  /// the previous day's cards for it rather than flashing empty.
+  ///
+  /// ⚠ A TEST THAT ASSERTS ON THE FETCH MUST PUMP THE DEBOUNCE EXPLICITLY.
+  /// `pumpAndSettle` fires no `Timer` when nothing is animating, so a test
+  /// that taps and settles measures the PRE-TAP query and passes vacuously.
+  /// Use `await tester.pump(const Duration(milliseconds: 250))`. Tests that
+  /// assert on the LABEL or the rail need no such pump — those are still
+  /// synchronous.
   void _selectImmediate(DateTime day) {
     _dayDebounce?.cancel();
-    _applySelectedDay(day);
+    final DateTime selected = dateOnly(day);
+    setState(() {
+      _day = selected;
+      // Relabels on the tap's own frame — see [_visibleMonth] and
+      // [_applySelectedDay] for the mid-animation case this is load-bearing
+      // for.
+      _visibleMonth = DateTime(selected.year, selected.month);
+    });
     _showRailWeekOf(day, animated: true);
+    _dayDebounce = Timer(_kDaySelectionDebounce, () {
+      if (!mounted) return;
+      // The ONLY deferred term. Reads the CURRENT `_day`, so a burst of taps
+      // coalesces to one request for wherever the master ended up.
+      setState(_rebuildQuery);
+    });
   }
 
   /// Resolves a month step ([BookingsMonthCalendarPanel.onStepMonth] — a
@@ -1099,11 +1139,21 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   /// the calendar still shows `_day`'s month, unmoved.
   void _selectDay(DateTime day) {
     _dayDebounce?.cancel();
-    _dayDebounce = Timer(const Duration(milliseconds: 220), () {
+    _dayDebounce = Timer(_kDaySelectionDebounce, () {
       if (!mounted) return;
       _applySelectedDay(day);
     });
   }
+
+  /// The ONE debounce window every date-selection path now shares — the rail
+  /// chip ([_selectDay]) and, since audit MEDIUM-2 (2026-09-20), the grid
+  /// cell / «Сьогодні» / month-step path ([_selectImmediate]).
+  ///
+  /// 220 ms was the rail's own value and is kept verbatim: long enough that a
+  /// flick's worth of chips collapses to one request, short enough that a
+  /// single deliberate tap still feels like it fetched on contact. Spelled
+  /// once so the two paths cannot drift into two different windows.
+  static const Duration _kDaySelectionDebounce = Duration(milliseconds: 220);
 
   /// The single mutation a rail-day selection resolves to — sets [_day] and
   /// rebuilds [_liveQuery]. Called after [_dayDebounce] elapses
