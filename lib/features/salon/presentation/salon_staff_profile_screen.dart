@@ -547,6 +547,10 @@ class _StaffProfileBody extends StatelessWidget {
                     asyncWeekly.value,
                     kyivToday(ref.watch(clockProvider)),
                     l10n.staffProfileScheduleNotSet,
+                    // Qase defect #36 — without this the row reduces a week of
+                    // DIFFERING hours to one min-max span, reading as hours the
+                    // owner never set. See `weeklyScheduleSummary`'s doc.
+                    variedHoursLabel: l10n.staffProfileScheduleVariedHours,
                   );
                   rowLoading = false;
                 } else if (asyncWeekly is AsyncError<List<WeeklySchedule>>) {

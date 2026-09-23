@@ -5411,6 +5411,10 @@
   "@staffProfileScheduleNotSet": {
     "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
   },
+  "staffProfileScheduleVariedHours": "різні години",
+  "@staffProfileScheduleVariedHours": {
+    "description": "Qase defect #36 (case 88) — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen, substituted for the hours half of the summary when the master's working days do NOT all share the same hours. The row is a ONE-LINE summary, so it cannot list per-day hours; before this key it rendered a min-max span across the whole week (Mon 09:00-14:00 + Tue 15:00-20:00 became «Пн-Вт · 09:00-20:00»), asserting hours the owner never set. The full per-day breakdown is one tap away on the master's «Графік роботи» screen, which renders summariseSpan(day.intervals) per day."
+  },
   "staffProfileServicesCount": "{count, plural, one{{count} послуга} few{{count} послуги} many{{count} послуг} other{{count} послуг}}",
   "@staffProfileServicesCount": {
     "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`). Phase 325 carries this onto the `ManagementActionCard` value line for a NON-EMPTY catalogue only — an empty one uses `staffProfileServicesEmpty` instead (see D3), never `staffProfileServicesCount(0)`.",
