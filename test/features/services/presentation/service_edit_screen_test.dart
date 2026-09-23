@@ -1687,5 +1687,112 @@ void main() {
     });
   });
 
+  // ── D26. Unsaved-changes guard (Qase defect #26 / case 43 step 2) ─────────
+  //
+  // `ServiceForm` has tracked dirtiness since Phase 5.4, but only to draw its
+  // inline caption. Leaving a dirty form discarded the edit in silence, so the
+  // manual tester who was told to expect a warning on exit saw none. These four
+  // cases pin both halves of the fix: the prompt fires on a dirty exit, honours
+  // both answers, and a CLEAN form is never interrupted.
+
+  Future<void> dirtyTheForm(WidgetTester tester) async {
+    await tester.enterText(
+      find.descendant(
+        of: find.byKey(const Key('field-service-name')),
+        matching: find.byType(TextField),
+      ),
+      'Змінена назва',
+    );
+    await tester.pump();
+  }
+
+  testWidgets('D26a. ✕ on a DIRTY form raises the warning and does NOT leave', (
+    tester,
+  ) async {
+    final observer = await _pumpEditInNavigator(tester, repo);
+    await dirtyTheForm(tester);
+
+    final popsBefore = observer.popCount;
+    await tester.tap(find.byKey(const Key('btn-cancel-service-edit')));
+    await tester.pumpAndSettle();
+
+    // Asserted by KEY, not by text: the dialog's title deliberately reuses
+    // `serviceUnsavedChanges`, which the inline caption is ALSO rendering
+    // right now, so a text finder would match two widgets and prove nothing
+    // about which one appeared.
+    expect(find.byKey(const Key('unsaved-changes-dialog')), findsOneWidget);
+    expect(find.byType(ServiceEditScreen), findsOneWidget);
+    expect(
+      observer.popCount,
+      popsBefore,
+      reason: 'the edit screen must still be mounted — nothing popped yet',
+    );
+  });
+
+  testWidgets('D26b. «Залишитись» keeps the master on the form', (
+    tester,
+  ) async {
+    final observer = await _pumpEditInNavigator(tester, repo);
+    await dirtyTheForm(tester);
+
+    await tester.tap(find.byKey(const Key('btn-cancel-service-edit')));
+    await tester.pumpAndSettle();
+    final popsBeforeStay = observer.popCount;
+
+    await tester.tap(find.byKey(const Key('btn-stay-on-form')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('unsaved-changes-dialog')), findsNothing);
+    expect(find.byType(ServiceEditScreen), findsOneWidget);
+    // Exactly one further pop — the dialog route dismissing itself. The edit
+    // screen did not pop.
+    expect(observer.popCount, popsBeforeStay + 1);
+    // The edit survived: the inline dirty caption is still up.
+    expect(find.text(_l10n(tester).serviceUnsavedChanges), findsOneWidget);
+  });
+
+  testWidgets('D26c. «Вийти без збереження» discards and leaves', (
+    tester,
+  ) async {
+    await _pumpEditInNavigator(tester, repo);
+    await dirtyTheForm(tester);
+
+    await tester.tap(find.byKey(const Key('btn-cancel-service-edit')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('btn-discard-changes')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('unsaved-changes-dialog')), findsNothing);
+    expect(
+      find.byType(ServiceEditScreen),
+      findsNothing,
+      reason: 'an explicit discard must actually leave the screen',
+    );
+    verifyNever(
+      () => repo.update(any(), any(), assignmentId: any(named: 'assignmentId')),
+    );
+  });
+
+  testWidgets(
+    'D26d. a CLEAN form leaves immediately — the guard never interrupts',
+    (tester) async {
+      await _pumpEditInNavigator(tester, repo);
+
+      // No edit made. Straight out.
+      await tester.tap(find.byKey(const Key('btn-cancel-service-edit')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('unsaved-changes-dialog')),
+        findsNothing,
+        reason:
+            'prompting on a pristine form would make the guard a nuisance and '
+            'train the master to dismiss it without reading',
+      );
+      expect(find.byType(ServiceEditScreen), findsNothing);
+    },
+  );
+
   tearDownAll(() {});
 }
