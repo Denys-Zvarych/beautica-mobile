@@ -12,7 +12,6 @@
 // Design source: `docs/signup-designs/MasterProfileScreen/` — transcribed 1:1.
 //
 // Domain-model gaps (fields absent from [Master]):
-//   • bookingsThisMonth   → shows '—' in the Bookings stat tile
 //   • contactPhone        → populated from [Master.phoneNumber]
 //   • instagram           → populated from [Master.instagram]; shows '—' when null
 //
@@ -468,8 +467,14 @@ class _ProfileBody extends StatelessWidget {
                 Expanded(
                   child: StatTile(
                     icon: Icons.calendar_month_outlined,
-                    // bookingsThisMonth absent from domain model — show dash.
-                    value: '—',
+                    // Qase defect #25 — this tile rendered a hardcoded '—'
+                    // because the field did not exist. `GET /masters/me` now
+                    // supplies it. Still '—' when NULL, which means "this
+                    // endpoint did not supply it" (the public master endpoint
+                    // withholds it) — never coalesce to 0, which would tell a
+                    // master with a full calendar they have none. A real zero
+                    // is an int and renders as "0".
+                    value: master.bookingsThisMonth?.toString() ?? '—',
                     caption: l10n.masterStatsBookingsLabel,
                     iconColor: BrandColors.accentDeep,
                   ),

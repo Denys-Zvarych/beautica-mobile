@@ -125,6 +125,18 @@ abstract class Master with _$Master {
     /// without a mapped profile (e.g. in tests); the mapper always materialises
     /// all 7 days.
     @Default(<WorkingHours>[]) List<WorkingHours> workingHours,
+
+    /// Count of the master's CONFIRMED/COMPLETED bookings in the current Kyiv
+    /// calendar month — the «Записів місяця» tile on the master hub.
+    ///
+    /// **`null` means "not supplied", never "zero bookings".** The backend
+    /// populates it on `GET /masters/me` ALONE: the public `GET /masters/{id}`
+    /// is `permitAll()` and `MasterDetailResponse.fromPublic` nulls the field so
+    /// a master's trading volume is not published. A `Master` mapped from any
+    /// other endpoint therefore legitimately carries `null` here, and the tile
+    /// renders «—» for it — do NOT coalesce to `0`, which would tell a master
+    /// with a full calendar that they have no bookings (Qase defect #25).
+    int? bookingsThisMonth,
   }) = _Master;
 }
 

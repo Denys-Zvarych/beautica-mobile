@@ -491,6 +491,95 @@ void main() {
       },
     );
 
+    // ── Qase defect #25: «Записів місяця» tile ────────────────────────────
+    //
+    // This tile rendered a hardcoded '—' until the field existed on the DTO.
+    // Three states, because two of them look identical if the mapper is sloppy:
+    // a real 0 (an empty month) and a null (the endpoint does not report it).
+
+    testWidgets('renders the monthly bookings count when supplied', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            Master(
+              id: 'user-1',
+              firstName: 'Тест',
+              lastName: 'Майстер',
+              avgRating: 4.8,
+              reviewCount: 42,
+              type: MasterType.independentMaster,
+              bookingsThisMonth: 17,
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('17'),
+        findsOneWidget,
+        reason: 'the tile must show the count, not the legacy hardcoded «—»',
+      );
+    });
+
+    testWidgets('renders a real ZERO as "0", not as the «—» placeholder', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            Master(
+              id: 'user-1',
+              firstName: 'Тест',
+              lastName: 'Майстер',
+              avgRating: 4.8,
+              reviewCount: 42,
+              type: MasterType.independentMaster,
+              bookingsThisMonth: 0,
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('0'),
+        findsOneWidget,
+        reason:
+            'an empty month is a FACT the master should see. Rendering it as '
+            '«—» would make it indistinguishable from "not reported".',
+      );
+    });
+
+    testWidgets('falls back to «—» when the count is null', (tester) async {
+      // _stubMaster carries no bookingsThisMonth — the public-endpoint shape.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('—'),
+        findsWidgets,
+        reason:
+            'null means the endpoint did not supply it; coalescing to 0 would '
+            'tell a master with a full calendar that they have none',
+      );
+    });
+
     testWidgets('shows correct rating and reviews values', (tester) async {
       await tester.pumpApp(
         const MasterProfileScreen(),

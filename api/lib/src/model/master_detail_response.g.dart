@@ -115,6 +115,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final String? oblastId;
   @override
   final String? districtId;
+  @override
+  final int? bookingsThisMonth;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -140,7 +142,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.workingHours,
       this.cityId,
       this.oblastId,
-      this.districtId})
+      this.districtId,
+      this.bookingsThisMonth})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -174,7 +177,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         workingHours == other.workingHours &&
         cityId == other.cityId &&
         oblastId == other.oblastId &&
-        districtId == other.districtId;
+        districtId == other.districtId &&
+        bookingsThisMonth == other.bookingsThisMonth;
   }
 
   @override
@@ -200,6 +204,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, cityId.hashCode);
     _$hash = $jc(_$hash, oblastId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
+    _$hash = $jc(_$hash, bookingsThisMonth.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -226,7 +231,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('workingHours', workingHours)
           ..add('cityId', cityId)
           ..add('oblastId', oblastId)
-          ..add('districtId', districtId))
+          ..add('districtId', districtId)
+          ..add('bookingsThisMonth', bookingsThisMonth))
         .toString();
   }
 }
@@ -320,6 +326,11 @@ class MasterDetailResponseBuilder
   String? get districtId => _$this._districtId;
   set districtId(String? districtId) => _$this._districtId = districtId;
 
+  int? _bookingsThisMonth;
+  int? get bookingsThisMonth => _$this._bookingsThisMonth;
+  set bookingsThisMonth(int? bookingsThisMonth) =>
+      _$this._bookingsThisMonth = bookingsThisMonth;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -347,6 +358,7 @@ class MasterDetailResponseBuilder
       _cityId = $v.cityId;
       _oblastId = $v.oblastId;
       _districtId = $v.districtId;
+      _bookingsThisMonth = $v.bookingsThisMonth;
       _$v = null;
     }
     return this;
@@ -390,6 +402,7 @@ class MasterDetailResponseBuilder
             cityId: cityId,
             oblastId: oblastId,
             districtId: districtId,
+            bookingsThisMonth: bookingsThisMonth,
           );
     } catch (_) {
       late String _$failedField;

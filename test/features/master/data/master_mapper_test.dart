@@ -78,4 +78,48 @@ void main() {
       },
     );
   });
+
+  group('MasterMapper.fromDto — bookingsThisMonth (Qase defect #25)', () {
+    MasterDetailResponse buildDto({required int? bookingsThisMonth}) =>
+        (MasterDetailResponseBuilder()
+              ..masterId = 'master-1'
+              ..firstName = 'Оля'
+              ..lastName = 'Коваль'
+              ..avgRating = 4.5
+              ..reviewCount = 0
+              ..masterType =
+                  MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+              ..bookingsThisMonth = bookingsThisMonth)
+            .build();
+
+    test('passes a supplied count through unchanged', () {
+      expect(
+        MasterMapper.fromDto(buildDto(bookingsThisMonth: 14)).bookingsThisMonth,
+        14,
+      );
+    });
+
+    test('preserves a real ZERO as 0, not null', () {
+      expect(
+        MasterMapper.fromDto(buildDto(bookingsThisMonth: 0)).bookingsThisMonth,
+        0,
+        reason:
+            'a master with an empty month must see "0", not the «—» that means '
+            '"this endpoint does not report it" — the two are different facts',
+      );
+    });
+
+    test('leaves an omitted count as null, NEVER coalesced to 0', () {
+      expect(
+        MasterMapper.fromDto(
+          buildDto(bookingsThisMonth: null),
+        ).bookingsThisMonth,
+        isNull,
+        reason:
+            'the public GET /masters/{id} withholds this field, so null means '
+            '"not supplied". Coalescing it to 0 would tell a master with a '
+            'full calendar that they have no bookings.',
+      );
+    });
+  });
 }

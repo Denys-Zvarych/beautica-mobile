@@ -34,6 +34,7 @@ part 'master_detail_response.g.dart';
 /// * [cityId]
 /// * [oblastId]
 /// * [districtId]
+/// * [bookingsThisMonth]
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -97,6 +98,9 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
+
+  @BuiltValueField(wireName: r'bookingsThisMonth')
+  int? get bookingsThisMonth;
 
   MasterDetailResponse._();
 
@@ -268,6 +272,13 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(String),
       );
     }
+    if (object.bookingsThisMonth != null) {
+      yield r'bookingsThisMonth';
+      yield serializers.serialize(
+        object.bookingsThisMonth,
+        specifiedType: const FullType(int),
+      );
+    }
   }
 
   @override
@@ -433,6 +444,13 @@ class _$MasterDetailResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.districtId = valueDes;
+          break;
+        case r'bookingsThisMonth':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.bookingsThisMonth = valueDes;
           break;
         default:
           unhandled.add(key);

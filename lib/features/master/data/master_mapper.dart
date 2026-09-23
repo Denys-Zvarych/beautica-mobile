@@ -74,6 +74,10 @@ abstract final class MasterMapper {
       // kept on [Master] for compatibility but left empty here so no deprecated
       // working-hours DTO crosses this boundary.
       workingHours: const [],
+      // Passed through UNCOALESCED (Qase defect #25): null is "this endpoint
+      // does not supply it", which only `GET /masters/me` does. See
+      // `Master.bookingsThisMonth`.
+      bookingsThisMonth: dto.bookingsThisMonth,
     );
   }
 
