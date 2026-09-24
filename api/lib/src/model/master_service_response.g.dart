@@ -12,6 +12,9 @@ const MasterServiceResponsePriceTypeEnum
 const MasterServiceResponsePriceTypeEnum
     _$masterServiceResponsePriceTypeEnum_RANGE =
     const MasterServiceResponsePriceTypeEnum._('RANGE');
+const MasterServiceResponsePriceTypeEnum
+    _$masterServiceResponsePriceTypeEnum_unknownDefaultOpenApi =
+    const MasterServiceResponsePriceTypeEnum._('unknownDefaultOpenApi');
 
 MasterServiceResponsePriceTypeEnum _$masterServiceResponsePriceTypeEnumValueOf(
     String name) {
@@ -20,8 +23,10 @@ MasterServiceResponsePriceTypeEnum _$masterServiceResponsePriceTypeEnumValueOf(
       return _$masterServiceResponsePriceTypeEnum_FIXED;
     case 'RANGE':
       return _$masterServiceResponsePriceTypeEnum_RANGE;
+    case 'unknownDefaultOpenApi':
+      return _$masterServiceResponsePriceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$masterServiceResponsePriceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<MasterServiceResponsePriceTypeEnum>
         MasterServiceResponsePriceTypeEnum>(const <MasterServiceResponsePriceTypeEnum>[
   _$masterServiceResponsePriceTypeEnum_FIXED,
   _$masterServiceResponsePriceTypeEnum_RANGE,
+  _$masterServiceResponsePriceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<MasterServiceResponsePriceTypeEnum>
@@ -41,10 +47,12 @@ class _$MasterServiceResponsePriceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

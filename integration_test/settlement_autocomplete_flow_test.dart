@@ -86,6 +86,12 @@ Future<void> _openSalonAddress(WidgetTester tester, GoRouter router) async {
   expect(find.byType(SalonAddressEditScreen), findsOneWidget);
 }
 
+Future<AppLocalizations> _uk() =>
+    AppLocalizations.delegate.load(const Locale('uk'));
+
+/// «м. Київ» — Kyiv's region is the city itself, so no oblast segment.
+String _kyivLabel(AppLocalizations l10n) => '${l10n.settlementCityPrefix} Київ';
+
 /// Text rendered inside the widget keyed [key] (read, never `find.text` on
 /// Cyrillic — see the cyrillic-finder guard).
 String _textIn(WidgetTester tester, Key key) => tester
@@ -135,7 +141,12 @@ void main() {
       'the saved settlement (D3, D4, D7)', (tester) async {
     final fb = _masterBackend();
     final GoRouter router = await _openLocationScreen(tester, fb);
-    expect(_textIn(tester, _kField), 'Київ', reason: 'seeded label (D7)');
+    final AppLocalizations uk = await _uk();
+    expect(
+      _textIn(tester, _kField),
+      _kyivLabel(uk),
+      reason: 'seeded label (D7) — composed from the phase-330 type',
+    );
 
     // Open the sheet and TYPE — the debounce pump is load-bearing
     // (pumpAndSettle fires no Timer).
@@ -207,10 +218,11 @@ void main() {
     await _reopenLocationScreen(tester, router);
     expect(
       _textIn(tester, _kField),
-      'Іванівка',
+      expectedLabel,
       reason:
-          're-opening shows the saved settlement, seeded from the '
-          'denormalised /masters/me city — not the previous «Київ»',
+          're-opening shows the saved settlement, seeded from /masters/me '
+          'city + region + the phase-330 type/hromada — the SAME label the '
+          'picked row carried, not the previous «Київ» and not a bare name',
     );
   });
 
@@ -270,7 +282,12 @@ void main() {
 
     // ── Re-open: settlement AND district come back ──────────────────────
     await _reopenLocationScreen(tester, router);
-    expect(_textIn(tester, _kField), 'Дніпро');
+    final AppLocalizations uk = await _uk();
+    expect(
+      _textIn(tester, _kField),
+      '${uk.settlementCityPrefix} Дніпро, Дніпропетровська '
+      '${uk.settlementOblastAbbrev}',
+    );
     await AppHarness.pumpUntilFound(tester, find.byKey(_kDistrictRow));
     expect(
       tester
@@ -353,10 +370,16 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
 
     await _openSalonAddress(tester, router);
-    expect(_textIn(tester, _kField), 'Київ', reason: 'the saved city seeds');
+    final AppLocalizations uk = await _uk();
+    expect(
+      _textIn(tester, _kField),
+      _kyivLabel(uk),
+      reason: 'the saved city seeds',
+    );
 
     await AppHarness.pickSettlement(tester, 'village-ivanivka', query: 'Іва');
-    expect(_textIn(tester, _kField), contains('Шишацька'));
+    final String pickedLabel = _textIn(tester, _kField);
+    expect(pickedLabel, contains('Шишацька'));
 
     await AppHarness.tapVisible(
       tester,
@@ -383,10 +406,11 @@ void main() {
     await _openSalonAddress(tester, router);
     expect(
       _textIn(tester, _kField),
-      'Іванівка',
+      pickedLabel,
       reason:
           'the re-opened field shows the salon city the backend derived from '
-          'the SAVED cityId — neither blank nor the previous «Київ»',
+          'the SAVED cityId, labelled exactly as the picked row — neither '
+          'blank, nor the previous «Київ», nor a bare name',
     );
   });
 }

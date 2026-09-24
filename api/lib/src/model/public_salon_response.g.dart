@@ -6,6 +6,92 @@ part of 'public_salon_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnum_CITY =
+    const PublicSalonResponseCitySettlementTypeEnum._('CITY');
+const PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnum_TOWN =
+    const PublicSalonResponseCitySettlementTypeEnum._('TOWN');
+const PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnum_VILLAGE =
+    const PublicSalonResponseCitySettlementTypeEnum._('VILLAGE');
+const PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnum_SETTLEMENT =
+    const PublicSalonResponseCitySettlementTypeEnum._('SETTLEMENT');
+const PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi =
+    const PublicSalonResponseCitySettlementTypeEnum._('unknownDefaultOpenApi');
+
+PublicSalonResponseCitySettlementTypeEnum
+    _$publicSalonResponseCitySettlementTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'CITY':
+      return _$publicSalonResponseCitySettlementTypeEnum_CITY;
+    case 'TOWN':
+      return _$publicSalonResponseCitySettlementTypeEnum_TOWN;
+    case 'VILLAGE':
+      return _$publicSalonResponseCitySettlementTypeEnum_VILLAGE;
+    case 'SETTLEMENT':
+      return _$publicSalonResponseCitySettlementTypeEnum_SETTLEMENT;
+    case 'unknownDefaultOpenApi':
+      return _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+    default:
+      return _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<PublicSalonResponseCitySettlementTypeEnum>
+    _$publicSalonResponseCitySettlementTypeEnumValues = BuiltSet<
+        PublicSalonResponseCitySettlementTypeEnum>(const <PublicSalonResponseCitySettlementTypeEnum>[
+  _$publicSalonResponseCitySettlementTypeEnum_CITY,
+  _$publicSalonResponseCitySettlementTypeEnum_TOWN,
+  _$publicSalonResponseCitySettlementTypeEnum_VILLAGE,
+  _$publicSalonResponseCitySettlementTypeEnum_SETTLEMENT,
+  _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<PublicSalonResponseCitySettlementTypeEnum>
+    _$publicSalonResponseCitySettlementTypeEnumSerializer =
+    _$PublicSalonResponseCitySettlementTypeEnumSerializer();
+
+class _$PublicSalonResponseCitySettlementTypeEnumSerializer
+    implements PrimitiveSerializer<PublicSalonResponseCitySettlementTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    PublicSalonResponseCitySettlementTypeEnum
+  ];
+  @override
+  final String wireName = 'PublicSalonResponseCitySettlementTypeEnum';
+
+  @override
+  Object serialize(Serializers serializers,
+          PublicSalonResponseCitySettlementTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  PublicSalonResponseCitySettlementTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      PublicSalonResponseCitySettlementTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$PublicSalonResponse extends PublicSalonResponse {
   @override
   final String? id;
@@ -43,6 +129,10 @@ class _$PublicSalonResponse extends PublicSalonResponse {
   final num? avgRating;
   @override
   final int? reviewCount;
+  @override
+  final PublicSalonResponseCitySettlementTypeEnum? citySettlementType;
+  @override
+  final String? cityHromadaNameUk;
 
   factory _$PublicSalonResponse(
           [void Function(PublicSalonResponseBuilder)? updates]) =>
@@ -66,7 +156,9 @@ class _$PublicSalonResponse extends PublicSalonResponse {
       this.avatarUrl,
       this.coverImageUrl,
       this.avgRating,
-      this.reviewCount})
+      this.reviewCount,
+      this.citySettlementType,
+      this.cityHromadaNameUk})
       : super._();
   @override
   PublicSalonResponse rebuild(
@@ -98,7 +190,9 @@ class _$PublicSalonResponse extends PublicSalonResponse {
         avatarUrl == other.avatarUrl &&
         coverImageUrl == other.coverImageUrl &&
         avgRating == other.avgRating &&
-        reviewCount == other.reviewCount;
+        reviewCount == other.reviewCount &&
+        citySettlementType == other.citySettlementType &&
+        cityHromadaNameUk == other.cityHromadaNameUk;
   }
 
   @override
@@ -122,6 +216,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
     _$hash = $jc(_$hash, coverImageUrl.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
     _$hash = $jc(_$hash, reviewCount.hashCode);
+    _$hash = $jc(_$hash, citySettlementType.hashCode);
+    _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -146,7 +242,9 @@ class _$PublicSalonResponse extends PublicSalonResponse {
           ..add('avatarUrl', avatarUrl)
           ..add('coverImageUrl', coverImageUrl)
           ..add('avgRating', avgRating)
-          ..add('reviewCount', reviewCount))
+          ..add('reviewCount', reviewCount)
+          ..add('citySettlementType', citySettlementType)
+          ..add('cityHromadaNameUk', cityHromadaNameUk))
         .toString();
   }
 }
@@ -228,6 +326,18 @@ class PublicSalonResponseBuilder
   int? get reviewCount => _$this._reviewCount;
   set reviewCount(int? reviewCount) => _$this._reviewCount = reviewCount;
 
+  PublicSalonResponseCitySettlementTypeEnum? _citySettlementType;
+  PublicSalonResponseCitySettlementTypeEnum? get citySettlementType =>
+      _$this._citySettlementType;
+  set citySettlementType(
+          PublicSalonResponseCitySettlementTypeEnum? citySettlementType) =>
+      _$this._citySettlementType = citySettlementType;
+
+  String? _cityHromadaNameUk;
+  String? get cityHromadaNameUk => _$this._cityHromadaNameUk;
+  set cityHromadaNameUk(String? cityHromadaNameUk) =>
+      _$this._cityHromadaNameUk = cityHromadaNameUk;
+
   PublicSalonResponseBuilder() {
     PublicSalonResponse._defaults(this);
   }
@@ -253,6 +363,8 @@ class PublicSalonResponseBuilder
       _coverImageUrl = $v.coverImageUrl;
       _avgRating = $v.avgRating;
       _reviewCount = $v.reviewCount;
+      _citySettlementType = $v.citySettlementType;
+      _cityHromadaNameUk = $v.cityHromadaNameUk;
       _$v = null;
     }
     return this;
@@ -294,6 +406,8 @@ class PublicSalonResponseBuilder
           coverImageUrl: coverImageUrl,
           avgRating: avgRating,
           reviewCount: reviewCount,
+          citySettlementType: citySettlementType,
+          cityHromadaNameUk: cityHromadaNameUk,
         );
     replace(_$result);
     return _$result;

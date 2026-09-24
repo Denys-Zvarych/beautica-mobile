@@ -86,6 +86,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_address_edit_s
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -238,6 +239,14 @@ void main() {
     // Deliberately do NOT touch the district row — this is the untouched
     // "unchanged-per-field" state the notifier's diff cannot tell apart
     // from "genuinely still null".
+    //
+    // The row appears only once the async districts lookup for the picked
+    // settlement lands — wait for it rather than asserting on the next frame
+    // (flaked once on 2026-09-24 under load: 0 widgets at this line).
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('locality_row_district')),
+    );
     expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('save_salon_address')));
@@ -543,10 +552,15 @@ void main() {
     // fixed-wait-ok: settles the real async route-push step.
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byType(SalonAddressEditScreen), findsOneWidget);
+    // Phase 348 — seeded with the composed saved label («м. Київ»), built
+    // from the phase-330 `citySettlementType` on the salon read.
+    final AppLocalizations uk = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
     expect(
       // i18n-finder-ok: 'Київ' here is fixture settlement DATA (the salon's
       // city, derived from `cityId`), not UI copy — locale-invariant.
-      find.text('Київ'),
+      find.text('${uk.settlementCityPrefix} Київ'),
       findsWidgets,
       reason:
           'the settlement field must be pre-populated with the salon\'s real '

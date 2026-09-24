@@ -32,6 +32,7 @@ import '../../../auth/presentation/auth_notifier.dart';
 import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../home/application/client_edit_profile_notifier.dart';
 import '../../../location/domain/city_district.dart';
+import '../../../location/domain/settlement.dart';
 import '../../../location/state/location_providers.dart';
 import '../../domain/search_filters.dart';
 
@@ -53,6 +54,7 @@ const int kSearchPriceDivisions = 40;
 class SearchFilterLabels {
   const SearchFilterLabels({
     this.cityName,
+    this.citySettlement,
     this.cityHasDistricts = false,
     this.districtName,
     this.categoryName,
@@ -65,6 +67,18 @@ class SearchFilterLabels {
   /// region step. The oblast has not disappeared from the UI: it is INSIDE this
   /// label, which is exactly how a user tells two «Іванівка» apart.
   final String? cityName;
+
+  /// The profile's SAVED settlement, set ONLY by the profile prefill
+  /// ([SearchFiltersController.prefillFromProfileIfNeeded]), which runs in a
+  /// notifier with no `AppLocalizations` to compose a label with. The filters
+  /// screen composes it with `savedSettlementLabel` — the same function every
+  /// settlement seed uses — and falls back to [cityName] (the bare name) when
+  /// that yields nothing.
+  ///
+  /// `null` whenever [cityName] came from anywhere else (a pick in Search, a
+  /// profile-location save): those labels are already composed. Every writer
+  /// of [cityName] rewrites this too, so the two can never disagree.
+  final Settlement? citySettlement;
 
   /// Whether the selected settlement subdivides into districts. Drives the
   /// District row's enabled/disabled state on the filters screen: when false
@@ -85,12 +99,16 @@ class SearchFilterLabels {
 
   SearchFilterLabels copyWith({
     String? Function()? cityName,
+    Settlement? Function()? citySettlement,
     bool? cityHasDistricts,
     String? Function()? districtName,
     String? Function()? categoryName,
   }) {
     return SearchFilterLabels(
       cityName: cityName != null ? cityName() : this.cityName,
+      citySettlement: citySettlement != null
+          ? citySettlement()
+          : this.citySettlement,
       cityHasDistricts: cityHasDistricts ?? this.cityHasDistricts,
       districtName: districtName != null ? districtName() : this.districtName,
       categoryName: categoryName != null ? categoryName() : this.categoryName,
@@ -102,13 +120,19 @@ class SearchFilterLabels {
       identical(this, other) ||
       other is SearchFilterLabels &&
           other.cityName == cityName &&
+          other.citySettlement == citySettlement &&
           other.cityHasDistricts == cityHasDistricts &&
           other.districtName == districtName &&
           other.categoryName == categoryName;
 
   @override
-  int get hashCode =>
-      Object.hash(cityName, cityHasDistricts, districtName, categoryName);
+  int get hashCode => Object.hash(
+    cityName,
+    citySettlement,
+    cityHasDistricts,
+    districtName,
+    categoryName,
+  );
 }
 
 /// Holds the display labels for the active [SearchFilters] selection.
@@ -141,6 +165,7 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   /// false (no city → no districts), so the District row falls back to disabled.
   void setCityName(String? name) => state = state.copyWith(
     cityName: () => name,
+    citySettlement: () => null,
     cityHasDistricts: name == null ? false : state.cityHasDistricts,
   );
 
@@ -174,13 +199,18 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   /// in isolation — e.g. the cascade picker taps in `search_filters_screen
   /// .dart`, which set one level of the locality at a time as the user
   /// interacts with a single dropdown.
+  ///
+  /// [citySettlement] is passed ONLY by the profile prefill — see
+  /// [SearchFilterLabels.citySettlement].
   void setLocality({
     String? cityName,
+    Settlement? citySettlement,
     bool cityHasDistricts = false,
     String? districtName,
   }) {
     state = state.copyWith(
       cityName: () => cityName,
+      citySettlement: () => citySettlement,
       cityHasDistricts: cityHasDistricts,
       districtName: () => districtName,
     );
@@ -429,6 +459,9 @@ class SearchFiltersController extends _$SearchFiltersController {
           .read(searchFilterLabelsControllerProvider.notifier)
           .setLocality(
             cityName: user.cityName,
+            // Composed on the filters screen («м. Львів, Львівська обл.») —
+            // this notifier has no localisations.
+            citySettlement: user.savedSettlement,
             cityHasDistricts: districts.isNotEmpty,
             districtName: matchedDistrict?.name,
           );

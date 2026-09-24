@@ -14,6 +14,9 @@ const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_PRICE_DESC =
     const MasterSearchRequestSortEnum._('PRICE_DESC');
 const MasterSearchRequestSortEnum _$masterSearchRequestSortEnum_REVIEWS_DESC =
     const MasterSearchRequestSortEnum._('REVIEWS_DESC');
+const MasterSearchRequestSortEnum
+    _$masterSearchRequestSortEnum_unknownDefaultOpenApi =
+    const MasterSearchRequestSortEnum._('unknownDefaultOpenApi');
 
 MasterSearchRequestSortEnum _$masterSearchRequestSortEnumValueOf(String name) {
   switch (name) {
@@ -25,8 +28,10 @@ MasterSearchRequestSortEnum _$masterSearchRequestSortEnumValueOf(String name) {
       return _$masterSearchRequestSortEnum_PRICE_DESC;
     case 'REVIEWS_DESC':
       return _$masterSearchRequestSortEnum_REVIEWS_DESC;
+    case 'unknownDefaultOpenApi':
+      return _$masterSearchRequestSortEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$masterSearchRequestSortEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -37,6 +42,7 @@ final BuiltSet<MasterSearchRequestSortEnum>
   _$masterSearchRequestSortEnum_PRICE_ASC,
   _$masterSearchRequestSortEnum_PRICE_DESC,
   _$masterSearchRequestSortEnum_REVIEWS_DESC,
+  _$masterSearchRequestSortEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<MasterSearchRequestSortEnum>
@@ -50,12 +56,14 @@ class _$MasterSearchRequestSortEnumSerializer
     'PRICE_ASC': 'PRICE_ASC',
     'PRICE_DESC': 'PRICE_DESC',
     'REVIEWS_DESC': 'REVIEWS_DESC',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'RATING_DESC': 'RATING_DESC',
     'PRICE_ASC': 'PRICE_ASC',
     'PRICE_DESC': 'PRICE_DESC',
     'REVIEWS_DESC': 'REVIEWS_DESC',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

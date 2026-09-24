@@ -12,6 +12,9 @@ const WeeklyScheduleDayRequestModeEnum
 const WeeklyScheduleDayRequestModeEnum
     _$weeklyScheduleDayRequestModeEnum_EXPLICIT_TIMES =
     const WeeklyScheduleDayRequestModeEnum._('EXPLICIT_TIMES');
+const WeeklyScheduleDayRequestModeEnum
+    _$weeklyScheduleDayRequestModeEnum_unknownDefaultOpenApi =
+    const WeeklyScheduleDayRequestModeEnum._('unknownDefaultOpenApi');
 
 WeeklyScheduleDayRequestModeEnum _$weeklyScheduleDayRequestModeEnumValueOf(
     String name) {
@@ -20,8 +23,10 @@ WeeklyScheduleDayRequestModeEnum _$weeklyScheduleDayRequestModeEnumValueOf(
       return _$weeklyScheduleDayRequestModeEnum_INTERVAL;
     case 'EXPLICIT_TIMES':
       return _$weeklyScheduleDayRequestModeEnum_EXPLICIT_TIMES;
+    case 'unknownDefaultOpenApi':
+      return _$weeklyScheduleDayRequestModeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$weeklyScheduleDayRequestModeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<WeeklyScheduleDayRequestModeEnum>
         WeeklyScheduleDayRequestModeEnum>(const <WeeklyScheduleDayRequestModeEnum>[
   _$weeklyScheduleDayRequestModeEnum_INTERVAL,
   _$weeklyScheduleDayRequestModeEnum_EXPLICIT_TIMES,
+  _$weeklyScheduleDayRequestModeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<WeeklyScheduleDayRequestModeEnum>
@@ -41,10 +47,12 @@ class _$WeeklyScheduleDayRequestModeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

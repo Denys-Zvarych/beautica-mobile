@@ -153,10 +153,10 @@ class SettlementLocalityField extends ConsumerWidget {
   /// Fired when the district selection changes.
   final ValueChanged<CityDistrict?> onDistrict;
 
-  /// Label to show before anything is picked — the settlement name the screen
-  /// already holds denormalised on its own read (`UserProfileResponse.cityName`,
-  /// `SalonResponse.city`). This is what makes re-opening a saved address show
-  /// the settlement (D7).
+  /// Label to show before anything is picked — the screen's saved settlement,
+  /// composed by `savedSettlementLabel` from the parts its own read carries
+  /// (phase-330), so it reads exactly as a picked row. This is what makes
+  /// re-opening a saved address show the settlement (D7).
   final String? initialSettlementLabel;
 
   /// Inline validation error under the settlement field.

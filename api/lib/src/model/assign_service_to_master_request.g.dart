@@ -12,6 +12,9 @@ const AssignServiceToMasterRequestPriceTypeEnum
 const AssignServiceToMasterRequestPriceTypeEnum
     _$assignServiceToMasterRequestPriceTypeEnum_RANGE =
     const AssignServiceToMasterRequestPriceTypeEnum._('RANGE');
+const AssignServiceToMasterRequestPriceTypeEnum
+    _$assignServiceToMasterRequestPriceTypeEnum_unknownDefaultOpenApi =
+    const AssignServiceToMasterRequestPriceTypeEnum._('unknownDefaultOpenApi');
 
 AssignServiceToMasterRequestPriceTypeEnum
     _$assignServiceToMasterRequestPriceTypeEnumValueOf(String name) {
@@ -20,8 +23,10 @@ AssignServiceToMasterRequestPriceTypeEnum
       return _$assignServiceToMasterRequestPriceTypeEnum_FIXED;
     case 'RANGE':
       return _$assignServiceToMasterRequestPriceTypeEnum_RANGE;
+    case 'unknownDefaultOpenApi':
+      return _$assignServiceToMasterRequestPriceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$assignServiceToMasterRequestPriceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<AssignServiceToMasterRequestPriceTypeEnum>
         AssignServiceToMasterRequestPriceTypeEnum>(const <AssignServiceToMasterRequestPriceTypeEnum>[
   _$assignServiceToMasterRequestPriceTypeEnum_FIXED,
   _$assignServiceToMasterRequestPriceTypeEnum_RANGE,
+  _$assignServiceToMasterRequestPriceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<AssignServiceToMasterRequestPriceTypeEnum>
@@ -41,10 +47,12 @@ class _$AssignServiceToMasterRequestPriceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

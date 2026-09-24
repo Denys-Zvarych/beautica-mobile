@@ -54,7 +54,16 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/slider_geometry.dart';
 import 'support/app_harness.dart';
 
+/// Phase 348 — `/users/me` carries `citySettlementType` (backend Phase 330),
+/// so the saved Kyiv prefill is composed like a picked row: «м. Київ» (Kyiv's
+/// region is the city itself — no oblast segment).
+late AppLocalizations _uk;
+String _savedKyivLabel() => '${_uk.settlementCityPrefix} Київ';
+
 void main() {
+  setUpAll(() async {
+    _uk = await AppLocalizations.delegate.load(const Locale('uk'));
+  });
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
@@ -1406,7 +1415,7 @@ void main() {
       );
       expect(
         cityRowText().data,
-        'Київ',
+        _savedKyivLabel(),
         reason: 'the saved-profile city must pre-fill the city filter on open',
       );
       // A pre-filled city is a searchable scope → the CTA is enabled.
@@ -1459,7 +1468,7 @@ void main() {
       );
       expect(
         cityRowText().data,
-        isNot('Київ'),
+        isNot(_savedKyivLabel()),
         reason:
             "the user's cleared edit must not be reverted to the profile city",
       );
@@ -1533,7 +1542,7 @@ void main() {
               ),
             )
             .data,
-        'Київ',
+        _savedKyivLabel(),
         reason: 'the first open must prefill from the saved Київ',
       );
 
@@ -1651,7 +1660,7 @@ void main() {
               ),
             )
             .data,
-        'Київ',
+        _savedKyivLabel(),
         reason: 'the saved-profile city must prefill the locality row on open',
       );
       // With only the prefilled location, the reset link is hidden.
@@ -1709,7 +1718,7 @@ void main() {
               ),
             )
             .data,
-        'Київ',
+        _savedKyivLabel(),
         reason: 'clearing filters must never wipe the prefilled saved location',
       );
       // Phase 346 retired the «Область» field — the settlement label is the
@@ -1725,7 +1734,7 @@ void main() {
                 matching: find.byType(Text),
               ),
             )
-            .where((Text t) => t.data == 'Київ'),
+            .where((Text t) => t.data == _savedKyivLabel()),
         hasLength(1),
         reason: 'the prefilled settlement survives the clear too',
       );

@@ -21,8 +21,10 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/home_profile_card.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -241,6 +243,89 @@ void main() {
             'at the larger text scale the long name still uses both allowed '
             'lines (ellipsis is only the last resort beyond two lines).',
       );
+    });
+  });
+
+  // Phase-330 (user-reported) — the personal profile showed a saved locality as
+  // a bare «Львів» while the «Населений пункт» picker shows «м. Львів,
+  // Львівська обл.». The card now composes the SAME label.
+  group('HomeProfileCard saved-settlement label', () {
+    String cityText(WidgetTester tester) =>
+        tester.widget<Text>(find.byKey(const Key('home_profile_city'))).data ??
+        '';
+
+    testWidgets('a typed saved CITY renders the picker label', (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Львів',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'city-lviv',
+            name: 'Львів',
+            oblastName: 'Львівська',
+            settlementType: kSettlementTypeCity,
+          ),
+        ),
+      );
+      expect(
+        cityText(tester),
+        '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+      );
+    });
+
+    testWidgets('an ambiguous VILLAGE keeps its hromada, then the district', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Іванівка, Центральний',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'v-ivanivka',
+            name: 'Іванівка',
+            oblastName: 'Полтавська',
+            hromadaName: 'Шишацька',
+            settlementType: kSettlementTypeVillage,
+          ),
+          districtName: 'Центральний',
+        ),
+      );
+      expect(
+        cityText(tester),
+        '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}, Центральний',
+      );
+    });
+
+    testWidgets('no settlement type → today\'s bare city line', (tester) async {
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Львів',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'city-lviv',
+            name: 'Львів',
+            oblastName: 'Львівська',
+          ),
+        ),
+      );
+      expect(cityText(tester), 'Львів');
     });
   });
 }

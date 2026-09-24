@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_hub_card.dart';
 import 'package:flutter/material.dart';
@@ -104,6 +105,50 @@ List<Object> _districtOverrides() => <Object>[
 ];
 
 void main() {
+  // Audit 2026-09-24 (MEDIUM) — the taxonomy lookup resolves CITY-type
+  // settlements only, so a village salon used to render NO locality. A
+  // phase-330 read's own type + name now supply it; the oblast stays OFF this
+  // line (2026-08-29 decision).
+  group('SalonHubCard — a village salon (phase-330 settlement label)', () {
+    testWidgets('renders the prefixed village name on line 1, no oblast', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      const Salon village = Salon(
+        id: 'salon-village',
+        name: 'Студія «Гармонія»',
+        oblastId: _kOblastId,
+        cityId: 'v-ivanivka',
+        city: 'Іванівка',
+        region: 'Полтавська',
+        cityHromadaName: 'Шишацька',
+        citySettlementType: 'VILLAGE',
+        street: 'вул. Мазепи',
+        buildingNo: '3',
+      );
+      await tester.pumpApp(
+        SalonHubCard(salon: village, onTap: () {}),
+        overrides: <Object>[
+          // What the CITY-only lookup yields for a village: nothing.
+          resolvedLocalityProvider(
+            oblastId: _kOblastId,
+            cityId: 'v-ivanivka',
+            districtId: null,
+          ).overrideWith((ref) async => const ResolvedLocality()),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+        // AppLocalizations; the Cyrillic left is fixture DATA (settlement
+        // name + street), identical in every locale.
+        find.text('${uk.settlementVillagePrefix} Іванівка\nвул. Мазепи, 3'),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('SalonHubCard — district resolution (Phase 21.6 audit-fix gap)', () {
     testWidgets(
       'renders "Київ, Печерський" on line 1 when both city AND district '

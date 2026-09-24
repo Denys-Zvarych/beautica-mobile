@@ -329,6 +329,9 @@ class MasterSearchRequestSortEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'REVIEWS_DESC')
   static const MasterSearchRequestSortEnum REVIEWS_DESC =
       _$masterSearchRequestSortEnum_REVIEWS_DESC;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MasterSearchRequestSortEnum unknownDefaultOpenApi =
+      _$masterSearchRequestSortEnum_unknownDefaultOpenApi;
 
   static Serializer<MasterSearchRequestSortEnum> get serializer =>
       _$masterSearchRequestSortEnumSerializer;

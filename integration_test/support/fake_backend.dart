@@ -344,8 +344,46 @@ const Map<String, String> kSeededSettlementOblastNames = <String, String>{
   'village-ivanivka': 'Полтавська',
 };
 
+/// The wire `settlementType` of every settlement id seeded by
+/// `GET /api/v1/settlements` below — kept in agreement BY HAND with those
+/// rows, exactly like [kSeededSettlementNames].
+///
+/// Backend Phase 330 (`a9992eba`): every SAVED-locality read (`/users/me`,
+/// `/salons/mine`, `/salons/{id}`, `/masters/me`, the public salon/master
+/// reads) carries the settlement's `citySettlementType` so the client prefixes
+/// the saved label («м.» / «с.») exactly as it prefixes a picked row.
+const Map<String, String> kSeededSettlementTypes = <String, String>{
+  'city-kyiv': 'CITY',
+  'city-lviv': 'CITY',
+  'city-with-districts': 'CITY',
+  'village-ivanivka': 'VILLAGE',
+};
+
+/// The `hromadaNameUk` of the seeded settlements whose name is AMBIGUOUS in
+/// their oblast — the only ones the server populates it for (phase-327 D3).
+/// Absent id = null hromada, as on the wire.
+const Map<String, String> kSeededSettlementHromadaNames = <String, String>{
+  'village-ivanivka': 'Шишацька',
+};
+
+/// Backend Phase 330's saved-settlement label parts for [cityId]:
+/// `citySettlementType` plus, ONLY for an ambiguous name,
+/// `cityHromadaNameUk`. Empty for a missing or unseeded id (the server's
+/// "does not resolve" null), so a caller spreads it unconditionally.
+Map<String, dynamic> seededSettlementLabelParts(String? cityId) {
+  final String? type = cityId == null ? null : kSeededSettlementTypes[cityId];
+  if (type == null) return const <String, dynamic>{};
+  return <String, dynamic>{
+    'citySettlementType': type,
+    if (kSeededSettlementHromadaNames[cityId] != null)
+      'cityHromadaNameUk': kSeededSettlementHromadaNames[cityId],
+  };
+}
+
 /// Returns [salon] with `city`/`region` derived from its `cityId` against the
-/// seeded settlement fixtures, as the real backend does since Phase 328.
+/// seeded settlement fixtures, as the real backend does since Phase 328 —
+/// plus Phase 330's `citySettlementType` / `cityHromadaNameUk`
+/// ([seededSettlementLabelParts]).
 ///
 /// A payload whose `cityId` is missing or not a seeded settlement is returned
 /// UNCHANGED — e.g. `salon_shell_landing_flow_test.dart`'s deliberately
@@ -359,6 +397,7 @@ Map<String, dynamic> withSeededSalonLocality(Map<String, dynamic> salon) {
     ...salon,
     'city': city,
     'region': kSeededSettlementOblastNames[cityId],
+    ...seededSettlementLabelParts(cityId),
   };
 }
 
@@ -537,6 +576,14 @@ final class FakeBackend {
   String? clientStreet;
   String? clientBuildingNo;
   String? clientLocationNote;
+
+  /// Phase 346 follow-up (Phase 348 QA) — when non-null, the CLIENT
+  /// `GET /users/me` serves THIS raw `citySettlementType` instead of the one
+  /// derived from [clientCityId] ([seededSettlementLabelParts]). Exists so a
+  /// flow can put a value THIS build predates (e.g. `HAMLET`) on the wire and
+  /// prove the generated enum's unknown-value fallback keeps the session
+  /// alive. `null` (the default) keeps the derived, real-backend shape.
+  String? clientCitySettlementTypeOverride;
 
   // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
   //
@@ -1911,7 +1958,12 @@ final class FakeBackend {
   /// mirroring the "untouched field round-trips unchanged" contract the
   /// other `_salonManage*` fields already follow. `districtId` stays
   /// nullable — `city-kyiv` has none.
-  String _salonManageCityId = 'city-kyiv';
+  ///
+  /// Public + shared with the `GET /salons/salon-xyz` read (Phase 348 QA), so
+  /// a flow can seat `salon-xyz` in a VILLAGE before login and a saved
+  /// address edit is what the NEXT read returns — the real backend has one
+  /// `salons.city_id`, not a PATCH echo that the GET ignores.
+  String salonManageCityId = 'city-kyiv';
   final String _salonManageOblastId = 'oblast-kyiv';
   String? _salonManageDistrictId;
 
@@ -2596,9 +2648,16 @@ final class FakeBackend {
     'lastName': clientLastName,
     'phoneNumber': clientPhone,
     'oblastId': clientOblastId,
-    'oblastName': clientOblastName,
+    // Backend Phase 330: `oblastName` follows the RESOLVED settlement (the
+    // oblast half of the saved label), so a seeded `cityId` wins over the
+    // hand-set [clientOblastName]; an unseeded/absent city keeps it.
+    'oblastName':
+        kSeededSettlementOblastNames[clientCityId] ?? clientOblastName,
     'cityId': clientCityId,
     'cityName': clientCityName,
+    ...seededSettlementLabelParts(clientCityId),
+    if (clientCitySettlementTypeOverride != null)
+      'citySettlementType': clientCitySettlementTypeOverride,
     'districtId': clientDistrictId,
     'districtName': clientDistrictName,
     'street': clientStreet,
@@ -2726,6 +2785,12 @@ final class FakeBackend {
     // pre-existing location-less seed (no location row on MasterProfileScreen).
     if (masterCity != null) 'city': masterCity,
     if (masterCityId != null) 'cityId': masterCityId,
+    // Backend Phase 330 — `region` (from the resolved settlement) and the
+    // saved-label parts, derived from [masterCityId] like a salon read. An
+    // unseeded/absent id adds nothing, so location-less flows are unchanged.
+    if (kSeededSettlementOblastNames[masterCityId] != null)
+      'region': kSeededSettlementOblastNames[masterCityId],
+    ...seededSettlementLabelParts(masterCityId),
     if (masterDistrictId != null) 'districtId': masterDistrictId,
     if (masterStreet != null) 'street': masterStreet,
     if (masterBuildingNo != null) 'buildingNo': masterBuildingNo,
@@ -3147,7 +3212,7 @@ final class FakeBackend {
       // oblast-kyiv/cities` handler below) — deliberately still a
       // hasDistricts:false city so no existing flow that assumes a leaf
       // (no-district) cascade for salon-xyz changes behaviour.
-      'cityId': 'city-kyiv',
+      'cityId': salonManageCityId,
       'oblastId': 'oblast-kyiv',
       'street': 'вул. Хрещатик',
       'buildingNo': '12',
@@ -7351,7 +7416,7 @@ final class FakeBackend {
             // mutable value so an untouched-locality PATCH (e.g. Test 4,
             // editing only `street`) still echoes a valid, non-null pair.
             if (body['cityId'] is String) {
-              _salonManageCityId = body['cityId'] as String;
+              salonManageCityId = body['cityId'] as String;
             }
             if (body.containsKey('districtId')) {
               _salonManageDistrictId = body['districtId'] as String?;
@@ -7363,7 +7428,7 @@ final class FakeBackend {
                 'id': 'salon-xyz',
                 'name': _salonManageName,
                 'description': salonDescription,
-                'cityId': _salonManageCityId,
+                'cityId': salonManageCityId,
                 'oblastId': _salonManageOblastId,
                 'districtId': _salonManageDistrictId,
                 'street': (body['street'] as String?) ?? 'вул. Хрещатик',

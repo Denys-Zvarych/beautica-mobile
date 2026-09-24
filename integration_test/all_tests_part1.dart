@@ -93,6 +93,7 @@ import 'logout_flow_test.dart' as logout;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
+import 'saved_settlement_label_flow_test.dart' as saved_settlement_label;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
@@ -287,6 +288,10 @@ void main() {
   // invalid pair — see the file's own header doc).
   group('salon_edit_forms_flow', salon_edit_forms.main);
   group('settlement_autocomplete_flow', settlement_autocomplete.main);
+  // Phase 348 (Step 2.7 Rule 3b) — saved-settlement labels off the phase-330
+  // wire: client village card + search prefill, village salon hub/hero short
+  // label, and an unknown `citySettlementType` surviving login + cold start.
+  group('saved_settlement_label_flow', saved_settlement_label.main);
   // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
   // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
   // form fill -> real POST /api/v1/salons -> real pop -> the new salon

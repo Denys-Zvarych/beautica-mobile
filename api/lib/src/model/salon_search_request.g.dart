@@ -14,6 +14,9 @@ const SalonSearchRequestSortEnum _$salonSearchRequestSortEnum_PRICE_DESC =
     const SalonSearchRequestSortEnum._('PRICE_DESC');
 const SalonSearchRequestSortEnum _$salonSearchRequestSortEnum_REVIEWS_DESC =
     const SalonSearchRequestSortEnum._('REVIEWS_DESC');
+const SalonSearchRequestSortEnum
+    _$salonSearchRequestSortEnum_unknownDefaultOpenApi =
+    const SalonSearchRequestSortEnum._('unknownDefaultOpenApi');
 
 SalonSearchRequestSortEnum _$salonSearchRequestSortEnumValueOf(String name) {
   switch (name) {
@@ -25,8 +28,10 @@ SalonSearchRequestSortEnum _$salonSearchRequestSortEnumValueOf(String name) {
       return _$salonSearchRequestSortEnum_PRICE_DESC;
     case 'REVIEWS_DESC':
       return _$salonSearchRequestSortEnum_REVIEWS_DESC;
+    case 'unknownDefaultOpenApi':
+      return _$salonSearchRequestSortEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$salonSearchRequestSortEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -36,6 +41,7 @@ final BuiltSet<SalonSearchRequestSortEnum> _$salonSearchRequestSortEnumValues =
   _$salonSearchRequestSortEnum_PRICE_ASC,
   _$salonSearchRequestSortEnum_PRICE_DESC,
   _$salonSearchRequestSortEnum_REVIEWS_DESC,
+  _$salonSearchRequestSortEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<SalonSearchRequestSortEnum> _$salonSearchRequestSortEnumSerializer =
@@ -48,12 +54,14 @@ class _$SalonSearchRequestSortEnumSerializer
     'PRICE_ASC': 'PRICE_ASC',
     'PRICE_DESC': 'PRICE_DESC',
     'REVIEWS_DESC': 'REVIEWS_DESC',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'RATING_DESC': 'RATING_DESC',
     'PRICE_ASC': 'PRICE_ASC',
     'PRICE_DESC': 'PRICE_DESC',
     'REVIEWS_DESC': 'REVIEWS_DESC',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

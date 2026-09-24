@@ -100,6 +100,7 @@ import '../../../shared/formatters/booking_price_labels.dart';
 import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
+import '../../location/presentation/saved_settlement_label.dart';
 import '../../wishlist/presentation/widgets/wishlist_rebook.dart';
 import '../../wishlist/presentation/widgets/wishlist_section.dart';
 import '../application/passport_notifier.dart';
@@ -492,8 +493,13 @@ class _ProfileBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String city = profile.city.isNotEmpty
-        ? profile.city
+    // «м. Львів, Львівська обл.», composed exactly as the picker composes it;
+    // the bare [ClientProfileSummary.city] when there is nothing to compose.
+    final String locality = profile.localityLabel(
+      savedSettlementLabel(l10n, profile.settlement),
+    );
+    final String city = locality.isNotEmpty
+        ? locality
         : l10n.homeHubLocationPlaceholder;
     final String phone = profile.phone.isNotEmpty
         ? profile.phone

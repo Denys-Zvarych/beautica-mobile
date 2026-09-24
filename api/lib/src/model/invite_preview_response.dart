@@ -169,6 +169,9 @@ class InvitePreviewResponseRoleEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
   static const InvitePreviewResponseRoleEnum INDEPENDENT_MASTER =
       _$invitePreviewResponseRoleEnum_INDEPENDENT_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const InvitePreviewResponseRoleEnum unknownDefaultOpenApi =
+      _$invitePreviewResponseRoleEnum_unknownDefaultOpenApi;
 
   static Serializer<InvitePreviewResponseRoleEnum> get serializer =>
       _$invitePreviewResponseRoleEnumSerializer;

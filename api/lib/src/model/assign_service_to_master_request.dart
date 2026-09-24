@@ -217,6 +217,9 @@ class AssignServiceToMasterRequestPriceTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'RANGE')
   static const AssignServiceToMasterRequestPriceTypeEnum RANGE =
       _$assignServiceToMasterRequestPriceTypeEnum_RANGE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AssignServiceToMasterRequestPriceTypeEnum unknownDefaultOpenApi =
+      _$assignServiceToMasterRequestPriceTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<AssignServiceToMasterRequestPriceTypeEnum> get serializer =>
       _$assignServiceToMasterRequestPriceTypeEnumSerializer;

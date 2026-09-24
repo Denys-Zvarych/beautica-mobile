@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -345,13 +346,17 @@ class _ProfileBody extends StatelessWidget {
     // two renderings actually ships is decided by `MasterAddressBlock`, which
     // measures the collapsed string against the real available width; both
     // forms are composed here so the widget stays a pure layout decision.
-    final String? localityLine = buildLocalityLine(master.city);
+    // «м. Львів, Львівська обл.» — the picker's label, not the bare name;
+    // the bare name when the read carries no settlement type.
+    final String? settlementLabel =
+        savedSettlementLabel(l10n, master.savedSettlement) ?? master.city;
+    final String? localityLine = buildLocalityLine(settlementLabel);
     final String? streetLine = buildStreetLine(
       master.street,
       master.buildingNo,
     );
     final String? combinedAddressLine = buildCombinedAddressLine(
-      master.city,
+      settlementLabel,
       master.street,
       master.buildingNo,
     );

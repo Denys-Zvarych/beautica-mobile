@@ -295,6 +295,40 @@ void main() {
     // width, so the collapse is proven where it has to work.
     const double collapsingWidth = 400;
 
+    // Phase-330 — the settlement reads as the «Населений пункт» picker
+    // labels it, in the collapsed line as well as the split one.
+    testWidgets('a typed saved settlement renders the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides(
+          (ref) => (
+            masterWithFullAddress.copyWith(
+              city: 'Бориспіль',
+              region: 'Київська',
+              citySettlementType: 'CITY',
+            ),
+            _stubServices,
+          ),
+        ),
+        width: 800,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(
+                const Key('public-master-profile-address-combined-text'),
+              ),
+            )
+            .data,
+        '${uk.settlementCityPrefix} Бориспіль, Київська ${uk.settlementOblastAbbrev}, вул. Хрещатик, 22',
+      );
+    });
+
     testWidgets(
       'collapses city + street + building onto ONE line when it fits, and '
       'still renders the note beneath it (Phase 224)',

@@ -81,6 +81,66 @@ abstract class Settlement with _$Settlement {
         ? json['settlementType'] as String
         : null,
   );
+
+  /// Builds a [Settlement] from the label parts a SAVED locality carries on
+  /// its own read — `/users/me`, a salon read, a master read (phase-330) —
+  /// so a saved locality is labelled by the SAME [composeSavedSettlementLabel]
+  /// → [composeSettlementLabel] path as a picked row.
+  ///
+  /// Returns `null` when there is no settlement name at all (no saved
+  /// locality). [id] may be null on a read that masks it; the label never
+  /// uses it. [oblastName] null is carried as `''`, which the label drops as a
+  /// segment with no visible content.
+  static Settlement? fromSaved({
+    required String? id,
+    required String? name,
+    required String? settlementType,
+    required String? hromadaName,
+    required String? oblastName,
+  }) {
+    if (name == null) return null;
+    return Settlement(
+      id: id ?? '',
+      name: name,
+      oblastName: oblastName ?? '',
+      hromadaName: hromadaName,
+      settlementType: settlementType,
+    );
+  }
+}
+
+/// Composes the label for a SAVED locality (a profile/salon/master read) — the
+/// seed of every settlement field and the locality line of every profile.
+///
+/// Delegates to [composeSettlementLabel], so a saved label and a picked label
+/// are formatted — and sanitised — by the one function. The only difference is
+/// the FALLBACK: a saved settlement whose [Settlement.settlementType] is `null`
+/// (older data, a read that predates phase-330) renders as its bare sanitised
+/// name, exactly as it did before. The type is never guessed from the name.
+///
+/// Returns `null` for a null [saved] or a name that reduces to nothing, so the
+/// caller shows its placeholder.
+String? composeSavedSettlementLabel(
+  Settlement? saved, {
+  required String hromadaWord,
+  required String oblastWord,
+  required String cityPrefix,
+  required String villagePrefix,
+}) {
+  if (saved == null) return null;
+  final String? bare = _visibleOrNull(saved.name);
+  if (bare == null) return null;
+  if (saved.settlementType == null) return bare;
+  // The name is already sanitised — hand it through rather than sanitising
+  // it a second time inside [composeSettlementLabel].
+  return _composeWithName(
+    saved,
+    bare,
+    hromadaWord: hromadaWord,
+    oblastWord: oblastWord,
+    cityPrefix: cityPrefix,
+    villagePrefix: villagePrefix,
+  );
 }
 
 /// Composes the user-visible label for one settlement row (phase-346 D4).
@@ -133,8 +193,27 @@ String composeSettlementLabel(
   required String oblastWord,
   required String cityPrefix,
   required String villagePrefix,
+}) => _composeWithName(
+  settlement,
+  _visibleOrNull(settlement.name),
+  hromadaWord: hromadaWord,
+  oblastWord: oblastWord,
+  cityPrefix: cityPrefix,
+  villagePrefix: villagePrefix,
+);
+
+/// [composeSettlementLabel]'s body, taking the settlement name ALREADY
+/// sanitised (`null` when it has no visible content) so
+/// [composeSavedSettlementLabel], which must test the name first, sanitises it
+/// once rather than twice. Every other part is sanitised here.
+String _composeWithName(
+  Settlement settlement,
+  String? name, {
+  required String hromadaWord,
+  required String oblastWord,
+  required String cityPrefix,
+  required String villagePrefix,
 }) {
-  final String? name = _visibleOrNull(settlement.name);
   final String? hromada = _visibleOrNull(settlement.hromadaName);
   final String? oblast = _visibleOrNull(settlement.oblastName);
 
@@ -177,10 +256,9 @@ String? _typePrefix(
 /// it gets neither a repeated segment nor the oblast abbreviation.
 bool _regionIsTheSettlement(String region, String? name) => region == name;
 
-/// Sanitises a settlement label that did NOT come through
-/// [composeSettlementLabel] — the SEED a screen passes the settlement field
-/// from its own profile/salon read (`UserProfileResponse.cityName`,
-/// `SalonResponse.city`).
+/// Sanitises a settlement label a caller hands the settlement field as its
+/// SEED (`initialLabel`) — normally already built by
+/// [composeSavedSettlementLabel], but the field does not trust its caller.
 ///
 /// Exactly the rule [composeSettlementLabel] applies to every segment of a
 /// picked row, so a seeded label and a picked label can never be sanitised

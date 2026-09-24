@@ -1509,6 +1509,33 @@ void main() {
       );
     });
 
+    // Audit 2026-09-24 (MEDIUM) — the taxonomy lookup resolves CITY-type
+    // settlements only, so a village salon's hero address had NO locality.
+    testWidgets('a village salon renders its prefixed name (no oblast) ahead '
+        'of the street', (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      final repo = FakeSalonRepository(
+        salon: _stubSalonTaxonomyOnly.copyWith(
+          cityId: 'v-ivanivka',
+          city: 'Іванівка',
+          region: 'Полтавська',
+          citySettlementType: 'VILLAGE',
+          street: 'вул. Шевченка',
+          buildingNo: '7',
+        ),
+      );
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('salon-manage-address'))).data,
+        '${uk.settlementVillagePrefix} Іванівка, вул. Шевченка, 7',
+      );
+    });
+
     testWidgets(
       'a salon with locationNote renders the note row beneath the address',
       (tester) async {

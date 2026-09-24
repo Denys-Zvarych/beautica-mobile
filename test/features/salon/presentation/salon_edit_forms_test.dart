@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_s
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -401,6 +402,36 @@ void main() {
   });
 
   group('SalonAddressEditScreen', () {
+    // Phase-330 — the settlement field is seeded with the picker label
+    // , never the bare
+    // denormalised `salon.city`.
+    testWidgets('a typed saved settlement seeds the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      final repo = FakeSalonRepository(
+        salon: _stubSalon.copyWith(
+          city: 'Бориспіль',
+          region: 'Київська',
+          citySettlementType: 'CITY',
+        ),
+      );
+      final router = _router();
+      await tester.pumpRoutedApp(router, overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementCityPrefix} Бориспіль, Київська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: settlement NAME is reference data, identical in every locale.
+      expect(find.text('Бориспіль'), findsNothing);
+    });
+
     testWidgets(
       'pre-populates street/building/note and shows the settlement field '
       'with no oblast control anywhere',

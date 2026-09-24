@@ -122,4 +122,44 @@ void main() {
       );
     });
   });
+
+  // Phase-330 — MasterDetailResponse gains region + the label parts.
+  group('MasterMapper.fromDto — saved-settlement label parts', () {
+    MasterDetailResponse buildDto() =>
+        (MasterDetailResponseBuilder()
+              ..masterId = 'master-330'
+              ..firstName = 'Оля'
+              ..lastName = 'Коваль'
+              ..reviewCount = 0
+              ..masterType =
+                  MasterDetailResponseMasterTypeEnum.INDEPENDENT_MASTER
+              ..city = 'Іванівка')
+            .build();
+
+    test('carries region, citySettlementType and cityHromadaNameUk', () {
+      final master = MasterMapper.fromDto(
+        buildDto().rebuild(
+          (b) => b
+            ..region = 'Полтавська'
+            ..citySettlementType =
+                MasterDetailResponseCitySettlementTypeEnum.VILLAGE
+            ..cityHromadaNameUk = 'Шишацька',
+        ),
+      );
+
+      expect(master.region, 'Полтавська');
+      expect(master.citySettlementType, 'VILLAGE');
+      expect(master.cityHromadaName, 'Шишацька');
+      expect(master.savedSettlement?.name, 'Іванівка');
+      expect(master.savedSettlement?.oblastName, 'Полтавська');
+    });
+
+    test('all three are null when the read predates phase-330 (or masks '
+        'the city)', () {
+      final master = MasterMapper.fromDto(buildDto());
+      expect(master.region, isNull);
+      expect(master.citySettlementType, isNull);
+      expect(master.cityHromadaName, isNull);
+    });
+  });
 }

@@ -18,6 +18,9 @@ const EffectiveDayResponseSource_Enum
 const EffectiveDayResponseSource_Enum
     _$effectiveDayResponseSourceEnum_NO_SCHEDULE =
     const EffectiveDayResponseSource_Enum._('NO_SCHEDULE');
+const EffectiveDayResponseSource_Enum
+    _$effectiveDayResponseSourceEnum_unknownDefaultOpenApi =
+    const EffectiveDayResponseSource_Enum._('unknownDefaultOpenApi');
 
 EffectiveDayResponseSource_Enum _$effectiveDayResponseSourceEnumValueOf(
     String name) {
@@ -30,8 +33,10 @@ EffectiveDayResponseSource_Enum _$effectiveDayResponseSourceEnumValueOf(
       return _$effectiveDayResponseSourceEnum_OVERRIDE_DAY_OFF;
     case 'NO_SCHEDULE':
       return _$effectiveDayResponseSourceEnum_NO_SCHEDULE;
+    case 'unknownDefaultOpenApi':
+      return _$effectiveDayResponseSourceEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$effectiveDayResponseSourceEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -42,6 +47,7 @@ final BuiltSet<EffectiveDayResponseSource_Enum>
   _$effectiveDayResponseSourceEnum_OVERRIDE_CUSTOM,
   _$effectiveDayResponseSourceEnum_OVERRIDE_DAY_OFF,
   _$effectiveDayResponseSourceEnum_NO_SCHEDULE,
+  _$effectiveDayResponseSourceEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<EffectiveDayResponseSource_Enum>
@@ -55,12 +61,14 @@ class _$EffectiveDayResponseSource_EnumSerializer
     'OVERRIDE_CUSTOM': 'OVERRIDE_CUSTOM',
     'OVERRIDE_DAY_OFF': 'OVERRIDE_DAY_OFF',
     'NO_SCHEDULE': 'NO_SCHEDULE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'TEMPLATE': 'TEMPLATE',
     'OVERRIDE_CUSTOM': 'OVERRIDE_CUSTOM',
     'OVERRIDE_DAY_OFF': 'OVERRIDE_DAY_OFF',
     'NO_SCHEDULE': 'NO_SCHEDULE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

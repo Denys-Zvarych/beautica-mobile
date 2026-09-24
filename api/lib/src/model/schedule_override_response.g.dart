@@ -12,6 +12,9 @@ const ScheduleOverrideResponseKindEnum
 const ScheduleOverrideResponseKindEnum
     _$scheduleOverrideResponseKindEnum_CUSTOM_HOURS =
     const ScheduleOverrideResponseKindEnum._('CUSTOM_HOURS');
+const ScheduleOverrideResponseKindEnum
+    _$scheduleOverrideResponseKindEnum_unknownDefaultOpenApi =
+    const ScheduleOverrideResponseKindEnum._('unknownDefaultOpenApi');
 
 ScheduleOverrideResponseKindEnum _$scheduleOverrideResponseKindEnumValueOf(
     String name) {
@@ -20,8 +23,10 @@ ScheduleOverrideResponseKindEnum _$scheduleOverrideResponseKindEnumValueOf(
       return _$scheduleOverrideResponseKindEnum_DAY_OFF;
     case 'CUSTOM_HOURS':
       return _$scheduleOverrideResponseKindEnum_CUSTOM_HOURS;
+    case 'unknownDefaultOpenApi':
+      return _$scheduleOverrideResponseKindEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$scheduleOverrideResponseKindEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<ScheduleOverrideResponseKindEnum>
         ScheduleOverrideResponseKindEnum>(const <ScheduleOverrideResponseKindEnum>[
   _$scheduleOverrideResponseKindEnum_DAY_OFF,
   _$scheduleOverrideResponseKindEnum_CUSTOM_HOURS,
+  _$scheduleOverrideResponseKindEnum_unknownDefaultOpenApi,
 ]);
 
 const ScheduleOverrideResponseModeEnum
@@ -38,6 +44,9 @@ const ScheduleOverrideResponseModeEnum
 const ScheduleOverrideResponseModeEnum
     _$scheduleOverrideResponseModeEnum_EXPLICIT_TIMES =
     const ScheduleOverrideResponseModeEnum._('EXPLICIT_TIMES');
+const ScheduleOverrideResponseModeEnum
+    _$scheduleOverrideResponseModeEnum_unknownDefaultOpenApi =
+    const ScheduleOverrideResponseModeEnum._('unknownDefaultOpenApi');
 
 ScheduleOverrideResponseModeEnum _$scheduleOverrideResponseModeEnumValueOf(
     String name) {
@@ -46,8 +55,10 @@ ScheduleOverrideResponseModeEnum _$scheduleOverrideResponseModeEnumValueOf(
       return _$scheduleOverrideResponseModeEnum_INTERVAL;
     case 'EXPLICIT_TIMES':
       return _$scheduleOverrideResponseModeEnum_EXPLICIT_TIMES;
+    case 'unknownDefaultOpenApi':
+      return _$scheduleOverrideResponseModeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$scheduleOverrideResponseModeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -56,6 +67,7 @@ final BuiltSet<ScheduleOverrideResponseModeEnum>
         ScheduleOverrideResponseModeEnum>(const <ScheduleOverrideResponseModeEnum>[
   _$scheduleOverrideResponseModeEnum_INTERVAL,
   _$scheduleOverrideResponseModeEnum_EXPLICIT_TIMES,
+  _$scheduleOverrideResponseModeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<ScheduleOverrideResponseKindEnum>
@@ -70,10 +82,12 @@ class _$ScheduleOverrideResponseKindEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -100,10 +114,12 @@ class _$ScheduleOverrideResponseModeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

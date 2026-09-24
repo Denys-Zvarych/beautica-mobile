@@ -223,6 +223,9 @@ class EffectiveDayResponseSource_Enum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'NO_SCHEDULE')
   static const EffectiveDayResponseSource_Enum NO_SCHEDULE =
       _$effectiveDayResponseSourceEnum_NO_SCHEDULE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const EffectiveDayResponseSource_Enum unknownDefaultOpenApi =
+      _$effectiveDayResponseSourceEnum_unknownDefaultOpenApi;
 
   static Serializer<EffectiveDayResponseSource_Enum> get serializer =>
       _$effectiveDayResponseSourceEnumSerializer;

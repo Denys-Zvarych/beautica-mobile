@@ -25,6 +25,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1471,37 +1472,36 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 10 — cold-start raw exception (non-Failure)
     // -----------------------------------------------------------------------
-    test(
-      'cold start: raw Exception (non-Failure) from repo.refresh → '
-      'Unauthenticated (caught in background task) and storage wiped',
-      () async {
-        final repo = MockAuthRepository();
-        final storage = FakeSecureStorage();
-        await storage.writeRefreshToken('stored-refresh');
+    test('cold start: raw Exception (non-Failure) from repo.refresh → '
+        'Unauthenticated (caught in background task), storage KEPT', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
 
-        // Throw a raw exception that is NOT a Failure subclass.
-        // F4 — the background restoration task has a catch-all so any
-        // non-Failure exception is treated like a failed refresh: storage
-        // is wiped and state ends up Unauthenticated. The exception must
-        // NOT bubble up to AsyncError because that would re-trigger
-        // build() on `ref.invalidate(authProvider)` and produce a redirect
-        // loop in production.
-        when(
-          () => repo.refresh('stored-refresh'),
-        ).thenThrow(Exception('format error'));
+      // Throw a raw exception that is NOT a Failure subclass.
+      // F4 — the background restoration task has a catch-all so any
+      // non-Failure exception ends Unauthenticated. Since the 2026-09-24
+      // audit (security LOW) it no longer wipes storage: a client-side
+      // format error is not the server rejecting the token (see
+      // `isAuthRejection`). The exception must
+      // NOT bubble up to AsyncError because that would re-trigger
+      // build() on `ref.invalidate(authProvider)` and produce a redirect
+      // loop in production.
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenThrow(Exception('format error'));
 
-        final container = makeContainer(repo: repo, storage: storage);
+      final container = makeContainer(repo: repo, storage: storage);
 
-        // async build() awaits repo.refresh(), catches the non-Failure exception,
-        // wipes storage, and returns Unauthenticated.
-        await container.read(authProvider.future);
+      // async build() awaits repo.refresh(), catches the non-Failure
+      // exception, keeps storage, and returns Unauthenticated.
+      await container.read(authProvider.future);
 
-        final value = container.read(authProvider);
-        expect(value, isA<AsyncData<AuthSession>>());
-        expect(value.value, equals(const AuthSession.unauthenticated()));
-        expect(await storage.readRefreshToken(), isNull);
-      },
-    );
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(value.value, equals(const AuthSession.unauthenticated()));
+      expect(await storage.readRefreshToken(), 'stored-refresh');
+    });
 
     // -----------------------------------------------------------------------
     // Test 10b — cold-start partial success: refresh OK, repo.me throws →
@@ -1578,6 +1578,144 @@ void main() {
         reason:
             'storage.deleteAll() must run when repo.me() throws on cold start',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // Audit (2026-09-24, security LOW) — only a credential REJECTION wipes the
+    // stored session on cold start. A 200 the client cannot parse (e.g. an
+    // unknown enum value in `/users/me`) must not log the user out for good.
+    // -----------------------------------------------------------------------
+    group('cold start: storage is wiped ONLY on a credential rejection', () {
+      DioException dioAt(String path, int status, {DioExceptionType? type}) {
+        final RequestOptions options = RequestOptions(path: path);
+        return DioException(
+          requestOptions: options,
+          type: type ?? DioExceptionType.badResponse,
+          response: Response<Object?>(
+            requestOptions: options,
+            statusCode: status,
+            data: '{"success":true,"data":{"citySettlementType":',
+          ),
+        );
+      }
+
+      Future<(ProviderContainer, FakeSecureStorage)> coldStart({
+        required Object meError,
+      }) async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        when(() => repo.me()).thenThrow(meError);
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        return (container, storage);
+      }
+
+      test('/users/me answers 200 with malformed JSON → the ROTATED refresh '
+          'token is KEPT (Unauthenticated in memory)', () async {
+        // What `HttpAuthRepository.me()` throws when the generated client
+        // cannot deserialize a 200: the DioException(unknown) mapped to
+        // UnknownFailure.
+        final (container, storage) = await coldStart(
+          meError: UnknownFailure(
+            cause: dioAt(
+              '/api/v1/users/me',
+              200,
+              type: DioExceptionType.unknown,
+            ),
+          ),
+        );
+
+        expect(
+          container.read(authProvider).value,
+          const AuthSession.unauthenticated(),
+        );
+        expect(
+          await storage.readRefreshToken(),
+          rotatedTokens.refreshToken,
+          reason:
+              'an unparseable 200 says nothing about the credentials — the '
+              'next cold start must be able to retry',
+        );
+      });
+
+      test(
+        'a non-Failure mapping error after a 200 also keeps the token',
+        () async {
+          final (_, storage) = await coldStart(meError: TypeError());
+          expect(await storage.readRefreshToken(), rotatedTokens.refreshToken);
+        },
+      );
+
+      // INFO-3 (Phase 348 re-audit) — a 400 is a credential rejection ONLY
+      // from `/auth/refresh`. A ValidationFailure from `/users/me` (after the
+      // refresh already succeeded and rotated the token) says nothing about
+      // the credentials, so the rotated token must survive.
+      test(
+        '/users/me answers 400 (ValidationFailure, NOT from refresh) → the '
+        'ROTATED refresh token is KEPT (Unauthenticated in memory)',
+        () async {
+          final (container, storage) = await coldStart(
+            meError: ValidationFailure(
+              fieldErrors: const <String, String>{},
+              cause: dioAt('/api/v1/users/me', 400),
+            ),
+          );
+
+          expect(
+            container.read(authProvider).value,
+            const AuthSession.unauthenticated(),
+          );
+          expect(
+            await storage.readRefreshToken(),
+            rotatedTokens.refreshToken,
+            reason:
+                'only the refresh endpoint may reject with a 400 — a 400 from '
+                '/users/me must not log the user out for good',
+          );
+        },
+      );
+
+      test('/users/me answers 401 → storage IS wiped', () async {
+        final (_, storage) = await coldStart(
+          meError: UnauthorizedFailure(cause: dioAt('/api/v1/users/me', 401)),
+        );
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('/users/me answers 403 → storage IS wiped', () async {
+        final (_, storage) = await coldStart(
+          meError: UnknownFailure(cause: dioAt('/api/v1/users/me', 403)),
+        );
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('/auth/refresh rejects the token as malformed (400) → wiped; a 5xx '
+          'from it → kept', () async {
+        Future<String?> afterRefreshError(Object error) async {
+          final repo = MockAuthRepository();
+          final storage = FakeSecureStorage();
+          await storage.writeRefreshToken('stored-refresh');
+          when(() => repo.refresh('stored-refresh')).thenThrow(error);
+          final container = makeContainer(repo: repo, storage: storage);
+          await container.read(authProvider.future);
+          return storage.readRefreshToken();
+        }
+
+        expect(
+          await afterRefreshError(
+            const ValidationFailure(fieldErrors: <String, String>{}),
+          ),
+          isNull,
+        );
+        expect(
+          await afterRefreshError(const ServerFailure(statusCode: 503)),
+          'stored-refresh',
+        );
+      });
     });
 
     // -----------------------------------------------------------------------

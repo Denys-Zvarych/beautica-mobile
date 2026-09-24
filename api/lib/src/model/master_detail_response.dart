@@ -35,6 +35,9 @@ part 'master_detail_response.g.dart';
 /// * [oblastId]
 /// * [districtId]
 /// * [bookingsThisMonth]
+/// * [region] - Oblast name of the master's own settlement (cityId). Null when no city is set, and on the public path for salon-affiliated masters (masked like city).
+/// * [citySettlementType] - Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+/// * [cityHromadaNameUk] - Bare hromada adjective of the master's own settlement, populated only when its name is ambiguous within its oblast; null otherwise and wherever cityId is masked.
 @BuiltValue()
 abstract class MasterDetailResponse
     implements Built<MasterDetailResponse, MasterDetailResponseBuilder> {
@@ -101,6 +104,19 @@ abstract class MasterDetailResponse
 
   @BuiltValueField(wireName: r'bookingsThisMonth')
   int? get bookingsThisMonth;
+
+  /// Oblast name of the master's own settlement (cityId). Null when no city is set, and on the public path for salon-affiliated masters (masked like city).
+  @BuiltValueField(wireName: r'region')
+  String? get region;
+
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueField(wireName: r'citySettlementType')
+  MasterDetailResponseCitySettlementTypeEnum? get citySettlementType;
+  // enum citySettlementTypeEnum {  CITY,  TOWN,  VILLAGE,  SETTLEMENT,  };
+
+  /// Bare hromada adjective of the master's own settlement, populated only when its name is ambiguous within its oblast; null otherwise and wherever cityId is masked.
+  @BuiltValueField(wireName: r'cityHromadaNameUk')
+  String? get cityHromadaNameUk;
 
   MasterDetailResponse._();
 
@@ -279,6 +295,28 @@ class _$MasterDetailResponseSerializer
         specifiedType: const FullType(int),
       );
     }
+    if (object.region != null) {
+      yield r'region';
+      yield serializers.serialize(
+        object.region,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.citySettlementType != null) {
+      yield r'citySettlementType';
+      yield serializers.serialize(
+        object.citySettlementType,
+        specifiedType:
+            const FullType.nullable(MasterDetailResponseCitySettlementTypeEnum),
+      );
+    }
+    if (object.cityHromadaNameUk != null) {
+      yield r'cityHromadaNameUk';
+      yield serializers.serialize(
+        object.cityHromadaNameUk,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -452,6 +490,31 @@ class _$MasterDetailResponseSerializer
           ) as int;
           result.bookingsThisMonth = valueDes;
           break;
+        case r'region':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.region = valueDes;
+          break;
+        case r'citySettlementType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                MasterDetailResponseCitySettlementTypeEnum),
+          ) as MasterDetailResponseCitySettlementTypeEnum?;
+          if (valueDes == null) continue;
+          result.citySettlementType = valueDes;
+          break;
+        case r'cityHromadaNameUk':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.cityHromadaNameUk = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -491,6 +554,9 @@ class MasterDetailResponseMasterTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON_OWNER')
   static const MasterDetailResponseMasterTypeEnum SALON_OWNER =
       _$masterDetailResponseMasterTypeEnum_SALON_OWNER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MasterDetailResponseMasterTypeEnum unknownDefaultOpenApi =
+      _$masterDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<MasterDetailResponseMasterTypeEnum> get serializer =>
       _$masterDetailResponseMasterTypeEnumSerializer;
@@ -501,4 +567,42 @@ class MasterDetailResponseMasterTypeEnum extends EnumClass {
       _$masterDetailResponseMasterTypeEnumValues;
   static MasterDetailResponseMasterTypeEnum valueOf(String name) =>
       _$masterDetailResponseMasterTypeEnumValueOf(name);
+}
+
+class MasterDetailResponseCitySettlementTypeEnum extends EnumClass {
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueEnumConst(wireName: r'CITY')
+  static const MasterDetailResponseCitySettlementTypeEnum CITY =
+      _$masterDetailResponseCitySettlementTypeEnum_CITY;
+
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueEnumConst(wireName: r'TOWN')
+  static const MasterDetailResponseCitySettlementTypeEnum TOWN =
+      _$masterDetailResponseCitySettlementTypeEnum_TOWN;
+
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueEnumConst(wireName: r'VILLAGE')
+  static const MasterDetailResponseCitySettlementTypeEnum VILLAGE =
+      _$masterDetailResponseCitySettlementTypeEnum_VILLAGE;
+
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueEnumConst(wireName: r'SETTLEMENT')
+  static const MasterDetailResponseCitySettlementTypeEnum SETTLEMENT =
+      _$masterDetailResponseCitySettlementTypeEnum_SETTLEMENT;
+
+  /// Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MasterDetailResponseCitySettlementTypeEnum
+      unknownDefaultOpenApi =
+      _$masterDetailResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+
+  static Serializer<MasterDetailResponseCitySettlementTypeEnum>
+      get serializer => _$masterDetailResponseCitySettlementTypeEnumSerializer;
+
+  const MasterDetailResponseCitySettlementTypeEnum._(String name) : super(name);
+
+  static BuiltSet<MasterDetailResponseCitySettlementTypeEnum> get values =>
+      _$masterDetailResponseCitySettlementTypeEnumValues;
+  static MasterDetailResponseCitySettlementTypeEnum valueOf(String name) =>
+      _$masterDetailResponseCitySettlementTypeEnumValueOf(name);
 }

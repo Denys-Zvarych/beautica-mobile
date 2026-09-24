@@ -43,6 +43,7 @@ import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -291,7 +292,11 @@ class _PublicProfileBody extends StatelessWidget {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String displayName = '${master.firstName} ${master.lastName}'.trim();
     final String roleLabel = _roleLabel(master.type, l10n);
-    final String? localityLine = buildLocalityLine(master.city);
+    // «м. Львів, Львівська обл.» — the picker's label, not the bare name;
+    // the bare name when the read carries no settlement type.
+    final String? settlementLabel =
+        savedSettlementLabel(l10n, master.savedSettlement) ?? master.city;
+    final String? localityLine = buildLocalityLine(settlementLabel);
     final String? streetLine = buildStreetLine(
       master.street,
       master.buildingNo,
@@ -299,7 +304,7 @@ class _PublicProfileBody extends StatelessWidget {
     // Phase 224 — the COLLAPSED one-line form of the same address. Which of
     // the two renderings ships is `MasterAddressBlock`'s measured decision.
     final String? combinedAddressLine = buildCombinedAddressLine(
-      master.city,
+      settlementLabel,
       master.street,
       master.buildingNo,
     );

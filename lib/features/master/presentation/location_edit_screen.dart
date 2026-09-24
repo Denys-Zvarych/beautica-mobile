@@ -44,6 +44,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
@@ -169,7 +170,12 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
     _origCityId = master.cityId;
     _origDistrictId = master.districtId;
     _settlementId = master.cityId;
-    _settlementLabel = master.city;
+    // Seeded with the SAME label the picker composes («м. Львів, Львівська
+    // обл.»), never the bare name — see [savedSettlementLabel].
+    _settlementLabel = savedSettlementLabel(
+      AppLocalizations.of(context),
+      master.savedSettlement,
+    );
 
     _controller.forward();
 

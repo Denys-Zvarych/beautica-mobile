@@ -6,6 +6,92 @@ part of 'user_profile_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnum_CITY =
+    const UserProfileResponseCitySettlementTypeEnum._('CITY');
+const UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnum_TOWN =
+    const UserProfileResponseCitySettlementTypeEnum._('TOWN');
+const UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnum_VILLAGE =
+    const UserProfileResponseCitySettlementTypeEnum._('VILLAGE');
+const UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnum_SETTLEMENT =
+    const UserProfileResponseCitySettlementTypeEnum._('SETTLEMENT');
+const UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnum_unknownDefaultOpenApi =
+    const UserProfileResponseCitySettlementTypeEnum._('unknownDefaultOpenApi');
+
+UserProfileResponseCitySettlementTypeEnum
+    _$userProfileResponseCitySettlementTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'CITY':
+      return _$userProfileResponseCitySettlementTypeEnum_CITY;
+    case 'TOWN':
+      return _$userProfileResponseCitySettlementTypeEnum_TOWN;
+    case 'VILLAGE':
+      return _$userProfileResponseCitySettlementTypeEnum_VILLAGE;
+    case 'SETTLEMENT':
+      return _$userProfileResponseCitySettlementTypeEnum_SETTLEMENT;
+    case 'unknownDefaultOpenApi':
+      return _$userProfileResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+    default:
+      return _$userProfileResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<UserProfileResponseCitySettlementTypeEnum>
+    _$userProfileResponseCitySettlementTypeEnumValues = BuiltSet<
+        UserProfileResponseCitySettlementTypeEnum>(const <UserProfileResponseCitySettlementTypeEnum>[
+  _$userProfileResponseCitySettlementTypeEnum_CITY,
+  _$userProfileResponseCitySettlementTypeEnum_TOWN,
+  _$userProfileResponseCitySettlementTypeEnum_VILLAGE,
+  _$userProfileResponseCitySettlementTypeEnum_SETTLEMENT,
+  _$userProfileResponseCitySettlementTypeEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<UserProfileResponseCitySettlementTypeEnum>
+    _$userProfileResponseCitySettlementTypeEnumSerializer =
+    _$UserProfileResponseCitySettlementTypeEnumSerializer();
+
+class _$UserProfileResponseCitySettlementTypeEnumSerializer
+    implements PrimitiveSerializer<UserProfileResponseCitySettlementTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    UserProfileResponseCitySettlementTypeEnum
+  ];
+  @override
+  final String wireName = 'UserProfileResponseCitySettlementTypeEnum';
+
+  @override
+  Object serialize(Serializers serializers,
+          UserProfileResponseCitySettlementTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  UserProfileResponseCitySettlementTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      UserProfileResponseCitySettlementTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$UserProfileResponse extends UserProfileResponse {
   @override
   final String? id;
@@ -51,6 +137,10 @@ class _$UserProfileResponse extends UserProfileResponse {
   final String? salonId;
   @override
   final bool? hasMasterProfile;
+  @override
+  final UserProfileResponseCitySettlementTypeEnum? citySettlementType;
+  @override
+  final String? cityHromadaNameUk;
 
   factory _$UserProfileResponse(
           [void Function(UserProfileResponseBuilder)? updates]) =>
@@ -78,7 +168,9 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.isActive,
       this.emailVerified,
       this.salonId,
-      this.hasMasterProfile})
+      this.hasMasterProfile,
+      this.citySettlementType,
+      this.cityHromadaNameUk})
       : super._();
   @override
   UserProfileResponse rebuild(
@@ -114,7 +206,9 @@ class _$UserProfileResponse extends UserProfileResponse {
         isActive == other.isActive &&
         emailVerified == other.emailVerified &&
         salonId == other.salonId &&
-        hasMasterProfile == other.hasMasterProfile;
+        hasMasterProfile == other.hasMasterProfile &&
+        citySettlementType == other.citySettlementType &&
+        cityHromadaNameUk == other.cityHromadaNameUk;
   }
 
   @override
@@ -142,6 +236,8 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, emailVerified.hashCode);
     _$hash = $jc(_$hash, salonId.hashCode);
     _$hash = $jc(_$hash, hasMasterProfile.hashCode);
+    _$hash = $jc(_$hash, citySettlementType.hashCode);
+    _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -170,7 +266,9 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('isActive', isActive)
           ..add('emailVerified', emailVerified)
           ..add('salonId', salonId)
-          ..add('hasMasterProfile', hasMasterProfile))
+          ..add('hasMasterProfile', hasMasterProfile)
+          ..add('citySettlementType', citySettlementType)
+          ..add('cityHromadaNameUk', cityHromadaNameUk))
         .toString();
   }
 }
@@ -270,6 +368,18 @@ class UserProfileResponseBuilder
   set hasMasterProfile(bool? hasMasterProfile) =>
       _$this._hasMasterProfile = hasMasterProfile;
 
+  UserProfileResponseCitySettlementTypeEnum? _citySettlementType;
+  UserProfileResponseCitySettlementTypeEnum? get citySettlementType =>
+      _$this._citySettlementType;
+  set citySettlementType(
+          UserProfileResponseCitySettlementTypeEnum? citySettlementType) =>
+      _$this._citySettlementType = citySettlementType;
+
+  String? _cityHromadaNameUk;
+  String? get cityHromadaNameUk => _$this._cityHromadaNameUk;
+  set cityHromadaNameUk(String? cityHromadaNameUk) =>
+      _$this._cityHromadaNameUk = cityHromadaNameUk;
+
   UserProfileResponseBuilder() {
     UserProfileResponse._defaults(this);
   }
@@ -299,6 +409,8 @@ class UserProfileResponseBuilder
       _emailVerified = $v.emailVerified;
       _salonId = $v.salonId;
       _hasMasterProfile = $v.hasMasterProfile;
+      _citySettlementType = $v.citySettlementType;
+      _cityHromadaNameUk = $v.cityHromadaNameUk;
       _$v = null;
     }
     return this;
@@ -342,6 +454,8 @@ class UserProfileResponseBuilder
           emailVerified: emailVerified,
           salonId: salonId,
           hasMasterProfile: hasMasterProfile,
+          citySettlementType: citySettlementType,
+          cityHromadaNameUk: cityHromadaNameUk,
         );
     replace(_$result);
     return _$result;

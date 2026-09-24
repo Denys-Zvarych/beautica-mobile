@@ -460,6 +460,61 @@ void main() {
   // ("Львів, Сихівський район") would FAIL — the provider would return the bare
   // "Львів". The first test therefore pins the new "<city>, <district>" wiring;
   // the remaining tests pin its graceful-degradation and fast-path contracts.
+  // Phase-330 (user-reported) — the summary carries the saved settlement's
+  // label parts so the card can compose «м. Львів, Львівська обл.», and the
+  // district separately so it follows the composed label.
+  group('clientProfile saved-settlement parts', () {
+    test('carries the typed settlement and the resolved district; city stays '
+        'the bare fallback', () async {
+      final container = _harnessForUser(
+        const User(
+          id: 'usr-330',
+          email: 'typed@beautica.test',
+          role: UserRole.client,
+          cityId: 'city-lviv',
+          oblastId: 'oblast-lviv',
+          districtId: 'district-sykhiv',
+          cityName: 'Львів',
+          oblastName: 'Львівська',
+          citySettlementType: 'CITY',
+          districtName: 'Сихівський район',
+        ),
+        cities: const [_lvivCity],
+        districts: const [_sykhivDistrict],
+      ).container;
+
+      final summary = await container.read(clientProfileProvider.future);
+
+      expect(summary.city, 'Львів, Сихівський район');
+      expect(summary.settlement?.settlementType, 'CITY');
+      expect(summary.settlement?.oblastName, 'Львівська');
+      expect(summary.districtName, 'Сихівський район');
+      expect(
+        summary.localityLabel('м. Львів, Львівська обл.'),
+        'м. Львів, Львівська обл., Сихівський район',
+      );
+      expect(summary.localityLabel(null), 'Львів, Сихівський район');
+    });
+
+    test('no district ⇒ districtName is null', () async {
+      final container = _containerForUser(
+        const User(
+          id: 'usr-331',
+          email: 'typed2@beautica.test',
+          role: UserRole.client,
+          cityName: 'Київ',
+          oblastName: 'Київ',
+          citySettlementType: 'CITY',
+        ),
+      );
+
+      final summary = await container.read(clientProfileProvider.future);
+
+      expect(summary.districtName, isNull);
+      expect(summary.localityLabel('м. Київ'), 'м. Київ');
+    });
+  });
+
   group('clientProfile district label', () {
     test('districtId set + district in taxonomy ⇒ '
         'summary.city == "Львів, Сихівський район"', () async {

@@ -14,6 +14,7 @@ import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../widgets/hub_widgets.dart';
 import '../../domain/home_hub_models.dart';
+import '../../../location/presentation/saved_settlement_label.dart';
 
 /// The profile block at the top of the Home Hub.
 ///
@@ -45,6 +46,11 @@ class HomeProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // «м. Львів, Львівська обл.», composed exactly as the picker composes it;
+    // the bare [ClientProfileSummary.city] when there is nothing to compose.
+    final String locality = profile.localityLabel(
+      savedSettlementLabel(l10n, profile.settlement),
+    );
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -101,11 +107,11 @@ class HomeProfileCard extends StatelessWidget {
               ),
               const SizedBox(height: VelvetSpacing.sm + 2),
               // Location row — tappable
-              if (profile.city.isNotEmpty)
+              if (locality.isNotEmpty)
                 _MetaLine(
                   icon: Icons.location_on_rounded,
                   iconWidget: _locationIcon,
-                  text: profile.city,
+                  text: locality,
                   onTap: onLocation,
                   textKey: const Key('home_profile_city'),
                 )

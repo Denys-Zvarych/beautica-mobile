@@ -18,6 +18,9 @@ const SettlementSearchResponseSettlementTypeEnum
 const SettlementSearchResponseSettlementTypeEnum
     _$settlementSearchResponseSettlementTypeEnum_SETTLEMENT =
     const SettlementSearchResponseSettlementTypeEnum._('SETTLEMENT');
+const SettlementSearchResponseSettlementTypeEnum
+    _$settlementSearchResponseSettlementTypeEnum_unknownDefaultOpenApi =
+    const SettlementSearchResponseSettlementTypeEnum._('unknownDefaultOpenApi');
 
 SettlementSearchResponseSettlementTypeEnum
     _$settlementSearchResponseSettlementTypeEnumValueOf(String name) {
@@ -30,8 +33,10 @@ SettlementSearchResponseSettlementTypeEnum
       return _$settlementSearchResponseSettlementTypeEnum_VILLAGE;
     case 'SETTLEMENT':
       return _$settlementSearchResponseSettlementTypeEnum_SETTLEMENT;
+    case 'unknownDefaultOpenApi':
+      return _$settlementSearchResponseSettlementTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$settlementSearchResponseSettlementTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -42,6 +47,7 @@ final BuiltSet<SettlementSearchResponseSettlementTypeEnum>
   _$settlementSearchResponseSettlementTypeEnum_TOWN,
   _$settlementSearchResponseSettlementTypeEnum_VILLAGE,
   _$settlementSearchResponseSettlementTypeEnum_SETTLEMENT,
+  _$settlementSearchResponseSettlementTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<SettlementSearchResponseSettlementTypeEnum>
@@ -55,12 +61,14 @@ class _$SettlementSearchResponseSettlementTypeEnumSerializer
     'TOWN': 'TOWN',
     'VILLAGE': 'VILLAGE',
     'SETTLEMENT': 'SETTLEMENT',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CITY': 'CITY',
     'TOWN': 'TOWN',
     'VILLAGE': 'VILLAGE',
     'SETTLEMENT': 'SETTLEMENT',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

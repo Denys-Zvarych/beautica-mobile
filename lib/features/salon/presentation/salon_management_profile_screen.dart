@@ -69,6 +69,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
@@ -751,7 +752,13 @@ class _ManagementHeroCard extends ConsumerWidget {
         .value;
     final String? addressLine =
         buildFullAddressLine(
-          cityName: resolved?.city?.name,
+          // A phase-330 read's own settlement label wins (the taxonomy
+          // lookup resolves CITY-type settlements only — a village salon
+          // rendered no locality); the lookup stays for the district and a
+          // type-less read.
+          cityName:
+              savedSettlementShortLabel(l10n, salon.savedSettlement) ??
+              resolved?.city?.name,
           districtName: resolved?.district?.name,
           street: salon.street,
           buildingNo: salon.buildingNo,

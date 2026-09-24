@@ -68,6 +68,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.d
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -232,14 +233,18 @@ void main() {
               'salonManagementProfileProvider — this is what proves an admin '
               'may actually call GET /salons/{id} for their own salon.',
         );
+        final AppLocalizations uk = await AppLocalizations.delegate.load(
+          const Locale('uk'),
+        );
         expect(
           _textOf(tester, 'salon-affiliation-card-locality'),
-          _kAdminSalonCity,
+          '${uk.settlementCityPrefix} $_kAdminSalonCity',
           reason:
-              'the address line is three chained wire reads deep '
-              '(/salons/{id} -> /locations/oblasts -> .../cities). Every '
-              'widget-tier fixture blanks cityId and short-circuits the whole '
-              'cascade, so this is its ONLY end-to-end assertion.',
+              'Phase 348 — the address line is the SHORT settlement label '
+              '(«м. Київ», no oblast) composed from /salons/{id} '
+              'citySettlementType (backend Phase 330). Every widget-tier '
+              'fixture blanks cityId, so this is its ONLY end-to-end '
+              'assertion.',
         );
 
         // ── «Контакти» — phone ONLY, and no Instagram tile ────────────────

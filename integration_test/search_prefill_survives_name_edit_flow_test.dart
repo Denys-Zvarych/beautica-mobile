@@ -71,7 +71,16 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
+/// Phase 348 — `/users/me` carries `citySettlementType` (backend Phase 330),
+/// so the saved Kyiv prefill reads «м. Київ» (Kyiv's region is the city
+/// itself — no oblast segment).
+late AppLocalizations _uk;
+String _savedKyivLabel() => '${_uk.settlementCityPrefix} Київ';
+
 void main() {
+  setUpAll(() async {
+    _uk = await AppLocalizations.delegate.load(const Locale('uk'));
+  });
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
@@ -121,7 +130,7 @@ void main() {
               ),
             )
             .data,
-        'Київ',
+        _savedKyivLabel(),
         reason: 'the saved-profile city must prefill the locality row on open',
       );
       // The keepAlive controller now holds the resolved city id.
@@ -208,6 +217,17 @@ void main() {
         'Київ',
         reason: 'the resolved city label must survive the refreshUser emission',
       );
+      // Phase 348 — the saved settlement (the phase-330 label parts the
+      // filters screen composes «м. Київ» from) must survive it too.
+      expect(
+        ProviderScope.containerOf(tester.element(find.byType(ClientShell)))
+            .read(searchFilterLabelsControllerProvider)
+            .citySettlement
+            ?.settlementType,
+        'CITY',
+        reason:
+            'the saved settlement parts must survive the refreshUser emission',
+      );
 
       // ── 4. Re-enter the search tab → the user-visible city is still «Київ» ───
       // Completes the reported journey: the CLIENT returns to Пошук and the
@@ -228,7 +248,7 @@ void main() {
           .data!;
       expect(
         cityRow,
-        'Київ',
+        _savedKyivLabel(),
         reason:
             'returning to Пошук after a name edit must still show the saved '
             'city — never the empty placeholder (the reported symptom)',

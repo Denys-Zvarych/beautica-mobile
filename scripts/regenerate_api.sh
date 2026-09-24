@@ -90,7 +90,7 @@ run_codegen() {
       -i "${SPEC_FILE}" \
       -g dart-dio \
       -o "${output_dir}" \
-      --additional-properties=pubName=beautica_api,nullableFields=true,useEnumExtension=true \
+      --additional-properties=pubName=beautica_api,nullableFields=true,useEnumExtension=true,enumUnknownDefaultCase=true \
       2>&1 | grep -v "^\[main\] INFO" || true
   )
 }

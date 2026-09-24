@@ -102,6 +102,7 @@ import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -832,10 +833,14 @@ class _ConfirmBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // Same short settlement label as the salon address lines («с. Іванівка»,
+    // no oblast); the bare city when the read carries no settlement type.
     final String? addressLine = formatStreetCityLine(
       street: master.street,
       buildingNo: master.buildingNo,
-      city: master.city,
+      city:
+          savedSettlementShortLabel(l10n, master.savedSettlement) ??
+          master.city,
     );
     final String? addressDetail =
         (master.locationNote?.trim().isNotEmpty ?? false)

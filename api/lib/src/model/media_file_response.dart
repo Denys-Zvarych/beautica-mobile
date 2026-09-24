@@ -215,6 +215,9 @@ class MediaFileResponseEntityTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'MASTER')
   static const MediaFileResponseEntityTypeEnum MASTER =
       _$mediaFileResponseEntityTypeEnum_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MediaFileResponseEntityTypeEnum unknownDefaultOpenApi =
+      _$mediaFileResponseEntityTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<MediaFileResponseEntityTypeEnum> get serializer =>
       _$mediaFileResponseEntityTypeEnumSerializer;
@@ -234,6 +237,9 @@ class MediaFileResponseMediaTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'PORTFOLIO')
   static const MediaFileResponseMediaTypeEnum PORTFOLIO =
       _$mediaFileResponseMediaTypeEnum_PORTFOLIO;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MediaFileResponseMediaTypeEnum unknownDefaultOpenApi =
+      _$mediaFileResponseMediaTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<MediaFileResponseMediaTypeEnum> get serializer =>
       _$mediaFileResponseMediaTypeEnumSerializer;

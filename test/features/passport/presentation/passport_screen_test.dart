@@ -50,6 +50,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/passport/application/passport_notifier.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
@@ -279,6 +280,43 @@ void main() {
       expect(find.text(_kProfileName), findsOneWidget);
       expect(find.text(_kProfileCity), findsOneWidget);
       expect(find.text(_kProfilePhone), findsOneWidget);
+    });
+
+    // Phase-330 (user-reported) — the saved locality reads as the
+    // «Населений пункт» picker labels it, not a bare «Львів».
+    testWidgets('a typed saved settlement renders the picker label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: _overrides(
+          passport: _populatedPassport,
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Львів',
+            phone: '+380671234567',
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'city-lviv',
+              name: 'Львів',
+              oblastName: 'Львівська',
+              settlementType: kSettlementTypeCity,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: settlement NAME is reference data, identical in every locale.
+      expect(find.text('Львів'), findsNothing);
     });
 
     testWidgets('profile location line has NO chevron (design dropped it)', (

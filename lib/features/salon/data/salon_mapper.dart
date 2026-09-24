@@ -22,6 +22,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart'
     show ServicePriceType;
@@ -65,6 +66,10 @@ abstract final class SalonMapper {
       description: dto.description,
       city: dto.city,
       region: dto.region,
+      // Phase-330 label parts. The enum's `name` IS the wire value.
+      // The unknown-value fallback maps to null (no prefix), never its name.
+      citySettlementType: knownEnumName(dto.citySettlementType),
+      cityHromadaName: dto.cityHromadaNameUk,
       address: dto.address,
       cityId: dto.cityId,
       // `PublicSalonResponse.oblastId`, shipped backend `dbe27a5` alongside
@@ -121,6 +126,10 @@ abstract final class SalonMapper {
       description: dto.description,
       city: dto.city,
       region: dto.region,
+      // Phase-330 label parts. The enum's `name` IS the wire value.
+      // The unknown-value fallback maps to null (no prefix), never its name.
+      citySettlementType: knownEnumName(dto.citySettlementType),
+      cityHromadaName: dto.cityHromadaNameUk,
       address: dto.address,
       cityId: dto.cityId,
       // Finding 3 (2026-08-28) — SalonResponse.oblastId, added alongside the
@@ -208,7 +217,8 @@ abstract final class SalonMasterMapper {
     if (e == MasterSummaryResponseMasterTypeEnum.SALON_OWNER) {
       return MasterType.salonOwner;
     }
-    // Covers SALON_MASTER and any future/unknown value — fail-safe.
+    // Covers SALON_MASTER, the generated unknown-value fallback and any
+    // future value — fail-safe.
     return MasterType.salonMaster;
   }
 }
@@ -291,7 +301,8 @@ abstract final class SalonStaffMemberMapper {
     if (e == SalonStaffMemberResponseRoleEnum.SALON_MASTER) {
       return MasterType.salonMaster;
     }
-    // SALON_ADMIN, CLIENT, null, and any future value — no master identity.
+    // SALON_ADMIN, CLIENT, null, the generated unknown-value fallback and any
+    // future value — no master identity.
     return null;
   }
 }

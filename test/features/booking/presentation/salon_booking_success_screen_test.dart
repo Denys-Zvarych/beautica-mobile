@@ -326,6 +326,47 @@ void main() {
   // ===========================================================================
 
   group('salon address card', () {
+    // QA LOW (2026-09-24) — the same short settlement label as every salon
+    // address line (prefix, no oblast) on the CONFIRMED recap too.
+    testWidgets('a village salon renders the prefixed settlement, no oblast', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          publicSalonProfileProvider(_kSalonId).overrideWith(
+            (ref) => (
+              _kSalon.copyWith(
+                city: 'Іванівка',
+                region: 'Полтавська',
+                citySettlementType: 'VILLAGE',
+              ),
+              const <SalonMasterSummary>[],
+            ),
+          ),
+        ],
+      );
+      router.go(RouteNames.salonBookingSuccess, extra: _args());
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonBookingSuccessScreen)),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-success-address-card')),
+          // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+          // AppLocalizations; the Cyrillic left is fixture data.
+          matching: find.text(
+            'вул. Хрещатик, 22, ${l10n.settlementVillagePrefix} Іванівка',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'renders the REAL resolved salon address (street/buildingNo/city) '
       'once publicSalonProfileProvider resolves',

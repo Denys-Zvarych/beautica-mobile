@@ -40,6 +40,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:dio/dio.dart' show CancelToken;
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -350,6 +351,50 @@ void main() {
             'exactly one of the three MasterAddressBlock renderings must be '
             'present for a salon with a visible address',
       );
+    });
+
+    // Audit 2026-09-24 (MEDIUM) — the taxonomy lookup resolves CITY-type
+    // settlements only, so a village salon's address had NO locality.
+    testWidgets('a village salon renders its prefixed name (no oblast)', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: <Object>[
+          ..._overrides((
+            _master,
+            _services,
+            _salonWithTaxonomy.copyWith(
+              cityId: 'v-ivanivka',
+              districtId: null,
+              city: 'Іванівка',
+              region: 'Полтавська',
+              citySettlementType: 'VILLAGE',
+            ),
+          )),
+          locationRepositoryProvider.overrideWith(
+            (_) => _FakeLocationRepository(),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final String village = '${uk.settlementVillagePrefix} Іванівка';
+      final Finder combined = find.byKey(
+        const Key('salon-master-profile-salon-address-combined-text'),
+      );
+      final String? rendered = combined.evaluate().isNotEmpty
+          ? tester.widget<Text>(combined).data
+          : tester
+                .widget<Text>(
+                  find.byKey(
+                    const Key('salon-master-profile-salon-locality-text'),
+                  ),
+                )
+                .data;
+      expect(rendered, startsWith(village));
+      expect(rendered, isNot(contains('Полтавська')));
     });
 
     testWidgets(

@@ -943,6 +943,38 @@ void main() {
       },
     );
 
+    // Phase-330 — the locality line reads as the «Населений пункт» picker
+    // labels it, not the bare `salon.city`.
+    testWidgets('a typed saved settlement renders the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await _pumpTall(tester);
+      const typedSalon = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        city: 'Бориспіль',
+        region: 'Київська',
+        citySettlementType: 'CITY',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => typedSalon),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('salon-profile-locality-text')))
+            .data,
+        '${uk.settlementCityPrefix} Бориспіль, Київська ${uk.settlementOblastAbbrev}',
+      );
+    });
+
     testWidgets(
       'legacy-only salon (city/address set, no taxonomy fields) renders '
       'the city on its own locality line and the address on its own '

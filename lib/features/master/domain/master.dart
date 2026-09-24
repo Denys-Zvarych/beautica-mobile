@@ -14,6 +14,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../calendar/domain/working_hours.dart';
+import '../../location/domain/settlement.dart';
 
 part 'master.freezed.dart';
 
@@ -39,6 +40,8 @@ enum MasterType {
 /// sub-object because [MasterDetailResponse] does not carry one.
 @freezed
 abstract class Master with _$Master {
+  const Master._();
+
   const factory Master({
     /// Backend-assigned UUID for this master.
     required String id,
@@ -51,6 +54,19 @@ abstract class Master with _$Master {
 
     /// City where the master operates (display string, not a UUID).
     String? city,
+
+    /// Oblast name of the master's own settlement (phase-330). Null when no
+    /// city is set, and wherever the backend masks [city].
+    String? region,
+
+    /// Raw wire `citySettlementType` of the master's settlement (phase-330);
+    /// null when unset, masked, or the read predates it. Feeds
+    /// [savedSettlement].
+    String? citySettlementType,
+
+    /// Bare hromada adjective, populated by the server ONLY when the
+    /// settlement's name is ambiguous in its oblast; never derived here.
+    String? cityHromadaName,
 
     /// UUID of the settlement the master is located in — the value the
     /// location edit screen submits back as `cityId`.
@@ -138,6 +154,16 @@ abstract class Master with _$Master {
     /// with a full calendar that they have no bookings (Qase defect #25).
     int? bookingsThisMonth,
   }) = _Master;
+
+  /// The master's settlement as a [Settlement], for
+  /// [composeSavedSettlementLabel]; `null` when [city] is unset or masked.
+  Settlement? get savedSettlement => Settlement.fromSaved(
+    id: cityId,
+    name: city,
+    settlementType: citySettlementType,
+    hromadaName: cityHromadaName,
+    oblastName: region,
+  );
 }
 
 /// Rating presentation helpers for [Master].

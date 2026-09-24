@@ -110,6 +110,21 @@ const _userWithLocationLviv = User(
   cityName: 'Львів',
 );
 
+// Phase-330 — a CLIENT whose `/users/me` carries the saved-settlement label
+// parts. The prefill must show «м. Львів, Львівська обл.» — the picker's label —
+// not the bare «Львів».
+const _userWithTypedLocation = User(
+  id: 'u-client-typed',
+  email: 'client4@beautica.ua',
+  role: UserRole.client,
+  firstName: 'Ірина',
+  lastName: 'Клієнт',
+  cityId: _kCityNoDistrictsId,
+  cityName: 'Львів',
+  oblastName: 'Львівська',
+  citySettlementType: 'CITY',
+);
+
 // ---------------------------------------------------------------------------
 // Stubs
 // ---------------------------------------------------------------------------
@@ -252,6 +267,74 @@ void main() {
   });
 
   group('ClientSearchScreen — saved-location prefill', () {
+    testWidgets('phase-330: a typed saved settlement renders the PICKER label '
+        '«м. Львів, Львівська обл.», not the bare name', (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      installOverflowGuard();
+      _sizeView(tester);
+      _seededUser = _userWithTypedLocation;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: _overrides().cast(),
+          child: _app(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final SearchFilterLabels labels = _labels(tester);
+      expect(labels.citySettlement?.settlementType, 'CITY');
+      expect(labels.citySettlement?.oblastName, 'Львівська');
+
+      final Text cityText = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
+      );
+      expect(
+        cityText.data,
+        '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+      );
+    });
+
+    test('phase-330: every other writer of cityName clears the prefill '
+        'settlement, so a pick is never re-labelled as the profile city', () {
+      final ProviderContainer container = ProviderContainer(
+        overrides: _overrides().cast(),
+      );
+      addTearDown(container.dispose);
+      final SearchFilterLabelsController labels = container.read(
+        searchFilterLabelsControllerProvider.notifier,
+      );
+
+      labels.setLocality(
+        cityName: 'Львів',
+        citySettlement: _userWithTypedLocation.savedSettlement,
+      );
+      expect(
+        container.read(searchFilterLabelsControllerProvider).citySettlement,
+        isNotNull,
+      );
+
+      labels.setCityName('с. Іванівка, Шишацька громада, Полтавська обл.');
+      expect(
+        container.read(searchFilterLabelsControllerProvider).citySettlement,
+        isNull,
+      );
+
+      labels.setLocality(
+        cityName: 'Львів',
+        citySettlement: _userWithTypedLocation.savedSettlement,
+      );
+      labels.setLocality(cityName: 'м. Київ');
+      expect(
+        container.read(searchFilterLabelsControllerProvider).citySettlement,
+        isNull,
+      );
+    });
+
     testWidgets(
       'a CLIENT with a saved location → the locality filter is pre-filled '
       '(ids + labels incl. cityHasDistricts)',

@@ -587,6 +587,52 @@ void main() {
       },
     );
 
+    // QA LOW (2026-09-24) — the confirm card now uses the SAME short
+    // settlement label as every salon address line (prefix, no oblast), so a
+    // village salon reads «…, с. Іванівка», not a bare «Іванівка».
+    testWidgets('a village salon renders the prefixed settlement, no oblast', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final _FakeBookingRepository repo = _FakeBookingRepository();
+      final GoRouter router = _router();
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          publicSalonProfileProvider(_kSalonId).overrideWith(
+            (ref) => (
+              _kSalon.copyWith(
+                city: 'Іванівка',
+                region: 'Полтавська',
+                cityHromadaName: 'Шишацька',
+                citySettlementType: 'VILLAGE',
+              ),
+              const <SalonMasterSummary>[],
+            ),
+          ),
+        ],
+      );
+      unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonBookingConfirmScreen)),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-confirm-address-card')),
+          // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+          // AppLocalizations; the Cyrillic left is fixture data.
+          matching: find.text(
+            'вул. Хрещатик, 22, ${l10n.settlementVillagePrefix} Іванівка',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('falls back to l10n.bookingAddressUnknown WHILE '
         'publicSalonProfileProvider is still loading, and the appointment '
         'cards render anyway — the address read is secondary and must never '

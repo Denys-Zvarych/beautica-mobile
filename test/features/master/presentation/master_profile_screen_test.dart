@@ -1434,6 +1434,37 @@ void main() {
   // assignment) is caught here even if the pure function stays correct.
 
   group('location line — edge-matrix gap-fill', () {
+    // Phase-330 — the locality line reads as the «Населений пункт» picker
+    // labels it, not the bare city name.
+    testWidgets('a typed saved settlement renders the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: AsyncData<Master>(
+            _stubMasterCityAndBuildingNoStreet.copyWith(
+              city: 'Іванівка',
+              region: 'Полтавська',
+              citySettlementType: 'VILLAGE',
+              cityHromadaName: 'Шишацька',
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Іванівка'), findsNothing);
+    });
+
     testWidgets('city + buildingNo, NO street: building is dropped — only the '
         'locality line renders, no address-text line, no dangling comma', (
       tester,

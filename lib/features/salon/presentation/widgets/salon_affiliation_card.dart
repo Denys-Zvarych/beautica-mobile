@@ -36,6 +36,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -77,8 +78,13 @@ class SalonAffiliationCard extends ConsumerWidget {
         )
         .value;
     final bool hasTaxonomyCity = salon.cityId.trim().isNotEmpty;
+    // A phase-330 read's own settlement label wins (the taxonomy lookup
+    // resolves CITY-type settlements only — a village salon rendered no
+    // locality); the lookup stays for the district and a type-less read.
     final String? cityName =
-        resolved?.city?.name ?? (hasTaxonomyCity ? null : salon.city);
+        savedSettlementShortLabel(l10n, salon.savedSettlement) ??
+        resolved?.city?.name ??
+        (hasTaxonomyCity ? null : salon.city);
     final String? locality = buildFullAddressLine(
       cityName: cityName,
       districtName: resolved?.district?.name,

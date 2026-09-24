@@ -12,6 +12,9 @@ const BulkServiceItemRequestPriceTypeEnum
 const BulkServiceItemRequestPriceTypeEnum
     _$bulkServiceItemRequestPriceTypeEnum_RANGE =
     const BulkServiceItemRequestPriceTypeEnum._('RANGE');
+const BulkServiceItemRequestPriceTypeEnum
+    _$bulkServiceItemRequestPriceTypeEnum_unknownDefaultOpenApi =
+    const BulkServiceItemRequestPriceTypeEnum._('unknownDefaultOpenApi');
 
 BulkServiceItemRequestPriceTypeEnum
     _$bulkServiceItemRequestPriceTypeEnumValueOf(String name) {
@@ -20,8 +23,10 @@ BulkServiceItemRequestPriceTypeEnum
       return _$bulkServiceItemRequestPriceTypeEnum_FIXED;
     case 'RANGE':
       return _$bulkServiceItemRequestPriceTypeEnum_RANGE;
+    case 'unknownDefaultOpenApi':
+      return _$bulkServiceItemRequestPriceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$bulkServiceItemRequestPriceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<BulkServiceItemRequestPriceTypeEnum>
         BulkServiceItemRequestPriceTypeEnum>(const <BulkServiceItemRequestPriceTypeEnum>[
   _$bulkServiceItemRequestPriceTypeEnum_FIXED,
   _$bulkServiceItemRequestPriceTypeEnum_RANGE,
+  _$bulkServiceItemRequestPriceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<BulkServiceItemRequestPriceTypeEnum>
@@ -41,10 +47,12 @@ class _$BulkServiceItemRequestPriceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

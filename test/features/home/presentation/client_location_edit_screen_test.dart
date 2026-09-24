@@ -429,6 +429,62 @@ void main() {
   );
 
   testWidgets(
+    'phase-330 — a typed saved settlement seeds the field with the PICKER '
+    'label («с. Іванівка, Шишацька громада, Полтавська обл.»)',
+    (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      const User typedUser = User(
+        id: 'user-1',
+        email: 'client@beautica.ua',
+        role: UserRole.client,
+        firstName: 'Олена',
+        lastName: 'Ковальчук',
+        phoneNumber: '+380 50 123 45 67',
+        cityId: 'v-ivanivka',
+        cityName: 'Іванівка',
+        oblastName: 'Полтавська',
+        citySettlementType: 'VILLAGE',
+        cityHromadaName: 'Шишацька',
+      );
+      final router = GoRouter(
+        initialLocation: RouteNames.clientEditLocation,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.clientEditLocation,
+            pageBuilder: (_, _) =>
+                const NoTransitionPage<void>(child: ClientLocationEditScreen()),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          authProvider.overrideWith(() => _StubAuthNotifierFor(typedUser)),
+          clientEditProfileProvider.overrideWith(
+            () => _StubClientEditProfileFor(typedUser),
+          ),
+          clientProfileRepositoryProvider.overrideWithValue(repo),
+          locationRepositoryProvider.overrideWithValue(
+            _FakeLocationRepository(),
+          ),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: settlement NAME is reference data, identical in every locale.
+      expect(find.text('Іванівка'), findsNothing);
+    },
+  );
+
+  testWidgets(
     'D7 — a profile carrying cityId + cityName shows that settlement name on '
     'the closed field with NO settlement search request issued',
     (tester) async {

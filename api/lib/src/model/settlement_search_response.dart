@@ -206,6 +206,10 @@ class SettlementSearchResponseSettlementTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SETTLEMENT')
   static const SettlementSearchResponseSettlementTypeEnum SETTLEMENT =
       _$settlementSearchResponseSettlementTypeEnum_SETTLEMENT;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const SettlementSearchResponseSettlementTypeEnum
+      unknownDefaultOpenApi =
+      _$settlementSearchResponseSettlementTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<SettlementSearchResponseSettlementTypeEnum>
       get serializer => _$settlementSearchResponseSettlementTypeEnumSerializer;

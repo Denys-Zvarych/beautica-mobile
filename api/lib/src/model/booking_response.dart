@@ -369,6 +369,9 @@ class BookingResponseStatusEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'CANCELLED')
   static const BookingResponseStatusEnum CANCELLED =
       _$bookingResponseStatusEnum_CANCELLED;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const BookingResponseStatusEnum unknownDefaultOpenApi =
+      _$bookingResponseStatusEnum_unknownDefaultOpenApi;
 
   static Serializer<BookingResponseStatusEnum> get serializer =>
       _$bookingResponseStatusEnumSerializer;

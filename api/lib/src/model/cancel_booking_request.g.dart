@@ -21,6 +21,9 @@ const CancelBookingRequestCancellationReasonEnum
 const CancelBookingRequestCancellationReasonEnum
     _$cancelBookingRequestCancellationReasonEnum_OTHER =
     const CancelBookingRequestCancellationReasonEnum._('OTHER');
+const CancelBookingRequestCancellationReasonEnum
+    _$cancelBookingRequestCancellationReasonEnum_unknownDefaultOpenApi =
+    const CancelBookingRequestCancellationReasonEnum._('unknownDefaultOpenApi');
 
 CancelBookingRequestCancellationReasonEnum
     _$cancelBookingRequestCancellationReasonEnumValueOf(String name) {
@@ -35,8 +38,10 @@ CancelBookingRequestCancellationReasonEnum
       return _$cancelBookingRequestCancellationReasonEnum_DUPLICATE;
     case 'OTHER':
       return _$cancelBookingRequestCancellationReasonEnum_OTHER;
+    case 'unknownDefaultOpenApi':
+      return _$cancelBookingRequestCancellationReasonEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$cancelBookingRequestCancellationReasonEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -48,6 +53,7 @@ final BuiltSet<CancelBookingRequestCancellationReasonEnum>
   _$cancelBookingRequestCancellationReasonEnum_PROVIDER_UNAVAILABLE,
   _$cancelBookingRequestCancellationReasonEnum_DUPLICATE,
   _$cancelBookingRequestCancellationReasonEnum_OTHER,
+  _$cancelBookingRequestCancellationReasonEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<CancelBookingRequestCancellationReasonEnum>
@@ -62,6 +68,7 @@ class _$CancelBookingRequestCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT_NO_SHOW': 'CLIENT_NO_SHOW',
@@ -69,6 +76,7 @@ class _$CancelBookingRequestCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/location/domain/resolved_locality.dart'
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_affiliation_card.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -107,6 +108,40 @@ Finder get _locality =>
 
 void main() {
   group('SalonAffiliationCard — the locality line', () {
+    // Audit 2026-09-24 (MEDIUM) — a village salon used to render NO locality
+    // (the taxonomy lookup resolves CITY-type settlements only).
+    testWidgets('a village salon renders its prefixed name, no oblast', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const SalonAffiliationCard(
+          salon: Salon(
+            id: 'salon-village',
+            name: 'Студія «Гармонія»',
+            oblastId: _kOblastId,
+            cityId: 'v-ivanivka',
+            city: 'Іванівка',
+            region: 'Полтавська',
+            citySettlementType: 'VILLAGE',
+          ),
+        ),
+        overrides: <Object>[
+          resolvedLocalityProvider(
+            oblastId: _kOblastId,
+            cityId: 'v-ivanivka',
+            districtId: null,
+          ).overrideWith((ref) async => const ResolvedLocality()),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(_locality).data,
+        '${uk.settlementVillagePrefix} Іванівка',
+      );
+    });
+
     testWidgets('renders the RESOLVED city and district, comma-joined, not the '
         'legacy free-text city', (tester) async {
       await tester.pumpApp(

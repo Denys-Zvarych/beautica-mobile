@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -111,8 +112,18 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
         )
         .value;
     final bool hasTaxonomyCity = s.cityId.trim().isNotEmpty;
+    // Audit 2026-09-24 (perf/correctness MEDIUM): the taxonomy lookup above
+    // resolves CITY-type settlements only, so a village salon used to render
+    // no locality at all. A phase-330 read carries the settlement's own type
+    // and name, so it wins; the lookup stays for the district and for a read
+    // without a type.
     final String? cityName =
-        resolved?.city?.name ?? (hasTaxonomyCity ? null : s.city);
+        savedSettlementShortLabel(
+          AppLocalizations.of(context),
+          s.savedSettlement,
+        ) ??
+        resolved?.city?.name ??
+        (hasTaxonomyCity ? null : s.city);
     final String? locality = buildFullAddressLine(
       cityName: cityName,
       districtName: resolved?.district?.name,

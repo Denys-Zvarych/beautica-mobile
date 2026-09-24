@@ -51,6 +51,7 @@ import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../location/domain/city_district.dart';
+import '../../location/presentation/saved_settlement_label.dart';
 import '../../location/presentation/widgets/locality_picker_sheet.dart';
 import '../../location/presentation/widgets/settlement_locality_field.dart';
 import '../../location/presentation/widgets/settlement_select_field.dart';
@@ -575,7 +576,11 @@ class _LocationSection extends ConsumerWidget {
         SettlementSelectField(
           key: const Key('search_settlement_field'),
           fieldKey: const Key('search_city_value'),
-          initialLabel: loc.cityName,
+          // A profile-prefilled settlement is composed here, with the same
+          // function every settlement seed uses; any other label (a pick, a
+          // profile-location save) is already composed and is `cityName`.
+          initialLabel:
+              savedSettlementLabel(l10n, loc.citySettlement) ?? loc.cityName,
           onSelected: onSettlement,
           onCleared: onClearSettlement,
         ),

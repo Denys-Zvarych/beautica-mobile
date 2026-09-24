@@ -351,6 +351,9 @@ class SalonStaffMemberResponseRoleEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
   static const SalonStaffMemberResponseRoleEnum INDEPENDENT_MASTER =
       _$salonStaffMemberResponseRoleEnum_INDEPENDENT_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const SalonStaffMemberResponseRoleEnum unknownDefaultOpenApi =
+      _$salonStaffMemberResponseRoleEnum_unknownDefaultOpenApi;
 
   static Serializer<SalonStaffMemberResponseRoleEnum> get serializer =>
       _$salonStaffMemberResponseRoleEnumSerializer;

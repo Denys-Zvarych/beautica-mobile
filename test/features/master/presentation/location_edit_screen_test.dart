@@ -238,6 +238,35 @@ void main() {
     ).thenAnswer((_) async {});
   });
 
+  // Phase-330 — the settlement field is seeded with the picker label, not
+  // the bare denormalised name.
+  testWidgets('a typed saved settlement seeds the PICKER label', (
+    tester,
+  ) async {
+    final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+    await tester.pumpRoutedApp(
+      _buildRouter(),
+      overrides: _overrides(
+        repo,
+        master: _emptyLocalityMaster.copyWith(
+          city: 'Львів',
+          region: 'Львівська',
+          citySettlementType: 'CITY',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(
+      find.text(
+        '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+      ),
+      findsOneWidget,
+    );
+    // i18n-finder-ok: settlement NAME is reference data, identical in every locale.
+    expect(find.text('Львів'), findsNothing);
+  });
+
   testWidgets('address fields pre-populate from the cached master', (
     tester,
   ) async {

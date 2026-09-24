@@ -287,6 +287,9 @@ class ScheduleOverrideRequestKindEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'CUSTOM_HOURS')
   static const ScheduleOverrideRequestKindEnum CUSTOM_HOURS =
       _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const ScheduleOverrideRequestKindEnum unknownDefaultOpenApi =
+      _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi;
 
   static Serializer<ScheduleOverrideRequestKindEnum> get serializer =>
       _$scheduleOverrideRequestKindEnumSerializer;
@@ -306,6 +309,9 @@ class ScheduleOverrideRequestModeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
   static const ScheduleOverrideRequestModeEnum EXPLICIT_TIMES =
       _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const ScheduleOverrideRequestModeEnum unknownDefaultOpenApi =
+      _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi;
 
   static Serializer<ScheduleOverrideRequestModeEnum> get serializer =>
       _$scheduleOverrideRequestModeEnumSerializer;

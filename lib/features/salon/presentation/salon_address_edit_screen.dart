@@ -55,6 +55,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -112,7 +113,12 @@ class _SalonAddressEditScreenState
     _buildingCtrl = TextEditingController(text: salon.buildingNo ?? '');
     _noteCtrl = TextEditingController(text: salon.locationNote ?? '');
     _settlementId = salon.cityId.isEmpty ? null : salon.cityId;
-    _settlementLabel = salon.city;
+    // Seeded with the SAME label the picker composes («м. Львів, Львівська
+    // обл.»), never the bare name — see [savedSettlementLabel].
+    _settlementLabel = savedSettlementLabel(
+      AppLocalizations.of(context),
+      salon.savedSettlement,
+    );
     _selectedDistrict = null;
     if (_settlementId != null && salon.districtId != null) {
       Future.microtask(() => _prePopulateDistrict(salon));

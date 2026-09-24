@@ -46,6 +46,7 @@ import 'package:beautica_mobile/features/booking/application/salon_master_covera
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -666,7 +667,7 @@ class _SalonHeroCard extends StatelessWidget {
     // [ExpandableNote] below (Phase 224) — so a note up to 1000 chars long
     // can never push the address itself out of its budget the way a single
     // combined line did pre-223.
-    final String? localityLine = _localityLine(salon);
+    final String? localityLine = _localityLine(salon, l10n);
     final String? streetLine = _streetLine(salon);
     // Phase 224 — `locationNote` moved back onto the hero card (it briefly
     // lived on the About tab under Phase 223 (b) — see the `_AboutTab` and
@@ -895,9 +896,15 @@ class _SalonHeroCard extends StatelessWidget {
   /// fresh `street` would be a STALE value the mapper never clears (mirrors
   /// the pre-Phase-223 `_buildLocationLine`'s taxonomy branch, which never
   /// rendered `city` once `street` was present).
-  static String? _localityLine(Salon salon) {
+  ///
+  /// Composed as the «Населений пункт» picker composes it («м. Львів,
+  /// Львівська обл.»); the bare [Salon.city] when the read carries no
+  /// settlement type.
+  static String? _localityLine(Salon salon, AppLocalizations l10n) {
     if (_hasTaxonomyStreet(salon)) return null;
-    return buildLocalityLine(salon.city);
+    return buildLocalityLine(
+      savedSettlementLabel(l10n, salon.savedSettlement) ?? salon.city,
+    );
   }
 
   /// Whether the salon has a taxonomy `street` with VISIBLE content.

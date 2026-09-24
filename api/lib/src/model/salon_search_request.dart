@@ -308,6 +308,9 @@ class SalonSearchRequestSortEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'REVIEWS_DESC')
   static const SalonSearchRequestSortEnum REVIEWS_DESC =
       _$salonSearchRequestSortEnum_REVIEWS_DESC;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const SalonSearchRequestSortEnum unknownDefaultOpenApi =
+      _$salonSearchRequestSortEnum_unknownDefaultOpenApi;
 
   static Serializer<SalonSearchRequestSortEnum> get serializer =>
       _$salonSearchRequestSortEnumSerializer;

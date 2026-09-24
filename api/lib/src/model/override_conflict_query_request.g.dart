@@ -12,6 +12,9 @@ const OverrideConflictQueryRequestKindEnum
 const OverrideConflictQueryRequestKindEnum
     _$overrideConflictQueryRequestKindEnum_CUSTOM_HOURS =
     const OverrideConflictQueryRequestKindEnum._('CUSTOM_HOURS');
+const OverrideConflictQueryRequestKindEnum
+    _$overrideConflictQueryRequestKindEnum_unknownDefaultOpenApi =
+    const OverrideConflictQueryRequestKindEnum._('unknownDefaultOpenApi');
 
 OverrideConflictQueryRequestKindEnum
     _$overrideConflictQueryRequestKindEnumValueOf(String name) {
@@ -20,8 +23,10 @@ OverrideConflictQueryRequestKindEnum
       return _$overrideConflictQueryRequestKindEnum_DAY_OFF;
     case 'CUSTOM_HOURS':
       return _$overrideConflictQueryRequestKindEnum_CUSTOM_HOURS;
+    case 'unknownDefaultOpenApi':
+      return _$overrideConflictQueryRequestKindEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$overrideConflictQueryRequestKindEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<OverrideConflictQueryRequestKindEnum>
         OverrideConflictQueryRequestKindEnum>(const <OverrideConflictQueryRequestKindEnum>[
   _$overrideConflictQueryRequestKindEnum_DAY_OFF,
   _$overrideConflictQueryRequestKindEnum_CUSTOM_HOURS,
+  _$overrideConflictQueryRequestKindEnum_unknownDefaultOpenApi,
 ]);
 
 const OverrideConflictQueryRequestModeEnum
@@ -38,6 +44,9 @@ const OverrideConflictQueryRequestModeEnum
 const OverrideConflictQueryRequestModeEnum
     _$overrideConflictQueryRequestModeEnum_EXPLICIT_TIMES =
     const OverrideConflictQueryRequestModeEnum._('EXPLICIT_TIMES');
+const OverrideConflictQueryRequestModeEnum
+    _$overrideConflictQueryRequestModeEnum_unknownDefaultOpenApi =
+    const OverrideConflictQueryRequestModeEnum._('unknownDefaultOpenApi');
 
 OverrideConflictQueryRequestModeEnum
     _$overrideConflictQueryRequestModeEnumValueOf(String name) {
@@ -46,8 +55,10 @@ OverrideConflictQueryRequestModeEnum
       return _$overrideConflictQueryRequestModeEnum_INTERVAL;
     case 'EXPLICIT_TIMES':
       return _$overrideConflictQueryRequestModeEnum_EXPLICIT_TIMES;
+    case 'unknownDefaultOpenApi':
+      return _$overrideConflictQueryRequestModeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$overrideConflictQueryRequestModeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -56,6 +67,7 @@ final BuiltSet<OverrideConflictQueryRequestModeEnum>
         OverrideConflictQueryRequestModeEnum>(const <OverrideConflictQueryRequestModeEnum>[
   _$overrideConflictQueryRequestModeEnum_INTERVAL,
   _$overrideConflictQueryRequestModeEnum_EXPLICIT_TIMES,
+  _$overrideConflictQueryRequestModeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<OverrideConflictQueryRequestKindEnum>
@@ -70,10 +82,12 @@ class _$OverrideConflictQueryRequestKindEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -102,10 +116,12 @@ class _$OverrideConflictQueryRequestModeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

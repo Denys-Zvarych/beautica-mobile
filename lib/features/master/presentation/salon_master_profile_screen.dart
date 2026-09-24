@@ -92,6 +92,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/features/master/application/salon_master_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -671,8 +672,17 @@ class _SalonAddressRows extends ConsumerWidget {
     //     line.
     // No new formatter is added: every string below comes from a builder
     // this file already imported.
+    // A phase-330 read's own settlement label wins (the taxonomy lookup
+    // resolves CITY-type settlements only — a village salon rendered no
+    // locality); the lookup stays for the district and a type-less read.
+    final String? salonCityName =
+        savedSettlementShortLabel(
+          AppLocalizations.of(context),
+          affiliatedSalon?.savedSettlement,
+        ) ??
+        resolved?.city?.name;
     final String? salonLocalityLine = buildStreetLine(
-      resolved?.city?.name,
+      salonCityName,
       resolved?.district?.name,
     );
     final String? salonStreetLine = buildStreetLine(
@@ -680,7 +690,7 @@ class _SalonAddressRows extends ConsumerWidget {
       affiliatedSalon?.buildingNo,
     );
     final String? salonCombinedAddressLine = buildFullAddressLine(
-      cityName: resolved?.city?.name,
+      cityName: salonCityName,
       districtName: resolved?.district?.name,
       street: affiliatedSalon?.street,
       buildingNo: affiliatedSalon?.buildingNo,

@@ -21,9 +21,10 @@
 //
 // WHAT IT EMITS (D3). `onSelected` fires with a `settlementId` and nothing
 // else. No screen keeps the display name in its own state: the label lives
-// here, seeded from [initialLabel] (what the screen already has denormalised on
-// its profile/salon read — `UserProfileResponse.cityName`,
-// `SalonResponse.city`) and replaced from the picked row. That is what makes
+// here, seeded from [initialLabel] (the screen's saved settlement, composed by
+// `savedSettlementLabel` from the parts its profile/salon read carries —
+// `cityName` + `citySettlementType` + `cityHromadaNameUk` + oblast) and
+// replaced from the picked row. That is what makes
 // re-opening a saved address show the settlement (D7) WITHOUT an id -> name
 // lookup the backend does not offer: `GET /settlements` is query-shaped, and
 // the retiring cascade's `/oblasts/{id}/cities` returns `settlement_type =
