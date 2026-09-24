@@ -209,7 +209,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
   static DateTime _mondayOf(DateTime d) =>
-      _dateOnly(d).subtract(Duration(days: d.weekday - 1));
+      kyivAddDays(_dateOnly(d), 1 - d.weekday);
 
   /// True when [d] falls strictly before today (today itself stays selectable).
   bool _isPast(DateTime d) => _dateOnly(d).isBefore(_todayCache);
@@ -250,7 +250,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       0,
     );
     final DateTime weekFirst = _dateOnly(_weekStart);
-    final DateTime weekLast = weekFirst.add(const Duration(days: 6));
+    final DateTime weekLast = kyivAddDays(weekFirst, 6);
     final DateTime from = weekFirst.isBefore(monthFirst)
         ? weekFirst
         : monthFirst;
@@ -278,21 +278,21 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // result is guaranteed inside `_range` (which covers the new `_weekStart`),
     // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
     // fallback.
-    _setSelected(_dateOnly(_weekStart.add(Duration(days: offset))));
+    _setSelected(kyivAddDays(_weekStart, offset));
   }
 
   /// Offset (0..6) of the current selection from the CURRENT `_weekStart`,
   /// clamped so a selection outside the visible week still lands on a valid
   /// column when re-anchored.
   int _selectedWeekdayOffset() {
-    final int diff = _dateOnly(_selected.value).difference(_weekStart).inDays;
+    final int diff = kyivDaysBetween(_weekStart, _dateOnly(_selected.value));
     return diff.clamp(0, 6);
   }
 
   /// The month that owns a Monday-anchored week — the month containing the 4th
   /// day (Thursday), which is always in the majority month.
   static DateTime _monthOfWeek(DateTime weekStart) {
-    final DateTime mid = weekStart.add(const Duration(days: 3));
+    final DateTime mid = kyivAddDays(weekStart, 3);
     return DateTime(mid.year, mid.month);
   }
 
@@ -301,8 +301,10 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // before the window moves, so the highlight stays in the same column.
     final int offset = _selectedWeekdayOffset();
     setState(() {
-      final next = _weekStart.add(Duration(days: delta * 7));
-      _weekStart = _dateOnly(next);
+      // CALENDAR stepping — `+Duration(days: 7)` from Mon 19 Oct 2026 lands on
+      // Sun 25 Oct 23:00 (Kyiv fall-back), truncating to a SUNDAY week start
+      // that then mis-aligned every later week.
+      _weekStart = kyivAddDays(_weekStart, delta * 7);
       _visibleMonth = _monthOfWeek(_weekStart);
     });
     // Re-anchor the selection into the new visible week, preserving its column.
@@ -310,7 +312,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // result is guaranteed inside `_range` (which covers the new `_weekStart`),
     // so `_DayIndex.lookup` resolves real data instead of the NO_SCHEDULE
     // fallback.
-    _setSelected(_dateOnly(_weekStart.add(Duration(days: offset))));
+    _setSelected(kyivAddDays(_weekStart, offset));
   }
 
   void _goToday() {
@@ -473,7 +475,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// whole-period banner copy.
   bool _wholeWeekUnscheduled(_DayIndex index) {
     for (int i = 0; i < 7; i++) {
-      final EffectiveDay d = index.lookup(_weekStart.add(Duration(days: i)));
+      final EffectiveDay d = index.lookup(kyivAddDays(_weekStart, i));
       if (d.source != EffectiveSource.noSchedule) return false;
     }
     return true;
@@ -862,7 +864,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   List<bool> _templatePattern(_DayIndex index) {
     final active = List<bool>.filled(7, false);
     for (int i = 0; i < 7; i++) {
-      final DateTime d = _weekStart.add(Duration(days: i));
+      final DateTime d = kyivAddDays(_weekStart, i);
       if (_isWorkingDay(index.lookup(d))) {
         active[d.weekday - 1] = true;
       }
@@ -1051,6 +1053,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             Icons.chevron_left_rounded,
             l10n.schedulePrevWeek,
             () => _stepWeek(-1),
+            key: const Key('schedule-week-prev'),
           ),
           const SizedBox(width: VelvetSpacing.sm - 2),
           Expanded(
@@ -1060,7 +1063,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                   Expanded(
                     child: Builder(
                       builder: (_) {
-                        final DateTime d = _weekStart.add(Duration(days: i));
+                        final DateTime d = kyivAddDays(_weekStart, i);
                         // Working flag is selection-independent — computed once
                         // per cell here (same rule as `_templatePattern` / the
                         // top card) and captured; it does not re-run on a day
@@ -1103,14 +1106,21 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             Icons.chevron_right_rounded,
             l10n.scheduleNextWeek,
             () => _stepWeek(1),
+            key: const Key('schedule-week-next'),
           ),
         ],
       ),
     );
   }
 
-  Widget _weekArrow(IconData icon, String label, VoidCallback onTap) {
+  Widget _weekArrow(
+    IconData icon,
+    String label,
+    VoidCallback onTap, {
+    Key? key,
+  }) {
     return Semantics(
+      key: key,
       button: true,
       label: label,
       child: GestureDetector(

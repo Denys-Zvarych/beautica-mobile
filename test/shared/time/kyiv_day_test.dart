@@ -258,6 +258,37 @@ void main() {
       expect(kyivDaysBetween(jan20, jul19), 180);
     });
   });
+
+  // 2026-09-24 — `OverridesNotifier.putSpan` stepped with `+Duration(days: 1)`
+  // then truncated; on the Kyiv fall-back day that lands on 23:00 of the SAME
+  // day and the loop never advanced. [kyivAddDays] is the sanctioned step.
+  group('kyivAddDays steps date tokens by CALENDAR day', () {
+    test('forward across the FALL BACK (2026-10-25) lands on the NEXT day, '
+        'at midnight — the 25 h day `+24h` got stuck on', () {
+      final DateTime next = kyivAddDays(DateTime(2026, 10, 25), 1);
+
+      expect(next, DateTime(2026, 10, 26));
+      expect(next.hour, 0);
+    });
+
+    test('backward across the SPRING FORWARD (2026-03-29) lands on the Monday '
+        'a week earlier, never the Sunday `-168h` truncates to', () {
+      expect(kyivAddDays(DateTime(2026, 3, 30), -7), DateTime(2026, 3, 23));
+    });
+
+    test(
+      'forward a week from the fall-back week\'s Monday is the next Monday',
+      () {
+        expect(kyivAddDays(DateTime(2026, 10, 19), 7), DateTime(2026, 10, 26));
+      },
+    );
+
+    test('normalises month / year roll-over and zero', () {
+      expect(kyivAddDays(DateTime(2026, 12, 31), 1), DateTime(2027, 1, 1));
+      expect(kyivAddDays(DateTime(2026, 3, 1), -1), DateTime(2026, 2, 28));
+      expect(kyivAddDays(DateTime(2026, 6, 15), 0), DateTime(2026, 6, 15));
+    });
+  });
 }
 
 /// `null` (run the test) when the HOST process zone's UTC offset differs

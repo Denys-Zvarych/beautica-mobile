@@ -53,6 +53,7 @@ import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -128,7 +129,8 @@ class _FakeScheduleRepository implements ScheduleRepository {
               : const <WorkInterval>[],
         ),
       );
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }

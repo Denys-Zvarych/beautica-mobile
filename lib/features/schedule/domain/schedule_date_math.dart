@@ -31,6 +31,8 @@
 
 import 'package:flutter/foundation.dart';
 
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
+
 /// An inclusive date-only range `[start, end]` (both local midnight). Mirrors
 /// the backend `DateRange` record used by the schedule presets.
 @immutable
@@ -41,7 +43,7 @@ class ScheduleRangeDates {
   final DateTime end;
 
   /// Inclusive day count (1 for a single-day range).
-  int get inclusiveDays => end.difference(start).inDays + 1;
+  int get inclusiveDays => kyivDaysBetween(start, end) + 1;
 
   @override
   bool operator ==(Object other) =>
@@ -153,7 +155,7 @@ class ScheduleDateMath {
   /// True when the inclusive span of `[from, to]` is wider than a full leap
   /// year (more than 366 inclusive dates / more than 365 days between).
   bool exceedsSpan(DateTime from, DateTime to) =>
-      _dateOnly(to).difference(_dateOnly(from)).inDays > maxSpanDays;
+      kyivDaysBetween(_dateOnly(from), _dateOnly(to)) > maxSpanDays;
 
   /// Clamps a candidate window end to no later than the far-future [cap] so a
   /// preset / custom selection never sends a too-far-future `validTo` that the

@@ -91,7 +91,9 @@ void main() {
   Future<GoRouter> pumpHost(
     WidgetTester tester, {
     List<Object> extraOverrides = const <Object>[],
+    DateTime? today,
   }) async {
+    final DateTime sheetToday = today ?? _today;
     final router = GoRouter(
       initialLocation: '/',
       routes: <RouteBase>[
@@ -103,8 +105,8 @@ void main() {
                 key: const Key('open-apply-sheet'),
                 onPressed: () => showApplyScheduleSheet(
                   context,
-                  baseSchedule: _baseSchedule(),
-                  today: _today,
+                  baseSchedule: _baseSchedule(validFrom: sheetToday),
+                  today: sheetToday,
                 ),
                 child: const Text('open'),
               ),
@@ -455,6 +457,24 @@ void main() {
       );
     },
   );
+
+  // 2026-09-24 — the day-count readout used `DateTimeRange.duration.inDays`,
+  // one LOW for any window crossing the Kyiv spring forward (23 h day).
+  testWidgets('the day-count readout for «Наступні 3 місяці» from 2026-03-20 '
+      '(across the spring forward) reads 93 days, not 92', (tester) async {
+    await pumpHost(tester, today: DateTime(2026, 3, 20));
+    await openSheet(tester);
+
+    await tester.tap(find.byKey(const Key('preset-next-3-months')));
+    await tester.pumpAndSettle();
+
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('preset-next-3-months'))),
+    );
+    // 2026-03-20 .. 2026-06-20 inclusive = 12 + 30 + 31 + 20 = 93.
+    expect(find.text(l10n.applyScheduleDayCount(93)), findsOneWidget);
+    expect(find.text(l10n.applyScheduleDayCount(92)), findsNothing);
+  });
 }
 
 /// A tappable day cell in the [PeriodRangePicker] for the given [day] number.

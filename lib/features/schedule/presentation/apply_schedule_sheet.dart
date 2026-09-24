@@ -48,6 +48,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
@@ -162,7 +163,8 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
 
   static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  int? get _dayCount => _range?.let((DateTimeRange r) => r.duration.inDays + 1);
+  int? get _dayCount =>
+      _range?.let((DateTimeRange r) => kyivDaysBetween(r.start, r.end) + 1);
 
   bool get _hasRange => _range != null;
 

@@ -56,6 +56,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
 
 import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
 
@@ -225,7 +226,7 @@ class _DayOffConflictDialogState extends State<DayOffConflictDialog>
       case DayOffChangeKind.singleDay:
         return l10n.dayOffConflictSublineDayOff(formatFullDate(p.from));
       case DayOffChangeKind.dateRange:
-        final int days = p.to.difference(p.from).inDays + 1;
+        final int days = kyivDaysBetween(p.from, p.to) + 1;
         final String range =
             '${formatFullDate(p.from)} – ${formatFullDate(p.to)}';
         return '${l10n.dayOffConflictSublineDayOff(range)} · '

@@ -42,6 +42,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -431,7 +432,10 @@ const String _kScheduleRepoTag = 'feature.schedule.repository';
 /// guard — a single shared number would either reject a legal 366-day master
 /// window or let an illegal 63-day salon window reach the wire.
 void _assertBoundedScheduleRange(DateTime from, DateTime to, int maxDays) {
-  final spanDays = to.difference(from).inDays;
+  // Calendar-day count ([kyivDaysBetween]), not `difference(...).inDays`,
+  // which reads one day LOW across a spring-forward transition and let a
+  // one-day-too-wide window past the client guard.
+  final spanDays = kyivDaysBetween(from, to);
   assert(
     !to.isBefore(from) && spanDays <= maxDays,
     'Schedule range must be ordered and ≤ $maxDays days '
