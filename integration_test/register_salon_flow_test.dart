@@ -126,26 +126,14 @@ Future<GoRouter> _openRegisterForm(WidgetTester tester, FakeBackend fb) async {
   return router;
 }
 
-/// Fills every required field with a valid value (name, oblast → city-kyiv
-/// leaf-of-no-districts, street, building, phone). Instagram is left empty
-/// (optional).
+/// Fills every required field with a valid value (name, city-kyiv
+/// leaf-of-no-districts settlement, street, building, phone). Instagram is
+/// left empty (optional).
 Future<void> _fillValidForm(WidgetTester tester) async {
   await tester.enterText(find.byKey(const Key('salon_name')), _newSalonName);
   await tester.pump();
 
-  await tester.tap(find.byKey(const Key('locality_row_oblast')));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-  );
-  await tester.pumpAndSettle();
-
-  await tester.tap(find.byKey(const Key('locality_row_city')));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-  );
-  await tester.pumpAndSettle();
+  await AppHarness.pickSettlement(tester, 'city-kyiv');
 
   await tester.enterText(
     find.byKey(const Key('salon_street')),
@@ -393,7 +381,7 @@ void main() {
       // no dedicated Key on this screen (RegisterSalonScreen never passes
       // `backKey:`) — adding one would be a `lib/` edit outside this task's
       // scope. `NeumorphicIconButton` is not used anywhere else in this
-      // screen's tree (VelvetField/LocalityCascade never render one), so
+      // screen's tree (VelvetField/SettlementLocalityField never render one), so
       // `find.byType` is unambiguous here — the established fallback per
       // this suite's own "Key first, byType second" convention.
       expect(find.byType(NeumorphicIconButton), findsOneWidget);

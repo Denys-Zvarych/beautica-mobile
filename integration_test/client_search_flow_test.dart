@@ -6,8 +6,9 @@
 // proves ClientSearchScreen in isolation, and the controller tier proves the
 // SearchFilters state machine. Neither exercises the REAL journey: a CLIENT
 // logging in, tapping the elevated center «Пошук» nav disc to reach the real
-// ClientSearchScreen branch, picking a city through the REAL locality picker
-// cascade, selecting a category in the Variant A rail (which reveals the
+// ClientSearchScreen branch, picking a city through the REAL settlement
+// autocomplete (phase 346's replacement for the retired Область → Місто
+// cascade), selecting a category in the Variant A rail (which reveals the
 // second-level service-chip drawer), dragging the price slider, and tapping
 // «Показати майстрів» to push /search/results with the assembled SearchFilters
 // in `extra`.
@@ -28,11 +29,10 @@
 // fixed clock, overflow guard) and drives the whole flow against the fake
 // backend's seeded taxonomy:
 //   • GET /service-categories/approved → NAILS («Нігті») + BROWS («Брови»)
-//   • GET /locations/oblasts → «Київська» (oblast-kyiv)
-//   • GET /locations/oblasts/oblast-kyiv/cities → «Київ» (city-kyiv, no districts)
+//   • GET /api/v1/settlements → «Київ» (city-kyiv, no districts)
 //
 // KEY POLICY: navigation taps are key-based (client-nav-search-center,
-// search_service_type_NAILS, search_show_masters_cta, locality_picker_tile_*).
+// search_service_type_NAILS, search_show_masters_cta, settlement_option_*).
 // Raw find.text(...) is used only for content assertions (city/category names
 // are backend data). See integration_test/support/app_harness.dart.
 
@@ -78,32 +78,24 @@ void main() {
   Future<void> scrollFilterFieldIntoView(WidgetTester tester, Key key) =>
       AppHarness.scrollFilterFieldIntoView(tester, key);
 
-  /// Drives the THREE-field locality funnel through the REAL picker sheets:
-  /// Region («Київська») then City («Київ»). City is gated on a Region, so the
-  /// region MUST be picked first — tapping the city row before that is inert.
-  /// The seeded «Київ» has hasDistricts:false, so the District field stays
-  /// disabled and the (optional) district step is correctly skipped.
+  /// Picks «Київ» through the REAL settlement autocomplete — phase 346's
+  /// replacement for the retired Область → Місто cascade. The discovery
+  /// filters screen's field keeps the retired city row's key
+  /// (`search_city_value`), so this still resolves to the locality control.
+  /// The seeded «Київ» has no districts, so the District row stays absent and
+  /// the (optional) district step is correctly skipped.
   ///
-  /// Defensively scrolls each field into view before tapping it: a caller that
+  /// Defensively scrolls the field into view before tapping it: a caller that
   /// already scrolled down to the category/price sections (below the fold)
-  /// would otherwise find the region/city rows un-inflated. When the fields
-  /// are already visible (the common case — nothing has scrolled yet) this is
-  /// a cheap no-op.
-  Future<void> pickRegionThenCity(WidgetTester tester) async {
-    await scrollFilterFieldIntoView(tester, const Key('search_region_value'));
-    await tester.tap(find.byKey(const Key('search_region_value')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-    );
-    await tester.pumpAndSettle();
+  /// would otherwise find it un-inflated. When it is already visible (the
+  /// common case — nothing has scrolled yet) this is a cheap no-op.
+  Future<void> pickCity(WidgetTester tester) async {
     await scrollFilterFieldIntoView(tester, const Key('search_city_value'));
-    await tester.tap(find.byKey(const Key('search_city_value')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
+    await AppHarness.pickSettlement(
+      tester,
+      'city-kyiv',
+      fieldKey: const Key('search_city_value'),
     );
-    await tester.pumpAndSettle();
   }
 
   testWidgets(
@@ -172,21 +164,23 @@ void main() {
       // always mounted and visible regardless of the ListView's scroll offset.
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
 
-      // ── Pick a region → city through the REAL three-field cascade ─────────
-      // The location control is now three gated fields: Region must be picked
-      // first (it enables the City field), then City. Tap Region → oblast sheet
-      // → «Київська»; then City → city sheet → «Київ».
-      await pickRegionThenCity(tester);
+      // ── Pick a city through the REAL settlement autocomplete ───────────────
+      await pickCity(tester);
 
-      // The city label now shows the chosen city name (backend data).
+      // The settlement field now shows the chosen city name (backend data).
+      // `search_city_value` resolves to the field's GestureDetector, not a
+      // Text — the display text is a keyless descendant.
       final Text cityValue = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
       );
       expect(cityValue.data, 'Київ');
 
       // ── Select a category in the rail (NAILS) → reveals the chip drawer ───
-      // pickRegionThenCity's scrolls left the viewport on the locality block —
-      // scroll back down to the rail before tapping it.
+      // pickCity's scroll left the viewport on the locality block — scroll
+      // back down to the rail before tapping it.
       await scrollFilterFieldIntoView(
         tester,
         const Key('search_service_type_NAILS'),
@@ -330,27 +324,46 @@ void main() {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Three-field locality funnel — E2E: City is GATED on a Region, and a
-  // Region→City (no district) selection scopes the wire to location.cityId.
+  // Settlement autocomplete — E2E: picking «Київ» (no districts) scopes the
+  // wire to location.cityId; leaving the field UNSET is a legitimate
+  // nationwide search that still reaches the wire.
   //
   // WHY THIS FLOW EXISTS
   // --------------------
-  // The combined «Місто · Район» row became three discrete, gated fields. The
-  // widget tier pins the gating in isolation; THIS flow proves the funnel end to
-  // end against the real picker sheets + the live SearchResultsNotifier →
-  // HttpSearchRepository. It asserts:
-  //   1. tapping the City field BEFORE a Region opens NO picker (it is inert),
-  //   2. after picking a Region the City field enables and a city can be chosen,
-  //   3. the seeded «Київ» (hasDistricts:false) leaves the District step skipped
-  //      (district-optional) — yet the search still scopes to location.cityId.
+  // Phase 346 retired the three-field gated funnel («Область» → «Місто» →
+  // «Район») this test used to pin end to end — a Region-without-a-City
+  // half-state, and the CTA-disabling gate built around it, no longer exist:
+  // `search_filters_screen.dart`'s CTA is disabled ONLY by `queryTooShort`
+  // now, never by locality. The widget tier
+  // (`search_filters_screen_test.dart:1272`, "NO location at all (cityId
+  // null) → CTA stays enabled") already pins that CTA-enablement contract in
+  // isolation. What the widget tier CANNOT prove — because it mocks the
+  // repository — is that an UNSET settlement actually reaches the real wire
+  // with no `location.cityId` param at all (rather than, say, an empty
+  // string), and that a PICKED settlement still scopes correctly through the
+  // real settlement autocomplete + the live SearchResultsNotifier →
+  // HttpSearchRepository. This flow proves both halves against the real
+  // (fake) backend.
   //
-  // Step 2.7 Rule 3b: the gated funnel + locality picker + navigation +
-  // provider→repository + the exact `location.cityId` query contract — the
-  // widget tier cannot prove this composes end to end against the real backend.
+  // DELETIONS (mobile-qa, phase 346 conversion) — every assertion below is
+  // NEW or rewritten, not carried over, because the retired concepts have no
+  // replacement:
+  //   • "tapping City before Region opens no picker" — there is only one
+  //     field now; it is never gated on anything.
+  //   • "region-only disables the CTA" — a region without a city is not a
+  //     reachable state anymore (there is no region step), and an UNSET
+  //     settlement is now a valid, ENABLED nationwide search by design (see
+  //     the widget-tier pin cited above) — the opposite of the retired
+  //     contract, not a variant of it.
+  //
+  // Step 2.7 Rule 3b: the real picker sheet + navigation + provider→repository
+  // + the exact `location.cityId` (present-or-absent) query contract — the
+  // widget tier cannot prove this composes end to end against the real
+  // backend.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
-    'CLIENT three-field funnel: City is inert until a Region is picked, then a '
-    'Region→City (no district) search scopes to location.cityId',
+    'CLIENT search with NO settlement picked reaches the wire with no '
+    'location.cityId (nationwide); picking «Київ» scopes to it instead',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -363,74 +376,52 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
-      // ── Gating: tapping City BEFORE a Region opens NO picker sheet ──────────
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('locality_picker_search')),
-        findsNothing,
-        reason: 'the City field is gated on a Region — its tap must be inert',
-      );
-
-      // ── «Require a city» gate (Step 2.7 Rule 3b) — region-only is blocked ────
-      // Pick ONLY a Region (no City). A region without a city is not a
-      // searchable scope (region-only would send no location filter → providers
-      // from EVERY city), so the search CTA must be DISABLED in this state. The
-      // widget tier pins the disabled chrome in isolation; here we prove the
-      // gate holds end to end against the REAL screen + picker + controller.
-      await tester.tap(find.byKey(const Key('search_region_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle();
-
       NeumorphicButton ctaButton() => tester.widget<NeumorphicButton>(
         find.byKey(const Key('search_show_masters_cta')),
       );
       expect(
         ctaButton().onPressed,
-        isNull,
-        reason: 'region-only (no city) must disable «Показати майстрів»',
-      );
-      // Tapping the disabled CTA is inert — it must NOT navigate to results.
-      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      // results-settle-ok: the CTA is DISABLED here (onPressed == null), so
-      // this tap pushes nothing — the results screen never mounts and there is
-      // no _LoadMoreSpinner to keep a frame scheduled. A plain settle is both
-      // correct and necessary: the assertion below is that NOTHING happened,
-      // so there is no arrival state for pumpUntilFound to wait on.
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('client-search-results')),
-        findsNothing,
+        isNotNull,
         reason:
-            'a blocked region-only CTA tap must not push the results screen',
+            'phase 346: an UNSET settlement no longer disables the CTA — '
+            'nationwide search is a legitimate first-class scope now',
       );
+
+      // ── Submit with NO settlement picked → nationwide, no location.cityId ───
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('results_list')),
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.clientSearchResults,
+      );
+      expect(fb.lastSearchMastersCityId, isNull);
+      expect(fb.lastSearchSalonsCityId, isNull);
+
+      // ── Back to Пошук, pick «Київ», submit again → scopes to location.cityId ─
+      router.pop();
+      await tester.pumpAndSettle();
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
-      // ── Now pick the City → the gate releases, CTA enables ──────────────────
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-      );
-      await tester.pumpAndSettle();
+      await pickCity(tester);
       final Text cityValue = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
       );
       expect(cityValue.data, 'Київ');
-      expect(
-        ctaButton().onPressed,
-        isNotNull,
-        reason: 'a committed Region + City re-enables the search CTA',
-      );
 
-      // ── Submit → the search scopes to the FLAT location.cityId ──────────────
       // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
       // (FakeBackend's masters fixture always leaves a page pending on first
       // load, so the trailing indeterminate spinner never lets pumpAndSettle
       // observe quiescence).
+      await scrollFilterFieldIntoView(
+        tester,
+        const Key('search_show_masters_cta'),
+      );
       await tester.tap(find.byKey(const Key('search_show_masters_cta')));
       await AppHarness.pumpUntilFound(
         tester,
@@ -443,7 +434,7 @@ void main() {
       );
       expect(find.byKey(const Key('client-search-results')), findsOneWidget);
 
-      // The region→city pick reached the wire as location.cityId on BOTH
+      // The settlement pick reached the wire as location.cityId on BOTH
       // endpoints; with no district picked, location.districtId is OMITTED
       // (district-optional) — null, not empty.
       expect(fb.lastSearchMastersCityId, 'city-kyiv');
@@ -853,15 +844,15 @@ void main() {
   // an all-null request → an unfiltered all-regions 200. The unit tier
   // (search_repository_test.dart) pins the FLAT wire at the repository seam; THIS
   // flow proves the same end to end: a CLIENT picking «Київ» through the REAL
-  // locality cascade and submitting drives the live SearchResultsNotifier →
+  // settlement autocomplete and submitting drives the live SearchResultsNotifier →
   // HttpSearchRepository → GET /search/{masters,salons}, and the fake backend
   // captures `location.cityId` as a FLAT key on BOTH endpoints. A reverted
   // object-query encoding would leave that capture null (bracketed keys never
   // bind), failing this flow.
   //
-  // Step 2.7 Rule 3b: this is the real user journey (screen + locality picker +
-  // navigation + provider→repository + the exact API query contract) the widget
-  // tier cannot prove end to end.
+  // Step 2.7 Rule 3b: this is the real user journey (screen + settlement
+  // autocomplete + navigation + provider→repository + the exact API query
+  // contract) the widget tier cannot prove end to end.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets('CLIENT picks a city → the search scopes to location.cityId on BOTH '
       'endpoints (all-regions wire-format regression)', (tester) async {
@@ -876,11 +867,14 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
     AppHarness.expectLocation(router, RouteNames.clientSearch);
 
-    // ── Pick «Київ» through the REAL three-field region→city cascade ────────
-    await pickRegionThenCity(tester);
+    // ── Pick «Київ» through the REAL settlement autocomplete ────────────────
+    await pickCity(tester);
 
     final Text cityValue = tester.widget<Text>(
-      find.byKey(const Key('search_city_value')),
+      find.descendant(
+        of: find.byKey(const Key('search_city_value')),
+        matching: find.byType(Text),
+      ),
     );
     expect(cityValue.data, 'Київ');
 
@@ -924,27 +918,28 @@ void main() {
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Search-page change (items 4, 5, 6, 7) — E2E: a region→city filter scopes
+  // Search-page change (items 4, 5, 6, 7) — E2E: a settlement filter scopes
   // the results, the results screen shows the active-filter «(N)» count badge,
   // and the salon card renders its price RANGE + services line + full address.
   //
   // WHY THIS FLOW EXISTS
   // --------------------
-  // The unit + widget tiers pin each piece in isolation (the controller cascade,
-  // the salon card's price/services/address rendering, the mapper's addressLine
-  // join). This flow proves they compose end to end: a CLIENT picking «Київська»
-  // → «Київ» through the REAL locality cascade, submitting, and seeing the
-  // results screen render the active-filter «(N)» count badge AND a salon card
-  // whose price/services/address all come from the (authenticated) /search/salons
-  // response. The seeded salon-xyz now carries street/buildingNo (auth-gated)
-  // and serviceNames, so the card's `addressLine` + `servicesLine` are live.
+  // The unit + widget tiers pin each piece in isolation (the controller state
+  // machine, the salon card's price/services/address rendering, the mapper's
+  // addressLine join). This flow proves they compose end to end: a CLIENT
+  // picking «Київ» through the REAL settlement autocomplete, submitting, and
+  // seeing the results screen render the active-filter «(N)» count badge AND a
+  // salon card whose price/services/address all come from the (authenticated)
+  // /search/salons response. The seeded salon-xyz now carries street/buildingNo
+  // (auth-gated) and serviceNames, so the card's `addressLine` + `servicesLine`
+  // are live.
   //
-  // Step 2.7 Rule 3b: this is the real user journey (locality cascade +
+  // Step 2.7 Rule 3b: this is the real user journey (settlement autocomplete +
   // navigation + provider→repository + the rendered result card + count badge)
   // the widget tier cannot prove end to end.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
-    'CLIENT region→city filter → results show the «(N)» active-filter badge + a '
+    'CLIENT settlement filter → results show the «(N)» active-filter badge + a '
     'salon card with price range, services line, and full address',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
@@ -958,11 +953,14 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
-      // ── Pick «Київська» → «Київ» through the REAL three-field cascade ───────
-      await pickRegionThenCity(tester);
+      // ── Pick «Київ» through the REAL settlement autocomplete ────────────────
+      await pickCity(tester);
 
       final Text cityValue = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
       );
       expect(cityValue.data, 'Київ');
 
@@ -989,13 +987,14 @@ void main() {
       // The applied-filters chip ROW was replaced by an SVG funnel filter button
       // plus an active-filter «(N)» count badge.
       //
-      // `SearchFilters.activeFilterCount` counts oblastId / cityId / districtId
-      // as THREE SEPARATE facets (deliberate — pinned by
-      // test/features/discovery/domain/search_filters_test.dart). The
-      // three-field funnel means picking «Київ» necessarily sets BOTH oblastId
-      // and cityId, so the badge reads «(2)», not «(1)». (The older "one facet
-      // = the city" reading predates the funnel, when locality was a single
-      // field.)
+      // `SearchFilters.activeFilterCount` counts `cityId` / `districtId` as
+      // separate facets (`search_filters.dart:213` — pinned by
+      // test/features/discovery/domain/search_filters_test.dart). Phase 346
+      // retired `oblastId` from the model entirely (`selectSettlement` sets
+      // ONLY `cityId`), so picking «Київ» (no district) now sets exactly ONE
+      // facet and the badge reads «(1)». It used to read «(2)» when the
+      // retired cascade set `oblastId` and `cityId` together — see this test's
+      // git history for that value if the count ever needs re-deriving.
       expect(
         find.byKey(const Key('results_filter_button')),
         findsOneWidget,
@@ -1011,8 +1010,8 @@ void main() {
       );
       expect(
         tester.widget<Text>(activeBadge).data,
-        '(2)',
-        reason: 'region + city are two separate facets → «(2)»',
+        '(1)',
+        reason: 'a picked settlement (no district) is a single facet → «(1)»',
       );
 
       // ── The seeded salon card rendered (keyed by backend id) ────────────────
@@ -1353,16 +1352,22 @@ void main() {
   // controller's prefill + one-shot + anti-clobber guards in isolation with a
   // STUBBED clientEditProfileProvider. It cannot prove the REAL chain: the CLIENT
   // logging in, the screen's initState firing prefillFromProfileIfNeeded(), the
-  // real ClientEditProfile → GET /users/me carrying oblastId/cityId, the real
-  // oblastListProvider/cityListProvider resolving the saved ids to names, and the
-  // locality row rendering the saved city on FIRST open. This flow drives exactly
-  // that against the fake backend's seeded taxonomy (oblast-kyiv «Київська» →
-  // city-kyiv «Київ», no districts), with the profile's saved location injected
-  // via the FakeBackend's mutable client state.
+  // real ClientEditProfile → GET /users/me carrying the denormalised cityId/
+  // cityName, and the settlement field rendering the saved city on FIRST open.
+  // This flow drives exactly that against the fake backend's seeded taxonomy
+  // (city-kyiv «Київ», no districts), with the profile's saved location
+  // injected via the FakeBackend's mutable client state.
+  //
+  // Phase 346 — `prefillFromProfileIfNeeded` no longer resolves an oblast at
+  // all (`search_filters_controller.dart:388-393`): `/users/me` already
+  // carries the settlement's display name denormalised as `cityName`, so
+  // there is no taxonomy round trip left to prove here beyond the profile
+  // read itself. `clientOblastId`/`clientOblastName` are therefore dropped
+  // from this fixture — the prefill never reads them.
   //
   // Step 2.7 Rule 3b: this is the real user journey (auth → screen → initState →
-  // provider→repository (/users/me) → taxonomy resolve → rendered locality row +
-  // a branch-switch keepAlive survival) the widget tier cannot prove end to end.
+  // provider→repository (/users/me) → rendered settlement field + a
+  // branch-switch keepAlive survival) the widget tier cannot prove end to end.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
     'CLIENT with a saved location opens Пошук → the city filter shows the saved '
@@ -1370,11 +1375,9 @@ void main() {
     (tester) async {
       final fb = FakeBackend()
         ..currentRole = UserRole.client
-        // Saved profile location: Київська обл. → Київ (no district — city-kyiv
-        // has hasDistricts:false). GET /users/me echoes these so the prefill can
-        // resolve the saved cascade.
-        ..clientOblastId = 'oblast-kyiv'
-        ..clientOblastName = 'Київська'
+        // Saved profile location: Київ (no district — city-kyiv has no
+        // districts). GET /users/me echoes these so the prefill can seed the
+        // settlement field straight from the denormalised name.
         ..clientCityId = 'city-kyiv'
         ..clientCityName = 'Київ';
 
@@ -1391,24 +1394,19 @@ void main() {
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
 
       // ── PREFILL ASSERTION — the saved locality is rendered on FIRST open ────
-      // No tap on the picker happened; the city/region rows carry the saved
-      // names because the prefill resolved them through the REAL /users/me +
-      // oblast/city taxonomy chain. A broken prefill would leave the placeholder.
-      final Text cityValue = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
+      // No tap on the picker happened; the settlement field carries the saved
+      // name because the prefill resolved it through the REAL /users/me read.
+      // A broken prefill would leave the placeholder.
+      Text cityRowText() => tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
       );
       expect(
-        cityValue.data,
+        cityRowText().data,
         'Київ',
         reason: 'the saved-profile city must pre-fill the city filter on open',
-      );
-      final Text regionValue = tester.widget<Text>(
-        find.byKey(const Key('search_region_value')),
-      );
-      expect(
-        regionValue.data,
-        'Київська',
-        reason: 'the saved-profile oblast must pre-fill the region filter',
       );
       // A pre-filled city is a searchable scope → the CTA is enabled.
       expect(
@@ -1427,18 +1425,15 @@ void main() {
         reason: 'the prefill must read the profile via GET /users/me',
       );
 
-      // ── EDIT — clear the region (cascade-clears the city) ───────────────────
-      await tester.tap(find.byKey(const Key('search_region_value_clear')));
+      // ── EDIT — clear the settlement via its own inline «×» affordance ───────
+      await tester.tap(find.byKey(const Key('select-field-clear')));
       await tester.pumpAndSettle();
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      Text cityRowText() =>
-          tester.widget<Text>(find.byKey(const Key('search_city_value')));
       expect(
         cityRowText().data,
-        l10n.searchCityPlaceholder,
-        reason:
-            'clearing the region cascade-clears the city back to placeholder',
+        l10n.settlementPlaceholder,
+        reason: 'clearing the settlement returns the field to its placeholder',
       );
 
       // ── Re-enter the tab (Home → Search) → the edit MUST persist ───────────
@@ -1456,7 +1451,7 @@ void main() {
 
       expect(
         cityRowText().data,
-        l10n.searchCityPlaceholder,
+        l10n.settlementPlaceholder,
         reason:
             're-entering the search tab must NOT re-seed the saved location '
             'over a manual clear (one-shot + anti-clobber guard)',
@@ -1529,7 +1524,14 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
         'Київ',
         reason: 'the first open must prefill from the saved Київ',
       );
@@ -1547,13 +1549,8 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
       AppHarness.expectLocation(router, RouteNames.clientEditLocation);
 
-      // ── 3. Change the CITY to Львів (same region) → Save ───────────────────
-      await tester.tap(find.byKey(const Key('locality_row_city')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-lviv')),
-      );
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      // ── 3. Change the settlement to Львів → Save ──────────────────────────
+      await AppHarness.pickSettlement(tester, 'city-lviv');
 
       await tester.ensureVisible(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
@@ -1578,8 +1575,17 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
-        'Львів',
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
+        // Phase 346: a PICKED settlement labels as «name, oblast» — the same
+        // label client_profile_location_save_overrides_search_touch pins.
+        'Львів, Львівська',
         reason:
             'a mid-session profile locality change must reach Пошук on the '
             'very next open — no app restart required',
@@ -1636,7 +1642,14 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
         'Київ',
         reason: 'the saved-profile city must prefill the locality row on open',
       );
@@ -1687,14 +1700,33 @@ void main() {
       // down, applied in reverse).
       await scrollFilterFieldIntoView(tester, const Key('search_city_value'));
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
         'Київ',
         reason: 'clearing filters must never wipe the prefilled saved location',
       );
+      // Phase 346 retired the «Область» field — the settlement label is the
+      // whole prefilled locality, so it must survive as exactly one label.
+      // Read each Text's `.data` rather than `find.text('<Cyrillic>')`, which
+      // `forbid_cyrillic_finder.sh` forbids — same shape as the assertion
+      // above, counting the matches so "exactly one label" still holds.
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_region_value'))).data,
-        'Київська',
-        reason: 'the prefilled region survives the clear too',
+        tester
+            .widgetList<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .where((Text t) => t.data == 'Київ'),
+        hasLength(1),
+        reason: 'the prefilled settlement survives the clear too',
       );
       // The pre-filled city keeps the search CTA enabled (a searchable scope
       // remains after the clear).

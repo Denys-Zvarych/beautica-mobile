@@ -20,7 +20,8 @@
 //      Salon-employed masters are deliberately NOT name-searchable — search
 //      covers independent masters + salons — so the field never promises them.
 //   3. «Місто» — recessed select row → opens the existing locality picker
-//      (oblast → city cascade) and writes the chosen city onto SearchFilters.
+//      (Phase 346: one «Населений пункт» autocomplete, not an oblast → city
+//      cascade) and writes the chosen settlement onto SearchFilters.
 //   4. «Категорія» — a horizontal rail of ALL approved categories
 //      ([CategoryRailTile]), each tile sized to its label so the full name
 //      shows. Populated from the live
@@ -49,10 +50,10 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
-import '../../location/domain/city.dart';
 import '../../location/domain/city_district.dart';
-import '../../location/domain/oblast.dart';
 import '../../location/presentation/widgets/locality_picker_sheet.dart';
+import '../../location/presentation/widgets/settlement_locality_field.dart';
+import '../../location/presentation/widgets/settlement_select_field.dart';
 import '../../location/state/location_providers.dart';
 import '../../services/data/service_repository.dart';
 import '../../services/domain/service_category_option.dart';
@@ -110,65 +111,32 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     super.dispose();
   }
 
-  /// Region (oblast) field tap — the first, mandatory narrowing step.
+  /// Settlement chosen in the shared «Населений пункт» autocomplete.
   ///
-  /// Picking a region commits its id + label and CLEARS the dependent city and
-  /// district (they belonged to the previous region). Dismissing the sheet
-  /// leaves the prior selection untouched. The oblast id is UI-only — it never
-  /// reaches the wire (the repository sends `location.cityId` only).
-  Future<void> _pickRegion() async {
-    final l10n = AppLocalizations.of(context);
+  /// Phase 346 — replaces the former `_pickRegion` + `_pickCity` pair and the
+  /// two bottom sheets behind them. The settlement widget owns the sheet, the
+  /// debounce and the label, so this only commits the id and mirrors the label
+  /// the widget composed onto the sibling labels controller.
+  ///
+  /// `selectSettlement` clears any stale district; `cityHasDistricts` is
+  /// re-established from the same [districtsOf] read the address screens use,
+  /// so the District row below gates on the settlement the user just picked.
+  void _onSettlement(String settlementId, String label) {
     final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
-    final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
-
-    final Oblast? oblast = await showLocalityPickerSheet<Oblast>(
-      context: context,
-      provider: oblastListProvider,
-      labelOf: (Oblast o) => o.name,
-      idOf: (Oblast o) => o.id,
-      titleLabel: l10n.searchRegionLabel,
-      onRetry: () => ref.invalidate(oblastListProvider),
-    );
-    if (oblast == null || !mounted) return;
-
-    // selectOblast already clears the dependent city + district ids.
-    filtersCtrl.selectOblast(oblastId: oblast.id);
-    labelsCtrl
-      ..setOblastName(oblast.name)
-      ..setCityName(null)
+    filtersCtrl.selectSettlement(cityId: settlementId);
+    ref.read(searchFilterLabelsControllerProvider.notifier)
+      ..setCityName(label)
       ..setDistrictName(null);
   }
 
-  /// City field tap — the second, mandatory narrowing step (gated on a region).
-  ///
-  /// Scoped to the already-chosen region. Picking a city commits its id + label
-  /// and CLEARS any district from a prior city. A no-region call is a no-op
-  /// (the row is disabled in that state, so this only guards a stray call).
-  Future<void> _pickCity() async {
-    final l10n = AppLocalizations.of(context);
-    final filtersCtrl = ref.read(searchFiltersControllerProvider.notifier);
-    final labelsCtrl = ref.read(searchFilterLabelsControllerProvider.notifier);
-
-    final String? oblastId = ref.read(searchFiltersControllerProvider).oblastId;
-    if (oblastId == null) return;
-
-    final cityProvider = cityListProvider(oblastId);
-    final City? city = await showLocalityPickerSheet<City>(
-      context: context,
-      provider: cityProvider,
-      labelOf: (City c) => c.name,
-      idOf: (City c) => c.id,
-      titleLabel: l10n.searchCityLabel,
-      onRetry: () => ref.invalidate(cityProvider),
-    );
-    if (city == null || !mounted) return;
-
-    // selectCity clears any stale district; mirror the labels + remember
-    // whether this city subdivides (gates the District row).
-    filtersCtrl.selectCity(cityId: city.id);
-    labelsCtrl
-      ..setCityName(city.name)
-      ..setCityHasDistricts(city.hasDistricts)
+  /// Clears the settlement — back to a nationwide search. The district goes
+  /// with it (it is only meaningful inside its settlement).
+  void _clearSettlement() {
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .selectSettlement(cityId: null);
+    ref.read(searchFilterLabelsControllerProvider.notifier)
+      ..setCityName(null)
       ..setDistrictName(null);
   }
 
@@ -196,28 +164,6 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
 
     filtersCtrl.selectDistrict(districtId: district.id);
     labelsCtrl.setDistrictName(district.name);
-  }
-
-  /// Clears the region field — tears down the whole locality cascade
-  /// (region → city → district), since none of the lower levels is meaningful
-  /// without its region.
-  void _clearRegion() {
-    ref
-        .read(searchFiltersControllerProvider.notifier)
-        .selectOblast(oblastId: null);
-    ref.read(searchFilterLabelsControllerProvider.notifier)
-      ..setOblastName(null)
-      ..setCityName(null)
-      ..setDistrictName(null);
-  }
-
-  /// Clears the city field — also clears the district (only meaningful with its
-  /// city); the region is left intact so the user can pick another city.
-  void _clearCity() {
-    ref.read(searchFiltersControllerProvider.notifier).selectCity(cityId: null);
-    ref.read(searchFilterLabelsControllerProvider.notifier)
-      ..setCityName(null)
-      ..setDistrictName(null);
   }
 
   /// Clears just the (optional) district — back to a city-wide search.
@@ -303,10 +249,8 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
               child: _SearchFiltersBody(
                 l10n: l10n,
                 searchController: _searchController,
-                onPickRegion: _pickRegion,
-                onClearRegion: _clearRegion,
-                onPickCity: _pickCity,
-                onClearCity: _clearCity,
+                onSettlement: _onSettlement,
+                onClearSettlement: _clearSettlement,
                 onPickDistrict: _pickDistrict,
                 onClearDistrict: _clearDistrict,
               ),
@@ -354,10 +298,17 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
 // ---------------------------------------------------------------------------
 // Sticky «Показати майстрів» CTA.
 //
-// Self-watches ONLY the locality-id slice (oblastId, cityId) of the filter
-// state plus the query draft, so an oblast/city change or a keystroke rebuilds
-// just this button — never the body's staggered reveal + ListView. A price drag
-// / category tap touches neither and so never rebuilds the CTA either.
+// Self-watches ONLY the query draft, so a keystroke rebuilds just this button —
+// never the body's staggered reveal + ListView. A price drag / category tap
+// touches it and so never rebuilds the CTA either.
+//
+// Phase 346 — the «region chosen without a city» gate is GONE with the region
+// step. It existed because an oblast alone was not a searchable scope: the
+// cascade let a user commit a region and stop there, which sent no location
+// filter at all and silently returned providers from every city (the «phantom
+// filter» bug). A flat settlement autocomplete cannot reach that state — there
+// is no half-chosen locality to be in. An unset settlement is, and always was,
+// a legitimate nationwide search.
 // ---------------------------------------------------------------------------
 
 class _ShowMastersCta extends ConsumerWidget {
@@ -368,19 +319,6 @@ class _ShowMastersCta extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // "Require a city" guard: a region chosen WITHOUT a city is not a searchable
-    // scope (region-only would send no location filter, returning providers from
-    // every city — the «phantom filter» bug). Watch only the locality-id slice so
-    // the CTA's enabled state tracks the filter state directly (no setState). The
-    // location-less case (both null) stays allowed — only oblast-set + city-null
-    // is blocked.
-    final ({String? oblastId, String? cityId}) loc = ref.watch(
-      searchFiltersControllerProvider.select(
-        (SearchFilters f) => (oblastId: f.oblastId, cityId: f.cityId),
-      ),
-    );
-    final bool regionWithoutCity = loc.oblastId != null && loc.cityId == null;
-
     // "Finish the word" guard: a 1–2 character term is below what the backend
     // honours, so it is never promoted onto SearchFilters.query. Letting the CTA
     // fire anyway pushed a search for whatever was applied BEFORE — the user
@@ -396,10 +334,10 @@ class _ShowMastersCta extends ConsumerWidget {
       key: const Key('search_show_masters_cta'),
       label: label,
       icon: Icons.search_rounded,
-      // Disabled while a region is chosen but no city, or while the search box
-      // holds a below-minimum term — the NeumorphicButton renders its built-in
-      // disabled chrome when onPressed is null.
-      onPressed: (regionWithoutCity || queryTooShort) ? null : onShowMasters,
+      // Disabled while the search box holds a below-minimum term — the
+      // NeumorphicButton renders its built-in disabled chrome when onPressed
+      // is null.
+      onPressed: queryTooShort ? null : onShowMasters,
     );
   }
 }
@@ -483,20 +421,16 @@ class _SearchFiltersBody extends ConsumerWidget {
   const _SearchFiltersBody({
     required this.l10n,
     required this.searchController,
-    required this.onPickRegion,
-    required this.onClearRegion,
-    required this.onPickCity,
-    required this.onClearCity,
+    required this.onSettlement,
+    required this.onClearSettlement,
     required this.onPickDistrict,
     required this.onClearDistrict,
   });
 
   final AppLocalizations l10n;
   final TextEditingController searchController;
-  final VoidCallback onPickRegion;
-  final VoidCallback onClearRegion;
-  final VoidCallback onPickCity;
-  final VoidCallback onClearCity;
+  final void Function(String settlementId, String label) onSettlement;
+  final VoidCallback onClearSettlement;
   final VoidCallback onPickDistrict;
   final VoidCallback onClearDistrict;
 
@@ -545,10 +479,8 @@ class _SearchFiltersBody extends ConsumerWidget {
               start: 0.1,
               end: 0.5,
               child: _LocationSection(
-                onPickRegion: onPickRegion,
-                onClearRegion: onClearRegion,
-                onPickCity: onPickCity,
-                onClearCity: onClearCity,
+                onSettlement: onSettlement,
+                onClearSettlement: onClearSettlement,
                 onPickDistrict: onPickDistrict,
                 onClearDistrict: onClearDistrict,
               ),
@@ -601,18 +533,14 @@ class _SectionLabel extends StatelessWidget {
 
 class _LocationSection extends ConsumerWidget {
   const _LocationSection({
-    required this.onPickRegion,
-    required this.onClearRegion,
-    required this.onPickCity,
-    required this.onClearCity,
+    required this.onSettlement,
+    required this.onClearSettlement,
     required this.onPickDistrict,
     required this.onClearDistrict,
   });
 
-  final VoidCallback onPickRegion;
-  final VoidCallback onClearRegion;
-  final VoidCallback onPickCity;
-  final VoidCallback onClearCity;
+  final void Function(String settlementId, String label) onSettlement;
+  final VoidCallback onClearSettlement;
   final VoidCallback onPickDistrict;
   final VoidCallback onClearDistrict;
 
@@ -623,46 +551,33 @@ class _LocationSection extends ConsumerWidget {
       searchFilterLabelsControllerProvider,
     );
 
-    final bool hasRegion = loc.oblastName != null;
     final bool hasCity = loc.cityName != null;
-    // District is offered only for a chosen city that actually subdivides.
-    final bool districtAvailable = hasCity && loc.cityHasDistricts;
+    final String? settlementId = ref.watch(
+      searchFiltersControllerProvider.select((SearchFilters f) => f.cityId),
+    );
+    // Phase 346 — the district row still gates on "does this settlement
+    // subdivide", but the answer no longer rides on `City.hasDistricts` (the
+    // settlement search response carries no such flag). [districtsOf] is the
+    // same read the address screens use, so search and the address forms can
+    // never disagree about whether a settlement has districts.
+    final bool districtAvailable =
+        hasCity && districtsOf(ref, settlementId).isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // ── Регіон ──────────────────────────────────────────────────────────
-        _SectionLabel(text: l10n.searchRegionLabel),
-        const SizedBox(height: VelvetSpacing.sm),
-        _LocalityTapRow(
-          fieldKey: const Key('search_region_value'),
-          icon: Icons.map_outlined,
-          value: loc.oblastName,
-          placeholder: l10n.searchRegionPlaceholder,
-          enabled: true,
-          onTap: onPickRegion,
-          onClear: hasRegion ? onClearRegion : null,
-        ),
-        const SizedBox(height: VelvetSpacing.md),
-
-        // ── Місто ───────────────────────────────────────────────────────────
-        _SectionLabel(text: l10n.searchCityLabel),
-        const SizedBox(height: VelvetSpacing.sm),
-        _LocalityTapRow(
+        // ── Населений пункт ─────────────────────────────────────────────────
+        // The SHARED autocomplete — the same widget the five address surfaces
+        // render (phase-346 D1/D8). Search is the sixth caller, and it is in
+        // scope precisely so a master who registers in a village is findable:
+        // leaving discovery on the retired cascade would have made that
+        // impossible by construction.
+        SettlementSelectField(
+          key: const Key('search_settlement_field'),
           fieldKey: const Key('search_city_value'),
-          icon: Icons.location_city_outlined,
-          value: loc.cityName,
-          placeholder: l10n.searchCityPlaceholder,
-          enabled: hasRegion,
-          // Quiet helper depends on state: no region yet → «pick a region first»;
-          // region chosen but no city → «pick a city to continue» (the search CTA
-          // is disabled in that state, since region alone is not a searchable
-          // scope). City chosen → no helper.
-          helperText: !hasRegion
-              ? l10n.searchCityDisabledHint
-              : (hasCity ? null : l10n.searchCityRequiredHint),
-          onTap: onPickCity,
-          onClear: hasCity ? onClearCity : null,
+          initialLabel: loc.cityName,
+          onSelected: onSettlement,
+          onCleared: onClearSettlement,
         ),
         const SizedBox(height: VelvetSpacing.md),
 

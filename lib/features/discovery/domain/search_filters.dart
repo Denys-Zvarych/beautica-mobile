@@ -164,17 +164,14 @@ abstract class SearchFilters with _$SearchFilters {
     /// the wire.
     @Default(<String>{}) Set<String> serviceTypeSlugs,
 
-    /// Oblast (region) id the city was funnelled through, or null when no region
-    /// has been picked. The region is a MANDATORY narrowing step in the UI that
-    /// always resolves to a [cityId]; there is NO whole-region search, so the
-    /// oblast id is NOT sent to the backend (no `location.oblastId` param). It is
-    /// persisted only so the picker can re-open the right city list and the
-    /// applied-filter chips can show the region label. Cleared whenever [cityId]
-    /// is cleared (a city is only meaningful within its region).
-    String? oblastId,
-
-    /// City id to scope results to, or null for all cities. Sent flat as
-    /// `location.cityId`.
+    /// Settlement id to scope results to, or null for a nationwide search. Sent
+    /// flat as `location.cityId`.
+    ///
+    /// Phase 346 — the `oblastId` that used to sit above this is GONE. It was
+    /// never sent to the backend; it existed only to re-open the right city list
+    /// in the cascade and to label a region chip. With the cascade replaced by a
+    /// flat settlement autocomplete there is no city list to scope and no region
+    /// step to label, so persisting it would be persisting nothing.
     String? cityId,
 
     /// District id to scope results to, or null for all districts. Only
@@ -215,7 +212,6 @@ abstract class SearchFilters with _$SearchFilters {
   /// same reason (it has its own always-visible pill).
   int get activeFilterCount {
     var count = 0;
-    if (oblastId != null) count++;
     if (cityId != null) count++;
     if (districtId != null) count++;
     if (categoryKey != null) count++;

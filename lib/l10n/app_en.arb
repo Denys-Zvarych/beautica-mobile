@@ -6378,5 +6378,33 @@
   },
   "@salonBookingsNoMastersBlurb": {
     "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
+  },
+  "settlementLabel": "Settlement",
+  "@settlementLabel": {
+    "description": "Phase 346 — section label above the single settlement autocomplete that replaced the oblast + city cascade. Also the title of its bottom sheet."
+  },
+  "settlementPlaceholder": "Choose a settlement",
+  "@settlementPlaceholder": {
+    "description": "Phase 346 — hint inside the closed settlement field before anything is chosen."
+  },
+  "settlementSearchHint": "Start typing a name…",
+  "@settlementSearchHint": {
+    "description": "Phase 346 — placeholder in the search input at the top of the settlement bottom sheet."
+  },
+  "settlementQueryTooShort": "Enter at least 3 characters",
+  "@settlementQueryTooShort": {
+    "description": "Phase 346 — shown in the settlement sheet instead of a result list when the typed term is 1–2 characters. No request is issued in this state."
+  },
+  "settlementSearchErrRateLimited": "Too many requests. Try again in a moment.",
+  "@settlementSearchErrRateLimited": {
+    "description": "Phase 346 — shown in the settlement sheet when GET /settlements returns 429 (per-IP rate limit). The sheet holds all requests (and hides Retry) until Retry-After elapses (or a 10 s fallback). After that, text typed meanwhile is applied once; an unchanged query is NOT re-issued — the Retry button returns instead. Hence 'try again in a moment', with no countdown."
+  },
+  "settlementHromadaWord": "hromada",
+  "@settlementHromadaWord": {
+    "description": "Phase 346 — the administrative noun appended after the bare hromada adjective when composing a settlement row label."
+  },
+  "errSettlementRequired": "Choose a settlement",
+  "@errSettlementRequired": {
+    "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
   }
 }

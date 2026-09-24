@@ -38,8 +38,10 @@ import 'package:beautica_mobile/features/home/application/client_edit_profile_no
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -111,6 +113,16 @@ class _FakeLocationRepository implements LocationRepository {
     fetchDistrictsCalls++;
     return _districts;
   }
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// Pairs the built [ProviderContainer] with the [_FakeLocationRepository] backing

@@ -6378,5 +6378,33 @@
   "salonBookingsNoMastersBlurb": "Запросіть майстра — і його колонка з'явиться на дошці.",
   "@salonBookingsNoMastersBlurb": {
     "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
+  },
+  "settlementLabel": "Населений пункт",
+  "@settlementLabel": {
+    "description": "Phase 346 — section label above the single settlement autocomplete that replaced the «Область» + «Місто» cascade. Also the title of its bottom sheet."
+  },
+  "settlementPlaceholder": "Оберіть населений пункт",
+  "@settlementPlaceholder": {
+    "description": "Phase 346 — hint inside the closed settlement field before anything is chosen."
+  },
+  "settlementSearchHint": "Почніть вводити назву…",
+  "@settlementSearchHint": {
+    "description": "Phase 346 — placeholder in the search input at the top of the settlement bottom sheet. Unlike the cascade's generic «Пошук…» it prompts typing, because below three characters the sheet shows a hint instead of results."
+  },
+  "settlementQueryTooShort": "Введіть щонайменше 3 символи",
+  "@settlementQueryTooShort": {
+    "description": "Phase 346 — shown in the settlement sheet instead of a result list when the typed term is 1–2 characters. Mirrors the backend SettlementSearchController message verbatim; no request is issued in this state."
+  },
+  "settlementSearchErrRateLimited": "Забагато запитів. Спробуйте ще раз за мить.",
+  "@settlementSearchErrRateLimited": {
+    "description": "Phase 346 — shown in the settlement sheet when GET /settlements returns 429 (per-IP rate limit). The sheet holds all requests (and hides Retry) until Retry-After elapses (or a 10 s fallback). After that, text typed meanwhile is applied once; an unchanged query is NOT re-issued — the Retry button returns instead. Hence 'try again in a moment', with no countdown."
+  },
+  "settlementHromadaWord": "громада",
+  "@settlementHromadaWord": {
+    "description": "Phase 346 — the administrative noun appended after the bare hromada adjective when composing a settlement row label («Миколаївка, Пищанська громада, Вінницька»). The server ships the bare adjective because the grammatical form depends on where the label is shown."
+  },
+  "errSettlementRequired": "Оберіть населений пункт",
+  "@errSettlementRequired": {
+    "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
   }
 }

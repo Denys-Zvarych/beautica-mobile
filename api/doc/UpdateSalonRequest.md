@@ -10,9 +10,9 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **name** | **String** |  | [optional] 
 **description** | **String** |  | [optional] 
-**city** | **String** |  | [optional] 
-**region** | **String** |  | [optional] 
-**address** | **String** |  | [optional] 
+**city** | **String** | Ignored — derived from cityId | [optional] 
+**region** | **String** | Ignored — derived from cityId | [optional] 
+**address** | **String** | Ignored — use street/buildingNo/locationNote | [optional] 
 **cityId** | **String** |  | [optional] 
 **districtId** | **String** |  | [optional] 
 **street** | **String** |  | 

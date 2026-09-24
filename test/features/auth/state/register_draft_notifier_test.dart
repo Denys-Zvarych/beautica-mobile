@@ -40,7 +40,6 @@ void main() {
       expect(draft.lastName, isEmpty);
       expect(draft.phone, isEmpty);
       expect(draft.salonName, isEmpty);
-      expect(draft.oblastCode, isNull);
       expect(draft.cityId, isNull);
       expect(draft.districtId, isNull);
       expect(draft.street, isEmpty);
@@ -115,7 +114,6 @@ void main() {
       notifier.updateStep2(firstName: 'A', lastName: 'B', phone: 'p');
       notifier.updateStep3(
         // Locality IDs are backend UUID strings (Phase 2.19) — not ints.
-        oblastCode: 'oblast-uuid-32',
         cityId: 'city-uuid-100',
         districtId: 'district-uuid-5',
         street: 'вул. Хрещатик',
@@ -124,8 +122,8 @@ void main() {
       );
 
       final draft = container.read(registerDraftProvider);
-      expect(draft!.oblastCode, equals('oblast-uuid-32'));
-      expect(draft.cityId, equals('city-uuid-100'));
+      expect(draft, isNotNull);
+      expect(draft!.cityId, equals('city-uuid-100'));
       expect(draft.districtId, equals('district-uuid-5'));
       expect(draft.street, equals('вул. Хрещатик'));
       expect(draft.buildingNo, equals('1'));
@@ -156,7 +154,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'o1',
           cityId: 'c1',
           districtId: 'd1',
           street: 'вул. Тестова',
@@ -175,7 +172,6 @@ void main() {
         expect(draft.firstName, equals('Аня'));
         expect(draft.lastName, equals('Коваль'));
         expect(draft.phone, equals('+380501112233'));
-        expect(draft.oblastCode, equals('o1'));
         expect(draft.cityId, equals('c1'));
         expect(draft.districtId, equals('d1'));
         expect(draft.street, equals('вул. Тестова'));

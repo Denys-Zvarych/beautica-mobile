@@ -5,7 +5,12 @@
 // no providers. Pins: an empty set is 0; each facet contributes exactly 1; the
 // price band counts ONCE whether only a min, only a max, or both are set; the
 // per-service slug set counts ONCE when non-empty and 0 when empty; query/sort
-// are NOT facets; a fully-populated filter maxes out at 6.
+// are NOT facets; a fully-populated filter maxes out at 5.
+//
+// Phase 346 — `SearchFilters.oblastId` (the old Region facet) is GONE with the
+// retired Область→Місто cascade; `cityId` now means "settlement id" and is the
+// only locality facet above district. The facet ceiling therefore drops from
+// 6 to 5: cityId, districtId, categoryKey, serviceTypeSlugs, price band.
 
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,10 +39,6 @@ void main() {
     });
 
     group('each single facet contributes exactly 1', () {
-      test('region (oblastId)', () {
-        expect(const SearchFilters(oblastId: 'o1').activeFilterCount, 1);
-      });
-
       test('city (cityId)', () {
         expect(const SearchFilters(cityId: 'c1').activeFilterCount, 1);
       });
@@ -119,12 +120,11 @@ void main() {
       );
     });
 
-    test('a fully-populated filter maxes out at 6 facets', () {
-      // All six clearable facets set + the non-facet query/sort/minRating that
-      // must NOT inflate the count beyond 6.
+    test('a fully-populated filter maxes out at 5 facets', () {
+      // All five clearable facets set + the non-facet query/sort/minRating that
+      // must NOT inflate the count beyond 5.
       const filters = SearchFilters(
         query: 'Манікюр',
-        oblastId: 'o1',
         cityId: 'c1',
         districtId: 'd1',
         categoryKey: 'NAILS',
@@ -134,7 +134,7 @@ void main() {
         minRating: 4,
         sort: SearchSort.priceDesc,
       );
-      expect(filters.activeFilterCount, 6);
+      expect(filters.activeFilterCount, 5);
     });
   });
 }

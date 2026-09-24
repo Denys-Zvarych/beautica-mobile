@@ -31,6 +31,7 @@ import 'package:beautica_api/src/api/salon_master_controller_api.dart';
 import 'package:beautica_api/src/api/search_controller_api.dart';
 import 'package:beautica_api/src/api/service_catalog_controller_api.dart';
 import 'package:beautica_api/src/api/service_controller_api.dart';
+import 'package:beautica_api/src/api/settlement_search_controller_api.dart';
 import 'package:beautica_api/src/api/staff_bookings_api.dart';
 import 'package:beautica_api/src/api/support_controller_api.dart';
 import 'package:beautica_api/src/api/user_controller_api.dart';
@@ -233,6 +234,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   ServiceControllerApi getServiceControllerApi() {
     return ServiceControllerApi(dio, serializers);
+  }
+
+  /// Get SettlementSearchControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  SettlementSearchControllerApi getSettlementSearchControllerApi() {
+    return SettlementSearchControllerApi(dio, serializers);
   }
 
   /// Get StaffBookingsApi instance, base route and serializer can be overridden by a given but be careful,

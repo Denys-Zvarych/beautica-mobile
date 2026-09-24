@@ -41,8 +41,10 @@ import 'package:beautica_mobile/features/location/data/location_repository.dart'
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -65,6 +67,15 @@ class _FakeLocationRepository implements LocationRepository {
   Future<List<City>> fetchCities(String oblastId) async => const [];
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [];
+
+  /// Phase 346 — this suite exercises the CLIENT «Пропустити» path, which
+  /// never opens the settlement sheet; an empty list is what the screen's
+  /// post-frame warm-up resolves to.
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const <Settlement>[];
 }
 
 // ---------------------------------------------------------------------------

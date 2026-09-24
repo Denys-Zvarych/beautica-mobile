@@ -113,7 +113,14 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('search_city_value')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
         'Київ',
         reason: 'the saved-profile city must prefill the locality row on open',
       );
@@ -212,7 +219,12 @@ void main() {
 
       final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
       final String cityRow = tester
-          .widget<Text>(find.byKey(const Key('search_city_value')))
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('search_city_value')),
+              matching: find.byType(Text),
+            ),
+          )
           .data!;
       expect(
         cityRow,

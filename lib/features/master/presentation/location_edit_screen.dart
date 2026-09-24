@@ -1,15 +1,23 @@
-// Локація — the location slice of the retired monolithic edit form: a
-// three-level locality cascade (Область → Місто → Район, district required when
-// the city subdivides) plus the free-text Вулиця, Будинок and Примітка
-// (optional) VelvetFields. A pinned "Зберегти" CTA sits at the bottom.
+// Локація — the location slice of the retired monolithic edit form: the shared
+// [SettlementLocalityField] (one «Населений пункт» autocomplete, plus a «Район»
+// row for the seventeen settlements that subdivide) plus the free-text Вулиця,
+// Будинок and Примітка (optional) VelvetFields. A pinned "Зберегти" CTA sits at
+// the bottom.
+//
+// Phase 346 — the «Область» + «Місто» cascade is GONE. The three-object
+// selection state collapsed to a `String?` settlement id plus the district; the
+// by-id oblast -> city -> district pre-population became the denormalised
+// [Master.city] name handed to the field as its initial label; and the
+// district-presence test moved from [City.hasDistricts] to [districtsOf],
+// because the settlement search response deliberately carries no such flag.
 //
 // Save flow: validate → [MasterRepository.updateLocality] (this page does NOT
 // call updateMyProfile, so no sibling-field-clearing concern) → invalidate
 // masterProfileProvider → saved VelvetSnack → pop.
 //
-// Pre-population: the cascade selections (oblast → city → district) and the
-// address text controllers are seeded from the cached master. The cascade seed
-// runs asynchronously in a microtask so setState is never called during build.
+// Pre-population: the settlement label, the district and the address text
+// controllers are seeded from the cached master. The district seed runs
+// asynchronously in a microtask so setState is never called during build.
 //
 // Server field errors: [ValidationFailure.fieldErrors] keyed by district/
 // street/buildingNo/locationNote.
@@ -17,8 +25,9 @@
 // Security: ScreenProtector active in release builds (PII-bearing screen).
 //
 // Design source: `docs/signup-designs/ProfileSettingsHub/lib/screens/
-// location_edit_screen.dart` — ported with the real LocalityCascade + repository
-// (the preview's placeholder selectors are replaced by the production cascade).
+// location_edit_screen.dart` — ported with the real locality field + repository
+// (the preview's placeholder selectors are replaced by the production
+// `SettlementLocalityField`).
 
 import 'dart:developer';
 
@@ -34,10 +43,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
-import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
-import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -66,12 +73,17 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
 
   bool _initialized = false;
 
-  Oblast? _selectedOblast;
-  City? _selectedCity;
+  /// The chosen settlement UUID — submitted as `cityId` (phase-326 D6).
+  String? _settlementId;
+
+  /// The settlement NAME to show before the user picks anything: the
+  /// denormalised [Master.city] the profile read already carries. Purely a seed
+  /// for the field's closed state; it is never submitted.
+  String? _settlementLabel;
+
   CityDistrict? _selectedDistrict;
 
   String? _origCityId;
-  String? _origOblastId;
   String? _origDistrictId;
   String _origStreet = '';
   String _origBuildingNo = '';
@@ -154,84 +166,65 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       c.addListener(_onFormChanged);
     }
 
-    _origOblastId = master.oblastId;
     _origCityId = master.cityId;
     _origDistrictId = master.districtId;
+    _settlementId = master.cityId;
+    _settlementLabel = master.city;
 
     _controller.forward();
 
-    if (master.oblastId != null) {
-      Future.microtask(() => _prePopulateLocality(master));
+    if (master.cityId != null && master.districtId != null) {
+      Future.microtask(() => _prePopulateDistrict(master));
     }
   }
 
-  /// Resolves [Oblast], [City], [CityDistrict] objects from the UUIDs on
-  /// [master] and reconciles the pristine snapshot once the lookups complete.
-  Future<void> _prePopulateLocality(Master master) async {
-    Oblast? matchedOblast;
-    City? matchedCity;
-    CityDistrict? matchedDistrict;
+  /// Re-resolves the saved [Master.districtId] to its display object.
+  ///
+  /// The settlement itself no longer needs resolving — its name arrives
+  /// denormalised on `/masters/me` (`UserProfileResponse.cityName`) and goes
+  /// straight onto the field — but the district row renders a
+  /// `CityDistrict.name`, and `districtId` has no denormalised counterpart.
+  /// This is the SAME `GET /locations/cities/{id}/districts` read the field
+  /// itself issues to decide whether to render the row at all, so the provider
+  /// is already warm and this is a cache scan rather than a second round trip.
+  ///
+  /// A failure leaves the row unlabelled rather than blocking the form — the
+  /// same degradation [districtsOf] documents. The pristine snapshot
+  /// ([_origDistrictId]) is NOT reconciled from the lookup: unlike the cascade,
+  /// which could only offer a district it had resolved, the id on the profile
+  /// is authoritative whether or not its label resolved, so overwriting the
+  /// snapshot with a failed resolve would make the untouched form read dirty.
+  Future<void> _prePopulateDistrict(Master master) async {
+    final String? settlementId = master.cityId;
+    final String? districtId = master.districtId;
+    if (settlementId == null || districtId == null) return;
 
+    List<CityDistrict> districts;
     try {
-      final oblastId = master.oblastId;
-      if (oblastId != null) {
-        final oblasts = await ref.read(oblastListProvider.future);
-        for (final o in oblasts) {
-          if (o.id == oblastId) {
-            matchedOblast = o;
-            break;
-          }
-        }
-
-        final cityId = master.cityId;
-        if (matchedOblast != null && cityId != null) {
-          final cities = await ref.read(
-            cityListProvider(matchedOblast.id).future,
-          );
-          for (final c in cities) {
-            if (c.id == cityId) {
-              matchedCity = c;
-              break;
-            }
-          }
-        }
-
-        final districtId = master.districtId;
-        if (districtId != null &&
-            matchedCity != null &&
-            matchedCity.hasDistricts) {
-          final districts = await ref.read(
-            districtListProvider(matchedCity.id).future,
-          );
-          for (final d in districts) {
-            if (d.id == districtId) {
-              matchedDistrict = d;
-              break;
-            }
-          }
-        }
-      }
-    } catch (e, st) {
+      districts = await ref.read(districtListProvider(settlementId).future);
+    } on Object catch (e, st) {
       if (kDebugMode) {
+        // Log only the error's runtime TYPE — never the raw error object,
+        // whose toString() can embed PII (a DioException carrying the
+        // /locations request/response). Mirrors ClientLocationEditScreen.
         log(
-          'Locality pre-population failed — cascade will be empty',
+          'District pre-population failed (${e.runtimeType}) — the row will '
+          'render unlabelled',
           name: 'feature.master.edit.location',
           level: 800,
-          error: e,
           stackTrace: st,
         );
       }
+      return;
     }
 
     if (!mounted) return;
-    setState(() {
-      _selectedOblast = matchedOblast;
-      _selectedCity = matchedCity;
-      _selectedDistrict = matchedDistrict;
-      _origOblastId = matchedOblast?.id;
-      _origCityId = matchedCity?.id;
-      _origDistrictId = matchedDistrict?.id;
-    });
+    for (final CityDistrict d in districts) {
+      if (d.id == districtId) {
+        setState(() => _selectedDistrict = d);
+        return;
+      }
+    }
   }
 
   @override
@@ -266,8 +259,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
 
   bool get _isDirty =>
       _initialized &&
-      (_selectedOblast?.id != _origOblastId ||
-          _selectedCity?.id != _origCityId ||
+      (_settlementId != _origCityId ||
           _selectedDistrict?.id != _origDistrictId ||
           _street.text.trim() != _origStreet ||
           _buildingNo.text.trim() != _origBuildingNo ||
@@ -319,10 +311,20 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       return false;
     }
 
-    final citySelected = _selectedCity != null;
-    final cityHasDistricts = _selectedCity?.hasDistricts ?? false;
+    final citySelected = _settlementId != null;
+    // Phase 346 — no longer [City.hasDistricts] (the settlement search response
+    // carries no such flag): the SAME [districtsOf] read the field itself uses
+    // to decide whether to render the row, so the form and the row can never
+    // disagree about whether a district is owed.
+    // `listen: false` — a validation callback, not `build`. [_save] awaits
+    // [pendingDistrictLookup] before calling this.
+    final cityHasDistricts = districtsOf(
+      ref,
+      _settlementId,
+      listen: false,
+    ).isNotEmpty;
 
-    final String? errCity = !citySelected ? l10n.errRequired : null;
+    final String? errCity = !citySelected ? l10n.errSettlementRequired : null;
     final String? errDistrict =
         (citySelected && cityHasDistricts && _selectedDistrict == null)
         ? l10n.errRequired
@@ -352,6 +354,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (!_initialized) return;
     setState(() {
       _fieldErrors = const <String, String>{};
@@ -361,6 +364,22 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       _errBuildingNo = null;
       _errLocationNote = null;
     });
+
+    final Future<void>? districtLookup = pendingDistrictLookup(
+      ref,
+      _settlementId,
+    );
+    if (districtLookup != null) {
+      // Busy BEFORE the await (perf N1): the CTA disables and a second tap
+      // hits the `_saving` guard instead of starting a second submit. Reset
+      // straight after — everything from here to the submit's own
+      // `_saving = true` is synchronous, so no tap can slip in between, and
+      // every early return below leaves the flag clear.
+      setState(() => _saving = true);
+      await districtLookup;
+      if (!mounted) return;
+      setState(() => _saving = false);
+    }
 
     if (!_validateLocation()) {
       if (mounted) {
@@ -372,8 +391,8 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       return;
     }
 
-    final selectedCity = _selectedCity;
-    if (selectedCity == null) {
+    final selectedSettlementId = _settlementId;
+    if (selectedSettlementId == null) {
       // Defensive: unreachable once _validateLocation() returns true, since the
       // city is now unconditionally required (it sets _errCity and returns
       // false when no city is chosen). We must NOT fall through to a "no-op
@@ -388,7 +407,7 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       await ref
           .read(masterRepositoryProvider)
           .updateLocality(
-            cityId: selectedCity.id,
+            cityId: selectedSettlementId,
             districtId: _selectedDistrict?.id,
             street: _street.text.trim(),
             buildingNo: _buildingNo.text.trim(),
@@ -421,11 +440,12 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
       setState(() => _saving = false);
     } catch (e, st) {
       if (kDebugMode) {
+        // Runtime TYPE only — the raw error's toString() can embed the
+        // submitted address (MS5/MS14 hygiene).
         log(
-          'location save unexpected error',
+          'location save unexpected error (${e.runtimeType})',
           name: 'feature.master.edit.location',
           level: 1000,
-          error: e,
           stackTrace: st,
         );
       }
@@ -496,36 +516,32 @@ class _LocationEditScreenState extends ConsumerState<LocationEditScreen>
                     style: VelvetText.body(),
                   ),
                 ),
-                LocalityCascade(
+                SettlementLocalityField(
                   key: const Key('location-cascade'),
-                  selectedOblast: _selectedOblast,
-                  selectedCity: _selectedCity,
+                  settlementId: _settlementId,
+                  initialSettlementLabel: _settlementLabel,
                   selectedDistrict: _selectedDistrict,
-                  districtRequired: true,
-                  cityError: _errCity,
+                  settlementError: _errCity,
                   districtError: _errDistrict,
-                  onOblast: (oblast) {
+                  enabled: !_saving,
+                  // A new settlement always clears the district: a
+                  // `CityDistrict` belongs to exactly one settlement.
+                  onSettlement: (String id, String label) {
                     setState(() {
-                      _selectedOblast = oblast;
-                      _selectedCity = null;
+                      _settlementId = id;
+                      _settlementLabel = label;
                       _selectedDistrict = null;
                       _errCity = null;
                       _errDistrict = null;
                     });
-                  },
-                  onCity: (city) {
-                    setState(() {
-                      _selectedCity = city;
-                      _selectedDistrict = null;
-                      if (city != null) _errCity = null;
-                      _errDistrict = null;
-                    });
+                    _onFormChanged();
                   },
                   onDistrict: (district) {
                     setState(() {
                       _selectedDistrict = district;
                       if (district != null) _errDistrict = null;
                     });
+                    _onFormChanged();
                   },
                 ),
               ],

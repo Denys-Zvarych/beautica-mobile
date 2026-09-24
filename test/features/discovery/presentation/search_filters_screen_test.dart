@@ -9,34 +9,46 @@
 // context.push(/search/results) — a real router context is required) so the
 // nav-with-filters handoff can be asserted end-to-end here too.
 //
-// All finders are key/predicate-based (locale-invariant); city/category NAMES
-// are backend data, asserted as content only.
+// All finders are key/predicate-based (locale-invariant); settlement/category
+// NAMES are backend data, asserted as content only.
 //
-// States / interactions covered (Variant A «Рейка + послуги» redesign):
-//   • the sections render (search field, the THREE locality fields
-//     region/city/district, category RAIL, price slider + readout, sticky CTA)
-//     — all by Key;
-//   • locality gating funnel — City is DISABLED until a Region is picked (helper
-//     «Спочатку оберіть регіон»), District is DISABLED until a City is picked
-//     and stays disabled (helper «У цьому місті немає районів») for a city with
-//     no districts; each becomes enabled as its parent is chosen;
-//   • cascade clears — picking a Region clears City + District, picking a City
-//     clears District, and the per-field clear («×») tears down the right slice
-//     (region-clear → all three, city-clear → district only, region kept);
-//   • district-optional — a Region + City selection with NO district is a valid
-//     committed filter set carried to the results screen;
-//   • the rail renders one tile per provided category (keyed by slug) PLUS the
-//     «Всі категорії» more-tile, laid out horizontally;
+// States / interactions covered (Phase 346 «Область»→«Місто»→«Район» cascade
+// replaced by ONE settlement autocomplete):
+//   • the sections render (search field, the settlement autocomplete, the
+//     District row, category RAIL, price slider + readout, sticky CTA) — all
+//     by Key;
+//   • the settlement field shows its placeholder until something is picked;
+//   • District gating — DISABLED until a settlement is picked (helper
+//     «Спочатку оберіть місто»), stays DISABLED (helper «У цьому місті немає
+//     районів») for a settlement with no districts, and ENABLES for one that
+//     subdivides;
+//   • cascade clears — re-picking the settlement clears a previously-chosen
+//     District label, the settlement's inline clear («×») tears down the
+//     District too, and the District's own clear («×») leaves the settlement
+//     untouched;
+//   • district-optional — a settlement with NO district is a valid committed
+//     filter set carried to the results screen;
+//   • the settlement search sheet resolves via the debounced
+//     `settlementSearchProvider` — a below-minimum query shows the "type at
+//     least 3 characters" hint and issues no pick, a 3+ character query
+//     resolves after the debounce and the row is pickable;
+//   • the rail renders one tile per provided category (keyed by slug) PLUS
+//     the «Всі категорії» more-tile, laid out horizontally;
 //   • tapping a rail tile selects it (visual inset well) AND sets the
 //     controller's categoryKey;
 //   • dragging the slider updates the readout and the controller's maxPrice;
 //   • category LOADING → skeleton (no rail, no error retry);
 //   • category ERROR → retry button (search_categories_retry), no rail;
 //   • category EMPTY → empty message, no rail;
-//   • CTA is enabled and pushes /search/results carrying the assembled filters.
+//   • CTA is enabled and pushes /search/results carrying the assembled
+//     filters, with or without a settlement — an unset settlement is a
+//     legitimate nationwide search (the retired "region without a city"
+//     disabled gate cannot be reached any more — there is no half-chosen
+//     locality state left to be in).
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -49,16 +61,19 @@ import 'package:beautica_mobile/features/discovery/domain/category_service_optio
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
-import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/state/location_providers.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -68,7 +83,6 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // The production approvedCategoriesProvider now sources categories DIRECTLY
 // from categoryRequestApiProvider.listApproved() (a CLIENT-search 403
@@ -116,39 +130,34 @@ const _eightCategories = <ServiceCategoryOption>[
   ServiceCategoryOption(name: 'COSMETOLOGY', displayName: 'Косметологія'),
 ];
 
-// ── Locality cascade fixtures (drive the THREE-field location funnel) ────────
+// ── Settlement autocomplete fixtures (Phase 346) ─────────────────────────────
 //
-// The screen opens the REAL showLocalityPickerSheet, which reads
-// oblastListProvider / cityListProvider(oblastId) / districtListProvider(cityId).
-// Each test overrides those three providers DIRECTLY with deterministic fakes so
-// the Region → City → District picks resolve without any network. Two cities are
-// seeded: «Київ» (hasDistricts: true) to prove the District row ENABLES, and
-// «Львів» (hasDistricts: false) to prove it stays DISABLED with the
-// «no districts» helper.
-const _kOblastId = 'oblast-kyiv';
-const _kOblast = Oblast(
-  id: _kOblastId,
-  name: 'Київська',
-  katotthCode: 'UA32000000000000000',
-);
-
+// The screen opens the shared SettlementSelectField sheet, which reads
+// settlementSearchProvider(query) → LocationRepository.searchSettlements. Two
+// settlements are seeded: «Київ» (subdivides — District enables) and «Львів»
+// (does not — District stays disabled with the «no districts» helper).
+// `districtsOf` (the same read the address screens use) decides which is
+// which, so the fake's `fetchDistricts` is what actually drives the gate —
+// there is no upfront `hasDistricts` flag on the wire any more.
 const _kCityWithDistrictsId = 'city-kyiv';
-const _kCityWithDistricts = City(
+const _kSettlementWithDistricts = Settlement(
   id: _kCityWithDistrictsId,
-  oblastId: _kOblastId,
   name: 'Київ',
-  katotthCode: 'UA80000000000093317',
-  hasDistricts: true,
+  // Kyiv is an oblast-equivalent whose oblast name equals its own —
+  // `composeSettlementLabel` drops the repeated segment, so the composed
+  // label is bare «Київ» (see `settlement.dart`'s doc on the degenerate case).
+  oblastName: 'Київ',
 );
 
 const _kCityNoDistrictsId = 'city-lviv';
-const _kCityNoDistricts = City(
+const _kSettlementNoDistricts = Settlement(
   id: _kCityNoDistrictsId,
-  oblastId: _kOblastId,
   name: 'Львів',
-  katotthCode: 'UA46000000000026870',
-  hasDistricts: false,
+  oblastName: 'Львівська',
 );
+// Composed label for the Lviv fixture (distinct oblast, so both segments are
+// kept): «Львів, Львівська».
+const _kLvivLabel = 'Львів, Львівська';
 
 const _kDistrictId = 'dist-pechersk';
 const _kDistrict = CityDistrict(
@@ -157,6 +166,41 @@ const _kDistrict = CityDistrict(
   name: 'Печерський',
   katotthCode: 'UA80000000001000000',
 );
+
+/// Phase 346 — the fake locality data source. Every SettlementSelectField call
+/// site (this screen included) now resolves locality through this ONE
+/// interface instead of the retired oblast/city cascade, so a single fake
+/// implementing it replaces the three separate family overrides
+/// (`oblastListProvider` / `cityListProvider` / `districtListProvider`) the
+/// pre-346 version of this file used.
+class _FakeLocationRepository implements LocationRepository {
+  @override
+  Future<List<Oblast>> fetchOblasts() async => const <Oblast>[];
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) async => const <City>[];
+
+  /// Only the Kyiv fixture subdivides — this is what makes the District row
+  /// enable for «Київ» and stay disabled (with the «no districts» hint) for
+  /// «Львів».
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      cityId == _kCityWithDistrictsId
+      ? const <CityDistrict>[_kDistrict]
+      : const <CityDistrict>[];
+
+  /// Both settlement fixtures on every query (blank query included — the
+  /// pre-typing major-settlement list), so a test can pick either one without
+  /// needing a query that would actually narrow to it.
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const <Settlement>[
+    _kSettlementWithDistricts,
+    _kSettlementNoDistricts,
+  ];
+}
 
 // Stub authProvider so the keepAlive search controllers build cleanly.
 // Posts AsyncData(Authenticated) synchronously inside build() so authProvider
@@ -179,18 +223,20 @@ class _FixedClientEditProfile extends ClientEditProfile {
   Future<User> build() => Future<User>.value(_testUser);
 }
 
-// A CLIENT whose saved profile carries a locality (Київська обл. → Київ). Used
-// by the «Скинути фільтри» tests as the prefill source so the locality row
-// resolves to «Київ» on open (via the seeded oblast/city taxonomy overrides) —
-// the regression baseline: a prefilled location that a clear must never wipe.
+// A CLIENT whose saved profile carries a locality (settlement «Київ»,
+// denormalised onto the profile as `cityId`/`cityName` — Phase 346 needs no
+// taxonomy resolution for the label, it reads `cityName` straight off the
+// profile). Used by the «Скинути фільтри» tests as the prefill source so the
+// locality row resolves to «Київ» on open — the regression baseline: a
+// prefilled location that a clear must never wipe.
 const _clientWithLocation = User(
   id: 'u-client-1',
   email: 'client@beautica.ua',
   role: UserRole.client,
   firstName: 'Дмитро',
   lastName: 'Клієнт',
-  oblastId: _kOblastId,
   cityId: _kCityWithDistrictsId,
+  cityName: 'Київ',
 );
 
 class _FixedClientEditProfileLocated extends ClientEditProfile {
@@ -323,19 +369,10 @@ Future<_CategoriesController> _pumpScreen(
             CategoryServiceOption(key: 'manicure', displayName: 'Манікюр'),
           ],
         ),
-        // Locality cascade — drive the picker sheets deterministically. Oblast
-        // → both cities, and the with-districts city → one district. The
-        // no-districts city deliberately has NO district override (the screen
-        // never requests districts for it — hasDistricts gates that).
-        oblastListProvider.overrideWith(
-          (ref) async => const <Oblast>[_kOblast],
-        ),
-        cityListProvider(_kOblastId).overrideWith(
-          (ref) async => const <City>[_kCityWithDistricts, _kCityNoDistricts],
-        ),
-        districtListProvider(
-          _kCityWithDistrictsId,
-        ).overrideWith((ref) async => const <CityDistrict>[_kDistrict]),
+        // Settlement autocomplete (Phase 346) — the ONE locality data source,
+        // driving both the settlement sheet and the District row's
+        // `districtsOf` gate through the same fake.
+        locationRepositoryProvider.overrideWithValue(_FakeLocationRepository()),
       ],
       child: app,
     ),
@@ -345,27 +382,14 @@ Future<_CategoriesController> _pumpScreen(
 }
 
 // ── Locality picker drive helpers ────────────────────────────────────────────
-//
-// Each opens the on-screen field, taps the row in the resulting sheet (keyed by
-// the item's UUID — the picker tile key is `locality_picker_tile_<id>`), and
-// settles. They mirror the real user gesture, so the screen's _pickRegion /
-// _pickCity / _pickDistrict cascade callbacks run end to end.
 
-Future<void> _pickRegion(WidgetTester tester) async {
-  await tester.tap(find.byKey(const Key('search_region_value')));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(const ValueKey<String>('locality_picker_tile_$_kOblastId')),
-  );
-  await tester.pumpAndSettle();
-}
-
-Future<void> _pickCity(WidgetTester tester, String cityId) async {
+/// Opens the settlement sheet and taps [settlementId]'s row from the blank
+/// pre-typing major-settlement list (the fake serves both fixtures for every
+/// query, blank included, so no typing is needed to reach either one).
+Future<void> _pickSettlement(WidgetTester tester, String settlementId) async {
   await tester.tap(find.byKey(const Key('search_city_value')));
   await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(ValueKey<String>('locality_picker_tile_$cityId')),
-  );
+  await tester.tap(find.byKey(Key('settlement_option_$settlementId')));
   await tester.pumpAndSettle();
 }
 
@@ -388,16 +412,40 @@ SearchFilters _filters(WidgetTester tester) => ProviderScope.containerOf(
   tester.element(find.byType(ClientSearchScreen)),
 ).read(searchFiltersControllerProvider);
 
-/// The key of a field's inline clear («×») affordance. The source derives it
-/// from the field key's underlying string value as `Key('<value>_clear')`
-/// (e.g. `search_region_value_clear`). Mirror that construction exactly so the
-/// finder tracks whatever the widget emits.
+/// The key of the District row's inline clear («×») affordance. The source
+/// derives it from the field key's underlying string value as
+/// `Key('<value>_clear')` (e.g. `search_district_value_clear`). Mirror that
+/// construction exactly so the finder tracks whatever the widget emits.
+///
+/// The settlement field's own clear button is NOT keyed this way any more —
+/// `SettlementSelectField` delegates to the shared `SearchableSelectField`,
+/// whose clear affordance carries the fixed key `select-field-clear`
+/// (`searchable_select_field.dart`), not one derived from its `fieldKey`.
 Key _clearKey(ValueKey<String> fieldKey) => Key('${fieldKey.value}_clear');
+
+/// The settlement field's CLOSED display text (its current selection, or the
+/// placeholder).
+///
+/// `search_city_value` (`SettlementSelectField.fieldKey`) is NOT a [Text] key
+/// any more — `SearchableSelectField` puts it on the whole tappable
+/// [GestureDetector] (`searchable_select_field.dart:343`), unlike the District
+/// row's `_LocalityTapRow`, which still keys its inner `Text` directly. The
+/// display `Text` inside the settlement field carries no key of its own, so it
+/// is read by walking down from the keyed `GestureDetector` instead of up from
+/// a keyed `Text`.
+String? _cityValueText(WidgetTester tester) => tester
+    .widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('search_city_value')),
+        matching: find.byType(Text),
+      ),
+    )
+    .data;
 
 void main() {
   group('ClientSearchScreen — sections', () {
-    testWidgets('renders the filter sections incl. the THREE locality fields '
-        '(by Key)', (tester) async {
+    testWidgets('renders the filter sections incl. the settlement '
+        'autocomplete and the District row (by Key)', (tester) async {
       await _pumpScreen(tester);
       await tester.pumpAndSettle();
 
@@ -409,8 +457,9 @@ void main() {
 
       // 1. pill search field.
       expect(find.byKey(const Key('search_query_field')), findsOneWidget);
-      // 2. THREE discrete locality fields (Регіон → Місто → Район).
-      expect(find.byKey(const Key('search_region_value')), findsOneWidget);
+      // 2. the settlement autocomplete (Phase 346 — ONE field, no cascade) +
+      //    the (optional) District row.
+      expect(find.byKey(const Key('search_settlement_field')), findsOneWidget);
       expect(find.byKey(const Key('search_city_value')), findsOneWidget);
       expect(find.byKey(const Key('search_district_value')), findsOneWidget);
       // 3. category rail (Variant A).
@@ -422,43 +471,24 @@ void main() {
       expect(find.byKey(const Key('search_show_masters_cta')), findsOneWidget);
     });
 
-    testWidgets('region row shows the placeholder until a region is picked', (
-      tester,
-    ) async {
+    testWidgets('settlement field shows the placeholder until something is '
+        'picked', (tester) async {
       await _pumpScreen(tester);
       await tester.pumpAndSettle();
 
       final AppLocalizations l10n = await _uk();
-      final Text regionText = tester.widget<Text>(
-        find.byKey(const Key('search_region_value')),
-      );
-      expect(regionText.data, l10n.searchRegionPlaceholder);
-    });
-
-    testWidgets('city row shows the placeholder once a region is picked', (
-      tester,
-    ) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      await _pickRegion(tester);
-
-      final AppLocalizations l10n = await _uk();
-      final Text cityText = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
-      );
-      expect(cityText.data, l10n.searchCityPlaceholder);
+      expect(_cityValueText(tester), l10n.settlementPlaceholder);
     });
   });
 
-  // ── Locality gating funnel — Region → City → District ─────────────────────
+  // ── District gating — the ONE remaining dependent field ───────────────────
   //
-  // The single combined «Місто · Район» row was replaced by three discrete,
-  // gated fields. City is inert until a Region is chosen; District is inert
-  // until a City that subdivides is chosen. Each gated field is non-tappable AND
-  // shows a quiet helper line explaining WHY. These tests pin the gating
-  // invariant: a disabled field's tap does nothing AND a Semantics(enabled:false)
-  // node is exposed (so a tap cannot mutate the lower cascade level out of order).
-  group('ClientSearchScreen — locality gating funnel', () {
+  // Phase 346 retired the Region→City cascade; District is now the only field
+  // that depends on another. It is inert until a settlement is picked, and a
+  // quiet helper line explains WHY. These tests pin the gating invariant: a
+  // disabled field's tap does nothing AND a Semantics(enabled:false) node is
+  // exposed.
+  group('ClientSearchScreen — District gating', () {
     /// Reads the [Semantics] data the field exposes (button/enabled), via the
     /// SemanticsNode for the row's value Text key.
     bool fieldEnabled(WidgetTester tester, Key fieldKey) {
@@ -472,107 +502,56 @@ void main() {
       return widget.properties.enabled ?? false;
     }
 
-    testWidgets('City is DISABLED until a Region is picked — helper «Спочатку '
-        'оберіть регіон» shown, tap is inert', (tester) async {
+    testWidgets('District is DISABLED until a settlement is picked — helper '
+        '«Спочатку оберіть місто» shown, tap is inert', (tester) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
       final AppLocalizations l10n = await _uk();
 
-      // Disabled-state assertion: the City field reads as disabled, shows the
-      // gating helper, and a tap opens NO picker sheet (no oblast/city rows).
-      expect(
-        fieldEnabled(tester, const Key('search_city_value')),
-        isFalse,
-        reason: 'City must be disabled while no Region is selected',
-      );
-      expect(find.text(l10n.searchCityDisabledHint), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      // A disabled field swallows the tap: no locality picker sheet opens.
-      expect(find.byKey(const Key('locality_picker_search')), findsNothing);
-      expect(_filters(tester).cityId, isNull);
-    });
-
-    testWidgets('City becomes ENABLED after a Region is picked — helper gone', (
-      tester,
-    ) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      final AppLocalizations l10n = await _uk();
-
-      await _pickRegion(tester);
-
-      expect(
-        fieldEnabled(tester, const Key('search_city_value')),
-        isTrue,
-        reason: 'picking a Region must enable the City field',
-      );
-      expect(find.text(l10n.searchCityDisabledHint), findsNothing);
-      expect(_labels(tester).oblastName, 'Київська');
-    });
-
-    testWidgets(
-      'District is DISABLED until a City is picked — helper «Спочатку '
-      'оберіть місто» shown',
-      (tester) async {
-        await _pumpScreen(tester, withRouter: true);
-        await tester.pumpAndSettle();
-        final AppLocalizations l10n = await _uk();
-
-        // Even with a Region picked, District stays gated until a City exists.
-        await _pickRegion(tester);
-
-        expect(
-          fieldEnabled(tester, const Key('search_district_value')),
-          isFalse,
-          reason: 'District must be disabled while no City is selected',
-        );
-        expect(find.text(l10n.searchDistrictDisabledHint), findsOneWidget);
-      },
-    );
-
-    testWidgets('District stays DISABLED for a city with no districts — helper '
-        '«У цьому місті немає районів»', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      final AppLocalizations l10n = await _uk();
-
-      await _pickRegion(tester);
-      await _pickCity(
-        tester,
-        _kCityNoDistrictsId,
-      ); // Львів — hasDistricts:false
-
-      expect(_labels(tester).cityName, 'Львів');
-      expect(_labels(tester).cityHasDistricts, isFalse);
       expect(
         fieldEnabled(tester, const Key('search_district_value')),
         isFalse,
-        reason: 'a city with no districts must keep the District row disabled',
+        reason: 'District must be disabled while no settlement is selected',
+      );
+      expect(find.text(l10n.searchDistrictDisabledHint), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('search_district_value')));
+      await tester.pumpAndSettle();
+      // A disabled field swallows the tap: no district picker sheet opens.
+      expect(find.byKey(const Key('locality_picker_search')), findsNothing);
+      expect(_filters(tester).districtId, isNull);
+    });
+
+    testWidgets('District stays DISABLED for a settlement with no districts '
+        '— helper «У цьому місті немає районів»', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = await _uk();
+
+      await _pickSettlement(tester, _kCityNoDistrictsId); // Львів
+
+      expect(_labels(tester).cityName, _kLvivLabel);
+      expect(
+        fieldEnabled(tester, const Key('search_district_value')),
+        isFalse,
+        reason: 'a settlement with no districts must keep District disabled',
       );
       expect(find.text(l10n.searchDistrictNoneHint), findsOneWidget);
     });
 
-    testWidgets('District ENABLES for a city that subdivides — no helper', (
-      tester,
-    ) async {
+    testWidgets('District ENABLES for a settlement that subdivides — no '
+        'helper', (tester) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
       final AppLocalizations l10n = await _uk();
 
-      await _pickRegion(tester);
-      await _pickCity(
-        tester,
-        _kCityWithDistrictsId,
-      ); // Київ — hasDistricts:true
+      await _pickSettlement(tester, _kCityWithDistrictsId); // Київ
 
-      expect(_labels(tester).cityHasDistricts, isTrue);
       expect(
         fieldEnabled(tester, const Key('search_district_value')),
         isTrue,
-        reason: 'a subdividing city must enable the District field',
+        reason: 'a subdividing settlement must enable the District field',
       );
       // Neither gating helper is shown once District is live.
       expect(find.text(l10n.searchDistrictDisabledHint), findsNothing);
@@ -580,59 +559,34 @@ void main() {
     });
   });
 
-  // ── Cascade clears — picking / clearing a parent tears down its children ──
+  // ── Cascade clears — settlement / district ─────────────────────────────────
   //
-  // Region → City → District is a funnel: a change at any level must invalidate
-  // the levels below it (they belonged to the prior parent). Both the pick path
-  // and the per-field clear («×») paths are covered.
+  // A settlement change must invalidate the District picked under the PRIOR
+  // settlement, on both the pick path and the settlement's own inline clear.
+  // The District's own clear only ever touches the District.
   group('ClientSearchScreen — cascade clears', () {
-    testWidgets('picking a Region clears a previously-chosen City + District', (
+    testWidgets('re-picking the settlement clears the previously-chosen '
+        'District label (the visible district selection resets)', (
       tester,
     ) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
-      // Build a full Region → City → District selection.
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
-      await _pickDistrict(tester);
-      expect(_filters(tester).cityId, _kCityWithDistrictsId);
-      expect(_filters(tester).districtId, _kDistrictId);
-
-      // Re-picking the Region resets the whole locality below it.
-      await _pickRegion(tester);
-
-      expect(_filters(tester).oblastId, _kOblastId);
-      expect(_filters(tester).cityId, isNull);
-      expect(_filters(tester).districtId, isNull);
-      expect(_labels(tester).cityName, isNull);
-      expect(_labels(tester).districtName, isNull);
-    });
-
-    testWidgets('re-picking a City clears the previously-chosen District label '
-        '(the visible district selection resets)', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
+      await _pickSettlement(tester, _kCityWithDistrictsId);
       await _pickDistrict(tester);
       expect(_labels(tester).districtName, 'Печерський');
 
-      // Re-pick a City through the field → _pickCity calls setDistrictName(null),
-      // so the visible district selection resets. (The screen clears the district
-      // LABEL + cityHasDistricts on a city pick; the wire-id cascade integrity is
-      // enforced by the region-first re-selection — pinned in the controller
-      // test. Here we assert the user-visible district reset on a city change.)
-      await _pickCity(tester, _kCityWithDistrictsId);
+      // `selectSettlement` unconditionally clears the district — even a
+      // re-pick of the SAME settlement (Phase 346: any settlement change
+      // clears it, since a flat autocomplete could otherwise land anywhere).
+      await _pickSettlement(tester, _kCityWithDistrictsId);
 
       expect(_filters(tester).cityId, _kCityWithDistrictsId);
       expect(
         _labels(tester).districtName,
         isNull,
-        reason: 'a city re-pick must drop the prior district label',
+        reason: 'a settlement re-pick must drop the prior district label',
       );
-      // The District row re-reads the picker fresh (no stale district shown).
       final AppLocalizations l10n = await _uk();
       final Text districtText = tester.widget<Text>(
         find.byKey(const Key('search_district_value')),
@@ -640,64 +594,33 @@ void main() {
       expect(districtText.data, l10n.searchDistrictPlaceholder);
     });
 
-    testWidgets('the Region clear («×») tears down ALL three levels', (
+    testWidgets('the settlement clear («×») tears down the District too', (
       tester,
     ) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
+      await _pickSettlement(tester, _kCityWithDistrictsId);
       await _pickDistrict(tester);
 
-      // Tap the region field's inline clear.
-      await tester.tap(
-        find.byKey(_clearKey(const ValueKey<String>('search_region_value'))),
-      );
+      // The settlement field's clear affordance carries the fixed key
+      // `select-field-clear` (SearchableSelectField), not one derived from
+      // `search_city_value` — there is only one such field on this screen.
+      await tester.tap(find.byKey(const Key('select-field-clear')));
       await tester.pumpAndSettle();
 
-      expect(_filters(tester).oblastId, isNull);
       expect(_filters(tester).cityId, isNull);
       expect(_filters(tester).districtId, isNull);
-      expect(_labels(tester).oblastName, isNull);
       expect(_labels(tester).cityName, isNull);
       expect(_labels(tester).districtName, isNull);
     });
 
-    testWidgets('the City clear («×») clears District but KEEPS the Region', (
-      tester,
-    ) async {
+    testWidgets('the District clear («×») clears only the district — the '
+        'settlement survives', (tester) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
-      await _pickDistrict(tester);
-
-      await tester.tap(
-        find.byKey(_clearKey(const ValueKey<String>('search_city_value'))),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        _filters(tester).oblastId,
-        _kOblastId,
-        reason: 'clearing the city must not drop the region it lives in',
-      );
-      expect(_filters(tester).cityId, isNull);
-      expect(_filters(tester).districtId, isNull);
-      expect(_labels(tester).oblastName, 'Київська');
-      expect(_labels(tester).cityName, isNull);
-      expect(_labels(tester).districtName, isNull);
-    });
-
-    testWidgets('the District clear («×») clears only the district — Region + '
-        'City survive', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
+      await _pickSettlement(tester, _kCityWithDistrictsId);
       await _pickDistrict(tester);
       expect(_filters(tester).districtId, _kDistrictId);
 
@@ -706,40 +629,85 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(_filters(tester).oblastId, _kOblastId);
       expect(_filters(tester).cityId, _kCityWithDistrictsId);
       expect(
         _filters(tester).districtId,
         isNull,
-        reason: 'the optional district clears back to a city-wide search',
+        reason: 'the optional district clears back to a settlement-wide search',
       );
       expect(_labels(tester).districtName, isNull);
     });
   });
 
-  // ── District is OPTIONAL — a Region + City with no district is valid ──────
+  // ── District is OPTIONAL — a settlement with no district is valid ────────
   group('ClientSearchScreen — district is optional', () {
-    testWidgets('Region + City + NO district is a valid committed filter set', (
+    testWidgets('Settlement + NO district is a valid committed filter set', (
       tester,
     ) async {
       await _pumpScreen(tester, withRouter: true);
       await tester.pumpAndSettle();
 
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
+      await _pickSettlement(tester, _kCityWithDistrictsId);
       // District deliberately skipped — it is optional.
 
       final SearchFilters f = _filters(tester);
-      expect(f.oblastId, _kOblastId);
       expect(f.cityId, _kCityWithDistrictsId);
       expect(
         f.districtId,
         isNull,
-        reason: 'a city-scoped search with no district is a valid selection',
+        reason: 'a settlement-scoped search with no district is valid',
       );
-      // The city label committed; the district label stayed empty.
       expect(_labels(tester).cityName, 'Київ');
       expect(_labels(tester).districtName, isNull);
+    });
+  });
+
+  // ── Settlement search sheet — debounced remote autocomplete ──────────────
+  //
+  // The sheet is backed by `settlementSearchProvider`, debounced by
+  // `kSettlementSearchDebounce`. `pumpAndSettle()` alone fires NO `Timer` —
+  // without the explicit `pump(kSettlementSearchDebounce)` a test measures the
+  // pre-tap state and passes vacuously (a recorded trap in this repo). Below
+  // three characters the sheet shows the "type at least 3 characters" hint and
+  // issues no request; at/above it the debounce elapses and the row resolves.
+  group('ClientSearchScreen — settlement search debounce', () {
+    testWidgets('a below-minimum query shows the hint and offers no row; a '
+        '3+ character query resolves the row after the debounce', (
+      tester,
+    ) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('search_city_value')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('select-menu-search')), 'ки');
+      await tester.pump(kSettlementSearchDebounce);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
+      expect(
+        find.byKey(const Key('settlement_option_$_kCityWithDistrictsId')),
+        findsNothing,
+      );
+
+      await tester.enterText(
+        find.byKey(const Key('select-menu-search')),
+        'київ',
+      );
+      await tester.pump(kSettlementSearchDebounce);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('select-menu-minimum')), findsNothing);
+      final Finder row = find.byKey(
+        const Key('settlement_option_$_kCityWithDistrictsId'),
+      );
+      expect(row, findsOneWidget);
+
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(_filters(tester).cityId, _kCityWithDistrictsId);
     });
   });
 
@@ -1180,131 +1148,26 @@ void main() {
     });
   });
 
-  // ── «Require a city» CTA gate — region-only is not a searchable scope ───────
+  // ── CTA query-length gate ────────────────────────────────────────────────
   //
-  // The search CTA is disabled when a Region is chosen but no City (region-only
-  // would send no location filter → providers from EVERY city: the «phantom
-  // filter» bug). The location-less case (both null) stays allowed (category /
-  // price / query-only «search everywhere»), and a full Region + City re-enables
-  // it. The cascade guarantees cityId != null ⇒ oblastId != null, so these three
-  // states are the only reachable ones. All gating is asserted off the CTA's
-  // onPressed nullity (the source disables by passing null) + the keyed city-row
-  // helper, never a raw literal.
-  group('ClientSearchScreen — require-a-city CTA gate', () {
-    /// The CTA's NeumorphicButton — `onPressed == null` is the disabled signal
-    /// (the source renders its built-in disabled chrome from a null callback).
+  // A 1–2 character term is below what the backend honours, so it is never
+  // promoted onto SearchFilters.query. The CTA used to sail straight through
+  // it and push a search for whatever had been applied BEFORE — the user
+  // arrived at results for a term they had already edited away. Watching the
+  // draft is what makes the sub-minimum term visible to this gate at all;
+  // watching `SearchFilters.query` cannot see it by construction.
+  //
+  // Phase 346 — the sibling "region without a city" disabled gate is GONE with
+  // the cascade: a flat settlement autocomplete has no half-chosen locality
+  // state to be in (see `search_filters_screen.dart`'s `_ShowMastersCta`
+  // doc). This group therefore covers the query-length gate only; settlement
+  // presence/absence is covered separately under "settlement carried to
+  // results" below.
+  group('ClientSearchScreen — CTA query-length gate', () {
     NeumorphicButton cta(WidgetTester tester) =>
         tester.widget<NeumorphicButton>(
           find.byKey(const Key('search_show_masters_cta')),
         );
-
-    testWidgets('region picked + NO city → CTA is DISABLED and the city row '
-        'shows the «choose a city» hint; tapping does NOT navigate', (
-      tester,
-    ) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      final AppLocalizations l10n = await _uk();
-
-      // Region only — no city. The cascade leaves cityId null.
-      await _pickRegion(tester);
-      expect(_filters(tester).oblastId, _kOblastId);
-      expect(_filters(tester).cityId, isNull);
-
-      // The CTA is disabled (null callback) ...
-      expect(
-        cta(tester).onPressed,
-        isNull,
-        reason: 'a region without a city is not a searchable scope',
-      );
-      // ... and the city row carries the «choose a city to continue» helper.
-      expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
-
-      // Tapping the disabled CTA is inert — it must NOT push the results screen.
-      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('test-results-sink')), findsNothing);
-      expect(_pushedFilters, isNull);
-    });
-
-    testWidgets('region + city picked → CTA is ENABLED and tapping pushes '
-        '/search/results with the city carried', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      final AppLocalizations l10n = await _uk();
-
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
-      expect(_filters(tester).cityId, _kCityWithDistrictsId);
-
-      // The require-a-city helper is gone once a city is committed.
-      expect(find.text(l10n.searchCityRequiredHint), findsNothing);
-
-      // The CTA is now enabled and navigates, carrying the picked city.
-      expect(cta(tester).onPressed, isNotNull);
-      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
-      expect(_pushedFilters, isNotNull);
-      expect(_pushedFilters!.cityId, _kCityWithDistrictsId);
-      expect(_pushedFilters!.oblastId, _kOblastId);
-    });
-
-    testWidgets('NO location at all (oblast + city null) → CTA is ENABLED and '
-        'tapping pushes a location-less «search everywhere»', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-
-      // No region, no city — the location-less browse-all case stays allowed.
-      expect(_filters(tester).oblastId, isNull);
-      expect(_filters(tester).cityId, isNull);
-      expect(
-        cta(tester).onPressed,
-        isNotNull,
-        reason: 'a fully location-less search (browse everywhere) is allowed',
-      );
-
-      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
-      expect(_pushedFilters, isNotNull);
-      expect(_pushedFilters!.oblastId, isNull);
-      expect(_pushedFilters!.cityId, isNull);
-    });
-
-    testWidgets('re-picking the region clears the city and RE-DISABLES the CTA '
-        '(cascade), with the «choose a city» hint back', (tester) async {
-      await _pumpScreen(tester, withRouter: true);
-      await tester.pumpAndSettle();
-      final AppLocalizations l10n = await _uk();
-
-      // Reach the enabled state: region + city.
-      await _pickRegion(tester);
-      await _pickCity(tester, _kCityWithDistrictsId);
-      expect(cta(tester).onPressed, isNotNull);
-
-      // Re-picking the region clears the dependent city (selectOblast cascade),
-      // dropping back to the region-only state → the CTA disables again.
-      await _pickRegion(tester);
-      expect(_filters(tester).cityId, isNull);
-      expect(
-        cta(tester).onPressed,
-        isNull,
-        reason: 'a region re-pick clears the city → region-only → CTA disabled',
-      );
-      expect(find.text(l10n.searchCityRequiredHint), findsOneWidget);
-    });
-
-    // ── the min-length gate ─────────────────────────────────────────────────
-    //
-    // A 1–2 character term is below what the backend honours, so it is never
-    // promoted onto SearchFilters.query. The CTA used to sail straight through
-    // it and push a search for whatever had been applied BEFORE — the user
-    // arrived at results for a term they had already edited away. Watching the
-    // draft is what makes the sub-minimum term visible to this gate at all;
-    // watching `SearchFilters.query` cannot see it by construction.
 
     testWidgets('a 1-character term DISABLES the CTA', (tester) async {
       await _pumpScreen(tester, withRouter: true);
@@ -1385,11 +1248,62 @@ void main() {
     });
   });
 
+  // ── Settlement carried to results — no gate on presence/absence ──────────
+  //
+  // Phase 346: an unset settlement is, and always was, a legitimate nationwide
+  // search — there is no "settlement required" gate on the CTA any more (see
+  // the query-length gate group's header comment for what replaced it).
+  group('ClientSearchScreen — settlement carried to results', () {
+    testWidgets('picking a settlement → CTA stays enabled and tapping pushes '
+        '/search/results with the settlement carried', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      await _pickSettlement(tester, _kCityWithDistrictsId);
+      expect(_filters(tester).cityId, _kCityWithDistrictsId);
+
+      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+        find.byKey(const Key('search_show_masters_cta')),
+      );
+      expect(cta.onPressed, isNotNull);
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters, isNotNull);
+      expect(_pushedFilters!.cityId, _kCityWithDistrictsId);
+    });
+
+    testWidgets('NO location at all (cityId null) → CTA stays enabled and '
+        'tapping pushes a location-less «search everywhere»', (tester) async {
+      await _pumpScreen(tester, withRouter: true);
+      await tester.pumpAndSettle();
+
+      expect(_filters(tester).cityId, isNull);
+      final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+        find.byKey(const Key('search_show_masters_cta')),
+      );
+      expect(
+        cta.onPressed,
+        isNotNull,
+        reason: 'a fully location-less search (browse everywhere) is allowed',
+      );
+
+      await tester.tap(find.byKey(const Key('search_show_masters_cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters, isNotNull);
+      expect(_pushedFilters!.cityId, isNull);
+    });
+  });
+
   // ── «Скинути фільтри» — the non-location reset link ─────────────────────────
   //
   // The quiet reset link surfaces ONLY when a CLEARABLE (non-location) filter is
   // active, and tapping it clears those facets while the prefilled location
-  // survives. These tests use a saved-profile CLIENT (Київська → Київ) so the
+  // survives. These tests use a saved-profile CLIENT (settlement «Київ») so the
   // locality row is pre-filled on open — the core regression guard is that a
   // clear never wipes that prefilled location.
   group('ClientSearchScreen — clear filters («Скинути фільтри»)', () {
@@ -1403,9 +1317,9 @@ void main() {
         // The saved location prefilled the row (regression baseline: a location
         // IS present) ...
         expect(
-          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+          _cityValueText(tester),
           'Київ',
-          reason: 'the saved-profile city must prefill the locality row',
+          reason: 'the saved-profile settlement must prefill the locality row',
         );
         expect(_filters(tester).cityId, _kCityWithDistrictsId);
         // ... yet with no query / category / price / service the reset link is
@@ -1445,12 +1359,10 @@ void main() {
         expect(find.byKey(const Key('search_clear_filters')), findsNothing);
 
         // ... but the prefilled locality is UNTOUCHED — the core regression guard.
-        expect(_filters(tester).oblastId, _kOblastId);
         expect(_filters(tester).cityId, _kCityWithDistrictsId);
-        expect(_labels(tester).oblastName, 'Київська');
         expect(_labels(tester).cityName, 'Київ');
         expect(
-          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
+          _cityValueText(tester),
           'Київ',
           reason: 'clearing filters must never wipe the prefilled location',
         );
@@ -1502,10 +1414,7 @@ void main() {
 
         // Location survived the clear.
         expect(_filters(tester).cityId, _kCityWithDistrictsId);
-        expect(
-          tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
-          'Київ',
-        );
+        expect(_cityValueText(tester), 'Київ');
       },
     );
   });

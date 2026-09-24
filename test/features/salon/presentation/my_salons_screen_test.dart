@@ -86,6 +86,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -96,6 +97,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -150,6 +152,16 @@ class _FakeLocationRepository implements LocationRepository {
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
       const <CityDistrict>[];
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// A repository whose `fetchOblasts` always throws — proves a resolution
@@ -166,6 +178,16 @@ class _ThrowingLocationRepository implements LocationRepository {
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
       const <CityDistrict>[];
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 // ---------------------------------------------------------------------------

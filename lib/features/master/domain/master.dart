@@ -52,13 +52,13 @@ abstract class Master with _$Master {
     /// City where the master operates (display string, not a UUID).
     String? city,
 
-    /// UUID of the city the master is located in. Used by [LocalityCascade]
-    /// to pre-populate the city picker when opening the edit screen.
+    /// UUID of the settlement the master is located in — the value the
+    /// location edit screen submits back as `cityId`.
     String? cityId,
 
-    /// UUID of the oblast (region) the master is located in. Used by
-    /// [LocalityCascade] to pre-populate the region picker when opening the
-    /// edit screen.
+    /// UUID of the oblast (region) the master is located in. No longer read
+    /// by the location edit screen since phase 346 (the settlement field has
+    /// no oblast picker to pre-populate).
     String? oblastId,
 
     /// UUID of the city district, or `null` when the city has no districts or

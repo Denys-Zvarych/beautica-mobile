@@ -22,17 +22,20 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
-import 'package:beautica_mobile/features/location/state/location_providers.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_address_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -51,14 +54,18 @@ const _stubOwner = User(
   lastName: 'Швець',
 );
 
+// Phase 346 — [Salon.oblastId]/the oblast->city cascade pre-population this
+// fixture used to exercise are GONE. [_settlementId] below is now the whole
+// story for locality pre-population; `city` is the denormalised NAME
+// (`SalonResponse.city`) the screen seeds the closed settlement field with
+// directly (phase-346 D7) — see the "shows that name... WITHOUT any
+// settlement request" test.
 const _stubSalon = Salon(
   id: _kSalonId,
   name: 'Салон «Вельвет»',
   description: 'Затишний салон краси в серці Печерська.',
   cityId: 'city-01',
-  // Finding 3 (2026-08-28) — pre-population now reads [Salon.oblastId]
-  // directly (targeted lookup) instead of scanning every oblast's city list.
-  oblastId: 'oblast-01',
+  city: 'Київ',
   street: 'вул. Велика Васильківська',
   buildingNo: '44',
   locationNote: '2 поверх',
@@ -68,20 +75,16 @@ const _stubSalon = Salon(
   reviewCount: 128,
 );
 
-// mobile-qa Priority 2 (2026-08-28) — a salon with NO city set at all. The
-// SAME shape `SalonMapper.fromDto` produces before a salon has ever been
-// located, and (before the `oblastId` mapping fix) the shape it wrongly
-// produced for EVERY salon regardless of whether it had a real city.
-// `_prePopulateLocality` must return early on this without touching any
-// locality provider — see `no fan-out` test below.
+// mobile-qa Priority 2 (2026-08-28, updated for phase 346) — a salon with NO
+// city set at all. `_settlementId` seeds from `salon.cityId.isEmpty ? null :
+// salon.cityId`, so omitting `cityId` here reproduces the exact same "unset"
+// shape a real backend read cannot produce any more but a fixture still can.
+// `_initControllers` must leave `_settlementId` null on this without touching
+// the location repository at all — see the `no fan-out` test below.
 //
-// RESUME §4 step D (mobile half, 2026-08-30) — [Salon.cityId]/[Salon.
-// oblastId] flipped `String? -> String` with `@Default('')` (the backend now
-// guarantees every REAL salon has a city; this fixture models a fixture-only
-// "unset" shape, not a state a real backend read can produce anymore).
-// Simply omitting both fields below is the direct equivalent of the old
-// `cityId: null, oblastId: null` — [resolvedLocalityProvider]'s guard treats
-// an empty id exactly the same as the old `null` short-circuit.
+// [Salon.cityId]/[Salon.oblastId] are `String` with `@Default('')` (the
+// backend now guarantees every REAL salon has a city); simply omitting the
+// field below is the direct equivalent of the old `cityId: null`.
 const _stubSalonNoCity = Salon(
   id: _kSalonId,
   name: 'Салон «Вельвет»',
@@ -95,27 +98,28 @@ const _stubSalonNoCity = Salon(
   reviewCount: 128,
 );
 
-const _oblast = Oblast(id: 'oblast-01', name: 'Київська', katotthCode: 'UA1');
-const _city = City(
+// Phase 346 — settlement fixtures replace the retired Oblast/City ones.
+// `_settlementCity` is the leaf settlement `_stubSalon.cityId` resolves to —
+// it deliberately has NO entry in `_FakeLocationRepository`'s district map,
+// so `districtsOf` reads back empty and the «Район» row must not render at
+// all (rule 1 — the district row is now CONDITIONAL, not a disabled
+// placeholder).
+const _settlementCity = Settlement(
   id: 'city-01',
-  oblastId: 'oblast-01',
   name: 'Київ',
-  katotthCode: 'UA1-1',
-  hasDistricts: false,
+  oblastName: 'Київська',
 );
 
-// Finding 4 (2026-08-28) — the ONLY hasDistricts:true city fixture in this
-// suite. Without it the widget tier can never reach the Finding 1
-// district-required guard (`_city` above is hasDistricts:false) — this is
-// the exact "fixture defangs the assertion" trap the audit flagged. Distinct
-// name/katotthCode from `_city` so a wrong id-vs-name mapping would surface
-// as a visibly wrong rendered value, not a coincidental pass.
-const _cityWithDistricts = City(
+// The ONLY settlement fixture with districts in this suite. Without it the
+// widget tier can never reach the district-required guard (`_settlementCity`
+// above has none) — the exact "fixture defangs the assertion" trap a prior
+// audit flagged. Distinct name from `_settlementCity` so a wrong id-vs-name
+// mapping would surface as a visibly wrong rendered value, not a
+// coincidental pass.
+const _settlementWithDistricts = Settlement(
   id: 'city-02-districts',
-  oblastId: 'oblast-01',
   name: 'Дніпро',
-  katotthCode: 'UA1-2',
-  hasDistricts: true,
+  oblastName: 'Дніпропетровська',
 );
 const _district = CityDistrict(
   id: 'district-01',
@@ -123,6 +127,58 @@ const _district = CityDistrict(
   name: 'Соборний',
   katotthCode: 'UA1-2-1',
 );
+
+/// Fake [LocationRepository] backing both the settlement autocomplete and the
+/// district row. Records every query/id it is asked for so a test can assert
+/// a call COUNT rather than merely rendering — see the "no city -> no
+/// fan-out" and "D7" tests below.
+class _FakeLocationRepository implements LocationRepository {
+  static const List<Settlement> _settlements = <Settlement>[
+    _settlementCity,
+    _settlementWithDistricts,
+  ];
+  static const Map<String, List<CityDistrict>> _districtsBySettlement =
+      <String, List<CityDistrict>>{
+        'city-02-districts': <CityDistrict>[_district],
+      };
+
+  /// Every `query` [searchSettlements] was called with, in order.
+  final List<String> searchQueries = <String>[];
+
+  /// Every `cityId` [fetchDistricts] was called with, in order.
+  final List<String> districtQueries = <String>[];
+
+  /// When non-null, [fetchDistricts] holds on this before answering — keeps a
+  /// district lookup IN FLIGHT so a test can submit against it.
+  Completer<void>? districtsGate;
+
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async {
+    searchQueries.add(query);
+    if (query.isEmpty) return _settlements;
+    final String needle = query.toLowerCase();
+    return _settlements
+        .where((Settlement s) => s.name.toLowerCase().contains(needle))
+        .toList();
+  }
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async {
+    districtQueries.add(cityId);
+    final Completer<void>? gate = districtsGate;
+    if (gate != null) await gate.future;
+    return _districtsBySettlement[cityId] ?? const <CityDistrict>[];
+  }
+
+  @override
+  Future<List<Oblast>> fetchOblasts() => throw UnimplementedError();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) => throw UnimplementedError();
+}
 
 class _StubAuthNotifier extends AuthNotifier {
   @override
@@ -155,17 +211,34 @@ GoRouter _router() => GoRouter(
   ],
 );
 
-List<Object> _overrides(FakeSalonRepository repo) => <Object>[
+List<Object> _overrides(
+  FakeSalonRepository repo, [
+  _FakeLocationRepository? location,
+]) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo),
-  oblastListProvider.overrideWith((ref) async => const <Oblast>[_oblast]),
-  cityListProvider(
-    'oblast-01',
-  ).overrideWith((ref) async => const <City>[_city, _cityWithDistricts]),
-  districtListProvider(
-    _cityWithDistricts.id,
-  ).overrideWith((ref) async => const <CityDistrict>[_district]),
+  locationRepositoryProvider.overrideWithValue(
+    location ?? _FakeLocationRepository(),
+  ),
 ];
+
+/// Drives [SettlementSelectField]: opens the sheet, types [query] (letting the
+/// LOAD-BEARING debounce elapse — `pumpAndSettle` fires no `Timer`, so
+/// skipping this pump would measure the pre-keystroke blank-query list), then
+/// taps the row for [settlementId].
+Future<void> _pickSettlement(
+  WidgetTester tester, {
+  required String query,
+  required String settlementId,
+}) async {
+  await tester.tap(find.byKey(const Key('settlement_select_field')));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('select-menu-search')), query);
+  await tester.pump(kSettlementSearchDebounce);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('settlement_option_$settlementId')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('SalonProfileEditScreen', () {
@@ -329,7 +402,8 @@ void main() {
 
   group('SalonAddressEditScreen', () {
     testWidgets(
-      'pre-populates street/building/note and resolves the locality cascade',
+      'pre-populates street/building/note and shows the settlement field '
+      'with no oblast control anywhere',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalon);
         final router = _router();
@@ -360,13 +434,53 @@ void main() {
               .text,
           _stubSalon.locationNote,
         );
-        // The cascade resolved the city from `salon.oblastId`/`salon.cityId`
-        // via the targeted lookup chain (Finding 3 — see the screen's own
-        // `_prePopulateLocality` doc).
-        expect(find.text(_city.name), findsOneWidget);
-        expect(find.text(_oblast.name), findsOneWidget);
+        // Phase 346 — there is no «Область» row any more; the ONE settlement
+        // autocomplete carries the denormalised `salon.city` name.
+        expect(
+          find.byKey(const Key('settlement_select_field')),
+          findsOneWidget,
+        );
+        expect(find.text(_stubSalon.city!), findsOneWidget);
+        expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
+        expect(find.byKey(const Key('locality_row_city')), findsNothing);
+        // `city-01` (`_settlementCity`) has no districts — the row must be
+        // ABSENT, not a disabled placeholder (rule 1: it used to render
+        // disabled with a helper caption; now it renders nothing at all).
+        expect(find.byKey(const Key('locality_row_district')), findsNothing);
       },
     );
+
+    testWidgets('N1 — a double tap on Save while the district lookup is still '
+        'in flight saves ONCE', (tester) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final location = _FakeLocationRepository()
+        ..districtsGate = Completer<void>();
+      final router = _router();
+      await tester.pumpRoutedApp(router, overrides: _overrides(repo, location));
+      await tester.pumpAndSettle();
+
+      unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
+      await tester.pumpAndSettle();
+      expect(location.districtQueries, isNotEmpty, reason: 'lookup in flight');
+
+      await tester.enterText(
+        find.byKey(const Key('salon_street')),
+        'вул. Хрещатик',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('save_salon_address')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('save_salon_address')));
+      await tester.pump();
+
+      location.districtsGate!.complete();
+      await tester.pump();
+      await pumpVelvetSnackIn(tester);
+
+      expect(repo.updateRequests, hasLength(1));
+      await pumpPastVelvetSnack(tester);
+    });
 
     testWidgets('Save sends the edited street and the echoed locality', (
       tester,
@@ -432,12 +546,12 @@ void main() {
       await pumpPastVelvetSnack(tester);
     });
 
-    // Finding 4 (2026-08-28) — widget-tier coverage of the Finding 1
-    // district-required guard, using the new `_cityWithDistricts` fixture
-    // (`_city` above is hasDistricts:false and can never reach this branch).
+    // Phase 346 — widget-tier coverage of the district-required guard, using
+    // `_settlementWithDistricts` (`_settlementCity` above has none and can
+    // never reach this branch — the "fixture defangs the assertion" trap).
     testWidgets(
-      'picking a district-requiring city with NO district selected blocks '
-      'Save and shows an inline error on the district row',
+      'picking a district-requiring settlement with NO district selected '
+      'blocks Save and shows an inline error on the district row',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalon);
         final router = _router();
@@ -447,16 +561,13 @@ void main() {
         unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
         await tester.pumpAndSettle();
 
-        // Switch the pre-populated city (city-01, no districts) to the
+        // Switch the pre-populated settlement (city-01, no districts) to the
         // district-requiring fixture.
-        await tester.tap(find.byKey(const Key('locality_row_city')));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(
-            ValueKey<String>('locality_picker_tile_${_cityWithDistricts.id}'),
-          ),
+        await _pickSettlement(
+          tester,
+          query: 'дніп',
+          settlementId: _settlementWithDistricts.id,
         );
-        await tester.pumpAndSettle();
 
         // Deliberately do NOT pick a district.
         await tester.tap(find.byKey(const Key('save_salon_address')));
@@ -466,15 +577,18 @@ void main() {
           repo.updateRequests,
           isEmpty,
           reason:
-              'a district-requiring city with no district picked must never '
-              'reach saveAddress() — mirrors LocationEditScreen\'s guard.',
+              'a district-requiring settlement with no district picked must '
+              'never reach saveAddress() — mirrors LocationEditScreen\'s '
+              'guard.',
         );
         expect(find.byKey(const Key('manage-marker')), findsNothing);
-        final LocalityTapRow districtRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_district')),
-        );
+        expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
+        final SettlementLocalityField field = tester
+            .widget<SettlementLocalityField>(
+              find.byType(SettlementLocalityField),
+            );
         expect(
-          districtRow.errorText,
+          field.districtError,
           isNotNull,
           reason: 'the district row must show an inline required-field error.',
         );
@@ -482,8 +596,8 @@ void main() {
     );
 
     testWidgets(
-      'picking a district-requiring city AND its district allows Save to '
-      'proceed with both fields set',
+      'picking a district-requiring settlement AND its district allows Save '
+      'to proceed with both fields set',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalon);
         final router = _router();
@@ -493,14 +607,11 @@ void main() {
         unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
         await tester.pumpAndSettle();
 
-        await tester.tap(find.byKey(const Key('locality_row_city')));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(
-            ValueKey<String>('locality_picker_tile_${_cityWithDistricts.id}'),
-          ),
+        await _pickSettlement(
+          tester,
+          query: 'дніп',
+          settlementId: _settlementWithDistricts.id,
         );
-        await tester.pumpAndSettle();
 
         await tester.tap(find.byKey(const Key('locality_row_district')));
         await tester.pumpAndSettle();
@@ -515,7 +626,7 @@ void main() {
 
         expect(repo.updateRequests, hasLength(1));
         final UpdateSalonRequest sent = repo.updateRequests.single;
-        expect(sent.cityId, _cityWithDistricts.id);
+        expect(sent.cityId, _settlementWithDistricts.id);
         expect(sent.districtId, _district.id);
 
         expect(find.byKey(const Key('manage-marker')), findsOneWidget);
@@ -523,39 +634,22 @@ void main() {
       },
     );
 
-    // mobile-qa Priority 2 (2026-08-28) — regression guard for the shipped-
-    // broken cascade: `SalonMapper.fromDto` hardcoded `oblastId` to `null`
-    // (fixed in this changeset), so the cascade pre-populated with nothing
-    // for EVERY salon, city set or not. The positive case above (a salon
-    // WITH oblastId/cityId) already covers the fix; this covers the OTHER
-    // half `_prePopulateLocality` must get right — a salon that genuinely
-    // has no city must leave the cascade empty and must NOT fan out to the
-    // locality providers at all (its early-return guard,
-    // `salon_address_edit_screen.dart`'s own doc names the deleted
-    // alternative: scanning every oblast's city list to find a match).
+    // mobile-qa Priority 2 (rewritten for phase 346) — a salon that genuinely
+    // has no city must leave the settlement field unselected and must NOT
+    // fan out to the location repository at all before the user touches it:
+    // no settlement search (the field never preloads a query) and no
+    // district read (`districtsOf` short-circuits on a null settlement id
+    // before it ever watches `districtListProvider`).
     testWidgets(
-      'a salon with no city leaves the cascade empty and fires no locality '
-      'lookups at all',
+      'a salon with no city leaves the settlement field empty and fires no '
+      'locality lookups at all',
       (tester) async {
-        int oblastListCalls = 0;
         final repo = FakeSalonRepository(salon: _stubSalonNoCity);
+        final location = _FakeLocationRepository();
         final router = _router();
         await tester.pumpRoutedApp(
           router,
-          overrides: <Object>[
-            authProvider.overrideWith(_StubAuthNotifier.new),
-            salonRepositoryProvider.overrideWithValue(repo),
-            oblastListProvider.overrideWith((ref) async {
-              oblastListCalls++;
-              return const <Oblast>[_oblast];
-            }),
-            cityListProvider('oblast-01').overrideWith(
-              (ref) async => const <City>[_city, _cityWithDistricts],
-            ),
-            districtListProvider(
-              _cityWithDistricts.id,
-            ).overrideWith((ref) async => const <CityDistrict>[_district]),
-          ],
+          overrides: _overrides(repo, location),
         );
         await tester.pumpAndSettle();
 
@@ -563,7 +657,7 @@ void main() {
         await tester.pumpAndSettle();
 
         // Street/building/note still pre-populate regardless — only the
-        // cascade is affected by a missing city.
+        // settlement field is affected by a missing city.
         expect(
           tester
               .widget<TextField>(find.byKey(const Key('salon_street')))
@@ -572,30 +666,30 @@ void main() {
           _stubSalonNoCity.street,
         );
 
-        final LocalityTapRow oblastRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_oblast')),
-        );
-        final LocalityTapRow cityRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_city')),
-        );
+        // No oblast control exists any more, and the district row cannot
+        // render without a chosen settlement.
+        expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
+        expect(find.byKey(const Key('locality_row_city')), findsNothing);
+        expect(find.byKey(const Key('locality_row_district')), findsNothing);
         expect(
-          oblastRow.value,
-          isNull,
-          reason: 'no city on the salon -> oblast row stays unselected.',
+          find.byKey(const Key('settlement_select_field')),
+          findsOneWidget,
         );
+
         expect(
-          cityRow.value,
-          isNull,
-          reason: 'no city on the salon -> city row stays unselected.',
-        );
-        expect(
-          oblastListCalls,
-          0,
+          location.searchQueries,
+          isEmpty,
           reason:
-              '_prePopulateLocality must early-return on a null cityId — no '
-              'fan-out lookup across oblasts. A reintroduced scan-every-'
-              'oblast resolver (the pattern this field replaced) would fire '
-              'this at least once.',
+              'no cityId on the salon -> the settlement field must not issue '
+              'a settlement search before the user opens it.',
+        );
+        expect(
+          location.districtQueries,
+          isEmpty,
+          reason:
+              '_prePopulateDistrict must early-return on a null settlement '
+              'id, and districtsOf must short-circuit before watching '
+              'districtListProvider — no fan-out lookup at all.',
         );
       },
     );
@@ -607,26 +701,14 @@ void main() {
     // all meant Save always reached `saveAddress`, and the wire either
     // carried a stale/null cityId or relied entirely on the backend's 400.
     testWidgets(
-      'Save is blocked with no city selected at all, and the city row '
-      'shows an inline error',
+      'Save is blocked with no city selected at all, and the settlement '
+      'field shows an inline error',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalonNoCity);
         final router = _router();
         await tester.pumpRoutedApp(
           router,
-          overrides: <Object>[
-            authProvider.overrideWith(_StubAuthNotifier.new),
-            salonRepositoryProvider.overrideWithValue(repo),
-            oblastListProvider.overrideWith(
-              (ref) async => const <Oblast>[_oblast],
-            ),
-            cityListProvider('oblast-01').overrideWith(
-              (ref) async => const <City>[_city, _cityWithDistricts],
-            ),
-            districtListProvider(
-              _cityWithDistricts.id,
-            ).overrideWith((ref) async => const <CityDistrict>[_district]),
-          ],
+          overrides: _overrides(repo, _FakeLocationRepository()),
         );
         await tester.pumpAndSettle();
 
@@ -648,25 +730,31 @@ void main() {
               'inline field error.',
         );
         expect(find.byKey(const Key('manage-marker')), findsNothing);
-        final LocalityTapRow cityRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_city')),
-        );
+        final SettlementLocalityField field = tester
+            .widget<SettlementLocalityField>(
+              find.byType(SettlementLocalityField),
+            );
         expect(
-          cityRow.errorText,
+          field.settlementError,
           isNotNull,
-          reason: 'the city row must show an inline required-field error.',
+          reason:
+              'the settlement field must show an inline required-field '
+              'error.',
         );
       },
     );
 
-    // Finding (2026-08-29) — `_onOblast` unconditionally resets the city (and
-    // district) selection. Without re-validating on Save, a stale
-    // pre-populated cityId could otherwise survive an oblast change in the
-    // NOTIFIER call even though the visible cascade now shows nothing
-    // selected. This proves the reset actually blocks Save, not just that
-    // the row LOOKS empty.
+    // Phase 346 removed the concept the DELETED test here covered —
+    // "changing the oblast resets the previously pre-populated city and
+    // re-blocks Save": the «Область» row no longer exists, so there is
+    // nothing left to change independently of the settlement itself. Its
+    // replacement invariant DOES still hold and is covered below: picking a
+    // NEW settlement always clears whatever district was previously chosen,
+    // because a `CityDistrict` belongs to exactly one settlement and
+    // carrying one across would submit a district that is not a child of the
+    // submitted city.
     testWidgets(
-      'changing the oblast resets the previously pre-populated city and '
+      'picking a new settlement clears a previously-picked district and '
       're-blocks Save',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalon);
@@ -677,35 +765,84 @@ void main() {
         unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
         await tester.pumpAndSettle();
 
-        // Confirm the city really did pre-populate before disturbing it.
-        expect(find.text(_city.name), findsOneWidget);
-
-        await tester.tap(find.byKey(const Key('locality_row_oblast')));
+        // Pick the district-requiring settlement and its district first.
+        await _pickSettlement(
+          tester,
+          query: 'дніп',
+          settlementId: _settlementWithDistricts.id,
+        );
+        await tester.tap(find.byKey(const Key('locality_row_district')));
         await tester.pumpAndSettle();
         await tester.tap(
-          find.byKey(ValueKey<String>('locality_picker_tile_${_oblast.id}')),
+          find.byKey(ValueKey<String>('locality_picker_tile_${_district.id}')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(_district.name), findsOneWidget);
+
+        // Now switch to the leaf settlement (no districts) — the district
+        // selection must be gone, and its row must disappear entirely since
+        // `city-01` has none.
+        await _pickSettlement(
+          tester,
+          query: 'киї',
+          settlementId: _settlementCity.id,
+        );
+        expect(find.text(_district.name), findsNothing);
+        expect(find.byKey(const Key('locality_row_district')), findsNothing);
+
+        // Save must proceed cleanly — the leaf settlement needs no district.
+        await tester.tap(find.byKey(const Key('save_salon_address')));
+        await tester.pump();
+        await pumpVelvetSnackIn(tester);
+
+        expect(repo.updateRequests, hasLength(1));
+        final UpdateSalonRequest sent = repo.updateRequests.single;
+        expect(sent.cityId, _settlementCity.id);
+        expect(
+          sent.districtId,
+          isNull,
+          reason:
+              'switching to the leaf settlement must have cleared the '
+              'previously-picked district — a stale districtId here would '
+              'submit a district that does not belong to the submitted city.',
+        );
+        expect(find.byKey(const Key('manage-marker')), findsOneWidget);
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    // Phase 346 D7 — a salon carrying `cityId` + the denormalised `city` NAME
+    // shows that name on the closed field WITHOUT the field ever issuing a
+    // settlement search: `SalonResponse.city` supplies the label directly, so
+    // there is no id -> name lookup to make. (A district read for `city-01`
+    // still fires — see `districtsOf`'s doc — but that is a separate,
+    // always-issued read that decides whether the district row renders, not
+    // a settlement search.)
+    testWidgets(
+      'a salon with cityId + denormalised city name shows that name without '
+      'issuing a settlement search',
+      (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        final location = _FakeLocationRepository();
+        final router = _router();
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(repo, location),
         );
         await tester.pumpAndSettle();
 
-        // The city selection must be gone — _onOblast reset it.
-        expect(find.text(_city.name), findsNothing);
-
-        await tester.tap(find.byKey(const Key('save_salon_address')));
+        unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
         await tester.pumpAndSettle();
 
+        expect(find.text(_stubSalon.city!), findsOneWidget);
         expect(
-          repo.updateRequests,
+          location.searchQueries,
           isEmpty,
           reason:
-              'the oblast reset cleared the city selection; Save must block '
-              'exactly as it would for a salon that never had a city, not '
-              'silently reuse the pre-populated (now-stale) cityId.',
+              'the salon already carries the denormalised settlement name '
+              '(`salon.city`) — showing it must never cost a settlement '
+              'search.',
         );
-        expect(find.byKey(const Key('manage-marker')), findsNothing);
-        final LocalityTapRow cityRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_city')),
-        );
-        expect(cityRow.errorText, isNotNull);
       },
     );
   });

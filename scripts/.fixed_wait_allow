@@ -34,7 +34,6 @@ test/features/home/presentation/client_settings_hub_screen_test.dart
 test/features/home/presentation/home_hub_overflow_test.dart
 test/features/home/presentation/home_hub_screen_test.dart
 test/features/home/presentation/home_hub_supplemental_test.dart
-test/features/location/presentation/widgets/locality_cascade_test.dart
 test/features/location/presentation/widgets/locality_picker_sheet_test.dart
 test/features/master/presentation/master_profile_screen_refresh_test.dart
 test/features/master/presentation/master_profile_screen_test.dart

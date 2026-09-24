@@ -1,4 +1,5 @@
-// Widget tests for LocationEditScreen (locality cascade + street/buildingNo/note).
+// Widget tests for LocationEditScreen (settlement autocomplete + district row
+// + street/buildingNo/note).
 //
 // KEY CONTRACT: this page calls updateLocality(...) ONLY — it must NEVER call
 // updateMyProfile, so there is no sibling-field-clearing concern here. The
@@ -9,9 +10,16 @@
 // validation blocking save when street is filled but no city is selected, and
 // the save-success path (invalidate + saved VelvetSnack + navigate).
 //
-// City selection is driven by invoking LocalityCascade.onCity directly (the same
-// approach the retired monolithic-form test used) to bypass the bottom-sheet
-// picker that needs real HTTP. Finders use widget Keys (M2). Layer: Widget.
+// Phase 346 — the «Область» → «Місто» → «Район» LocalityCascade is GONE,
+// replaced by [SettlementLocalityField] (one autocomplete + a conditional
+// district row). Settlement selection is driven through the REAL bottom
+// sheet (tap the closed field → type ≥3 chars → let the debounce elapse →
+// tap the row), backed by a `locationRepositoryProvider` fake, rather than
+// reaching into a cascade widget and invoking a callback directly — there is
+// no such callback to invoke any more. See `_selectSettlement` below and
+// `settlement_select_field_test.dart`'s header for why the explicit
+// `pump(kSettlementSearchDebounce)` is load-bearing. Finders use widget Keys
+// (M2). Layer: Widget.
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -19,8 +27,13 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/domain/city_district.dart';
+import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -29,6 +42,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -78,13 +92,56 @@ const _emptyLocalityMaster = Master(
   type: MasterType.independentMaster,
 );
 
-const _stubCity = City(
+/// A leaf settlement — no urban districts, so [SettlementLocalityField]
+/// renders no district row for it.
+const _stubSettlement = Settlement(
   id: 'city-99',
-  oblastId: 'oblast-01',
   name: 'Київ',
-  katotthCode: 'UA80000000000093317',
-  hasDistricts: false,
+  oblastName: 'Київ',
 );
+
+/// A settlement that subdivides — used by the district-clearing test.
+const _settlementWithDistricts = Settlement(
+  id: 'city-districts-1',
+  name: 'Дніпро',
+  oblastName: 'Дніпропетровська',
+);
+
+const _district1 = CityDistrict(
+  id: 'district-1',
+  cityId: 'city-districts-1',
+  name: 'Соборний',
+  katotthCode: 'UA12-020-0136',
+);
+
+/// Fixed fake backing `locationRepositoryProvider` — resolves the settlement
+/// search to a small fixed list (ignoring the query text, since these tests
+/// only need SOME ≥3-char query to clear the "type more" hint and reach the
+/// real request path — see `settlement_select_field_test.dart` for the
+/// dedicated query-shape coverage) and resolves districts per settlement id.
+class _FakeLocationRepository implements LocationRepository {
+  const _FakeLocationRepository();
+
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const <Settlement>[_stubSettlement, _settlementWithDistricts];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      cityId == _settlementWithDistricts.id
+      ? const <CityDistrict>[_district1]
+      : const <CityDistrict>[];
+
+  @override
+  Future<List<Oblast>> fetchOblasts() => throw UnimplementedError();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) => throw UnimplementedError();
+}
+
+const _locationRepo = _FakeLocationRepository();
 
 class _StubMasterProfileNotifier extends MasterProfile {
   _StubMasterProfileNotifier(this._master);
@@ -126,10 +183,31 @@ List<Object> _overrides(_MockMasterRepository repo, {Master? master}) =>
         () => _StubMasterProfileNotifier(master ?? _emptyLocalityMaster),
       ),
       masterRepositoryProvider.overrideWithValue(repo),
+      locationRepositoryProvider.overrideWithValue(_locationRepo),
     ];
 
 Finder _field(String key) =>
     find.descendant(of: find.byKey(Key(key)), matching: find.byType(TextField));
+
+/// Selects [settlement] through the REAL search sheet: open → type a query
+/// long enough to clear the "type more" hint → let the debounce elapse →
+/// tap the row. There is no `LocalityCascade.onCity` callback to invoke
+/// directly any more (phase 346).
+Future<void> _selectSettlement(
+  WidgetTester tester,
+  Settlement settlement,
+) async {
+  await tester.tap(find.byKey(const Key('settlement_select_field')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const Key('select-menu-search')),
+    settlement.name,
+  );
+  await tester.pump(kSettlementSearchDebounce);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('settlement_option_${settlement.id}')));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   late _MockMasterRepository repo;
@@ -247,6 +325,48 @@ void main() {
 
       expect(find.text(l10n.masterLocationSubheading), findsOneWidget);
       expect(find.text(l10n.locationSubheading), findsNothing);
+
+      // Phase 346 (Qase case 3 step 5) — the retired «Область»/«Місто» rows
+      // must never reappear on this screen.
+      expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
+      expect(find.byKey(const Key('locality_row_city')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'picking a new settlement always clears a previously selected district',
+    (tester) async {
+      await tester.pumpRoutedApp(_buildRouter(), overrides: _overrides(repo));
+      await tester.pump();
+      await tester.pump();
+
+      // Pick the subdividing settlement — the district row appears.
+      await _selectSettlement(tester, _settlementWithDistricts);
+      expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('locality_row_district')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey<String>('locality_picker_tile_${_district1.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<LocalityTapRow>(
+              find.byKey(const Key('locality_row_district')),
+            )
+            .value,
+        _district1.name,
+      );
+
+      // Now pick a DIFFERENT, leaf settlement — the district row must vanish
+      // (a `CityDistrict` belongs to exactly one settlement, so carrying the
+      // old selection across would submit a district that is not a child of
+      // the newly-submitted city).
+      await _selectSettlement(tester, _stubSettlement);
+
+      expect(find.byKey(const Key('locality_row_district')), findsNothing);
     },
   );
 
@@ -259,11 +379,8 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Select a city by invoking the cascade callback directly.
-      tester
-          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-          .onCity(_stubCity);
-      await tester.pump();
+      // Select a settlement through the real search sheet.
+      await _selectSettlement(tester, _stubSettlement);
 
       await tester.enterText(_field('field-street'), 'вул. Шевченка');
       await tester.pump();
@@ -341,10 +458,7 @@ void main() {
 
       final before = states.length;
 
-      tester
-          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-          .onCity(_stubCity);
-      await tester.pump();
+      await _selectSettlement(tester, _stubSettlement);
       await tester.enterText(_field('field-street'), 'вул. Шевченка');
       await tester.pump();
       await tester.enterText(_field('field-buildingNo'), '1');
@@ -392,10 +506,7 @@ void main() {
 
       // Dirty the form via the city callback (as the other tests do) so Save is
       // enabled — but leave street + building EMPTY.
-      tester
-          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-          .onCity(_stubCity);
-      await tester.pump();
+      await _selectSettlement(tester, _stubSettlement);
 
       await tester.tap(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
@@ -428,10 +539,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      tester
-          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-          .onCity(_stubCity);
-      await tester.pump();
+      await _selectSettlement(tester, _stubSettlement);
       await tester.enterText(_field('field-street'), 'вул. Шевченка');
       await tester.pump();
       await tester.enterText(_field('field-buildingNo'), '12А');
@@ -461,10 +569,7 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      tester
-          .widget<LocalityCascade>(find.byKey(const Key('location-cascade')))
-          .onCity(_stubCity);
-      await tester.pump();
+      await _selectSettlement(tester, _stubSettlement);
       await tester.enterText(_field('field-street'), 'вул. Шевченка');
       await tester.pump();
       await tester.enterText(_field('field-buildingNo'), '1');

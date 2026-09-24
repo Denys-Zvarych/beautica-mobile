@@ -26,7 +26,11 @@
 //     • the draft mirror — setQuery writes the normalised term onto
 //       searchQueryDraftControllerProvider on EVERY call; clearFilters/reset
 //       empty it.
-//     • selectCity — sets cityId (+ districtId); clearing cityId clears district
+//     • selectSettlement (renamed from selectCity, Phase 346) — sets cityId;
+//       ALWAYS clears districtId, on a set as well as on a clear — a flat
+//       settlement autocomplete can land anywhere in Ukraine, so a carried-over
+//       district could scope the search by a district outside the new
+//       settlement
 //     • toggleServiceType — single-select replaces prior; re-tap clears
 //     • setMaxPrice — sets maxPrice; >= kSearchPriceCeiling → null boundary;
 //       null → null; minPrice always stays null (single-thumb control)
@@ -46,9 +50,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/pending_service_preselection_provider.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
-import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
-import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -551,11 +553,11 @@ void main() {
     });
   });
 
-  group('SearchFiltersController.selectCity', () {
+  group('SearchFiltersController.selectSettlement', () {
     test('sets cityId with no district', () {
       final c = _make().container;
 
-      _filters(c).selectCity(cityId: 'city-kyiv');
+      _filters(c).selectSettlement(cityId: 'city-kyiv');
 
       expect(_state(c).cityId, 'city-kyiv');
       expect(_state(c).districtId, isNull);
@@ -564,7 +566,7 @@ void main() {
     test('sets cityId then districtId via selectDistrict', () {
       final c = _make().container;
 
-      _filters(c).selectCity(cityId: 'city-kyiv');
+      _filters(c).selectSettlement(cityId: 'city-kyiv');
       _filters(c).selectDistrict(districtId: 'dist-1');
 
       expect(_state(c).cityId, 'city-kyiv');
@@ -573,10 +575,10 @@ void main() {
 
     test('clearing the city (cityId: null) also clears the district', () {
       final c = _make().container;
-      _filters(c).selectCity(cityId: 'city-kyiv');
+      _filters(c).selectSettlement(cityId: 'city-kyiv');
       _filters(c).selectDistrict(districtId: 'dist-1');
 
-      _filters(c).selectCity(cityId: null);
+      _filters(c).selectSettlement(cityId: null);
 
       expect(_state(c).cityId, isNull);
       expect(
@@ -594,114 +596,44 @@ void main() {
       expect(_state(c).cityId, isNull);
       expect(_state(c).districtId, isNull);
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // Item 4 — Region → City → District cascading filter.
-  //
-  // The region (oblast) is a UI-only narrowing step: it is persisted on
-  // SearchFilters.oblastId so the picker can re-open the right city list and
-  // the applied-filter chips can show the region label, but it is NEVER sent to
-  // the wire (the repository assertion lives in search_repository_test.dart's
-  // "oblastId is UI-only" group). The district is OPTIONAL — a search proceeds
-  // with a city alone. Changing the city clears any stale district.
-  // -------------------------------------------------------------------------
-  group('SearchFiltersController.selectOblast — cascade level 1', () {
-    test('selecting an oblast sets oblastId (city/district stay null)', () {
-      final c = _make().container;
-
-      _filters(c).selectOblast(oblastId: 'oblast-kyiv');
-
-      expect(_state(c).oblastId, 'oblast-kyiv');
-      expect(_state(c).cityId, isNull);
-      expect(_state(c).districtId, isNull);
-    });
-
-    test('selecting a city KEEPS the chosen oblast (stays in region)', () {
-      final c = _make().container;
-      _filters(c).selectOblast(oblastId: 'oblast-kyiv');
-
-      _filters(c).selectCity(cityId: 'city-kyiv');
-
-      expect(
-        _state(c).oblastId,
-        'oblast-kyiv',
-        reason: 'picking a city must not drop the region it lives in',
-      );
-      expect(_state(c).cityId, 'city-kyiv');
-    });
-
-    test('a city + NO district is a valid (district-optional) selection', () {
+    // -----------------------------------------------------------------------
+    // Phase 346 — the region (oblast) cascade step is GONE. `selectOblast` and
+    // `SearchFilters.oblastId` no longer exist: the region was always UI-only
+    // (never sent to the wire), and it existed solely to re-open the right city
+    // list and label a region chip in the retired Область → Місто → Район
+    // cascade. A flat settlement autocomplete has no city list to scope and no
+    // region step to label, so there is nothing left to persist.
+    //
+    // What DOES survive from that group is the district-clearing behaviour —
+    // but the contract is now STRICTER. The old cascade only cleared the
+    // district on a re-run through selectOblast (never through a bare
+    // selectCity to a new non-null city, which is the "PRESERVES the district"
+    // test this replaces): that was safe only because the cascade physically
+    // could not offer a city outside the chosen oblast. A flat autocomplete's
+    // next pick can be anywhere in Ukraine, so selectSettlement now clears the
+    // district on EVERY settlement change, not just a clear-to-null.
+    // -----------------------------------------------------------------------
+    test('selecting a NEW non-null settlement ALWAYS clears a stale district — '
+        'not just a clear-to-null (Phase 346: a flat autocomplete can land '
+        'anywhere, unlike the retired oblast-scoped cascade)', () {
       final c = _make().container;
       _filters(c)
-        ..selectOblast(oblastId: 'oblast-kyiv')
-        ..selectCity(cityId: 'city-kyiv');
-
-      // District left unset — the search proceeds on the city scope alone.
-      expect(_state(c).cityId, 'city-kyiv');
-      expect(_state(c).districtId, isNull);
-    });
-
-    test(
-      're-running the region→city cascade CLEARS a stale district (the screen '
-      'always re-selects the oblast first, which resets cityId+districtId)',
-      () {
-        final c = _make().container;
-        _filters(c)
-          ..selectOblast(oblastId: 'oblast-kyiv')
-          ..selectCity(cityId: 'city-kyiv')
-          ..selectDistrict(districtId: 'dist-pechersk');
-        expect(_state(c).districtId, 'dist-pechersk');
-
-        // The picker commits a new pick via selectOblast → selectCity (see
-        // search_filters_screen.dart _onPickLocality). selectOblast resets the
-        // whole locality, so the stale district from the prior city is dropped.
-        _filters(c)
-          ..selectOblast(oblastId: 'oblast-kyiv')
-          ..selectCity(cityId: 'city-other');
-
-        expect(_state(c).cityId, 'city-other');
-        expect(
-          _state(c).districtId,
-          isNull,
-          reason:
-              'a district from the old city is meaningless in the new city '
-              '— the oblast-first re-selection clears it',
-        );
-        expect(_state(c).oblastId, 'oblast-kyiv');
-      },
-    );
-
-    test('a bare selectCity to a new non-null city PRESERVES the district (the '
-        'cascade integrity is enforced by the oblast-first re-selection, not by '
-        'selectCity itself)', () {
-      final c = _make().container;
-      _filters(c)
-        ..selectOblast(oblastId: 'oblast-kyiv')
-        ..selectCity(cityId: 'city-kyiv')
+        ..selectSettlement(cityId: 'city-kyiv')
         ..selectDistrict(districtId: 'dist-pechersk');
+      expect(_state(c).districtId, 'dist-pechersk');
 
-      // A standalone selectCity (NOT preceded by selectOblast) only swaps the
-      // city id; it keeps the district. This pins the actual contract so a
-      // future change to selectCity's clear-semantics is a deliberate edit.
-      _filters(c).selectCity(cityId: 'city-other');
+      _filters(c).selectSettlement(cityId: 'city-other');
 
       expect(_state(c).cityId, 'city-other');
-      expect(_state(c).districtId, 'dist-pechersk');
-    });
-
-    test('clearing the oblast clears the whole locality (city + district)', () {
-      final c = _make().container;
-      _filters(c)
-        ..selectOblast(oblastId: 'oblast-kyiv')
-        ..selectCity(cityId: 'city-kyiv')
-        ..selectDistrict(districtId: 'dist-pechersk');
-
-      _filters(c).selectOblast(oblastId: null);
-
-      expect(_state(c).oblastId, isNull);
-      expect(_state(c).cityId, isNull);
-      expect(_state(c).districtId, isNull);
+      expect(
+        _state(c).districtId,
+        isNull,
+        reason:
+            'a district from the old settlement could scope the search by a '
+            'district outside the new one — must not survive a settlement '
+            'change',
+      );
     });
   });
 
@@ -894,7 +826,7 @@ void main() {
       final c = _make().container;
       _filters(c)
         ..setQuery('манікюр')
-        ..selectCity(cityId: 'city-kyiv')
+        ..selectSettlement(cityId: 'city-kyiv')
         ..selectDistrict(districtId: 'dist-1')
         ..toggleServiceType('NAILS')
         ..setMaxPrice(1200);
@@ -944,22 +876,15 @@ void main() {
       'clears every NON-location facet but PRESERVES the resolved locality + its '
       'labels, and re-resolves NO location taxonomy',
       () {
-        // Spy fakes for the three taxonomy providers — clearFilters must never
-        // read them (the locality carries through untouched), so every counter
-        // must stay at 0 across the clear.
-        var oblastCalls = 0;
-        var cityCalls = 0;
+        // Spy fake for the district provider — clearFilters must never read it
+        // (the locality carries through untouched), so the counter must stay at
+        // 0 across the clear. Phase 346 dropped the oblast/city cascade
+        // entirely (no `oblastListProvider`/`cityListProvider` call is even
+        // reachable from this controller any more), so only the district read
+        // remains worth spying on.
         var districtCalls = 0;
         final c = _make(
           extra: <Object>[
-            oblastListProvider.overrideWith((ref) async {
-              oblastCalls++;
-              return const <Oblast>[];
-            }),
-            cityListProvider('oblast-kyiv').overrideWith((ref) async {
-              cityCalls++;
-              return const <City>[];
-            }),
             districtListProvider('city-kyiv').overrideWith((ref) async {
               districtCalls++;
               return const <CityDistrict>[];
@@ -967,11 +892,10 @@ void main() {
           ],
         ).container;
 
-        // Arrange — a fully-populated filter set: locality (oblast→city→district)
+        // Arrange — a fully-populated filter set: locality (settlement→district)
         // PLUS every clearable facet reachable through the public API.
         _filters(c)
-          ..selectOblast(oblastId: 'oblast-kyiv')
-          ..selectCity(cityId: 'city-kyiv')
+          ..selectSettlement(cityId: 'city-kyiv')
           ..selectDistrict(districtId: 'dist-pechersk')
           ..setQuery('манікюр')
           ..toggleServiceType('NAILS')
@@ -979,7 +903,6 @@ void main() {
           ..setSort(SearchSort.priceAsc);
         // Seed the sibling label + service-selection controllers too.
         c.read(searchFilterLabelsControllerProvider.notifier)
-          ..setOblastName('Київська')
           ..setCityName('Київ')
           ..setDistrictName('Печерський')
           ..setCategoryName('Манікюр');
@@ -1012,16 +935,14 @@ void main() {
         );
 
         // ... while the resolved locality carries straight through untouched.
-        expect(s.oblastId, 'oblast-kyiv');
         expect(s.cityId, 'city-kyiv');
         expect(s.districtId, 'dist-pechersk');
 
-        // The label controller keeps the three locality names, drops ONLY the
+        // The label controller keeps the locality name, drops ONLY the
         // category label.
         final SearchFilterLabels labels = c.read(
           searchFilterLabelsControllerProvider,
         );
-        expect(labels.oblastName, 'Київська');
         expect(labels.cityName, 'Київ');
         expect(labels.districtName, 'Печерський');
         expect(labels.categoryName, isNull);
@@ -1031,8 +952,6 @@ void main() {
 
         // No location taxonomy endpoint was re-read across the clear — the
         // locality is preserved by an in-place copyWith, never a re-resolve.
-        expect(oblastCalls, 0);
-        expect(cityCalls, 0);
         expect(districtCalls, 0);
       },
     );
@@ -1041,13 +960,10 @@ void main() {
       'leaves a location-only state fully intact (clear is a no-op there)',
       () {
         final c = _make().container;
-        _filters(c)
-          ..selectOblast(oblastId: 'oblast-kyiv')
-          ..selectCity(cityId: 'city-kyiv');
+        _filters(c).selectSettlement(cityId: 'city-kyiv');
 
         _filters(c).clearFilters();
 
-        expect(_state(c).oblastId, 'oblast-kyiv');
         expect(_state(c).cityId, 'city-kyiv');
         // Nothing clearable was set, so the whole state is location-only.
         expect(_state(c).query, isNull);
@@ -1086,7 +1002,7 @@ void main() {
 
       // Populate a filter set on the authenticated session.
       _filters(c)
-        ..selectCity(cityId: 'city-kyiv')
+        ..selectSettlement(cityId: 'city-kyiv')
         ..toggleServiceType('NAILS')
         ..setMaxPrice(900);
       expect(_state(c).cityId, 'city-kyiv');

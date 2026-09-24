@@ -73,6 +73,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // automatic re-issue into a live limit. Asserted in the throttle group below
   // and end-to-end in `test/core/network/salon_board_429_contract_test.dart`.
   'SalonBoardRateLimitedFailure': true,
+  // 429 from the settlement autocomplete's per-IP bucket (phase 346). Read
+  // through a provider BUILD like the board, so `isThrottleFailure` is what
+  // stops the container re-issuing it — asserted in the throttle group.
+  'SettlementSearchRateLimitedFailure': true,
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
@@ -192,6 +196,8 @@ Map<String, Failure> _instances() {
     'SalonBoardRateLimitedFailure': const SalonBoardRateLimitedFailure(
       retryAfterSeconds: 37,
     ),
+    'SettlementSearchRateLimitedFailure':
+        const SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
     'ConflictFailure': const ConflictFailure(),
     'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
       serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
@@ -433,6 +439,8 @@ void main() {
         'SalonBoardRateLimitedFailure': SalonBoardRateLimitedFailure(
           retryAfterSeconds: 37,
         ),
+        'SettlementSearchRateLimitedFailure':
+            SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
         'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
       };

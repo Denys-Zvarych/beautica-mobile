@@ -28,9 +28,7 @@ import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
-import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
-import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -46,35 +44,19 @@ import '../../../helpers/overflow_guard.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
-// Locality taxonomy fixtures (drive the prefill's oblast → city → district
-// resolution). Київ subdivides (hasDistricts: true) so the District level is
-// resolvable; Львів does not.
+// Locality taxonomy fixtures (drive the prefill's settlement resolution).
+//
+// Phase 346 — the oblast → city cascade these used to model is GONE; the
+// prefill reads `user.cityId` + the already-denormalised `user.cityName`
+// straight off the profile (no taxonomy lookup for either) and resolves
+// "does this settlement subdivide" the same way the address screens do — by
+// asking `districtListProvider(cityId)` directly, never a `City.hasDistricts`
+// flag. Київ ("city-kyiv") is wired below to answer that read with
+// [_kDistrict]; Львів ("city-lviv") is wired to answer with nothing.
 // ---------------------------------------------------------------------------
 
-const _kOblastId = 'oblast-kyiv';
-const _kOblast = Oblast(
-  id: _kOblastId,
-  name: 'Київська',
-  katotthCode: 'UA32000000000000000',
-);
-
 const _kCityWithDistrictsId = 'city-kyiv';
-const _kCityWithDistricts = City(
-  id: _kCityWithDistrictsId,
-  oblastId: _kOblastId,
-  name: 'Київ',
-  katotthCode: 'UA80000000000093317',
-  hasDistricts: true,
-);
-
 const _kCityNoDistrictsId = 'city-lviv';
-const _kCityNoDistricts = City(
-  id: _kCityNoDistrictsId,
-  oblastId: _kOblastId,
-  name: 'Львів',
-  katotthCode: 'UA46000000000026870',
-  hasDistricts: false,
-);
 
 const _kDistrictId = 'dist-pechersk';
 const _kDistrict = CityDistrict(
@@ -98,10 +80,8 @@ const _userWithLocation = User(
   role: UserRole.client,
   firstName: 'Дмитро',
   lastName: 'Клієнт',
-  oblastId: _kOblastId,
   cityId: _kCityWithDistrictsId,
   districtId: _kDistrictId,
-  oblastName: 'Київська',
   cityName: 'Київ',
   districtName: 'Печерський',
 );
@@ -126,9 +106,7 @@ const _userWithLocationLviv = User(
   role: UserRole.client,
   firstName: 'Оксана',
   lastName: 'Клієнт',
-  oblastId: _kOblastId,
   cityId: _kCityNoDistrictsId,
-  oblastName: 'Київська',
   cityName: 'Львів',
 );
 
@@ -204,6 +182,13 @@ class _StubAuthNotifier extends AuthNotifier {
 // test/helpers/pump_app.dart).
 List<Object> _overrides({
   ClientEditProfile Function()? profileFactory,
+  // Lets ONE caller (the eager-prefill-reduction regression test) swap in a
+  // COUNTING variant of the no-districts-settlement override, instead of
+  // appending a second override for the same provider — Riverpod asserts on a
+  // provider overridden twice within one container. Typed `Object`, not the
+  // real `Override` — that name is not exported by this Riverpod version (see
+  // the `.cast()` note below).
+  Object? lvivDistrictOverride,
 }) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -217,14 +202,25 @@ List<Object> _overrides({
   approvedCategoriesProvider.overrideWith(
     (ref) async => const <ServiceCategoryOption>[..._categories],
   ),
-  // Taxonomy the prefill resolves the saved ids against.
-  oblastListProvider.overrideWith((ref) async => const <Oblast>[_kOblast]),
-  cityListProvider(_kOblastId).overrideWith(
-    (ref) async => const <City>[_kCityWithDistricts, _kCityNoDistricts],
-  ),
+  // Phase 346 — the prefill no longer resolves any oblast/city taxonomy (see
+  // the fixtures comment above); the ONE locality read left is districts,
+  // wired here exactly as the address screens' [districtsOf] issues it. BOTH
+  // fixture settlements need a fixed answer, not just the one with districts:
+  // `_LocationSection` (`search_filters_screen.dart`) calls `districtsOf` — and
+  // so `ref.watch(districtListProvider(cityId))` — independently of the
+  // prefill, purely to gate the District row, for WHATEVER settlement is
+  // currently selected. Leaving `_kCityNoDistrictsId` unwired falls through to
+  // the real `locationRepositoryProvider` (a real Dio call against no live
+  // backend), which leaves a pending Timer the test binding fails on at
+  // teardown — and, worse, lets the leaked timer poison later tests in the
+  // same run.
   districtListProvider(
     _kCityWithDistrictsId,
   ).overrideWith((ref) async => const <CityDistrict>[_kDistrict]),
+  lvivDistrictOverride ??
+      districtListProvider(
+        _kCityNoDistrictsId,
+      ).overrideWith((ref) async => const <CityDistrict>[]),
 ];
 
 Widget _app() => const MaterialApp(
@@ -275,14 +271,12 @@ void main() {
 
         // Wire-facing ids seeded from the profile.
         final SearchFilters f = _filters(tester);
-        expect(f.oblastId, _kOblastId);
         expect(f.cityId, _kCityWithDistrictsId);
         expect(f.districtId, _kDistrictId);
 
         // Display labels seeded — cityHasDistricts resolved from the taxonomy
         // (not hardcoded), so the District row gates open correctly.
         final SearchFilterLabels labels = _labels(tester);
-        expect(labels.oblastName, 'Київська');
         expect(labels.cityName, 'Київ');
         expect(labels.cityHasDistricts, isTrue);
         expect(labels.districtName, 'Печерський');
@@ -290,7 +284,10 @@ void main() {
         // The city row renders the seeded name (content assertion on the keyed
         // value Text).
         final Text cityText = tester.widget<Text>(
-          find.byKey(const Key('search_city_value')),
+          find.descendant(
+            of: find.byKey(const Key('search_city_value')),
+            matching: find.byType(Text),
+          ),
         );
         expect(cityText.data, 'Київ');
       },
@@ -313,23 +310,106 @@ void main() {
       await tester.pumpAndSettle();
 
       final SearchFilters f = _filters(tester);
-      expect(f.oblastId, isNull);
       expect(f.cityId, isNull);
       expect(f.districtId, isNull);
 
       final SearchFilterLabels labels = _labels(tester);
-      expect(labels.oblastName, isNull);
       expect(labels.cityName, isNull);
       expect(labels.districtName, isNull);
 
-      // The city row shows its placeholder, not a seeded name.
+      // The city row shows its placeholder, not a seeded name. The default
+      // placeholder is `SettlementSelectField`'s own —
+      // `l10n.settlementPlaceholder` — since the screen passes no
+      // `placeholder:` override.
       final AppLocalizations l10n = await AppLocalizations.delegate.load(
         const Locale('uk'),
       );
       final Text cityText = tester.widget<Text>(
-        find.byKey(const Key('search_city_value')),
+        find.descendant(
+          of: find.byKey(const Key('search_city_value')),
+          matching: find.byType(Text),
+        ),
       );
-      expect(cityText.data, l10n.searchCityPlaceholder);
+      expect(cityText.data, l10n.settlementPlaceholder);
+    });
+
+    // -------------------------------------------------------------------------
+    // Phase 346 eager-prefill reduction (see the fixtures comment above and
+    // `search_filters_controller.dart`'s `prefillFromProfileIfNeeded` doc). The
+    // old cascade-based prefill eagerly fetched oblasts + the oblast's cities on
+    // every call (mobile-backlog LOW); the settlement label now comes straight
+    // off `/users/me`'s denormalised `cityName`, so a profile with a settlement
+    // but NO saved district must issue nothing beyond the profile read itself —
+    // in particular, no districts request.
+    //
+    // Exercised on a bare [ProviderContainer] — NOT a widget pump — because
+    // `ClientSearchScreen`'s own `_LocationSection` independently watches
+    // `districtListProvider(cityId)` (via `districtsOf`) to gate the District
+    // row, which would call `fetchDistricts` regardless of what the prefill
+    // does and defeat the proof.
+    // -------------------------------------------------------------------------
+    test('prefillFromProfileIfNeeded issues NO districts read when the profile '
+        'has a settlement but no saved district — and still seeds cityId + '
+        'cityName', () async {
+      _seededUser = _userWithLocationLviv; // Львів, cityId set, no district
+      var districtCalls = 0;
+      final ProviderContainer container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        // A counting variant of the standard no-districts-settlement
+        // override — reached only if prefill (wrongly) issued a districts
+        // request despite `districtId == null`.
+        overrides: _overrides(
+          lvivDistrictOverride: districtListProvider(_kCityNoDistrictsId)
+              .overrideWith((ref) async {
+                districtCalls++;
+                return const <CityDistrict>[];
+              }),
+        ).cast(),
+      );
+      addTearDown(container.dispose);
+
+      // Known harness trap (see the applyProfileLocationSave tests below):
+      // authProvider must be force-settled before the FIRST read of
+      // searchFiltersControllerProvider, or an unsettled auth future races
+      // the controller's lazy build().
+      await container.read(authProvider.future);
+
+      await container
+          .read(searchFiltersControllerProvider.notifier)
+          .prefillFromProfileIfNeeded();
+
+      expect(
+        districtCalls,
+        0,
+        reason:
+            'a profile with no saved district must never trigger a '
+            'districts fetch — that read is gated on `user.districtId != '
+            'null` specifically to delete this eager call',
+      );
+      expect(
+        container.read(searchFiltersControllerProvider).cityId,
+        _kCityNoDistrictsId,
+        reason: 'the settlement must still seed from user.cityId',
+      );
+      expect(
+        container.read(searchFiltersControllerProvider).districtId,
+        isNull,
+      );
+      expect(
+        container.read(searchFilterLabelsControllerProvider).cityName,
+        'Львів',
+        reason:
+            'the label is seeded straight from the denormalised '
+            'user.cityName — no taxonomy round trip needed for it either',
+      );
+      expect(
+        container.read(searchFilterLabelsControllerProvider).cityHasDistricts,
+        isFalse,
+        reason:
+            'the districts read was skipped, so cityHasDistricts falls back '
+            'to false (the District row stays gated until the user picks a '
+            'settlement through the field itself)',
+      );
     });
 
     testWidgets('a manual change after prefill SURVIVES a navigate-away-and-back '
@@ -357,13 +437,12 @@ void main() {
         _kCityWithDistrictsId,
       );
 
-      // 2. The user manually switches to Львів (a different city in the same
-      //    region), mirroring a real pick (filter + labels).
-      container.read(searchFiltersControllerProvider.notifier)
-        ..selectOblast(oblastId: _kOblastId)
-        ..selectCity(cityId: _kCityNoDistrictsId);
+      // 2. The user manually switches to a different settlement (Львів),
+      //    mirroring a real pick (filter + labels).
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .selectSettlement(cityId: _kCityNoDistrictsId);
       container.read(searchFilterLabelsControllerProvider.notifier)
-        ..setOblastName('Київська')
         ..setCityName('Львів')
         ..setCityHasDistricts(false)
         ..setDistrictName(null);
@@ -505,7 +584,10 @@ void main() {
 
         // And the rendered city row shows B's city — never A's.
         final Text cityText = tester.widget<Text>(
-          find.byKey(const Key('search_city_value')),
+          find.descendant(
+            of: find.byKey(const Key('search_city_value')),
+            matching: find.byType(Text),
+          ),
         );
         expect(cityText.data, 'Львів');
       },
@@ -633,9 +715,9 @@ void main() {
 
         // The user manually overrides the seeded locality to Львів through
         // Пошук's own picker — marks _userTouchedLocality.
-        container.read(searchFiltersControllerProvider.notifier)
-          ..selectOblast(oblastId: _kOblastId)
-          ..selectCity(cityId: _kCityNoDistrictsId);
+        container
+            .read(searchFiltersControllerProvider.notifier)
+            .selectSettlement(cityId: _kCityNoDistrictsId);
         expect(
           container.read(searchFiltersControllerProvider).cityId,
           _kCityNoDistrictsId,
@@ -753,10 +835,6 @@ void main() {
               'locality — only a settled user-id change may reset it',
         );
         expect(
-          container.read(searchFiltersControllerProvider).oblastId,
-          _kOblastId,
-        );
-        expect(
           container.read(searchFiltersControllerProvider).districtId,
           _kDistrictId,
           reason: 'the seeded district must survive the same-user refresh too',
@@ -775,7 +853,10 @@ void main() {
         // The rendered city row still shows the seeded name — never wiped to the
         // placeholder (the user-visible symptom of the reported bug).
         final Text cityText = tester.widget<Text>(
-          find.byKey(const Key('search_city_value')),
+          find.descendant(
+            of: find.byKey(const Key('search_city_value')),
+            matching: find.byType(Text),
+          ),
         );
         expect(cityText.data, 'Київ');
       },
@@ -820,10 +901,6 @@ void main() {
           reason:
               "a different settled user id must clear user A's seeded locality "
               '(no cross-account leak)',
-        );
-        expect(
-          container.read(searchFiltersControllerProvider).oblastId,
-          isNull,
         );
         expect(
           container.read(searchFilterLabelsControllerProvider).cityName,
@@ -898,9 +975,9 @@ void main() {
       );
 
       // The user manually overrides to Львів (marks _userTouchedLocality).
-      container.read(searchFiltersControllerProvider.notifier)
-        ..selectOblast(oblastId: _kOblastId)
-        ..selectCity(cityId: _kCityNoDistrictsId);
+      container
+          .read(searchFiltersControllerProvider.notifier)
+          .selectSettlement(cityId: _kCityNoDistrictsId);
       expect(
         container.read(searchFiltersControllerProvider).cityId,
         _kCityNoDistrictsId,
@@ -1152,8 +1229,7 @@ void main() {
           // the locality that will shortly be "saved" from the profile
           // screen, so the `unchanged` branch below is guaranteed to fire.
           controller
-            ..selectOblast(oblastId: _kOblastId)
-            ..selectCity(cityId: _kCityWithDistrictsId)
+            ..selectSettlement(cityId: _kCityWithDistrictsId)
             ..selectDistrict(districtId: _kDistrictId);
           expect(
             container.read(searchFiltersControllerProvider).cityId,
@@ -1162,9 +1238,10 @@ void main() {
 
           // The identical-value save — the previously untested branch.
           controller.applyProfileLocationSave(
-            oblast: _kOblast,
-            city: _kCityWithDistricts,
+            cityId: _kCityWithDistrictsId,
+            cityName: 'Київ',
             district: _kDistrict,
+            cityHasDistricts: true,
           );
 
           // Property 2 — the early return must not leave state half-written
@@ -1172,7 +1249,6 @@ void main() {
           final SearchFilters afterSave = container.read(
             searchFiltersControllerProvider,
           );
-          expect(afterSave.oblastId, _kOblastId);
           expect(afterSave.cityId, _kCityWithDistrictsId);
           expect(afterSave.districtId, _kDistrictId);
 
@@ -1199,7 +1275,6 @@ void main() {
                 'prefill, defeating the very method whose job is to make a '
                 'profile save win',
           );
-          expect(afterPrefill.oblastId, _kOblastId);
           expect(
             afterPrefill.districtId,
             isNull,
@@ -1228,29 +1303,25 @@ void main() {
           searchFiltersControllerProvider.notifier,
         );
 
-        // Arm the guard with a manual CLEAR (not a pick) — state.oblastId/
-        // cityId/districtId are already null on a fresh build(), so this is
-        // a no-op on `state` but still marks _userTouchedLocality, exactly
-        // like a real "opened the picker and backed out" interaction.
-        controller.selectOblast(oblastId: null);
-        expect(
-          container.read(searchFiltersControllerProvider).oblastId,
-          isNull,
-        );
+        // Arm the guard with a manual CLEAR (not a pick) — state.cityId/
+        // districtId are already null on a fresh build(), so this is a no-op
+        // on `state` but still marks _userTouchedLocality, exactly like a
+        // real "opened the picker and backed out" interaction.
+        controller.selectSettlement(cityId: null);
+        expect(container.read(searchFiltersControllerProvider).cityId, isNull);
 
-        // The null-handling edge: oblast/city/district are all null, and
-        // state is already all null — `unchanged` must resolve true via
+        // The null-handling edge: city/district are all null, and state is
+        // already all null — `unchanged` must resolve true via
         // `null == null?.id`, not throw or mis-match.
         controller.applyProfileLocationSave(
-          oblast: null,
-          city: null,
+          cityId: null,
+          cityName: null,
           district: null,
         );
 
         final SearchFilters afterSave = container.read(
           searchFiltersControllerProvider,
         );
-        expect(afterSave.oblastId, isNull);
         expect(afterSave.cityId, isNull);
         expect(afterSave.districtId, isNull);
 
@@ -1272,7 +1343,6 @@ void main() {
               'would permanently lock Search out of ever seeding a '
               'locality again this session',
         );
-        expect(afterPrefill.oblastId, _kOblastId);
         expect(afterPrefill.districtId, _kDistrictId);
       });
     },

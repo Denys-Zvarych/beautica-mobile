@@ -496,6 +496,37 @@ void main() {
       expect(isPiiPath(opts.path), isTrue);
     });
   });
+  group('LoggingInterceptor.onError — cancellations (security L1)', () {
+    test('a cancelled request logs NOTHING and is still passed on', () {
+      final sink = _CapturingSink();
+      final interceptor = LoggingInterceptor(sink: sink.call);
+      final handler = _MockErrorHandler();
+      final err = DioException(
+        requestOptions: buildOpts('/api/v1/settlements'),
+        type: DioExceptionType.cancel,
+      );
+
+      interceptor.onError(err, handler);
+
+      expect(sink.lines, isEmpty);
+      verify(() => handler.next(err)).called(1);
+    });
+
+    test('a non-cancel error on the same path is still logged', () {
+      final sink = _CapturingSink();
+      final interceptor = LoggingInterceptor(sink: sink.call);
+      final handler = _MockErrorHandler();
+      final err = DioException(
+        requestOptions: buildOpts('/api/v1/settlements'),
+        type: DioExceptionType.connectionError,
+      );
+
+      interceptor.onError(err, handler);
+
+      expect(sink.only, contains('<-- ERROR'));
+      verify(() => handler.next(err)).called(1);
+    });
+  });
 }
 
 class _MockErrorHandler extends Mock implements ErrorInterceptorHandler {}

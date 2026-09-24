@@ -29,6 +29,7 @@
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -390,5 +391,81 @@ void main() {
     // Menu never opened.
     expect(find.byKey(const Key('select-menu-search')), findsNothing);
     expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+  });
+
+  // -------------------------------------------------------------------------
+  // Perf N2 — a keyboard-inset frame reuses the cached body: the remote
+  // source's `resolve` (and so the Consumer, the option mapping, the rows) is
+  // not re-run just because the modal route rebuilt the sheet.
+  // -------------------------------------------------------------------------
+  testWidgets('N2 — keyboard-inset frames do not rebuild the sheet body', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    final List<String> resolved = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Scaffold(
+            body: Center(
+              child: SearchableSelectField<String>(
+                fieldKey: const Key('field-under-test'),
+                label: 'Категорія',
+                menuTitle: 'Категорія',
+                placeholder: 'Оберіть зі списку',
+                searchHint: 'Пошук…',
+                emptyLabel: 'Нічого не знайдено',
+                errorLabel: 'Не вдалося завантажити',
+                retryLabel: 'Спробувати знову',
+                selectedLabel: null,
+                fieldState: SelectFieldState.idle,
+                options: const <SelectOption<String>>[],
+                onSelected: (_) {},
+                onMenuRetry: () {},
+                source: SearchableSelectSource<String>(
+                  debounce: const Duration(milliseconds: 100),
+                  belowMinimumLabel: 'min',
+                  isSearchable: (_) => true,
+                  resolve: (WidgetRef ref, String query) {
+                    resolved.add(query);
+                    return const AsyncData<List<SelectOption<String>>>(
+                      _options,
+                    );
+                  },
+                  onRetry: (_, _) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _openMenu(tester);
+    expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+    final int before = resolved.length;
+    expect(before, greaterThan(0));
+
+    // Simulate the keyboard sliding up over several frames.
+    for (final double inset in <double>[80, 160, 240, 320]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: inset);
+      await tester.pump();
+    }
+
+    expect(resolved.length, before, reason: 'inset frames reused the body');
+    expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+
+    // Non-vacuous: a real query change DOES rebuild it.
+    await tester.enterText(find.byKey(const Key('select-menu-search')), 'ман');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(resolved.last, 'ман');
   });
 }

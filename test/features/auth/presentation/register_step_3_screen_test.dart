@@ -14,7 +14,7 @@
 //       Key('btn-save-step3')          → ValueKey<String>('address_submit')  (CLIENT)
 //       Key('btn-save-continue-step3') → ValueKey<String>('address_submit')  (MASTER/OWNER)
 //   - Skip affordance is now a GestureDetector (was InkWell).
-// - Layout: SubStepIndicator and its NeumorphicCard wrapper removed; SizedBox(sm) spacer added between sub-text and LocalityCascade.
+// - Layout: SubStepIndicator and its NeumorphicCard wrapper removed; SizedBox(sm) spacer added between sub-text and the locality block.
 //
 // Covered scenarios:
 //   1.   CLIENT renders 3 picker rows + split CTA, NO street/building/note.
@@ -38,6 +38,8 @@
 //   (B). verificationCardDesc resolves to the honest "Ми надіслали" copy in uk.
 //   (C). location_on_outlined icon tile renders at top of Step 3.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -53,12 +55,15 @@ import 'package:beautica_mobile/features/location/data/location_repository.dart'
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/server_field_error_banner.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,6 +93,22 @@ const _cityNoDistricts = City(
   katotthCode: 'UA4620',
   hasDistricts: false,
 );
+// Phase 346 — the settlement rows the «Населений пункт» autocomplete serves.
+// `_settlementWithDistricts` shares the id of the old `_cityWithDistricts`
+// fixture so `fetchDistricts` keys line up, and `_settlementNoDistricts` shares
+// the leaf city's — the screen decides "does this subdivide" by ASKING
+// `districtListProvider(settlementId)`, so the two fakes must agree on ids.
+const _settlementWithDistricts = Settlement(
+  id: 'c1',
+  name: 'Львів',
+  oblastName: 'Львівська',
+);
+const _settlementNoDistricts = Settlement(
+  id: 'c2',
+  name: 'Дрогобич',
+  oblastName: 'Львівська',
+);
+
 const _district = CityDistrict(
   id: 'd1',
   cityId: 'c1',
@@ -109,19 +130,60 @@ class _FakeLocationRepository implements LocationRepository {
     _cityNoDistricts,
   ];
 
+  /// Only `c1` subdivides — this is what makes the District row appear for
+  /// «Львів» and stay absent for «Дрогобич» (Phase 346: the screen asks this
+  /// endpoint instead of reading a `hasDistricts` flag the settlement search
+  /// response does not carry).
   @override
-  Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [
-    _district,
-  ];
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      cityId == 'c1' ? const [_district] : const <CityDistrict>[];
+
+  /// Both settlements on every query, so a test can pick either one with any
+  /// servable term. The blank query is the pre-typing major list.
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const [_settlementWithDistricts, _settlementNoDistricts];
 }
 
 class _SpyLocationRepository extends _FakeLocationRepository {
   int fetchOblastsCallCount = 0;
 
+  /// Phase 346 — the screen's post-frame warm-up moved from the oblast list to
+  /// the blank-query settlement list (the one `settlementSearchProvider` key
+  /// pinned keepAlive). The counter keeps its name so the test that reads it
+  /// still reads "the warm-up fired exactly once"; what it counts is the call
+  /// the screen actually makes now.
+  int searchSettlementsCallCount = 0;
+
   @override
   Future<List<Oblast>> fetchOblasts() {
     fetchOblastsCallCount++;
     return super.fetchOblasts();
+  }
+
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) {
+    searchSettlementsCallCount++;
+    return super.searchSettlements(query);
+  }
+}
+
+/// [_FakeLocationRepository] whose district lookup holds on [gate], keeping it
+/// IN FLIGHT so a submit can be caught awaiting it (perf LOW-A).
+class _GatedDistrictsLocationRepository extends _FakeLocationRepository {
+  _GatedDistrictsLocationRepository(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async {
+    await gate.future;
+    return super.fetchDistricts(cityId);
   }
 }
 
@@ -137,6 +199,15 @@ class _FailingLocationRepository implements LocationRepository {
 
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [];
+
+  /// Phase 346 — the warm-up the screen now fires is the settlement list, so
+  /// THIS is the call that must fail for the prefetch-error path to be
+  /// exercised at all.
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => throw const NetworkFailure();
 }
 
 class _MockAuthRepository extends Mock implements AuthRepository {}
@@ -224,7 +295,35 @@ Widget _app(GoRouter router, ProviderContainer container) =>
       ),
     );
 
-/// Selects an item in the cascade by tapping the row then the item text.
+/// Picks a settlement in the «Населений пункт» autocomplete.
+///
+/// The `pump(kSettlementSearchDebounce)` is LOAD-BEARING and must not be
+/// collapsed into the `pumpAndSettle` that follows it: `pumpAndSettle` fires no
+/// `Timer`, so a test that only settles measures the PRE-KEYSTROKE state and
+/// passes vacuously against whatever the blank-query list happened to contain.
+///
+/// [query] defaults to a servable 3-character term. Pass `''` to pick straight
+/// off the pre-typing major list without typing at all.
+Future<void> _pickSettlement(
+  WidgetTester tester,
+  String settlementId, {
+  String query = 'льв',
+}) async {
+  await tester.ensureVisible(find.byKey(const Key('settlement_select_field')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const Key('settlement_select_field')));
+  await tester.pumpAndSettle(); // open sheet + resolve the blank-query list
+  if (query.isNotEmpty) {
+    await tester.enterText(find.byKey(const Key('select-menu-search')), query);
+    await tester.pump(kSettlementSearchDebounce);
+    await tester.pumpAndSettle();
+  }
+  await tester.tap(find.byKey(Key('settlement_option_$settlementId')));
+  await tester.pumpAndSettle(); // pop sheet
+}
+
+/// Selects an item in a locality tap-row (district) by tapping the row then the
+/// item text.
 Future<void> _pick(WidgetTester tester, Key rowKey, String itemText) async {
   await tester.ensureVisible(find.byKey(rowKey));
   await tester.pumpAndSettle();
@@ -268,9 +367,16 @@ void main() {
       await tester.pumpWidget(_app(_makeRouter(), container));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('locality_row_oblast')), findsOneWidget);
-      expect(find.byKey(const Key('locality_row_city')), findsOneWidget);
-      expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
+      // Phase 346 — ONE «Населений пункт» field replaces the Область + Місто
+      // rows, and NO «Область» control may remain on the screen (Qase case 3
+      // step 5 acceptance).
+      expect(find.byKey(const Key('settlement_select_field')), findsOneWidget);
+      expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
+      expect(find.byKey(const Key('locality_row_city')), findsNothing);
+      // The District row is CONDITIONAL now: it appears only once a settlement
+      // that actually subdivides has been chosen, so nothing is selected yet
+      // means nothing is rendered (rather than a disabled placeholder row).
+      expect(find.byKey(const Key('locality_row_district')), findsNothing);
 
       // Role-aware sub-text must resolve via the CLIENT l10n branch
       // (_subTextFor → step3SubtextClient), NOT a frozen literal. Guards both
@@ -340,7 +446,8 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('locality_row_oblast')), findsOneWidget);
+    expect(find.byKey(const Key('settlement_select_field')), findsOneWidget);
+    expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('address_street')),
       findsOneWidget,
@@ -463,8 +570,7 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(tester, const Key('locality_row_city'), 'Львів');
+    await _pickSettlement(tester, 'c1');
     await _pick(tester, const Key('locality_row_district'), 'Галицький');
     await tester.enterText(
       find.byKey(const ValueKey<String>('address_street')),
@@ -540,8 +646,7 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(tester, const Key('locality_row_city'), 'Львів');
+    await _pickSettlement(tester, 'c1');
     await _pick(tester, const Key('locality_row_district'), 'Галицький');
     await tester.enterText(
       find.byKey(const ValueKey<String>('address_street')),
@@ -605,23 +710,19 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(tester, const Key('locality_row_city'), 'Дрогобич'); // leaf
+    await _pickSettlement(tester, 'c2'); // leaf — no districts
 
-    // District row is disabled for a leaf city.
-    final ip = tester.widget<IgnorePointer>(
-      find.descendant(
-        of: find.byKey(const Key('locality_row_district')),
-        matching: find.byType(IgnorePointer),
-      ),
-    );
-    expect(ip.ignoring, isTrue);
-
-    // Defect 5 — explanatory helper caption.
+    // Phase 346 — a leaf settlement renders NO District row at all, where the
+    // cascade rendered one disabled with an explanatory caption (Defect 5).
+    // That caption existed to explain a control the user could see but not
+    // use; with 17 of 25 698 settlements subdividing, a permanently-dead row
+    // on virtually every pick is noise, so the row is omitted and there is
+    // nothing left to explain.
+    expect(find.byKey(const Key('locality_row_district')), findsNothing);
     final l10n = AppLocalizations.of(
       tester.element(find.byKey(const Key('locality-cascade'))),
     );
-    expect(find.text(l10n.localityDistrictNoneHelper), findsOneWidget);
+    expect(find.text(l10n.localityDistrictNoneHelper), findsNothing);
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('address_street')),
@@ -650,6 +751,68 @@ void main() {
     expect(find.text('verification:a@b.com'), findsOneWidget);
   });
 
+  testWidgets('LOW-A — the locality field is LOCKED while submit awaits a '
+      'pending district lookup', (tester) async {
+    final authRepo = _MockAuthRepository();
+    when(
+      () => authRepo.registerIndependentMaster(
+        email: any(named: 'email'),
+        password: any(named: 'password'),
+        firstName: any(named: 'firstName'),
+        lastName: any(named: 'lastName'),
+        role: any(named: 'role'),
+        businessName: any(named: 'businessName'),
+        address: any(named: 'address'),
+        phone: any(named: 'phone'),
+      ),
+    ).thenAnswer(
+      (_) async => const RegisterResult.verificationRequired(email: 'a@b.com'),
+    );
+    final Completer<void> gate = Completer<void>();
+    final container = _container(
+      role: UserRole.independentMaster,
+      authRepo: authRepo,
+      masterRepo: _MockMasterRepository(),
+      locationRepo: _GatedDistrictsLocationRepository(gate),
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(_app(_makeRouter(), container));
+    await tester.pumpAndSettle();
+
+    await _pickSettlement(tester, 'c2');
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_street')),
+      'вул. Тестова',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('address_building')),
+      '5',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('address_submit')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('address_submit')));
+    await tester.pump();
+
+    // Submit is parked on the lookup: tapping the settlement field must NOT
+    // open the sheet (a behavioural check, not just the `enabled` field).
+    await tester.ensureVisible(
+      find.byKey(const Key('settlement_select_field')),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('settlement_select_field')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const Key('select-menu-search')), findsNothing);
+
+    gate.complete();
+    await tester.pumpAndSettle();
+    expect(find.text('verification:a@b.com'), findsOneWidget);
+  });
+
   // ── 8. City with districts, district unpicked → blocked with "Оберіть район"
   testWidgets('8. City-with-districts, no district → submit blocked', (
     tester,
@@ -663,12 +826,7 @@ void main() {
     await tester.pumpWidget(_app(_makeRouter(), container));
     await tester.pumpAndSettle();
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(
-      tester,
-      const Key('locality_row_city'),
-      'Львів',
-    ); // has districts
+    await _pickSettlement(tester, 'c1'); // has districts
     await tester.enterText(
       find.byKey(const ValueKey<String>('address_street')),
       'вул. Тестова',
@@ -694,20 +852,14 @@ void main() {
       tester.widget<Text>(districtError).data,
       l10n.errLocalityDistrictRequired,
     );
-    // Error is NOT attached to the oblast/city rows.
+    // Error is NOT attached to the settlement field — the message belongs to
+    // the row that failed, and the settlement was satisfied.
     expect(
-      find.descendant(
-        of: find.byKey(const Key('locality_row_oblast')),
-        matching: find.byKey(const Key('locality_tap_row_error')),
-      ),
+      find.text(l10n.errSettlementRequired),
       findsNothing,
-    );
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('locality_row_city')),
-        matching: find.byKey(const Key('locality_tap_row_error')),
-      ),
-      findsNothing,
+      reason:
+          'Defect 7 — the district message must not be accompanied by a '
+          'settlement error for a settlement that WAS chosen.',
     );
     verifyNever(
       () => authRepo.registerIndependentMaster(
@@ -806,8 +958,7 @@ void main() {
       await tester.pumpWidget(_app(_makeRouter(), container));
       await tester.pumpAndSettle();
 
-      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pickSettlement(tester, 'c1');
       await _pick(tester, const Key('locality_row_district'), 'Галицький');
       await tester.enterText(
         find.byKey(const ValueKey<String>('address_street')),
@@ -878,8 +1029,7 @@ void main() {
 
     final l10n = lookupAppLocalizations(const Locale('uk'));
 
-    await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-    await _pick(tester, const Key('locality_row_city'), 'Львів');
+    await _pickSettlement(tester, 'c1');
     await _pick(tester, const Key('locality_row_district'), 'Галицький');
     await tester.enterText(
       find.byKey(const ValueKey<String>('address_street')),
@@ -957,8 +1107,7 @@ void main() {
 
       final l10n = lookupAppLocalizations(const Locale('uk'));
 
-      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pickSettlement(tester, 'c1');
       await _pick(tester, const Key('locality_row_district'), 'Галицький');
       await tester.enterText(
         find.byKey(const ValueKey<String>('address_street')),
@@ -1029,8 +1178,7 @@ void main() {
       await tester.pumpWidget(_app(_makeRouter(), container));
       await tester.pumpAndSettle();
 
-      await _pick(tester, const Key('locality_row_oblast'), 'Львівська');
-      await _pick(tester, const Key('locality_row_city'), 'Львів');
+      await _pickSettlement(tester, 'c1');
       await _pick(tester, const Key('locality_row_district'), 'Галицький');
       await tester.enterText(
         find.byKey(const ValueKey<String>('address_street')),
@@ -1251,16 +1399,26 @@ void main() {
       await tester.pumpWidget(_app(_makeRouter(), container));
       // Flush the addPostFrameCallback queue first.
       await tester.pump();
-      // Let the fetchOblasts Future resolve.
+      // Let the warm-up Future resolve.
       await tester.pumpAndSettle();
 
       expect(
-        spy.fetchOblastsCallCount,
+        spy.searchSettlementsCallCount,
         equals(1),
         reason:
-            'initState addPostFrameCallback must read oblastListProvider '
-            'exactly once — calling fetchOblasts() to warm the cache on '
-            'first mount (not on subsequent rebuilds)',
+            'Phase 346 — initState addPostFrameCallback must read '
+            "settlementSearchProvider('') exactly once, warming the "
+            'pre-typing major-settlement list on first mount (not on '
+            'subsequent rebuilds). That blank key is the ONE family entry '
+            'pinned keepAlive, so a second call here would mean the pin '
+            'stopped working.',
+      );
+      expect(
+        spy.fetchOblastsCallCount,
+        isZero,
+        reason:
+            'the oblast list is no longer warmed — there is no oblast picker '
+            'left to open, so touching that endpoint would be dead traffic',
       );
     },
   );
@@ -1283,18 +1441,9 @@ void main() {
     await tester.pumpWidget(_app(router, container));
     await tester.pumpAndSettle();
 
-    // Select oblast → city (no districts) via cascade pickers.
-    // Tap the oblast tile to open the bottom sheet.
-    await tester.tap(find.byKey(const Key('locality_row_oblast')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(_oblast.name));
-    await tester.pumpAndSettle();
-
-    // Tap the city tile.
-    await tester.tap(find.byKey(const Key('locality_row_city')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(_cityNoDistricts.name));
-    await tester.pumpAndSettle();
+    // Pick a settlement with no districts, so the ONLY thing left unsatisfied
+    // is the street.
+    await _pickSettlement(tester, 'c2');
 
     // Leave street empty (default) — tap submit.
     await tester.ensureVisible(
@@ -1508,7 +1657,7 @@ void main() {
     await tester.pump(); // addPostFrameCallback flush
     await tester.pumpAndSettle();
 
-    // The hero tile and the LocalityCascade pins share the same asset
+    // The hero tile and the locality field's pins share the same asset
     // (locationMarker), so the asset alone is not a stable discriminator.
     // Anchor on the hero's own Key('register-step3-location-hero') and assert
     // the AppIcon rendered inside that 72×72 neumorphic Container — the hero
@@ -1596,19 +1745,20 @@ void main() {
       find.byType(RegisterStep3Screen),
       findsOneWidget,
       reason:
-          'fetchOblasts() NetworkFailure during initState prefetch must not '
+          'A NetworkFailure from the initState settlement warm-up must not '
           'unmount the screen. The widget tree must remain intact so the user '
           'can still interact with the form.',
     );
 
-    // The oblast tap row must be present — it renders in its empty/error state
-    // when the prefetch fails before any user interaction.
+    // The settlement field must be present — it renders in its empty state
+    // when the warm-up fails before any user interaction, and tapping it opens
+    // the sheet, which surfaces the failure with its own Retry.
     expect(
-      find.byKey(const Key('locality_row_oblast')),
+      find.byKey(const Key('settlement_select_field')),
       findsOneWidget,
       reason:
-          'The oblast LocalityTapRow must remain in the tree after a '
-          'fetchOblasts() failure so the user can retry by tapping it.',
+          'The settlement field must remain in the tree after a failed '
+          'warm-up so the user can retry by tapping it.',
     );
   });
 }
