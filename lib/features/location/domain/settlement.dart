@@ -12,10 +12,10 @@
 //   { settlementId (UUID), nameUk, settlementType, oblastNameUk,
 //     hromadaNameUk (NULLABLE) }
 //
-// `settlementType` is deliberately NOT modelled. Phase-346 D4 defines the row
-// label exactly — name, optional hromada, oblast — and nothing else on the
-// picker consumes the type. Mirrors [City], which drops `nameEn` for the same
-// reason.
+// `settlementType` is modelled for ONE purpose: the row's name takes a
+// localised type prefix («м.» CITY, «с.» VILLAGE) in [composeSettlementLabel].
+// It is kept as the raw wire string (CITY / SETTLEMENT / VILLAGE); nothing else
+// on the picker branches on it.
 //
 // `hromadaNameUk`'s NULLABILITY IS THE CONTRACT (phase-327 D3). The server
 // populates it for exactly the 6 103 of 25 697 rows whose name+oblast pair is
@@ -56,6 +56,13 @@ abstract class Settlement with _$Settlement {
     /// NEVER derive this: `null` means "the server decided the oblast is
     /// enough", and non-null means "it is not".
     String? hromadaName,
+
+    /// Raw wire `settlementType` — `CITY`, `SETTLEMENT` or `VILLAGE`.
+    ///
+    /// Selects the label's name prefix (see [composeSettlementLabel]).
+    /// `null` when a caller builds a row without a type (tests, legacy seeds):
+    /// such a row is rendered unprefixed, never guessed from its name.
+    String? settlementType,
   }) = _Settlement;
 
   /// Maps a raw backend `SettlementSearchResponse` map to the domain model.
@@ -67,6 +74,12 @@ abstract class Settlement with _$Settlement {
     name: json['nameUk'] as String,
     oblastName: json['oblastNameUk'] as String,
     hromadaName: json['hromadaNameUk'] as String?,
+    // Defensive: a non-string type (bad row) degrades to "no type" (no
+    // prefix) instead of a TypeError that would fail the whole list —
+    // the repository only catches DioException.
+    settlementType: json['settlementType'] is String
+        ? json['settlementType'] as String
+        : null,
   );
 }
 
@@ -74,19 +87,38 @@ abstract class Settlement with _$Settlement {
 ///
 /// Two forms, chosen by [Settlement.hromadaName]'s nullability and nothing
 /// else:
-///   - «‹назва›, ‹область›» when it is null;
-///   - «‹назва›, ‹hromada› ‹hromadaWord›, ‹область›» when it is not.
+///   - «‹назва›, ‹область› ‹oblastWord›» when it is null;
+///   - «‹назва›, ‹hromada› ‹hromadaWord›, ‹область› ‹oblastWord›» when it is
+///     not.
 ///
-/// [hromadaWord] is the localised noun («громада») the server deliberately does
-/// NOT concatenate, because the grammatical form depends on where the label is
-/// shown; the caller passes `AppLocalizations.of(context).settlementHromadaWord`.
+/// The name is prefixed by [Settlement.settlementType], in ONE switch
+/// ([_typePrefix]): a CITY gets «‹cityPrefix› » («м. Львів, Львівська обл.»),
+/// a VILLAGE gets «‹villagePrefix› » («с. Іванівка, Шишацька громада,
+/// Полтавська обл.»). SETTLEMENT (селище) rows and rows with no type are left
+/// unprefixed — a SETTLEMENT prefix is one added case in that switch. An EMPTY
+/// localised prefix (English ships none) is skipped, with no leading space.
+/// Any other type value — unknown, lower-case, empty — is unprefixed.
 ///
-/// KYIV is the one degenerate case. It is an oblast-EQUIVALENT whose oblast row
-/// is also named «Київ», so the naive composition renders «Київ, Київ». When
-/// the oblast name equals the settlement name the oblast segment is dropped
-/// entirely rather than repeated — this is presentation, not disambiguation
-/// logic: a row whose oblast is its own name is by construction unique in that
-/// oblast, so nothing is lost.
+/// [hromadaWord], [oblastWord], [cityPrefix] and [villagePrefix] are the
+/// localised words («громада», «обл.», «м.», «с.») the server deliberately does
+/// NOT concatenate, because the form depends on where the label is shown; the
+/// caller passes `AppLocalizations.of(context).settlementHromadaWord`,
+/// `.settlementOblastAbbrev`, `.settlementCityPrefix` and
+/// `.settlementVillagePrefix`.
+///
+/// KYIV is the one degenerate case. It is an oblast-EQUIVALENT (a city with
+/// special status) whose oblast row is also named «Київ», so the naive
+/// composition renders «м. Київ, Київ обл.». [_regionIsTheSettlement] is the
+/// ONE place that recognises it: when the region name equals the settlement
+/// name the whole region segment — name and [oblastWord] alike — is dropped,
+/// and the city reads «м. Київ». The comparison uses the BARE name, never the
+/// prefixed one. This is presentation, not disambiguation logic: a row whose
+/// region is its own name is by construction unique in that region, so nothing
+/// is lost. It needs no
+/// hard-coded name: the city of Kyiv is the only settlement filed under the
+/// «Київ» region (verified against the imported taxonomy), and a VILLAGE named
+/// «Київ» sits under a real oblast («Миколаївська»), so it keeps its segment
+/// and its «обл.» («с. Київ, Миколаївська обл.»).
 ///
 /// Every segment is routed through `sanitizeDisplayText` before it is joined.
 /// These are 25 698 server-supplied strings newly reaching the UI, and although
@@ -98,19 +130,52 @@ abstract class Settlement with _$Settlement {
 String composeSettlementLabel(
   Settlement settlement, {
   required String hromadaWord,
+  required String oblastWord,
+  required String cityPrefix,
+  required String villagePrefix,
 }) {
   final String? name = _visibleOrNull(settlement.name);
   final String? hromada = _visibleOrNull(settlement.hromadaName);
   final String? oblast = _visibleOrNull(settlement.oblastName);
 
+  final String? prefix = _typePrefix(
+    settlement.settlementType,
+    cityPrefix: cityPrefix,
+    villagePrefix: villagePrefix,
+  );
+
   final List<String> parts = <String>[
-    ?name,
+    if (name != null) prefix == null || prefix.isEmpty ? name : '$prefix $name',
     if (hromada != null) '$hromada $hromadaWord',
-    // Kyiv: the oblast IS the settlement — never render «Київ, Київ».
-    if (oblast != null && oblast != name) oblast,
+    if (oblast != null && !_regionIsTheSettlement(oblast, name))
+      '$oblast $oblastWord',
   ];
   return parts.join(', ');
 }
+
+/// Wire `settlementType` values (backend `cities.settlement_type`).
+const String kSettlementTypeCity = 'CITY';
+const String kSettlementTypeVillage = 'VILLAGE';
+const String kSettlementTypeSettlement = 'SETTLEMENT';
+
+/// The localised name prefix for a settlement type, or `null` for none.
+///
+/// The ONE place a type maps to a prefix. SETTLEMENT (селище) is deliberately
+/// unprefixed for now; giving it one is a single added case here.
+String? _typePrefix(
+  String? settlementType, {
+  required String cityPrefix,
+  required String villagePrefix,
+}) => switch (settlementType) {
+  kSettlementTypeCity => cityPrefix,
+  kSettlementTypeVillage => villagePrefix,
+  _ => null,
+};
+
+/// True when the region segment names the settlement itself — the city of Kyiv,
+/// whose oblast-equivalent region is «Київ». Such a region is not an oblast, so
+/// it gets neither a repeated segment nor the oblast abbreviation.
+bool _regionIsTheSettlement(String region, String? name) => region == name;
 
 /// Sanitises a settlement label that did NOT come through
 /// [composeSettlementLabel] — the SEED a screen passes the settlement field

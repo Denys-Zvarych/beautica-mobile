@@ -136,7 +136,7 @@ void main() {
 
       expect(
         settlementFieldLabel(tester, const Key('search_city_value')),
-        'Київ',
+        'м. Київ',
         reason: 'the manual Search-picker pick must render immediately',
       );
       expect(
@@ -196,7 +196,7 @@ void main() {
         rootContainer(
           tester,
         ).read(searchFilterLabelsControllerProvider).cityName,
-        'Львів, Львівська',
+        'м. Львів, Львівська обл.',
         reason: 'the sibling label controller must be updated too',
       );
 
@@ -211,7 +211,7 @@ void main() {
 
       expect(
         settlementFieldLabel(tester, const Key('search_city_value')),
-        'Львів, Львівська',
+        'м. Львів, Львівська обл.',
         reason:
             'returning to Пошук after the profile-location save must show the '
             'NEWLY SAVED city — never the earlier Search-picker touch '

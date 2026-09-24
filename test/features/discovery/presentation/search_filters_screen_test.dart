@@ -144,20 +144,26 @@ const _kSettlementWithDistricts = Settlement(
   id: _kCityWithDistrictsId,
   name: 'Київ',
   // Kyiv is an oblast-equivalent whose oblast name equals its own —
-  // `composeSettlementLabel` drops the repeated segment, so the composed
-  // label is bare «Київ» (see `settlement.dart`'s doc on the degenerate case).
+  // `composeSettlementLabel` drops the repeated segment (and never adds
+  // «обл.»), and as a CITY it takes the «м.» prefix, so the composed label is
+  // «м. Київ» (see `settlement.dart`'s doc on the degenerate case).
   oblastName: 'Київ',
+  settlementType: kSettlementTypeCity,
 );
+// Composed label for the picked Kyiv fixture. A PREFILLED Kyiv (seeded from
+// the profile's bare `cityName`) stays «Київ» — the seed carries no type.
+const _kKyivPickedLabel = 'м. Київ';
 
 const _kCityNoDistrictsId = 'city-lviv';
 const _kSettlementNoDistricts = Settlement(
   id: _kCityNoDistrictsId,
   name: 'Львів',
   oblastName: 'Львівська',
+  settlementType: kSettlementTypeCity,
 );
-// Composed label for the Lviv fixture (distinct oblast, so both segments are
-// kept): «Львів, Львівська».
-const _kLvivLabel = 'Львів, Львівська';
+// Composed label for the Lviv fixture (a CITY takes «м.»; distinct oblast, so
+// both segments are kept, and a real oblast takes «обл.»).
+const _kLvivLabel = 'м. Львів, Львівська обл.';
 
 const _kDistrictId = 'dist-pechersk';
 const _kDistrict = CityDistrict(
@@ -657,7 +663,7 @@ void main() {
         isNull,
         reason: 'a settlement-scoped search with no district is valid',
       );
-      expect(_labels(tester).cityName, 'Київ');
+      expect(_labels(tester).cityName, _kKyivPickedLabel);
       expect(_labels(tester).districtName, isNull);
     });
   });

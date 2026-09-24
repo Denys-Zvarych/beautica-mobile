@@ -176,22 +176,41 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
   // Single-entry memo for [_toOptions] (perf M2). The sheet's Consumer can
   // re-run `resolve` many times for ONE resolved list; keyed on the list's
   // IDENTITY (the provider hands back the same instance until it refetches)
-  // plus the localised hromada word, a re-run is a pointer compare instead of
-  // three `sanitizeDisplayText` passes on each of up to 50 rows.
+  // plus the localised hromada/oblast/type words, a re-run is a pointer
+  // compare instead of three `sanitizeDisplayText` passes on each of up to 50
+  // rows.
   List<Settlement>? _memoSettlements;
   String? _memoHromadaWord;
+  String? _memoOblastWord;
+  String? _memoCityPrefix;
+  String? _memoVillagePrefix;
   List<SelectOption<_SettlementChoice>> _memoOptions =
       const <SelectOption<_SettlementChoice>>[];
 
   List<SelectOption<_SettlementChoice>> _optionsFor(
     List<Settlement> settlements,
     String hromadaWord,
+    String oblastWord,
+    String cityPrefix,
+    String villagePrefix,
   ) {
     if (!identical(settlements, _memoSettlements) ||
-        hromadaWord != _memoHromadaWord) {
+        hromadaWord != _memoHromadaWord ||
+        oblastWord != _memoOblastWord ||
+        cityPrefix != _memoCityPrefix ||
+        villagePrefix != _memoVillagePrefix) {
       _memoSettlements = settlements;
       _memoHromadaWord = hromadaWord;
-      _memoOptions = _toOptions(settlements, hromadaWord: hromadaWord);
+      _memoOblastWord = oblastWord;
+      _memoCityPrefix = cityPrefix;
+      _memoVillagePrefix = villagePrefix;
+      _memoOptions = _toOptions(
+        settlements,
+        hromadaWord: hromadaWord,
+        oblastWord: oblastWord,
+        cityPrefix: cityPrefix,
+        villagePrefix: villagePrefix,
+      );
     }
     return _memoOptions;
   }
@@ -237,6 +256,9 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String hromadaWord = l10n.settlementHromadaWord;
+    final String oblastWord = l10n.settlementOblastAbbrev;
+    final String cityPrefix = l10n.settlementCityPrefix;
+    final String villagePrefix = l10n.settlementVillagePrefix;
 
     return SearchableSelectField<_SettlementChoice>(
       fieldKey: widget.fieldKey,
@@ -273,8 +295,13 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
         resolve: (WidgetRef ref, String query) => ref
             .watch(settlementSearchProvider(query))
             .whenData(
-              (List<Settlement> settlements) =>
-                  _optionsFor(settlements, hromadaWord),
+              (List<Settlement> settlements) => _optionsFor(
+                settlements,
+                hromadaWord,
+                oblastWord,
+                cityPrefix,
+                villagePrefix,
+              ),
             ),
         onRetry: (WidgetRef ref, String query) =>
             ref.invalidate(settlementSearchProvider(query)),
@@ -285,6 +312,9 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
   static List<SelectOption<_SettlementChoice>> _toOptions(
     List<Settlement> settlements, {
     required String hromadaWord,
+    required String oblastWord,
+    required String cityPrefix,
+    required String villagePrefix,
   }) {
     return List<SelectOption<_SettlementChoice>>.generate(settlements.length, (
       int i,
@@ -293,6 +323,9 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
       final String label = composeSettlementLabel(
         settlement,
         hromadaWord: hromadaWord,
+        oblastWord: oblastWord,
+        cityPrefix: cityPrefix,
+        villagePrefix: villagePrefix,
       );
       return SelectOption<_SettlementChoice>(
         value: _SettlementChoice(id: settlement.id, label: label),

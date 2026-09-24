@@ -167,7 +167,8 @@ void main() {
       // ── Pick a city through the REAL settlement autocomplete ───────────────
       await pickCity(tester);
 
-      // The settlement field now shows the chosen city name (backend data).
+      // The settlement field now shows the chosen city's composed label — a
+      // CITY takes «м.», and Kyiv (its own region) takes no «обл.».
       // `search_city_value` resolves to the field's GestureDetector, not a
       // Text — the display text is a keyless descendant.
       final Text cityValue = tester.widget<Text>(
@@ -176,7 +177,7 @@ void main() {
           matching: find.byType(Text),
         ),
       );
-      expect(cityValue.data, 'Київ');
+      expect(cityValue.data, 'м. Київ');
 
       // ── Select a category in the rail (NAILS) → reveals the chip drawer ───
       // pickCity's scroll left the viewport on the locality block — scroll
@@ -412,7 +413,7 @@ void main() {
           matching: find.byType(Text),
         ),
       );
-      expect(cityValue.data, 'Київ');
+      expect(cityValue.data, 'м. Київ');
 
       // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
       // (FakeBackend's masters fixture always leaves a page pending on first
@@ -876,7 +877,7 @@ void main() {
         matching: find.byType(Text),
       ),
     );
-    expect(cityValue.data, 'Київ');
+    expect(cityValue.data, 'м. Київ');
 
     // ── Submit → results screen fires BOTH endpoints with the city scope ────
     // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
@@ -962,7 +963,7 @@ void main() {
           matching: find.byType(Text),
         ),
       );
-      expect(cityValue.data, 'Київ');
+      expect(cityValue.data, 'м. Київ');
 
       // ── Submit → results screen fires the scoped search ─────────────────────
       // Not `pumpAndSettle()` — see [AppHarness.pumpUntilFound]'s doc comment
@@ -1583,9 +1584,9 @@ void main() {
               ),
             )
             .data,
-        // Phase 346: a PICKED settlement labels as «name, oblast» — the same
+        // Phase 346: a PICKED city labels as «м. name, oblast обл.» — the same
         // label client_profile_location_save_overrides_search_touch pins.
-        'Львів, Львівська',
+        'м. Львів, Львівська обл.',
         reason:
             'a mid-session profile locality change must reach Пошук on the '
             'very next open — no app restart required',

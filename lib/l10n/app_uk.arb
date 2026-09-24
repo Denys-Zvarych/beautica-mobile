@@ -6403,6 +6403,18 @@
   "@settlementHromadaWord": {
     "description": "Phase 346 — the administrative noun appended after the bare hromada adjective when composing a settlement row label («Миколаївка, Пищанська громада, Вінницька»). The server ships the bare adjective because the grammatical form depends on where the label is shown."
   },
+  "settlementOblastAbbrev": "обл.",
+  "@settlementOblastAbbrev": {
+    "description": "Phase 346 — the abbreviated administrative noun appended after the bare oblast adjective when composing a settlement row label («Львів, Львівська обл.»; «Миколаївка, Пищанська громада, Вінницька обл.»). Abbreviated to keep the two-line rows short. Never appended for the city of Kyiv, whose region segment is dropped (it is the settlement itself)."
+  },
+  "settlementCityPrefix": "м.",
+  "@settlementCityPrefix": {
+    "description": "Phase 346 — the abbreviated «місто» prefixed to a CITY's name (settlementType == CITY only) when composing a settlement row label («м. Львів, Львівська обл.»; «м. Київ»). Villages and other settlement types are not prefixed."
+  },
+  "settlementVillagePrefix": "с.",
+  "@settlementVillagePrefix": {
+    "description": "Phase 346 — the abbreviated «село» prefixed to a VILLAGE's name (settlementType == VILLAGE only) when composing a settlement row label («с. Іванівка, Шишацька громада, Полтавська обл.»). Селища (SETTLEMENT) are not prefixed."
+  },
   "errSettlementRequired": "Оберіть населений пункт",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."

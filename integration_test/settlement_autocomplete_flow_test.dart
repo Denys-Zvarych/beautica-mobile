@@ -147,17 +147,21 @@ void main() {
 
     const Key villageRow = Key('settlement_option_village-ivanivka');
     await AppHarness.pumpUntilFound(tester, find.byKey(villageRow));
-    final String hromadaWord = AppLocalizations.of(
+    final AppLocalizations l10n = AppLocalizations.of(
       tester.element(find.byKey(villageRow)),
-    ).settlementHromadaWord;
+    );
     final String expectedLabel = composeSettlementLabel(
       const Settlement(
         id: 'village-ivanivka',
         name: 'Іванівка',
         oblastName: 'Полтавська',
         hromadaName: 'Шишацька',
+        settlementType: kSettlementTypeVillage,
       ),
-      hromadaWord: hromadaWord,
+      hromadaWord: l10n.settlementHromadaWord,
+      oblastWord: l10n.settlementOblastAbbrev,
+      cityPrefix: l10n.settlementCityPrefix,
+      villagePrefix: l10n.settlementVillagePrefix,
     );
     expect(
       _textIn(tester, villageRow),
@@ -165,6 +169,8 @@ void main() {
       reason: 'the ambiguous village row renders the 3-part hromada label',
     );
     expect(expectedLabel, contains('Шишацька'));
+    expect(expectedLabel, startsWith('с. Іванівка'));
+    expect(expectedLabel, endsWith('Полтавська обл.'));
 
     await tester.tap(find.byKey(villageRow));
     await AppHarness.settle(tester);

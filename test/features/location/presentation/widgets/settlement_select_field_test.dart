@@ -24,6 +24,8 @@ import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,7 +39,12 @@ import '../../../../helpers/pump_app.dart';
 // ---------------------------------------------------------------------------
 
 /// A major settlement, unambiguous by oblast alone -> `hromadaName == null`.
-const _lviv = Settlement(id: 's-lviv', name: 'Львів', oblastName: 'Львівська');
+const _lviv = Settlement(
+  id: 's-lviv',
+  name: 'Львів',
+  oblastName: 'Львівська',
+  settlementType: kSettlementTypeCity,
+);
 
 /// The SAME name in a DIFFERENT oblast. The oblast label alone separates these
 /// two, which is the 76 % case.
@@ -45,6 +52,7 @@ const _lvivVillage = Settlement(
   id: 's-lviv-village',
   name: 'Львів',
   oblastName: 'Волинська',
+  settlementType: kSettlementTypeVillage,
 );
 
 /// A village — the state the retired cascade could not express at all, because
@@ -54,6 +62,7 @@ const _village = Settlement(
   name: 'Іванівка',
   oblastName: 'Полтавська',
   hromadaName: 'Шишацька',
+  settlementType: kSettlementTypeVillage,
 );
 
 /// Two «Миколаївка» in the SAME oblast — «Миколаївка, Харківська» has 15 of
@@ -64,16 +73,23 @@ const _mykolaivkaA = Settlement(
   name: 'Миколаївка',
   oblastName: 'Харківська',
   hromadaName: 'Пісочинська',
+  settlementType: kSettlementTypeVillage,
 );
 const _mykolaivkaB = Settlement(
   id: 's-myk-b',
   name: 'Миколаївка',
   oblastName: 'Харківська',
   hromadaName: 'Роганська',
+  settlementType: kSettlementTypeVillage,
 );
 
 /// Kyiv is an oblast-EQUIVALENT: its oblast row is also named «Київ».
-const _kyiv = Settlement(id: 's-kyiv', name: 'Київ', oblastName: 'Київ');
+const _kyiv = Settlement(
+  id: 's-kyiv',
+  name: 'Київ',
+  oblastName: 'Київ',
+  settlementType: kSettlementTypeCity,
+);
 
 // ---------------------------------------------------------------------------
 // Fake repository — records every query it is asked for, so a test can assert
@@ -81,7 +97,10 @@ const _kyiv = Settlement(id: 's-kyiv', name: 'Київ', oblastName: 'Київ')
 // ---------------------------------------------------------------------------
 
 class _FakeLocationRepository implements LocationRepository {
-  _FakeLocationRepository({this.throwOnSearch = false});
+  _FakeLocationRepository({this.throwOnSearch = false, this.blankRows});
+
+  /// Overrides the pre-typing major list when non-null.
+  final List<Settlement>? blankRows;
 
   /// Mutable so a test can let a failed search recover on the next attempt.
   bool throwOnSearch;
@@ -121,7 +140,7 @@ class _FakeLocationRepository implements LocationRepository {
     if (throwOnSearch) throw const NetworkFailure();
     if (query.isEmpty) {
       // The pre-typing major list (phase-346 D6).
-      return const <Settlement>[_lviv, _kyiv];
+      return blankRows ?? const <Settlement>[_lviv, _kyiv];
     }
     final String needle = query.toLowerCase();
     return const <Settlement>[
@@ -164,6 +183,7 @@ Widget _app({
   bool clearable = false,
   bool retry = true,
   Duration? Function(int retryCount, Object error)? retryPolicy,
+  LocalizationsDelegate<AppLocalizations>? l10nDelegate,
 }) {
   return ProviderScope(
     overrides: [locationRepositoryProvider.overrideWithValue(repo)],
@@ -172,7 +192,12 @@ Widget _app({
     // [retryPolicy] wins when given — the 429 test runs the PRODUCTION policy.
     retry: retryPolicy ?? (retry ? null : (int _, Object _) => null),
     child: MaterialApp(
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      localizationsDelegates: <LocalizationsDelegate<dynamic>>[
+        l10nDelegate ?? AppLocalizations.delegate,
+        ...AppLocalizations.localizationsDelegates.where(
+          (LocalizationsDelegate<dynamic> d) => d != AppLocalizations.delegate,
+        ),
+      ],
       supportedLocales: AppLocalizations.supportedLocales,
       locale: const Locale('uk'),
       home: Scaffold(
@@ -187,6 +212,43 @@ Widget _app({
       ),
     ),
   );
+}
+
+/// UA copy with exactly ONE of the four label words replaced — lets a test
+/// change a single memo key term at a time.
+class _UkWith extends AppLocalizationsUk {
+  _UkWith({this.hromada, this.oblast, this.city, this.village});
+
+  final String? hromada;
+  final String? oblast;
+  final String? city;
+  final String? village;
+
+  @override
+  String get settlementHromadaWord => hromada ?? super.settlementHromadaWord;
+  @override
+  String get settlementOblastAbbrev => oblast ?? super.settlementOblastAbbrev;
+  @override
+  String get settlementCityPrefix => city ?? super.settlementCityPrefix;
+  @override
+  String get settlementVillagePrefix =>
+      village ?? super.settlementVillagePrefix;
+}
+
+class _FixedL10nDelegate extends LocalizationsDelegate<AppLocalizations> {
+  const _FixedL10nDelegate(this.l10n);
+
+  final AppLocalizations l10n;
+
+  @override
+  bool isSupported(Locale locale) => true;
+
+  @override
+  Future<AppLocalizations> load(Locale locale) =>
+      SynchronousFuture<AppLocalizations>(l10n);
+
+  @override
+  bool shouldReload(_FixedL10nDelegate old) => !identical(old.l10n, l10n);
 }
 
 Future<void> _openSheet(WidgetTester tester) async {
@@ -319,8 +381,8 @@ void main() {
     await _openSheet(tester);
     await _type(tester, 'льв');
 
-    expect(_rowLabel(tester, _lviv), 'Львів, Львівська');
-    expect(_rowLabel(tester, _lvivVillage), 'Львів, Волинська');
+    expect(_rowLabel(tester, _lviv), 'м. Львів, Львівська обл.');
+    expect(_rowLabel(tester, _lvivVillage), 'с. Львів, Волинська обл.');
   });
 
   testWidgets('two settlements sharing a name in the SAME oblast are told '
@@ -338,11 +400,11 @@ void main() {
 
     expect(
       _rowLabel(tester, _mykolaivkaA),
-      'Миколаївка, Пісочинська громада, Харківська',
+      'с. Миколаївка, Пісочинська громада, Харківська обл.',
     );
     expect(
       _rowLabel(tester, _mykolaivkaB),
-      'Миколаївка, Роганська громада, Харківська',
+      'с. Миколаївка, Роганська громада, Харківська обл.',
     );
     expect(
       _rowLabel(tester, _mykolaivkaA),
@@ -373,7 +435,8 @@ void main() {
     );
     await _openSheet(tester);
 
-    expect(_rowLabel(tester, _kyiv), 'Київ');
+    expect(_rowLabel(tester, _kyiv), 'м. Київ');
+    expect(_rowLabel(tester, _kyiv), isNot(contains('обл.')));
   });
 
   testWidgets(
@@ -411,13 +474,17 @@ void main() {
     // The label is composed, not asserted as a frozen literal: «громада» is UI
     // copy from the ARB, so pinning the whole string here would make this test
     // a locale trap the day EN ships. The settlement and oblast NAMES are
-    // government reference data and locale-invariant; only the connecting noun
-    // is translated, so it is pulled from `AppLocalizations`.
+    // government reference data and locale-invariant; only the connecting words
+    // («громада», «обл.», «м.», «с.») are translated, so it is pulled from `AppLocalizations`.
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('settlement_select_field'))),
+    );
     final String expected = composeSettlementLabel(
       _village,
-      hromadaWord: AppLocalizations.of(
-        tester.element(find.byKey(const Key('settlement_select_field'))),
-      ).settlementHromadaWord,
+      hromadaWord: l10n.settlementHromadaWord,
+      oblastWord: l10n.settlementOblastAbbrev,
+      cityPrefix: l10n.settlementCityPrefix,
+      villagePrefix: l10n.settlementVillagePrefix,
     );
     expect(emitted.label, expected);
     expect(_closedFieldLabel(tester), expected);
@@ -489,6 +556,90 @@ void main() {
       expect(_closedFieldLabel(tester), isNot('Львів, Львівська'));
     },
   );
+
+  group('option memo (perf M2) rebuilds when ANY label word changes', () {
+    // The memo is keyed on the list identity PLUS the four localised words.
+    // The blank-key major list is PINNED (keepAlive), so closing the sheet,
+    // swapping exactly ONE word and re-opening serves the SAME list instance —
+    // precisely the case where a memo that forgot that word would keep
+    // serving the stale label.
+    Future<void> relabel(
+      WidgetTester tester, {
+      required Settlement row,
+      required _UkWith swapped,
+      required String expected,
+    }) async {
+      final repo = _FakeLocationRepository(
+        blankRows: const <Settlement>[_lviv, _lvivVillage, _mykolaivkaA],
+      );
+      final emitted = _Emitted();
+      await tester.pumpWidget(
+        _app(
+          repo: repo,
+          emitted: emitted,
+          l10nDelegate: _FixedL10nDelegate(_UkWith()),
+        ),
+      );
+      await _openSheet(tester);
+      final String before = _rowLabel(tester, row);
+      await tester.tap(find.byKey(const Key('select-menu-close')));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(
+        _app(
+          repo: repo,
+          emitted: emitted,
+          l10nDelegate: _FixedL10nDelegate(swapped),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _openSheet(tester);
+
+      expect(
+        repo.queries,
+        <String>[''],
+        reason: 'the SAME pinned list must be relabelled — no refetch',
+      );
+      expect(_rowLabel(tester, row), isNot(before));
+      expect(_rowLabel(tester, row), expected);
+    }
+
+    testWidgets('hromada word', (WidgetTester tester) async {
+      await relabel(
+        tester,
+        row: _mykolaivkaA,
+        swapped: _UkWith(hromada: 'ТГ'),
+        expected: 'с. Миколаївка, Пісочинська ТГ, Харківська обл.',
+      );
+    });
+
+    testWidgets('oblast word', (WidgetTester tester) async {
+      await relabel(
+        tester,
+        row: _lviv,
+        swapped: _UkWith(oblast: 'область'),
+        expected: 'м. Львів, Львівська область',
+      );
+    });
+
+    testWidgets('city prefix', (WidgetTester tester) async {
+      await relabel(
+        tester,
+        row: _lviv,
+        swapped: _UkWith(city: 'місто'),
+        expected: 'місто Львів, Львівська обл.',
+      );
+    });
+
+    testWidgets('village prefix', (WidgetTester tester) async {
+      await relabel(
+        tester,
+        row: _lvivVillage,
+        swapped: _UkWith(village: 'село'),
+        expected: 'село Львів, Волинська обл.',
+      );
+    });
+  });
 
   testWidgets('a failed search keeps the sheet OPEN on its error state — the '
       'typed term must survive a retry', (WidgetTester tester) async {

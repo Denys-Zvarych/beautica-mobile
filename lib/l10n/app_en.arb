@@ -6403,6 +6403,18 @@
   "@settlementHromadaWord": {
     "description": "Phase 346 — the administrative noun appended after the bare hromada adjective when composing a settlement row label."
   },
+  "settlementOblastAbbrev": "Oblast",
+  "@settlementOblastAbbrev": {
+    "description": "Phase 346 — the administrative noun appended after the bare oblast adjective when composing a settlement row label. Never appended for the city of Kyiv, whose region segment is dropped."
+  },
+  "settlementCityPrefix": "",
+  "@settlementCityPrefix": {
+    "description": "Phase 346 — INTENTIONALLY EMPTY in English: the UA «м.» city prefix has no clean English abbreviation ('c.' reads as 'circa'), so English labels carry no type prefix. composeSettlementLabel skips an empty prefix (no leading space)."
+  },
+  "settlementVillagePrefix": "",
+  "@settlementVillagePrefix": {
+    "description": "Phase 346 — INTENTIONALLY EMPTY in English: the UA «с.» village prefix has no clean English abbreviation, so English labels carry no type prefix. composeSettlementLabel skips an empty prefix (no leading space)."
+  },
   "errSettlementRequired": "Choose a settlement",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
