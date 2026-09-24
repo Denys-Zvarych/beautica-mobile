@@ -30,7 +30,8 @@
 // 'CITY'` only, so a village id is unresolvable through it.
 //
 // BELOW THREE CHARACTERS the sheet shows «Введіть щонайменше 3 символи» and
-// issues NO request — the same predicate the server enforces
+// issues NO request (phase 347: the already-loaded majors whose name starts
+// with the typed text are listed above that hint) — the same predicate the server enforces
 // (`settlementQueryIsSearchable`), evaluated locally so a 1-2 character
 // keystroke costs nothing. It deliberately does NOT hold the last servable
 // query; see `SearchableSelectSource._remoteBody`'s doc for the divergence that
@@ -43,6 +44,7 @@
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
+import 'package:beautica_mobile/features/location/data/settlement_search_cache.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
@@ -53,21 +55,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// How long the field waits after the last keystroke before it applies the
 /// query and issues a request.
 ///
-/// Deliberately its own constant and deliberately LONGER than the two
-/// in-memory searchable sheets (`SearchableSelectField` 180 ms,
-/// `LocalityPickerSheet` 200 ms): those commit a `contains` over a list already
-/// in memory, this commits a network round trip against a 25 698-row table on
-/// an IP-throttled endpoint.
+/// Phase 347 D1: 200 ms, down from phase 346's 400 ms — the debounce was the
+/// largest single cost in the keystroke-to-rows path. 200 ms is roughly one
+/// mobile inter-keystroke gap, so a fast typist still sends one request per
+/// pause rather than one per key; the worst case (one request per keystroke
+/// from the 3rd character) stays inside the server bucket's 60-request burst,
+/// and the 429 cooldown path remains the backstop.
 ///
-/// Phase-346 D5 asks for "discovery's existing constant rather than a second
-/// one". The MINIMUM is genuinely shared — [kSearchMinQueryLength] is imported
-/// from `discovery/domain/search_filters.dart` and is the same backend
-/// constant (`NormalizedSearchQuery.MIN_QUERY_LENGTH`) on both surfaces. A
-/// debounce constant to reuse does NOT exist: the 400 ms figure the
-/// mobile-backlog attributes to live search is not present anywhere in `lib/`
-/// (the filters screen states in-line that it never fetches, so it has no
-/// debounce at all). 400 ms is adopted here as the value that entry records.
-const Duration kSettlementSearchDebounce = Duration(milliseconds: 400);
+/// The wait is no longer what the user sees: every keystroke is answered at
+/// once from local rows (`SearchableSelectSource.provisional`, fed by
+/// `SettlementSearchCache`), and the request only refines them.
+///
+/// Its own constant, not shared: the MINIMUM is genuinely shared
+/// ([kSearchMinQueryLength], the backend's
+/// `NormalizedSearchQuery.MIN_QUERY_LENGTH`), but no other surface debounces a
+/// server round trip.
+const Duration kSettlementSearchDebounce = Duration(milliseconds: 200);
 
 /// How long the sheet stays quiet after a settlement-search 429 whose
 /// `Retry-After` is absent, unparsable, or above the UX ceiling.
@@ -305,6 +308,23 @@ class _SettlementSelectFieldState extends ConsumerState<SettlementSelectField> {
             ),
         onRetry: (WidgetRef ref, String query) =>
             ref.invalidate(settlementSearchProvider(query)),
+        // Phase 347 — rows the session already holds, answered per keystroke.
+        // NOT routed through the identity memo [_optionsFor]: a narrowed list
+        // is a fresh instance every call, so the memo would only churn.
+        provisional: (WidgetRef ref, String typed) {
+          final List<Settlement>? rows = ref
+              .read(settlementSearchCacheProvider)
+              .provisionalFor(normalizeSettlementQuery(typed));
+          return rows == null
+              ? null
+              : _toOptions(
+                  rows,
+                  hromadaWord: hromadaWord,
+                  oblastWord: oblastWord,
+                  cityPrefix: cityPrefix,
+                  villagePrefix: villagePrefix,
+                );
+        },
       ),
     );
   }

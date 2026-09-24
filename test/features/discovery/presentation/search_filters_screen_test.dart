@@ -674,11 +674,13 @@ void main() {
   // `kSettlementSearchDebounce`. `pumpAndSettle()` alone fires NO `Timer` —
   // without the explicit `pump(kSettlementSearchDebounce)` a test measures the
   // pre-tap state and passes vacuously (a recorded trap in this repo). Below
-  // three characters the sheet shows the "type at least 3 characters" hint and
-  // issues no request; at/above it the debounce elapses and the row resolves.
+  // three characters the sheet shows the "type at least 3 characters" hint,
+  // listing only the already-loaded majors whose name starts with the text
+  // (phase 347), and issues no request; at/above it the debounce elapses and
+  // the row resolves.
   group('ClientSearchScreen — settlement search debounce', () {
-    testWidgets('a below-minimum query shows the hint and offers no row; a '
-        '3+ character query resolves the row after the debounce', (
+    testWidgets('a below-minimum query shows the hint and only the matching '
+        'major; a 3+ character query resolves the row after the debounce', (
       tester,
     ) async {
       await _pumpScreen(tester, withRouter: true);
@@ -692,8 +694,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
+      // Phase 347 D4: «ки» prefixes the loaded major «Київ», so it is listed
+      // above the hint; «Львів» does not, so it is not.
       expect(
         find.byKey(const Key('settlement_option_$_kCityWithDistrictsId')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('settlement_option_$_kCityNoDistrictsId')),
         findsNothing,
       );
 

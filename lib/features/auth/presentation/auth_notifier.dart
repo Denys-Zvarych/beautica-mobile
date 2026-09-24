@@ -52,6 +52,12 @@ import '../../../shared/util/mask_email.dart';
 // NOTE further down in [logout] warns about.
 import '../../booking/application/bookings_day_notifier.dart';
 // Deliberate, narrow exception to "auth never imports another feature"
+// (phase 347 audit, security LOW) — same shape as the two above:
+// `settlementSearchCacheProvider` is a `keepAlive` cache of typed search terms
+// that watches nothing (so it cannot self-clear via the auth cascade, and
+// cannot watch `authProvider` back). A plain `clear()` call in [logout].
+import '../../location/state/location_providers.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
 // (mobile-perf P2-1, 2026-09-07) — same shape as the `bookings_day_notifier
 // .dart` import above: `weeklyScheduleProvider`/`effectiveScheduleProvider`
 // are `ScheduleScope`-keyed `keepAlive` caches that do NOT watch
@@ -1302,6 +1308,11 @@ class AuthNotifier extends _$AuthNotifier {
       // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
       // the full reasoning, including the Riverpod internals this depends on.
       ref.read(dayKeepAliveLruProvider).clear();
+      // Security (phase 347 audit, LOW) — the settlement autocomplete's
+      // keepAlive result cache is keyed by what the user TYPED. Swept here so
+      // the next account on this device cannot read the previous one's search
+      // terms back out of it (e.g. through instant provisional rows).
+      ref.read(settlementSearchCacheProvider).clear();
       // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
       // sweep, for the same reason the day-timeline one above is needed:
       // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on

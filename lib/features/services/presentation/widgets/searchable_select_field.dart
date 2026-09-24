@@ -91,6 +91,7 @@ class SearchableSelectSource<T> {
     required this.onRetry,
     this.maxQueryLength,
     this.throttleCooldownOf,
+    this.provisional,
   });
 
   /// How long the field waits after the last keystroke before it APPLIES the
@@ -137,6 +138,29 @@ class SearchableSelectSource<T> {
   /// instead. Never an automatic retry of the throttled request.
   /// `null` (the default) keeps the plain error-with-Retry behaviour.
   final Duration? Function(Object error)? throttleCooldownOf;
+
+  /// ADDITIVE (Phase 347) — rows the caller can show for [typedQuery] from
+  /// LOCAL data, at once, before (or instead of) a server answer.
+  ///
+  /// Receives the box text in the same trimmed/bounded form a commit would
+  /// apply, on EVERY keystroke. Returns `null` when it has nothing to offer;
+  /// the sheet then behaves exactly as it does without this callback.
+  ///
+  /// When non-null the sheet renders these rows:
+  ///   - while the typed text differs from the applied query (the debounce is
+  ///     still running) or the applied query is loading — under the thin
+  ///     refreshing bar, replaced by the server's rows when they land;
+  ///   - below the minimum, ABOVE the [belowMinimumLabel] line (no request is
+  ///     issued in that state, unchanged);
+  ///   - during a rate-limit cooldown — local work, so still shown, but with
+  ///     no request issued.
+  ///
+  /// `null` (the default, and every non-settlement caller) keeps the sheet
+  /// byte-for-byte as it was: the body is not rebuilt per keystroke, the
+  /// below-minimum state is the label alone, and a load shows the previous
+  /// rows.
+  final List<SelectOption<T>>? Function(WidgetRef ref, String typedQuery)?
+  provisional;
 }
 
 /// A neumorphic searchable single-select dropdown field.
@@ -637,9 +661,56 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
 
   bool get _coolingDown => _cooldown?.isActive ?? false;
 
+  /// The box text in its committed form, tracked per keystroke ONLY when the
+  /// source offers [SearchableSelectSource.provisional] rows. Stays `''` and
+  /// unused otherwise. Read LIVE by the provisional body's builder (never
+  /// captured), so a keystroke that changes nothing visible can update it
+  /// without a rebuild.
+  String _typed = '';
+
+  /// The provisional body's `Consumer` ref, so a keystroke can ask the source
+  /// for its rows OUTSIDE a build. `null` until that body first builds.
+  WidgetRef? _provisionalRef;
+
+  /// What the provisional body last rendered (perf L1): a keystroke whose
+  /// view is the same one — e.g. `provisional` returned `null` before and
+  /// after — skips the rebuild entirely.
+  _ProvisionalView<T>? _provisionalView;
+
+  _ProvisionalView<T> _provisionalViewFor(
+    SearchableSelectSource<T> source,
+    List<SelectOption<T>>? Function(WidgetRef, String) provisional,
+    WidgetRef ref,
+    String typed,
+  ) {
+    final bool belowMinimum = typed.isNotEmpty && !source.isSearchable(typed);
+    final bool pending = typed != _query;
+    return _ProvisionalView<T>(
+      belowMinimum: belowMinimum,
+      pending: pending,
+      coolingDown: _coolingDown,
+      rows: belowMinimum || pending ? provisional(ref, typed) : null,
+    );
+  }
+
   void _onSearchChanged(String raw) {
     _debounce?.cancel();
     final SearchableSelectSource<T>? source = widget.source;
+    final List<SelectOption<T>>? Function(WidgetRef, String)? provisional =
+        source?.provisional;
+    if (source != null && provisional != null) {
+      final String typed = _committedForm(raw);
+      if (typed != _typed) {
+        final WidgetRef? ref = _provisionalRef;
+        final _ProvisionalView<T>? shown = _provisionalView;
+        _typed = typed;
+        final bool unchanged =
+            ref != null &&
+            shown != null &&
+            shown.sameAs(_provisionalViewFor(source, provisional, ref, typed));
+        if (!unchanged) setState(() => _cachedBody = null);
+      }
+    }
     _debounce = Timer(source?.debounce ?? _kSearchDebounce, () {
       if (!mounted) return;
       // A throttled remote sheet holds the keystroke; the cooldown's end
@@ -657,16 +728,20 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
     // would strip the very diacritics «Кам’янка» is indexed under. With a
     // [SearchableSelectSource.maxQueryLength] it is also bounded by the same
     // function the repository applies, so key == wire text.
-    final SearchableSelectSource<T>? source = widget.source;
-    final int? max = _maxQueryLength;
-    final String committed = source == null
-        ? _fold(raw)
-        : (max == null ? raw.trim() : boundSearchQuery(raw, max));
+    final String committed = _committedForm(raw);
     if (committed == _query) return;
     setState(() {
       _query = committed;
       _cachedBody = null;
     });
+  }
+
+  String _committedForm(String raw) {
+    final SearchableSelectSource<T>? source = widget.source;
+    final int? max = _maxQueryLength;
+    return source == null
+        ? _fold(raw)
+        : (max == null ? raw.trim() : boundSearchQuery(raw, max));
   }
 
   /// Starts sitting out a rate limit. Called from the remote body's error
@@ -910,69 +985,172 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
   /// own matches, one or two show the hint, an empty box shows the major list.
   /// Nothing stale ever survives underneath.
   Widget _remoteBody(SearchableSelectSource<T> source) {
+    final List<SelectOption<T>>? Function(WidgetRef, String)? provisional =
+        source.provisional;
+    if (provisional != null) return _provisionalBody(source, provisional);
     if (_query.isNotEmpty && !source.isSearchable(_query)) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(VelvetSpacing.xl),
-          child: Text(
-            source.belowMinimumLabel,
-            key: const Key('select-menu-minimum'),
-            textAlign: TextAlign.center,
-            style: _emptyStyle,
-          ),
-        ),
-      );
+      return _belowMinimum(source);
     }
+    return _serverBody(source);
+  }
+
+  Widget _belowMinimum(SearchableSelectSource<T> source) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(VelvetSpacing.xl),
+        child: Text(
+          source.belowMinimumLabel,
+          key: const Key('select-menu-minimum'),
+          textAlign: TextAlign.center,
+          style: _emptyStyle,
+        ),
+      ),
+    );
+  }
+
+  /// Phase 347 — the remote body for a source with local provisional rows.
+  ///
+  /// Decided by the TYPED text, not the applied query, so every keystroke is
+  /// answered at once:
+  ///   - below the minimum: local rows (if any) above the hint — no request;
+  ///   - typed past the applied query (still debouncing, or held by a 429
+  ///     cooldown): local rows (if any), under the refreshing bar unless the
+  ///     limiter is holding the request back;
+  ///   - applied: the server state, whose loading state shows local rows in
+  ///     place of the previous query's.
+  /// Whenever [provisional] returns `null`, each state falls back to exactly
+  /// what the sheet renders without it.
+  ///
+  /// ONE element shape for all of them (perf M1/L2): every row-bearing state
+  /// is built inside this single `Consumer` as the same
+  /// `Stack > Column > Flexible > list` ([_remoteData] with `stable: true`),
+  /// so below-minimum -> provisional -> server keeps the list's element, its
+  /// rows and its scroll offset instead of remounting them on each step.
+  Widget _provisionalBody(
+    SearchableSelectSource<T> source,
+    List<SelectOption<T>>? Function(WidgetRef, String) provisional,
+  ) {
     return Consumer(
       builder: (BuildContext context, WidgetRef ref, _) {
-        return source
-            .resolve(ref, _query)
-            .when(
-              loading: () {
-                final List<SelectOption<T>>? previous = _lastRemoteOptions;
-                if (previous == null) return const _SheetLoading();
-                // Stale-while-loading (perf M1): the previous rows keep the
-                // sheet's height, and a 2 dp camel bar laid OVER their top
-                // edge (no layout shift) says a new answer is on its way.
-                // Rows stay at full strength and tappable — dimming would
-                // read as "disabled".
-                return _remoteData(previous, refreshing: true);
-              },
-              error: (Object error, StackTrace stackTrace) {
-                final Duration? cooldown = source.throttleCooldownOf?.call(
-                  error,
-                );
-                if (cooldown != null) {
-                  _startCooldown(error, cooldown);
-                  return _SheetError(
-                    message: error is Failure
-                        ? error.userMessage(context)
-                        : widget.errorLabel,
-                    retryLabel: widget.retryLabel,
-                    // No Retry while the limiter is closed: an action whose
-                    // promise is "this will work now" is false until then.
-                    onRetry: _coolingDown
-                        ? null
-                        : () => source.onRetry(ref, _query),
-                  );
-                }
-                return _SheetError(
-                  message: widget.errorLabel,
-                  retryLabel: widget.retryLabel,
-                  // Unlike the in-memory path this retry does NOT close the
-                  // sheet: the query the user typed lives in the sheet's own
-                  // controller, so dismissing would discard it and make them
-                  // type it again to see whether the retry worked.
-                  onRetry: () => source.onRetry(ref, _query),
-                );
-              },
-              data: (List<SelectOption<T>> options) {
-                _lastRemoteOptions = options;
-                return _remoteData(options);
-              },
-            );
+        _provisionalRef = ref;
+        final String typed = _typed;
+        final _ProvisionalView<T> view = _provisionalViewFor(
+          source,
+          provisional,
+          ref,
+          typed,
+        );
+        _provisionalView = view;
+        final List<SelectOption<T>>? rows = view.rows;
+        if (view.belowMinimum) {
+          if (rows == null || rows.isEmpty) return _belowMinimum(source);
+          return _remoteData(
+            rows,
+            stable: true,
+            footer: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.xl,
+                VelvetSpacing.sm,
+                VelvetSpacing.xl,
+                VelvetSpacing.lg,
+              ),
+              child: Text(
+                source.belowMinimumLabel,
+                key: const Key('select-menu-minimum'),
+                textAlign: TextAlign.center,
+                style: _emptyStyle,
+              ),
+            ),
+          );
+        }
+        // A throttled query the user has NOT typed past keeps its own error
+        // message; only new text gets local rows while the limiter is shut.
+        if (view.pending && rows != null) {
+          return _remoteData(rows, refreshing: !_coolingDown, stable: true);
+        }
+        if (_query.isNotEmpty && !source.isSearchable(_query)) {
+          return _belowMinimum(source);
+        }
+        return _serverState(
+          context,
+          ref,
+          source,
+          loadingRows: () => provisional(ref, _query),
+          stable: true,
+        );
       },
     );
+  }
+
+  /// The applied query's server state, in its own `Consumer` — the path of a
+  /// source WITHOUT provisional rows, unchanged since phase 346.
+  Widget _serverBody(SearchableSelectSource<T> source) {
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, _) =>
+          _serverState(context, ref, source),
+    );
+  }
+
+  /// The applied query's loading / error / data rendering.
+  ///
+  /// [loadingRows] (phase 347) supplies local rows for the loading state;
+  /// `null`, or a `null` result, keeps the previous query's rows. [stable]
+  /// selects the provisional path's element shape (see [_remoteData]).
+  Widget _serverState(
+    BuildContext context,
+    WidgetRef ref,
+    SearchableSelectSource<T> source, {
+    List<SelectOption<T>>? Function()? loadingRows,
+    bool stable = false,
+  }) {
+    return source
+        .resolve(ref, _query)
+        .when(
+          loading: () {
+            final List<SelectOption<T>>? local = loadingRows?.call();
+            if (local != null) {
+              return _remoteData(local, refreshing: true, stable: stable);
+            }
+            final List<SelectOption<T>>? previous = _lastRemoteOptions;
+            if (previous == null) return const _SheetLoading();
+            // Stale-while-loading (perf M1): the previous rows keep the
+            // sheet's height, and a 2 dp camel bar laid OVER their top
+            // edge (no layout shift) says a new answer is on its way.
+            // Rows stay at full strength and tappable — dimming would
+            // read as "disabled".
+            return _remoteData(previous, refreshing: true, stable: stable);
+          },
+          error: (Object error, StackTrace stackTrace) {
+            final Duration? cooldown = source.throttleCooldownOf?.call(error);
+            if (cooldown != null) {
+              _startCooldown(error, cooldown);
+              return _SheetError(
+                message: error is Failure
+                    ? error.userMessage(context)
+                    : widget.errorLabel,
+                retryLabel: widget.retryLabel,
+                // No Retry while the limiter is closed: an action whose
+                // promise is "this will work now" is false until then.
+                onRetry: _coolingDown
+                    ? null
+                    : () => source.onRetry(ref, _query),
+              );
+            }
+            return _SheetError(
+              message: widget.errorLabel,
+              retryLabel: widget.retryLabel,
+              // Unlike the in-memory path this retry does NOT close the
+              // sheet: the query the user typed lives in the sheet's own
+              // controller, so dismissing would discard it and make them
+              // type it again to see whether the retry worked.
+              onRetry: () => source.onRetry(ref, _query),
+            );
+          },
+          data: (List<SelectOption<T>> options) {
+            _lastRemoteOptions = options;
+            return _remoteData(options, stable: stable);
+          },
+        );
   }
 
   /// ONE shape for both "rows" and "rows + refreshing" (perf N4): always a
@@ -980,13 +1158,22 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
   /// while refreshing. Loading -> data therefore keeps the content's element
   /// (and the list's scroll state) instead of tearing the list down and
   /// rebuilding it on every query.
-  Widget _remoteData(List<SelectOption<T>> options, {bool refreshing = false}) {
-    return Stack(
-      children: <Widget>[
-        if (options.isNotEmpty)
-          _list(options)
-        else
-          Center(
+  ///
+  /// [stable] (phase 347, provisional path only) wraps the content in a
+  /// `Column` whose FIRST child is always the list slot and whose optional
+  /// second child is [footer] (the below-minimum hint). Adding or dropping the
+  /// footer therefore never moves the list, so below-minimum -> provisional ->
+  /// server keeps one list element. `false` (every other caller) renders the
+  /// phase-346 shape unchanged; [footer] is ignored there.
+  Widget _remoteData(
+    List<SelectOption<T>> options, {
+    bool refreshing = false,
+    bool stable = false,
+    Widget? footer,
+  }) {
+    final Widget content = options.isNotEmpty
+        ? _list(options)
+        : Center(
             child: Padding(
               padding: const EdgeInsets.all(VelvetSpacing.xl),
               child: Text(
@@ -995,7 +1182,20 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
                 style: _emptyStyle,
               ),
             ),
-          ),
+          );
+    return Stack(
+      children: <Widget>[
+        if (stable)
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Flexible(child: content),
+              ?footer,
+            ],
+          )
+        else
+          content,
         if (refreshing)
           const Positioned(
             top: 0,
@@ -1032,6 +1232,43 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
         },
       ),
     );
+  }
+}
+
+/// What the provisional body renders for one typed text (perf L1) — two views
+/// that are [sameAs] each other render identically, so the keystroke that
+/// moved from one to the other needs no rebuild.
+@immutable
+class _ProvisionalView<T> {
+  const _ProvisionalView({
+    required this.belowMinimum,
+    required this.pending,
+    required this.coolingDown,
+    required this.rows,
+  });
+
+  final bool belowMinimum;
+  final bool pending;
+  final bool coolingDown;
+  final List<SelectOption<T>>? rows;
+
+  /// Same state flags and the same rows by [SelectOption.rowKey], in order.
+  /// Rows are compared by key rather than identity because a provisional list
+  /// is a fresh instance on every call.
+  bool sameAs(_ProvisionalView<T> other) {
+    if (belowMinimum != other.belowMinimum ||
+        pending != other.pending ||
+        coolingDown != other.coolingDown) {
+      return false;
+    }
+    final List<SelectOption<T>>? a = rows;
+    final List<SelectOption<T>>? b = other.rows;
+    if (a == null || b == null) return a == null && b == null;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].rowKey != b[i].rowKey) return false;
+    }
+    return true;
   }
 }
 

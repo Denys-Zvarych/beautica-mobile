@@ -287,6 +287,60 @@ void main() {
     );
   });
 
+  testWidgets('Phase 347 — instant autocomplete: 1–2 chars refine the majors '
+      'with NO request, the 3rd char sends ONE debounced search, and '
+      'backspace + retype is served from the client cache', (tester) async {
+    final fb = _masterBackend();
+    await _openLocationScreen(tester, fb);
+    await AppHarness.tapVisible(tester, find.byKey(_kField));
+    await AppHarness.settle(tester);
+
+    const Key search = Key('select-menu-search');
+    const Key kyivRow = Key('settlement_option_city-kyiv');
+    const Key lvivRow = Key('settlement_option_city-lviv');
+    const Key minimumHint = Key('select-menu-minimum');
+    List<String> typedQueries() =>
+        fb.settlementQueries.where((String q) => q.isNotEmpty).toList();
+
+    // ── 1–2 chars: majors refined locally, above the hint, no request ─────
+    await tester.enterText(find.byKey(search), 'ки');
+    await tester.pump(kSettlementSearchDebounce);
+    await AppHarness.settle(tester);
+    expect(find.byKey(kyivRow), findsOneWidget, reason: 'major prefix match');
+    expect(find.byKey(lvivRow), findsNothing, reason: 'prefix-filtered out');
+    expect(find.byKey(minimumHint), findsOneWidget);
+    expect(typedQueries(), isEmpty, reason: '1–2 chars never hit the wire');
+
+    // ── 3rd char: provisional rows at once, then ONE debounced search ─────
+    await tester.enterText(find.byKey(search), 'льв');
+    await tester.pump();
+    expect(find.byKey(lvivRow), findsOneWidget, reason: 'provisional, 0 ms');
+    expect(typedQueries(), isEmpty, reason: 'debounce not yet elapsed');
+    await tester.pump(kSettlementSearchDebounce);
+    await AppHarness.settle(tester);
+    await AppHarness.pumpUntilFound(tester, find.byKey(lvivRow));
+    expect(typedQueries(), <String>['льв'], reason: 'exactly one search');
+
+    // ── Backspace below the minimum, let the «льв» member dispose ─────────
+    await tester.enterText(find.byKey(search), 'ль');
+    await tester.pump(kSettlementSearchDebounce);
+    await AppHarness.settle(tester);
+    expect(find.byKey(minimumHint), findsOneWidget);
+    expect(find.byKey(lvivRow), findsOneWidget, reason: 'majors, locally');
+
+    // ── Retype: served from the LRU, no new request ───────────────────────
+    await tester.enterText(find.byKey(search), 'льв');
+    await tester.pump(kSettlementSearchDebounce);
+    await AppHarness.settle(tester);
+    expect(find.byKey(lvivRow), findsOneWidget, reason: 'rows still show');
+    expect(find.byKey(minimumHint), findsNothing);
+    expect(
+      typedQueries(),
+      <String>['льв'],
+      reason: 'the repeat query is a client-cache hit — no second search',
+    );
+  });
+
   testWidgets('SALON owner picks the village, saves, re-opens: the PATCH '
       'carries the settlement ID and the re-opened field shows the NEW '
       'settlement — not blank, not the old city (D7, backend Phase 328)', (

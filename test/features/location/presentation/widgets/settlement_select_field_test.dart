@@ -115,6 +115,13 @@ class _FakeLocationRepository implements LocationRepository {
   /// Every `query` value `searchSettlements` was called with, in order.
   final List<String> queries = <String>[];
 
+  /// Per-QUERY canned answers that override the prefix filter below — lets a
+  /// test make the server disagree with the client's provisional rows.
+  final Map<String, List<Settlement>> answers = <String, List<Settlement>>{};
+
+  /// How many NON-blank searches reached the "server".
+  int get typedCalls => queries.where((String q) => q.isNotEmpty).length;
+
   /// Per-QUERY holds: a query with an entry here waits on its OWN completer,
   /// so a test can decide which of two in-flight queries answers first.
   final Map<String, Completer<void>> holds = <String, Completer<void>>{};
@@ -138,6 +145,8 @@ class _FakeLocationRepository implements LocationRepository {
     final Object? blankFailure = blankError;
     if (query.isEmpty && blankFailure != null) throw blankFailure;
     if (throwOnSearch) throw const NetworkFailure();
+    final List<Settlement>? canned = answers[query];
+    if (canned != null) return canned;
     if (query.isEmpty) {
       // The pre-typing major list (phase-346 D6).
       return blankRows ?? const <Settlement>[_lviv, _kyiv];
@@ -317,7 +326,10 @@ void main() {
     await _type(tester, 'ль');
 
     expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
-    expect(_row(_lviv), findsNothing);
+    // Phase 347 D4: the already-loaded major Львів is listed above the hint;
+    // the non-prefix major Київ is not.
+    expect(_row(_lviv), findsOneWidget);
+    expect(_row(_kyiv), findsNothing);
     expect(
       repo.queries,
       equals(<String>['']),
@@ -676,14 +688,16 @@ void main() {
 
       final Completer<void> gate = Completer<void>();
       repo.gate = gate;
+      // «Мик» prefixes NO major, so no provisional rows exist (phase 347) and
+      // the phase-346 fallback — the previous rows — is what renders.
       await tester.enterText(
         find.byKey(const Key('select-menu-search')),
-        'Льв',
+        'Мик',
       );
       await tester.pump(kSettlementSearchDebounce);
       await tester.pump();
 
-      expect(repo.queries.last, 'Льв', reason: 'the new query is in flight');
+      expect(repo.queries.last, 'Мик', reason: 'the new query is in flight');
       expect(find.byKey(const Key('select-menu-loading')), findsNothing);
       expect(find.byKey(const Key('select-menu-refreshing')), findsOneWidget);
       expect(_row(_lviv), findsOneWidget);
@@ -693,7 +707,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('select-menu-refreshing')), findsNothing);
       expect(_row(_kyiv), findsNothing);
-      expect(_row(_lvivVillage), findsOneWidget);
+      expect(_row(_mykolaivkaA), findsOneWidget);
     });
 
     testWidgets('M1 — the FIRST load (no previous rows) still shows the full '
@@ -778,8 +792,8 @@ void main() {
       await _openSheet(tester);
       expect(repo.queries, <String>['']);
 
-      // Each keystroke lands 100 ms after the previous one — well inside the
-      // 400 ms window — so every one of them must re-arm the SAME timer.
+      // Each keystroke lands 100 ms after the previous one — inside the
+      // 200 ms window — so every one of them must re-arm the SAME timer.
       for (final String term in <String>['л', 'ль', 'льв', 'льві', 'львів']) {
         await tester.enterText(
           find.byKey(const Key('select-menu-search')),
@@ -919,6 +933,117 @@ void main() {
       expect(find.byKey(const Key('select-menu-error')), findsNothing);
       expect(_row(_lviv), findsOneWidget);
       expect(_row(_kyiv), findsOneWidget);
+    });
+  });
+
+  group('Phase 347 — instant autocomplete', () {
+    Future<void> enter(WidgetTester tester, String text) =>
+        tester.enterText(find.byKey(const Key('select-menu-search')), text);
+
+    testWidgets('request count: a longer term shows provisional rows BEFORE '
+        'its request, and backspacing to a settled term is served from the '
+        'cache with no request', (WidgetTester tester) async {
+      final repo = _FakeLocationRepository();
+      await tester.pumpWidget(_app(repo: repo, emitted: _Emitted()));
+      await _openSheet(tester);
+
+      await _type(tester, 'льв');
+      expect(repo.typedCalls, 1);
+
+      await enter(tester, 'льві');
+      await tester.pump(); // one frame — the debounce has NOT elapsed
+      expect(
+        _row(_lviv),
+        findsOneWidget,
+        reason: 'narrowed from the cached «льв» rows at once',
+      );
+      expect(_row(_lvivVillage), findsOneWidget);
+      expect(
+        find.byKey(const Key('select-menu-refreshing')),
+        findsOneWidget,
+        reason: 'provisional rows sit under the refreshing bar',
+      );
+      expect(repo.typedCalls, 1, reason: 'no request before the debounce');
+
+      await tester.pump(kSettlementSearchDebounce);
+      await tester.pumpAndSettle();
+      expect(repo.typedCalls, 2);
+      expect(repo.queries.last, 'льві');
+
+      await _type(tester, 'льв');
+      expect(
+        repo.typedCalls,
+        2,
+        reason: 'a settled term is an LRU hit — no second request',
+      );
+      expect(_row(_lviv), findsOneWidget);
+      expect(_row(_lvivVillage), findsOneWidget);
+      expect(find.byKey(const Key('select-menu-refreshing')), findsNothing);
+    });
+
+    testWidgets('the debounce is 200 ms: 199 ms sends nothing, +1 ms sends '
+        'the request', (WidgetTester tester) async {
+      final repo = _FakeLocationRepository();
+      await tester.pumpWidget(_app(repo: repo, emitted: _Emitted()));
+      await _openSheet(tester);
+
+      await enter(tester, 'льв');
+      // fixed-wait-ok: debounce boundary — one millisecond short of the window.
+      await tester.pump(const Duration(milliseconds: 199));
+      expect(repo.typedCalls, 0);
+      // fixed-wait-ok: debounce boundary — the final millisecond of the window.
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(repo.typedCalls, 1);
+      expect(kSettlementSearchDebounce, const Duration(milliseconds: 200));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('1-2 characters list the matching MAJORS with the hint and '
+        'send no request', (WidgetTester tester) async {
+      final repo = _FakeLocationRepository();
+      final emitted = _Emitted();
+      await tester.pumpWidget(_app(repo: repo, emitted: emitted));
+      await _openSheet(tester);
+      expect(repo.queries, <String>[''], reason: 'the majors are seeded');
+
+      await _type(tester, 'ки');
+
+      expect(_row(_kyiv), findsOneWidget);
+      expect(_row(_lviv), findsNothing);
+      expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
+      expect(repo.typedCalls, 0);
+
+      // The row is a real row: tapping it picks Київ.
+      await tester.tap(_row(_kyiv));
+      await tester.pumpAndSettle();
+      expect(emitted.id, _kyiv.id);
+    });
+
+    testWidgets('provisional rows never outlive the server answer', (
+      WidgetTester tester,
+    ) async {
+      final repo = _FakeLocationRepository();
+      // The server disagrees with the local prefix narrowing on purpose.
+      repo.answers['льві'] = const <Settlement>[_lvivVillage];
+      await tester.pumpWidget(_app(repo: repo, emitted: _Emitted()));
+      await _openSheet(tester);
+
+      await enter(tester, 'льві');
+      await tester.pump();
+      expect(_row(_lviv), findsOneWidget, reason: 'provisional from majors');
+      expect(_row(_lvivVillage), findsNothing);
+
+      await tester.pump(kSettlementSearchDebounce);
+      await tester.pump(Duration.zero);
+      await tester.pumpAndSettle();
+
+      expect(_row(_lvivVillage), findsOneWidget);
+      expect(
+        _row(_lviv),
+        findsNothing,
+        reason: 'exactly the server rows once it has answered',
+      );
+      expect(find.byKey(const Key('select-menu-refreshing')), findsNothing);
     });
   });
 }

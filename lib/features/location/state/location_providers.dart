@@ -13,6 +13,7 @@ import 'package:dio/dio.dart' show CancelToken;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../data/location_repository.dart';
+import '../data/settlement_search_cache.dart';
 import '../domain/city.dart';
 import '../domain/city_district.dart';
 import '../domain/oblast.dart';
@@ -57,6 +58,16 @@ Future<List<CityDistrict>> districtList(Ref ref, String cityId) async {
   }
 }
 
+/// Phase 347 — the session-lifetime LRU of settled settlement searches.
+///
+/// `keepAlive` because it IS the memory: an autoDispose cache would be dropped
+/// every time the sheet closes, which is exactly the re-open case it exists to
+/// serve. Bounded by [kSettlementSearchCacheSize], so pinning it for the app
+/// lifetime cannot grow without limit the way a keepAlive FAMILY over typed
+/// keys would (see [settlementSearch]).
+@Riverpod(keepAlive: true)
+SettlementSearchCache settlementSearchCache(Ref ref) => SettlementSearchCache();
+
 /// Phase 346 — ranked settlement matches for one debounced autocomplete query.
 ///
 /// Family-keyed by the APPLIED (already debounced) query, so the family key
@@ -91,15 +102,41 @@ Future<List<CityDistrict>> districtList(Ref ref, String cityId) async {
 /// sheet open for the rest of the session, restarting a full cooldown from an
 /// old Retry-After each time. Once the sheet stops listening, a failed blank
 /// key disposes and the next open refetches.
+///
+/// CLIENT CACHE (phase 347). A query whose [normalizeSettlementQuery] key the
+/// session has already answered is returned from [settlementSearchCache]
+/// SYNCHRONOUSLY — no repository call, and no loading frame (a `FutureOr`
+/// value lands as data at once). A success is stored under that key; a failure
+/// never is, so Retry and the 429 path always reach the server.
 @riverpod
-Future<List<Settlement>> settlementSearch(Ref ref, String query) async {
+FutureOr<List<Settlement>> settlementSearch(Ref ref, String query) {
+  final SettlementSearchCache cache = ref.watch(settlementSearchCacheProvider);
+  final String key = normalizeSettlementQuery(query);
+  final List<Settlement>? cached = cache.get(key);
+  if (cached != null) {
+    // The blank key keeps its pin on a hit too, so the major list stays one
+    // live family member exactly as before.
+    if (query.isEmpty) ref.keepAlive();
+    return cached;
+  }
+  return _fetchSettlements(ref, query, cache, key);
+}
+
+Future<List<Settlement>> _fetchSettlements(
+  Ref ref,
+  String query,
+  SettlementSearchCache cache,
+  String key,
+) async {
   final pin = query.isEmpty ? ref.keepAlive() : null;
   final CancelToken cancelToken = CancelToken();
   ref.onDispose(cancelToken.cancel);
   try {
-    return await ref
+    final List<Settlement> rows = await ref
         .watch(locationRepositoryProvider)
         .searchSettlements(query, cancelToken: cancelToken);
+    cache.put(key, rows);
+    return rows;
   } on Object {
     pin?.close();
     rethrow;

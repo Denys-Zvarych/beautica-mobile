@@ -43,6 +43,9 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/location/data/settlement_search_cache.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -1040,6 +1043,47 @@ void main() {
       await container.read(authProvider.notifier).logout();
 
       verify(() => lruSpy.clear()).called(1);
+    });
+
+    // Phase 347 audit (security LOW): the settlement autocomplete's keepAlive
+    // result cache is keyed by what the user TYPED, and nothing in the auth
+    // cascade reaches it (it watches no provider). Unlike the day-LRU above,
+    // an OUTCOME assertion is discriminating here: the only thing that can
+    // empty a held, never-invalidated cache instance is the `clear()` call in
+    // logout().
+    test('logout() empties the settlement search cache — the previous '
+        "account's typed terms do not survive into the next session", () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final SettlementSearchCache cache = SettlementSearchCache()
+        ..put('львів', const <Settlement>[
+          Settlement(id: 's-lviv', name: 'Львів', oblastName: 'Львівська'),
+        ]);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          settlementSearchCacheProvider.overrideWithValue(cache),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(cache.length, 1, reason: 'the typed term is cached while in');
+
+      await container.read(authProvider.notifier).logout();
+
+      expect(cache.length, 0);
+      expect(cache.get('львів'), isNull);
     });
 
     // -----------------------------------------------------------------------
