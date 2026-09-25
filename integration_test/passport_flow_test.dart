@@ -241,6 +241,15 @@ const int _kSessionAReviews = 7;
 const int _kSessionBYear = 2024;
 const int _kSessionBReviews = 1;
 
+/// Pull-to-refresh fixtures (Qase defect #9 step 6). Deliberately distinct
+/// from every other year/count constant above and from each other, so a
+/// pull-to-refresh assertion cannot pass by coincidentally matching an
+/// unrelated fixture.
+const int _kPreRefreshReviews = 5;
+const int _kPreRefreshYear = 2022;
+const int _kPostRefreshReviews = 9;
+const int _kPostRefreshYear = 2023;
+
 /// The two sessions' own two-sided ratings, rendered by [MyRatingStatCard] as
 /// `toStringAsFixed(1)` on the CLIENT home hub.
 const double _kSessionARating = 4.9;
@@ -308,6 +317,43 @@ Future<void> _openPassportTab(
 Future<void> _scrollToWishList(WidgetTester tester) async {
   await tester.drag(find.byType(Scrollable).last, const Offset(0, -600));
   await tester.pumpAndSettle();
+}
+
+/// Drags the passport body's `ListView` DOWN to trigger `AppRefreshIndicator`
+/// and waits for `GET /clients/me/passport` to be re-issued.
+///
+/// Mirrors `client_favorites_flow_test.dart`'s own pull-to-refresh recipe
+/// (`tester.drag` + `pumpAndSettle` + a bounded poll on the call counter) —
+/// NOT `passport_screen_test.dart`'s widget-tier fling+fixed-pump M6 recipe.
+/// That recipe exists only because the widget test pumps `PassportScreen`
+/// bare, with no `MaterialApp`/real viewport ancestor, where a `fling` is the
+/// only gesture `RefreshIndicator` reliably registers. Here the REAL app is
+/// booted (`AppHarness.boot`), so a plain downward drag past the touch slop
+/// is enough — `RefreshIndicator` only needs the list at scroll offset 0,
+/// which it already is right after `_openPassportTab`.
+///
+/// `AppHarness.pumpUntilCondition` (a bounded plain-`pump` poll, NOT
+/// `pumpAndSettle`) is what actually proves the refetch landed — a caller
+/// that stopped at `tester.pumpAndSettle()` alone could observe "settled"
+/// in the lull between the drag-reveal animation finishing and the async
+/// `onRefresh` future resolving, and read stale UI
+/// (`project_pumpandsettle_misses_debounce_timer`).
+Future<void> _pullToRefresh(
+  WidgetTester tester,
+  int Function() getPassportCalls,
+) async {
+  final int before = getPassportCalls();
+  await tester.drag(
+    find.byType(ListView).first,
+    const Offset(0, 320),
+    touchSlopY: 0,
+  );
+  await tester.pumpAndSettle();
+  await AppHarness.pumpUntilCondition(
+    tester,
+    () => getPassportCalls() > before,
+    description: 're-issue of GET /clients/me/passport after a pull',
+  );
 }
 
 void main() {
@@ -494,6 +540,20 @@ void main() {
           find.descendant(of: find.byKey(_kIdentityStrip), matching: f);
 
       expect(inStrip(find.text(l10n.passportReviewsLeft(0))), findsOneWidget);
+      // Qase defect #9 step 2 — LITERAL wording pin. `l10n.passportReviewsLeft
+      // (0)` alone cannot catch a regression back to the earlier ungrammatical
+      // «Жодного відгуку залишено» (missing «не»): if the `=0` ARB branch ever
+      // reverts, this call site regenerates to the OLD string too and the
+      // assertion above would still pass. Spelling the expected string out
+      // here is what actually fails on that regression.
+      expect(
+        // i18n-finder-ok: literal wording pin (Phase 349), not a copy lookup.
+        inStrip(find.text('Відгуків немає')),
+        findsOneWidget,
+        reason:
+            'Qase defect #9 step 2 — the =0 branch must read «Відгуків '
+            'немає», not the old ungrammatical «Жодного відгуку залишено»',
+      );
       expect(
         inStrip(find.text(l10n.passportMemberSince('2021'))),
         findsOneWidget,
@@ -761,5 +821,127 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PULL-TO-REFRESH — Qase defect #9 step 6 (Phase 349).
+  //
+  // "Увімкнути режим польоту і перезавантажити екран": before this phase the
+  // passport body was a bare `ListView` with no way to reload, so the tester
+  // could never reach an error state at all. `AppRefreshIndicator` now wraps
+  // the body (`passport_screen.dart:196-224`); this flow drives the REAL
+  // gesture end-to-end against the fake backend, distinct from
+  // `passport_screen_test.dart`'s widget-tier group, which mocks the
+  // providers directly and cannot prove the real `GET /clients/me/passport`
+  // round-trip or `AppHarness.boot`'s real router/shell wiring.
+  //
+  // ANTI-VACUITY: every asserted figure differs pre/post-refresh
+  // (`_kPreRefreshReviews` vs `_kPostRefreshReviews`), so "the page still
+  // shows SOMETHING" cannot satisfy the update assertion — it must show the
+  // POST-refresh figure specifically, and the PRE-refresh one must be GONE.
+  // The failure assertion checks the identity strip is ABSENT under the error
+  // card (an error must never silently keep the last-good render on screen —
+  // `_PassportSection`'s explicit `isLoading → hasError → value` branch order
+  // means a completed failed refetch replaces the content wholesale), and the
+  // recovery assertion checks the SAME post-refresh figure reappears once the
+  // failure is cleared, proving the page is driven by the live provider and
+  // not stuck on whatever it last rendered.
+  //
+  // `forcePassportFailure(400)`, not a 5xx: `beauticaProviderRetry`
+  // classifies any 5xx / `NetworkFailure` as transient and silently retries
+  // once behind the pull gesture (`failure_retry_policy.dart`); a 400 is
+  // deterministic, so the error card appears on the FIRST failed attempt this
+  // flow can observe rather than racing an in-flight retry.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'pull-to-refresh on the passport refetches fresh data, shows the error '
+    'card when the endpoint fails, and recovers once the failure clears '
+    '(Qase defect #9 step 6)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..passportBody = _sessionPassportBody(
+          memberSinceYear: _kPreRefreshYear,
+          reviewsWritten: _kPreRefreshReviews,
+        );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      final AppLocalizations l10n = await _uk();
+
+      Finder inStrip(Finder f) =>
+          find.descendant(of: find.byKey(_kIdentityStrip), matching: f);
+
+      await _openPassportTab(tester, fb, router);
+      expect(fb.getPassportCalls, 1);
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPreRefreshReviews))),
+        findsOneWidget,
+      );
+
+      // ── (a) PULL WITH NEW DATA — the page updates ────────────────────
+      fb.passportBody = _sessionPassportBody(
+        memberSinceYear: _kPostRefreshYear,
+        reviewsWritten: _kPostRefreshReviews,
+      );
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(
+        fb.getPassportCalls,
+        2,
+        reason: 'the pull must re-issue GET /clients/me/passport',
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPostRefreshReviews))),
+        findsOneWidget,
+        reason: 'the pull must render the POST-refresh figure off the wire',
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPreRefreshReviews))),
+        findsNothing,
+        reason:
+            'the PRE-refresh figure must not survive — this is what '
+            'separates "refetched" from "call count incremented but the '
+            'screen never rebuilt"',
+      );
+
+      // ── (b) PULL WHILE THE ENDPOINT FAILS — the error card ────────────
+      fb.forcePassportFailure(400);
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(fb.getPassportCalls, 3);
+      expect(
+        find.byKey(_kPassportError),
+        findsOneWidget,
+        reason:
+            'Qase defect #9 step 6 — a failed pull-to-refresh must show the '
+            'error card, exactly what "airplane mode + pull" could never '
+            'reach before this phase (the body had no refresh at all)',
+      );
+      expect(find.text(l10n.passportErrorTitle), findsOneWidget);
+      expect(find.text(l10n.passportErrorBody), findsOneWidget);
+      expect(
+        find.byKey(_kIdentityStrip),
+        findsNothing,
+        reason:
+            'the error card REPLACES the strip, it does not draw alongside '
+            'silently-stale data — a screen that kept showing the last-good '
+            'figures under a failed refetch would pass the update assertion '
+            'above for the wrong reason',
+      );
+
+      // ── clear the failure — pulling again restores the page ───────────
+      fb.forcePassportFailure(null);
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(fb.getPassportCalls, 4);
+      expect(find.byKey(_kPassportError), findsNothing);
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPostRefreshReviews))),
+        findsOneWidget,
+        reason:
+            'clearing the failure and pulling again must restore the page '
+            'to the live provider state, not leave the error card stuck',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
   );
 }

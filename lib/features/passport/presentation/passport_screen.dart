@@ -93,6 +93,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
+import '../../../core/widgets/app_refresh_indicator.dart';
 import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
@@ -101,6 +102,7 @@ import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
 import '../../location/presentation/saved_settlement_label.dart';
+import '../../wishlist/application/wishlist_notifier.dart';
 import '../../wishlist/presentation/widgets/wishlist_rebook.dart';
 import '../../wishlist/presentation/widgets/wishlist_section.dart';
 import '../application/passport_notifier.dart';
@@ -186,51 +188,87 @@ class _PassportScreenState extends ConsumerState<PassportScreen>
       // Top bar AND bottom nav are hosted by ClientShell — this screen is just
       // the body. The shell owns the single SafeArea(top), so the body must NOT
       // re-wrap one.
-      body: RepaintBoundary(
-        child: StaggeredReveal(
-          builder: (BuildContext context, RevealFn reveal) {
-            return ListView(
-              // Top inset matches Home's body exactly: the shell-owned
-              // ClientTopBar sits directly above, so the profile block needs the
-              // same `lg` breathing gap. Keeping the two equal is what stops the
-              // identity card jumping vertically on every Home↔Passport switch
-              // (pinned by passport_home_card_alignment_regression_test).
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.lg,
-                VelvetSpacing.lg,
-                VelvetSpacing.lg,
-              ),
-              children: <Widget>[
-                // 1. Profile block — its own Consumer, so a profile refresh
-                //    does not rebuild the strip or the wish list.
-                reveal(
-                  start: 0.06,
-                  end: 0.46,
-                  child: _ProfileSection(onCamera: _onCameraTap),
+      // Pull-to-refresh: invalidate every provider this page shows (passport,
+      // client profile, wish list), matching `home_hub_screen.dart`'s call
+      // site. Riverpod 3.x note: invalidate + await `.future` — never gate on
+      // `value == null` (retains the previous value through the reload;
+      // `project_riverpod_seamless_invalidate_gotcha`).
+      body: AppRefreshIndicator(
+        onRefresh: () async {
+          ref.invalidate(passportProvider);
+          ref.invalidate(clientProfileProvider);
+          ref.invalidate(wishlistProvider);
+          try {
+            await Future.wait(<Future<void>>[
+              ref.read(passportProvider.future),
+              ref.read(clientProfileProvider.future),
+              ref.read(wishlistProvider.future),
+            ]);
+          } on Object catch (e) {
+            // Errors surface through each section's own branch
+            // (_PassportError / _ProfileError / wish-list error state) — one
+            // section failing must not throw past the RefreshIndicator or
+            // stop the others' refetch from being awaited above. Logged here
+            // only so a swallowed refresh failure leaves a trace — the error
+            // TYPE only, never its message/fields: a caught `Failure` can
+            // carry profile PII (phone/city) in its payload.
+            if (kDebugMode) {
+              log(
+                'PassportScreen pull-to-refresh: a section refetch failed — '
+                '${e.runtimeType}',
+                name: 'feature.passport',
+                level: 900,
+              );
+            }
+          }
+        },
+        child: RepaintBoundary(
+          child: StaggeredReveal(
+            builder: (BuildContext context, RevealFn reveal) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                // Top inset matches Home's body exactly: the shell-owned
+                // ClientTopBar sits directly above, so the profile block needs the
+                // same `lg` breathing gap. Keeping the two equal is what stops the
+                // identity card jumping vertically on every Home↔Passport switch
+                // (pinned by passport_home_card_alignment_regression_test).
+                padding: const EdgeInsets.fromLTRB(
+                  VelvetSpacing.lg,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.lg,
+                  VelvetSpacing.lg,
                 ),
-                const SizedBox(height: VelvetSpacing.lg),
-                // 2 + 3. Identity strip and its data page. One Consumer: both
-                //    read the SAME passport payload, so splitting them would
-                //    double the watch for no rebuild saving.
-                _PassportSection(reveal: reveal),
-                const SizedBox(height: VelvetSpacing.lg),
-                // 4. BEAUTY WISH LIST — watches `wishlistProvider` internally.
-                reveal(
-                  start: 0.28,
-                  end: 0.68,
-                  child: WishlistSection(
-                    // Phase 241 — WishlistRebookHost, shared verbatim with
-                    // WishlistScreen so the two «Записатись» CTAs can never
-                    // diverge (see wishlist_rebook.dart).
-                    onBook: rebook,
-                    onFindMaster: _onFindMaster,
-                    onShowAll: _onShowAllFavourites,
+                children: <Widget>[
+                  // 1. Profile block — its own Consumer, so a profile refresh
+                  //    does not rebuild the strip or the wish list.
+                  reveal(
+                    start: 0.06,
+                    end: 0.46,
+                    child: _ProfileSection(onCamera: _onCameraTap),
                   ),
-                ),
-              ],
-            );
-          },
+                  const SizedBox(height: VelvetSpacing.lg),
+                  // 2 + 3. Identity strip and its data page. One Consumer: both
+                  //    read the SAME passport payload, so splitting them would
+                  //    double the watch for no rebuild saving.
+                  _PassportSection(reveal: reveal),
+                  const SizedBox(height: VelvetSpacing.lg),
+                  // 4. BEAUTY WISH LIST — watches `wishlistProvider` internally.
+                  reveal(
+                    start: 0.28,
+                    end: 0.68,
+                    child: WishlistSection(
+                      // Phase 241 — WishlistRebookHost, shared verbatim with
+                      // WishlistScreen so the two «Записатись» CTAs can never
+                      // diverge (see wishlist_rebook.dart).
+                      onBook: rebook,
+                      onFindMaster: _onFindMaster,
+                      onShowAll: _onShowAllFavourites,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

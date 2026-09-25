@@ -1024,4 +1024,200 @@ void main() {
       );
     });
   });
+
+  // -------------------------------------------------------------------------
+  // 7. Phase 349 — pull-to-refresh. Case 9 step 6 ("Увімкнути режим польоту і
+  //    перезавантажити екран") needed a way to reload; the body is now wrapped
+  //    in `AppRefreshIndicator`, mirroring `home_hub_screen_test.dart`'s own
+  //    pull-to-refresh group for the identical invalidate + await-futures
+  //    shape (`home_hub_screen.dart:185-200`).
+  //
+  //    `tester.pumpApp` mounts `PassportScreen` directly inside a plain
+  //    `ProviderScope` + `MaterialApp` — no `StatefulShellBranch` ancestor —
+  //    so the single listener each test below creates is never offstage/
+  //    paused, and `ref.invalidate` takes effect on the very next pump
+  //    (`project_riverpod_offstage_pause_invalidate`).
+  // -------------------------------------------------------------------------
+  group('PassportScreen — pull-to-refresh', () {
+    testWidgets('REGRESSION: pull-to-refresh invalidates passportProvider, '
+        'clientProfileProvider and wishlistProvider', (tester) async {
+      int passportCalls = 0;
+      int profileCalls = 0;
+      final FakeWishlistRepository fakeWishlist = FakeWishlistRepository(
+        services: _kFiveFavourites,
+      );
+
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          clientProfileProvider.overrideWith((ref) async {
+            profileCalls++;
+            return _sampleProfile;
+          }),
+          passportProvider.overrideWith((ref) async {
+            passportCalls++;
+            // Distinct pre/post fixtures so the assertion below proves the
+            // RENDERED content changed, not just the call count.
+            return passportCalls == 1
+                ? _noDerivedDataPassport
+                : _populatedPassport;
+          }),
+          wishlistRepositoryProvider.overrideWithValue(fakeWishlist),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = await _uk();
+      expect(passportCalls, 1, reason: 'exactly one fetch on initial build');
+      expect(
+        find.text(l10n.passportReviewsLeft(3)),
+        findsOneWidget,
+        reason: 'the initial fetch must render the PRE-refresh fixture',
+      );
+      expect(find.byKey(_kDerivedBlock), findsNothing);
+
+      final Finder scrollableFinder = find
+          .descendant(
+            of: find.byType(PassportScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      // Reset scroll to the TOP so the pull gesture registers as an
+      // overscroll — `RefreshIndicator` only triggers from offset 0.
+      final ScrollableState scrollableState = tester.state<ScrollableState>(
+        scrollableFinder,
+      );
+      scrollableState.position.jumpTo(0);
+      await tester.pump();
+
+      // `pumpAndSettle` fires no `Timer` — the refresh gesture needs an
+      // explicit fling + pump sequence, matching
+      // `app_refresh_indicator_test.dart`'s own documented M6 recipe:
+      // `onRefresh` is NOT invoked until AFTER the 200ms drag-reveal pump.
+      // `FakeWishlistRepository.getMyWishlist` awaits an explicit
+      // `Future.delayed` (unlike a bare async gap), which schedules a real
+      // fake-clock `Timer` — skipping the drag-reveal pump left that Timer
+      // created too late to be flushed before teardown ("A Timer is still
+      // pending" — `project_pumpandsettle_misses_debounce_timer`).
+      await tester.fling(scrollableFinder, const Offset(0, 400), 800);
+      // Pump 1: RefreshIndicator intercepts the gesture, starts the pull
+      // animation.
+      await tester.pump();
+      // Pump 2: past the indicator's 200ms drag-reveal animation — this is
+      // the pump that actually invokes `onRefresh`.
+      // fixed-wait-ok: Material's RefreshIndicator drag-reveal is a fixed
+      // 200ms animation length (M6 exception), not a condition to pump-until.
+      await tester.pump(const Duration(milliseconds: 200));
+      // Pump 3: onRefresh runs (3x invalidate + await 3 provider futures,
+      // including the wishlist fake's `Future.delayed` timer).
+      await tester.pump();
+      // Pump 4: Riverpod notifier state transitions settle.
+      // fixed-wait-ok: draining the notifier state-transition queue after
+      // invalidate; nothing to pump-until against directly.
+      await tester.pump(const Duration(milliseconds: 50));
+      // Pump 5: Material RefreshIndicator's built-in 250ms dismiss
+      // animation (bounded by the Material library, not application code).
+      // fixed-wait-ok: fixed Material dismiss-animation duration (M6
+      // exception), not application state to pump-until.
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+        passportCalls,
+        greaterThan(1),
+        reason:
+            'pull-to-refresh must invalidate passportProvider and re-fetch. '
+            'If this fails, AppRefreshIndicator is not wired in '
+            'PassportScreen any more.',
+      );
+      expect(profileCalls, greaterThan(1));
+      expect(fakeWishlist.getCallCount, greaterThan(1));
+
+      expect(
+        find.text(l10n.passportReviewsLeft(_kReviewsWritten)),
+        findsOneWidget,
+        reason:
+            'after the pull, the strip must show the POST-refresh fixture '
+            '— this separates "refetched" from "call count incremented but '
+            'the screen never rebuilt"',
+      );
+      expect(find.byKey(_kDerivedBlock), findsOneWidget);
+    });
+
+    testWidgets(
+      'pull-to-refresh while the passport refetch fails shows the error card '
+      '(Qase defect #9 step 6)',
+      (tester) async {
+        int attempt = 0;
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+            passportProvider.overrideWith((ref) async {
+              attempt++;
+              if (attempt == 1) return _populatedPassport;
+              // Simulates the "airplane mode" pull from Qase defect #9.
+              throw const NetworkFailure();
+            }),
+            wishlistRepositoryProvider.overrideWithValue(
+              FakeWishlistRepository(services: _kFiveFavourites),
+            ),
+          ],
+          // Retry OFF, same reasoning as the error-state group above: a
+          // classified-transient failure would otherwise park in
+          // AsyncLoading(retrying: true) through the pumps below.
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(_kIdentityStrip), findsOneWidget);
+        expect(find.byKey(_kPassportError), findsNothing);
+
+        final Finder scrollableFinder = find
+            .descendant(
+              of: find.byType(PassportScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        final ScrollableState scrollableState = tester.state<ScrollableState>(
+          scrollableFinder,
+        );
+        scrollableState.position.jumpTo(0);
+        await tester.pump();
+
+        // Same M6-recipe fix as the test above: the 200ms drag-reveal pump
+        // is what actually invokes `onRefresh` and must precede the plain
+        // pump that lets the wishlist fake's `Future.delayed` timer fire.
+        await tester.fling(scrollableFinder, const Offset(0, 400), 800);
+        await tester.pump();
+        // fixed-wait-ok: Material's RefreshIndicator drag-reveal is a fixed
+        // 200ms animation length (M6 recipe above), not a pump-until condition.
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
+        // fixed-wait-ok: draining the notifier state-transition queue after
+        // invalidate, same reasoning as the M6 recipe above.
+        await tester.pump(const Duration(milliseconds: 50));
+        // fixed-wait-ok: Material RefreshIndicator's built-in 250ms dismiss
+        // animation (M6 exception), same reasoning as the M6 recipe above.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(attempt, 2, reason: 'the pull must trigger a genuine refetch');
+
+        final AppLocalizations l10n = await _uk();
+        expect(find.byKey(_kPassportError), findsOneWidget);
+        expect(find.text(l10n.passportErrorTitle), findsOneWidget);
+        expect(find.text(l10n.passportErrorBody), findsOneWidget);
+        expect(
+          find.byKey(_kIdentityStrip),
+          findsNothing,
+          reason:
+              'a failed refetch must not leave the stale strip visible '
+              'alongside the error card, and must not degrade into a '
+              'no-data rendering (same contract as the retry-button group '
+              'above, now exercised via the pull gesture)',
+        );
+      },
+    );
+  });
 }

@@ -1130,6 +1130,27 @@ final class FakeBackend {
     'memberSinceYear': 2021,
   };
 
+  /// Status code `GET /api/v1/clients/me/passport` fails with, or null for the
+  /// default 200. Set via [forcePassportFailure] — never assign directly:
+  /// `DioAdapter.onRoute` bakes the reply's status code in at REGISTRATION
+  /// time (`RequestHandler.replyCallback`'s `statusCode` param is captured the
+  /// instant the route is registered, not read fresh per request), so the
+  /// route has to be RE-REGISTERED for a status change to take effect — same
+  /// device as [forceListMasterFavoritesFailure] / [forceRemoveFavoriteFailure].
+  int? _passportFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `GET /api/v1/clients/me/passport`
+  /// fail with [statusCode] (a non-5xx, e.g. 400, so `beauticaProviderRetry`
+  /// treats it as deterministic and does not silently retry behind the pull
+  /// gesture — see `failure_retry_policy.dart`), driving `_PassportSection`'s
+  /// `_PassportError` card (Qase defect #9 step 6, "airplane mode" pull).
+  /// Call again with `null` to restore the default 200 — the flow that clears
+  /// the failure and pulls again to prove the page recovers.
+  void forcePassportFailure(int? statusCode) {
+    _passportFailureStatusCode = statusCode;
+    _wirePassport();
+  }
+
   /// `GET /api/v1/clients/me/timeline` call counter (Phase 110 / mobile-qa
   /// gap-closure — this route did not exist at all until this pass; see
   /// [timelineRows]'s doc for the defect that absence caused).
@@ -1291,6 +1312,32 @@ final class FakeBackend {
   /// so a multi-service booking threads N ids and the scalar view silently
   /// keeps only the first.
   List<String>? lastMasterAaaWorkingDaysServiceIds;
+
+  /// Phase 350 — the FULL, ordered `serviceId` list the most recent
+  /// `master-aaa/slots` request carried (`null` when the param was absent).
+  /// Mirrors [lastMasterAaaWorkingDaysServiceIds] one step later in the
+  /// flow — the rebook E2E advances past the date step into the TIME step
+  /// and asserts availability was requested for the exact multi-service
+  /// selection there too, not just at the calendar gate.
+  List<String>? lastMasterAaaSlotsServiceIds;
+
+  /// Phase 350 — when true, `GET /masters/master-aaa/services` omits
+  /// `pub-assign-1` from its response, as if the client's booked service had
+  /// been deactivated since. Models the D6 stale-service rebook scenario
+  /// (`client_rebook_from_past_flow_test.dart`) without touching the seeded
+  /// `booking-1`'s own `masterServiceId` (which stays `pub-assign-1` — the
+  /// booking record itself never changes, only the live catalogue it is
+  /// re-checked against). Off by default, so every pre-existing flow keeps
+  /// seeing both services.
+  bool publicMasterServiceRemoved = false;
+
+  /// [_publicMasterServices], filtered per [publicMasterServiceRemoved].
+  List<Map<String, dynamic>> get _publicMasterServicesEffective =>
+      publicMasterServiceRemoved
+      ? _publicMasterServices
+            .where((Map<String, dynamic> row) => row['id'] != 'pub-assign-1')
+            .toList(growable: false)
+      : _publicMasterServices;
 
   /// Phase 264 — the FULL, ordered `serviceId` list the most recent
   /// `/masters/$masterRowId/slots` request carried (the routed walk-in
@@ -6002,6 +6049,34 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers `GET /api/v1/clients/me/passport` — CLIENT's derived
+  /// BEAUTY PASSPORT (backend 19.5). Without this route the mock router 404s
+  /// and the passport tab renders its ERROR state instead of the empty
+  /// variant the flow asserts.
+  ///
+  /// Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
+  /// budget) — the state a freshly-seeded fake client is in. Mutate
+  /// [passportBody] from a flow to serve a populated passport instead.
+  /// See [forcePassportFailure] for the error-card path.
+  void _wirePassport() {
+    final int? failStatus = _passportFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/clients/me/passport',
+      (server) => server.replyCallback(failStatus ?? 200, (_) {
+        getPassportCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to load passport',
+          };
+        }
+        return _ok(passportBody);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// (Re-)registers `GET /api/v1/favorites/masters`.
   /// See [forceListMasterFavoritesFailure].
   void _wireListMasterFavorites() {
@@ -6490,21 +6565,8 @@ final class FakeBackend {
     );
 
     // GET /api/v1/clients/me/passport — CLIENT's derived BEAUTY PASSPORT
-    // (backend 19.5). Wired now that HttpPassportRepository calls the real
-    // endpoint: without this route the mock router 404s and the passport tab
-    // renders its ERROR state instead of the empty variant the flow asserts.
-    //
-    // Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
-    // budget) — the state a freshly-seeded fake client is in. Mutate
-    // [passportBody] from a flow to serve a populated passport instead.
-    _adapter.onRoute(
-      '/api/v1/clients/me/passport',
-      (server) => server.replyCallback(200, (_) {
-        getPassportCalls++;
-        return _ok(passportBody);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
+    // (backend 19.5). See [_wirePassport].
+    _wirePassport();
 
     // GET /api/v1/clients/me/timeline — CLIENT's BEAUTY TIMELINE
     // (completed-procedure history, backend 19.5). Wired now that
@@ -6779,7 +6841,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
-        return _okList(_publicMasterServices);
+        return _okList(_publicMasterServicesEffective);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6901,8 +6963,14 @@ final class FakeBackend {
     // booking-flow E2E requests.
     _adapter.onRoute(
       '/api/v1/masters/master-aaa/slots',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
+        // Phase 350 — records the FULL multi-service selection, mirroring
+        // the working-days registration above.
+        lastMasterAaaSlotsServiceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),

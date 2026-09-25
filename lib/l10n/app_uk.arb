@@ -3321,7 +3321,7 @@
   "@passportBudgetUnknown": {
     "description": "Budget value chip placeholder on the BEAUTY PASSPORT card when there is no spend history yet."
   },
-  "passportReviewsLeft": "{count, plural, =0{Жодного відгуку залишено} =1{1 відгук залишено} few{{count} відгуки залишено} many{{count} відгуків залишено} other{{count} відгуків залишено}}",
+  "passportReviewsLeft": "{count, plural, =0{Відгуків немає} =1{1 відгук залишено} few{{count} відгуки залишено} many{{count} відгуків залишено} other{{count} відгуків залишено}}",
   "@passportReviewsLeft": {
     "description": "Footer standing line on the BEAUTY PASSPORT card — how many reviews the client has left.",
     "placeholders": {
