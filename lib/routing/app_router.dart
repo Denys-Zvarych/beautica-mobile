@@ -75,7 +75,6 @@ import '../features/master/domain/master.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
-import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
@@ -934,12 +933,15 @@ GoRouter appRouter(Ref ref) {
           masterId: state.pathParameters['masterId'] ?? '',
         ),
       ),
-      // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Pushed
-      // from the public master profile's «Відгуки» stat tile. Same
-      // lifecycle/guard as `/masters/:masterId` above — CLIENT-guarded,
-      // in-app-push-only. Deliberately NOT `RouteNames.masterReceivedReviews`
-      // (param-less, always resolves the AUTHENTICATED master's own
-      // reviews) — this route carries the target masterId as a path param so
+      // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Kept
+      // (D7) for its OTHER consumers (`booking_counterparty_header.dart`,
+      // `leave_review_screen.dart`, `booking_confirm_screen.dart`) — the
+      // public master profile itself no longer pushes it (Phase 351: reviews
+      // render inline in its own «Відгуки» tab). Same lifecycle/guard as
+      // `/masters/:masterId` above — CLIENT-guarded, in-app-push-only. This
+      // route carries the target masterId as a path param — distinct from
+      // the deleted param-less own-master reviews route (D11), which always
+      // resolved the AUTHENTICATED master's own reviews — so
       // `PublicMasterReviewsScreen` queries the correct master's reviews.
       GoRoute(
         path: '/masters/:masterId/reviews',
@@ -2165,13 +2167,31 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterEditLocation,
         builder: (context, state) => const LocationEditScreen(),
       ),
-      // Phase 4.6 — Master received-reviews («Мої відгуки»). Pushed from the
-      // profile "Відгуки" stat tile. MaterialPage (builder:) so the theme's
-      // CupertinoPageTransitionsBuilder installs the left-edge swipe-back
-      // gesture, matching the sibling /master/* sub-routes above.
+      // mobile-security LOW (Phase 351 audit-fix cycle 1) — the deleted
+      // `/master/received-reviews` route («Мої відгуки», the old
+      // `RouteNames.masterReceivedReviews` / `MasterReceivedReviewsScreen`,
+      // D11) used to fall through to go_router's generic not-found page for
+      // any stale bookmark / deep link / push notification carrying the old
+      // path. Redirect the exact legacy literal to
+      // [RouteNames.masterProfile] — the SAME screen the deleted route's
+      // content now lives on inline (its «Відгуки» tab, D15). No new
+      // deep-link scheme is invented: there is no existing `?tab=`
+      // mechanism to pre-select a tab (`ProfileTabSelection` always opens on
+      // «Про майстра»), so this lands on the profile itself, not a specific
+      // tab.
+      //
+      // A `redirect:`-only `GoRoute` (no `builder:`) is valid — go_router's
+      // own assertion only requires ONE of `redirect`/`builder`/`pageBuilder`
+      // (see `GoRoute`'s constructor asserts). Returning a new location
+      // re-enters the FULL router redirect chain, including the top-level
+      // `authRedirect` at the top of this function — so an unauthenticated
+      // session still lands on `/login`, and any role OTHER than
+      // INDEPENDENT_MASTER still lands on its OWN role home, exactly as it
+      // already does for every other `/master/*` path. This grants no access
+      // the `/master/*` prefix didn't already grant.
       GoRoute(
-        path: RouteNames.masterReceivedReviews,
-        builder: (context, state) => const MasterReceivedReviewsScreen(),
+        path: '/master/received-reviews',
+        redirect: (context, state) => RouteNames.masterProfile,
       ),
       // SALON_MASTER's own personal-profile surface — fixes the "blank home"
       // landing bug (see `role_home.dart`). `builder:` (MaterialPage), not

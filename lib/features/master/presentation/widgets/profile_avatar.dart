@@ -373,6 +373,7 @@ class StatTile extends StatelessWidget {
     this.iconColor = BrandColors.accent,
     this.valueKey,
     this.iconWidget,
+    this.onTap,
   });
 
   final IconData icon;
@@ -387,6 +388,17 @@ class StatTile extends StatelessWidget {
   /// SVG [AppIcon] or a [RatingStar]). When non-null, [icon]/[iconColor] are
   /// ignored. Mirrors the location-marker swap pattern.
   final Widget? iconWidget;
+
+  /// Phase 351 (D10′) — ADDITIVE. `null` (the default) renders the exact same
+  /// tree as before this field existed: a non-interactive [Semantics] wrapper
+  /// with no button role. Non-null makes the whole tile tappable — an
+  /// [InkWell] (over a transparent [Material], so the neumorphic surface is
+  /// unchanged) with [Semantics.button] `true` and a minimum 48dp hit target,
+  /// mirroring `schedule_widgets.dart`'s identical "styled surface + InkWell
+  /// layered over it" pattern. Callers on owner/salon-staff third-person
+  /// tiles (`owner_own_profile_screen.dart`, `salon_staff_profile_screen.dart`)
+  /// leave this `null` and are therefore byte-identical to before Phase 351.
+  final VoidCallback? onTap;
 
   /// The em-dash a caller passes as [value] for a zero / unresolved state.
   ///
@@ -421,9 +433,54 @@ class StatTile extends StatelessWidget {
     return '$value $caption';
   }
 
+  static final BorderRadius _cardRadius = BorderRadius.circular(
+    VelvetRadii.field + 2,
+  );
+
   @override
   Widget build(BuildContext context) {
+    final Widget card = NeumorphicCard(
+      padding: const EdgeInsets.symmetric(
+        vertical: VelvetSpacing.xs,
+        horizontal: VelvetSpacing.xs,
+      ),
+      radius: VelvetRadii.field + 2,
+      shadows: VelvetShadows.extrudedSmall,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            iconWidget ?? Icon(icon, size: 18, color: iconColor),
+            const SizedBox(height: VelvetSpacing.xs),
+            Text(value, key: valueKey, style: VelvetText.statValue()),
+            const SizedBox(height: 1),
+            Text(
+              caption,
+              style: VelvetText.statCaption(),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final VoidCallback? tapHandler = onTap;
+    final Widget content = tapHandler == null
+        ? card
+        : ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: tapHandler,
+                borderRadius: _cardRadius,
+                child: card,
+              ),
+            ),
+          );
+
     return Semantics(
+      button: tapHandler != null,
       label: _semanticsLabel(context),
       // The value/caption [Text]s below otherwise MERGE into this node and get
       // appended to the label — the tile announced
@@ -432,30 +489,7 @@ class StatTile extends StatelessWidget {
       // Excluding the descendants leaves exactly the composed label. Affects
       // the semantics tree ONLY — the rendered widget subtree is untouched.
       excludeSemantics: true,
-      child: NeumorphicCard(
-        padding: const EdgeInsets.symmetric(
-          vertical: VelvetSpacing.xs,
-          horizontal: VelvetSpacing.xs,
-        ),
-        radius: VelvetRadii.field + 2,
-        shadows: VelvetShadows.extrudedSmall,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              iconWidget ?? Icon(icon, size: 18, color: iconColor),
-              const SizedBox(height: VelvetSpacing.xs),
-              Text(value, key: valueKey, style: VelvetText.statValue()),
-              const SizedBox(height: 1),
-              Text(
-                caption,
-                style: VelvetText.statCaption(),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: content,
     );
   }
 }

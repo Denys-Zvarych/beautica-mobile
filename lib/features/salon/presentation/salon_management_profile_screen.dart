@@ -10,7 +10,7 @@
 // REUSE-FIRST — widgets reused verbatim from
 // `features/salon/presentation/widgets/`:
 //   [SalonCover], [CoverIconButton], [SalonLogo] — cover/hero chrome
-//   [SalonTabBar]                                — the 4-tab switcher
+//   [ProfileTabBar] (Phase 351, promoted from [SalonTabBar]) — the 4-tab switcher
 //   [SalonMasterCard]                             — the «Персонал» grid cards
 //   [SalonServicesAccordion]                      — «Послуги» tab (unchanged)
 //   [SalonReviewsSection]                         — «Відгуки» tab (unchanged)
@@ -79,10 +79,12 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 import '../application/my_salons_notifier.dart';
@@ -505,7 +507,7 @@ class _LoadedBody extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(
                   horizontal: VelvetSpacing.lg,
                 ),
-                child: SalonTabBar(
+                child: ProfileTabBar(
                   tabs: tabs,
                   selected: tab,
                   onSelect: onTabSelected,
@@ -950,7 +952,7 @@ class _AboutReadView extends StatelessWidget {
             // The muted «Опис салону поки не додано» placeholder was dead
             // text on an editable screen — an empty state is an invitation to
             // act, so the owner gets the action instead of the observation.
-            _AddLink(
+            AddLink(
               key: const Key('salon-manage-add-description'),
               label: l10n.salonManageAddDescriptionLink,
               onTap: onAddDescription,
@@ -1053,68 +1055,13 @@ class _AboutReadView extends StatelessWidget {
   }
 }
 
-/// A small inline "add this" text link — a leading `+` glyph and a mocha
-/// [VelvetText.link] label, nothing else. Used by [_AboutReadView]'s empty
-/// «Додати опис» description state.
-///
-/// The Instagram empty state used to share this widget too («Додати
-/// посилання»), but now renders as a [ContactTile] instead (glyph well +
-/// «Instagram» caption + chevron, matching the populated row's shape) — see
-/// the `showAddInstagram` branch below. `_AddLink` has no description
-/// counterpart to fold into, since a description has no icon/label pair to
-/// echo the way a contact field does.
-///
-/// REUSE-FIRST note: no existing widget fits. `NeumorphicButton` (the
-/// `masterAddServices` empty-state affordance) is a full-height 54 dp
-/// gradient CTA — the brief here is explicitly a text link, and a CTA button
-/// inside a read-only tab would outrank the tab's real content. The
-/// `masterAllServices`/`salonMastersShowAll` inline link is the closest
-/// shape, but it is a bare `Text` + trailing chevron built inline at each
-/// call site with no shared widget to import, and its trailing chevron means
-/// "go see more of what is already here" — the opposite of this link. The
-/// LEADING `+` is borrowed from [_AddStaffTile] on this very screen, so the
-/// tab already speaks that vocabulary.
-///
-/// PRIVATE deliberately: the only consumer is this screen. The link is
-/// owner-only and must never appear on `public_salon_profile_screen.dart`
-/// (a client viewing a stranger's salon is not invited to describe it), so
-/// there is no second call site to promote this to.
-class _AddLink extends StatelessWidget {
-  const _AddLink({super.key, required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: label,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Padding(
-          // Vertical padding only — the link stays flush with the column's
-          // left edge, exactly where the placeholder text it replaces sat,
-          // while still clearing a comfortable touch target.
-          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.xs),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const Icon(
-                Icons.add_rounded,
-                size: 14,
-                color: BrandColors.accentDeep,
-              ),
-              const SizedBox(width: 3),
-              Text(label, style: VelvetText.link()),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+// `_AddLink` — PROMOTED to `lib/shared/widgets/add_link.dart` as `AddLink`
+// (Phase 351, REUSE-FIRST). The Instagram empty state does NOT use it —
+// it renders as a [ContactTile] instead (glyph well + «Instagram» caption +
+// chevron, matching the populated row's shape) — see the `showAddInstagram`
+// branch above. The master's own-profile empty-bio affordance
+// (`MasterProfileScreen`, `SalonMasterProfileScreen`) is the second consumer
+// that motivated the promotion.
 
 // ---------------------------------------------------------------------------
 // Персонал tab — staff management grid

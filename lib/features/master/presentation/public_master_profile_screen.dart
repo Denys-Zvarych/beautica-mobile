@@ -1,21 +1,28 @@
 // Phase 13.5 — Public master profile (CLIENT-facing, read-only).
 //
-// The client's view of an INDEPENDENT_MASTER, reached by tapping a search /
-// favourites result card. Same depth language as the master's own profile
+// The client's view of a master, reached by tapping a search / favourites /
+// salon-roster result card. Same depth language as the master's own profile
 // (`MasterProfileScreen`) but:
 //   • NO edit button — the top-right action is a favourite (heart) toggle;
-//   • a read-only «Послуги» section mirrors the master's own profile: the
-//     active services are grouped by category and rendered as one summary
-//     card per non-empty bucket via the shared [ServiceCategoryCardList]
-//     (`interactive: false`) — label + count only, no forward chevron, no
-//     tap. The owner's version navigates a tapped card to
-//     `/services?expandCategory=<slug>`, but that route is scoped to the
-//     AUTHENTICATED master, not [widget.masterId], so it has no meaning for a
-//     client browsing someone else's profile and is stripped here;
 //   • contacts = Instagram only (no phone/dialer tile);
 //   • a pinned camel-wash booking shelf holding a single «Записатись до
-//     майстра» CTA (no section label) — it opens the Phase 14.1 booking flow
-//     (placeholder route until 14.1 ships).
+//     майстра» CTA (no section label) — INDEPENDENT_MASTER only.
+//
+// Phase 351 (Qase defect #21, "option D") — this screen now applies to BOTH
+// independent and salon masters (one screen, `master.type` still gates every
+// independent-only affordance) and is restructured around three tabs —
+// «Про майстра» / «Послуги» / «Відгуки» — mirroring the public SALON
+// profile's tab language exactly (U1/U3: design gate waived, build only from
+// already-existing widgets). The stat cards STAY (U5) — «Рейтинг» / «Послуги»
+// / «Відгуки», minus «Досвід» (D9, always «—», no backing field) — but each
+// card now SWITCHES to the matching tab in place instead of pushing a route
+// (U6/U7, D15's shared `ProfileTabSelection` mixin) — no
+// `IndexedStack`/`TabController`. `ServiceCategoryCardList` and
+// `MasterReviewsBody` — already shared widgets — now live under their own
+// tabs instead of stacked on the page; `masterPublicReviews` stays a real
+// ROUTE (unrelated consumers: `booking_counterparty_header.dart`,
+// `leave_review_screen.dart`, `booking_confirm_screen.dart`) but this screen
+// no longer pushes it itself.
 //
 // Data comes from [publicMasterProfileProvider] (a family keyed on masterId)
 // which loads the master + active services in parallel. All three AsyncValue
@@ -23,7 +30,9 @@
 //
 // Design source: `docs/signup-designs/PublicMasterProfile/` — ported within the
 // locked Warm Mocha (VelvetTouch) palette, reusing the production
-// ProfileScaffold / ProfileAvatar / RoleChip / StatTile / ContactTile widgets.
+// ProfileScaffold / ProfileAvatar / RoleChip / ContactTile widgets, plus (Phase
+// 351) the salon profile's [ProfileTabBar] and the shared
+// [ProfileTabSelection] card-to-tab mixin.
 
 import 'dart:developer';
 
@@ -54,10 +63,14 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'widgets/master_address_block.dart';
+import 'widgets/master_profile_tabs.dart';
+import 'widgets/master_reviews_body.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -77,25 +90,24 @@ class PublicMasterProfileScreen extends ConsumerStatefulWidget {
 
 class _PublicMasterProfileScreenState
     extends ConsumerState<PublicMasterProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        ProfileTabSelection<PublicMasterProfileScreen> {
   late final AnimationController _controller;
 
   // Pre-built staggered-entrance animations (one per reveal section) so build()
   // never allocates a CurvedAnimation/Tween per frame (mobile-perf pattern,
-  // mirrors MasterProfileScreen). Six sections: identity / stats / bio /
-  // portfolio / service categories / contacts.
+  // mirrors MasterProfileScreen / PublicSalonProfileScreen). Phase 351 — FOUR
+  // sections now (identity card / rating line / tab bar / tab body), down
+  // from six (the old stats/bio/portfolio/categories/contacts stack).
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
-  late final CurvedAnimation _anim4;
-  late final CurvedAnimation _anim5;
   late final Animation<Offset> _slide0;
   late final Animation<Offset> _slide1;
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
-  late final Animation<Offset> _slide4;
-  late final Animation<Offset> _slide5;
 
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x throws
   // when `ref` is used after the widget is unmounted).
@@ -127,24 +139,15 @@ class _PublicMasterProfileScreenState
     );
     _anim1 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.18, 0.65, curve: Curves.easeOutCubic),
+      curve: const Interval(0.15, 0.65, curve: Curves.easeOutCubic),
     );
     _anim2 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.30, 0.78, curve: Curves.easeOutCubic),
+      curve: const Interval(0.30, 0.80, curve: Curves.easeOutCubic),
     );
     _anim3 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.40, 0.90, curve: Curves.easeOutCubic),
-    );
-    // Service categories — inserted between portfolio and contacts.
-    _anim4 = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.45, 0.95, curve: Curves.easeOutCubic),
-    );
-    _anim5 = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
+      curve: const Interval(0.45, 1.00, curve: Curves.easeOutCubic),
     );
     const Offset slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -163,25 +166,16 @@ class _PublicMasterProfileScreenState
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim3);
-    _slide4 = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_anim4);
-    _slide5 = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_anim5);
   }
 
   @override
   void dispose() {
     _screenProtection.release();
+    disposeProfileTabSelection();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
     _anim3.dispose();
-    _anim4.dispose();
-    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -202,9 +196,15 @@ class _PublicMasterProfileScreenState
     return ProfileScaffold(
       title: l10n.publicMasterProfileTitle,
       trailing: _FavoriteToggleButton(masterId: widget.masterId),
-      // The booking shelf is only meaningful once the master has resolved.
+      // The booking shelf is only meaningful once the master has resolved —
+      // and (Phase 351 scope table) ONLY for an INDEPENDENT_MASTER; a
+      // salon-affiliated master shows no shelf on any tab, mirroring the
+      // salon profile's own booking flow entry points.
       bottomNavBar: async.maybeWhen(
-        data: (_) => _BookingShelf(masterId: widget.masterId),
+        data: (PublicMasterProfileData data) =>
+            data.$1.type == MasterType.independentMaster
+            ? _BookingShelf(masterId: widget.masterId)
+            : null,
         orElse: () => null,
       ),
       child: async.when(
@@ -220,18 +220,17 @@ class _PublicMasterProfileScreenState
             masterId: widget.masterId,
             master: data.$1,
             services: data.$2,
+            tabNotifier: profileTabNotifier,
+            onSelectTab: selectProfileTab,
+            tabBarAnchorKey: profileTabBarAnchor,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
             anim3: _anim3,
-            anim4: _anim4,
-            anim5: _anim5,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
-            slide4: _slide4,
-            slide5: _slide5,
           );
         },
       ),
@@ -240,7 +239,7 @@ class _PublicMasterProfileScreenState
 }
 
 // ---------------------------------------------------------------------------
-// _PublicProfileBody — loaded state
+// _PublicProfileBody — loaded state: identity card + stat cards + tabs
 // ---------------------------------------------------------------------------
 
 class _PublicProfileBody extends StatelessWidget {
@@ -248,44 +247,56 @@ class _PublicProfileBody extends StatelessWidget {
     required this.masterId,
     required this.master,
     required this.services,
+    required this.tabNotifier,
+    required this.onSelectTab,
+    required this.tabBarAnchorKey,
     required this.anim0,
     required this.anim1,
     required this.anim2,
     required this.anim3,
-    required this.anim4,
-    required this.anim5,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
-    required this.slide4,
-    required this.slide5,
   });
 
-  /// Trusted route param (`widget.masterId`) — used for navigation instead of
-  /// [master].id, which is a value round-tripped through the profile
-  /// response and mapped by `MasterMapper`. See the reviews tile's `onTap`
-  /// below.
+  /// Trusted route param (`widget.masterId`) — used for the reviews tab's
+  /// `MasterReviewsBody(masterId:)`, never [master].id, which is a value
+  /// round-tripped through the profile response and mapped by
+  /// `MasterMapper`.
   final String masterId;
   final Master master;
 
   /// The master's active services, loaded in parallel with [master] by
-  /// [publicMasterProfileProvider]. Drives both the services stat tile
-  /// (`.length`) and the read-only service-categories section below.
+  /// [publicMasterProfileProvider]. Drives the «Послуги» tab.
   final List<MasterService> services;
+
+  /// [ProfileTabSelection.profileTabNotifier] — the active tab index (0 =
+  /// Про майстра, 1 = Послуги, 2 = Відгуки), as a [ValueNotifier] so only the
+  /// [ProfileTabSection] below rebuilds on a tab switch (mobile-perf LOW,
+  /// Phase 351 audit-fix cycle 1) — this identity card / stat-card row above
+  /// it never watches it.
+  final ValueNotifier<int> tabNotifier;
+
+  /// [ProfileTabSelection.selectProfileTab] — passed through so both the
+  /// [ProfileTabBar] (`revealTabBar: false`, the default) and the stat
+  /// cards (`revealTabBar: true`) can select a tab.
+  final void Function(int index, {bool revealTabBar}) onSelectTab;
+
+  /// [ProfileTabSelection.profileTabBarAnchor] — wraps the [ProfileTabBar] so
+  /// a card tap can scroll it into view.
+  final GlobalKey tabBarAnchorKey;
 
   final Animation<double> anim0;
   final Animation<double> anim1;
   final Animation<double> anim2;
   final Animation<double> anim3;
-  final Animation<double> anim4;
-  final Animation<double> anim5;
   final Animation<Offset> slide0;
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
-  final Animation<Offset> slide4;
-  final Animation<Offset> slide5;
+
+  static const List<String> _tabKeys = <String>['about', 'services', 'reviews'];
 
   @override
   Widget build(BuildContext context) {
@@ -316,7 +327,6 @@ class _PublicProfileBody extends StatelessWidget {
     final String? noteText = (master.locationNote?.isNotEmpty ?? false)
         ? master.locationNote
         : null;
-    final bool hasReviews = master.reviewCount > 0;
     // Instagram + portfolio are an INDEPENDENT_MASTER-only affordance — a
     // salon-affiliated master's public profile hides both. This is a
     // client-side-only decision for THIS pair specifically: the backend's
@@ -333,7 +343,7 @@ class _PublicProfileBody extends StatelessWidget {
         (isIndependent && (master.instagram?.isNotEmpty ?? false))
         ? master.instagram
         : null;
-    final bool hasBio = master.bio != null && master.bio!.isNotEmpty;
+    final bool hasReviews = master.reviewCount > 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -422,17 +432,11 @@ class _PublicProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2 — Stats row: rating / services / reviews / experience.
-        // Order of the three tiles shared with the personal MasterProfileScreen
-        // (rating / services / reviews) mirrors that screen's stats row exactly
-        // (Bookings / Rating / Services / Reviews there — Bookings has no public
-        // equivalent so it is omitted, not reshuffled in). `experience` has no
-        // personal-profile equivalent either; it is kept in its original
-        // trailing slot rather than invented a position for it.
-        // IntrinsicHeight equalises the four StatTiles to the tallest tile —
-        // intentional and laid out ONCE per data render (not per frame). It
-        // matches the sibling MasterProfileScreen and the approved design;
-        // removing it would diverge from that locked pattern.
+        // 2 — Stat cards: «Рейтинг» / «Послуги» / «Відгуки» (D9 — «Досвід»
+        // removed, it always showed «—» with no backing field). Each card
+        // SWITCHES to the matching tab (U6/U7) via the `ProfileTabSelection`
+        // mixin's `selectProfileTab(..., revealTabBar: true)` — no route
+        // push, no second path to the same content (D15).
         RevealTransition(
           key: const Key('public-master-profile-reveal-1'),
           fade: anim1,
@@ -442,189 +446,223 @@ class _PublicProfileBody extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Expanded(
-                  // Tappable — mirrors the reviews tile below: pushes the
-                  // same public reviews list for this master regardless of
-                  // review count. Uses the trusted route param [masterId],
-                  // not `master.id` from the network response.
-                  child: GestureDetector(
+                  child: StatTile(
                     key: const Key('public-master-profile-rating-tile'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () =>
-                        context.push(RouteNames.masterPublicReviews(masterId)),
-                    child: StatTile(
-                      icon: Icons.star_rounded,
-                      // `displayRating` folds all three "no rating yet" shapes
-                      // (null average, a stale 0.0, zero reviews) onto null, so
-                      // the star and the readout cannot disagree. [hasReviews]
-                      // still governs the count tile below, where 0 is a true,
-                      // renderable fact. See `MasterRatingX.displayRating`.
-                      iconWidget: RatingStar(
-                        rating: master.displayRating,
-                        size: 18,
-                        showLabel: false,
-                      ),
-                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
-                      caption: l10n.masterRatingLabel,
-                      valueKey: const Key('public-master-profile-rating-value'),
+                    icon: Icons.star_rounded,
+                    // `displayRating` folds all three "no rating yet" shapes
+                    // (null average, a stale 0.0, zero reviews) onto null, so
+                    // the star and the readout cannot disagree.
+                    iconWidget: RatingStar(
+                      rating: master.displayRating,
+                      size: 18,
+                      showLabel: false,
+                    ),
+                    value: master.displayRating?.toStringAsFixed(1) ?? '—',
+                    caption: l10n.masterRatingLabel,
+                    valueKey: const Key('public-master-profile-rating-value'),
+                    onTap: () => onSelectTab(
+                      MasterProfileTab.reviews.index,
+                      revealTabBar: true,
                     ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: ServicesStatTile(
+                    key: const Key('public-master-profile-services-tile'),
                     count: services.length,
                     valueKey: const Key('public-master-profile-services-value'),
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Expanded(
-                  // Tappable — pushes the public reviews list for this master
-                  // ([RouteNames.masterPublicReviews]), mirroring the reviews
-                  // tile on the master's own profile (`master-profile-reviews-tile`
-                  // in `master_profile_screen.dart`).
-                  child: GestureDetector(
-                    key: const Key('public-master-profile-reviews-tile'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () =>
-                        context.push(RouteNames.masterPublicReviews(masterId)),
-                    child: StatTile(
-                      icon: Icons.reviews_outlined,
-                      value: hasReviews ? master.reviewCount.toString() : '—',
-                      caption: l10n.masterStatsReviewsLabel,
-                      valueKey: const Key(
-                        'public-master-profile-reviews-value',
-                      ),
+                    onTap: () => onSelectTab(
+                      MasterProfileTab.services.index,
+                      revealTabBar: true,
                     ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
-                    icon: Icons.workspace_premium_outlined,
-                    // No tenure field on the domain model yet — show a dash.
-                    value: '—',
-                    caption: l10n.publicMasterExperienceLabel,
-                    iconColor: BrandColors.accentDeep,
+                    key: const Key('public-master-profile-reviews-tile'),
+                    icon: Icons.reviews_outlined,
+                    value: hasReviews ? master.reviewCount.toString() : '—',
+                    caption: l10n.masterStatsReviewsLabel,
+                    valueKey: const Key('public-master-profile-reviews-value'),
+                    onTap: () => onSelectTab(
+                      MasterProfileTab.reviews.index,
+                      revealTabBar: true,
+                    ),
                   ),
                 ),
               ],
             ),
           ),
         ),
-        const SizedBox(height: VelvetSpacing.xl),
+        const SizedBox(height: VelvetSpacing.lg),
 
-        // 3 — Bio (omitted entirely when empty).
+        // 3+4 — Tab bar + tab body, isolated behind ONE `ProfileTabSection`
+        // (mobile-perf LOW, Phase 351 audit-fix cycle 1) — a tab switch now
+        // only rebuilds this region, never sections 1-2 above.
+        ProfileTabSection(
+          notifier: tabNotifier,
+          builder: (BuildContext context, int tab) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // 3 — Tab bar. Promoted `ProfileTabBar` (Phase 351) — same
+              // widget the public salon profile uses, own `keyPrefix` so its
+              // finders read as this screen's own
+              // (`public-master-profile-tab-0` etc.), not borrowed from the
+              // salon's `salon-tab-*`. `KeyedSubtree` gives a card tap's
+              // `revealTabBar: true` scroll something to target.
+              RevealTransition(
+                key: const Key('public-master-profile-reveal-2'),
+                fade: anim2,
+                slide: slide2,
+                child: KeyedSubtree(
+                  key: tabBarAnchorKey,
+                  child: ProfileTabBar(
+                    tabs: masterProfileTabLabels(l10n),
+                    selected: tab,
+                    onSelect: onSelectTab,
+                    keyPrefix: 'public-master-profile',
+                  ),
+                ),
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+
+              // 4 — Tab body. Mirrors the salon profile's `switch (tab)` +
+              // `KeyedSubtree` exactly (D2) — no `IndexedStack`/
+              // `TabController`, one tab mechanism only. Every arm is a
+              // non-scrolling `Column` (already true for `_AboutTab`,
+              // `ServiceCategoryCardList` and `MasterReviewsBody`), sitting
+              // inside `ProfileScaffold`'s own `SingleChildScrollView`
+              // (which also supplies the `VelvetSpacing.lg` horizontal
+              // gutter every tab gets for free — unlike the salon's bespoke
+              // scroll view, no per-tab `Padding` is needed here).
+              RevealTransition(
+                key: const Key('public-master-profile-reveal-3'),
+                fade: anim3,
+                slide: slide3,
+                child: KeyedSubtree(
+                  key: ValueKey<String>(
+                    'public-master-profile-tab-body-${_tabKeys[tab]}',
+                  ),
+                  child: switch (tab) {
+                    0 => _AboutTab(
+                      master: master,
+                      isIndependent: isIndependent,
+                      instagram: instagram,
+                    ),
+                    1 => ServiceCategoryCardList(
+                      services: services,
+                      keyPrefix: 'public-master-profile-category',
+                      interactive: false,
+                    ),
+                    _ => MasterReviewsBody(masterId: masterId),
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _roleLabel(MasterType type, AppLocalizations l10n) {
+    switch (type) {
+      case MasterType.independentMaster:
+        return l10n.masterRoleIndependent;
+      case MasterType.salonMaster:
+        return l10n.masterRoleSalonMaster;
+      case MasterType.salonOwner:
+        return l10n.masterRoleSalonOwner;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _AboutTab — "Про майстра": bio (or the empty-state text) + portfolio +
+// Instagram contact, the last two INDEPENDENT_MASTER-only.
+// ---------------------------------------------------------------------------
+
+class _AboutTab extends StatelessWidget {
+  const _AboutTab({
+    required this.master,
+    required this.isIndependent,
+    required this.instagram,
+  });
+
+  final Master master;
+  final bool isIndependent;
+
+  /// Already gated on [isIndependent] by the caller — non-null only for an
+  /// independent master with a non-empty Instagram handle.
+  final String? instagram;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final bool hasBio = master.bio != null && master.bio!.isNotEmpty;
+
+    return Column(
+      key: const Key('public-master-profile-about-tab'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        // Bio — always renders ONE of two variants now (Phase 351 D9/empty-
+        // state decision), unlike the pre-351 screen, which omitted the
+        // whole section when empty. "Both rows" locked decision: THIS screen
+        // is always read-only (a client viewing another master), so it only
+        // ever shows the muted placeholder — never the master's own
+        // `AddLink` «Додати опис» affordance (that lives on the master's OWN
+        // profile screens: `MasterProfileScreen` / `SalonMasterProfileScreen`).
         if (hasBio) ...<Widget>[
-          RevealTransition(
-            key: const Key('public-master-profile-reveal-2'),
-            fade: anim2,
-            slide: slide2,
-            child: Column(
-              key: const Key('public-master-profile-bio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.publicMasterBioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                NeumorphicInset(
-                  radius: VelvetRadii.card,
-                  child: Padding(
-                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                    child: Text(master.bio!, style: VelvetText.bodyStrong()),
-                  ),
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+            child: Text(
+              l10n.publicMasterBioLabel,
+              style: VelvetText.sectionLabel(),
             ),
           ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
+          NeumorphicInset(
+            radius: VelvetRadii.card,
+            child: Padding(
+              padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+              child: Text(master.bio!, style: VelvetText.bodyStrong()),
+            ),
+          ),
+        ] else
+          Text(
+            l10n.publicMasterAboutEmpty,
+            key: const Key('public-master-profile-about-empty'),
+            style: VelvetText.feedback(BrandColors.muted),
+          ),
 
-        // 4 — Portfolio rail (placeholder tiles until the gallery phase).
+        // Portfolio rail (placeholder tiles until the gallery phase).
         // INDEPENDENT_MASTER only — hidden entirely for salon-affiliated
         // masters. REUSE-FIRST — [PortfolioRail] promoted to
         // shared/widgets/portfolio_rail.dart; no `onSeeAll` here (this
         // read-only view has no gallery route), matching prior behaviour.
-        if (isIndependent)
-          RevealTransition(
-            key: const Key('public-master-profile-reveal-3'),
-            fade: anim3,
-            slide: slide3,
-            child: const PortfolioRail(
-              railKey: Key('public-master-profile-portfolio'),
-            ),
-          ),
-
-        // 5 — Service categories: read-only for a client — mirrors the
-        // master's own profile section, minus the owner-only navigation (see
-        // the file header comment). Omitted entirely when the master has zero
-        // active services, matching how Bio/Contacts are omitted when empty.
-        if (services.isNotEmpty) ...<Widget>[
+        if (isIndependent) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
-          RevealTransition(
-            key: const Key('public-master-profile-reveal-4'),
-            fade: anim4,
-            slide: slide4,
-            child: Column(
-              key: const Key('public-master-profile-service-categories'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterServicesLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                ServiceCategoryCardList(
-                  services: services,
-                  keyPrefix: 'public-master-profile-category',
-                  interactive: false,
-                ),
-              ],
-            ),
-          ),
+          const PortfolioRail(railKey: Key('public-master-profile-portfolio')),
         ],
 
-        // 6 — Contacts (Instagram only; omitted when not set).
+        // Contacts (Instagram only; omitted when not set).
         if (instagram != null) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
-          RevealTransition(
-            key: const Key('public-master-profile-reveal-5'),
-            fade: anim5,
-            slide: slide5,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterContactsLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                ContactTile(
-                  key: const Key('public-master-contact-instagram'),
-                  icon: Icons.alternate_email,
-                  label: l10n.masterInstagramLabel,
-                  value: instagram,
-                  semanticLabel: l10n.masterInstagramLabel,
-                  onTap: () => _openInstagram(context, instagram),
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+            child: Text(
+              l10n.masterContactsLabel,
+              style: VelvetText.sectionLabel(),
             ),
+          ),
+          ContactTile(
+            key: const Key('public-master-contact-instagram'),
+            icon: Icons.alternate_email,
+            label: l10n.masterInstagramLabel,
+            value: instagram!,
+            semanticLabel: l10n.masterInstagramLabel,
+            onTap: () => _openInstagram(context, instagram),
           ),
         ],
       ],
@@ -672,17 +710,6 @@ class _PublicProfileBody extends StatelessWidget {
       context,
       AppLocalizations.of(context).masterInstagramOpenError,
     );
-  }
-
-  String _roleLabel(MasterType type, AppLocalizations l10n) {
-    switch (type) {
-      case MasterType.independentMaster:
-        return l10n.masterRoleIndependent;
-      case MasterType.salonMaster:
-        return l10n.masterRoleSalonMaster;
-      case MasterType.salonOwner:
-        return l10n.masterRoleSalonOwner;
-    }
   }
 }
 
@@ -783,6 +810,10 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 /// camel «Записатись до майстра» CTA — no section label. Tapping the CTA
 /// opens the Phase 14.1 booking flow ([RouteNames.bookingNew]) carrying the
 /// target master id in `extra`. Actual service selection lives in 14.1.
+///
+/// Phase 351 — this is `_LOAD-BEARING` `_BookingShelf`, DELIBERATELY holding a
+/// single-child `Column` (mobile-backlog :622) — do not "simplify" it away.
+/// It is hosted via `ProfileScaffold.bottomNavBar`, pinned above every tab.
 class _BookingShelf extends StatelessWidget {
   const _BookingShelf({required this.masterId});
 
@@ -882,7 +913,7 @@ class _PublicProfileSkeleton extends StatelessWidget {
             ),
           ),
           SizedBox(height: VelvetSpacing.xl),
-          // Stats row.
+          // Stat cards placeholder — 3 equal tiles (rating / services / reviews).
           Row(
             children: <Widget>[
               Expanded(
@@ -892,7 +923,7 @@ class _PublicProfileSkeleton extends StatelessWidget {
                   radius: VelvetRadii.field + 2,
                 ),
               ),
-              SizedBox(width: VelvetSpacing.xs),
+              SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: SkeletonBlock(
                   width: double.infinity,
@@ -900,15 +931,7 @@ class _PublicProfileSkeleton extends StatelessWidget {
                   radius: VelvetRadii.field + 2,
                 ),
               ),
-              SizedBox(width: VelvetSpacing.xs),
-              Expanded(
-                child: SkeletonBlock(
-                  width: double.infinity,
-                  height: 96,
-                  radius: VelvetRadii.field + 2,
-                ),
-              ),
-              SizedBox(width: VelvetSpacing.xs),
+              SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: SkeletonBlock(
                   width: double.infinity,
@@ -918,15 +941,14 @@ class _PublicProfileSkeleton extends StatelessWidget {
               ),
             ],
           ),
-          SizedBox(height: VelvetSpacing.xl),
-          // Bio block.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 110, height: 13),
-          ),
+          SizedBox(height: VelvetSpacing.lg),
+          // Tab bar placeholder.
+          SkeletonBlock(width: double.infinity, height: 44),
+          SizedBox(height: VelvetSpacing.lg),
+          // Tab body placeholder.
           SkeletonBlock(
             width: double.infinity,
-            height: 92,
+            height: 160,
             radius: VelvetRadii.card,
           ),
         ],

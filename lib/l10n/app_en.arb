@@ -3751,6 +3751,14 @@
   "@publicMasterBioLabel": {
     "description": "Section label above the bio on the public master profile (about the master, not self)."
   },
+  "publicMasterTabAbout": "About the master",
+  "@publicMasterTabAbout": {
+    "description": "Phase 351 — tab label for the public master profile's «Про майстра» tab (identical text to publicMasterBioLabel, which is the bio SECTION heading kept inside that tab; the two are separate keys because they are separate UI elements — a tab label vs a section heading — even though the wording matches, per the phase doc's D5)."
+  },
+  "publicMasterAboutEmpty": "No bio added yet",
+  "@publicMasterAboutEmpty": {
+    "description": "Phase 351 — muted placeholder shown in the «Про майстра» tab when a CLIENT views a master with no bio (always read-only on this screen — mirrors salonAboutEmpty's pattern). The master's OWN profile shows the AddLink «Додати опис» affordance instead, never this text."
+  },
   "publicMasterExperienceLabel": "Experience",
   "@publicMasterExperienceLabel": {
     "description": "Caption of the experience/tenure stat tile on the public master profile."

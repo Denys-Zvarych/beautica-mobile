@@ -1,18 +1,12 @@
-// Phase 4.6 follow-up — Entry-point test: the master profile's «Рейтинг» stat
-// tile (`Key('master-profile-rating-tile')`) is present and tapping it PUSHES
-// the SAME received-reviews route (`/master/received-reviews`) as the
-// sibling reviews tile (see `master_profile_reviews_tile_test.dart`).
+// Phase 4.6 follow-up, rewritten Phase 351 — Entry-point test: the master
+// profile's «Рейтинг» stat tile (`Key('master-profile-rating-tile')`) is
+// present and tapping it SWITCHES the screen to the «Відгуки» tab IN PLACE
+// (D15/D11) — the standalone «Мої відгуки» route it used to push is deleted.
+// Mirrors `master_profile_reviews_tile_test.dart`.
 //
-// The tap uses the production `context.push(...)` inside the profile screen —
-// this test deliberately does NOT drive navigation via `router.go`, which would
-// yield a declarative match and false-pass the app's pushed-leaf nav detection
-// (see MEMORY: "go_router push excludes fullPath"). We assert the pushed
-// destination actually mounts on top of the profile via a REAL `tester.tap`
-// on the REAL rendered `GestureDetector`.
-//
-// Strategy mirrors master_profile_reviews_tile_test.dart: stub the auth +
-// master-profile providers, mock the repositories, and host both routes on a
-// real GoRouter whose received-reviews route renders a keyed sentinel.
+// No second route is registered on the test router: if a future regression
+// reintroduced a `context.push`, it would throw (no matching route) rather
+// than silently pass, since this test asserts on the ABSENCE of navigation.
 
 import 'dart:async';
 
@@ -20,10 +14,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -57,7 +55,7 @@ const _stubMaster = Master(
   type: MasterType.independentMaster,
 );
 
-/// Zero-review fixture — the reviews tile navigates unconditionally
+/// Zero-review fixture — the reviews tile switches tabs unconditionally
 /// regardless of `reviewCount` (only the DISPLAYED value is conditional:
 /// '—' vs the number). This test pins that the rating tile matches that
 /// behaviour rather than gating the tap on `reviewCount > 0`.
@@ -99,13 +97,6 @@ GoRouter _buildRouter() => GoRouter(
       builder: (BuildContext context, GoRouterState state) =>
           const MasterProfileScreen(),
     ),
-    GoRoute(
-      path: RouteNames.masterReceivedReviews,
-      builder: (BuildContext context, GoRouterState state) => const Scaffold(
-        key: Key('reviews-destination'),
-        body: SizedBox.shrink(),
-      ),
-    ),
   ],
 );
 
@@ -127,6 +118,17 @@ ProviderScope _buildApp({
       approvedCategoriesProvider.overrideWith(
         (ref) async => const <ServiceCategoryOption>[],
       ),
+      masterReviewSummaryProvider(master.id).overrideWith(
+        (ref) async => MasterReviewSummary(
+          avgRating: master.avgRating,
+          reviewCount: master.reviewCount,
+          distribution: const <int>[0, 0, 0, 0, 0],
+        ),
+      ),
+      masterReviewsProvider(
+        master.id,
+        MasterReviewSort.newest,
+      ).overrideWith((ref) async => const <MasterReviewItem>[]),
     ],
     child: MaterialApp.router(
       routerConfig: router,
@@ -149,48 +151,59 @@ void main() {
     ).thenAnswer((_) async => const <MasterService>[]);
   });
 
-  testWidgets('the rating stat tile is present and tapping it pushes '
-      '/master/received-reviews', (tester) async {
-    tester.view.physicalSize = const Size(800, 2400);
-    tester.view.devicePixelRatio = 1.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets(
+    'the rating stat tile is present and tapping it switches to the «Відгуки» '
+    'tab in place (no navigation)',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    final GoRouter router = _buildRouter();
-    await tester.pumpWidget(
-      _buildApp(
-        masterRepo: masterRepo,
-        serviceRepo: serviceRepo,
-        router: router,
-        master: _stubMaster,
-      ),
-    );
-    await tester.pumpAndSettle();
+      final GoRouter router = _buildRouter();
+      await tester.pumpWidget(
+        _buildApp(
+          masterRepo: masterRepo,
+          serviceRepo: serviceRepo,
+          router: router,
+          master: _stubMaster,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final Finder tile = find.byKey(const Key('master-profile-rating-tile'));
-    expect(tile, findsOneWidget, reason: 'the rating stat tile must render');
-    // The destination is not yet mounted before the tap.
-    expect(find.byKey(const Key('reviews-destination')), findsNothing);
+      final Finder tile = find.byKey(const Key('master-profile-rating-tile'));
+      expect(tile, findsOneWidget, reason: 'the rating stat tile must render');
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
-    // The real tap drives the widget's own onTap → context.push — never a
-    // router.go/push stand-in, which would false-pass even if the tile's
-    // GestureDetector were removed entirely.
-    await tester.tap(tile);
-    await tester.pumpAndSettle();
+      // The real tap drives the tile's own onTap → selectProfileTab — never a
+      // router.go/push stand-in.
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
 
-    // The pushed received-reviews route is now on top of the profile.
-    expect(
-      find.byKey(const Key('reviews-destination')),
-      findsOneWidget,
-      reason:
-          'tapping the rating tile must context.push the received-reviews '
-          'route onto the stack',
-    );
-  });
+      expect(
+        find.byType(MasterReviewsBody),
+        findsOneWidget,
+        reason:
+            'tapping the rating tile must switch the screen to the «Відгуки» '
+            'tab in place',
+      );
+      // No navigation happened — still the same screen, same location. No
+      // push ever happens in this test (the tap only switches a local tab)
+      // — the router's ONLY match is the initial `.go()`-installed route, so
+      // the ImperativeRouteMatch exclusion this guard protects against never
+      // applies here.
+      expect(find.byType(MasterProfileScreen), findsOneWidget);
+      expect(
+        // router-location-ok: go-only navigation in this test, never a push.
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        RouteNames.masterProfile,
+      );
+    },
+  );
 
   testWidgets(
-    'the rating stat tile still navigates when reviewCount is 0 (the tile '
-    'shows a dash but tapping is not gated on having reviews)',
+    'the rating stat tile still switches tabs when reviewCount is 0 (the '
+    'tile shows a dash but tapping is not gated on having reviews)',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -216,19 +229,19 @@ void main() {
         '—',
       );
 
-      // … but the tile is still tappable and still navigates.
+      // … but the tile is still tappable and still switches tabs.
       final Finder tile = find.byKey(const Key('master-profile-rating-tile'));
       expect(tile, findsOneWidget);
-      expect(find.byKey(const Key('reviews-destination')), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
       await tester.tap(tile);
       await tester.pumpAndSettle();
 
       expect(
-        find.byKey(const Key('reviews-destination')),
+        find.byType(MasterReviewsBody),
         findsOneWidget,
         reason:
-            'the rating tile must navigate unconditionally regardless of '
+            'the rating tile must switch tabs unconditionally regardless of '
             'reviewCount, matching the reviews tile\'s behaviour',
       );
     },

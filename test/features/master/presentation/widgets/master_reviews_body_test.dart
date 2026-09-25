@@ -1,8 +1,10 @@
 // Phase 4.x — Widget tests for MasterReviewsBody + MasterReviewsBodySkeleton.
 //
-// MasterReviewsBody was extracted from MasterReceivedReviewsScreen so it can
-// be shared with PublicMasterReviewsScreen (the CLIENT-facing surface). It
-// had NO dedicated test file before this — the verifier flagged the gap.
+// MasterReviewsBody was originally extracted from the now-deleted own-master
+// «Мої відгуки» screen (Phase 351, D11 — its content moved inline into every
+// master profile's «Відгуки» tab) so it can be shared with
+// PublicMasterReviewsScreen (the CLIENT-facing surface). It had NO dedicated
+// test file before this — the verifier flagged the gap.
 //
 // Covers:
 //   1. Loading  — shimmer scope present for both the summary card and the

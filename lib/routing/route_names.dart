@@ -118,11 +118,15 @@ abstract final class RouteNames {
   static String masterPublicProfile(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}';
 
-  /// Phase 4.x — public master reviews, opened from the public master
-  /// profile's «Відгуки» stat tile. CLIENT-guarded like [masterPublicProfile]
-  /// (same `clientOnlyGuard` in `app_router.dart`). Distinct from
-  /// [masterReceivedReviews] below, which is param-less and always resolves
-  /// to the AUTHENTICATED master's own reviews.
+  /// Phase 4.x — public master reviews. CLIENT-guarded like
+  /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
+  /// Kept (D7, Phase 351) for its other consumers
+  /// (`booking_counterparty_header.dart`, `leave_review_screen.dart`,
+  /// `booking_confirm_screen.dart`) — the public master profile itself no
+  /// longer pushes it (its own «Відгуки» tab renders inline instead). The
+  /// param-less own-master equivalent («Мої відгуки») was deleted in the
+  /// same phase — its content now lives inline in the master's own profile
+  /// tabs (`MasterProfileScreen` / `SalonMasterProfileScreen`).
   static String masterPublicReviews(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}/reviews';
 
@@ -1030,12 +1034,6 @@ abstract final class RouteNames {
   /// the archive entry path).
   static String salonMasterClientReview(String bookingId) =>
       '${salonMasterBookingDetail(bookingId)}/review';
-
-  // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
-  // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
-  // masterId from the session (authProvider), so the reviews are always the
-  // authenticated master's own.
-  static const String masterReceivedReviews = '/master/received-reviews';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';

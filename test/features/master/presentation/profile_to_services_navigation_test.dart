@@ -224,6 +224,10 @@ void main() {
       // future and the empty-state has no repeating animations.
       await tester.pumpAndSettle();
 
+      // Phase 351 — category cards live under the «Послуги» tab now.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
       // Confirm the MANICURE card is rendered on the profile screen.
       final cardFinder = find.byKey(const Key('profile-category-MANICURE'));
       expect(

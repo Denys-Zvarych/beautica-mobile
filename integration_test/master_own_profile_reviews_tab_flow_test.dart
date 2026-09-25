@@ -1,9 +1,12 @@
-// Phase 4.5 + 4.6 — E2E: INDEPENDENT_MASTER opens their own «Мої відгуки»
-// (received reviews) screen from the profile's «Відгуки» stat tile.
+// Phase 4.5 + 4.6, rewritten Phase 351 — E2E: INDEPENDENT_MASTER opens the
+// «Відгуки» TAB on their own profile from the «Відгуки» stat card. The
+// standalone «Мої відгуки» screen this flow used to push is deleted (D11) —
+// the exact same content ([MasterReviewsBody]) now renders INLINE, in place,
+// on `MasterProfileScreen` itself.
 //
 // WHY THIS FILE EXISTS — and why it is a GENUINE guard, not coverage-theater
 // --------------------------------------------------------------------------
-// The received-reviews screen resolves the masterId it feeds to
+// The reviews tab resolves the masterId it feeds to
 // `GET /masters/{masterId}/reviews[/summary]`. The correctness question this
 // flow pins: WHICH id? In production the `masters` table PK (`master.id`) is an
 // independently generated UUID, DISTINCT from the `user_id` FK — so
@@ -36,7 +39,9 @@
 // green run on CI / a directly-driven emulator.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
-import 'package:beautica_mobile/features/master/presentation/master_received_reviews_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -51,31 +56,40 @@ void main() {
   tearDown(AppHarness.tearDownHarness);
 
   testWidgets(
-    'INDEPENDENT_MASTER opens «Мої відгуки» from the profile reviews tile → '
-    'the seeded reviews + summary render (keyed on the master-row id, NOT the '
-    'user id), and changing the sort reorders the list',
+    'INDEPENDENT_MASTER opens the «Відгуки» tab from the profile reviews card → '
+    'the seeded reviews + summary render INLINE (keyed on the master-row id, '
+    'NOT the user id, and with NO navigation), and changing the sort reorders '
+    'the list',
     (tester) async {
       // Master-row id DISTINCT from the User id (`user-master-1`): the crux of
       // the guard. Reviews are keyed on this id; the User-id routes are the
       // empty/404 "wrong id" fallbacks.
       final fb = FakeBackend(masterRowId: 'master-self-9')
         ..currentRole = UserRole.independentMaster;
-      await AppHarness.boot(tester, fb);
+      final router = await AppHarness.boot(tester, fb);
 
       // ── Log in → land on the master profile (/master/profile) ─────────────
       await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
       // fixed-wait-ok: settles the real async login/route-transition + profile load + entrance animation; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      // ── Tap the «Відгуки» stat tile → push /master/received-reviews ───────
-      final Finder tile = find.byKey(const Key('master-profile-reviews-tile'));
-      expect(tile, findsOneWidget, reason: 'the reviews stat tile must render');
-      await tester.ensureVisible(tile);
-      await tester.tap(tile);
-      // fixed-wait-ok: settles the real async route-push + review-provider loads.
+      // ── Tap the «Відгуки» stat card → switches to the «Відгуки» tab in
+      //    place (D15) — no route push. ───────────────────────────────────
+      final Finder card = find.byKey(const Key('master-profile-reviews-tile'));
+      expect(card, findsOneWidget, reason: 'the reviews stat card must render');
+      expect(find.byType(MasterReviewsBody), findsNothing);
+      await tester.ensureVisible(card);
+      await tester.tap(card);
+      // fixed-wait-ok: settles the real async tab-switch + review-provider loads.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
-      expect(find.byType(MasterReceivedReviewsScreen), findsOneWidget);
+      expect(
+        find.byType(MasterReviewsBody),
+        findsOneWidget,
+        reason: 'the reviews render INLINE, in the tab, not on a pushed screen',
+      );
+      expect(find.byType(MasterProfileScreen), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.masterProfile);
 
       // ── The real providers hit the MASTER-ROW-id routes, never the user-id
       //    routes (the fingerprint of the session.user.id bug) ───────────────

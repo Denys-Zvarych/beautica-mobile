@@ -6,8 +6,20 @@
 //   • loading  → [_ProfileSkeleton] (neumorphic shimmer blocks via
 //                 SkeletonShimmerScope / SkeletonBlock)
 //   • data     → [_ProfileBody] (staggered fade-up reveal via
-//                 AnimationController 1100 ms, 6 sections)
+//                 AnimationController 1100 ms, 4 sections)
 //   • error    → [ErrorState] with retry [ref.invalidate]
+//
+// Phase 351 (U4′/U5-U7) — restructured around the SAME card→tab mechanism as
+// the public master profile and the salon master's own profile: the 4 stat
+// cards (bookings / rating / services / reviews) STAY under the identity
+// card, then «Про майстра» / «Послуги» / «Відгуки» tabs follow. Tapping
+// «Рейтинг»/«Відгуки» switches to the «Відгуки» tab (the exact list the
+// deleted standalone «Мої відгуки» screen used to show, unchanged, D11);
+// tapping «Послуги» switches to the «Послуги» tab (D16) — a
+// category tap INSIDE that tab still pushes `/services?expandCategory=`, the
+// full editor. The bookings card stays non-interactive (no tab of its own).
+// Uses the shared `ProfileTabSelection` mixin (D15) — no
+// `IndexedStack`/`TabController`, no hand-rolled second `int _tab` field.
 //
 // Design source: `docs/signup-designs/MasterProfileScreen/` — transcribed 1:1.
 //
@@ -49,9 +61,12 @@ import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -61,6 +76,8 @@ import 'package:beautica_mobile/features/services/presentation/service_catalogue
 
 import 'master_profile_notifier.dart';
 import 'widgets/master_address_block.dart';
+import 'widgets/master_profile_tabs.dart';
+import 'widgets/master_reviews_body.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -81,19 +98,20 @@ class MasterProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        ProfileTabSelection<MasterProfileScreen> {
   late final AnimationController _controller;
 
   // Fix 1 (PERF HIGH-1): Pre-built CurvedAnimation instances so build() never
   // allocates a new CurvedAnimation on each frame. Typed as CurvedAnimation
-  // (not Animation<double>) so dispose() is accessible. Six instances match
-  // the six _revealWith() call sites in _ProfileBody.
+  // (not Animation<double>) so dispose() is accessible. Phase 351 (D14) —
+  // FOUR sections now (identity card / stat-card row / tab bar / tab body),
+  // down from six (the old stats/bio/portfolio/categories/contacts stack).
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
-  late final CurvedAnimation _anim4;
-  late final CurvedAnimation _anim5;
 
   // Fix 2 (PERF MEDIUM): Pre-built Tween<Offset>.animate() instances so
   // _revealWith() never allocates a new Tween+_AnimatedEvaluation on each
@@ -103,8 +121,6 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
   late final Animation<Offset> _slide1;
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
-  late final Animation<Offset> _slide4;
-  late final Animation<Offset> _slide5;
 
   // Captured in initState so dispose() never touches `ref` — under Riverpod 3.x
   // using `ref` in dispose() throws ("widget is about to or has been
@@ -123,35 +139,27 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1100),
     );
-    // Fix 1: initialise the six CurvedAnimation instances once here rather
-    // than recreating them on every build() frame.
+    // Fix 1: initialise the four CurvedAnimation instances once here rather
+    // than recreating them on every build() frame. Same intervals as the
+    // public master profile's identical 4-section reveal, for consistency.
     _anim0 = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.00, 0.55, curve: Curves.easeOutCubic),
     );
     _anim1 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.18, 0.65, curve: Curves.easeOutCubic),
+      curve: const Interval(0.15, 0.65, curve: Curves.easeOutCubic),
     );
     _anim2 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.30, 0.78, curve: Curves.easeOutCubic),
+      curve: const Interval(0.30, 0.80, curve: Curves.easeOutCubic),
     );
     _anim3 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.38, 0.88, curve: Curves.easeOutCubic),
+      curve: const Interval(0.45, 1.00, curve: Curves.easeOutCubic),
     );
-    _anim4 = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.44, 0.94, curve: Curves.easeOutCubic),
-    );
-    // Contacts section — last reveal, matching the design's 0.55–1.0 stagger.
-    _anim5 = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.55, 1.0, curve: Curves.easeOutCubic),
-    );
-    // Fix 2: derive the six slide animations once from their parent
-    // CurvedAnimation. The same begin/end Offset is shared across all six —
+    // Fix 2: derive the four slide animations once from their parent
+    // CurvedAnimation. The same begin/end Offset is shared across all four —
     // only the parent (timing curve) differs, matching the stagger intent.
     const slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -170,14 +178,6 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim3);
-    _slide4 = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_anim4);
-    _slide5 = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_anim5);
   }
 
   @override
@@ -185,13 +185,12 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
     // SEC MEDIUM-1: release the ref-counted guard; protection only lifts once
     // the last PII route unmounts.
     _screenProtection.release();
+    disposeProfileTabSelection();
     // Fix 1: dispose each CurvedAnimation before the controller.
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
     _anim3.dispose();
-    _anim4.dispose();
-    _anim5.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -245,18 +244,17 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
           _startReveal();
           return _ProfileBody(
             master: master,
+            tabNotifier: profileTabNotifier,
+            onSelectTab: selectProfileTab,
+            tabBarAnchorKey: profileTabBarAnchor,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
             anim3: _anim3,
-            anim4: _anim4,
-            anim5: _anim5,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
-            slide4: _slide4,
-            slide5: _slide5,
           );
         },
       ),
@@ -271,32 +269,46 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
 class _ProfileBody extends StatelessWidget {
   const _ProfileBody({
     required this.master,
+    required this.tabNotifier,
+    required this.onSelectTab,
+    required this.tabBarAnchorKey,
     required this.anim0,
     required this.anim1,
     required this.anim2,
     required this.anim3,
-    required this.anim4,
-    required this.anim5,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
-    required this.slide4,
-    required this.slide5,
   });
 
   final Master master;
 
+  /// [ProfileTabSelection.profileTabNotifier] — the active tab index (0 =
+  /// Про майстра, 1 = Послуги, 2 = Відгуки), as a [ValueNotifier] so only the
+  /// [ProfileTabSection] below rebuilds on a tab switch (mobile-perf LOW,
+  /// Phase 351 audit-fix cycle 1) — the identity card / stat-card row above
+  /// it never watches it.
+  final ValueNotifier<int> tabNotifier;
+
+  /// [ProfileTabSelection.selectProfileTab] — passed through so both the
+  /// [ProfileTabBar] (`revealTabBar: false`, the default) and the stat
+  /// cards (`revealTabBar: true`) can select a tab.
+  final void Function(int index, {bool revealTabBar}) onSelectTab;
+
+  /// [ProfileTabSelection.profileTabBarAnchor] — wraps the [ProfileTabBar] so
+  /// a card tap can scroll it into view.
+  final GlobalKey tabBarAnchorKey;
+
   // Fix 1 (PERF HIGH-1): pre-built CurvedAnimation instances passed from the
   // owning StatefulWidget. Using FadeTransition + SlideTransition avoids a
   // separate GPU raster layer per section (vs. Opacity + Transform.translate).
-  // Six instances match the six reveal sections.
+  // Phase 351 (D14) — FOUR instances match the four reveal sections (identity
+  // card / stat-card row / tab bar / tab body).
   final Animation<double> anim0;
   final Animation<double> anim1;
   final Animation<double> anim2;
   final Animation<double> anim3;
-  final Animation<double> anim4;
-  final Animation<double> anim5;
 
   // Fix 2 (PERF MEDIUM): pre-built Animation<Offset> instances passed from the
   // owning StatefulWidget. Eliminates Tween+_AnimatedEvaluation allocations on
@@ -305,8 +317,6 @@ class _ProfileBody extends StatelessWidget {
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
-  final Animation<Offset> slide4;
-  final Animation<Offset> slide5;
 
   /// Wraps [child] in a staggered fade-up animation.
   ///
@@ -459,9 +469,15 @@ class _ProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2 — 4-up stats row: bookings / rating / services / reviews.
-        // IntrinsicHeight + CrossAxisAlignment.stretch ensures equal heights
-        // even when caption text wraps (e.g. "Записів\nмісяця").
+        // 2 — 4-up stat cards: bookings / rating / services / reviews (U5 —
+        // the cards STAY). Phase 351 — the bookings tile stays
+        // non-interactive; rating/services/reviews now SWITCH tabs in place
+        // (U6/U7, D15) instead of pushing the deleted `MasterReceivedReviews
+        // Screen` route (D11) — no wrapper `GestureDetector` any more, the
+        // former tile keys move straight onto the `StatTile`/`ServicesStatTile`
+        // itself via `onTap` (D10′). IntrinsicHeight + CrossAxisAlignment.
+        // stretch ensures equal heights even when caption text wraps (e.g.
+        // "Записів\nмісяця").
         _revealWith(
           anim1,
           slide1,
@@ -486,25 +502,23 @@ class _ProfileBody extends StatelessWidget {
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  // Tappable — mirrors the reviews tile below: pushes the
-                  // same «Мої відгуки» screen regardless of review count.
-                  child: GestureDetector(
+                  child: StatTile(
                     key: const Key('master-profile-rating-tile'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => context.push(RouteNames.masterReceivedReviews),
-                    child: StatTile(
-                      icon: Icons.star_rounded,
-                      // `displayRating` folds all three "no rating yet" shapes
-                      // (null average, a stale 0.0, zero reviews) onto null, so
-                      // the star and the readout cannot disagree. See its doc.
-                      iconWidget: RatingStar(
-                        rating: master.displayRating,
-                        size: 18,
-                        showLabel: false,
-                      ),
-                      value: master.displayRating?.toStringAsFixed(1) ?? '—',
-                      caption: l10n.masterRatingLabel,
-                      valueKey: const Key('master-profile-rating-value'),
+                    icon: Icons.star_rounded,
+                    // `displayRating` folds all three "no rating yet" shapes
+                    // (null average, a stale 0.0, zero reviews) onto null, so
+                    // the star and the readout cannot disagree. See its doc.
+                    iconWidget: RatingStar(
+                      rating: master.displayRating,
+                      size: 18,
+                      showLabel: false,
+                    ),
+                    value: master.displayRating?.toStringAsFixed(1) ?? '—',
+                    caption: l10n.masterRatingLabel,
+                    valueKey: const Key('master-profile-rating-value'),
+                    onTap: () => onSelectTab(
+                      MasterProfileTab.reviews.index,
+                      revealTabBar: true,
                     ),
                   ),
                 ),
@@ -525,30 +539,31 @@ class _ProfileBody extends StatelessWidget {
                         error: (_, _) => (null, true),
                       );
                       return ServicesStatTile(
+                        key: const Key('master-profile-services-tile'),
                         count: count,
                         hasError: hasError,
                         valueKey: const Key('master-profile-services-value'),
+                        onTap: () => onSelectTab(
+                          MasterProfileTab.services.index,
+                          revealTabBar: true,
+                        ),
                       );
                     },
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
-                  // Phase 4.6 — the rating tile (above) and this reviews tile
-                  // are both tappable and push the master's own «Мої відгуки»
-                  // screen. The bookings/services tiles stay non-interactive;
-                  // StatTile itself is left untouched.
-                  child: GestureDetector(
+                  child: StatTile(
                     key: const Key('master-profile-reviews-tile'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => context.push(RouteNames.masterReceivedReviews),
-                    child: StatTile(
-                      icon: Icons.reviews_outlined,
-                      value: master.reviewCount == 0
-                          ? '—'
-                          : master.reviewCount.toString(),
-                      caption: l10n.masterStatsReviewsLabel,
-                      valueKey: const Key('master-profile-reviews-value'),
+                    icon: Icons.reviews_outlined,
+                    value: master.reviewCount == 0
+                        ? '—'
+                        : master.reviewCount.toString(),
+                    caption: l10n.masterStatsReviewsLabel,
+                    valueKey: const Key('master-profile-reviews-value'),
+                    onTap: () => onSelectTab(
+                      MasterProfileTab.reviews.index,
+                      revealTabBar: true,
                     ),
                   ),
                 ),
@@ -558,115 +573,165 @@ class _ProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 3 — Bio section (omitted entirely if bio is null or empty).
-        if (master.bio != null && master.bio!.isNotEmpty)
-          _revealWith(
-            anim2,
-            slide2,
-            Column(
-              key: const Key('master-profile-bio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterBioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                NeumorphicInset(
-                  radius: VelvetRadii.card,
-                  child: Padding(
-                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                    child: Text(master.bio!, style: VelvetText.bodyStrong()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        if (master.bio != null && master.bio!.isNotEmpty)
-          const SizedBox(height: VelvetSpacing.xl),
-
-        // 4 — Portfolio section: placeholder tiles (Phase 4.4 ships real
-        // ones). REUSE-FIRST — [PortfolioRail] promoted to
-        // shared/widgets/portfolio_rail.dart; also used by
-        // public_master_profile_screen.dart and the salon owner/admin
-        // «Про салон» tab.
-        _revealWith(
-          anim3,
-          slide3,
-          PortfolioRail(
-            onSeeAll: () {
-              // Phase 4.4 — portfolio gallery route.
-            },
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.xl),
-
-        // 5 — Service categories section: live category cards built from the
-        // master's real services grouped by category. Non-empty categories only.
-        // Tapping a card pushes /services?expandCategory=<slug> so the services
-        // list opens with that category pre-expanded and all others collapsed.
-        //
-        // P-H2 fix: extracted into [_ProfileCategoriesSection] which memoizes
-        // the grouping + card list with identity-equality cache fields so the
-        // heavy computation is skipped on every provider tick that does not
-        // actually change the data.
-        _revealWith(anim4, slide4, const _ProfileCategoriesSection()),
-        const SizedBox(height: VelvetSpacing.xl),
-
-        // 6 — Contacts section: phone and Instagram from domain model;
-        // both fall back to '—' when the field is not set by the master.
-        _revealWith(
-          anim5,
-          slide5,
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        // 3+4 — Tab bar + tab body, isolated behind ONE `ProfileTabSection`
+        // (mobile-perf LOW, Phase 351 audit-fix cycle 1) — a tab switch now
+        // only rebuilds this region, never sections 1-2 above.
+        ProfileTabSection(
+          notifier: tabNotifier,
+          builder: (BuildContext context, int tab) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
-                ),
-                child: Text(
-                  l10n.masterContactsLabel,
-                  style: VelvetText.sectionLabel(),
+              // 3 — Tab bar. `KeyedSubtree` gives a card tap's
+              // `revealTabBar: true` scroll something to target.
+              _revealWith(
+                anim2,
+                slide2,
+                KeyedSubtree(
+                  key: tabBarAnchorKey,
+                  child: ProfileTabBar(
+                    tabs: masterProfileTabLabels(l10n),
+                    selected: tab,
+                    onSelect: onSelectTab,
+                    keyPrefix: 'master-profile',
+                  ),
                 ),
               ),
-              ContactTile(
-                key: const Key('master-contact-phone'),
-                icon: Icons.phone_outlined,
-                value: master.phoneNumber ?? '—',
-                semanticLabel: l10n.masterPhoneSemantics,
-                onTap: () {
-                  // Sanitize verbatim stored input through canonicalTelUri
-                  // (STRICT tel: allow-list — rejects empty / '—' / non-
-                  // dialable). An unvalidated string is never handed to
-                  // launchUrl; no-op on null. Validation is wired in front of
-                  // the deferred launch so the contract is correct when it
-                  // lands.
-                  final Uri? telUri = canonicalTelUri(master.phoneNumber);
-                  if (telUri == null) return;
-                  // TODO(Phase-4.x): launchUrl(telUri);
-                },
-              ),
-              const SizedBox(height: VelvetSpacing.sm),
-              ContactTile(
-                key: const Key('master-contact-instagram'),
-                icon: Icons.alternate_email,
-                label: l10n.masterInstagramLabel,
-                // Value is stored verbatim from user input — may be a bare
-                // handle, "@"-prefixed, or a full https://instagram.com/...
-                // URL depending on what the user entered.
-                value: master.instagram ?? '—',
-                semanticLabel: l10n.masterInstagramLabel,
-                onTap: () => _openInstagram(context, master.instagram),
+              const SizedBox(height: VelvetSpacing.lg),
+
+              // 4 — Tab body: «Про майстра» (bio + portfolio + contacts) /
+              // «Послуги» (D16 — interactive category cards, unchanged) /
+              // «Відгуки» (the SAME `MasterReviewsBody` the deleted
+              // standalone «Мої відгуки» screen rendered — D11).
+              _revealWith(
+                anim3,
+                slide3,
+                KeyedSubtree(
+                  key: ValueKey<int>(tab),
+                  child: switch (tab) {
+                    0 => _AboutTab(master: master),
+                    1 => const _ProfileCategoriesSection(),
+                    _ => MasterReviewsBody(masterId: master.id),
+                  },
+                ),
               ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  /// Maps [MasterType] to a localized role label string.
+  String _roleLabel(MasterType type, AppLocalizations l10n) {
+    switch (type) {
+      case MasterType.independentMaster:
+        return l10n.masterRoleIndependent;
+      case MasterType.salonMaster:
+        return l10n.masterRoleSalonMaster;
+      case MasterType.salonOwner:
+        return l10n.masterRoleSalonOwner;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _AboutTab — «Про майстра»: bio (or the AddLink empty-state) + portfolio +
+// contacts (phone/Instagram).
+// ---------------------------------------------------------------------------
+
+class _AboutTab extends StatelessWidget {
+  const _AboutTab({required this.master});
+
+  final Master master;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        // Bio section. Phase 351 (U-locked "Both rows" empty-state
+        // decision) — this is the master's OWN profile, so an empty bio no
+        // longer omits the section outright: it shows the promoted
+        // [AddLink] «Додати опис» (REUSE-FIRST, promoted from the salon
+        // management screen's `_AddLink`/`_AboutReadView`'s
+        // `canEdit`-branch — `salon_management_profile_screen.dart:949-957`)
+        // opening this master's own bio editor
+        // ([RouteNames.masterEditPersonal] → `PersonalInfoEditScreen`).
+        Column(
+          key: const Key('master-profile-bio'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+              child: Text(
+                l10n.masterBioLabel,
+                style: VelvetText.sectionLabel(),
+              ),
+            ),
+            if (master.bio != null && master.bio!.isNotEmpty)
+              NeumorphicInset(
+                radius: VelvetRadii.card,
+                child: Padding(
+                  padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+                  child: Text(master.bio!, style: VelvetText.bodyStrong()),
+                ),
+              )
+            else
+              AddLink(
+                key: const Key('master-profile-add-bio'),
+                label: l10n.salonManageAddDescriptionLink,
+                onTap: () => context.push(RouteNames.masterEditPersonal),
+              ),
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.xl),
+
+        // Portfolio section: placeholder tiles (Phase 4.4 ships real ones).
+        // REUSE-FIRST — [PortfolioRail] promoted to
+        // shared/widgets/portfolio_rail.dart; also used by
+        // public_master_profile_screen.dart and the salon owner/admin
+        // «Про салон» tab.
+        PortfolioRail(
+          onSeeAll: () {
+            // Phase 4.4 — portfolio gallery route.
+          },
+        ),
+        const SizedBox(height: VelvetSpacing.xl),
+
+        // Contacts section: phone and Instagram from domain model; both
+        // fall back to '—' when the field is not set by the master.
+        Text(l10n.masterContactsLabel, style: VelvetText.sectionLabel()),
+        const SizedBox(height: VelvetSpacing.xs),
+        ContactTile(
+          key: const Key('master-contact-phone'),
+          icon: Icons.phone_outlined,
+          value: master.phoneNumber ?? '—',
+          semanticLabel: l10n.masterPhoneSemantics,
+          onTap: () {
+            // Sanitize verbatim stored input through canonicalTelUri
+            // (STRICT tel: allow-list — rejects empty / '—' / non-
+            // dialable). An unvalidated string is never handed to
+            // launchUrl; no-op on null. Validation is wired in front of
+            // the deferred launch so the contract is correct when it
+            // lands.
+            final Uri? telUri = canonicalTelUri(master.phoneNumber);
+            if (telUri == null) return;
+            // TODO(Phase-4.x): launchUrl(telUri);
+          },
+        ),
+        const SizedBox(height: VelvetSpacing.sm),
+        ContactTile(
+          key: const Key('master-contact-instagram'),
+          icon: Icons.alternate_email,
+          label: l10n.masterInstagramLabel,
+          // Value is stored verbatim from user input — may be a bare
+          // handle, "@"-prefixed, or a full https://instagram.com/...
+          // URL depending on what the user entered.
+          value: master.instagram ?? '—',
+          semanticLabel: l10n.masterInstagramLabel,
+          onTap: () => _openInstagram(context, master.instagram),
         ),
       ],
     );
@@ -723,18 +788,6 @@ class _ProfileBody extends StatelessWidget {
       AppLocalizations.of(context).masterInstagramOpenError,
       bottomInset: VelvetSizes.bottomNavClearanceMaster,
     );
-  }
-
-  /// Maps [MasterType] to a localized role label string.
-  String _roleLabel(MasterType type, AppLocalizations l10n) {
-    switch (type) {
-      case MasterType.independentMaster:
-        return l10n.masterRoleIndependent;
-      case MasterType.salonMaster:
-        return l10n.masterRoleSalonMaster;
-      case MasterType.salonOwner:
-        return l10n.masterRoleSalonOwner;
-    }
   }
 }
 
@@ -936,49 +989,15 @@ class _ProfileSkeleton extends StatelessWidget {
           ),
           SizedBox(height: VelvetSpacing.xl),
 
-          // 3 — Bio section label + block.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 90, height: 13),
-          ),
+          // 3 — Tab bar placeholder.
+          SkeletonBlock(width: double.infinity, height: 44),
+          SizedBox(height: VelvetSpacing.lg),
+
+          // 4 — Tab body placeholder.
           SkeletonBlock(
             width: double.infinity,
-            height: 92,
+            height: 160,
             radius: VelvetRadii.card,
-          ),
-          SizedBox(height: VelvetSpacing.xl),
-
-          // 4 — Portfolio section label + 3 thumbnail blocks.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 90, height: 13),
-          ),
-          Row(
-            children: <Widget>[
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-              SizedBox(width: VelvetSpacing.md),
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-              SizedBox(width: VelvetSpacing.md),
-              SkeletonBlock(width: 72, height: 72, radius: VelvetRadii.field),
-            ],
-          ),
-          SizedBox(height: VelvetSpacing.xl),
-
-          // 5 — Services section label + 2 row blocks.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 110, height: 13),
-          ),
-          SkeletonBlock(
-            width: double.infinity,
-            height: 60,
-            radius: VelvetRadii.field,
-          ),
-          SizedBox(height: VelvetSpacing.xs + 4),
-          SkeletonBlock(
-            width: double.infinity,
-            height: 60,
-            radius: VelvetRadii.field,
           ),
         ],
       ),

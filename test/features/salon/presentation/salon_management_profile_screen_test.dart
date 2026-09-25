@@ -55,6 +55,7 @@ import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
@@ -1883,6 +1884,25 @@ void main() {
           findsOneWidget,
         );
         expect(find.text(l10nOf(tester).salonAboutEmpty), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'empty description, OWNER — the add-link node is the PROMOTED shared '
+      '`AddLink` (not a coincidentally-identical private widget)',
+      (tester) async {
+        // Phase 351 gap-fix (mobile-qa, 2026-09-25) — mirrors the resolved-TYPE
+        // pin already written for `addInstagram` (-> `ContactTile`) above. A
+        // bare `find.byKey(...)` cannot distinguish `AddLink` from any other
+        // widget carrying the same key, which is exactly the gap that let a
+        // private-widget swap pass unnoticed before. `AddLink` was PROMOTED
+        // verbatim from this screen's own private `_AddLink` (Phase 351,
+        // `lib/shared/widgets/add_link.dart`'s doc comment) — this pins the
+        // TYPE now shared with the master-profile «Додати опис» call sites so
+        // a future edit to one cannot silently diverge from the other without
+        // this test noticing.
+        await pumpAs(tester, _stubSalon.copyWith(description: null));
+        expect(tester.widget(addDescription), isA<AddLink>());
       },
     );
 

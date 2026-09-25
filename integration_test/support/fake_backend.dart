@@ -2897,6 +2897,14 @@ final class FakeBackend {
   /// Defaults to `false`; every pre-existing flow is untouched.
   bool publicMasterAddressSuppressed = false;
 
+  /// Phase 351 gap-fix (mobile-qa, 2026-09-25) — when `true`, `master-aaa`'s
+  /// public detail omits `bio` (wire `null`) instead of the seeded sentence,
+  /// so a CLIENT-facing flow can drive the «Про майстра» tab's EMPTY-bio
+  /// branch (`public-master-profile-about-empty`) end to end. Defaults to
+  /// `false`; every pre-existing flow that expects the seeded bio is
+  /// untouched.
+  bool publicMasterBioSuppressed = false;
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
@@ -2909,7 +2917,9 @@ final class FakeBackend {
       'buildingNo': kPublicMasterBuildingNo,
       'locationNote': kPublicMasterLocationNote,
     },
-    'bio': 'Майстриня манікюру з 6-річним досвідом.',
+    'bio': publicMasterBioSuppressed
+        ? null
+        : 'Майстриня манікюру з 6-річним досвідом.',
     'instagram': '@sofia_nails',
     'avgRating': publicMasterReviewLanded
         ? kPublicMasterAvgRatingAfterReview

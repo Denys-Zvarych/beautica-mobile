@@ -56,6 +56,8 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
@@ -431,7 +433,7 @@ class _LoadedBody extends StatelessWidget {
           slide: slide1,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: SalonTabBar(
+            child: ProfileTabBar(
               tabs: tabs,
               selected: tab,
               onSelect: onTabSelected,
@@ -660,7 +662,6 @@ class _SalonHeroCard extends StatelessWidget {
     final String? monogram = salon.name.trim().isEmpty
         ? null
         : salon.name.trim()[0].toUpperCase();
-    final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
     // Phase 223 (b) — locality + street/building, each its own line, one
     // `Text` per helper, both `maxLines: 1`. `locationNote` is never
     // concatenated onto either of these lines — it renders as its own
@@ -735,36 +736,16 @@ class _SalonHeroCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 5),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const Icon(
-                                Icons.star_rounded,
-                                size: 16,
-                                color: BrandColors.accentDeep,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                ratingLabel,
-                                key: const Key('salon-profile-rating'),
-                                style: _ratingInlineStyle,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                                  // Keyed so the review-invalidation regression
-                                  // can pin the hero's COUNT half of the
-                                  // aggregate by widget rather than by a
-                                  // localised string (M2) — `avgRating` alone
-                                  // moving is not proof the whole snapshot
-                                  // refreshed.
-                                  key: const Key('salon-profile-review-count'),
-                                  style: VelvetText.feedbackMuted13,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          // Keyed so the review-invalidation regression can
+                          // pin the hero's COUNT half of the aggregate by
+                          // widget rather than by a localised string (M2) —
+                          // `avgRating` alone moving is not proof the whole
+                          // snapshot refreshed.
+                          RatingSummaryLine(
+                            rating: salon.avgRating,
+                            reviewCount: salon.reviewCount,
+                            ratingKey: const Key('salon-profile-rating'),
+                            countKey: const Key('salon-profile-review-count'),
                           ),
                         ],
                       ),
@@ -879,8 +860,6 @@ class _SalonHeroCard extends StatelessWidget {
       ),
     );
   }
-
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
 
   /// The hero card's locality (city) line, or `null` when unavailable.
   ///

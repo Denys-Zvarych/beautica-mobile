@@ -225,5 +225,81 @@ void main() {
       // Semantics widget must be present in the tree.
       expect(find.byType(Semantics), findsWidgets);
     });
+
+    // ── Phase 351 (D10′) — additive `onTap` ──────────────────────────────────
+    group('onTap (Phase 351, additive)', () {
+      testWidgets('null (default) — no InkWell, no button semantics', (
+        tester,
+      ) async {
+        // Disposed explicitly at the END of the body, not via addTearDown:
+        // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await tester.pumpApp(
+          const StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(InkWell), findsNothing);
+        expect(
+          tester.getSemantics(find.byType(StatTile)),
+          isNot(isSemantics(isButton: true)),
+        );
+
+        handle.dispose();
+      });
+
+      testWidgets('non-null — an InkWell wraps the tile, the tap fires, and '
+          'the tile is a Semantics button', (tester) async {
+        // Disposed explicitly at the END of the body, not via addTearDown:
+        // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        int taps = 0;
+        await tester.pumpApp(
+          StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+            onTap: () => taps++,
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(InkWell), findsOneWidget);
+        expect(
+          tester.getSemantics(find.byType(StatTile)),
+          isSemantics(isButton: true),
+        );
+
+        await tester.tap(find.byType(StatTile));
+        await tester.pump();
+        expect(taps, 1);
+
+        handle.dispose();
+      });
+
+      testWidgets('non-null — the tile keeps at least a 48dp hit target', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+            onTap: () {},
+          ),
+        );
+        await tester.pump();
+
+        final Size size = tester.getSize(find.byType(StatTile));
+        expect(size.width, greaterThanOrEqualTo(48));
+        expect(size.height, greaterThanOrEqualTo(48));
+      });
+    });
   });
 }

@@ -1,11 +1,16 @@
 // Phase 4.6 / 4.x — Shared reviews body, parameterized by masterId.
 //
-// Extracted from `master_received_reviews_screen.dart` so the SAME summary +
-// sortable-list UI can be reused by both:
-//   • [MasterReceivedReviewsScreen] — the authenticated master's own reviews,
-//     masterId resolved from `masterProfileProvider` (GET /masters/me);
+// Originally extracted from the now-deleted `master_received_reviews_screen
+// .dart` (Phase 351, D11 — its content moved inline into the «Відгуки» tab on
+// every master's own profile) so the SAME summary + sortable-list UI can be
+// reused by all of:
+//   • [MasterProfileScreen] / [SalonMasterProfileScreen] — the authenticated
+//     master's own reviews, masterId resolved from their own profile
+//     provider;
+//   • `PublicMasterProfileScreen` — inline in its own «Відгуки» tab;
 //   • `PublicMasterReviewsScreen` — a CLIENT viewing another master's public
-//     reviews, masterId supplied directly via the route param.
+//     reviews via a standalone pushed route, masterId supplied directly via
+//     the route param.
 //
 // Both `masterReviewsProvider(masterId, sort)` and
 // `masterReviewSummaryProvider(masterId)` are `@riverpod` families keyed on an

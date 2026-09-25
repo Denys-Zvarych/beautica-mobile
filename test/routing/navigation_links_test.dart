@@ -442,7 +442,6 @@ void main() {
       'masterEditPersonal': RouteNames.masterEditPersonal,
       'masterEditContacts': RouteNames.masterEditContacts,
       'masterEditLocation': RouteNames.masterEditLocation,
-      'masterReceivedReviews': RouteNames.masterReceivedReviews,
       // SALON_MASTER's own personal-profile surface — fixes the "blank
       // home" landing bug (see `role_home.dart`). Standalone top-level
       // routes, same rationale as `masterProfile`/`masterMenu`/

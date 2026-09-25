@@ -29,9 +29,13 @@ import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/application/salon_master_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -623,21 +627,40 @@ void main() {
       expect(find.byKey(const Key('salon-master-profile-bio')), findsOneWidget);
     });
 
-    testWidgets('no bio omits the bio section', (tester) async {
-      await tester.pumpApp(
-        const SalonMasterProfileScreen(),
-        overrides: _overrides((_masterBare, const <MasterService>[], null)),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('salon-master-profile-bio')), findsNothing);
-    });
+    // Phase 351 (U-locked "Both rows" empty-state decision) — an empty bio
+    // on the salon master's OWN profile no longer omits the section: it now
+    // shows the promoted `AddLink` «Додати опис» (opens
+    // RouteNames.salonMasterEditPersonal) instead of the bio card.
+    testWidgets(
+      'no bio shows the «Додати опис» AddLink (section not omitted)',
+      (tester) async {
+        await tester.pumpApp(
+          const SalonMasterProfileScreen(),
+          overrides: _overrides((_masterBare, const <MasterService>[], null)),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-profile-bio')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-profile-add-bio')),
+          findsOneWidget,
+        );
+      },
+    );
 
-    testWidgets('services present renders «Мої категорії»', (tester) async {
+    testWidgets('services present renders «Мої категорії» (on the «Послуги» '
+        'tab, Phase 351)', (tester) async {
       await tester.pumpApp(
         const SalonMasterProfileScreen(),
         overrides: _overrides((_master, _services, _salon)),
       );
       await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
       expect(
         find.byKey(const Key('salon-master-profile-service-categories')),
         findsOneWidget,
@@ -648,12 +671,18 @@ void main() {
       );
     });
 
-    testWidgets('empty services omits «Мої категорії»', (tester) async {
+    testWidgets('empty services omits «Мої категорії» (on the «Послуги» tab)', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const SalonMasterProfileScreen(),
         overrides: _overrides((_masterBare, const <MasterService>[], null)),
       );
       await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
       expect(
         find.byKey(const Key('salon-master-profile-service-categories')),
         findsNothing,
@@ -701,6 +730,180 @@ void main() {
             .data,
         '1',
       );
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 351 — card → tab switching. 3 cards (rating / reviews / services —
+  // «Досвід» removed, D9); each switches the screen's own tab in place
+  // (D15). «Послуги» stays read-only (D12) — tapping a category card there
+  // does nothing.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('card → tab switching (Phase 351)', () {
+    List<Object> overridesWithReviews(SalonMasterOwnProfileData data) =>
+        <Object>[
+          ..._overrides(data),
+          masterReviewSummaryProvider(data.$1.id).overrideWith(
+            (Ref ref) async => MasterReviewSummary(
+              avgRating: data.$1.avgRating,
+              reviewCount: data.$1.reviewCount,
+              distribution: const <int>[0, 0, 0, 0, 0],
+            ),
+          ),
+          masterReviewsProvider(
+            data.$1.id,
+            MasterReviewSort.newest,
+          ).overrideWith((Ref ref) async => const <MasterReviewItem>[]),
+        ];
+
+    testWidgets('no «Досвід» card renders anywhere on the screen', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: overridesWithReviews((_master, _services, _salon)),
+      );
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterProfileScreen)),
+      );
+      expect(find.text(l10n.publicMasterExperienceLabel), findsNothing);
+    });
+
+    testWidgets('default tab is «Про майстра»; affiliation + address render '
+        'above the cards', (tester) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: overridesWithReviews((_master, _services, _salon)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-master-profile-bio')), findsOneWidget);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+      expect(
+        find.byKey(const Key('salon-master-profile-service-categories')),
+        findsNothing,
+      );
+
+      // Affiliation/address sit in the identity card, ABOVE the stat-card
+      // row and the tab bar — assert the vertical order.
+      final double nameY = tester
+          .getTopLeft(find.byKey(const Key('salon-master-profile-salon-name')))
+          .dy;
+      final double tabBarY = tester
+          .getTopLeft(find.byKey(const Key('salon-master-profile-tab-0')))
+          .dy;
+      expect(nameY, lessThan(tabBarY));
+    });
+
+    testWidgets('tapping the rating card switches to the «Відгуки» tab', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: overridesWithReviews((_master, _services, _salon)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-master-profile-rating-tile')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MasterReviewsBody), findsOneWidget);
+      expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+    });
+
+    testWidgets('tapping the reviews card switches to the «Відгуки» tab', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: overridesWithReviews((_master, _services, _salon)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-master-profile-reviews-tile')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MasterReviewsBody), findsOneWidget);
+    });
+
+    testWidgets('tapping the services card switches to the «Послуги» tab; '
+        'a category card there does NOT navigate (read-only, D12)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: overridesWithReviews((_master, _services, _salon)),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-master-profile-services-tile')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-profile-service-categories')),
+        findsOneWidget,
+      );
+      final Finder card = find.byKey(
+        const Key('salon-master-profile-category-HAIR'),
+      );
+      expect(card, findsOneWidget);
+
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      // Still the same screen — a read-only card has no navigation target.
+      expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-master-profile-service-categories')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('AddLink «Додати опис» opens salonMasterEditPersonal', (
+      tester,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.salonMasterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.salonMasterProfile,
+            builder: (_, _) => const SalonMasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.salonMasterEditPersonal,
+            builder: (_, _) =>
+                const Scaffold(body: SizedBox(key: Key('stub-edit-personal'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: overridesWithReviews((
+          _masterBare,
+          const <MasterService>[],
+          null,
+        )),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder addLink = find.byKey(
+        const Key('salon-master-profile-add-bio'),
+      );
+      expect(addLink, findsOneWidget);
+      await tester.tap(addLink);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-edit-personal')), findsOneWidget);
     });
   });
 
