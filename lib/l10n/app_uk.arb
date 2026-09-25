@@ -4770,6 +4770,10 @@
   "@bookingRescheduleUnavailable": {
     "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
+  "bookingRebookServiceUnavailable": "Цю послугу не вдалося знайти — оберіть послугу ще раз.",
+  "@bookingRebookServiceUnavailable": {
+    "description": "Snackbar shown from booking_detail_screen.dart's _onRebook when the past booking carries no serviceId (Booking.serviceId is '' — the service record was removed), so ServiceSelectorSheet opens via the bare-masterId extra with nothing pre-checked. Explains the silent fallback (phase 350 D7)."
+  },
   "salonProfileBackLabel": "Назад",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."

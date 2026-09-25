@@ -1474,6 +1474,13 @@ GoRouter appRouter(Ref ref) {
       // every existing call site keeps working verbatim — this is the "add a
       // pre-selection argument rather than forking the flow" seam, not a
       // second route.
+      //
+      // Phase 350 — [BookingEntryArgs.autoAdvance] forwards straight through
+      // to `ServiceSelectorSheet.autoAdvance` (additive field, default
+      // `true`). The wish-list caller never sets it (stays `true`, skips Step
+      // 1 exactly as before); the past-booking «Записатись знову» CTA
+      // (`booking_detail_screen.dart`'s `_onRebook`) sets it `false`, landing
+      // on Step 1 with the service pre-checked but editable.
       GoRoute(
         path: RouteNames.bookingNew,
         redirect: (context, state) {
@@ -1494,7 +1501,7 @@ GoRouter appRouter(Ref ref) {
             return ServiceSelectorSheet(
               masterId: extra.masterId,
               initialServiceId: extra.preselectedServiceId,
-              autoAdvance: true,
+              autoAdvance: extra.autoAdvance,
             );
           }
           return ServiceSelectorSheet(masterId: extra! as String);

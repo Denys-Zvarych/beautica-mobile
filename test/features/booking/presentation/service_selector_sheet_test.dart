@@ -711,6 +711,216 @@ void main() {
     );
   });
 
+  group('rebook preselect — autoAdvance:false (Phase 350)', () {
+    // The past-booking rebook shape (`BookingEntryArgs(autoAdvance: false)`,
+    // `booking_detail_screen.dart`'s `_onRebook`): `initialServiceId` lands
+    // the client on Step 1 pre-checked, but fully editable — the sheet's own
+    // `_seedOnce`/`_maybeAutoAdvance` split (D3 in the phase doc) needs no
+    // production change; these tests pin that the existing extension point
+    // genuinely behaves that way when `autoAdvance` is left at its default
+    // (`false`).
+    GoRouter buildRouter({required String? initialServiceId}) => GoRouter(
+      initialLocation: RouteNames.bookingNew,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.bookingNew,
+          builder: (context, state) => ServiceSelectorSheet(
+            masterId: _kMasterId,
+            initialServiceId: initialServiceId,
+            // autoAdvance left at its default (false) — the shape under test.
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.bookingSlots,
+          builder: (context, state) {
+            final BookingSlotPickerArgs args =
+                state.extra! as BookingSlotPickerArgs;
+            final String ids = args.services
+                .map((MasterService s) => s.id)
+                .join(',');
+            return Scaffold(body: Text('slots-stub:${args.masterId}:$ids'));
+          },
+        ),
+      ],
+    );
+
+    Finder checkedFace(Finder tile) => find.descendant(
+      of: tile,
+      matching: find.byKey(const ValueKey<bool>(true)),
+    );
+
+    Future<void> pumpSized(WidgetTester tester, GoRouter router) async {
+      tester.view.physicalSize = const Size(800, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides((ref) => _twoCategoryData),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'initialServiceId pre-checks that service, «Далі» is enabled, and '
+      'nothing auto-advances',
+      (tester) async {
+        final router = buildRouter(initialServiceId: 'svc-mani');
+        await pumpSized(tester, router);
+
+        // Auto-expanded MANICURE category (seeded by _seedOnce), pre-checked.
+        expect(
+          find.byKey(const Key('booking_category_MANICURE')),
+          findsOneWidget,
+        );
+        final Finder tile = find.byKey(
+          const Key('booking_service_tile_svc-mani'),
+        );
+        expect(checkedFace(tile), findsOneWidget);
+
+        final NeumorphicButton cta = tester.widget<NeumorphicButton>(
+          find.byKey(const Key('booking-summary-cta')),
+        );
+        expect(cta.onPressed, isNotNull, reason: '«Далі» must be enabled');
+
+        // A further settle changes nothing — no self-driven navigation.
+        await tester.pumpAndSettle();
+        expect(find.byType(ServiceSelectorSheet), findsOneWidget);
+        expect(find.textContaining('slots-stub'), findsNothing);
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'tapping a second service checks BOTH — the seeded pre-selection stays '
+      'editable, not locked',
+      (tester) async {
+        final router = buildRouter(initialServiceId: 'svc-mani');
+        await pumpSized(tester, router);
+
+        // PEDICURE is not hoisted/expanded by the seed — expand it manually.
+        await tester.tap(find.byKey(const Key('booking_category_PEDICURE')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-pedi')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          checkedFace(find.byKey(const Key('booking_service_tile_svc-mani'))),
+          findsOneWidget,
+        );
+        expect(
+          checkedFace(find.byKey(const Key('booking_service_tile_svc-pedi'))),
+          findsOneWidget,
+        );
+
+        // «Далі» now carries BOTH ids, in catalogue order.
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('slots-stub:$_kMasterId:svc-mani,svc-pedi'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'unchecking the seeded service and checking another leaves ONLY the '
+      'new one checked',
+      (tester) async {
+        final router = buildRouter(initialServiceId: 'svc-mani');
+        await pumpSized(tester, router);
+
+        // Uncheck the seeded service.
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-mani')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          checkedFace(find.byKey(const Key('booking_service_tile_svc-mani'))),
+          findsNothing,
+        );
+
+        // Check a different one.
+        await tester.tap(find.byKey(const Key('booking_category_PEDICURE')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('booking_service_tile_svc-pedi')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          checkedFace(find.byKey(const Key('booking_service_tile_svc-mani'))),
+          findsNothing,
+        );
+        expect(
+          checkedFace(find.byKey(const Key('booking_service_tile_svc-pedi'))),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+        expect(find.text('slots-stub:$_kMasterId:svc-pedi'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a stale initialServiceId checks nothing and throws no error — the '
+      'client simply picks a service normally, and (Phase 350 D6 /'
+      ' mobile-security cycle-1 LOW) is told why via a warning snack',
+      (tester) async {
+        final router = buildRouter(initialServiceId: 'svc-deactivated');
+        await pumpSized(tester, router);
+
+        expect(find.byKey(const ValueKey<bool>(true)), findsNothing);
+        expect(tester.takeException(), isNull);
+        // The catalogue still renders normally, ready to pick from.
+        expect(
+          find.byKey(const Key('booking_category_MANICURE')),
+          findsOneWidget,
+        );
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(ServiceSelectorSheet)),
+        );
+        expectVelvetSnack(
+          l10n.bookingRebookServiceUnavailable,
+          variant: VelvetSnackVariant.warning,
+        );
+
+        // Drain the dwell Timer so none is pending at teardown.
+        await pumpPastVelvetSnack(tester);
+      },
+    );
+
+    testWidgets(
+      'the autoAdvance:true (wish-list) shape shows NO warning snack for a '
+      'stale initialServiceId — Phase 241 behaviour is unchanged (D6 only '
+      'applies when autoAdvance is false)',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.bookingNew,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.bookingNew,
+              builder: (context, state) => const ServiceSelectorSheet(
+                masterId: _kMasterId,
+                initialServiceId: 'svc-deactivated',
+                autoAdvance: true,
+              ),
+            ),
+          ],
+        );
+        await pumpSized(tester, router);
+
+        expect(find.byKey(const ValueKey<bool>(true)), findsNothing);
+        expect(tester.takeException(), isNull);
+        expect(find.byType(VelvetSnack), findsNothing);
+      },
+    );
+  });
+
   group('visit-selection cap (MO-3)', () {
     testWidgets(
       'caps the selection at maxServicesPerVisit (10) — the 11th add is '

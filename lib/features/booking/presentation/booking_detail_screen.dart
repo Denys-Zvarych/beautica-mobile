@@ -92,6 +92,7 @@ import '../application/bookings_capability.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
+import '../domain/booking_entry_args.dart';
 import '../domain/booking_status.dart';
 import '../domain/client_authored_review.dart';
 import 'widgets/booking_counterparty_header.dart';
@@ -404,12 +405,60 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     );
   }
 
+  /// Phase 350 — «Записатись знову» opens booking Step 1
+  /// (`ServiceSelectorSheet`) for the SAME master with this booking's service
+  /// already checked, but still editable: the client can add more services
+  /// or uncheck it and pick another before advancing (`autoAdvance: false`;
+  /// see `booking_entry_args.dart`'s doc). Replaces the earlier "push the
+  /// master's public profile and make the client re-pick everything" target.
+  ///
+  /// SALON bookings take the SAME `bookingNew` path, not the salon booking
+  /// flow — deliberately (phase 350 doc D4, user-decided "allow direct
+  /// rebook"). The case asks for the SAME master, which a past booking
+  /// already names; the salon flow's own step 1 accepts no preselection and
+  /// its step 2 makes the client pick a master again, contradicting "same
+  /// master". `bookingNew` works end to end for a salon master too: its
+  /// catalogue loads through the same public `GET /masters/{id}/services`
+  /// (`publicMasterProfileProvider`, no INDEPENDENT_MASTER/SALON_MASTER
+  /// branch) and `POST /appointments` gates only on `MasterBookability
+  /// .isBookable`, not on `salonId` — which `CreateAppointmentRequest` never
+  /// even carries. (The old "no `salonId`" comment this replaces was stale:
+  /// `BookingDetailResponse` has carried `salonId` since, and `Booking
+  /// .salonId` is mapped — it just was never the reason this pushed the
+  /// profile instead.)
+  ///
+  /// A booking whose service was removed from this record (`serviceId`
+  /// empty — `Booking.serviceId` defaults to `''` when the DTO's
+  /// `masterServiceId` is absent) falls back to the bare-`String` extra
+  /// shape `ServiceSelectorSheet` already accepts for "pick inside the
+  /// screen" — the same shape `RouteNames.bookingNew`'s OTHER caller (the
+  /// public master profile's own «Записатись» CTA) has always used. The CTA
+  /// itself is disabled whenever `masterId` is empty (see the footer builder
+  /// below), so this fallback only ever fires with a valid master.
+  ///
+  /// mobile-security cycle-1 LOW: this fallback drops the "same service"
+  /// intent with no explanation (Step 1 just opens with nothing checked).
+  /// A `showWarningSnack` names why, mirroring `reschedule_navigation.dart`'s
+  /// `bookingRescheduleUnavailable` for the same "this flow can't do what you
+  /// expected, here's a plain reason" shape. Fired before the push (both are
+  /// synchronous; no `mounted` gap) so it is visible under the fresh screen.
   void _onRebook(Booking booking) {
-    // `BookingDetailResponse` carries `masterId` but no `salonId` — a salon
-    // booking's own venue is not independently addressable from a booking
-    // record. The master's own public profile is reachable either way and
-    // is the only rebook target the data supports.
-    context.push(RouteNames.masterPublicProfile(booking.masterId));
+    if (booking.serviceId.isEmpty) {
+      showWarningSnack(
+        context,
+        AppLocalizations.of(context).bookingRebookServiceUnavailable,
+      );
+      context.push(RouteNames.bookingNew, extra: booking.masterId);
+      return;
+    }
+    context.push(
+      RouteNames.bookingNew,
+      extra: BookingEntryArgs(
+        masterId: booking.masterId,
+        preselectedServiceId: booking.serviceId,
+        autoAdvance: false,
+      ),
+    );
   }
 
   /// «Залишити відгук про майстра» — pushes the Phase 14.6 leave-review screen
@@ -1036,10 +1085,10 @@ class _DetailBody extends StatelessWidget {
       icon: Icons.refresh_rounded,
       // Same guard as the counterparty strip's: `booking_mapper.dart:119`
       // maps `masterId: dto.masterId ?? ''`, and `_onRebook` pushes
-      // `/masters/<id>`. An empty id makes `/masters/` — which cannot match
-      // `/masters/:masterId` (go_router compiles the param to `[^/]+`) — and
-      // `app_router.dart` declares no `errorBuilder`, so the tap would dump
-      // the client on go_router's default "page not found". Disabled is the
+      // `RouteNames.bookingNew` seeded with THIS masterId (Phase 350). Both
+      // its `extra` shapes — the bare-`String` fallback and
+      // [BookingEntryArgs] — carry `masterId` as a required, non-nullable
+      // field, so an empty id has nowhere valid to go. Disabled is the
       // honest affordance: we don't know which master to rebook with.
       onPressed: booking.masterId.isEmpty ? null : onRebook,
     ),

@@ -82,6 +82,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'client_rebook_from_past_flow_test.dart' as client_rebook_from_past;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
 import 'client_review_refreshes_salon_surfaces_flow_test.dart'
@@ -290,6 +291,14 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // CLIENT rebook-from-past journey (Phase 350, Step 2.7 Rule 3b) — Минулі →
+  // a past booking's «Записатись знову» → the REAL Step 1 (ServiceSelector
+  // Sheet) opens for the SAME master with that booking's service already
+  // checked but editable; add-a-second/uncheck-and-pick-another both thread
+  // the exact resulting masterServiceId set into working-days/slots; a
+  // SALON-master booking rebooks directly (D4); a deactivated service
+  // pre-checks nothing (D6).
+  group('client_rebook_from_past_flow', client_rebook_from_past.main);
   // CLIENT review-staleness regression (Step 2.7 Rule 3b, mobile-qa) — the
   // REPORTED bug: a client who viewed a master's public profile, then left a
   // review WITHOUT restarting the app, saw a stale rating / review count and
