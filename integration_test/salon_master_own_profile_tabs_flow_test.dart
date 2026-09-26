@@ -162,4 +162,43 @@ void main() {
       });
     },
   );
+
+  testWidgets(
+    'SALON_MASTER with no assigned services sees the "ask the owner/admin" '
+    'hint on «Послуги», not the category list',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend(
+          masterRowId: _kMasterRowId,
+          masterSalonId: _kSalonId,
+        )..salonMasterOwnServicesEmpty = true;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+        await AppHarness.settle(tester);
+
+        expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+
+        final Finder servicesTab = find.byKey(
+          const Key('salon-master-profile-tab-1'),
+        );
+        await AppHarness.tapVisible(tester, servicesTab);
+        await AppHarness.settle(tester);
+
+        expect(
+          find.byKey(const Key('salon-master-profile-service-categories')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-master-profile-services-empty')),
+          findsOneWidget,
+          reason:
+              'the REAL salon-scoped services read (GET /salons/$_kSalonId/'
+              'masters/$_kMasterRowId/services) resolved an EMPTY catalogue, '
+              'so the "ask the owner/admin" empty state must render',
+        );
+        expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
+      });
+    },
+  );
 }

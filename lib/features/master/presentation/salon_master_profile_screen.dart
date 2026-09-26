@@ -114,6 +114,7 @@ import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/salon_affiliation_line.dart';
+import 'package:beautica_mobile/shared/widgets/services_empty_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'widgets/master_address_block.dart';
@@ -536,7 +537,18 @@ class _SalonMasterProfileBody extends StatelessWidget {
                     0 => _SalonMasterAboutTab(bio: bio, phone: phone),
                     1 =>
                       services.isEmpty
-                          ? const SizedBox.shrink()
+                          // Read-only SALON_MASTER — same audience/fact as
+                          // `/staff/services`'s own empty state (D12): this
+                          // viewer cannot add their own services, so point
+                          // them at the owner/admin rather than showing
+                          // nothing at all.
+                          ? ServicesEmptyState(
+                              key: const Key(
+                                'salon-master-profile-services-empty',
+                              ),
+                              title: l10n.servicesEmpty,
+                              body: l10n.salonMasterServicesEmptyHint,
+                            )
                           : Column(
                               key: const Key(
                                 'salon-master-profile-service-categories',

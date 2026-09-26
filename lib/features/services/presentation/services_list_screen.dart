@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/service_c
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/services_empty_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'services_list_notifier.dart';
@@ -463,7 +464,18 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
               // the only "add services" surface. It POPs back here on save /
               // close, which is what lets [_openAndRefresh]'s awaited push
               // resolve and re-fire the category invalidation.
-              return _EmptyState(
+              return ServicesEmptyState(
+                title: l10n.servicesEmpty,
+                // The read-only viewer (SALON_MASTER at `/staff/services`,
+                // Phase 321 D12) cannot add services themselves — the
+                // writable body's "add your first service" copy would
+                // address the wrong person. Same fix, same audience, as
+                // `SalonMasterProfileScreen`'s embedded «Послуги» tab empty
+                // state.
+                body: widget.writable
+                    ? l10n.servicesEmptyBody
+                    : l10n.salonMasterServicesEmptyHint,
+                createLabel: l10n.servicesAdd,
                 // Phase 320 (D3): null hides the CTA entirely rather than
                 // disabling it — a greyed "Додати послугу" would promise a
                 // write the backend refuses.
@@ -1040,80 +1052,10 @@ class _ShimmerBar extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-/// Vertically centred empty-state: recessed camel medallion + headline +
-/// supporting text + single primary CTA. The empty state does NOT show the
-/// FAB — the inline CTA is the only first-run path so intent is unmistakable.
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onCreate});
-
-  /// Opens the create form and invalidates the category cache on return.
-  /// Provided by [_ServicesListScreenState._openAndRefresh].
-  ///
-  /// Phase 320 (D3) — nullable: `null` (read-only viewer) hides the CTA
-  /// entirely rather than rendering it disabled. Every pre-existing caller
-  /// passes a non-null callback and renders exactly as before.
-  final VoidCallback? onCreate;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Center(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.all(VelvetSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            SizedBox(
-              height: 104,
-              width: 104,
-              child: NeumorphicInset(
-                // Circular inset medallion — same carved-in treatment as the
-                // empty-state in the approved preview.
-                radius: 52,
-                child: Center(
-                  child: Icon(
-                    Icons.spa_rounded,
-                    size: 44,
-                    color: BrandColors.accent.withValues(alpha: 0.9),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: VelvetSpacing.xl),
-            Text(
-              l10n.servicesEmpty,
-              style: VelvetText.headingSm,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: VelvetSpacing.sm),
-            Text(
-              l10n.servicesEmptyBody,
-              style: VelvetText.body(),
-              textAlign: TextAlign.center,
-            ),
-            if (onCreate != null) ...<Widget>[
-              const SizedBox(height: VelvetSpacing.xl),
-              SizedBox(
-                width: 240,
-                child: NeumorphicButton(
-                  key: const Key('btn-create-service-empty'),
-                  label: l10n.servicesAdd,
-                  icon: Icons.add_rounded,
-                  onPressed: onCreate!,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
+// Empty state — see `ServicesEmptyState` in
+// `shared/widgets/services_empty_state.dart` (PROMOTED from this file,
+// REUSE-FIRST, so `SalonMasterProfileScreen`'s embedded «Послуги» tab can use
+// the identical medallion + heading + body + optional-CTA treatment).
 
 // ---------------------------------------------------------------------------
 // Neumorphic extended FAB

@@ -1331,9 +1331,26 @@ final class FakeBackend {
   /// seeing both services.
   bool publicMasterServiceRemoved = false;
 
-  /// [_publicMasterServices], filtered per [publicMasterServiceRemoved].
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — when true,
+  /// `GET /api/v1/masters/master-aaa/services` returns an empty list
+  /// instead of [_publicMasterServicesEffective]. This is the SAME endpoint
+  /// `SalonStaffProfileScreen`'s notifier reads (`getMasterServices`, via
+  /// `publicServiceRepositoryProvider` — see `salon_staff_member_notifier
+  /// .dart`), so it drives BOTH the owner/admin management-card «Ще немає»
+  /// value AND the «Послуги» tab body for master-aaa, not merely the public
+  /// client-facing profile the pre-existing [publicMasterServiceRemoved]
+  /// flag models. A SEPARATE flag (not a reuse of that one) because that one
+  /// removes exactly one seeded row to model a single stale booking, not a
+  /// wholly empty catalogue. Off by default, so every pre-existing flow
+  /// (public profile included) keeps seeing the seeded catalogue.
+  bool masterAaaServicesEmpty = false;
+
+  /// [_publicMasterServices], filtered per [publicMasterServiceRemoved] /
+  /// [masterAaaServicesEmpty].
   List<Map<String, dynamic>> get _publicMasterServicesEffective =>
-      publicMasterServiceRemoved
+      masterAaaServicesEmpty
+      ? const <Map<String, dynamic>>[]
+      : publicMasterServiceRemoved
       ? _publicMasterServices
             .where((Map<String, dynamic> row) => row['id'] != 'pub-assign-1')
             .toList(growable: false)
@@ -2066,6 +2083,29 @@ final class FakeBackend {
   int getSalonMasterServicesCalls = 0;
   String? lastSalonMasterServicesPath;
 
+  /// When true, `GET /masters/master-removable/services` — the PUBLIC
+  /// per-master read `SalonMasterOwnProfileNotifier` actually calls (see
+  /// that file's header: `publicServiceRepositoryProvider.getMasterServices`,
+  /// NOT the salon-scoped endpoint [_wireSalonMasterServices] wires) —
+  /// returns an empty list instead of [_salonMasterServices]. Models a
+  /// SALON_MASTER whose owner/admin has not assigned them any services yet,
+  /// for `salon_master_own_profile_tabs_flow_test.dart`'s empty-catalogue
+  /// «Послуги» tab case. Off by default, so every pre-existing flow keeps
+  /// seeing the seeded catalogue. Status stays 200 either way (only the body
+  /// varies), so this flag can be read directly inside the existing
+  /// `replyCallback` — no re-registration setter needed (see the RULE
+  /// comment above [_wireSalonMasterServices]; that rule is about
+  /// STATUS-dependent routes).
+  ///
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — ALSO read by
+  /// [_wireSalonMasterServices]'s own GET handler (the salon-scoped `GET
+  /// /salons/salon-xyz/masters/master-removable/services` the read-only
+  /// `/staff/services` route — [ServicesListScreen] with `writable: false`
+  /// — actually resolves through). Both endpoints describe the SAME
+  /// underlying fact ("this master has no assigned services"), so one flag
+  /// covers both rather than adding a near-duplicate second one.
+  bool salonMasterOwnServicesEmpty = false;
+
   /// Phase 324 (mobile-qa D3) — the cross-role-bleed control counterpart to
   /// [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
   /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. SAME salon
@@ -2080,6 +2120,17 @@ final class FakeBackend {
   /// "a counter moved".
   int getSalonMasterAaaServicesCalls = 0;
   String? lastSalonMasterAaaServicesPath;
+
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — when true,
+  /// `GET /api/v1/salons/salon-xyz/masters/master-aaa/services`
+  /// ([_wireSalonMasterAaaServices]) returns an empty list instead of
+  /// [_salonMasterAaaServices]. Models master-aaa having NO assigned
+  /// services, for the "owner opens a master with neither a schedule nor
+  /// services — both management-card values render red" E2E. Pair with
+  /// [seedNoWeeklySchedule] (the schedule half of that same scenario). Off
+  /// by default, so every pre-existing master-aaa flow keeps seeing the
+  /// seeded two-item catalogue.
+  bool salonMasterAaaServicesEmpty = false;
 
   /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon counterpart
   /// to [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
@@ -5187,9 +5238,11 @@ final class FakeBackend {
         getSalonMasterServicesCalls++;
         lastSalonMasterServicesPath = base;
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterOwnServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -5466,9 +5519,11 @@ final class FakeBackend {
         getSalonMasterAaaServicesCalls++;
         lastSalonMasterAaaServicesPath = base;
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterAaaServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterAaaServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterAaaServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -6033,9 +6088,11 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-removable';
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterOwnServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),

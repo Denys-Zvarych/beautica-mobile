@@ -671,7 +671,8 @@ void main() {
       );
     });
 
-    testWidgets('empty services omits «Мої категорії» (on the «Послуги» tab)', (
+    testWidgets('empty services omits «Мої категорії» and shows the '
+        '"ask the owner/admin" empty state (on the «Послуги» tab)', (
       tester,
     ) async {
       await tester.pumpApp(
@@ -687,7 +688,47 @@ void main() {
         find.byKey(const Key('salon-master-profile-service-categories')),
         findsNothing,
       );
+
+      // ServicesEmptyState (promoted, REUSE-FIRST, from the read-only
+      // `/staff/services` screen) — heading + the read-only "ask the salon
+      // owner/admin" hint, NOT `servicesEmptyBody`'s "add your first
+      // service" (this viewer cannot add services themselves).
+      expect(
+        find.byKey(const Key('salon-master-profile-services-empty')),
+        findsOneWidget,
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterProfileScreen)),
+      );
+      // i18n-finder-ok: asserting the exact localized copy shown to a
+      // read-only viewer, not merely widget presence.
+      expect(find.text(l10n.servicesEmpty), findsOneWidget);
+      // i18n-finder-ok: see above.
+      expect(find.text(l10n.salonMasterServicesEmptyHint), findsOneWidget);
+      // i18n-finder-ok: the writable-audience copy must NOT appear here.
+      expect(find.text(l10n.servicesEmptyBody), findsNothing);
+      // No CTA — this viewer cannot add services.
+      expect(find.byKey(const Key('btn-create-service-empty')), findsNothing);
     });
+
+    testWidgets(
+      'services present shows no empty-state hint (on the «Послуги» tab)',
+      (tester) async {
+        await tester.pumpApp(
+          const SalonMasterProfileScreen(),
+          overrides: _overrides((_master, _services, _salon)),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-master-profile-tab-1')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('salon-master-profile-services-empty')),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets('phone present renders the contact tile', (tester) async {
       await tester.pumpApp(

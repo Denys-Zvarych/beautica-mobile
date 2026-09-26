@@ -1506,6 +1506,10 @@
   "@servicesEmptyBody": {
     "description": "Empty state body text (Phase 5.2)."
   },
+  "salonMasterServicesEmptyHint": "Ask the salon owner or administrator to add services for you.",
+  "@salonMasterServicesEmptyHint": {
+    "description": "Empty-catalogue body text for a READ-ONLY SALON_MASTER viewer (`ServicesListScreen(writable: false)` at `/staff/services`, AND the embedded «Послуги» tab on `SalonMasterProfileScreen`'s own profile) — this viewer cannot add services themselves, so `servicesEmptyBody`'s imperative 'add your first service' copy would address the wrong person. Addressed to the owner/admin in the third person, parallel to `scheduleNoScheduleHelperReadOnly`; do NOT merge with `servicesEmptyBody`."
+  },
 
   "masterAllServices": "All services",
   "@masterAllServices": {

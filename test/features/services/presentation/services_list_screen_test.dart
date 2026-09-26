@@ -396,6 +396,19 @@ void main() {
     // FAB must NOT appear in the empty state — the inline CTA is the only
     // first-run path.
     expect(find.byKey(const Key('btn-create-service')), findsNothing);
+
+    // 2026-09-26 (mobile-qa, Phase 355 gap-closure) — `ServicesListScreen()`
+    // with no `writable:` arg is the INDEPENDENT_MASTER's own catalogue (the
+    // default is `true`). This is the "unchanged by Phase 355" half of that
+    // phase's promotion of `ServicesEmptyState`: the writable audience must
+    // still see the imperative "add your first service" copy, NEVER the
+    // `writable: false` SALON_MASTER's "ask the owner/admin" hint — the two
+    // are asserted mutually exclusive so a caller that swapped `body:` would
+    // fail loudly here, not merely pass this test by asserting presence of
+    // SOME text.
+    expect(find.text(l10n.servicesEmptyBody), findsOneWidget);
+    expect(find.text(l10n.salonMasterServicesEmptyHint), findsNothing);
+    expect(find.text(l10n.servicesAdd), findsOneWidget);
   });
 
   // ── 4. Populated state ─────────────────────────────────────────────────────
@@ -875,7 +888,11 @@ void main() {
         // Positive half — a `findsNothing`-only test would also pass on a
         // blank screen; prove the copy is actually there.
         expect(find.text(l10n.servicesEmpty), findsOneWidget);
-        expect(find.text(l10n.servicesEmptyBody), findsOneWidget);
+        // `writable: false` is the SALON_MASTER read-only viewer — the copy
+        // must point them at the owner/admin, NOT `servicesEmptyBody`'s
+        // imperative "add your first service" (they cannot).
+        expect(find.text(l10n.salonMasterServicesEmptyHint), findsOneWidget);
+        expect(find.text(l10n.servicesEmptyBody), findsNothing);
         // Negative half — affordances 1 and 2, both absent.
         expect(find.byKey(const Key('btn-create-service-empty')), findsNothing);
         expect(find.byKey(const Key('btn-create-service')), findsNothing);
