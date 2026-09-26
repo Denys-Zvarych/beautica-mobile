@@ -53,8 +53,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:network_image_mock/network_image_mock.dart';
@@ -1096,6 +1096,157 @@ void main() {
         );
       },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Locality-line wrapping — guards the `maxLines: 1` → 2 fix on the hero
+  // card's locality/street line (2026-09-26, user-reported). The hero card
+  // has no fixed height (`_CoverAndHero._cardCoverOverlap` is a fixed pixel
+  // overlap independent of content height), so raising the budget only
+  // grows the card, never clips it — see the production doc comment at the
+  // Text's call site.
+  // ---------------------------------------------------------------------
+  group('location line wrapping (320dp long-label regression)', () {
+    Future<void> pumpNarrow(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+    }
+
+    RenderParagraph localityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('salon-profile-locality-text')),
+        );
+
+    int lineCount(RenderParagraph p) {
+      final TextPainter painter = TextPainter(
+        text: p.text,
+        textAlign: p.textAlign,
+        textDirection: p.textDirection,
+        textScaler: p.textScaler,
+        maxLines: p.maxLines,
+      )..layout(maxWidth: p.constraints.maxWidth);
+      final int lines = painter.computeLineMetrics().length;
+      painter.dispose();
+      return lines;
+    }
+
+    testWidgets('a SHORT (bare, untyped) locality still renders on one line at '
+        '320dp (unchanged rendering)', (tester) async {
+      await pumpNarrow(tester);
+      // No `citySettlementType` — renders the bare legacy city, never a
+      // composed "м. …, … обл." label (the hero card's ~132px column is
+      // narrow enough that even a short composed label already needs 2
+      // lines — see the two tests below).
+      const bareSalon = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        city: 'Одеса',
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => bareSalon),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(lineCount(localityParagraph(tester)), 1);
+      expect(localityParagraph(tester).didExceedMaxLines, isFalse);
+    });
+
+    testWidgets(
+      'a moderately-long composed city+oblast label wraps to two lines at '
+      '320dp, FULLY shown — under the pre-fix maxLines: 1 this was '
+      'silently collapsed to one ellipsised line',
+      (tester) async {
+        await pumpNarrow(tester);
+        const typedSalon = Salon(
+          id: _kSalonId,
+          name: 'Салон «Вельвет»',
+          city: 'Новомосковськ',
+          region: 'Дніпропетровська',
+          citySettlementType: 'CITY',
+          avgRating: 4.9,
+          reviewCount: 128,
+        );
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(salon: () async => typedSalon),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-profile-locality-text')),
+              )
+              .data,
+          'м. Новомосковськ, Дніпропетровська обл.',
+        );
+
+        final RenderParagraph paragraph = localityParagraph(tester);
+        expect(
+          lineCount(paragraph),
+          2,
+          reason:
+              'the composed label wraps onto a SECOND line — under a '
+              'reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+
+    testWidgets('a long legacy-city locality string uses BOTH allowed lines at '
+        '320dp — never collapsed back to one', (tester) async {
+      await pumpNarrow(tester);
+      // Long enough that, at this hero card's narrow ~132px column, even
+      // the 2-line budget isn't quite enough to show it in full (it
+      // ellipsises after line 2) — the CORRECT contract ("up to two
+      // lines, then ellipsis"), not "every string fits". The regression
+      // this guards is the string being collapsed to ONE line.
+      const String longCity =
+          'Голосіївський район, вулиця Академіка Заболотного';
+      const longCitySalon = Salon(
+        id: _kSalonId,
+        name: 'Салон «Вельвет»',
+        city: longCity,
+        avgRating: 4.9,
+        reviewCount: 128,
+      );
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(salon: () async => longCitySalon),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('salon-profile-locality-text')))
+            .data,
+        longCity,
+      );
+
+      expect(
+        lineCount(localityParagraph(tester)),
+        2,
+        reason:
+            'the string must use BOTH allowed lines — under a reverted '
+            'maxLines: 1 (the bug this group guards) it would collapse to '
+            'exactly one line instead.',
+      );
+    });
   });
 
   // ── Phase 224 (mobile-qa gap-fill) — INVISIBLE address fields ─────────────

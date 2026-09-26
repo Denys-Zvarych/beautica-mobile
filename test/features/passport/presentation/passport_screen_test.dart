@@ -61,6 +61,7 @@ import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/features/wishlist/presentation/widgets/wishlist_compact_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_wishlist_repository.dart';
@@ -1219,5 +1220,161 @@ void main() {
         );
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Locality wrapping — guards the `maxLines: 1` → 2 fix on
+  // `passport_profile_city` (2026-09-26, user-reported). Mirrors the
+  // identical regression guard in home_profile_card_test.dart, since both
+  // sites route through the promoted `ProfileMetaLine`
+  // (lib/shared/widgets/profile_meta_line.dart).
+  // -------------------------------------------------------------------------
+  group('PassportScreen locality wrapping (320dp long-label regression)', () {
+    /// Number of lines the paragraph actually laid out, reproduced from its
+    /// own span + style + the width it was given (see the identical helper
+    /// in home_profile_card_test.dart).
+    int lineCount(RenderParagraph p) {
+      final TextPainter painter = TextPainter(
+        text: p.text,
+        textAlign: p.textAlign,
+        textDirection: p.textDirection,
+        textScaler: p.textScaler,
+        maxLines: p.maxLines,
+      )..layout(maxWidth: p.constraints.maxWidth);
+      final int lines = painter.computeLineMetrics().length;
+      painter.dispose();
+      return lines;
+    }
+
+    RenderParagraph cityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('passport_profile_city')),
+        );
+
+    testWidgets(
+      'a SHORT city still renders on one line at 320dp x1.0 (unchanged '
+      'rendering)',
+      (tester) async {
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _overrides(
+            passport: _populatedPassport,
+            profile: _sampleProfile, // city: 'Львів'
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(lineCount(cityParagraph(tester)), 1);
+        expect(cityParagraph(tester).didExceedMaxLines, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a moderately-long composed city+oblast label wraps to two lines at '
+      '320dp x1.0, FULLY shown, no ellipsis',
+      (tester) async {
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _overrides(
+            passport: _populatedPassport,
+            profile: const ClientProfileSummary(
+              firstName: 'Олена',
+              lastName: 'Коваль',
+              city: 'Новомосковськ',
+              phone: _kProfilePhone,
+              clientRating: null,
+              memberSinceYear: 2024,
+              settlement: Settlement(
+                id: 'c-novomoskovsk',
+                name: 'Новомосковськ',
+                oblastName: 'Дніпропетровська',
+                settlementType: kSettlementTypeCity,
+              ),
+            ),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<Text>(find.byKey(const Key('passport_profile_city')))
+              .data,
+          'м. Новомосковськ, Дніпропетровська обл.',
+        );
+
+        final RenderParagraph paragraph = cityParagraph(tester);
+        expect(
+          lineCount(paragraph),
+          2,
+          reason:
+              'the composed label wraps onto a SECOND line — under a '
+              'reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+
+    testWidgets('the EXACT user-reported village+hromada+oblast label uses BOTH '
+        'allowed lines — never collapsed back to one', (tester) async {
+      final AppLocalizations uk = await _uk();
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: _overrides(
+          passport: _populatedPassport,
+          // The exact label shape from the bug report:
+          // «с. Іванівка, Шишацька громада, Полтавська обл.» — long enough
+          // that, at this profile block's narrow ~132px text column, even
+          // the 2-line budget isn't quite enough to show it in full (it
+          // ellipsises after line 2). That is the CORRECT contract — "up
+          // to two lines, then ellipsis" — not "every string must fit".
+          // The regression this guards is the label being collapsed to
+          // ONE line, not the (expected) trailing ellipsis on a third.
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Іванівка',
+            phone: _kProfilePhone,
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'v-ivanivka',
+              name: 'Іванівка',
+              oblastName: 'Полтавська',
+              hromadaName: 'Шишацька',
+              settlementType: kSettlementTypeVillage,
+            ),
+          ),
+        ),
+        width: 320,
+        textScaleFactor: 1.0,
+      );
+      await tester.pumpAndSettle();
+
+      // Sanity: the fixture really does compose the user-reported picker
+      // label this regression is about.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('passport_profile_city')))
+            .data,
+        '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+      );
+
+      expect(
+        lineCount(cityParagraph(tester)),
+        2,
+        reason:
+            'the label must use BOTH allowed lines — under a reverted '
+            'maxLines: 1 (the bug this file guards) it would collapse to '
+            'exactly one line instead.',
+      );
+    });
   });
 }

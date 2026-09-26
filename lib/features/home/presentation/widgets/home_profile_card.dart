@@ -3,6 +3,13 @@
 // Ported verbatim from the preview's `_ProfileBlock` inner class.
 // No card surface — sits directly on the background like the mockup.
 // Shows: circular avatar with camera badge, name, city (tappable), phone.
+//
+// 2026-09-26 (user-reported) — the private `_MetaLine` here was a
+// byte-for-byte fork of `PassportScreen._ProfileBlock._line`. Both are now
+// the promoted `ProfileMetaLine` (see
+// `lib/shared/widgets/profile_meta_line.dart`); the locality row opts into
+// `maxLines: 2` so a long composed saved-settlement label wraps instead of
+// being silently collapsed to one ellipsised line.
 
 import 'package:flutter/material.dart';
 
@@ -12,6 +19,7 @@ import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
+import '../../../../shared/widgets/profile_meta_line.dart';
 import '../widgets/hub_widgets.dart';
 import '../../domain/home_hub_models.dart';
 import '../../../location/presentation/saved_settlement_label.dart';
@@ -36,7 +44,7 @@ class HomeProfileCard extends StatelessWidget {
   static final TextStyle _nameStyle = VelvetText.displayName21;
 
   // Shared location-pin SVG sized/tinted to match the Material glyph it replaced
-  // (16 px, [BrandColors.accent] — same as [_MetaLine]'s Material fallback).
+  // (16 px, [BrandColors.accent] — same as [ProfileMetaLine]'s Material fallback).
   static const Widget _locationIcon = AppIcon(
     BeauticaAssetIcons.locationMarker,
     size: 16,
@@ -106,32 +114,36 @@ class HomeProfileCard extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: VelvetSpacing.sm + 2),
-              // Location row — tappable
+              // Location row — tappable. maxLines: 2 — a long composed
+              // saved-settlement label (village + hromada + oblast) must
+              // wrap, not silently collapse to one ellipsised line.
               if (locality.isNotEmpty)
-                _MetaLine(
+                ProfileMetaLine(
                   icon: Icons.location_on_rounded,
                   iconWidget: _locationIcon,
                   text: locality,
                   onTap: onLocation,
                   textKey: const Key('home_profile_city'),
+                  maxLines: 2,
                 )
               else
-                _MetaLine(
+                ProfileMetaLine(
                   icon: Icons.location_on_rounded,
                   iconWidget: _locationIcon,
                   text: l10n.homeHubLocationPlaceholder,
                   onTap: onLocation,
+                  maxLines: 2,
                 ),
               const SizedBox(height: VelvetSpacing.sm),
               // Phone row
               if (profile.phone.isNotEmpty)
-                _MetaLine(
+                ProfileMetaLine(
                   icon: Icons.call_rounded,
                   text: profile.phone,
                   textKey: const Key('home_profile_phone'),
                 )
               else
-                _MetaLine(
+                ProfileMetaLine(
                   icon: Icons.call_rounded,
                   text: l10n.homeHubPhonePlaceholder,
                   textKey: const Key('home_profile_phone'),
@@ -140,56 +152,6 @@ class HomeProfileCard extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MetaLine extends StatelessWidget {
-  const _MetaLine({
-    required this.icon,
-    required this.text,
-    this.iconWidget,
-    this.onTap,
-    this.textKey,
-  });
-
-  final IconData icon;
-
-  /// Optional pre-built icon widget (e.g. an [AppIcon] SVG). When non-null it
-  /// replaces the Material [Icon] built from [icon]; callers must size/tint it
-  /// to match (16 px, [BrandColors.accent]).
-  final Widget? iconWidget;
-  final String text;
-  final VoidCallback? onTap;
-
-  /// Optional key applied to the inner [Text] so finders can target a specific
-  /// meta line (e.g. the city) by key rather than matching its literal string.
-  final Key? textKey;
-
-  static final TextStyle _style = VelvetText.body14Text;
-
-  @override
-  Widget build(BuildContext context) {
-    final Widget row = Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        iconWidget ?? Icon(icon, size: 16, color: BrandColors.accent),
-        const SizedBox(width: VelvetSpacing.sm),
-        Flexible(
-          child: Text(
-            text,
-            key: textKey,
-            style: _style,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-    if (onTap == null) return row;
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: row,
     );
   }
 }

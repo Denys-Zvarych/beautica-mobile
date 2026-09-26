@@ -246,6 +246,87 @@ void main() {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Locality wrapping — guards the maxLines: 1 → 2 fix on `home_profile_city`
+  // (2026-09-26, user-reported). The locality line used to render
+  // `overflow: TextOverflow.ellipsis` with no explicit `maxLines`, which
+  // Flutter silently collapses to ONE line instead of wrapping — so a long
+  // composed saved-settlement label («с. Іванівка, Шишацька громада,
+  // Полтавська обл.») was cut mid-word. Both `HomeProfileCard`'s locality row
+  // and `PassportScreen`'s now route through the promoted `ProfileMetaLine`
+  // (see the identical guard in passport_screen_test.dart).
+  // -------------------------------------------------------------------------
+  group('HomeProfileCard locality wrapping (320dp long-label regression)', () {
+    RenderParagraph cityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('home_profile_city')),
+        );
+
+    testWidgets(
+      'a SHORT city still renders on one line at 320dp x1.0 (unchanged '
+      'rendering)',
+      (tester) async {
+        await _pumpCard(
+          tester,
+          profile: _profileWithCity,
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+
+        expect(_lineCount(cityParagraph(tester)), 1);
+        expect(cityParagraph(tester).didExceedMaxLines, isFalse);
+      },
+    );
+
+    testWidgets(
+      'the exact user-reported village+hromada+oblast label wraps to two '
+      'lines at 320dp x1.0, FULLY shown — under the pre-fix maxLines: 1 (no '
+      'explicit budget) this was silently collapsed to one ellipsised line',
+      (tester) async {
+        final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+        await _pumpCard(
+          tester,
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Іванівка',
+            phone: '+380671234567',
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'v-ivanivka',
+              name: 'Іванівка',
+              oblastName: 'Полтавська',
+              hromadaName: 'Шишацька',
+              settlementType: kSettlementTypeVillage,
+            ),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+
+        expect(
+          tester.widget<Text>(find.byKey(const Key('home_profile_city'))).data,
+          '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+        );
+
+        final RenderParagraph paragraph = cityParagraph(tester);
+        expect(
+          _lineCount(paragraph),
+          2,
+          reason:
+              'the long composed locality label wraps onto a SECOND line — '
+              'under a reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+  });
+
   // Phase-330 (user-reported) — the personal profile showed a saved locality as
   // a bare «Львів» while the «Населений пункт» picker shows «м. Львів,
   // Львівська обл.». The card now composes the SAME label.

@@ -115,11 +115,14 @@ class SalonAffiliationCard extends ConsumerWidget {
                 // visibly lopsided against the 44 dp logo.
                 if (locality != null) ...<Widget>[
                   const SizedBox(height: VelvetSpacing.xs - 1),
+                  // maxLines: 2 (2026-09-26, user-reported) — a long composed
+                  // saved-settlement label (village + hromada + oblast) must
+                  // wrap, not silently collapse to one ellipsised line.
                   Text(
                     locality,
                     key: const Key('salon-affiliation-card-locality'),
                     style: VelvetText.salonHubAddressLine,
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],

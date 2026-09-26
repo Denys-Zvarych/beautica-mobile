@@ -44,6 +44,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_affiliation_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -105,6 +106,23 @@ List<Object> _pendingOverrides() => <Object>[
 Finder get _name => find.byKey(const Key('salon-affiliation-card-name'));
 Finder get _locality =>
     find.byKey(const Key('salon-affiliation-card-locality'));
+
+/// Number of lines [p] actually laid out, reproduced from its own span +
+/// style + the width it was given (mirrors the identical helper in
+/// home_profile_card_test.dart / passport_screen_test.dart /
+/// master_address_block_test.dart).
+int _lineCount(RenderParagraph p) {
+  final TextPainter painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
 
 void main() {
   group('SalonAffiliationCard — the locality line', () {
@@ -244,6 +262,74 @@ void main() {
       expect(_name, findsOneWidget);
       expect(_locality, findsNothing);
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // Locality wrapping — guards the `maxLines: 1` → 2 fix (2026-09-26,
+  // user-reported). Mirrors the identical guard on `ProfileMetaLine`'s
+  // callers (home_profile_card_test.dart, passport_screen_test.dart) and on
+  // `MasterAddressBlock` (master_address_block_test.dart).
+  // ---------------------------------------------------------------------
+  group('SalonAffiliationCard locality wrapping (320dp long-label '
+      'regression)', () {
+    RenderParagraph localityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(_locality);
+
+    testWidgets(
+      'a SHORT locality still renders on one line at 320dp x1.0 (unchanged '
+      'rendering)',
+      (tester) async {
+        await tester.pumpApp(
+          const SalonAffiliationCard(
+            salon: Salon(id: 'salon-legacy', name: 'Барбершоп', city: 'Одеса'),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(_lineCount(localityParagraph(tester)), 1);
+        expect(localityParagraph(tester).didExceedMaxLines, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a long locality string wraps to two lines at 320dp x1.0, FULLY '
+      'shown — under the pre-fix maxLines: 1 this was silently collapsed '
+      'to one ellipsised line',
+      (tester) async {
+        const String longCity =
+            'Голосіївський район, вулиця Академіка Заболотного';
+        await tester.pumpApp(
+          const SalonAffiliationCard(
+            salon: Salon(
+              id: 'salon-legacy-long',
+              name: 'Барбершоп',
+              city: longCity,
+            ),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<Text>(_locality).data, longCity);
+
+        final RenderParagraph paragraph = localityParagraph(tester);
+        expect(
+          _lineCount(paragraph),
+          2,
+          reason:
+              'the long locality string wraps onto a SECOND line — under a '
+              'reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full string must render without ellipsis truncation.',
+        );
+      },
+    );
   });
 
   group('SalonAffiliationCard — inert vs tappable', () {

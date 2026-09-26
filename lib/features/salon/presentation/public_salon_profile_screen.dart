@@ -792,17 +792,32 @@ class _SalonHeroCard extends StatelessWidget {
                             // here when there is no locality (mirrors the
                             // master identity card's promotion convention
                             // in `shared/formatters/address_lines.dart`).
-                            // `maxLines: 1` (not 2, as the pre-223 combined
-                            // line allowed) is what makes the budget FIXED
-                            // rather than variable — this row can occupy at
-                            // most 2 lines total, ever.
+                            //
+                            // 2026-09-26 (user-reported) — `maxLines: 1` here
+                            // silently collapsed a long composed
+                            // saved-settlement label (village + hromada +
+                            // oblast) instead of wrapping it. Raised to `2` —
+                            // the hero card has no fixed height (`_CoverAndHero
+                            // ._cardCoverOverlap` is a FIXED pixel overlap,
+                            // independent of the card's content height — see
+                            // that class doc), so it simply grows taller, the
+                            // same way it already absorbs a long
+                            // `ExpandableNote`. The pre-223 "at most 2 lines
+                            // total, ever" budget was about keeping this row's
+                            // OWN two lines (locality + street) from growing
+                            // further by re-concatenating the note onto it —
+                            // that constraint is untouched; this only lets
+                            // line 1 itself wrap, which can now make the row 3
+                            // lines tall in the (rare) legacy-address case
+                            // where BOTH a long locality and a street line
+                            // render.
                             Text(
                               localityLine ?? streetLine!,
                               key: localityLine != null
                                   ? const Key('salon-profile-locality-text')
                                   : const Key('salon-profile-address-text'),
                               style: VelvetText.bookFeedbackSec13,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                             // Line 2: street + building — only when a

@@ -98,6 +98,7 @@ import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/formatters/booking_price_labels.dart';
+import '../../../shared/widgets/profile_meta_line.dart';
 import '../../home/application/home_hub_notifier.dart';
 import '../../home/domain/home_hub_models.dart';
 import '../../home/presentation/widgets/hub_widgets.dart';
@@ -594,33 +595,30 @@ class _ProfileBlock extends StatelessWidget {
               ),
               const SizedBox(height: VelvetSpacing.sm + 2),
               // Location line — pin + city, NO chevron and NO tap (approved
-              // design dropped the chevron the Головна card has).
-              _line(
-                Icons.location_on_rounded,
-                city,
+              // design dropped the chevron the Головна card has). maxLines: 2
+              // — a long composed saved-settlement label (village + hromada +
+              // oblast) must wrap, not silently collapse to one ellipsised
+              // line (user-reported, 2026-09-26).
+              ProfileMetaLine(
+                icon: Icons.location_on_rounded,
                 iconWidget: const AppIcon(
                   BeauticaAssetIcons.locationMarker,
                   size: _kMetaGlyph,
                   color: BrandColors.accent,
                 ),
+                text: city,
+                style: _lineStyle,
+                maxLines: 2,
+                textKey: const Key('passport_profile_city'),
               ),
               const SizedBox(height: VelvetSpacing.sm),
-              _line(Icons.call_rounded, phone),
+              ProfileMetaLine(
+                icon: Icons.call_rounded,
+                text: phone,
+                style: _lineStyle,
+              ),
             ],
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _line(IconData icon, String text, {Widget? iconWidget}) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        iconWidget ?? Icon(icon, size: _kMetaGlyph, color: BrandColors.accent),
-        const SizedBox(width: VelvetSpacing.sm),
-        Flexible(
-          child: Text(text, style: _lineStyle, overflow: TextOverflow.ellipsis),
         ),
       ],
     );

@@ -33,6 +33,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -74,6 +75,34 @@ Future<AppLocalizations> _l10n() =>
 String _textOf(WidgetTester tester, Key key) =>
     tester.widget<Text>(find.byKey(key)).data!;
 
+/// Re-derives the ACTUAL laid-out line count from the [RenderParagraph]
+/// backing the [Text] at [key] — mirrors the pattern used across the widget
+/// tier (`home_profile_card_test.dart`, `master_address_block_test.dart`,
+/// `salon_affiliation_card_test.dart`, `public_salon_profile_screen_test
+/// .dart`, `passport_screen_test.dart`). This E2E reproduces the user report
+/// ("in client own profile the location is cut") end to end: a full
+/// village+hromada+oblast label reaching the Home profile card through the
+/// REAL wire → mapper → provider → screen chain must actually WRAP to 2
+/// lines, not just contain the right text — a one-line ellipsis truncation
+/// would still satisfy a plain string-equality check on a short label, but
+/// not this one, since the fixture label is long enough to need the second
+/// line.
+int _lineCount(WidgetTester tester, Key key) {
+  final RenderParagraph p = tester.renderObject<RenderParagraph>(
+    find.byKey(key),
+  );
+  final TextPainter painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
+
 /// A CLIENT whose saved locality is the ambiguous seeded village.
 FakeBackend _clientInVillage() => FakeBackend()
   ..currentRole = UserRole.client
@@ -89,6 +118,17 @@ void main() {
   testWidgets('CLIENT with a saved VILLAGE: the Home profile card shows '
       '«с. …, … громада, … обл.» and Пошук opens with the SAME label '
       'prefilled', (tester) async {
+    // A real narrow-phone surface. `-d flutter-tester`'s default 800×600
+    // window is wide enough that this exact label fits on one line — it
+    // would NOT reproduce the user-reported bug at all. The wrap/no-wrap
+    // decision is a genuine function of the width the card is given (same
+    // reasoning as `master_profile_address_block_flow_test.dart`), so a
+    // narrow surface is the correct end-to-end reproduction, not decoration.
+    tester.view.physicalSize = const Size(360, 900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     final AppLocalizations l10n = await _l10n();
     final String expected = _fullVillageLabel(l10n);
     final fb = _clientInVillage();
@@ -105,6 +145,15 @@ void main() {
       reason:
           'the saved village is labelled from /users/me citySettlementType + '
           'cityHromadaNameUk + oblastName — the picker label, not a bare name',
+    );
+    expect(
+      _lineCount(tester, _kHomeCity),
+      2,
+      reason:
+          'user-reported bug — the full village/hromada/oblast label must '
+          'WRAP onto a second line on the real Home profile card, not be '
+          'silently collapsed to one ellipsised line ('
+          '«с. Іванівка (Шишацька гром…»)',
     );
 
     await tester.tap(find.byKey(const Key('client-nav-search-center')));
