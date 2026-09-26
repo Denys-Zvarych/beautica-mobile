@@ -20,12 +20,21 @@
 //       - «Про майстра» — bio (or the empty-about copy, Phase 351's own
 //         "always show one of two variants" rule) + the phone contact;
 //       - «Послуги» — services grouped by category via the shared
-//         [ServiceCategoryCardList] (`interactive: false` — `true` would
-//         deep-link into the AUTHENTICATED viewer's own `/services` screen,
-//         not [member]'s). Omitted entirely when the master has no active
-//         services, mirroring `PublicMasterProfileScreen`'s own services tab
-//         (no dedicated empty-state — [ServiceCategoryCardList] itself
-//         renders nothing for an empty list);
+//         [ServiceCategoryCardList]. Tappable (`interactive: true`) whenever
+//         the master has a resolved `masterId` — same condition that gates
+//         the management pair below — via the widget's `onCategoryTap`
+//         override, which redirects to `RouteNames.salonManageStaffServices`
+//         (the SAME destination the management pair's «Послуги» card opens)
+//         instead of [ServiceCategoryCard]'s own built-in
+//         `RouteNames.services` default, which is scoped to the AUTHENTICATED
+//         viewer, not [member] (2026-09-26, user request — see
+//         `docs/mobile-phases/phase-357-staff-profile-services-tappable.md`).
+//         Falls back to non-interactive, static tiles when `masterId` is
+//         unresolved (the Phase 318 data-anomaly case). Omitted entirely when
+//         the master has no active services, mirroring
+//         `PublicMasterProfileScreen`'s own services tab (no dedicated
+//         empty-state — [ServiceCategoryCardList] itself renders nothing for
+//         an empty list);
 //       - «Відгуки» — [MasterReviewsBody]. When the resolved entry carries no
 //         `masterId` (the Phase 318 data-anomaly case — the same condition
 //         that disables the management pair below), [MasterReviewsBody]'s
@@ -595,28 +604,68 @@ class _StaffProfileBody extends StatelessWidget {
                       1 =>
                         services.isEmpty
                             ? const SizedBox.shrink()
-                            : Column(
-                                key: const Key(
-                                  'salon-staff-profile-service-categories',
-                                ),
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: <Widget>[
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      left: 4,
-                                      bottom: VelvetSpacing.xs,
+                            // 2026-09-26 (user request) — make the category
+                            // cards tappable for the owner/admin viewer too,
+                            // same as `MasterProfileScreen`'s own «Послуги»
+                            // tab (`interactive: true`), but redirected to
+                            // the SAME destination the management pair's
+                            // «Послуги» card below already opens
+                            // (`RouteNames.salonManageStaffServices`) rather
+                            // than [ServiceCategoryCard]'s own default
+                            // `RouteNames.services` (that route is scoped to
+                            // the AUTHENTICATED viewer, not [member]).
+                            // `Consumer`-wrapped so the tap handler can reuse
+                            // the exact await-then-invalidate pattern the
+                            // management row below already established (D4)
+                            // — one round trip, only when something actually
+                            // changed. Non-interactive whenever the
+                            // management row itself would be disabled (no
+                            // resolved `masterId` — the Phase 318
+                            // data-anomaly case), so the two affordances
+                            // never disagree.
+                            : Consumer(
+                                builder: (BuildContext context, WidgetRef ref, _) {
+                                  final String staffMasterId =
+                                      member.masterId ?? '';
+                                  final bool staffHasMasterId =
+                                      staffMasterId.isNotEmpty;
+                                  return Column(
+                                    key: const Key(
+                                      'salon-staff-profile-service-categories',
                                     ),
-                                    child: Text(
-                                      l10n.masterServicesLabel,
-                                      style: VelvetText.sectionLabel(),
-                                    ),
-                                  ),
-                                  ServiceCategoryCardList(
-                                    services: services,
-                                    keyPrefix: 'staff-profile-category',
-                                    interactive: false,
-                                  ),
-                                ],
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          left: 4,
+                                          bottom: VelvetSpacing.xs,
+                                        ),
+                                        child: Text(
+                                          l10n.masterServicesLabel,
+                                          style: VelvetText.sectionLabel(),
+                                        ),
+                                      ),
+                                      ServiceCategoryCardList(
+                                        services: services,
+                                        keyPrefix: 'staff-profile-category',
+                                        interactive: staffHasMasterId,
+                                        // `context` here is the ancestor
+                                        // `Consumer`'s builder context (the
+                                        // one that owns `ref`), NOT the
+                                        // tapped card's own context — see
+                                        // `_openStaffServices`'s doc.
+                                        onCategoryTap: !staffHasMasterId
+                                            ? null
+                                            : (BuildContext _, String? _) =>
+                                                  _openStaffServices(
+                                                    context,
+                                                    ref,
+                                                  ),
+                                      ),
+                                    ],
+                                  );
+                                },
                               ),
                       _ => MasterReviewsBody(masterId: member.masterId),
                     },
@@ -771,51 +820,13 @@ class _StaffProfileBody extends StatelessWidget {
                           valueColor: servicesValueColor,
                           emphasis: true,
                           enabled: hasMasterId,
+                          // Shares `_openStaffServices` with the «Послуги»
+                          // tab's category cards above — see that method's
+                          // doc for the push→await→revision-gated-invalidate
+                          // rationale.
                           onTap: !hasMasterId
                               ? () {}
-                              : () async {
-                                  // D4 — await the push, then invalidate the
-                                  // profile provider so the stat tile and
-                                  // the category grid pick up services
-                                  // added/removed in the subtree. Pattern:
-                                  // `services_list_screen.dart`'s
-                                  // `_openAndRefresh`.
-                                  //
-                                  // 2026-09-13 audit (M7) — the invalidate is
-                                  // now GATED on an actual mutation.
-                                  // `salonStaffMemberProfileProvider.build`
-                                  // re-runs `getMasterServices(masterId)`
-                                  // (`salon_staff_member_notifier.dart:75-79`),
-                                  // so doing it unconditionally charged a full
-                                  // round trip to an operator who only LOOKED.
-                                  // [serviceCatalogueRevisionProvider] is
-                                  // bumped by the one fan-out point every
-                                  // create / edit / delete in that subtree
-                                  // calls; an unchanged counter means nothing
-                                  // could have changed. See
-                                  // `service_catalogue_revision.dart` for why
-                                  // this is a counter and not a pop result.
-                                  final int before = ref.read(
-                                    serviceCatalogueRevisionProvider,
-                                  );
-                                  await context.push<void>(
-                                    RouteNames.salonManageStaffServices(
-                                      salonId,
-                                      memberId,
-                                    ),
-                                  );
-                                  if (!context.mounted) return;
-                                  final int after = ref.read(
-                                    serviceCatalogueRevisionProvider,
-                                  );
-                                  if (after == before) return;
-                                  ref.invalidate(
-                                    salonStaffMemberProfileProvider(
-                                      salonId,
-                                      memberId,
-                                    ),
-                                  );
-                                },
+                              : () => _openStaffServices(context, ref),
                         ),
                       ),
                     ],
@@ -865,6 +876,43 @@ class _StaffProfileBody extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  // 2026-09-26 (REUSE-FIRST audit fix) — the «Послуги» tab's category cards
+  // (`ServiceCategoryCardList.onCategoryTap` above) and the management
+  // pair's «Послуги» card (`ManagementActionCard.onTap` above) both open the
+  // SAME destination (`RouteNames.salonManageStaffServices`) and must
+  // invalidate the SAME provider on return. This used to be two verbatim
+  // copies of the push→await→revision-gated-invalidate sequence; extracted
+  // to one method so a fix here reaches both call sites.
+  //
+  // D4 — await the push, then invalidate the profile provider so the stat
+  // tile and the category grid pick up services added/removed in the
+  // subtree. Pattern: `services_list_screen.dart`'s `_openAndRefresh`.
+  //
+  // 2026-09-13 audit (M7) — the invalidate is GATED on an actual mutation.
+  // `salonStaffMemberProfileProvider.build` re-runs
+  // `getMasterServices(masterId)` (`salon_staff_member_notifier.dart:75-79`),
+  // so doing it unconditionally charged a full round trip to an operator
+  // who only LOOKED. [serviceCatalogueRevisionProvider] is bumped by the
+  // one fan-out point every create/edit/delete in that subtree calls; an
+  // unchanged counter means nothing could have changed. See
+  // `service_catalogue_revision.dart` for why this is a counter and not a
+  // pop result.
+  //
+  // `context` here MUST be the one that owns `ref` (the ancestor
+  // `Consumer`'s builder context) — never a descendant card's tapped
+  // context, whose `mounted` can read differently from the context the
+  // `ref` calls are actually scoped to.
+  Future<void> _openStaffServices(BuildContext context, WidgetRef ref) async {
+    final int before = ref.read(serviceCatalogueRevisionProvider);
+    await context.push<void>(
+      RouteNames.salonManageStaffServices(salonId, memberId),
+    );
+    if (!context.mounted) return;
+    final int after = ref.read(serviceCatalogueRevisionProvider);
+    if (after == before) return;
+    ref.invalidate(salonStaffMemberProfileProvider(salonId, memberId));
   }
 }
 

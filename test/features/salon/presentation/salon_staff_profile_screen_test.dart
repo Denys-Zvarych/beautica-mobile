@@ -2189,6 +2189,425 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------
+  // Phase 357 (user request 2026-09-26) — «Послуги» tab category cards are
+  // tappable for the owner/admin viewer too (mirrors `MasterProfileScreen`'s
+  // own `interactive: true` «Послуги» tab), redirected via
+  // `ServiceCategoryCardList.onCategoryTap` to the SAME destination the
+  // management pair's own «Послуги» card opens
+  // (`RouteNames.salonManageStaffServices`) rather than
+  // `ServiceCategoryCard`'s built-in `RouteNames.services` default — that
+  // route is scoped to the AUTHENTICATED viewer, not the staff member being
+  // viewed. Non-interactive whenever the management row itself would be
+  // disabled (no resolved `masterId`), same gate as the pair below it.
+  // -------------------------------------------------------------------
+  group('«Послуги» tab category cards tappable (Phase 357)', () {
+    GoRouter buildServicesRouter() => GoRouter(
+      initialLocation: RouteNames.salonManageStaffMember(_kSalonId, _kMasterId),
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId',
+          builder: (context, state) => SalonStaffProfileScreen(
+            salonId: state.pathParameters['salonId']!,
+            memberId: state.pathParameters['memberId']!,
+          ),
+        ),
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId/services',
+          builder: (context, state) => _ServicesRouteMarker(
+            salonId: state.pathParameters['salonId']!,
+            memberId: state.pathParameters['memberId']!,
+          ),
+        ),
+      ],
+    );
+
+    Future<void> openServicesTab(WidgetTester tester) async {
+      await tester.ensureVisible(
+        find.byKey(const Key('salon-staff-profile-tab-1')),
+      );
+      await tester.tap(find.byKey(const Key('salon-staff-profile-tab-1')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'an OWNER viewer tapping a category card lands on the SAME services '
+      'page the management row opens, for THIS master',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-NAILS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(_ServicesRouteMarker),
+          findsOneWidget,
+          reason:
+              'pinned on the RESOLVED PAGE TYPE, not a location string — '
+              'push (unlike go) is excluded from '
+              'currentConfiguration.fullPath',
+        );
+        final _ServicesRouteMarker marker = tester.widget<_ServicesRouteMarker>(
+          find.byType(_ServicesRouteMarker),
+        );
+        expect(marker.salonId, _kSalonId);
+        expect(
+          marker.memberId,
+          _kMasterId,
+          reason:
+              'the SAME route/args the management row\'s own «Послуги» '
+              'card opens — never RouteNames.services (scoped to the '
+              'AUTHENTICATED viewer, not the master being viewed)',
+        );
+      },
+    );
+
+    testWidgets(
+      'an ADMIN viewer tapping a category card lands on the SAME services '
+      'page the management row opens, for THIS master',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kAdminViewer)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-BROWS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+        final _ServicesRouteMarker marker = tester.widget<_ServicesRouteMarker>(
+          find.byType(_ServicesRouteMarker),
+        );
+        expect(marker.salonId, _kSalonId);
+        expect(marker.memberId, _kMasterId);
+      },
+    );
+
+    testWidgets('a MASTER entry with no masterId keeps the category cards '
+        'non-interactive — no chevron, and tapping performs no navigation', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = buildServicesRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMemberNoMasterId, _masterServices),
+          ),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await openServicesTab(tester);
+
+      final Finder card = find.byKey(const Key('staff-profile-category-NAILS'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.byIcon(Icons.arrow_forward_ios_rounded),
+        ),
+        findsNothing,
+        reason:
+            'a non-interactive card renders NO forward chevron — same '
+            'contract `ServiceCategoryCard` already documents for the '
+            'client-facing public profile',
+      );
+
+      // router-location-ok: no push occurs on this disabled-card branch.
+      final String before = router.routerDelegate.currentConfiguration.uri
+          .toString();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      // router-location-ok: no push occurs on this disabled-card branch.
+      final String after = router.routerDelegate.currentConfiguration.uri
+          .toString();
+
+      expect(after, before, reason: 'no navigation on a disabled card');
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+    });
+
+    // 2026-09-27 (REUSE-FIRST audit fix M2/M3) — the tab card and the
+    // management row's «Послуги» card now both route through the SAME
+    // `_openStaffServices` helper, so the invalidation contract the
+    // management-row group already proves ("services row (Phase 318, D1/D2/
+    // D3/D4)" — D4's mutation test and its M7 LOOK-doesn't-refetch
+    // companion) must hold for THIS affordance too. Mirrors those two tests
+    // verbatim, substituting the tab category card tap for the row tap.
+    testWidgets('D4 (tab path) — popping the services subtree after a MUTATION '
+        'invalidates the profile and the refetched count renders everywhere', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      int builds = 0;
+      List<MasterService> currentServices = _masterServices;
+
+      final GoRouter router = buildServicesRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith((
+            ref,
+          ) async {
+            builds++;
+            return (_masterMember, currentServices);
+          }),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await openServicesTab(tester);
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(builds, 1, reason: 'precondition — one initial fetch');
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('salon-staff-profile-services-value')),
+            )
+            .data,
+        '2',
+      );
+
+      await tester.tap(find.byKey(const Key('staff-profile-category-NAILS')));
+      await tester.pumpAndSettle();
+      expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+      expect(
+        builds,
+        1,
+        reason: 'PUSHING must not itself refetch — only the RETURN does',
+      );
+
+      // Simulate the subtree adding a service BEFORE the operator
+      // returns, and bump the SAME fan-out counter every create/edit/
+      // delete in that subtree calls.
+      currentServices = _masterServicesPlusOne;
+      ProviderScope.containerOf(
+        tester.element(find.byType(_ServicesRouteMarker)),
+      ).read(serviceCatalogueRevisionProvider.notifier).bump();
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+      expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+      expect(
+        builds,
+        2,
+        reason:
+            'D4 (tab path) — the invalidation on return must trigger a '
+            'genuine REFETCH, never merely retain the stale `.value` '
+            '(project_riverpod_seamless_invalidate_gotcha)',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('salon-staff-profile-services-value')),
+            )
+            .data,
+        '3',
+        reason: 'the stat tile must show the NEW count after the refetch',
+      );
+      expect(
+        find.text(l10n.staffProfileServicesCount(3)),
+        findsOneWidget,
+        reason:
+            "the management row's own value must ALSO reflect it — "
+            'proving the SAME provider was invalidated via the SHARED '
+            'helper, not a tab-local copy of the logic',
+      );
+    });
+
+    // The other half of the gate (mirrors the management-row group's own
+    // "a LOOK ... does NOT refetch" test) — without the revision guard in
+    // `_openStaffServices`, this goes red: a pure look-and-return would
+    // otherwise still cost a second `getMasterServices(masterId)` call.
+    testWidgets(
+      'a LOOK via the TAB category card (push and return, no mutation) does '
+      'NOT refetch the profile',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        int builds = 0;
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith(
+              (ref) async {
+                builds++;
+                return (_masterMember, _masterServices);
+              },
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        expect(builds, 1, reason: 'precondition — one initial fetch');
+
+        await tester.tap(find.byKey(const Key('staff-profile-category-NAILS')));
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        // NOTHING is bumped here — that is the whole point.
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          builds,
+          1,
+          reason:
+              'M7 (tab path) — an operator who only LOOKED via the tab card '
+              'must not pay for that round trip either; goes red the '
+              "moment `_openStaffServices`'s revision gate is removed.",
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '2',
+        );
+      },
+    );
+
+    // mobile-qa audit-fix cycle 2 — mirrors master_profile_screen_test.dart's
+    // own "the selected tab survives a push/pop through the category editor"
+    // pin. `ProfileTabSelection.profileTabNotifier` lives on the `State`
+    // (profile_tab_selection.dart: "Survives an in-screen push/pop because
+    // the `State` this mixin is applied to is kept"), so this is the SAME
+    // guarantee, just exercised through THIS screen's own push path (the
+    // category card, Phase 357) instead of MasterProfileScreen's
+    // «Додати послуги» button. Nothing in the D4/M7 tests above actually
+    // reads the tab bar/tab body after popping — they only assert on the
+    // tab-independent management-pair stat value — so this closes that gap.
+    testWidgets(
+      'the «Послуги» tab stays selected after a push/pop through a category '
+      "card's services page",
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-NAILS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('staff-profile-category-NAILS')),
+          findsOneWidget,
+          reason:
+              'still on «Послуги» after back — ProfileTabSelection keeps '
+              'the State, same guarantee master_profile_screen_test.dart '
+              'pins for MasterProfileScreen; a reset to tab 0 would make '
+              'this card (and the whole «Послуги» tab body) disappear',
+        );
+      },
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------

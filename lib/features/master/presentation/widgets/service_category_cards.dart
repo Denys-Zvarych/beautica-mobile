@@ -53,6 +53,7 @@ class ServiceCategoryCardList extends ConsumerStatefulWidget {
     required this.services,
     required this.keyPrefix,
     required this.interactive,
+    this.onCategoryTap,
   });
 
   /// The master's services (already resolved — this widget does no fetching
@@ -67,6 +68,22 @@ class ServiceCategoryCardList extends ConsumerStatefulWidget {
   /// Whether cards navigate on tap (owner) or render as static, read-only
   /// summary tiles (client viewing another master).
   final bool interactive;
+
+  /// Optional override for what a tap navigates to, when [interactive] is
+  /// `true`. Called with the card's own live [BuildContext] and the tapped
+  /// category's raw slug (`null` for the uncategorized bucket) — same
+  /// contract as the default behaviour it replaces.
+  ///
+  /// Left `null` (the default), a tap falls back to
+  /// [ServiceCategoryCard]'s own built-in navigation:
+  /// `context.push('${RouteNames.services}?expandCategory=<slug>')` — the
+  /// AUTHENTICATED master's own service-management screen. That default only
+  /// ever makes sense for [MasterProfileScreen] (the master viewing their OWN
+  /// profile); every other interactive call site (e.g. a salon owner/admin
+  /// viewing a colleague's profile) MUST supply this to redirect to the
+  /// colleague's own management screen instead — see
+  /// `salon_staff_profile_screen.dart`'s «Послуги» tab for the precedent.
+  final void Function(BuildContext context, String? slug)? onCategoryTap;
 
   @override
   ConsumerState<ServiceCategoryCardList> createState() =>
@@ -128,6 +145,7 @@ class _ServiceCategoryCardListState
           // navigation — never bake a BuildContext into a cached closure.
           slug: entry.key.isEmpty ? null : entry.key,
           interactive: widget.interactive,
+          onCategoryTap: widget.onCategoryTap,
           semanticLabel: widget.interactive
               ? l10n.masterProfileCategorySemantics(
                   resolvedLabel,
@@ -195,6 +213,7 @@ class ServiceCategoryCard extends StatefulWidget {
     // Null means "uncategorized" — navigates to /services with no query param.
     this.slug,
     required this.interactive,
+    this.onCategoryTap,
   });
 
   final String label;
@@ -202,6 +221,10 @@ class ServiceCategoryCard extends StatefulWidget {
   final String semanticLabel;
   final String? slug;
   final bool interactive;
+
+  /// See [ServiceCategoryCardList.onCategoryTap] — `null` keeps this card's
+  /// own default `RouteNames.services` navigation.
+  final void Function(BuildContext context, String? slug)? onCategoryTap;
 
   @override
   State<ServiceCategoryCard> createState() => _ServiceCategoryCardState();
@@ -305,6 +328,12 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
         onTapUp: (_) {
           setState(() => _pressed = false);
           final String? slug = widget.slug;
+          final void Function(BuildContext, String?)? onCategoryTap =
+              widget.onCategoryTap;
+          if (onCategoryTap != null) {
+            onCategoryTap(context, slug);
+            return;
+          }
           context.push(
             Uri(
               path: RouteNames.services,
