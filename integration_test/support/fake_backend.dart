@@ -585,6 +585,25 @@ final class FakeBackend {
   /// alive. `null` (the default) keeps the derived, real-backend shape.
   String? clientCitySettlementTypeOverride;
 
+  // ── Mutable SALON_ADMIN identity state (PATCH /users/me round-trip,
+  // Phase 356) ─────────────────────────────────────────────────────────────
+  //
+  // `client_personal_info_edit_screen.dart` / `client_contacts_edit_screen
+  // .dart` are REUSED VERBATIM by the admin's own settings hub
+  // (`RouteNames.adminEditPersonal`/`adminEditContacts`), and both PATCH the
+  // SAME `/users/me` endpoint the CLIENT editors do. Before this state
+  // existed, `GET /users/me` for a non-CLIENT role always served the STATIC
+  // `_adminUserJson` — a save would round-trip through `PATCH /users/me` and
+  // the screen would optimistically look saved, but the very next
+  // `refreshUser()`/`clientEditProfileProvider` re-fetch would silently
+  // revert to the pre-save name, which no widget-tier fixture (a
+  // Dart-constructed `User`) can catch. Defaults match `_adminUserJson`
+  // exactly, so every flow that never PATCHes these fields sees the exact
+  // fixture it always has.
+  String adminFirstName = 'Ірина';
+  String adminLastName = 'Адміністратор';
+  String? adminPhone = '+380663334455';
+
   // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
   //
   // `GET /api/v1/salons/mine` — `SalonResponse` shape (carries `isPrimary`,
@@ -2772,6 +2791,23 @@ final class FakeBackend {
     'street': clientStreet,
     'buildingNo': clientBuildingNo,
     'locationNote': clientLocationNote,
+  };
+
+  /// The SALON_ADMIN `GET /users/me` body (Phase 356), built from the
+  /// mutable [adminFirstName]/[adminLastName]/[adminPhone] state so a PATCH
+  /// made through the reused CLIENT Personal/Contacts edit screens
+  /// round-trips on the next read — the exact same role [_clientProfileBody]
+  /// plays for the CLIENT editors. `professionalTitle`/`salonId` are OUT OF
+  /// SCOPE for this phase (D7) and stay the static `_adminUserJson` values.
+  Map<String, dynamic> _adminProfileBody() => <String, dynamic>{
+    'id': 'user-admin-1',
+    'email': 'admin@beautica.ua',
+    'role': 'SALON_ADMIN',
+    'firstName': adminFirstName,
+    'lastName': adminLastName,
+    'phoneNumber': adminPhone,
+    'professionalTitle': 'Старший адміністратор',
+    'salonId': 'salon-admin-1',
   };
 
   // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
@@ -6535,21 +6571,28 @@ final class FakeBackend {
     // GET /api/v1/users/me
     // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
     // round-trips on the next read (the edit screens invalidate
-    // clientEditProfileProvider → re-fetch). Other roles keep the static fixture.
+    // clientEditProfileProvider → re-fetch). Phase 356 — SALON_ADMIN gets the
+    // SAME treatment via [_adminProfileBody] (its own admin editors reuse the
+    // CLIENT ones and PATCH the identical endpoint). Every other role keeps
+    // the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
-        return currentRole == UserRole.client
-            ? _ok(_clientProfileBody())
-            // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
-            // it, so the default body is byte-identical to the pre-21.14 one
-            // and `null` stays a genuine "key absent", not a serialized null.
-            : _ok(<String, dynamic>{
-                ...userJsonForRole(currentRole),
-                if (hasMasterProfile != null)
-                  'hasMasterProfile': hasMasterProfile,
-              });
+        return switch (currentRole) {
+          UserRole.client => _ok(_clientProfileBody()),
+          UserRole.salonAdmin => _ok(<String, dynamic>{
+            ..._adminProfileBody(),
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+          }),
+          // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+          // it, so the default body is byte-identical to the pre-21.14 one
+          // and `null` stays a genuine "key absent", not a serialized null.
+          _ => _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+          }),
+        };
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6672,23 +6715,57 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // PATCH /api/v1/users/me — CLIENT profile partial update (the shared,
-    // CLIENT-callable profile endpoint the client edit screens hit via
-    // UserControllerApi.updateMe). Merge-onto-cache: each key present in the body
-    // overlays the in-memory state; keys absent from the body are preserved.
+    // PATCH /api/v1/users/me — profile partial update (the shared,
+    // no-role-restriction endpoint every `*_edit_screen.dart` in the app
+    // hits via UserControllerApi.updateMe). Merge-onto-cache: each key
+    // present in the body overlays the in-memory state; keys absent from
+    // the body are preserved.
     //
-    // CONTRACT NOTES the flow asserts against:
-    //   • `instagram` is NEVER sent by ClientProfileRepository — if it ever
-    //     appears in the body this would surface it (lastPatchMeBody captured).
-    //   • a null `cityId` in the body is a VALID save (CLIENT location optional)
-    //     and clears the city; the body still carries cityId (built_value emits
-    //     it when the location slice is touched).
+    // Phase 356 — SALON_ADMIN branch. The admin's own settings hub reuses
+    // `client_personal_info_edit_screen.dart`/`client_contacts_edit_screen
+    // .dart` VERBATIM, so it PATCHes this exact endpoint too, but must never
+    // fall into the CLIENT mutation branch below (touching `clientFirstName`
+    // et al. would be silently harmless today — nothing reads those for an
+    // admin session — but would leave [adminFirstName] et al. stale, which
+    // IS observed: `GET /users/me` for SALON_ADMIN now serves
+    // [_adminProfileBody]). Also keeps the admin's OWN row inside
+    // [salonAdminOneStaff] in lock-step (D6 — «Команда» is UNFILTERED and
+    // renders the viewer's own row, so a stale name there is directly
+    // observable without a second endpoint).
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (req) {
         patchMeCalls++;
         final body = _decodeBody(req.data);
         lastPatchMeBody = body;
+
+        if (currentRole == UserRole.salonAdmin) {
+          if (body.containsKey('firstName')) {
+            adminFirstName = body['firstName'] as String? ?? adminFirstName;
+          }
+          if (body.containsKey('lastName')) {
+            adminLastName = body['lastName'] as String? ?? adminLastName;
+          }
+          if (body.containsKey('phoneNumber')) {
+            adminPhone = body['phoneNumber'] as String?;
+          }
+          for (final Map<String, dynamic> row in salonAdminOneStaff) {
+            if (row['userId'] != 'user-admin-1') continue;
+            if (body.containsKey('firstName')) {
+              row['firstName'] = adminFirstName;
+            }
+            if (body.containsKey('lastName')) row['lastName'] = adminLastName;
+          }
+          return _ok(_adminProfileBody());
+        }
+
+        // CONTRACT NOTES the CLIENT flow asserts against:
+        //   • `instagram` is NEVER sent by ClientProfileRepository — if it
+        //     ever appears in the body this would surface it
+        //     (lastPatchMeBody captured).
+        //   • a null `cityId` in the body is a VALID save (CLIENT location
+        //     optional) and clears the city; the body still carries cityId
+        //     (built_value emits it when the location slice is touched).
         if (body.containsKey('firstName')) {
           clientFirstName = body['firstName'] as String? ?? clientFirstName;
         }

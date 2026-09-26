@@ -84,20 +84,23 @@
 // owner-as-master section.
 //
 // ── THE TRAILING TUNE ─────────────────────────────────────────────────────
-// Points at [RouteNames.settings] (2026-09-08) — the shared «Акаунт» page
-// both master roles (INDEPENDENT_MASTER via the master menu,
-// SALON_MASTER via `salonMasterSettings` → the same `SettingsHubScreen` →
-// `row-account`) already reach, and where the (also 2026-09-08) widened
-// «Видалити акаунт» row now surfaces for SALON_ADMIN too. Pushed with NO
-// `extra` — this is a bare `context.push(RouteNames.settings)`, exactly
-// like the master menu's own `row-account` push, so `state.extra` resolves
-// to `null` at the route builder (`app_router.dart`) and `SettingsScreen`
-// falls through to its all-`false`/`null` defaults (no owner-only
-// delete-salon row; an admin isn't a salon owner regardless). The
-// dedicated Phase 21.17 Admin Personal Settings screen this control was
-// ORIGINALLY meant to open is still unbuilt — `RouteNames.adminSettings`
-// still does not exist — so this is a real but partial destination, not a
-// stand-in for the eventual richer screen.
+// Points at [RouteNames.adminSettings] (DEBUG-chain fix, 2026-09-26) — the
+// admin's own settings HUB, the same [SettingsHubScreen] widget the master
+// menu and `salonMasterSettings` render (additive
+// `showLocation`/`contactsEnabled`/`personalInfoRoute`/`fallbackHomeRoute`
+// params — see that widget's class doc and `RouteNames.adminSettings`'s own
+// doc). Before this fix the tune button pushed [RouteNames.settings]
+// (the shared «Акаунт» sub-screen) DIRECTLY, so a SALON_ADMIN had no
+// sign-out affordance anywhere on that path and «Видалити акаунт», at the
+// bottom of that sub-screen, read as the terminal action — the reported
+// bug. The hub's own `row-account` still pushes [RouteNames.settings]
+// unchanged, so «Видалити акаунт» stays exactly where it already was; the
+// hub adds «Вийти» as the real terminal row, matching CLIENT and both
+// master roles. `RouteNames.settings` falls through to its all-`false`/
+// `null` defaults from there (no owner-only delete-salon row; an admin
+// isn't a salon owner regardless). The dedicated Phase 21.17 Admin Personal
+// Settings screen this control was ORIGINALLY meant to open is still
+// unbuilt — this reuses the shared hub instead of waiting on it.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -334,10 +337,9 @@ class _AdminOwnProfileScreenState extends ConsumerState<AdminOwnProfileScreen>
         key: const Key('btn-admin-own-profile-settings'),
         icon: Icons.tune_rounded,
         semanticLabel: l10n.adminOwnProfileSettingsSemanticLabel,
-        // Opens the shared «Акаунт» page — see the file header's THE
-        // TRAILING TUNE note. Phase 21.17's dedicated Admin Personal
-        // Settings screen remains unbuilt.
-        onTap: () => context.push(RouteNames.settings),
+        // Opens the admin's own settings hub — see the file header's THE
+        // TRAILING TUNE note.
+        onTap: () => context.push(RouteNames.adminSettings),
       ),
       // Pull-to-refresh. `clientEditProfileProvider` is a keepAlive singleton,
       // so it is the invalidation target itself; the salon card follows from

@@ -38,12 +38,15 @@ import 'package:beautica_mobile/features/auth/presentation/splash_screen.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
+import 'package:beautica_mobile/features/home/presentation/client_contacts_edit_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -372,8 +375,9 @@ void main() {
 
     testWidgets(
       'professionalTitle is omitted when unset; stand-alone keeps a back '
-      'affordance; the tune renders ENABLED — 2026-09-08, it now opens the '
-      'shared Account page rather than sitting inert',
+      'affordance; the tune renders ENABLED — it opens the admin settings '
+      'hub rather than sitting inert (see the dedicated navigation test '
+      'below)',
       (tester) async {
         await tester.pumpApp(
           const AdminOwnProfileScreen(),
@@ -1223,30 +1227,52 @@ void main() {
       );
     });
 
-    testWidgets(
-      'the tune button pushes the shared Account page (RouteNames.settings) '
-      '— 2026-09-08, replacing the unbuilt Phase 21.17 inert stub',
-      (tester) async {
-        final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+    testWidgets('the tune button pushes the admin settings hub (RouteNames.'
+        'adminSettings) — DEBUG-chain fix, 2026-09-26, so «Вийти» is reachable '
+        'and «Видалити акаунт» is no longer the terminal action on this path', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
 
-        router.go(RouteNames.adminOwnProfile);
-        await tester.pumpAndSettle();
+      router.go(RouteNames.adminOwnProfile);
+      await tester.pumpAndSettle();
 
-        await tester.tap(
-          find.byKey(const Key('btn-admin-own-profile-settings')),
-        );
-        await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-admin-own-profile-settings')));
+      await tester.pumpAndSettle();
 
-        expect(
-          find.byType(SettingsScreen),
-          findsOneWidget,
-          reason:
-              'a bare context.push(RouteNames.settings), no `extra` — the '
-              'same shape the master menu\'s own row-account push already '
-              'uses — must resolve to the Account page.',
-        );
-      },
-    );
+      expect(
+        find.byType(SettingsHubScreen),
+        findsOneWidget,
+        reason:
+            'the tune button must open the shared settings hub, the SAME '
+            'widget the master menu and salonMasterSettings render, not '
+            'push the «Акаунт» sub-screen directly.',
+      );
+      // No location row — an admin has no personal location.
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      // «Особисті дані» and «Контакти» are present and LIVE (Phase 356) —
+      // the dedicated guard group below proves where each one pushes.
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+      expect(find.byKey(const Key('row-contacts')), findsOneWidget);
+      // The terminal sign-out row is now reachable on this path.
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('row-logout')), findsOneWidget);
+
+      // «Акаунт» still pushes the shared SettingsScreen unchanged, where
+      // «Видалити акаунт» remains at the bottom.
+      await tester.tap(find.byKey(const Key('row-account')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(SettingsScreen),
+        findsOneWidget,
+        reason:
+            'a bare context.push(RouteNames.settings), no `extra` — the '
+            'same shape the master menu\'s own row-account push already '
+            'uses — must resolve to the Account page.',
+      );
+    });
 
     testWidgets('a SALON_OWNER is BOUNCED — this is the ADMIN profile, and the '
         'owner has one of their own', (tester) async {
@@ -1528,6 +1554,298 @@ void main() {
             'account\'s INDEPENDENT_MASTER role as current and bounces to '
             'roleHomePath(independentMaster).',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // Phase 356 — `RouteNames.adminEditPersonal`/`adminEditContacts` reuse
+    // `salonAdminOnlyGuard` VERBATIM (see each constant's own doc and D3 in
+    // the phase doc). Mirrors `salon_manage_route_guard_test.dart`'s per-leaf
+    // reuse-proof convention: proves the SAME guard is actually WIRED onto
+    // these two new leaves, reusing every fixture/helper the group above
+    // already built rather than standing up a second router harness.
+    // -----------------------------------------------------------------------
+    final Map<String, (String, Type)> adminEditRoutes =
+        <String, (String, Type)>{
+          'personal': (
+            RouteNames.adminEditPersonal,
+            ClientPersonalInfoEditScreen,
+          ),
+          'contacts': (RouteNames.adminEditContacts, ClientContactsEditScreen),
+        };
+
+    for (final MapEntry<String, (String, Type)> entry
+        in adminEditRoutes.entries) {
+      final String label = entry.key;
+      final String path = entry.value.$1;
+      final Type screenType = entry.value.$2;
+
+      testWidgets(
+        '$label — a SALON_ADMIN is ADMITTED onto the reused CLIENT editor',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+          router.go(path);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byType(screenType),
+            findsOneWidget,
+            reason:
+                'the SAME guard as /profile/admin, reused verbatim, must '
+                'admit the admin onto $path',
+          );
+        },
+      );
+
+      testWidgets('$label — a SALON_OWNER is BOUNCED, never admitted', (
+        tester,
+      ) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerOwner);
+
+        router.go(path);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(screenType), findsNothing);
+        expect(
+          // router-location-ok: only router.go(...) is used in this test.
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          isNot(path),
+          reason: 'the guard must REDIRECT, not merely render something else',
+        );
+      });
+
+      testWidgets(
+        '$label — a SALON_MASTER is BOUNCED to their own read-only staff '
+        'profile',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(
+            tester,
+            _routerSalonMaster,
+          );
+
+          router.go(path);
+          await tester.pumpAndSettle();
+
+          expect(find.byType(screenType), findsNothing);
+          expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        '$label — a CLIENT is BOUNCED to the client home hub, never admitted '
+        'onto the ADMIN route (D3: CLIENT still owns the SEPARATE /client/'
+        'edit/* path, not this one)',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(tester, _routerClient);
+
+          router.go(path);
+          await tester.pumpAndSettle();
+
+          expect(find.byType(screenType), findsNothing);
+          expect(find.byType(HomeHubScreen), findsOneWidget);
+        },
+      );
+    }
+
+    // -----------------------------------------------------------------------
+    // mobile-qa (2026-09-26, C4/Phase 356 QA pass) — back navigation FROM the
+    // reused editors. The guard sweep above drives each leaf via a bare
+    // `router.go(path)`, which never has prior history (`canPop()` is
+    // false), so it cannot exercise the REAL navigation shape: the hub
+    // PUSHES these leaves (`settings_hub_screen.dart:220,231`), so
+    // `context.canPop()` is true there and the leaf's own back button must
+    // `context.pop()` back to the hub — not fall through to its hard-coded
+    // `RouteNames.clientMenu` fallback (`client_personal_info_edit_screen.
+    // dart:348-352`, `client_contacts_edit_screen.dart:301-305`), which
+    // would be the WRONG destination for an admin session entirely. Driven
+    // through the REAL `appRouterProvider`, reusing this group's own
+    // `pumpRouterAs`/`_routerAdmin` fixtures.
+    // -----------------------------------------------------------------------
+    group('back navigation from the reused editors returns to the hub', () {
+      testWidgets(
+        '«Особисті дані»: the back button pops back to SettingsHubScreen, '
+        'not the clientMenu fallback',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+          router.go(RouteNames.adminSettings);
+          await tester.pumpAndSettle();
+          expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('row-personal')));
+          await tester.pumpAndSettle();
+          expect(find.byType(ClientPersonalInfoEditScreen), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('btn-back-personal')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byType(SettingsHubScreen),
+            findsOneWidget,
+            reason:
+                'the editor was PUSHED on top of the hub — canPop() is '
+                'true, so back must context.pop() straight back to it',
+          );
+          expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+        },
+      );
+
+      testWidgets(
+        '«Контакти»: the back button pops back to SettingsHubScreen, not '
+        'the clientMenu fallback',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+          router.go(RouteNames.adminSettings);
+          await tester.pumpAndSettle();
+          expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('row-contacts')));
+          await tester.pumpAndSettle();
+          expect(find.byType(ClientContactsEditScreen), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('btn-back-contacts')));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SettingsHubScreen), findsOneWidget);
+          expect(find.byType(ClientContactsEditScreen), findsNothing);
+        },
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // mobile-qa (2026-09-26, C4/Phase 356 QA pass) — the «Акаунт» delete
+    // path, reached the REAL way: tune -> hub -> row-account ->
+    // SettingsScreen -> «Видалити акаунт» is present for this role. The
+    // row's OWN role-gate truth table already lives in
+    // `settings_screen_delete_account_row_test.dart` (SALON_ADMIN
+    // included); this closes the other half — that the row is actually
+    // REACHABLE by the admin's real navigation path, not merely correct in
+    // isolation.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      'the «Акаунт» delete-account row is reachable end to end: tune -> hub '
+      '-> row-account -> «Видалити акаунт» renders for a SALON_ADMIN',
+      (tester) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+        router.go(RouteNames.adminOwnProfile);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('btn-admin-own-profile-settings')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('row-account')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SettingsScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('row-delete-account')),
+          findsOneWidget,
+          reason:
+              'reached via the REAL admin path (tune -> hub -> account), '
+              'the delete-account row must still render for this role — '
+              'see settings_screen_delete_account_row_test.dart for the '
+              'row\'s own interaction/role-gate suite',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Audit-fix cycle 1 (2026-09-26), INFO sec — the leaf-route sweep above
+    // proves the two admin EDIT routes are guarded per-role; this sweeps
+    // `RouteNames.adminSettings` — the HUB route itself — the same way,
+    // mirroring this group's own per-role fixtures/helpers (`pumpRouterAs`,
+    // `_routerOwner`/`_routerSalonMaster`/`_routerIndependentMaster`/
+    // `_routerClient`) and the bounce-destination assertions the
+    // `/profile/admin — salonAdminOnlyGuard` group above already makes for
+    // `RouteNames.adminOwnProfile`.
+    // -----------------------------------------------------------------------
+    group('adminSettings (the hub route itself) — role sweep', () {
+      testWidgets('a SALON_ADMIN is ADMITTED onto the settings hub', (
+        tester,
+      ) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerAdmin);
+
+        router.go(RouteNames.adminSettings);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SettingsHubScreen),
+          findsOneWidget,
+          reason:
+              'the same guard as the two edit leaves must admit the '
+              'admin onto the hub itself',
+        );
+      });
+
+      testWidgets('a SALON_OWNER is BOUNCED, never admitted', (tester) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerOwner);
+
+        router.go(RouteNames.adminSettings);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SettingsHubScreen), findsNothing);
+        expect(
+          // router-location-ok: only router.go(...) is used in this test.
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          isNot(RouteNames.adminSettings),
+          reason: 'the guard must REDIRECT, not merely render something else',
+        );
+      });
+
+      testWidgets(
+        'a SALON_MASTER is BOUNCED to their own read-only staff profile',
+        (tester) async {
+          final GoRouter router = await pumpRouterAs(
+            tester,
+            _routerSalonMaster,
+          );
+
+          router.go(RouteNames.adminSettings);
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SettingsHubScreen), findsNothing);
+          expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets('an INDEPENDENT_MASTER is BOUNCED to /master/profile', (
+        tester,
+      ) async {
+        final GoRouter router = await pumpRouterAs(
+          tester,
+          _routerIndependentMaster,
+        );
+
+        router.go(RouteNames.adminSettings);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SettingsHubScreen), findsNothing);
+        expect(find.byType(MasterProfileScreen), findsOneWidget);
+      });
+
+      testWidgets('a CLIENT is BOUNCED to the client home hub (/home)', (
+        tester,
+      ) async {
+        final GoRouter router = await pumpRouterAs(tester, _routerClient);
+
+        router.go(RouteNames.adminSettings);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(SettingsHubScreen),
+          findsNothing,
+          reason:
+              'the hub renders admin-only navigation, incl. edit rows that '
+              'push admin-gated routes — a CLIENT reaching it is a wrong-'
+              'role exposure, not merely a wrong screen',
+        );
+        expect(find.byType(HomeHubScreen), findsOneWidget);
+      });
     });
   });
 }

@@ -37,13 +37,15 @@ import 'widgets/settings_row.dart';
 /// The settings hub reached from the master profile menu icon.
 //
 // Reused VERBATIM by the SALON_MASTER own-profile settings hub
-// (`RouteNames.salonMasterSettings`, `/staff/settings`) via four additive
-// params — every existing (INDEPENDENT_MASTER) call site passes none of them
-// and renders EXACTLY as before:
-//   * [showLocation]     — SALON_MASTER has no personal location to manage
-//     (works from the salon's address, which is the salon's to edit, not
-//     theirs); the row is omitted entirely rather than disabled, since it
-//     names a concept that does not apply to the role at all.
+// (`RouteNames.salonMasterSettings`, `/staff/settings`) and the SALON_ADMIN
+// own-profile settings hub (`RouteNames.adminSettings`,
+// `/profile/admin/settings`) via five additive params — every existing
+// (INDEPENDENT_MASTER) call site passes none of them and renders EXACTLY as
+// before:
+//   * [showLocation]     — SALON_MASTER/SALON_ADMIN have no personal location
+//     to manage (works from the salon's address, which is the salon's to
+//     edit, not theirs); the row is omitted entirely rather than disabled,
+//     since it names a concept that does not apply to the role at all.
 //   * [contactsEnabled] / [contactsRoute] — SALON_MASTER's «Контакти» row IS
 //     live (2026-09-01): it pushes [contactsRoute], which for this role is
 //     `RouteNames.salonMasterEditContacts` — the SAME [ContactsEditScreen]
@@ -51,15 +53,26 @@ import 'widgets/settings_row.dart';
 //     `showInstagram: false` param, since SALON_MASTER contacts are
 //     phone-only by product decision (no Instagram, no location, for this
 //     role — Instagram belongs to the master's own public presence, which a
-//     salon-employed master does not separately manage). `contactsEnabled`
-//     itself stays general-purpose (`false` renders the row PRESENT BUT
-//     DISABLED with a «незабаром» trailing value, following the
-//     `StaffSettingsScreen` «Перевести в майстри» precedent — never a fake
-//     success, never silently dropped) for any future role that genuinely has
-//     no contacts destination yet.
-//   * [personalInfoRoute] / [fallbackHomeRoute] — the «Особисті дані» row's
-//     push target and the hub's own onBack no-pop fallback, so the SAME
-//     [SettingsRow] destinations resolve per-role without forking the hub.
+//     salon-employed master does not separately manage). SALON_ADMIN's
+//     «Контакти» row went live too (Phase 356): [contactsRoute] is
+//     `RouteNames.adminEditContacts`, pushing the reused
+//     [ClientContactsEditScreen]. `contactsEnabled` itself stays
+//     general-purpose (`false` renders the row PRESENT BUT DISABLED with a
+//     «незабаром» trailing value, following the `StaffSettingsScreen`
+//     «Перевести в майстри» precedent — never a fake success, never silently
+//     dropped) for a FUTURE role that genuinely has no destination yet — no
+//     current call site passes `false`.
+//   * [personalInfoRoute] — the «Особисті дані» row's push target. Always
+//     live (audit-fix cycle 1, 2026-09-26 — the earlier `personalInfoEnabled`
+//     disable switch was removed: no call site ever passed it `false`, unlike
+//     `contactsEnabled`, which SALON_MASTER genuinely still disables for a
+//     role with no destination — see above). SALON_ADMIN's row is live via
+//     Phase 356: [personalInfoRoute] is `RouteNames.adminEditPersonal`,
+//     pushing the reused [ClientPersonalInfoEditScreen]. Every other caller
+//     leaves [personalInfoRoute] at its default, unaffected.
+//   * [fallbackHomeRoute] — the hub's own onBack no-pop fallback, so the
+//     SAME [SettingsRow] destinations resolve per-role without forking the
+//     hub.
 class SettingsHubScreen extends ConsumerStatefulWidget {
   const SettingsHubScreen({
     super.key,
@@ -84,7 +97,7 @@ class SettingsHubScreen extends ConsumerStatefulWidget {
   /// unaffected).
   final String contactsRoute;
 
-  /// Push target for the «Особисті дані» row. Defaults to
+  /// Push target for the always-live «Особисті дані» row. Defaults to
   /// [RouteNames.masterEditPersonal] (INDEPENDENT_MASTER, unaffected).
   final String personalInfoRoute;
 
@@ -196,7 +209,8 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
             ),
           ),
 
-          // Navigational group.
+          // Navigational group. «Особисті дані» is always a live push target
+          // — see the class doc's [personalInfoRoute] note.
           _reveal(
             _anim1,
             SettingsRow(

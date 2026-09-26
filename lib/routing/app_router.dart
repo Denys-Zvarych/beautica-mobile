@@ -1084,6 +1084,54 @@ GoRouter appRouter(Ref ref) {
         redirect: salonAdminOnlyGuard,
         builder: (context, state) => const AdminOwnProfileScreen(),
       ),
+      // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN own-profile settings
+      // hub. REUSE-FIRST: the SAME [SettingsHubScreen] widget
+      // `RouteNames.masterMenu`/`RouteNames.salonMasterSettings` render, via
+      // its additive `showLocation`/`fallbackHomeRoute` params — see that
+      // widget's own class doc. «Акаунт» still pushes [RouteNames.settings]
+      // unchanged, where «Видалити акаунт» stays at the bottom exactly as
+      // before this fix.
+      //
+      // Phase 356 — «Особисті дані» / «Контакти» are now LIVE: routed to
+      // the two admin edit leaves below via `personalInfoRoute`/
+      // `contactsRoute` (the additive `contactsEnabled` param stays at its
+      // `true` default — `personalInfoEnabled` no longer exists at all,
+      // removed audit-fix cycle 1, 2026-09-26, once no caller ever passed it
+      // `false`; the «Особисті дані» row is now unconditionally live).
+      GoRoute(
+        path: RouteNames.adminSettings,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) => const SettingsHubScreen(
+          showLocation: false,
+          personalInfoRoute: RouteNames.adminEditPersonal,
+          contactsRoute: RouteNames.adminEditContacts,
+          fallbackHomeRoute: RouteNames.adminOwnProfile,
+        ),
+      ),
+      // Phase 356 — «Особисті дані» edit for a SALON_ADMIN. REUSES
+      // [ClientPersonalInfoEditScreen] VERBATIM via its additive `doneRoute`
+      // param (`RouteNames.adminSettings` — saving returns to the admin hub,
+      // not the CLIENT default). See `RouteNames.adminEditPersonal`'s own
+      // doc for why this is a new top-level sibling rather than a reuse of
+      // `RouteNames.clientEditPersonal` (the `/client/*` role gate in
+      // `auth_redirect.dart` would bounce a SALON_ADMIN off it).
+      GoRoute(
+        path: RouteNames.adminEditPersonal,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) => const ClientPersonalInfoEditScreen(
+          doneRoute: RouteNames.adminSettings,
+        ),
+      ),
+      // Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. REUSES
+      // [ClientContactsEditScreen] VERBATIM (Instagram already removed from
+      // that screen) via the same additive `doneRoute` param. See
+      // `RouteNames.adminEditContacts`'s own doc.
+      GoRoute(
+        path: RouteNames.adminEditContacts,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) =>
+            const ClientContactsEditScreen(doneRoute: RouteNames.adminSettings),
+      ),
       GoRoute(
         path: '/salons/:salonId',
         redirect: clientOnlyGuard,
