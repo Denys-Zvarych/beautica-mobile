@@ -734,12 +734,13 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 351 — card → tab switching. 3 cards (rating / reviews / services —
-  // «Досвід» removed, D9); each switches the screen's own tab in place
-  // (D15). «Послуги» stays read-only (D12) — tapping a category card there
-  // does nothing.
+  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
+  // Phase 351's card → tab mechanism (D15): 3 cards (rating / reviews /
+  // services — «Досвід» removed, D9), a tap on any of them must leave the
+  // selected tab and route unchanged, and expose no button semantics. The
+  // «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to switch.
   // ──────────────────────────────────────────────────────────────────────────
-  group('card → tab switching (Phase 351)', () {
+  group('stat cards are display-only (user decision 2026-09-26)', () {
     List<Object> overridesWithReviews(SalonMasterOwnProfileData data) =>
         <Object>[
           ..._overrides(data),
@@ -797,75 +798,91 @@ void main() {
       expect(nameY, lessThan(tabBarY));
     });
 
-    testWidgets('tapping the rating card switches to the «Відгуки» tab', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const SalonMasterProfileScreen(),
-        overrides: overridesWithReviews((_master, _services, _salon)),
+    for (final String cardKey in <String>[
+      'salon-master-profile-rating-tile',
+      'salon-master-profile-reviews-tile',
+      'salon-master-profile-services-tile',
+    ]) {
+      testWidgets(
+        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
+        (tester) async {
+          await tester.pumpApp(
+            const SalonMasterProfileScreen(),
+            overrides: overridesWithReviews((_master, _services, _salon)),
+          );
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('salon-master-profile-bio')),
+            findsOneWidget,
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+
+          // No InkWell/GestureDetector on the card — warnIfMissed would flag
+          // a real interactive target the tap failed to land on.
+          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('salon-master-profile-bio')),
+            findsOneWidget,
+            reason: 'a card tap must never switch the screen\'s own tab',
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        },
       );
-      await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byKey(const Key('salon-master-profile-rating-tile')),
-      );
-      await tester.pumpAndSettle();
+      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await tester.pumpApp(
+          const SalonMasterProfileScreen(),
+          overrides: overridesWithReviews((_master, _services, _salon)),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-      expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
-    });
+        expect(
+          tester.getSemantics(find.byKey(Key(cardKey))),
+          isNot(isSemantics(isButton: true)),
+        );
 
-    testWidgets('tapping the reviews card switches to the «Відгуки» tab', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const SalonMasterProfileScreen(),
-        overrides: overridesWithReviews((_master, _services, _salon)),
-      );
-      await tester.pumpAndSettle();
+        handle.dispose();
+      });
+    }
 
-      await tester.tap(
-        find.byKey(const Key('salon-master-profile-reviews-tile')),
-      );
-      await tester.pumpAndSettle();
+    testWidgets(
+      'the «Послуги» tab (reached via the tab bar) stays read-only: a '
+      'category card there does NOT navigate (D12)',
+      (tester) async {
+        await tester.pumpApp(
+          const SalonMasterProfileScreen(),
+          overrides: overridesWithReviews((_master, _services, _salon)),
+        );
+        await tester.pumpAndSettle();
 
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-    });
+        await tester.tap(find.byKey(const Key('salon-master-profile-tab-1')));
+        await tester.pumpAndSettle();
 
-    testWidgets('tapping the services card switches to the «Послуги» tab; '
-        'a category card there does NOT navigate (read-only, D12)', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const SalonMasterProfileScreen(),
-        overrides: overridesWithReviews((_master, _services, _salon)),
-      );
-      await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('salon-master-profile-service-categories')),
+          findsOneWidget,
+        );
+        final Finder card = find.byKey(
+          const Key('salon-master-profile-category-HAIR'),
+        );
+        expect(card, findsOneWidget);
 
-      await tester.tap(
-        find.byKey(const Key('salon-master-profile-services-tile')),
-      );
-      await tester.pumpAndSettle();
+        await tester.tap(card);
+        await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('salon-master-profile-service-categories')),
-        findsOneWidget,
-      );
-      final Finder card = find.byKey(
-        const Key('salon-master-profile-category-HAIR'),
-      );
-      expect(card, findsOneWidget);
-
-      await tester.tap(card);
-      await tester.pumpAndSettle();
-
-      // Still the same screen — a read-only card has no navigation target.
-      expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
-      expect(
-        find.byKey(const Key('salon-master-profile-service-categories')),
-        findsOneWidget,
-      );
-    });
+        // Still the same screen — a read-only card has no navigation target.
+        expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('salon-master-profile-service-categories')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('AddLink «Додати опис» opens salonMasterEditPersonal', (
       tester,

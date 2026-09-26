@@ -91,18 +91,16 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  /// Phase 351 — taps the «Відгуки» stat CARD on the already-mounted public
-  /// profile, which SWITCHES the screen to the «Відгуки» tab in place (D15)
-  /// instead of pushing a route — reviews render INLINE now. No navigation
-  /// happens — still the SAME screen instance, never
+  /// Phase 351 gave the public profile a «Відгуки» tab; user decision
+  /// 2026-09-26 made the stat cards display-only, so this now taps the TAB
+  /// itself — the only way to switch — which renders reviews INLINE. No
+  /// navigation happens — still the SAME screen instance, never
   /// `PublicMasterReviewsScreen`.
   Future<void> openReviews(WidgetTester tester) async {
-    final Finder tile = find.byKey(
-      const Key('public-master-profile-reviews-tile'),
-    );
-    expect(tile, findsOneWidget);
-    await tester.ensureVisible(tile);
-    await tester.tap(tile);
+    final Finder tab = find.byKey(const Key('public-master-profile-tab-2'));
+    expect(tab, findsOneWidget);
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
     // fixed-wait-ok: settles the real async review-provider loads triggered by the tab switch.
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
@@ -158,6 +156,20 @@ void main() {
       );
       final int profileCallsWarm = fb.getPublicMasterCalls;
       expect(profileCallsWarm, greaterThanOrEqualTo(1));
+
+      // The stat cards are display-only (user decision 2026-09-26) — a tap
+      // on the REAL rendered reviews card must do nothing before we switch
+      // via the tab below.
+      final Finder reviewsTile = find.byKey(
+        const Key('public-master-profile-reviews-tile'),
+      );
+      await tester.ensureVisible(reviewsTile);
+      await tester.tap(reviewsTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump
+      // until; this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      AppHarness.expectLocation(router, '/masters/master-aaa');
 
       // The summary + the NEWEST review bucket …
       await openReviews(tester);

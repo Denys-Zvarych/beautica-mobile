@@ -1,18 +1,22 @@
-// Phase 351 — E2E: the SALON_MASTER's own profile cards → tabs (D15).
+// Phase 351 gave the SALON_MASTER's own profile a tab bar (D15); user
+// decision 2026-09-26 made the stat cards display-only. E2E: the
+// SALON_MASTER's own profile cards do nothing, and the tab bar is the only
+// way to switch.
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b)
 // ----------------------------------------
 // Sibling of `master_own_profile_reviews_tab_flow_test.dart` (the
 // INDEPENDENT_MASTER's equivalent journey), for the SALON_MASTER's own
-// profile: `SalonMasterProfileScreen` now renders 3 stat cards (rating /
-// reviews / services — no «Досвід», D9) that SWITCH the screen's own tab in
-// place instead of pushing a route. The dense widget-tier coverage
+// profile: `SalonMasterProfileScreen` renders 3 stat cards (rating / reviews
+// / services — no «Досвід», D9) that are display-only (user decision
+// 2026-09-26) — only the «Про майстра» / «Послуги» / «Відгуки» tab bar
+// switches the screen's own tab. The dense widget-tier coverage
 // (`salon_master_profile_screen_test.dart`) proves this against a stubbed
 // provider; this flow drives the REAL post-login landing dispatch
 // (`roleHomePath` → `/staff/profile`), the REAL `salonMasterOwnProfileProvider`
 // fan-out (`GET /masters/me` + the salon-scoped services read + the salon
-// read) and a REAL tap on the REAL rendered cards, against a real (fake) HTTP
-// backend.
+// read) and a REAL tap on the REAL rendered cards AND tab bar, against a
+// real (fake) HTTP backend.
 //
 // FIXTURE REUSE (REUSE-FIRST): reuses the exact `salon-xyz` /
 // `master-removable` fixture `salon_master_services_read_only_flow_test.dart`
@@ -62,8 +66,8 @@ void main() {
 
   testWidgets(
     'SALON_MASTER lands on /staff/profile with 3 stat cards (no «Досвід»); '
-    'tapping the rating/reviews cards switches to the «Відгуки» tab in '
-    'place, and tapping the services card switches to the «Послуги» tab',
+    'tapping the rating/reviews/services cards does nothing, and the tab bar '
+    '(tapped directly) switches to «Відгуки» / «Послуги»',
     (tester) async {
       await mockNetworkImagesFor(() async {
         final fb = FakeBackend(
@@ -88,13 +92,44 @@ void main() {
         expect(find.byType(MasterReviewsBody), findsNothing);
         expect(find.byType(ServiceCategoryCardList), findsNothing);
 
-        // ── Tap the REAL rendered rating card → switches to «Відгуки», no
-        //    navigation (D15). ───────────────────────────────────────────
+        // ── The stat cards are DISPLAY-ONLY (user decision 2026-09-26) —
+        //    tapping the REAL rendered rating/reviews/services cards must do
+        //    nothing. ────────────────────────────────────────────────────
         final Finder ratingTile = find.byKey(
           const Key('salon-master-profile-rating-tile'),
         );
         expect(ratingTile, findsOneWidget);
-        await AppHarness.tapVisible(tester, ratingTile);
+        await tester.ensureVisible(ratingTile);
+        await tester.tap(ratingTile, warnIfMissed: false);
+        await AppHarness.settle(tester);
+        expect(find.byType(MasterReviewsBody), findsNothing);
+
+        final Finder reviewsTile = find.byKey(
+          const Key('salon-master-profile-reviews-tile'),
+        );
+        expect(reviewsTile, findsOneWidget);
+        await tester.ensureVisible(reviewsTile);
+        await tester.tap(reviewsTile, warnIfMissed: false);
+        await AppHarness.settle(tester);
+        expect(find.byType(MasterReviewsBody), findsNothing);
+
+        final Finder servicesTile = find.byKey(
+          const Key('salon-master-profile-services-tile'),
+        );
+        expect(servicesTile, findsOneWidget);
+        await tester.ensureVisible(servicesTile);
+        await tester.tap(servicesTile, warnIfMissed: false);
+        await AppHarness.settle(tester);
+        expect(find.byType(MasterReviewsBody), findsNothing);
+        expect(find.byType(ServiceCategoryCardList), findsNothing);
+        expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+        AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
+
+        // ── Tap the «Відгуки» TAB directly — the only way to switch. ─────
+        final Finder reviewsTab = find.byKey(
+          const Key('salon-master-profile-tab-2'),
+        );
+        await AppHarness.tapVisible(tester, reviewsTab);
         await AppHarness.settle(tester);
 
         expect(find.byType(MasterReviewsBody), findsOneWidget);
@@ -106,21 +141,11 @@ void main() {
         // stub.
         expect(find.byKey(const Key('master-review-mr-1')), findsOneWidget);
 
-        // ── Tap the REAL rendered reviews card → same tab, still no nav ──
-        final Finder reviewsTile = find.byKey(
-          const Key('salon-master-profile-reviews-tile'),
+        // ── Tap the «Послуги» TAB directly. ───────────────────────────────
+        final Finder servicesTab = find.byKey(
+          const Key('salon-master-profile-tab-1'),
         );
-        expect(reviewsTile, findsOneWidget);
-        await AppHarness.tapVisible(tester, reviewsTile);
-        await AppHarness.settle(tester);
-        expect(find.byType(MasterReviewsBody), findsOneWidget);
-
-        // ── Tap the REAL rendered services card → switches to «Послуги» ──
-        final Finder servicesTile = find.byKey(
-          const Key('salon-master-profile-services-tile'),
-        );
-        expect(servicesTile, findsOneWidget);
-        await AppHarness.tapVisible(tester, servicesTile);
+        await AppHarness.tapVisible(tester, servicesTab);
         await AppHarness.settle(tester);
 
         expect(find.byType(MasterReviewsBody), findsNothing);

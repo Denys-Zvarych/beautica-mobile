@@ -280,7 +280,6 @@ class _SalonMasterProfileScreenState
             salon: data.$3,
             tabNotifier: profileTabNotifier,
             onSelectTab: selectProfileTab,
-            tabBarAnchorKey: profileTabBarAnchor,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
@@ -307,7 +306,6 @@ class _SalonMasterProfileBody extends StatelessWidget {
     required this.salon,
     required this.tabNotifier,
     required this.onSelectTab,
-    required this.tabBarAnchorKey,
     required this.anim0,
     required this.anim1,
     required this.anim2,
@@ -337,14 +335,10 @@ class _SalonMasterProfileBody extends StatelessWidget {
   /// it never watches it.
   final ValueNotifier<int> tabNotifier;
 
-  /// [ProfileTabSelection.selectProfileTab] — passed through so both the
-  /// [ProfileTabBar] (`revealTabBar: false`, the default) and the stat
-  /// cards (`revealTabBar: true`) can select a tab.
-  final void Function(int index, {bool revealTabBar}) onSelectTab;
-
-  /// [ProfileTabSelection.profileTabBarAnchor] — wraps the [ProfileTabBar] so
-  /// a card tap can scroll it into view.
-  final GlobalKey tabBarAnchorKey;
+  /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
+  /// `onSelect`, the only way to switch tabs (the stat cards are
+  /// display-only, user decision 2026-09-26).
+  final ValueChanged<int> onSelectTab;
 
   final Animation<double> anim0;
   final Animation<double> anim1;
@@ -454,8 +448,9 @@ class _SalonMasterProfileBody extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — stat cards: «Рейтинг» / «Відгуки» / «Послуги» (D9 — «Досвід»
-        // removed, it always showed «—» with no backing field). Each card
-        // SWITCHES to the matching tab (D15) — no route push.
+        // removed, it always showed «—» with no backing field). Display-only
+        // (user decision 2026-09-26) — no tap, no ripple, no button
+        // semantics. The tabs below are the only way to switch tabs.
         RevealTransition(
           key: const Key('salon-master-profile-reveal-1'),
           fade: anim1,
@@ -478,10 +473,6 @@ class _SalonMasterProfileBody extends StatelessWidget {
                         : '—',
                     caption: l10n.masterRatingLabel,
                     valueKey: const Key('salon-master-profile-rating-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -492,10 +483,6 @@ class _SalonMasterProfileBody extends StatelessWidget {
                     value: hasReviews ? master.reviewCount.toString() : '—',
                     caption: l10n.masterStatsReviewsLabel,
                     valueKey: const Key('salon-master-profile-reviews-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -504,10 +491,6 @@ class _SalonMasterProfileBody extends StatelessWidget {
                     key: const Key('salon-master-profile-services-tile'),
                     count: services.length,
                     valueKey: const Key('salon-master-profile-services-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.services.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
               ],
@@ -524,20 +507,17 @@ class _SalonMasterProfileBody extends StatelessWidget {
           builder: (BuildContext context, int tab) => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // 3 — Tab bar. `KeyedSubtree` gives a card tap's
-              // `revealTabBar: true` scroll something to target.
+              // 3 — Tab bar. The only way to switch tabs — the stat cards
+              // above are display-only (user decision 2026-09-26).
               RevealTransition(
                 key: const Key('salon-master-profile-reveal-2'),
                 fade: anim2,
                 slide: slide2,
-                child: KeyedSubtree(
-                  key: tabBarAnchorKey,
-                  child: ProfileTabBar(
-                    tabs: masterProfileTabLabels(l10n),
-                    selected: tab,
-                    onSelect: onSelectTab,
-                    keyPrefix: 'salon-master-profile',
-                  ),
+                child: ProfileTabBar(
+                  tabs: masterProfileTabLabels(l10n),
+                  selected: tab,
+                  onSelect: onSelectTab,
+                  keyPrefix: 'salon-master-profile',
                 ),
               ),
               const SizedBox(height: VelvetSpacing.lg),

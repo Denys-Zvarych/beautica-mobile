@@ -226,11 +226,13 @@ void main() {
       expect(find.byType(Semantics), findsWidgets);
     });
 
-    // ── Phase 351 (D10′) — additive `onTap` ──────────────────────────────────
-    group('onTap (Phase 351, additive)', () {
-      testWidgets('null (default) — no InkWell, no button semantics', (
-        tester,
-      ) async {
+    // ── User decision 2026-09-26 — the stat cards are display-only ──────────
+    // `StatTile` no longer has an `onTap` param at all (Phase 351's additive
+    // `onTap` was removed with no remaining caller). This pins the tile is
+    // unconditionally non-interactive: no `InkWell`, no button semantics, and
+    // a tap on it is a no-op.
+    group('display-only (user decision 2026-09-26)', () {
+      testWidgets('no InkWell, no button semantics', (tester) async {
         // Disposed explicitly at the END of the body, not via addTearDown:
         // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
         final SemanticsHandle handle = tester.ensureSemantics();
@@ -253,52 +255,23 @@ void main() {
         handle.dispose();
       });
 
-      testWidgets('non-null — an InkWell wraps the tile, the tap fires, and '
-          'the tile is a Semantics button', (tester) async {
-        // Disposed explicitly at the END of the body, not via addTearDown:
-        // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
-        final SemanticsHandle handle = tester.ensureSemantics();
-
-        int taps = 0;
+      testWidgets('a tap on the tile does nothing observable', (tester) async {
         await tester.pumpApp(
-          StatTile(
+          const StatTile(
             icon: Icons.star_rounded,
             value: '4.8',
             caption: 'Рейтинг',
-            onTap: () => taps++,
           ),
         );
         await tester.pump();
 
-        expect(find.byType(InkWell), findsOneWidget);
-        expect(
-          tester.getSemantics(find.byType(StatTile)),
-          isSemantics(isButton: true),
-        );
-
-        await tester.tap(find.byType(StatTile));
-        await tester.pump();
-        expect(taps, 1);
-
-        handle.dispose();
-      });
-
-      testWidgets('non-null — the tile keeps at least a 48dp hit target', (
-        tester,
-      ) async {
-        await tester.pumpApp(
-          StatTile(
-            icon: Icons.star_rounded,
-            value: '4.8',
-            caption: 'Рейтинг',
-            onTap: () {},
-          ),
-        );
+        // No InkWell / GestureDetector to hit — warnIfMissed would flag a
+        // real interactive target the tap failed to land on.
+        await tester.tap(find.byType(StatTile), warnIfMissed: false);
         await tester.pump();
 
-        final Size size = tester.getSize(find.byType(StatTile));
-        expect(size.width, greaterThanOrEqualTo(48));
-        expect(size.height, greaterThanOrEqualTo(48));
+        expect(find.byType(StatTile), findsOneWidget);
+        expect(find.text('4.8'), findsOneWidget);
       });
     });
   });

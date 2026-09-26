@@ -222,7 +222,6 @@ class _PublicMasterProfileScreenState
             services: data.$2,
             tabNotifier: profileTabNotifier,
             onSelectTab: selectProfileTab,
-            tabBarAnchorKey: profileTabBarAnchor,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
@@ -249,7 +248,6 @@ class _PublicProfileBody extends StatelessWidget {
     required this.services,
     required this.tabNotifier,
     required this.onSelectTab,
-    required this.tabBarAnchorKey,
     required this.anim0,
     required this.anim1,
     required this.anim2,
@@ -278,14 +276,10 @@ class _PublicProfileBody extends StatelessWidget {
   /// it never watches it.
   final ValueNotifier<int> tabNotifier;
 
-  /// [ProfileTabSelection.selectProfileTab] — passed through so both the
-  /// [ProfileTabBar] (`revealTabBar: false`, the default) and the stat
-  /// cards (`revealTabBar: true`) can select a tab.
-  final void Function(int index, {bool revealTabBar}) onSelectTab;
-
-  /// [ProfileTabSelection.profileTabBarAnchor] — wraps the [ProfileTabBar] so
-  /// a card tap can scroll it into view.
-  final GlobalKey tabBarAnchorKey;
+  /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
+  /// `onSelect`, the only way to switch tabs (the stat cards are
+  /// display-only, user decision 2026-09-26).
+  final ValueChanged<int> onSelectTab;
 
   final Animation<double> anim0;
   final Animation<double> anim1;
@@ -433,10 +427,10 @@ class _PublicProfileBody extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — Stat cards: «Рейтинг» / «Послуги» / «Відгуки» (D9 — «Досвід»
-        // removed, it always showed «—» with no backing field). Each card
-        // SWITCHES to the matching tab (U6/U7) via the `ProfileTabSelection`
-        // mixin's `selectProfileTab(..., revealTabBar: true)` — no route
-        // push, no second path to the same content (D15).
+        // removed, it always showed «—» with no backing field). Display-only
+        // (user decision 2026-09-26) — no tap, no ripple, no button
+        // semantics. The «Про майстра» / «Послуги» / «Відгуки» tabs below are
+        // the only way to switch tabs.
         RevealTransition(
           key: const Key('public-master-profile-reveal-1'),
           fade: anim1,
@@ -460,10 +454,6 @@ class _PublicProfileBody extends StatelessWidget {
                     value: master.displayRating?.toStringAsFixed(1) ?? '—',
                     caption: l10n.masterRatingLabel,
                     valueKey: const Key('public-master-profile-rating-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -472,10 +462,6 @@ class _PublicProfileBody extends StatelessWidget {
                     key: const Key('public-master-profile-services-tile'),
                     count: services.length,
                     valueKey: const Key('public-master-profile-services-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.services.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -486,10 +472,6 @@ class _PublicProfileBody extends StatelessWidget {
                     value: hasReviews ? master.reviewCount.toString() : '—',
                     caption: l10n.masterStatsReviewsLabel,
                     valueKey: const Key('public-master-profile-reviews-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
               ],
@@ -510,20 +492,17 @@ class _PublicProfileBody extends StatelessWidget {
               // widget the public salon profile uses, own `keyPrefix` so its
               // finders read as this screen's own
               // (`public-master-profile-tab-0` etc.), not borrowed from the
-              // salon's `salon-tab-*`. `KeyedSubtree` gives a card tap's
-              // `revealTabBar: true` scroll something to target.
+              // salon's `salon-tab-*`. The only way to switch tabs — the stat
+              // cards above are display-only (user decision 2026-09-26).
               RevealTransition(
                 key: const Key('public-master-profile-reveal-2'),
                 fade: anim2,
                 slide: slide2,
-                child: KeyedSubtree(
-                  key: tabBarAnchorKey,
-                  child: ProfileTabBar(
-                    tabs: masterProfileTabLabels(l10n),
-                    selected: tab,
-                    onSelect: onSelectTab,
-                    keyPrefix: 'public-master-profile',
-                  ),
+                child: ProfileTabBar(
+                  tabs: masterProfileTabLabels(l10n),
+                  selected: tab,
+                  onSelect: onSelectTab,
+                  keyPrefix: 'public-master-profile',
                 ),
               ),
               const SizedBox(height: VelvetSpacing.lg),

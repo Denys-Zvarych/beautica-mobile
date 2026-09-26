@@ -246,7 +246,6 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
             master: master,
             tabNotifier: profileTabNotifier,
             onSelectTab: selectProfileTab,
-            tabBarAnchorKey: profileTabBarAnchor,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
@@ -271,7 +270,6 @@ class _ProfileBody extends StatelessWidget {
     required this.master,
     required this.tabNotifier,
     required this.onSelectTab,
-    required this.tabBarAnchorKey,
     required this.anim0,
     required this.anim1,
     required this.anim2,
@@ -291,14 +289,10 @@ class _ProfileBody extends StatelessWidget {
   /// it never watches it.
   final ValueNotifier<int> tabNotifier;
 
-  /// [ProfileTabSelection.selectProfileTab] — passed through so both the
-  /// [ProfileTabBar] (`revealTabBar: false`, the default) and the stat
-  /// cards (`revealTabBar: true`) can select a tab.
-  final void Function(int index, {bool revealTabBar}) onSelectTab;
-
-  /// [ProfileTabSelection.profileTabBarAnchor] — wraps the [ProfileTabBar] so
-  /// a card tap can scroll it into view.
-  final GlobalKey tabBarAnchorKey;
+  /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
+  /// `onSelect`, the only way to switch tabs (the stat cards are
+  /// display-only, user decision 2026-09-26).
+  final ValueChanged<int> onSelectTab;
 
   // Fix 1 (PERF HIGH-1): pre-built CurvedAnimation instances passed from the
   // owning StatefulWidget. Using FadeTransition + SlideTransition avoids a
@@ -470,14 +464,11 @@ class _ProfileBody extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.xl),
 
         // 2 — 4-up stat cards: bookings / rating / services / reviews (U5 —
-        // the cards STAY). Phase 351 — the bookings tile stays
-        // non-interactive; rating/services/reviews now SWITCH tabs in place
-        // (U6/U7, D15) instead of pushing the deleted `MasterReceivedReviews
-        // Screen` route (D11) — no wrapper `GestureDetector` any more, the
-        // former tile keys move straight onto the `StatTile`/`ServicesStatTile`
-        // itself via `onTap` (D10′). IntrinsicHeight + CrossAxisAlignment.
-        // stretch ensures equal heights even when caption text wraps (e.g.
-        // "Записів\nмісяця").
+        // the cards STAY). Display-only (user decision 2026-09-26) — no tap,
+        // no ripple, no button semantics, on any of the four. The «Про
+        // майстра» / «Послуги» / «Відгуки» tabs below are the only way to
+        // switch tabs. IntrinsicHeight + CrossAxisAlignment.stretch ensures
+        // equal heights even when caption text wraps (e.g. "Записів\nмісяця").
         _revealWith(
           anim1,
           slide1,
@@ -487,6 +478,7 @@ class _ProfileBody extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: StatTile(
+                    key: const Key('master-profile-bookings-tile'),
                     icon: Icons.calendar_month_outlined,
                     // Qase defect #25 — this tile rendered a hardcoded '—'
                     // because the field did not exist. `GET /masters/me` now
@@ -516,10 +508,6 @@ class _ProfileBody extends StatelessWidget {
                     value: master.displayRating?.toStringAsFixed(1) ?? '—',
                     caption: l10n.masterRatingLabel,
                     valueKey: const Key('master-profile-rating-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
                 const SizedBox(width: VelvetSpacing.sm),
@@ -543,10 +531,6 @@ class _ProfileBody extends StatelessWidget {
                         count: count,
                         hasError: hasError,
                         valueKey: const Key('master-profile-services-value'),
-                        onTap: () => onSelectTab(
-                          MasterProfileTab.services.index,
-                          revealTabBar: true,
-                        ),
                       );
                     },
                   ),
@@ -561,10 +545,6 @@ class _ProfileBody extends StatelessWidget {
                         : master.reviewCount.toString(),
                     caption: l10n.masterStatsReviewsLabel,
                     valueKey: const Key('master-profile-reviews-value'),
-                    onTap: () => onSelectTab(
-                      MasterProfileTab.reviews.index,
-                      revealTabBar: true,
-                    ),
                   ),
                 ),
               ],
@@ -581,19 +561,16 @@ class _ProfileBody extends StatelessWidget {
           builder: (BuildContext context, int tab) => Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // 3 — Tab bar. `KeyedSubtree` gives a card tap's
-              // `revealTabBar: true` scroll something to target.
+              // 3 — Tab bar. The only way to switch tabs — the stat cards
+              // above are display-only (user decision 2026-09-26).
               _revealWith(
                 anim2,
                 slide2,
-                KeyedSubtree(
-                  key: tabBarAnchorKey,
-                  child: ProfileTabBar(
-                    tabs: masterProfileTabLabels(l10n),
-                    selected: tab,
-                    onSelect: onSelectTab,
-                    keyPrefix: 'master-profile',
-                  ),
+                ProfileTabBar(
+                  tabs: masterProfileTabLabels(l10n),
+                  selected: tab,
+                  onSelect: onSelectTab,
+                  keyPrefix: 'master-profile',
                 ),
               ),
               const SizedBox(height: VelvetSpacing.lg),

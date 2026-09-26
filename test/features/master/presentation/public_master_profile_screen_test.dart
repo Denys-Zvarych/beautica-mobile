@@ -939,11 +939,12 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 351 — card → tab switching. Cards SWITCH the screen's own tab in
-  // place (U6/U7, D15) instead of pushing `masterPublicReviews` — no route
-  // push, no second path to the same content.
+  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
+  // Phase 351's card → tab mechanism (U6/U7, D15): a card tap must leave the
+  // selected tab and route unchanged, and expose no button semantics. The
+  // «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to switch.
   // ──────────────────────────────────────────────────────────────────────────
-  group('card → tab switching (Phase 351)', () {
+  group('stat cards are display-only (user decision 2026-09-26)', () {
     List<Object> overridesWithReviews() => <Object>[
       ..._overrides((ref) => _stubData),
       masterReviewSummaryProvider(_kMasterId).overrideWith(
@@ -959,79 +960,72 @@ void main() {
       ).overrideWith((ref) async => const <MasterReviewItem>[]),
     ];
 
-    testWidgets('tapping the rating card switches to the «Відгуки» tab, no '
-        'navigation', (tester) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+    for (final String cardKey in <String>[
+      'public-master-profile-rating-tile',
+      'public-master-profile-reviews-tile',
+      'public-master-profile-services-tile',
+    ]) {
+      testWidgets(
+        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
+        (tester) async {
+          tester.view.physicalSize = const Size(800, 2400);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: overridesWithReviews(),
+          await tester.pumpApp(
+            const PublicMasterProfileScreen(masterId: _kMasterId),
+            overrides: overridesWithReviews(),
+          );
+          await tester.pumpAndSettle();
+
+          // Default tab «Про майстра» is showing — neither tab body is
+          // mounted yet.
+          expect(
+            find.byKey(const Key('public-master-profile-about-tab')),
+            findsOneWidget,
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(ServiceCategoryCardList), findsNothing);
+
+          // No InkWell/GestureDetector on the card — warnIfMissed would flag
+          // a real interactive target the tap failed to land on.
+          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('public-master-profile-about-tab')),
+            findsOneWidget,
+            reason: 'a card tap must never switch the screen\'s own tab',
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(ServiceCategoryCardList), findsNothing);
+          expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+          expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+        },
       );
-      await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byKey(const Key('public-master-profile-rating-tile')),
-      );
-      await tester.pumpAndSettle();
+      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final SemanticsHandle handle = tester.ensureSemantics();
 
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-      expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
-      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
-    });
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: overridesWithReviews(),
+        );
+        await tester.pumpAndSettle();
 
-    testWidgets('tapping the reviews card switches to the «Відгуки» tab', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+        expect(
+          tester.getSemantics(find.byKey(Key(cardKey))),
+          isNot(isSemantics(isButton: true)),
+        );
 
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: overridesWithReviews(),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const Key('public-master-profile-reviews-tile')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-    });
-
-    testWidgets('tapping the services card switches to the «Послуги» tab', (
-      tester,
-    ) async {
-      tester.view.physicalSize = const Size(800, 2400);
-      tester.view.devicePixelRatio = 1.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: overridesWithReviews(),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const Key('public-master-profile-services-tile')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const Key('public-master-profile-category-MANICURE')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('public-master-profile-about-tab')),
-        findsNothing,
-      );
-    });
+        handle.dispose();
+      });
+    }
   });
 
   // ──────────────────────────────────────────────────────────────────────────

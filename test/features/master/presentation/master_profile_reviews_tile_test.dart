@@ -1,7 +1,9 @@
-// Phase 4.6, rewritten Phase 351 — Entry-point test: the master profile's
-// «Відгуки» stat tile (`Key('master-profile-reviews-tile')`) is present and
-// tapping it SWITCHES the screen to the «Відгуки» tab IN PLACE (D15/D11) —
-// the standalone «Мої відгуки» route it used to push is deleted.
+// Phase 4.6, rewritten Phase 351, rewritten user decision 2026-09-26 —
+// Entry-point test: the master profile's «Відгуки» stat tile
+// (`Key('master-profile-reviews-tile')`) renders, and tapping it does
+// NOTHING — no tab switch, no navigation, no button semantics. The stat
+// cards are display-only; the «Про майстра» / «Послуги» / «Відгуки» tabs
+// are the only way to switch tabs.
 //
 // No second route is registered on the test router — see
 // `master_profile_rating_tile_test.dart`'s header for why.
@@ -130,8 +132,8 @@ void main() {
   });
 
   testWidgets(
-    'the reviews stat tile is present and tapping it switches to the «Відгуки» '
-    'tab in place (no navigation)',
+    'the reviews stat tile is present and tapping it leaves the selected '
+    'tab and route unchanged (display-only, user decision 2026-09-26)',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -152,15 +154,17 @@ void main() {
       expect(tile, findsOneWidget, reason: 'the reviews stat tile must render');
       expect(find.byType(MasterReviewsBody), findsNothing);
 
-      await tester.tap(tile);
+      // No InkWell/GestureDetector on the tile — warnIfMissed would flag a
+      // real interactive target the tap failed to land on.
+      await tester.tap(tile, warnIfMissed: false);
       await tester.pumpAndSettle();
 
       expect(
         find.byType(MasterReviewsBody),
-        findsOneWidget,
+        findsNothing,
         reason:
-            'tapping the reviews tile must switch the screen to the '
-            '«Відгуки» tab in place',
+            'the reviews tile is display-only — a tap must never switch '
+            'the screen to the «Відгуки» tab',
       );
       expect(find.byType(MasterProfileScreen), findsOneWidget);
       expect(
@@ -170,4 +174,29 @@ void main() {
       );
     },
   );
+
+  testWidgets('the reviews stat tile exposes no button semantics', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final SemanticsHandle handle = tester.ensureSemantics();
+
+    final GoRouter router = _buildRouter();
+    await tester.pumpWidget(
+      _buildApp(
+        masterRepo: masterRepo,
+        serviceRepo: serviceRepo,
+        router: router,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder tile = find.byKey(const Key('master-profile-reviews-tile'));
+    expect(tester.getSemantics(tile), isNot(isSemantics(isButton: true)));
+
+    handle.dispose();
+  });
 }

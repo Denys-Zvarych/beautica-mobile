@@ -67,6 +67,7 @@ import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
@@ -209,10 +210,11 @@ void main() {
         reason: 'the services-count stat must reflect the seeded list length',
       );
 
-      // ── Service-categories section — Phase 351: now lives under the
-      // «Послуги» TAB, reached by tapping the «Послуги» stat CARD (U6/U7,
-      // D15) — no route push, in-place tab switch. Read-only summary card
-      // grouped from the SAME real GET /masters/{id}/services response
+      // ── Service-categories section — Phase 351: lives under the
+      // «Послуги» TAB; user decision 2026-09-26 made the stat cards
+      // display-only, so the tab bar itself is the only way to reach it — no
+      // route push, in-place tab switch. Read-only summary card grouped from
+      // the SAME real GET /masters/{id}/services response
       // (fb.getPublicMasterServicesCalls). FakeBackend seeds both
       // `_publicMasterServices` entries under category NAILS, so exactly one
       // card renders with a count matching the seeded list length. This is
@@ -223,9 +225,7 @@ void main() {
       // multi-category / uncategorized fixtures, which would be pure
       // duplication to re-derive here against the single-category fake-
       // backend fixture. ──────────────────────────────────────────────────
-      await tester.tap(
-        find.byKey(const Key('public-master-profile-services-tile')),
-      );
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
       await tester.pumpAndSettle();
 
       final Finder nailsCard = find.byKey(
@@ -634,23 +634,22 @@ void main() {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Flow E — Phase 351: the 4 StatTiles are down to 3 (no «Досвід») and STAY
-  // (U5) — the «Відгуки» tile's old regression (rendered with NO
-  // GestureDetector, a silent no-op) is long fixed; both the rating card AND
-  // the reviews card now SWITCH the screen to the «Відгуки» TAB in place
-  // (U6/U7, D15) instead of pushing a route. This flow drives REAL taps on
-  // the REAL rendered cards (never `router.go`/`router.push` standing in for
-  // the tap) and proves the reviews render in place, via the PUBLIC
+  // Flow E — Phase 351 gave the 4 StatTiles down to 3 (no «Досвід») and STAY
+  // (U5); user decision 2026-09-26 then made the stat cards DISPLAY-ONLY —
+  // superseding Phase 351's card → tab mechanism (U6/U7, D15). This flow
+  // drives REAL taps on the REAL rendered rating/reviews/services cards and proves
+  // they are now no-ops (no tab switch, no navigation), then reaches the
+  // «Відгуки» tab the only remaining way — the tab bar — and proves the
+  // reviews render there, via the PUBLIC
   // `GET /masters/master-aaa/reviews[/summary]` endpoints — never the
   // `masterRowId`-keyed AUTHENTICATED-master self routes
   // ([FakeBackend.getMasterReviewSummaryCalls] / [getMasterReviewsCalls]),
-  // which a CLIENT session has no business ever touching. Also pins the
-  // rewritten acceptance criterion #4 (phase doc): tapping the rating card
-  // selects the «Відгуки» tab — it is no longer a no-op.
+  // which a CLIENT session has no business ever touching.
   // ──────────────────────────────────────────────────────────────────────────
   testWidgets(
-    'CLIENT taps the rating/reviews cards on a master public profile → '
-    'the real reviews render INLINE (never pushed), via the «Відгуки» tab',
+    'CLIENT taps the rating/reviews/services cards on a master public profile → '
+    'nothing happens; the «Відгуки» tab (tapped directly) renders the real '
+    'reviews INLINE',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.client;
       final GoRouter router = await AppHarness.boot(tester, fb);
@@ -664,31 +663,51 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, '/masters/master-aaa');
 
-      // ── Acceptance #4 (rewritten) — tapping the rating CARD selects the
-      // «Відгуки» tab in place: no navigation, still on the same route. ────
+      // ── The stat cards are DISPLAY-ONLY (user decision 2026-09-26) —
+      // tapping the REAL rendered rating/reviews/services cards must do nothing: no
+      // tab switch, no navigation, still on the same route. ────────────────
       final Finder ratingTile = find.byKey(
         const Key('public-master-profile-rating-tile'),
       );
       expect(ratingTile, findsOneWidget);
       await tester.ensureVisible(ratingTile);
-      await tester.tap(ratingTile);
-      // fixed-wait-ok: settles the real async review-provider loads triggered by the tab switch; not a total-wait guess.
+      await tester.tap(ratingTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
       await tester.pumpAndSettle(const Duration(seconds: 1));
       AppHarness.expectLocation(router, '/masters/master-aaa');
       expect(find.byType(PublicMasterReviewsScreen), findsNothing);
-      expect(
-        find.byKey(const Key('public-master-profile-tab-2')),
-        findsOneWidget,
-      );
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
-      // ── Tap the REAL rendered reviews CARD (the tap the bug report was
-      // originally about, now a stat card that switches tabs). ─────────────
       final Finder reviewsTile = find.byKey(
         const Key('public-master-profile-reviews-tile'),
       );
       expect(reviewsTile, findsOneWidget);
       await tester.ensureVisible(reviewsTile);
-      await tester.tap(reviewsTile);
+      await tester.tap(reviewsTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+
+      final Finder servicesTile = find.byKey(
+        const Key('public-master-profile-services-tile'),
+      );
+      expect(servicesTile, findsOneWidget);
+      await tester.ensureVisible(servicesTile);
+      await tester.tap(servicesTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+
+      // ── Tap the «Відгуки» TAB directly — the only remaining way to
+      // switch. ─────────────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
       // fixed-wait-ok: settles the real async review-provider loads triggered by the tab switch; not a total-wait guess.
       await tester.pumpAndSettle(const Duration(seconds: 1));
 

@@ -712,12 +712,14 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 351 — card → tab switching. The rating/reviews/services cards STAY
-  // (U5) but now switch the screen's own tab in place (D15/D16) instead of
-  // pushing the deleted standalone «Мої відгуки» route (D11). The bookings
-  // card stays non-interactive — no tab of its own.
+  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
+  // Phase 351's card → tab mechanism (U6/U7, D15/D16): a card tap must leave
+  // the selected tab and route unchanged, and expose no button semantics.
+  // The bookings card was already non-interactive; the other three now match
+  // it. The «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to
+  // switch tabs.
   // ──────────────────────────────────────────────────────────────────────────
-  group('card → tab switching (Phase 351)', () {
+  group('stat cards are display-only (user decision 2026-09-26)', () {
     List<Object> overridesWithReviews() => <Object>[
       ..._buildOverrides(
         masterState: const AsyncData<Master>(_stubMaster),
@@ -758,16 +760,70 @@ void main() {
       expect(find.byType(MasterReviewsBody), findsNothing);
     });
 
-    testWidgets('tapping the rating card switches to the «Відгуки» tab, no '
-        'navigation', (tester) async {
+    for (final String cardKey in <String>[
+      'master-profile-rating-tile',
+      'master-profile-reviews-tile',
+      'master-profile-services-tile',
+    ]) {
+      testWidgets(
+        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
+        (tester) async {
+          await pumpTall(tester);
+
+          expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+          expect(find.byType(MasterReviewsBody), findsNothing);
+
+          // No InkWell/GestureDetector on the card — warnIfMissed would flag
+          // a real interactive target the tap failed to land on.
+          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('master-profile-bio')),
+            findsOneWidget,
+            reason: 'a card tap must never switch the screen\'s own tab',
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(MasterProfileScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await pumpTall(tester);
+
+        expect(
+          tester.getSemantics(find.byKey(Key(cardKey))),
+          isNot(isSemantics(isButton: true)),
+        );
+
+        handle.dispose();
+      });
+    }
+
+    testWidgets('the bookings card has no tap handler (non-interactive)', (
+      tester,
+    ) async {
       await pumpTall(tester);
 
-      await tester.tap(find.byKey(const Key('master-profile-rating-tile')));
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      final Finder bookingsTile = find.ancestor(
+        of: find.text(l10n.masterStatsBookingsLabel),
+        matching: find.byType(StatTile),
+      );
+      expect(bookingsTile, findsOneWidget);
+      expect(
+        find.descendant(of: bookingsTile, matching: find.byType(InkWell)),
+        findsNothing,
+      );
+
+      await tester.tap(bookingsTile, warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-      expect(find.byKey(const Key('master-profile-bio')), findsNothing);
-      expect(find.byType(MasterProfileScreen), findsOneWidget);
+      expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+      expect(find.byType(MasterReviewsBody), findsNothing);
     });
 
     // mobile-perf LOW (Phase 351 audit-fix cycle 1) — `selectProfileTab` used
@@ -779,7 +835,9 @@ void main() {
     // `ProfileTabSection` (`ValueListenableBuilder`) — this proves the
     // isolation actually confines the rebuild, via Flutter's own
     // `debugPrintRebuildDirtyWidgets` diagnostic rather than a build-counter
-    // hand-rolled into `lib/` (not allowed there).
+    // hand-rolled into `lib/` (not allowed there). The cards are display-only
+    // now (user decision 2026-09-26), so the tap that exercises the switch is
+    // on the TAB itself — the only remaining entry point.
     //
     // HOW THIS FAILS PRE-FIX: with `selectProfileTab` restored to a plain
     // `setState(() => profileTab = i)` (no `ValueNotifier`/`ProfileTabSection`
@@ -794,8 +852,8 @@ void main() {
     // `profile_tab_selection.dart`'s `selectProfileTab` to the old
     // `setState`-only body; restored immediately, not committed.
     testWidgets(
-      'tapping a stat card to switch tabs does not rebuild the identity '
-      'card — only the isolated tab-bar/tab-body region does',
+      'tapping the «Відгуки» tab does not rebuild the identity card — only '
+      'the isolated tab-bar/tab-body region does',
       (tester) async {
         await pumpTall(tester);
 
@@ -810,7 +868,7 @@ void main() {
           debugPrint = originalDebugPrint;
         });
 
-        await tester.tap(find.byKey(const Key('master-profile-rating-tile')));
+        await tester.tap(find.byKey(const Key('master-profile-tab-2')));
         // ONE frame — enough for `Element.rebuild()` to run (and log) for
         // every element the tap actually marks dirty; a `pumpAndSettle`
         // would also capture the entrance `AnimationController`'s remaining
@@ -844,49 +902,6 @@ void main() {
       },
     );
 
-    testWidgets('tapping the reviews card switches to the «Відгуки» tab', (
-      tester,
-    ) async {
-      await pumpTall(tester);
-
-      await tester.tap(find.byKey(const Key('master-profile-reviews-tile')));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(MasterReviewsBody), findsOneWidget);
-    });
-
-    testWidgets('tapping the services card switches to the «Послуги» tab', (
-      tester,
-    ) async {
-      await pumpTall(tester);
-
-      await tester.tap(find.byKey(const Key('master-profile-services-tile')));
-      await tester.pumpAndSettle();
-
-      expect(find.byType(ServiceCategoryCardList), findsNothing);
-      // Zero services in this fixture → the empty-state CTA renders instead
-      // of a card list, but the tab body itself must have switched.
-      expect(find.byKey(const Key('btn-master-add-services')), findsOneWidget);
-      expect(find.byKey(const Key('master-profile-bio')), findsNothing);
-    });
-
-    testWidgets('the bookings card has no tap handler (non-interactive)', (
-      tester,
-    ) async {
-      await pumpTall(tester);
-
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterProfileScreen)),
-      );
-      final StatTile bookingsTile = tester.widget<StatTile>(
-        find.ancestor(
-          of: find.text(l10n.masterStatsBookingsLabel),
-          matching: find.byType(StatTile),
-        ),
-      );
-      expect(bookingsTile.onTap, isNull);
-    });
-
     testWidgets('the selected tab survives a push/pop through the category '
         'editor', (tester) async {
       final router = GoRouter(
@@ -911,7 +926,9 @@ void main() {
       await tester.pumpRoutedApp(router, overrides: overridesWithReviews());
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('master-profile-services-tile')));
+      // The cards are display-only (user decision 2026-09-26) — reach
+      // «Послуги» via the tab itself.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('btn-master-add-services')), findsOneWidget);
 

@@ -39,7 +39,6 @@ class ServicesStatTile extends StatelessWidget {
     required this.count,
     required this.valueKey,
     this.hasError = false,
-    this.onTap,
   });
 
   /// Number of services, or `null` when the catalogue is not resolved.
@@ -50,10 +49,6 @@ class ServicesStatTile extends StatelessWidget {
 
   /// [Key] placed on the value [Text] — the per-screen handle widget tests use.
   final Key valueKey;
-
-  /// Phase 351 (D10′) — additive pass-through to [StatTile.onTap]. `null` by
-  /// default, so every pre-existing caller renders byte-identically.
-  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +66,6 @@ class ServicesStatTile extends StatelessWidget {
       value: value,
       caption: l10n.masterServicesLabel,
       valueKey: valueKey,
-      onTap: onTap,
     );
   }
 }

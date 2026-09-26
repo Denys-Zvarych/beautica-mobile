@@ -1,8 +1,9 @@
-// Phase 4.6 follow-up, rewritten Phase 351 — Entry-point test: the master
-// profile's «Рейтинг» stat tile (`Key('master-profile-rating-tile')`) is
-// present and tapping it SWITCHES the screen to the «Відгуки» tab IN PLACE
-// (D15/D11) — the standalone «Мої відгуки» route it used to push is deleted.
-// Mirrors `master_profile_reviews_tile_test.dart`.
+// Phase 4.6 follow-up, rewritten Phase 351, rewritten user decision
+// 2026-09-26 — Entry-point test: the master profile's «Рейтинг» stat tile
+// (`Key('master-profile-rating-tile')`) renders, and tapping it does
+// NOTHING — no tab switch, no navigation, no button semantics. The stat
+// cards are display-only; the «Про майстра» / «Послуги» / «Відгуки» tabs
+// are the only way to switch tabs.
 //
 // No second route is registered on the test router: if a future regression
 // reintroduced a `context.push`, it would throw (no matching route) rather
@@ -55,10 +56,9 @@ const _stubMaster = Master(
   type: MasterType.independentMaster,
 );
 
-/// Zero-review fixture — the reviews tile switches tabs unconditionally
-/// regardless of `reviewCount` (only the DISPLAYED value is conditional:
-/// '—' vs the number). This test pins that the rating tile matches that
-/// behaviour rather than gating the tap on `reviewCount > 0`.
+/// Zero-review fixture — pins that the rating tile stays inert regardless of
+/// `reviewCount` (only the DISPLAYED value is conditional: '—' vs the
+/// number).
 const _stubMasterZeroReviews = Master(
   id: 'user-master-1',
   firstName: 'Олена',
@@ -152,8 +152,8 @@ void main() {
   });
 
   testWidgets(
-    'the rating stat tile is present and tapping it switches to the «Відгуки» '
-    'tab in place (no navigation)',
+    'the rating stat tile is present and tapping it leaves the selected tab '
+    'and route unchanged (display-only, user decision 2026-09-26)',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -175,23 +175,18 @@ void main() {
       expect(tile, findsOneWidget, reason: 'the rating stat tile must render');
       expect(find.byType(MasterReviewsBody), findsNothing);
 
-      // The real tap drives the tile's own onTap → selectProfileTab — never a
-      // router.go/push stand-in.
-      await tester.tap(tile);
+      // No InkWell/GestureDetector on the tile — warnIfMissed would flag a
+      // real interactive target the tap failed to land on.
+      await tester.tap(tile, warnIfMissed: false);
       await tester.pumpAndSettle();
 
       expect(
         find.byType(MasterReviewsBody),
-        findsOneWidget,
+        findsNothing,
         reason:
-            'tapping the rating tile must switch the screen to the «Відгуки» '
-            'tab in place',
+            'the rating tile is display-only — a tap must never switch the '
+            'screen to the «Відгуки» tab',
       );
-      // No navigation happened — still the same screen, same location. No
-      // push ever happens in this test (the tap only switches a local tab)
-      // — the router's ONLY match is the initial `.go()`-installed route, so
-      // the ImperativeRouteMatch exclusion this guard protects against never
-      // applies here.
       expect(find.byType(MasterProfileScreen), findsOneWidget);
       expect(
         // router-location-ok: go-only navigation in this test, never a push.
@@ -201,9 +196,35 @@ void main() {
     },
   );
 
+  testWidgets('the rating stat tile exposes no button semantics', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final SemanticsHandle handle = tester.ensureSemantics();
+
+    final GoRouter router = _buildRouter();
+    await tester.pumpWidget(
+      _buildApp(
+        masterRepo: masterRepo,
+        serviceRepo: serviceRepo,
+        router: router,
+        master: _stubMaster,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder tile = find.byKey(const Key('master-profile-rating-tile'));
+    expect(tester.getSemantics(tile), isNot(isSemantics(isButton: true)));
+
+    handle.dispose();
+  });
+
   testWidgets(
-    'the rating stat tile still switches tabs when reviewCount is 0 (the '
-    'tile shows a dash but tapping is not gated on having reviews)',
+    'the rating stat tile stays inert when reviewCount is 0 (shows a dash, '
+    'no tap behaviour either way)',
     (tester) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -229,21 +250,15 @@ void main() {
         '—',
       );
 
-      // … but the tile is still tappable and still switches tabs.
+      // … and the tile is still non-interactive.
       final Finder tile = find.byKey(const Key('master-profile-rating-tile'));
       expect(tile, findsOneWidget);
       expect(find.byType(MasterReviewsBody), findsNothing);
 
-      await tester.tap(tile);
+      await tester.tap(tile, warnIfMissed: false);
       await tester.pumpAndSettle();
 
-      expect(
-        find.byType(MasterReviewsBody),
-        findsOneWidget,
-        reason:
-            'the rating tile must switch tabs unconditionally regardless of '
-            'reviewCount, matching the reviews tile\'s behaviour',
-      );
+      expect(find.byType(MasterReviewsBody), findsNothing);
     },
   );
 }
