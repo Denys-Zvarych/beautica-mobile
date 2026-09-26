@@ -57,9 +57,13 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/discovery/data/category_service_providers.dart';
+import 'package:beautica_mobile/features/discovery/data/search_suggestion_repository.dart';
 import 'package:beautica_mobile/features/discovery/domain/category_service_option.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_suggestions.dart';
 import 'package:beautica_mobile/features/discovery/presentation/search_filters_screen.dart';
+import 'package:beautica_mobile/features/discovery/presentation/search_suggestions_provider.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/category_rail.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/service_chip_drawer.dart';
@@ -256,6 +260,49 @@ Future<AppLocalizations> _uk() =>
 // Captures the SearchFilters the CTA pushes to /search/results.
 SearchFilters? _pushedFilters;
 
+/// Phase 352 — records every `/search/suggestions` call
+/// (`(term, cityId, districtId)`) and resolves via [resolve] (default: no
+/// rows, ever). Every `_pumpScreen` call overrides
+/// `searchSuggestionRepositoryProvider` with an instance of this — EVERY
+/// existing test in this file types into `search_query_field`, which now
+/// also drives `searchSuggestionsProvider`, and without a fake here that
+/// hits the real (unmocked) Dio: a leaked pending-timer / hung
+/// `pumpAndSettle` regression class this file must not reintroduce (mirrors
+/// `forbid_unmocked_approved_categories.sh`'s footgun for the sibling
+/// provider).
+typedef _SuggestionCall = ({String term, String? cityId, String? districtId});
+
+class _FakeSearchSuggestionRepository implements SearchSuggestionRepository {
+  _FakeSearchSuggestionRepository({this.resolve = _defaultResolve});
+
+  final Future<List<SearchSuggestion>> Function(
+    String term,
+    String? cityId,
+    String? districtId,
+  )
+  resolve;
+
+  final List<_SuggestionCall> calls = <_SuggestionCall>[];
+
+  static Future<List<SearchSuggestion>> _defaultResolve(
+    String term,
+    String? cityId,
+    String? districtId,
+  ) async => const <SearchSuggestion>[];
+
+  @override
+  Future<List<SearchSuggestion>> fetch({
+    required String term,
+    String? cityId,
+    String? districtId,
+    int limit = kSearchSuggestionMax,
+    CancelToken? cancelToken,
+  }) {
+    calls.add((term: term, cityId: cityId, districtId: districtId));
+    return resolve(term, cityId, districtId);
+  }
+}
+
 /// A mutable holder for the desired [approvedCategoriesProvider] result, read
 /// fresh on every provider (re-)run. Lets the retry test flip the result from
 /// error → data and have a subsequent `ref.invalidate` re-resolve to the new
@@ -299,12 +346,19 @@ Future<_CategoriesController> _pumpScreen(
   ),
   bool withRouter = false,
   ClientEditProfile Function() profile = _FixedClientEditProfile.new,
+  // Phase 352 — additive. `null` (every pre-existing call site) gets a fresh
+  // no-op fake, so every test that types into `search_query_field` never
+  // reaches the real Dio. A suggestion-specific test passes its OWN instance
+  // and keeps a reference to it for assertions.
+  SearchSuggestionRepository? suggestionRepository,
 }) async {
   installOverflowGuard();
   _pushedFilters = null;
 
   final repo = _MockServiceRepository();
   final categoriesController = _CategoriesController(categories);
+  final SearchSuggestionRepository suggestions =
+      suggestionRepository ?? _FakeSearchSuggestionRepository();
 
   // Tall surface so the whole scrollable filter column (incl. the price slider
   // near the bottom) lays out on-screen — drag()/tap() need an on-screen,
@@ -379,6 +433,9 @@ Future<_CategoriesController> _pumpScreen(
         // driving both the settlement sheet and the District row's
         // `districtsOf` gate through the same fake.
         locationRepositoryProvider.overrideWithValue(_FakeLocationRepository()),
+        // Phase 352 — every test that types into `search_query_field` now
+        // also drives `searchSuggestionsProvider`; see the fake's doc.
+        searchSuggestionRepositoryProvider.overrideWithValue(suggestions),
       ],
       child: app,
     ),
@@ -1431,5 +1488,233 @@ void main() {
         expect(_cityValueText(tester), 'Київ');
       },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 352 — the «Пошук» suggestion list. `_narCategories` seeds an
+  // EYELASH category («Нарощення вій») that word-starts on «нар», so the
+  // LOCAL (national, no-place) instant layer has something to show; the fake
+  // suggestion repository resolves a SERVICE row («Нарощення нігтів», NAILS,
+  // slug `nail-extension`) for any term containing «нар», scoped by place
+  // exactly like the real backend (D2).
+  // ---------------------------------------------------------------------
+  group('ClientSearchScreen — suggestion list (Phase 352)', () {
+    const narCategories = <ServiceCategoryOption>[
+      ServiceCategoryOption(name: 'EYELASH', displayName: 'Нарощення вій'),
+      ServiceCategoryOption(name: 'NAILS', displayName: 'Нігті'),
+    ];
+    const nailService = SearchSuggestion(
+      type: SearchSuggestionType.service,
+      label: 'Нарощення нігтів',
+      categoryKey: 'NAILS',
+      serviceTypeSlug: 'nail-extension',
+    );
+    const lashCategoryKey = Key('search_suggestion_category_EYELASH');
+    const nailServiceKey = Key('search_suggestion_service_nail-extension');
+
+    Future<void> pickSettlement(WidgetTester tester, String id) async {
+      await tester.tap(find.byKey(const Key('search_city_value')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(Key('settlement_option_$id')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Resolves the NAIL service for any term containing «нар» — scoped to
+    /// [restrictToCityId] when given (mirrors the backend's place filter);
+    /// with no restriction, every place (including national) is served.
+    _FakeSearchSuggestionRepository fakeSuggestions({
+      String? restrictToCityId,
+    }) {
+      return _FakeSearchSuggestionRepository(
+        resolve: (String term, String? cityId, String? districtId) async {
+          if (!term.toLowerCase().contains('нар')) {
+            return const <SearchSuggestion>[];
+          }
+          if (restrictToCityId != null && cityId != restrictToCityId) {
+            return const <SearchSuggestion>[];
+          }
+          return const <SearchSuggestion>[nailService];
+        },
+      );
+    }
+
+    testWidgets(
+      'national: the local CATEGORY row shows with pump(); the SERVICE row '
+      'appears only after the debounce',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          categories: const AsyncData(narCategories),
+          suggestionRepository: fakeSuggestions(),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const Key('search_query_field')),
+          'нар',
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(lashCategoryKey),
+          findsOneWidget,
+          reason: 'the local matcher must show the category instantly',
+        );
+        expect(
+          find.byKey(nailServiceKey),
+          findsNothing,
+          reason:
+              'the SERVICE row only ever comes from the server — must not '
+              'appear before the debounced response lands',
+        );
+
+        await tester.pump(kSearchSuggestionDebounce);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(nailServiceKey), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'with a settlement selected: NO row with pump(); the row appears after '
+      'the debounce',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          categories: const AsyncData(narCategories),
+          suggestionRepository: fakeSuggestions(
+            restrictToCityId: _kCityWithDistrictsId,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await pickSettlement(tester, _kCityWithDistrictsId);
+
+        await tester.enterText(
+          find.byKey(const Key('search_query_field')),
+          'нар',
+        );
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('search_suggestion_list')),
+          findsNothing,
+          reason: 'a place is chosen — no local rows until the server answers',
+        );
+
+        await tester.pump(kSearchSuggestionDebounce);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(nailServiceKey), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'tapping the SERVICE row: router receives the slug + the same cityId; '
+      'the field is empty and the chip is selected',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          categories: const AsyncData(narCategories),
+          suggestionRepository: fakeSuggestions(
+            restrictToCityId: _kCityWithDistrictsId,
+          ),
+          withRouter: true,
+        );
+        await tester.pumpAndSettle();
+        await pickSettlement(tester, _kCityWithDistrictsId);
+
+        await tester.enterText(
+          find.byKey(const Key('search_query_field')),
+          'нар',
+        );
+        await tester.pump(kSearchSuggestionDebounce);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(nailServiceKey));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+        expect(_pushedFilters?.categoryKey, 'NAILS');
+        expect(_pushedFilters?.serviceTypeSlugs, contains('nail-extension'));
+        expect(_pushedFilters?.cityId, _kCityWithDistrictsId);
+        expect(
+          _pushedFilters?.query,
+          isNull,
+          reason: 'Open Q1 — SERVICE filters by slug, never free text',
+        );
+      },
+    );
+
+    testWidgets('tapping the CATEGORY row: the field text becomes the label', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        categories: const AsyncData(narCategories),
+        suggestionRepository: fakeSuggestions(),
+        // A suggestion tap always runs `_onShowMasters()` too (D5), which
+        // needs a real go_router context to push.
+        withRouter: true,
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('search_query_field')),
+        'нар',
+      );
+      await tester.pump();
+      expect(find.byKey(lashCategoryKey), findsOneWidget);
+
+      await tester.tap(find.byKey(lashCategoryKey));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('test-results-sink')), findsOneWidget);
+      expect(_pushedFilters?.query, 'Нарощення вій');
+    });
+
+    testWidgets('no match: no list, and no «Нічого» empty-state text', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        categories: const AsyncData(narCategories),
+        suggestionRepository: fakeSuggestions(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('search_query_field')),
+        'xyzq',
+      );
+      await tester.pump();
+      await tester.pump(kSearchSuggestionDebounce);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search_suggestion_list')), findsNothing);
+      expect(find.byKey(const Key('select-menu-empty')), findsNothing);
+    });
+
+    testWidgets('«Скинути фільтри» clears the query — the list disappears', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        categories: const AsyncData(narCategories),
+        suggestionRepository: fakeSuggestions(),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('search_query_field')),
+        'нар',
+      );
+      await tester.pump();
+      expect(find.byKey(lashCategoryKey), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('search_clear_filters')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('search_suggestion_list')), findsNothing);
+    });
   });
 }

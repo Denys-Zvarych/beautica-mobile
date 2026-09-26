@@ -35,6 +35,7 @@ import '../../../location/domain/city_district.dart';
 import '../../../location/domain/settlement.dart';
 import '../../../location/state/location_providers.dart';
 import '../../domain/search_filters.dart';
+import '../../domain/search_suggestion.dart';
 
 part 'search_filters_controller.g.dart';
 
@@ -829,10 +830,13 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// and the multi-select service set on
   /// [searchServiceSelectionControllerProvider].
   void clearFilters() {
+    // categoryKey / serviceTypeSlugs + their label/second-level-selection
+    // fallout are cleared through the ONE shared path — see
+    // [_clearCategorySelection] (also used by [applySuggestion], Phase 352
+    // D5/Q2).
+    _clearCategorySelection();
     state = state.copyWith(
       query: null,
-      categoryKey: null,
-      serviceTypeSlugs: const <String>{},
       minRating: null,
       minPrice: null,
       maxPrice: null,
@@ -843,15 +847,68 @@ class SearchFiltersController extends _$SearchFiltersController {
     // search box genuinely empty, not sitting on a below-minimum draft that
     // would keep the field's error state and the disabled CTA alive.
     ref.read(searchQueryDraftControllerProvider.notifier).setDraft('');
-    // Clear only the category label; the settlement / district labels stay.
-    ref
-        .read(searchFilterLabelsControllerProvider.notifier)
-        .setCategoryName(null);
-    // Drop the second-level per-service selection held in its sibling notifier.
-    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
     // Drop any pending booking pre-selection carried from a prior search — a
     // cleared filter must never leak a stale service pre-check into a booking.
     ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+  }
+
+  /// Clears the rail category + its service-type chips: `categoryKey` → null,
+  /// `serviceTypeSlugs` → empty, the category display label cleared, and the
+  /// second-level per-service selection dropped.
+  ///
+  /// The ONE clearing path shared by [clearFilters] (the pre-352 baseline)
+  /// and [applySuggestion] (Phase 352 D5 — Q2's "clear the chip, keep the
+  /// rest" applied to a suggestion tap), so the two can never drift apart on
+  /// what "clear the category" means.
+  void _clearCategorySelection() {
+    state = state.copyWith(
+      categoryKey: null,
+      serviceTypeSlugs: const <String>{},
+    );
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setCategoryName(null);
+    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+  }
+
+  /// Applies a tapped [SearchSuggestion] (Phase 352 D5).
+  ///
+  /// Always starts by clearing the rail category + its chips
+  /// ([_clearCategorySelection]) — Q2's "clear the chip, keep the rest",
+  /// applied to BOTH suggestion types — while settlement, district, price,
+  /// rating and sort are left untouched. Then:
+  ///   - CATEGORY → `query` becomes the suggestion's label (free text
+  ///     resolves a category label to the whole category server-side, so the
+  ///     page is the full category and the word stays visible in the field);
+  ///     the rail stays cleared.
+  ///   - SERVICE (Open Q1, locked) → the box is left EMPTY and the chip shows
+  ///     the service: `query` is cleared, the rail category is selected via
+  ///     the existing toggle setter ([toggleServiceType], called AFTER the
+  ///     clear above since that setter TOGGLES), and the service-type slug is
+  ///     recorded on the sibling per-service selection controller — the same
+  ///     path the chip drawer uses. A type name sent as free text would not
+  ///     reliably match server-side (backend Phase 331 D2), so the filter is
+  ///     required.
+  ///
+  /// The caller (the search screen) unfocuses the field and invokes the
+  /// existing `_onShowMasters()` afterwards — same route, same `extra:
+  /// filters`, so the place the suggestion was scoped to is the place the
+  /// results screen searches.
+  void applySuggestion(SearchSuggestion suggestion) {
+    _clearCategorySelection();
+    switch (suggestion.type) {
+      case SearchSuggestionType.category:
+        setQuery(suggestion.label);
+      case SearchSuggestionType.service:
+        setQuery(null);
+        toggleServiceType(suggestion.categoryKey);
+        final String? slug = suggestion.serviceTypeSlug;
+        if (slug != null) {
+          ref
+              .read(searchServiceSelectionControllerProvider.notifier)
+              .toggle(slug);
+        }
+    }
   }
 }
 

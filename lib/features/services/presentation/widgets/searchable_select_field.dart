@@ -35,8 +35,10 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/select_option_tile.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/util/bounded_query.dart';
+import 'package:beautica_mobile/shared/util/search_fold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -589,7 +591,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
   static List<String> _buildFoldedLabels<T>(List<SelectOption<T>> options) {
     return List<String>.generate(
       options.length,
-      (i) => _fold(options[i].label),
+      (i) => foldSearchLabel(options[i].label),
       growable: false,
     );
   }
@@ -740,7 +742,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
     final SearchableSelectSource<T>? source = widget.source;
     final int? max = _maxQueryLength;
     return source == null
-        ? _fold(raw)
+        ? foldSearchLabel(raw)
         : (max == null ? raw.trim() : boundSearchQuery(raw, max));
   }
 
@@ -760,51 +762,6 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
       _commit(_searchController.text);
     });
   }
-
-  /// Case- and (Ukrainian/Latin) diacritic-insensitive folding for matching.
-  /// Lowercases and strips common combining accents so e.g. "ї" matches "i"-ish
-  /// queries and accented Latin (é → e) is reachable from plain ASCII.
-  static String _fold(String input) {
-    final String lower = input.trim().toLowerCase();
-    final StringBuffer sb = StringBuffer();
-    for (final int rune in lower.runes) {
-      sb.writeCharCode(_foldRune(rune));
-    }
-    return sb.toString();
-  }
-
-  static int _foldRune(int rune) {
-    // Strip combining diacritical marks (U+0300–U+036F) → fold to a space so a
-    // decomposed accented label still matches a plain-ASCII query.
-    if (rune >= 0x0300 && rune <= 0x036F) {
-      return 0x0020;
-    }
-    return _baseLatin[rune] ?? rune;
-  }
-
-  // A small fold table for the accented Latin characters that realistically
-  // appear in Ukrainian/transliterated category labels. Cyrillic is compared
-  // as-is (already lowercased), which is the correct UA behaviour.
-  static const Map<int, int> _baseLatin = <int, int>{
-    0x00E9: 0x0065, // é → e
-    0x00E8: 0x0065, // è → e
-    0x00EA: 0x0065, // ê → e
-    0x00EB: 0x0065, // ë → e
-    0x00E1: 0x0061, // á → a
-    0x00E0: 0x0061, // à → a
-    0x00E2: 0x0061, // â → a
-    0x00E4: 0x0061, // ä → a
-    0x00ED: 0x0069, // í → i
-    0x00EC: 0x0069, // ì → i
-    0x00EF: 0x0069, // ï → i
-    0x00F3: 0x006F, // ó → o
-    0x00F4: 0x006F, // ô → o
-    0x00F6: 0x006F, // ö → o
-    0x00FA: 0x0075, // ú → u
-    0x00FC: 0x0075, // ü → u
-    0x00E7: 0x0063, // ç → c
-    0x00F1: 0x006E, // ñ → n
-  };
 
   List<SelectOption<T>> _filter() {
     if (_query.isEmpty) return widget.options;
@@ -1223,7 +1180,7 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
         itemCount: options.length,
         itemBuilder: (BuildContext context, int index) {
           final SelectOption<T> option = options[index];
-          return _SelectOptionTile<T>(
+          return SelectOptionTile(
             key: option.rowKey,
             label: option.label,
             maxLines: widget.optionMaxLines,
@@ -1269,57 +1226,6 @@ class _ProvisionalView<T> {
       if (a[i].rowKey != b[i].rowKey) return false;
     }
     return true;
-  }
-}
-
-/// A single selectable option row inside the dropdown menu.
-class _SelectOptionTile<T> extends StatelessWidget {
-  const _SelectOptionTile({
-    super.key,
-    required this.label,
-    required this.onTap,
-    this.maxLines = 1,
-  });
-
-  final String label;
-  final VoidCallback onTap;
-
-  /// Lines one row may occupy before ellipsising — see
-  /// `SearchableSelectField.optionMaxLines`.
-  final int maxLines;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        splashColor: BrandColors.accent.withValues(alpha: 0.12),
-        highlightColor: BrandColors.accent.withValues(alpha: 0.08),
-        child: Semantics(
-          button: true,
-          label: label,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: VelvetSpacing.md,
-              vertical: VelvetSpacing.md,
-            ),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: maxLines,
-                    overflow: TextOverflow.ellipsis,
-                    style: VelvetText.body(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
   }
 }
 

@@ -2618,6 +2618,17 @@ final class FakeBackend {
   /// to prove the SAME set of facets travelled together on this endpoint too.
   Map<String, dynamic>? lastSearchSalonsQueryMap;
 
+  // ── Search suggestions telemetry (Phase 352) ──────────────────────────────
+  /// `GET /api/v1/search/suggestions` call count — proves the debounced
+  /// provider issues exactly one request per settled `(term, place)` key.
+  int searchSuggestionsCalls = 0;
+
+  /// The last `q`, `location.cityId` and `location.districtId` carried on a
+  /// `/search/suggestions` request. Null until the first call.
+  String? lastSearchSuggestionsQuery;
+  String? lastSearchSuggestionsCityId;
+  String? lastSearchSuggestionsDistrictId;
+
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
   int addFavoriteCalls = 0;
@@ -8321,6 +8332,64 @@ final class FakeBackend {
           totalPages: 1,
           totalElements: 1,
         );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/search/suggestions?q=&limit=[&location.cityId=][&location
+    // .districtId=] — Phase 352. Locality-aware: «Нарощення нігтів» (SERVICE,
+    // category NAILS, slug `nail-extension`) is offered in settlement
+    // `city-kyiv` and nationally (no place chosen); ABSENT for `city-lviv` —
+    // this is what the integration flow's refetch-on-place-change step
+    // proves. Keyed on `q` case/apostrophe-insensitively containing «нар»
+    // (word-start), mirroring the real backend's D4 rules closely enough for
+    // the flow; every other term returns an empty list.
+    //
+    // Additive (QA cycle, 2026-09-26): `q` containing «бров» echoes a
+    // CATEGORY row (BROWS, «Брови») unconditionally (every place, including
+    // national) — the same category the LOCAL matcher already renders
+    // instantly from `/service-categories/approved`'s BROWS entry. Server and
+    // local agreeing on this term is deliberate: it lets a CATEGORY-tap E2E
+    // flow assert the row regardless of exactly when the debounce lands,
+    // instead of racing a local row against a server answer that would
+    // otherwise wipe it. Disjoint from the «нар» branch below — no term used
+    // by any flow contains both substrings.
+    _adapter.onRoute(
+      '/api/v1/search/suggestions',
+      (server) => server.replyCallback(200, (req) {
+        searchSuggestionsCalls++;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        final String q = (reqJson['q'] as String? ?? '').toLowerCase();
+        final String? cityId = reqJson['location.cityId'] as String?;
+        lastSearchSuggestionsQuery = reqJson['q'] as String?;
+        lastSearchSuggestionsCityId = cityId;
+        lastSearchSuggestionsDistrictId =
+            reqJson['location.districtId'] as String?;
+
+        if (q.contains('бров')) {
+          return _okList(<Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'CATEGORY',
+              'label': 'Брови',
+              'categoryKey': 'BROWS',
+            },
+          ]);
+        }
+
+        if (!q.contains('нар')) return _okList(const <dynamic>[]);
+
+        // Available in `city-kyiv` and nationally; absent in `city-lviv`.
+        if (cityId == 'city-lviv') return _okList(const <dynamic>[]);
+        return _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'type': 'SERVICE',
+            'label': 'Нарощення нігтів',
+            'categoryKey': 'NAILS',
+            'serviceTypeSlug': 'nail-extension',
+          },
+        ]);
       }),
       request: const Request(method: RequestMethods.get),
     );

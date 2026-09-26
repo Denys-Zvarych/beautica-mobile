@@ -61,9 +61,12 @@ import '../../services/domain/service_category_option.dart';
 import '../data/category_service_providers.dart';
 import '../domain/category_service_option.dart';
 import '../domain/search_filters.dart';
+import '../domain/search_suggestion.dart';
+import 'search_suggestions_provider.dart';
 import 'state/search_filters_controller.dart';
 import 'widgets/category_rail.dart';
 import 'widgets/search_query_field.dart';
+import 'widgets/search_suggestion_list.dart';
 import 'widgets/service_chip_drawer.dart';
 import 'widgets/service_type_tile.dart';
 import 'widgets/staggered_reveal.dart';
@@ -187,6 +190,18 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     _searchController.clear();
   }
 
+  /// Suggestion row tap (Phase 352 D5/D6). Applies the suggestion, closes the
+  /// keyboard, and runs the exact same push [_onShowMasters] would — so a
+  /// suggestion tap is indistinguishable, results-wise, from typing the label
+  /// and pressing «Показати майстрів».
+  void _onPickSuggestion(SearchSuggestion suggestion) {
+    FocusScope.of(context).unfocus();
+    ref
+        .read(searchFiltersControllerProvider.notifier)
+        .applySuggestion(suggestion);
+    _onShowMasters();
+  }
+
   void _onShowMasters() {
     // Fold the second-level service selection (held in the sibling
     // [SearchServiceSelectionController]) into the wire-facing filter set at
@@ -254,6 +269,7 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
                 onClearSettlement: _clearSettlement,
                 onPickDistrict: _pickDistrict,
                 onClearDistrict: _clearDistrict,
+                onPickSuggestion: _onPickSuggestion,
               ),
             ),
             // Sticky CTA pinned below the scrollable body. It self-watches only
@@ -426,6 +442,7 @@ class _SearchFiltersBody extends ConsumerWidget {
     required this.onClearSettlement,
     required this.onPickDistrict,
     required this.onClearDistrict,
+    required this.onPickSuggestion,
   });
 
   final AppLocalizations l10n;
@@ -434,6 +451,7 @@ class _SearchFiltersBody extends ConsumerWidget {
   final VoidCallback onClearSettlement;
   final VoidCallback onPickDistrict;
   final VoidCallback onClearDistrict;
+  final ValueChanged<SearchSuggestion> onPickSuggestion;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -473,6 +491,11 @@ class _SearchFiltersBody extends ConsumerWidget {
                     .setQuery(value),
               ),
             ),
+            // ── Suggestion list — inline, directly below the search field ──
+            // (Phase 352 D6). Renders nothing (SizedBox.shrink) when there is
+            // no draft or no match, so the gap below collapses exactly as it
+            // did before this section existed.
+            _SuggestionSection(onPick: onPickSuggestion),
             const SizedBox(height: VelvetSpacing.lg),
 
             // ── Локація — three discrete fields (Регіон → Місто → Район) ────
@@ -497,6 +520,30 @@ class _SearchFiltersBody extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// «Пошук» suggestion list — Phase 352. Self-watches ONLY the suggestion
+// provider, so a keystroke rebuilds just this section, not the whole
+// staggered body.
+// ---------------------------------------------------------------------------
+
+class _SuggestionSection extends ConsumerWidget {
+  const _SuggestionSection({required this.onPick});
+
+  final ValueChanged<SearchSuggestion> onPick;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final List<SearchSuggestion> suggestions = ref.watch(
+      searchSuggestionsProvider,
+    );
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: VelvetSpacing.sm),
+      child: SearchSuggestionList(suggestions: suggestions, onPick: onPick),
     );
   }
 }

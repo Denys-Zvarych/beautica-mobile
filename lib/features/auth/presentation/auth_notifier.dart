@@ -59,6 +59,17 @@ import '../../booking/application/bookings_day_notifier.dart';
 // cannot watch `authProvider` back). A plain `clear()` call in [logout].
 import '../../location/state/location_providers.dart';
 // Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-perf HIGH + mobile-security MEDIUM, 2026-09-26) — same shape as the
+// `settlementSearchCacheProvider` import above: `searchSuggestionCacheProvider`
+// is a `keepAlive` cache of typed search terms + chosen place that watches
+// nothing (so it cannot self-clear via the auth cascade, and cannot watch
+// `authProvider` back). A plain `clear()` call in [logout]. Imported from its
+// own small file (NOT `search_suggestions_provider.dart`, which transitively
+// imports THIS file via `search_filters_controller.dart` — a genuine import
+// cycle; see that file's header) so this stays a one-way dependency, same as
+// `location_providers.dart` above.
+import '../../discovery/data/search_suggestion_cache_provider.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
 // (mobile-perf P2-1, 2026-09-07) — same shape as the `bookings_day_notifier
 // .dart` import above: `weeklyScheduleProvider`/`effectiveScheduleProvider`
 // are `ScheduleScope`-keyed `keepAlive` caches that do NOT watch
@@ -1324,6 +1335,26 @@ class AuthNotifier extends _$AuthNotifier {
       // the next account on this device cannot read the previous one's search
       // terms back out of it (e.g. through instant provisional rows).
       ref.read(settlementSearchCacheProvider).clear();
+      // Security (mobile-perf HIGH + mobile-security MEDIUM, 2026-09-26) —
+      // same reasoning, same shape, for the «Пошук» suggestion list's OWN
+      // keepAlive LRU (`search_suggestion_repository.dart` /
+      // `search_suggestions_provider.dart`, Phase 352 D3): keyed by what the
+      // user TYPED plus the chosen place, and — like the settlement cache
+      // above — watches nothing, so nothing in the auth cascade reaches it.
+      // Swept here so the next account on a shared device cannot read the
+      // previous one's typed terms/place back out of it.
+      //
+      // `searchSuggestionsProvider` itself (the debounced notifier that
+      // reads/writes this cache) needs no separate sweep: its `build()`
+      // watches `searchQueryDraftControllerProvider` and
+      // `searchFiltersControllerProvider` (both auth-watched, self-clearing
+      // above via the ordinary cascade — see those notifiers' own `build()`
+      // doc comments), and an empty draft short-circuits `_resolve` to
+      // cancel any pending debounce/request and return no rows — so its
+      // in-flight state clears as a side effect of THAT cascade, same as
+      // every other per-session UI notifier in this file that isn't listed
+      // in the belt-and-braces NOTE below.
+      ref.read(searchSuggestionCacheProvider).clear();
       // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
       // sweep, for the same reason the day-timeline one above is needed:
       // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on

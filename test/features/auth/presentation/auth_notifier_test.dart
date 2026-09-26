@@ -31,6 +31,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_mobile/core/cache/lru_cache.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
@@ -44,6 +45,8 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/discovery/data/search_suggestion_cache_provider.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
 import 'package:beautica_mobile/features/location/data/settlement_search_cache.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
@@ -1086,6 +1089,59 @@ void main() {
       expect(cache.length, 0);
       expect(cache.get('львів'), isNull);
     });
+
+    // Phase 352 cycle-1 audit (mobile-perf HIGH + mobile-security MEDIUM,
+    // 2026-09-26): the «Пошук» suggestion list's OWN keepAlive result cache
+    // is keyed by what the user TYPED plus the chosen place — the exact same
+    // shape as the settlement cache above, and just as unreached by the auth
+    // cascade (it watches nothing either). An OUTCOME assertion is
+    // discriminating here for the identical reason it is above: the only
+    // thing that can empty a held, never-invalidated cache instance is the
+    // `clear()` call in logout().
+    test(
+      "logout() empties the search suggestion cache — the previous account's "
+      'typed terms + chosen place do not survive into the next session',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        final LruCache<SuggestionCacheKey, List<SearchSuggestion>> cache =
+            LruCache<SuggestionCacheKey, List<SearchSuggestion>>(64)..put(
+              ('манікюр', null, null),
+              const <SearchSuggestion>[
+                SearchSuggestion(
+                  type: SearchSuggestionType.category,
+                  label: 'Манікюр',
+                  categoryKey: 'MANICURE',
+                ),
+              ],
+            );
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            searchSuggestionCacheProvider.overrideWithValue(cache),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(authProvider.future);
+        expect(cache.length, 1, reason: 'the typed term is cached while in');
+
+        await container.read(authProvider.notifier).logout();
+
+        expect(cache.length, 0);
+        expect(cache.get(('манікюр', null, null)), isNull);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 5b — Logout cascades teardown to servicesListProvider (keepAlive)

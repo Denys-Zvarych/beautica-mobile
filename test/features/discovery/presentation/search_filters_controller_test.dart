@@ -49,6 +49,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/pending_service_preselection_provider.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_filters.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
 import 'package:beautica_mobile/features/discovery/presentation/state/search_filters_controller.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/state/location_providers.dart';
@@ -1226,5 +1227,133 @@ void main() {
         reason: 'a fresh session must not inherit the prior user\'s services',
       );
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // applySuggestion — Phase 352 D5. Both branches start by clearing the rail
+  // category + its chips (Q2 applied to a suggestion tap), while settlement,
+  // district, price and sort are left untouched. The fixture's PRE-EXISTING
+  // category deliberately differs from the suggestion's (BROWS vs. the NAILS
+  // suggestion below) — a same-category fixture would pass vacuously AND,
+  // with the toggle setter, would flip the category back OFF instead of onto
+  // the suggestion's.
+  // -------------------------------------------------------------------------
+  group('SearchFiltersController.applySuggestion', () {
+    const categorySuggestion = SearchSuggestion(
+      type: SearchSuggestionType.category,
+      label: 'Нарощення вій',
+      categoryKey: 'EYELASH',
+    );
+    const serviceSuggestion = SearchSuggestion(
+      type: SearchSuggestionType.service,
+      label: 'Нарощення нігтів',
+      categoryKey: 'NAILS',
+      serviceTypeSlug: 'nail-extension',
+    );
+
+    /// Populates a fully-active, DIFFERENT-category filter set + its sibling
+    /// controllers, so every assertion below can tell "cleared" from
+    /// "untouched" apart.
+    void seed(ProviderContainer c) {
+      _filters(c)
+        ..selectSettlement(cityId: 'city-kyiv')
+        ..selectDistrict(districtId: 'dist-pechersk')
+        ..toggleServiceType('BROWS')
+        ..setPriceRange(min: 300, max: 900);
+      c.read(searchFilterLabelsControllerProvider.notifier)
+        ..setCityName('Київ')
+        ..setDistrictName('Печерський')
+        ..setCategoryName('Брови');
+      c
+          .read(searchServiceSelectionControllerProvider.notifier)
+          .toggle('eyebrow-shaping');
+    }
+
+    test('CATEGORY: clears the prior rail category + chips, applies the label '
+        'as the query, and keeps settlement/district/price untouched', () {
+      final c = _make().container;
+      seed(c);
+
+      _filters(c).applySuggestion(categorySuggestion);
+
+      final SearchFilters s = _state(c);
+      expect(
+        s.categoryKey,
+        isNull,
+        reason: 'the prior BROWS rail selection must be cleared',
+      );
+      expect(s.serviceTypeSlugs, isEmpty);
+      expect(s.query, 'Нарощення вій');
+      expect(
+        c.read(searchServiceSelectionControllerProvider),
+        isEmpty,
+        reason: 'the second-level service selection goes with the chip',
+      );
+      // Untouched facets.
+      expect(s.cityId, 'city-kyiv');
+      expect(s.districtId, 'dist-pechersk');
+      expect(s.minPrice, 300);
+      expect(s.maxPrice, 900);
+      final SearchFilterLabels labels = c.read(
+        searchFilterLabelsControllerProvider,
+      );
+      expect(labels.cityName, 'Київ');
+      expect(labels.districtName, 'Печерський');
+    });
+
+    test('SERVICE (Open Q1): clears the query, selects the category via the '
+        'rail toggle, records the slug, and keeps settlement/district/price '
+        'untouched', () {
+      final c = _make().container;
+      seed(c);
+
+      _filters(c).applySuggestion(serviceSuggestion);
+
+      final SearchFilters s = _state(c);
+      expect(
+        s.query,
+        isNull,
+        reason: 'Open Q1 — the box stays empty, the chip carries the info',
+      );
+      expect(s.categoryKey, 'NAILS');
+      // The slug lives on the sibling per-service selection controller
+      // until push time — `SearchFilters.serviceTypeSlugs` is folded in by
+      // `_onShowMasters` (mirrors every rail chip tap; the base controller
+      // never stores slugs itself, see that field's doc).
+      expect(s.serviceTypeSlugs, isEmpty);
+      expect(c.read(searchServiceSelectionControllerProvider), <String>{
+        'nail-extension',
+      });
+      // Untouched facets.
+      expect(s.cityId, 'city-kyiv');
+      expect(s.districtId, 'dist-pechersk');
+      expect(s.minPrice, 300);
+      expect(s.maxPrice, 900);
+    });
+
+    test('the applied query also mirrors onto the draft controller (CATEGORY '
+        'tap)', () {
+      final c = _make().container;
+
+      _filters(c).applySuggestion(categorySuggestion);
+
+      expect(
+        c.read(searchQueryDraftControllerProvider),
+        'Нарощення вій',
+        reason: 'the search field syncs off the draft, not the applied query',
+      );
+    });
+
+    test(
+      'the draft is emptied too on a SERVICE tap (the box shows nothing)',
+      () {
+        final c = _make().container;
+        _filters(c).setQuery('стара');
+
+        _filters(c).applySuggestion(serviceSuggestion);
+
+        expect(c.read(searchQueryDraftControllerProvider), '');
+      },
+    );
   });
 }

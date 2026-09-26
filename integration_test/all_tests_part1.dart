@@ -76,6 +76,7 @@ import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
     as client_search_query_shrink;
+import 'search_suggestions_flow_test.dart' as search_suggestions;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
@@ -255,6 +256,12 @@ void main() {
   // result set is genuinely unreachable (no second GET for the pre-shrink
   // term). Plus the empty-box escape hatch.
   group('client_search_query_shrink_flow', client_search_query_shrink.main);
+  // Phase 352 — the «Пошук» suggestion list, place-scoped end to end: real
+  // debounce, real fake-backend round trip, a SERVICE suggestion tap landing
+  // on real results, and the list refetching when the chosen settlement
+  // changes while the term is still typed. Registered beside the other
+  // client_search_* flows, whose fixtures and harness it shares.
+  group('search_suggestions_flow', search_suggestions.main);
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(
