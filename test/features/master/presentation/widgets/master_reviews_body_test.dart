@@ -163,6 +163,33 @@ void main() {
     });
   });
 
+  // Phase 354 (D3) — additive nullable `masterId`: `SalonStaffProfileScreen`'s
+  // «Відгуки» tab passes `null` for the Phase 318 data-anomaly case (a
+  // resolved MASTER entry with no `masterId`). No provider is overridden
+  // here — deliberately, mirroring the identity-confusion guard's own
+  // "never overridden" convention below: a null id must never key a fetch at
+  // all, so there is no family instance to stub in the first place.
+  group('null masterId (Phase 354)', () {
+    testWidgets(
+      'renders the same zero-reviews shape as a genuinely-empty catalogue, '
+      'with no provider watch',
+      (tester) async {
+        await tester.pumpApp(const MasterReviewsBody(masterId: null));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('master-reviews-empty')), findsOneWidget);
+        expect(find.byType(RatingSummaryCard), findsOneWidget);
+        final Text avg = tester.widget<Text>(
+          find.byKey(const Key('master-review-summary-average')),
+        );
+        expect(avg.data, '—');
+        expect(find.byType(ReviewCard), findsNothing);
+        expect(find.byType(SkeletonShimmerScope), findsNothing);
+        expect(find.byType(ErrorState), findsNothing);
+      },
+    );
+  });
+
   group('error states', () {
     testWidgets(
       'summary error renders ErrorState independently of a healthy list',

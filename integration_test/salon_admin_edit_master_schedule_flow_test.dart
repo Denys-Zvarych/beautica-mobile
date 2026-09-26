@@ -126,6 +126,35 @@ void main() {
         );
         expect(fb.getMasterCalls, 0);
 
+        // 2026-09-26 (mobile-qa, Phase 355 gap-closure) — "admin viewer sees
+        // the same tabs": the Phase 354 «Про майстра»/«Послуги»/«Відгуки»
+        // tab bar is MASTER-role-gated, not owner-vs-admin-gated (D1's own
+        // "MASTER only" contract in the screen's header doc names both
+        // viewer roles identically). `salon_owner_edit_master_schedule_flow
+        // _test.dart`'s sibling test below proves the tab bar's full
+        // reachability contract for the OWNER viewer; this is the one
+        // assertion proving a SALON_ADMIN viewer gets the identical tab bar
+        // over the REAL wire, not merely by not-yet-having-regressed at the
+        // widget tier (`salon_staff_profile_screen_test.dart` stubs the
+        // provider directly and never drives a real admin session).
+        // `find.byType(ProfileTabBar)` is deliberately NOT asserted here —
+        // this journey's route transition can leave a still-animating
+        // predecessor page mounted (findsNWidgets(2) observed), unrelated to
+        // the tab bar itself. The keyed finders below are the load-bearing
+        // proof and are immune to that: each key is unique per screen.
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-0')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-2')),
+          findsOneWidget,
+        );
+
         // -- the D3 «Графік роботи» row -> the real schedule screen --
         final Finder scheduleRow = find.byKey(
           const Key('salon-staff-profile-schedule-row'),

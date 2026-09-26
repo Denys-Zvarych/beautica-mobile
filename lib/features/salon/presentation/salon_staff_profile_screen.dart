@@ -13,17 +13,38 @@
 //     BOTH roles — redundant with the RoleChip;
 //   • stats row (rating / reviews / services / experience) — MASTER ONLY,
 //     admins have no service metrics;
-//   • bio ("Про майстра") — MASTER ONLY, omitted when empty;
-//   • services grouped by category ("Послуги") — MASTER ONLY, via the
-//     shared [ServiceCategoryCardList] (`interactive: false` — `true` would
-//     deep-link into the AUTHENTICATED viewer's own `/services` screen, not
-//     [member]'s);
+//   • «Про майстра» / «Послуги» / «Відгуки» tabs (Phase 354) — MASTER ONLY,
+//     the same [ProfileTabBar]/[ProfileTabSelection] mechanism
+//     `PublicMasterProfileScreen`/`MasterProfileScreen`/
+//     `SalonMasterProfileScreen` already share (Phase 351, D15):
+//       - «Про майстра» — bio (or the empty-about copy, Phase 351's own
+//         "always show one of two variants" rule) + the phone contact;
+//       - «Послуги» — services grouped by category via the shared
+//         [ServiceCategoryCardList] (`interactive: false` — `true` would
+//         deep-link into the AUTHENTICATED viewer's own `/services` screen,
+//         not [member]'s). Omitted entirely when the master has no active
+//         services, mirroring `PublicMasterProfileScreen`'s own services tab
+//         (no dedicated empty-state — [ServiceCategoryCardList] itself
+//         renders nothing for an empty list);
+//       - «Відгуки» — [MasterReviewsBody]. When the resolved entry carries no
+//         `masterId` (the Phase 318 data-anomaly case — the same condition
+//         that disables the management pair below), [MasterReviewsBody]'s
+//         own null-`masterId` arm renders its zero-reviews empty state with
+//         NO fetch;
+//   • «Графік роботи» / «Послуги» management-action card pair — MASTER ONLY.
+//     User decision 2026-09-26 ("also add the tabs to this profile too", then
+//     "at the bottom of the page" when offered the placement choice) —
+//     placed at the BOTTOM of the page, AFTER the tab content, so it reads
+//     the same regardless of which tab is active (it sits outside
+//     [ProfileTabSection] entirely — a tab switch never touches it). See
+//     `docs/mobile-phases/phase-354-salon-staff-profile-tabs.md`'s Decisions
+//     for the full record (this overrides that phase doc's own D2, which
+//     recommended keeping the pair ABOVE the tabs);
 //   • contacts = PHONE ONLY (Instagram is intentionally not shown here — see
-//     [SalonStaffMemberProfileData]'s own header doc for the rationale),
-//     omitted when unset;
-//   • «Графік роботи» / «Послуги» management-action card pair — MASTER ONLY
-//     (Phase 325 restyle of the former settings-row pair; see section 6's own
-//     comment for the design source and D1-D4 rationale);
+//     [SalonStaffMemberProfileData]'s own header doc for the rationale). For
+//     a MASTER entry this now lives inside the «Про майстра» tab; for an
+//     ADMIN entry (no tabs at all) it stays a top-level section, omitted when
+//     unset;
 //   • the `tune_rounded` settings action — an ADMIN entry always gets it;
 //     a MASTER entry gets it only for a SALON_OWNER viewer who is not
 //     looking at their own row (Phase 307, D3/D4) — and no pinned booking
@@ -39,7 +60,11 @@
 // master_management_profile_screen.dart` — ported within the locked
 // VelvetTouch palette, reusing the shipped ProfileScaffold / ProfileAvatar /
 // RoleChip / StatTile / ServicesStatTile / RatingStar / ContactTile /
-// ServiceCategoryCardList / SkeletonShimmerScope widgets verbatim.
+// ServiceCategoryCardList / SkeletonShimmerScope widgets verbatim. Phase 354
+// additionally reuses [ProfileTabBar] / [ProfileTabSelection] /
+// [ProfileTabSection] / [masterProfileTabLabels] / [MasterReviewsBody] —
+// every one already shared by the other three master profile screens, none
+// forked for this one.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,10 +92,14 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/weekly_schedule_summary.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../../master/presentation/widgets/management_action_card.dart';
+import '../../master/presentation/widgets/master_profile_tabs.dart';
+import '../../master/presentation/widgets/master_reviews_body.dart';
 import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/profile_scaffold.dart';
 import '../../master/presentation/widgets/service_category_cards.dart';
@@ -95,13 +124,17 @@ class SalonStaffProfileScreen extends ConsumerStatefulWidget {
 
 class _SalonStaffProfileScreenState
     extends ConsumerState<SalonStaffProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        ProfileTabSelection<SalonStaffProfileScreen> {
   late final AnimationController _controller;
 
   // Pre-built staggered-entrance animations (mobile-perf pattern, mirrors
-  // `PublicMasterProfileScreen`) so build() never allocates a
-  // CurvedAnimation/Tween per frame. Six sections: identity / stats / bio /
-  // service categories / schedule row (Phase 312, D3) / contacts.
+  // `PublicMasterProfileScreen`/`SalonMasterProfileScreen`) so build() never
+  // allocates a CurvedAnimation/Tween per frame. Phase 354 — six sections now:
+  // identity / stats / tab bar / tab body / management pair, PLUS the
+  // ADMIN-only contacts section, which shares `_anim4`/`_slide4` with the
+  // (mutually exclusive) admin branch — see the doc on `_anim4` below.
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
@@ -130,29 +163,40 @@ class _SalonStaffProfileScreenState
       parent: _controller,
       curve: const Interval(0.15, 0.68, curve: Curves.easeOutCubic),
     );
+    // Phase 354 — tab bar. Was the bio section's interval pre-354; bio no
+    // longer has a section of its own (it lives inside the «Про майстра» tab
+    // body instead), so this interval is now spent on the tab bar, which sits
+    // in the SAME visual slot (directly under the stats row).
     _anim2 = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.28, 0.80, curve: Curves.easeOutCubic),
     );
+    // Phase 354 — tab body. Was the service-categories section's interval
+    // pre-354, for the same reason as `_anim2` above.
     _anim3 = CurvedAnimation(
       parent: _controller,
       curve: const Interval(0.40, 0.90, curve: Curves.easeOutCubic),
     );
+    // ADMIN-only contacts section (a MASTER entry's phone now lives inside
+    // the tab body, under `_anim3`). Interval UNCHANGED from pre-354 — this
+    // was already the last-declared section for the admin branch (the
+    // master-only stats/bio/categories/pair sections it used to follow are
+    // all gated off for an admin, so it effectively ran right after identity
+    // both before and after this phase).
     _anim4 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
+      curve: const Interval(0.50, 1.00, curve: Curves.easeOutCubic),
     );
-    // The management pair (schedule + services). Declared last so the
-    // `_anim0.._anim4` names above keep their pre-existing identities, but
-    // its INTERVAL is the third one on the screen — the pair now renders
-    // directly under the stats row (2026-09-14, defect 5), and a reveal
-    // cascade that ran top-to-bottom everywhere else would otherwise leave
-    // this block flashing in last, a full beat after the content BELOW it.
-    // 0.22-0.74 sits between `_anim1` (stats, 0.15) and `_anim2` (bio,
-    // 0.28), matching the design's own `start: 0.2` for this block.
+    // The management pair (schedule + services). User decision 2026-09-26 —
+    // moved to the BOTTOM of the page, after the tab content, so it is now
+    // the LAST section on the master branch (pre-354 it sat second-from-top,
+    // directly under the stats row, with the early 0.22-0.74 interval that
+    // position called for — see git history for that rationale). The
+    // interval is widened to the tail of the cascade to match its new
+    // position.
     _anim5 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.22, 0.74, curve: Curves.easeOutCubic),
+      curve: const Interval(0.58, 1.00, curve: Curves.easeOutCubic),
     );
     const Offset slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -183,6 +227,7 @@ class _SalonStaffProfileScreenState
 
   @override
   void dispose() {
+    disposeProfileTabSelection();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
@@ -289,6 +334,8 @@ class _SalonStaffProfileScreenState
             memberId: widget.memberId,
             member: data.$1,
             services: data.$2,
+            tabNotifier: profileTabNotifier,
+            onSelectTab: selectProfileTab,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
@@ -318,6 +365,8 @@ class _StaffProfileBody extends StatelessWidget {
     required this.memberId,
     required this.member,
     required this.services,
+    required this.tabNotifier,
+    required this.onSelectTab,
     required this.anim0,
     required this.anim1,
     required this.anim2,
@@ -342,8 +391,20 @@ class _StaffProfileBody extends StatelessWidget {
 
   /// The master's active services (empty for an admin entry — see
   /// [SalonStaffMemberProfileData]'s own header doc). Drives both the
-  /// services stat tile and the read-only service-categories section.
+  /// services stat tile and the «Послуги» tab body.
   final List<MasterService> services;
+
+  /// [ProfileTabSelection.profileTabNotifier] — the active tab index (0 =
+  /// Про майстра, 1 = Послуги, 2 = Відгуки), as a [ValueNotifier] so only the
+  /// [ProfileTabSection] below rebuilds on a tab switch (mobile-perf
+  /// pattern, mirrors the other three master profile screens). The identity
+  /// card / stat row / management pair never watch it.
+  final ValueNotifier<int> tabNotifier;
+
+  /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
+  /// `onSelect`, the only way to switch tabs (the stat cards are
+  /// display-only, matching the other three master profile screens).
+  final ValueChanged<int> onSelectTab;
 
   final Animation<double> anim0;
   final Animation<double> anim1;
@@ -364,7 +425,7 @@ class _StaffProfileBody extends StatelessWidget {
     final bool isAdmin = member.role == SalonStaffRole.admin;
     final String displayName = '${member.firstName} ${member.lastName}'.trim();
     // Admins are administrative staff, not service-providing masters — no
-    // service rating, reviews, service count, bio, or category list.
+    // service rating, reviews, service count, bio, tabs, or management pair.
     final bool hasReviews = !isAdmin && member.reviewCount > 0;
     final String? bio = (!isAdmin && (member.bio?.isNotEmpty ?? false))
         ? member.bio
@@ -488,30 +549,98 @@ class _StaffProfileBody extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: VelvetSpacing.lg),
-          // 3 — the management pair: schedule card (Phase 312, D3) + services
+          const SizedBox(height: VelvetSpacing.xl),
+
+          // 3+4 — Tab bar + tab body, isolated behind ONE `ProfileTabSection`
+          // (mobile-perf pattern, mirrors the other three master profile
+          // screens) — a tab switch here only rebuilds this region, never the
+          // identity card / stat row above it, and never the management pair
+          // below it.
+          ProfileTabSection(
+            notifier: tabNotifier,
+            builder: (BuildContext context, int tab) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                // 3 — Tab bar. The only way to switch tabs — the stat cards
+                // above are display-only.
+                RevealTransition(
+                  key: const Key('salon-staff-profile-reveal-2'),
+                  fade: anim2,
+                  slide: slide2,
+                  child: ProfileTabBar(
+                    tabs: masterProfileTabLabels(l10n),
+                    selected: tab,
+                    onSelect: onSelectTab,
+                    keyPrefix: 'salon-staff-profile',
+                  ),
+                ),
+                const SizedBox(height: VelvetSpacing.lg),
+
+                // 4 — Tab body: «Про майстра» (bio + phone contact) /
+                // «Послуги» (read-only category grid, omitted entirely when
+                // the master has no services — mirrors
+                // `PublicMasterProfileScreen`'s own services tab, which has
+                // no dedicated empty state either) / «Відгуки» (this
+                // master's reviews; a null `masterId` — the Phase 318
+                // data-anomaly case — renders [MasterReviewsBody]'s own
+                // zero-reviews empty state with no fetch).
+                RevealTransition(
+                  key: const Key('salon-staff-profile-reveal-3'),
+                  fade: anim3,
+                  slide: slide3,
+                  child: KeyedSubtree(
+                    key: ValueKey<int>(tab),
+                    child: switch (tab) {
+                      0 => _StaffAboutTab(bio: bio, phone: phone),
+                      1 =>
+                        services.isEmpty
+                            ? const SizedBox.shrink()
+                            : Column(
+                                key: const Key(
+                                  'salon-staff-profile-service-categories',
+                                ),
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      left: 4,
+                                      bottom: VelvetSpacing.xs,
+                                    ),
+                                    child: Text(
+                                      l10n.masterServicesLabel,
+                                      style: VelvetText.sectionLabel(),
+                                    ),
+                                  ),
+                                  ServiceCategoryCardList(
+                                    services: services,
+                                    keyPrefix: 'staff-profile-category',
+                                    interactive: false,
+                                  ),
+                                ],
+                              ),
+                      _ => MasterReviewsBody(masterId: member.masterId),
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.xl),
+
+          // 5 — the management pair: schedule card (Phase 312, D3) + services
           // card (Phase 325, D1) — MASTER ONLY; an admin has no master row and
           // therefore no schedule or services block. Both share the SAME
           // reveal animation — they are siblings inside one block, not two
           // sections.
           //
-          // 2026-09-14 (defects 5 + 11) — MOVED here, directly under the stats
-          // row, from the end of the screen. The approved design places the
-          // pair immediately after the stats with a `VelvetSpacing.lg` gap
-          // (`docs/signup-designs/SalonServicesEntryPath/lib/screens/
-          // staff_profile_screen.dart:174-176`); appending it last put the
-          // operator's TWO PRIMARY ACTIONS below the fold on first paint for
-          // any master who has services, behind bio + the whole category grid
-          // + contacts. The previous position was justified in-code by
-          // animation-interval stability, which is a refactoring convenience,
-          // not a design decision — `_anim5`'s interval is re-mapped to match
-          // the new position instead (see `initState`).
+          // Phase 354 (user decision 2026-09-26) — this block sits at the
+          // BOTTOM of the page, after the tab content, so it renders
+          // identically regardless of which tab is active: it is a sibling of
+          // [ProfileTabSection], not a child of it, so a tab switch never
+          // rebuilds it and it never rebuilds on one either. See this file's
+          // header doc for the full placement rationale.
           //
-          // It shares the stats row's `if (!isAdmin)` spread so the gap
-          // between the two is the design's `lg` while the block still owns
-          // the trailing `xl` every other section on this screen owns.
-          //
-          // Phase 325 replaced the former `SettingsRow` pair with the approved
+          // Phase 325 replaced the former `SettingsRow` pair with the
           // `ManagementActionCard` pair (design source:
           // `docs/signup-designs/SalonServicesEntryPath/lib/screens/
           // staff_profile_screen.dart:174-211`, variant B · «пара дій») — the
@@ -579,6 +708,23 @@ class _StaffProfileBody extends StatelessWidget {
                     ? l10n.staffProfileServicesEmpty
                     : l10n.staffProfileServicesCount(services.length);
 
+                // 2026-09-26 (owner/admin master-card polish) — flag the two
+                // genuinely-empty values («Не задано» / «Ще немає») in
+                // [BrandColors.error] so an operator spots an unconfigured
+                // master at a glance. `value` equals `notSetLabel`
+                // byte-for-byte ONLY via `weeklyScheduleSummary`'s two
+                // `return notSetLabel;` paths (never for a resolved
+                // schedule, and never for the '—'/'' AsyncError/loading
+                // sentinels — see the comments above), so the string
+                // comparison is exact, not a heuristic.
+                final Color? scheduleValueColor =
+                    value == l10n.staffProfileScheduleNotSet
+                    ? BrandColors.error
+                    : null;
+                final Color? servicesValueColor = services.isEmpty
+                    ? BrandColors.error
+                    : null;
+
                 return IntrinsicHeight(
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -589,6 +735,7 @@ class _StaffProfileBody extends StatelessWidget {
                           icon: Icons.calendar_month_rounded,
                           label: l10n.scheduleTitle,
                           value: value,
+                          valueColor: scheduleValueColor,
                           loading: rowLoading,
                           // D2-mirrored data-anomaly guard
                           // (`staff_settings_screen.dart`'s identical
@@ -621,6 +768,7 @@ class _StaffProfileBody extends StatelessWidget {
                           icon: Icons.design_services_rounded,
                           label: l10n.masterServicesLabel,
                           value: servicesValue,
+                          valueColor: servicesValueColor,
                           emphasis: true,
                           enabled: hasMasterId,
                           onTap: !hasMasterId
@@ -676,82 +824,14 @@ class _StaffProfileBody extends StatelessWidget {
               },
             ),
           ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 4 — bio (master only, omitted entirely when empty).
-        if (bio != null) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-staff-profile-reveal-2'),
-            fade: anim2,
-            slide: slide2,
-            child: Column(
-              key: const Key('salon-staff-profile-bio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.publicMasterBioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                NeumorphicInset(
-                  radius: VelvetRadii.card,
-                  child: Padding(
-                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                    child: Text(bio, style: VelvetText.bodyStrong()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 5 — services grouped by category (master only). `interactive:
-        // false` — the owner/admin viewer's own `/services` route has no
-        // meaning for [member]'s catalogue. Omitted when the master has no
-        // active services, matching how bio/contacts are omitted when empty.
-        if (!isAdmin && services.isNotEmpty) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-staff-profile-reveal-3'),
-            fade: anim3,
-            slide: slide3,
-            child: Column(
-              key: const Key('salon-staff-profile-service-categories'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterServicesLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
-                ),
-                ServiceCategoryCardList(
-                  services: services,
-                  keyPrefix: 'staff-profile-category',
-                  interactive: false,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
         ],
 
         // 6 — contacts (phone only; Instagram intentionally NOT shown here —
-        // see this file's header doc). Omitted when unset. Owns its own
-        // trailing gap, matching sections 2/3/4/5 — there are no leading
-        // gaps anywhere on this screen, and the LAST block rendered owns an
-        // `xl` like every other (2026-09-14, defect 11).
-        if (phone != null) ...<Widget>[
+        // see this file's header doc). ADMIN ONLY: a MASTER entry's phone now
+        // lives inside the «Про майстра» tab body (see `_StaffAboutTab`
+        // above) — an admin has no tabs at all (D4), so it keeps its own
+        // top-level section, omitted when unset.
+        if (isAdmin && phone != null) ...<Widget>[
           RevealTransition(
             key: const Key('salon-staff-profile-reveal-4'),
             fade: anim4,
@@ -782,7 +862,96 @@ class _StaffProfileBody extends StatelessWidget {
               ],
             ),
           ),
+        ],
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _StaffAboutTab — «Про майстра»: bio (or the empty-about copy) + the phone
+// contact. MASTER role only — see [_StaffProfileBody.build]'s tab switch.
+// ---------------------------------------------------------------------------
+
+/// Phase 354 — the «Про майстра» tab body. Mirrors
+/// `PublicMasterProfileScreen`'s own `_AboutTab` (a client's READ-ONLY view
+/// of a master — the closer analog than `SalonMasterProfileScreen`'s
+/// first-person, editable `_SalonMasterAboutTab`, per this phase's D3): bio
+/// ALWAYS renders one of two variants (real bio, or the muted empty-about
+/// copy) rather than omitting the whole section when empty — this screen's
+/// pre-354 behaviour omitted the bio section entirely for an empty bio; the
+/// tab now shows something on every open, matching the other three master
+/// profiles. No portfolio rail here (INDEPENDENT_MASTER-only elsewhere, and
+/// out of this screen's scope) and the contact is phone, not Instagram — an
+/// owner/admin management view, not the public client one.
+class _StaffAboutTab extends StatelessWidget {
+  const _StaffAboutTab({required this.bio, required this.phone});
+
+  final String? bio;
+  final String? phone;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        if (bio != null)
+          Column(
+            key: const Key('salon-staff-profile-bio'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.only(
+                  left: 4,
+                  bottom: VelvetSpacing.xs,
+                ),
+                child: Text(
+                  l10n.publicMasterBioLabel,
+                  style: VelvetText.sectionLabel(),
+                ),
+              ),
+              NeumorphicInset(
+                radius: VelvetRadii.card,
+                child: Padding(
+                  padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+                  child: Text(bio!, style: VelvetText.bodyStrong()),
+                ),
+              ),
+            ],
+          )
+        else
+          // D3 — reuses `PublicMasterProfileScreen`'s own empty-about copy
+          // (`l10n.publicMasterAboutEmpty`) verbatim; this screen is a
+          // read-only THIRD-PERSON view of the master too, so the same
+          // wording applies unchanged.
+          Text(
+            l10n.publicMasterAboutEmpty,
+            key: const Key('salon-staff-profile-about-empty'),
+            style: VelvetText.feedback(BrandColors.muted),
+          ),
+
+        // Contacts (phone only; omitted when unset).
+        if (phone != null) ...<Widget>[
           const SizedBox(height: VelvetSpacing.xl),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+            child: Text(
+              l10n.masterContactsLabel,
+              style: VelvetText.sectionLabel(),
+            ),
+          ),
+          ContactTile(
+            key: const Key('salon-staff-profile-contact-phone'),
+            icon: Icons.phone_outlined,
+            value: phone!,
+            semanticLabel: l10n.phoneLabel,
+            // Dialing out is not in this phase's scope — mirrors this
+            // screen's pre-354 top-level phone tile and the admin branch's
+            // identical one below.
+            onTap: () {},
+          ),
         ],
       ],
     );
@@ -863,14 +1032,14 @@ class _StaffProfileSkeleton extends StatelessWidget {
             ],
           ),
           SizedBox(height: VelvetSpacing.xl),
-          // Bio block.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 110, height: 13),
-          ),
+          // Tab bar placeholder (D7 — parity with `SalonMasterProfileScreen`'s
+          // own skeleton).
+          SkeletonBlock(width: double.infinity, height: 44),
+          SizedBox(height: VelvetSpacing.lg),
+          // Tab body placeholder.
           SkeletonBlock(
             width: double.infinity,
-            height: 92,
+            height: 160,
             radius: VelvetRadii.card,
           ),
         ],

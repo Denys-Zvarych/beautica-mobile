@@ -16,6 +16,14 @@
 // `masterReviewSummaryProvider(masterId)` are `@riverpod` families keyed on an
 // arbitrary masterId, independent of the authenticated session — so this
 // widget itself needs no session/auth awareness at all.
+//
+// Phase 354 (D3) — [masterId] is now nullable, additively: `SalonStaffProfile
+// Screen`'s «Відгуки» tab can resolve a MASTER-role roster entry with no
+// `masterId` at all (the same Phase 318 data-anomaly case that already
+// disables that screen's management-action pair). Every pre-354 call site
+// still passes a non-null id and is byte-for-byte unaffected; a null id skips
+// BOTH providers entirely (no fetch) and renders the same zero-reviews empty
+// state a real `reviewCount == 0` response would, via [_ZeroReviewsEmpty].
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -43,16 +51,58 @@ class MasterReviewsBody extends StatelessWidget {
   const MasterReviewsBody({super.key, required this.masterId});
 
   /// The Master-row id (backend UUID, distinct from the session user id).
-  final String masterId;
+  /// Additive-nullable since Phase 354 (D3) — `null` renders
+  /// [_ZeroReviewsEmpty] and touches neither provider (no fetch); every
+  /// pre-354 caller still passes a non-null id and is unaffected.
+  final String? masterId;
 
   @override
   Widget build(BuildContext context) {
+    final String? id = masterId;
+    if (id == null) return const _ZeroReviewsEmpty();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _SummarySection(masterId: masterId),
+        _SummarySection(masterId: id),
         const SizedBox(height: VelvetSpacing.md),
-        _SortableReviewList(masterId: masterId),
+        _SortableReviewList(masterId: id),
+      ],
+    );
+  }
+}
+
+/// Phase 354 (D3) — the zero-reviews state for a `null` [MasterReviewsBody.
+/// masterId]: the SAME visual shape [_SummarySection]/[_SortableReviewList]
+/// would render for a genuinely-resolved `reviewCount == 0` response (a
+/// static, non-fetching [RatingSummaryCard] plus the sort list's own
+/// `master-reviews-empty` text), built with no provider watch at all — there
+/// is no id to key a fetch on. No sort control: there is nothing to sort.
+class _ZeroReviewsEmpty extends StatelessWidget {
+  const _ZeroReviewsEmpty();
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        RatingSummaryCard(
+          avgRating: null,
+          reviewCount: 0,
+          distribution: const <int>[0, 0, 0, 0, 0],
+          countLabel: l10n.masterReviewCountLabel(0),
+          averageKey: const Key('master-review-summary-average'),
+        ),
+        const SizedBox(height: VelvetSpacing.md),
+        Padding(
+          key: const Key('master-reviews-empty'),
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.lg),
+          child: Text(
+            l10n.masterReviewsEmpty,
+            textAlign: TextAlign.center,
+            style: VelvetText.feedback(BrandColors.muted),
+          ),
+        ),
       ],
     );
   }
