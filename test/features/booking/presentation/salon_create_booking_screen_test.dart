@@ -64,6 +64,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -523,7 +524,9 @@ Future<GoRouter> _pump(
         (ref, String salonId) async => roster,
       ),
       salonMasterServiceCoverageProvider.overrideWith(
-        (ref, args) async => coverage ?? _coverageAOnly(),
+        () => FakeSalonMasterServiceCoverage(
+          () => salonCoverageOf(coverage ?? _coverageAOnly()),
+        ),
       ),
       salonServiceCatalogProvider.overrideWith(
         (ref, String salonId) async => catalog,

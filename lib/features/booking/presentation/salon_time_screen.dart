@@ -302,7 +302,12 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
         salonAsync.error ?? catalogAsync.error ?? coverageAsync.error;
     final PublicSalonProfileData? salonData = salonAsync.value;
     final List<SalonServiceCategoryEntry>? catalog = catalogAsync.value;
-    final Map<String, Map<String, String>>? coverage = coverageAsync.value;
+    // Phase 266 — `.byMaster` only; this step has no per-service retry UI
+    // (D5 scopes that to `SalonMasterSelectionScreen` alone), so a degraded
+    // service renders here exactly as before: absent from every master's
+    // coverage row, same as a genuine "nobody covers it".
+    final Map<String, Map<String, String>>? coverage =
+        coverageAsync.value?.byMaster;
 
     Widget body;
     Widget? bottomBar;

@@ -448,8 +448,9 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
             for (final MasterService s in ordered) s.serviceDefId,
           ],
         );
-    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
-        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+    final AsyncValue<SalonCoverage> coverageAsync = ref.watch(
+      salonMasterServiceCoverageProvider(coverageArgs),
+    );
 
     // FAIL OPEN (class header): a roster/coverage error or in-flight fetch
     // resolves `covering` to `null`, which `_unionAvailability` (via an
@@ -457,11 +458,15 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
     // covering masters" — every future day stays tappable, no error surface
     // blocks the calendar the way `SalonMastersStep`'s `ErrorState` does one
     // step later (this step has nothing actionable to retry from yet; the
-    // masters step re-fetches the SAME providers right after).
+    // masters step re-fetches the SAME providers right after). Phase 266 —
+    // `.byMaster` only: a degraded service still resolves `covering` exactly
+    // as it did before that phase (absent from every master's row), and
+    // `degradedServiceIds` has no retry surface on THIS step — see the phase
+    // doc's consumer table.
     final List<String>? covering = _coveringMasterIds(
       ordered,
       rosterAsync.value,
-      coverageAsync.value,
+      coverageAsync.value?.byMaster,
     );
 
     // Requirement 4 — N requests, keyed per (masterId, visible month): one
@@ -711,8 +716,9 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
             for (final MasterService s in ordered) s.serviceDefId,
           ],
         );
-    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
-        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+    final AsyncValue<SalonCoverage> coverageAsync = ref.watch(
+      salonMasterServiceCoverageProvider(coverageArgs),
+    );
 
     final Object? error = rosterAsync.error ?? coverageAsync.error;
     if (error != null) {
@@ -727,7 +733,12 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
     }
 
     final List<SalonMasterSummary>? roster = rosterAsync.value;
-    final Map<String, Map<String, String>>? coverage = coverageAsync.value;
+    // Phase 266 — `.byMaster` only; this step has no per-service retry UI
+    // (D5 scopes that to `SalonMasterSelectionScreen` alone), so a degraded
+    // service renders here exactly as it did before that phase: absent from
+    // every master's coverage row, same as a genuine "nobody covers it".
+    final Map<String, Map<String, String>>? coverage =
+        coverageAsync.value?.byMaster;
     if (roster == null || coverage == null) {
       return const Center(
         key: ValueKey<String>('salon-create-booking-masters-loading'),

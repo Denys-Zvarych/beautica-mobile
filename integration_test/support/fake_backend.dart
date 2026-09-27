@@ -1396,6 +1396,32 @@ final class FakeBackend {
   int getBookableMastersCalls = 0;
   final Set<String> requestedBookableMastersServiceDefIds = <String>{};
 
+  /// Per-`serviceDefId` status code the NEXT (and every subsequent)
+  /// `GET /api/v1/salons/{salonId}/services/{serviceDefId}/masters` call
+  /// fails with, or absent for the default 200. Set via
+  /// [forceBookableMastersFailure] — never assign directly: same device as
+  /// [forcePassportFailure]/[forceListMasterFavoritesFailure] —
+  /// `DioAdapter.onRoute` bakes the reply's status code in at REGISTRATION
+  /// time, so the route has to be RE-REGISTERED (see
+  /// [_wireSalonBookableMasters]) for a status change to take effect.
+  final Map<String, int> _bookableMastersFailureStatusCodeByService =
+      <String, int>{};
+
+  /// Makes the NEXT (and every subsequent) `GET /api/v1/salons/{salonId}/
+  /// services/{serviceDefId}/masters` call for [serviceDefId] fail with
+  /// [statusCode] — driving `salonMasterServiceCoverageProvider`'s Phase 266
+  /// degraded/retry path instead of a genuine empty-coverage 200. Call again
+  /// with `null` to restore the default 200 — the flow that clears the
+  /// failure and taps retry to prove the row recovers.
+  void forceBookableMastersFailure(String serviceDefId, int? statusCode) {
+    if (statusCode == null) {
+      _bookableMastersFailureStatusCodeByService.remove(serviceDefId);
+    } else {
+      _bookableMastersFailureStatusCodeByService[serviceDefId] = statusCode;
+    }
+    _wireSalonBookableMasters();
+  }
+
   /// The `serviceId` query param the salon time-picker's real
   /// `GET /masters/{masterId}/slots` request carried for `master-ccc` /
   /// `master-ddd` respectively — bugfix regression guard (Phase 14.16/14.17
@@ -6175,6 +6201,93 @@ final class FakeBackend {
     );
   }
 
+  /// (Re-)registers the three `GET /api/v1/salons/salon-xyz/services/
+  /// {serviceDefId}/masters` routes (Phase 23.x bookable-masters rewire; see
+  /// the call site's own doc for the coverage split). Extracted into its own
+  /// method (Phase 266) so [forceBookableMastersFailure] can re-register
+  /// just one service's route with a failing status code without touching
+  /// the other two — same device as [_wirePassport].
+  void _wireSalonBookableMasters() {
+    int? failStatusFor(String serviceDefId) =>
+        _bookableMastersFailureStatusCodeByService[serviceDefId];
+
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/salon-svc-shared/masters',
+      (server) =>
+          server.replyCallback(failStatusFor('salon-svc-shared') ?? 200, (_) {
+            getBookableMastersCalls++;
+            requestedBookableMastersServiceDefIds.add('salon-svc-shared');
+            if (failStatusFor('salon-svc-shared') != null) {
+              return <String, dynamic>{
+                'success': false,
+                'data': null,
+                'message': 'Failed to load bookable masters',
+              };
+            }
+            return _okList(<Map<String, dynamic>>[
+              _bookableMasterEnvelope(
+                masterId: 'master-ccc',
+                serviceDefId: 'salon-svc-shared',
+                firstName: 'Марія',
+                lastName: 'Гриценко',
+              ),
+            ]);
+          }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/salon-svc-exclusive/masters',
+      (server) => server.replyCallback(
+        failStatusFor('salon-svc-exclusive') ?? 200,
+        (_) {
+          getBookableMastersCalls++;
+          requestedBookableMastersServiceDefIds.add('salon-svc-exclusive');
+          if (failStatusFor('salon-svc-exclusive') != null) {
+            return <String, dynamic>{
+              'success': false,
+              'data': null,
+              'message': 'Failed to load bookable masters',
+            };
+          }
+          return _okList(<Map<String, dynamic>>[
+            _bookableMasterEnvelope(
+              masterId: 'master-ddd',
+              serviceDefId: 'salon-svc-exclusive',
+              firstName: 'Оксана',
+              lastName: 'Іванова',
+            ),
+          ]);
+        },
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+    // `salon-svc-namefallback` is a REAL catalogue entry (see
+    // `_salonServiceCategories` above) that no roster master performs —
+    // an EMPTY 200, not an unregistered route, so the salon-service deep-link
+    // seed's "empty-roster" path (Phase G,
+    // `wishlist_salon_service_redirect_flow_test.dart`) can be exercised
+    // without conflating it with a genuine network-error state.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-xyz/services/salon-svc-namefallback/masters',
+      (server) => server.replyCallback(
+        failStatusFor('salon-svc-namefallback') ?? 200,
+        (_) {
+          getBookableMastersCalls++;
+          requestedBookableMastersServiceDefIds.add('salon-svc-namefallback');
+          if (failStatusFor('salon-svc-namefallback') != null) {
+            return <String, dynamic>{
+              'success': false,
+              'data': null,
+              'message': 'Failed to load bookable masters',
+            };
+          }
+          return _okList(const <Map<String, dynamic>>[]);
+        },
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// (Re-)registers `GET /api/v1/clients/me/passport` — CLIENT's derived
   /// BEAUTY PASSPORT (backend 19.5). Without this route the mock router 404s
   /// and the passport tab renders its ERROR state instead of the empty
@@ -7075,53 +7188,7 @@ final class FakeBackend {
     // auto-attach scenario the E2E can assert without re-proving the
     // contested-choice UI branch logic already exhaustively covered at the
     // widget tier (salon_master_selection_screen_test.dart).
-    _adapter.onRoute(
-      '/api/v1/salons/salon-xyz/services/salon-svc-shared/masters',
-      (server) => server.replyCallback(200, (_) {
-        getBookableMastersCalls++;
-        requestedBookableMastersServiceDefIds.add('salon-svc-shared');
-        return _okList(<Map<String, dynamic>>[
-          _bookableMasterEnvelope(
-            masterId: 'master-ccc',
-            serviceDefId: 'salon-svc-shared',
-            firstName: 'Марія',
-            lastName: 'Гриценко',
-          ),
-        ]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    _adapter.onRoute(
-      '/api/v1/salons/salon-xyz/services/salon-svc-exclusive/masters',
-      (server) => server.replyCallback(200, (_) {
-        getBookableMastersCalls++;
-        requestedBookableMastersServiceDefIds.add('salon-svc-exclusive');
-        return _okList(<Map<String, dynamic>>[
-          _bookableMasterEnvelope(
-            masterId: 'master-ddd',
-            serviceDefId: 'salon-svc-exclusive',
-            firstName: 'Оксана',
-            lastName: 'Іванова',
-          ),
-        ]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
-    // `salon-svc-namefallback` is a REAL catalogue entry (see
-    // `_salonServiceCategories` above) that no roster master performs —
-    // an EMPTY 200, not an unregistered route, so the salon-service deep-link
-    // seed's "empty-roster" path (Phase G,
-    // `wishlist_salon_service_redirect_flow_test.dart`) can be exercised
-    // without conflating it with a genuine network-error state.
-    _adapter.onRoute(
-      '/api/v1/salons/salon-xyz/services/salon-svc-namefallback/masters',
-      (server) => server.replyCallback(200, (_) {
-        getBookableMastersCalls++;
-        requestedBookableMastersServiceDefIds.add('salon-svc-namefallback');
-        return _okList(const <Map<String, dynamic>>[]);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
+    _wireSalonBookableMasters();
 
     // GET /api/v1/masters/master-aaa/slots?date=&serviceId= — Phase 14.1 slot
     // picker (SlotRepository.getMasterSlots). Query params are not part of

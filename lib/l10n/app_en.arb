@@ -5153,6 +5153,26 @@
       }
     }
   },
+  "salonBookingDegradedServiceLabel": "Couldn't check masters for \"{service}\"",
+  "@salonBookingDegradedServiceLabel": {
+    "description": "Phase 266 — inline label for a selected service whose OWN bookable-masters fetch failed (SalonCoverage.degradedServiceIds), rendered in place of the terminal _UncoveredRow. Distinct from salonBookingUncoveredSemantics: this is a retryable error, never a genuine \"nobody performs this service\".",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Pedicure"
+      }
+    }
+  },
+  "salonBookingDegradedServiceSemantics": "Couldn't check masters for {service}. Tap Try again to retry.",
+  "@salonBookingDegradedServiceSemantics": {
+    "description": "Accessibility label for the Phase 266 degraded-service retry row (see salonBookingDegradedServiceLabel).",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Pedicure"
+      }
+    }
+  },
   "salonBookingRecordCount": "{count, plural, =0{0 appointments} =1{1 appointment} other{{count} appointments}}",
   "@salonBookingRecordCount": {
     "description": "Appointment-count chip in the per-master grouped preview header.",

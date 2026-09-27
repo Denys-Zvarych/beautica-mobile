@@ -1326,6 +1326,21 @@ class _SalonPortfolioTile extends StatelessWidget {
 /// below regardless of how close a roster gets to [kSalonMastersPageSize].
 const int kSalonMastersInitialCount = 6;
 
+/// mobile-perf LOW (Phase 266 audit cycle 3) — bumped once per genuine
+/// recompute of the filtered-masters list in
+/// `_MastersTabState._resolveFilteredMasters`, never on a cache hit. Mirrors
+/// `salon_booking_wizard_steps.dart`'s `debugResolveSalonMastersCallCount`
+/// precedent.
+@visibleForTesting
+int debugMastersTabFilterCallCount = 0;
+
+/// Resets [debugMastersTabFilterCallCount] to 0 — call at the top of a test
+/// that asserts an exact recompute count.
+@visibleForTesting
+void debugResetMastersTabFilterCallCount() {
+  debugMastersTabFilterCallCount = 0;
+}
+
 class _MastersTab extends ConsumerStatefulWidget {
   const _MastersTab({
     required this.salonId,
@@ -1348,6 +1363,53 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
   // user-triggered build of the remainder is an acceptable cost; it is
   // ONLY the unconditional first-paint build this guards against.
   bool _showAll = false;
+
+  // mobile-perf LOW (Phase 266 audit cycle 3) — memoized filtered-masters
+  // list. Mirrors `_SalonMastersStepState._resolveDerived`'s `identical()`
+  // pattern in `salon_booking_wizard_steps.dart` (own doc there): a Phase 266
+  // retry write on `salonMasterServiceCoverageProvider` replaces the owning
+  // `SalonCoverage` while reusing `byMaster` BY REFERENCE for every service
+  // untouched by that retry (see `salon_master_coverage_notifier.dart`'s
+  // header) — before this memo, every such retry re-ran the O(masters)
+  // `.where()` filter below on this filtered-masters tab too, even though
+  // neither `masters` nor `coverage` (as seen by THIS filter) had changed.
+  // `masters` (`widget.masters`, sourced from `PublicSalonProfileData.$2` — a
+  // plain record field, never a getter that reallocates per access, so no
+  // `project_freezed_getter_defeats_identical_memo` trap) and `coverage`
+  // (`result.byMaster`) are both safe `identical()` keys; `filter.id` is
+  // compared by value since a fresh `SalonServiceSelection` instance can
+  // carry the same id.
+  List<SalonMasterSummary>? _cachedMastersForFilter;
+  Map<String, Map<String, String>>? _cachedCoverageForFilter;
+  String? _cachedFilterId;
+  List<SalonMasterSummary>? _cachedFilteredMasters;
+
+  List<SalonMasterSummary> _resolveFilteredMasters(
+    List<SalonMasterSummary> masters,
+    Map<String, Map<String, String>> coverage,
+    String filterId,
+  ) {
+    final bool hit =
+        _cachedFilteredMasters != null &&
+        identical(_cachedMastersForFilter, masters) &&
+        identical(_cachedCoverageForFilter, coverage) &&
+        _cachedFilterId == filterId;
+    if (hit) return _cachedFilteredMasters!;
+
+    debugMastersTabFilterCallCount++;
+    final List<SalonMasterSummary> filtered = masters
+        .where(
+          (SalonMasterSummary m) =>
+              coverage[m.masterId]?.containsKey(filterId) ?? false,
+        )
+        .toList();
+
+    _cachedMastersForFilter = masters;
+    _cachedCoverageForFilter = coverage;
+    _cachedFilterId = filterId;
+    _cachedFilteredMasters = filtered;
+    return filtered;
+  }
 
   @override
   void didUpdateWidget(covariant _MastersTab oldWidget) {
@@ -1401,8 +1463,9 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
           salonId: widget.salonId,
           selectedServiceIds: <String>[filter.id],
         );
-    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
-        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+    final AsyncValue<SalonCoverage> coverageAsync = ref.watch(
+      salonMasterServiceCoverageProvider(coverageArgs),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1438,13 +1501,18 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
               salonMasterServiceCoverageProvider(coverageArgs),
             ),
           ),
-          data: (Map<String, Map<String, String>> coverage) {
-            final List<SalonMasterSummary> filtered = masters
-                .where(
-                  (SalonMasterSummary m) =>
-                      coverage[m.masterId]?.containsKey(filter.id) ?? false,
-                )
-                .toList();
+          // Phase 266 — `.byMaster` only; this filter path has no per-service
+          // retry UI (D5 scopes that to `SalonMasterSelectionScreen` alone),
+          // so a degraded service renders here exactly as before: absent
+          // from every master's coverage row, same as a genuine "nobody
+          // covers it".
+          data: (SalonCoverage result) {
+            final Map<String, Map<String, String>> coverage = result.byMaster;
+            final List<SalonMasterSummary> filtered = _resolveFilteredMasters(
+              masters,
+              coverage,
+              filter.id,
+            );
             if (filtered.isEmpty) {
               return const _MastersForServiceEmpty();
             }
