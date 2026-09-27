@@ -90,6 +90,13 @@ void main() {
         startsWith(RouteNames.masterProfile),
       );
 
+      // Phase 351 moved the add-services CTA behind the «Послуги» tab
+      // (index 1) — select it before looking for the CTA.
+      final Finder servicesTab = find.byKey(const Key('master-profile-tab-1'));
+      await tester.ensureVisible(servicesTab);
+      await tester.tap(servicesTab);
+      await tester.pumpAndSettle();
+
       // Open the service-setup flow via the zero-services CTA.
       final Finder cta = find.byKey(const Key('btn-master-add-services'));
       await tester.scrollUntilVisible(
