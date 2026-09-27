@@ -5153,6 +5153,26 @@
       }
     }
   },
+  "salonBookingDegradedServiceLabel": "Не вдалося перевірити майстрів для «{service}»",
+  "@salonBookingDegradedServiceLabel": {
+    "description": "Phase 266 — inline label for a selected service whose OWN bookable-masters fetch failed (SalonCoverage.degradedServiceIds), rendered in place of the terminal _UncoveredRow. Distinct from salonBookingUncoveredSemantics: this is a retryable error, never a genuine \"nobody performs this service\".",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
+  "salonBookingDegradedServiceSemantics": "Не вдалося перевірити майстрів для {service}. Торкніться «Спробувати знову», щоб повторити спробу.",
+  "@salonBookingDegradedServiceSemantics": {
+    "description": "Accessibility label for the Phase 266 degraded-service retry row (see salonBookingDegradedServiceLabel).",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Педикюр"
+      }
+    }
+  },
   "salonBookingRecordCount": "{count, plural, =0{0 записів} =1{1 запис} few{{count} записи} many{{count} записів} other{{count} записів}}",
   "@salonBookingRecordCount": {
     "description": "Appointment-count chip in the per-master grouped preview header.",

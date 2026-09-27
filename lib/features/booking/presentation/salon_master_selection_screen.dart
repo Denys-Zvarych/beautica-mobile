@@ -41,6 +41,8 @@
 // rating) still comes from [publicSalonProfileProvider]'s roster below —
 // the coverage map is purely the eligibility/assignment-id gate.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -51,6 +53,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
@@ -86,6 +89,21 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 List<Color> _avatarGradient(int index) =>
     _kAvatarGradients[index % _kAvatarGradients.length];
 
+/// mobile-perf LOW (Phase 266 audit cycle 1) — bumped once per genuine
+/// recompute of `_MasterSelectionStatic` in
+/// `_SalonMasterSelectionScreenState._resolveStaticModel`, never on a cache
+/// hit. Mirrors `salon_booking_wizard_steps.dart`'s
+/// `debugResolveSalonMastersCallCount` precedent.
+@visibleForTesting
+int debugResolveMasterSelectionStaticCallCount = 0;
+
+/// Resets [debugResolveMasterSelectionStaticCallCount] to 0 — call at the
+/// top of a test that asserts an exact recompute count.
+@visibleForTesting
+void debugResetResolveMasterSelectionStaticCallCount() {
+  debugResolveMasterSelectionStaticCallCount = 0;
+}
+
 /// Salon booking flow step 2 — multi-select master assignment, opened by
 /// `SalonServiceSelectionScreen`'s "Далі" CTA.
 class SalonMasterSelectionScreen extends ConsumerStatefulWidget {
@@ -111,6 +129,28 @@ class _SalonMasterSelectionScreenState
   final ValueNotifier<_PickState> _pickNotifier = ValueNotifier<_PickState>(
     const _PickState(picked: <String>{}, choice: <String, String>{}),
   );
+
+  // mobile-perf LOW (Phase 266 audit cycle 1) — memoized selected-services
+  // projection + `_MasterSelectionStatic`. Mirrors `_SalonMastersStepState.
+  // _resolveDerived`'s `identical()` pattern in `salon_booking_wizard_steps
+  // .dart` (own doc there): `catalog`/`masters`/`coverage`/
+  // `degradedServiceIds` are all Riverpod-cached `AsyncValue.value`s that get
+  // REPLACED, never mutated, on refetch — so `identical()` is a safe cache
+  // key for every one of them (no `project_freezed_getter_defeats_
+  // identical_memo` trap: none of these are getters that allocate a fresh
+  // collection per access). Without this, `retryService`'s own state write
+  // (which changes `coverage`'s identity to update ONE service, per
+  // `_mergeRetriedService`) used to force this screen to re-run the O(N ×
+  // selected) `eligible` filter from scratch for every OTHER, untouched
+  // service too.
+  List<SalonServiceCategoryEntry>? _cachedCatalog;
+  List<SalonCatalogService>? _cachedSelected;
+  List<MasterService>? _cachedShelfServices;
+
+  List<SalonMasterSummary>? _cachedMastersForStatic;
+  Map<String, Map<String, String>>? _cachedCoverageForStatic;
+  Set<String>? _cachedDegradedForStatic;
+  _MasterSelectionStatic? _cachedStaticModel;
 
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
@@ -138,6 +178,70 @@ class _SalonMasterSelectionScreenState
     super.dispose();
   }
 
+  /// The selected-services projection of [catalog] + [widget.args.
+  /// selectedServiceIds] — `widget.args` is a stable field for this screen's
+  /// whole lifetime, so [catalog]'s own identity is the only thing that can
+  /// invalidate the cache.
+  (List<SalonCatalogService>, List<MasterService>) _resolveSelected(
+    List<SalonServiceCategoryEntry> catalog,
+  ) {
+    if (_cachedSelected != null && identical(_cachedCatalog, catalog)) {
+      return (_cachedSelected!, _cachedShelfServices!);
+    }
+    final List<SalonCatalogService> allServices = <SalonCatalogService>[
+      for (final SalonServiceCategoryEntry c in catalog) ...c.services,
+    ];
+    final List<SalonCatalogService> selected = <SalonCatalogService>[
+      for (final String id in widget.args.selectedServiceIds)
+        if (allServices.where((SalonCatalogService s) => s.id == id).isNotEmpty)
+          allServices.firstWhere((SalonCatalogService s) => s.id == id),
+    ];
+    // Display-only adapter feeding the pinned selected-services shelf, so
+    // the client never loses sight of what they picked while assigning
+    // masters. Mirrors `SalonServiceSelectionScreen`'s identical adapter use
+    // for `BookingSummaryBar`.
+    final List<MasterService> shelfServices = <MasterService>[
+      for (final SalonCatalogService s in selected) salonServiceForShelf(s),
+    ];
+    _cachedCatalog = catalog;
+    _cachedSelected = selected;
+    _cachedShelfServices = shelfServices;
+    return (selected, shelfServices);
+  }
+
+  /// Recomputed only when [masters]/[coverage]/[degradedServiceIds] actually
+  /// change identity — never on a pick/choice toggle, and (Phase 266 audit
+  /// cycle 1) never on a retry of an unrelated service either, since the
+  /// O(N × selected) `eligible` filter + `eligibleIndex` map are the
+  /// expensive part, not the retry itself.
+  _MasterSelectionStatic _resolveStaticModel({
+    required List<SalonMasterSummary> masters,
+    required List<SalonCatalogService> selected,
+    required Map<String, Map<String, String>> coverage,
+    required Set<String> degradedServiceIds,
+  }) {
+    final bool hit =
+        _cachedStaticModel != null &&
+        identical(_cachedMastersForStatic, masters) &&
+        identical(_cachedSelected, selected) &&
+        identical(_cachedCoverageForStatic, coverage) &&
+        identical(_cachedDegradedForStatic, degradedServiceIds);
+    if (hit) return _cachedStaticModel!;
+
+    debugResolveMasterSelectionStaticCallCount++;
+    final _MasterSelectionStatic model = _MasterSelectionStatic(
+      masters: masters,
+      selected: selected,
+      coverage: coverage,
+      degradedServiceIds: degradedServiceIds,
+    );
+    _cachedMastersForStatic = masters;
+    _cachedCoverageForStatic = coverage;
+    _cachedDegradedForStatic = degradedServiceIds;
+    _cachedStaticModel = model;
+    return model;
+  }
+
   void _toggleMaster(String id) {
     final _PickState current = _pickNotifier.value;
     final Set<String> nextPicked = Set<String>.of(current.picked);
@@ -156,6 +260,30 @@ class _SalonMasterSelectionScreenState
     _pickNotifier.value = _PickState(
       picked: current.picked,
       choice: Map<String, String>.of(current.choice)..[serviceId] = masterId,
+    );
+  }
+
+  /// D4 — refetches ONE degraded [serviceDefId] via the notifier's own retry
+  /// entry point (never `ref.invalidate`, which would re-issue every OTHER
+  /// selected service's request too — see `salon_master_coverage_notifier
+  /// .dart`'s `retryService` doc). Fire-and-forget: the notifier writes the
+  /// merged result straight into `state`, so the next `ref.watch` rebuild
+  /// (this method needs no `await`/`setState` of its own) picks it up.
+  ///
+  /// Audit cycle 2, finding #1 — `retryService` deliberately RE-throws a
+  /// non-`Failure` error (a mapper `TypeError` on a malformed 200 body, the
+  /// realistic case) after it has already settled this row into degraded +
+  /// cooldown — see that method's doc. This call site is fire-and-forget by
+  /// design (no `await`, no `setState` of its own), so that rethrow is
+  /// caught HERE and dropped: the row already reflects the failure on
+  /// screen, and the only thing left for this rethrow to do is crash as an
+  /// unhandled async error in the zone, which is not a UI concern.
+  void _retryService(String serviceDefId) {
+    unawaited(
+      ref
+          .read(salonMasterServiceCoverageProvider(widget.args).notifier)
+          .retryService(serviceDefId)
+          .catchError((Object _, StackTrace _) {}),
     );
   }
 
@@ -204,7 +332,29 @@ class _SalonMasterSelectionScreenState
         salonAsync.error ?? catalogAsync.error ?? coverageAsync.error;
     final PublicSalonProfileData? salonData = salonAsync.value;
     final List<SalonServiceCategoryEntry>? catalog = catalogAsync.value;
-    final Map<String, Map<String, String>>? coverage = coverageAsync.value;
+    // Phase 266 — this is the ONE screen that surfaces the per-service
+    // degradation split (D5): `coverage` stays the same `.byMaster` map every
+    // other consumer reads, and `degradedServiceIds` feeds the retryable-error
+    // row `_MasterGroupingPreview` renders instead of `_UncoveredRow` for a
+    // service whose OWN fetch failed (see `_MasterSelectionStatic`).
+    final SalonCoverage? coverageResult = coverageAsync.value;
+    final Map<String, Map<String, String>>? coverage = coverageResult?.byMaster;
+    final Set<String> degradedServiceIds =
+        coverageResult?.degradedServiceIds ?? const <String>{};
+    // Phase 266 audit cycle 1 (verifier LOW #8) — reflects
+    // `SalonMasterServiceCoverage.retryService`'s own in-flight/cooldown
+    // guard state (see `salon_master_coverage_notifier.dart`'s `SalonCoverage`
+    // doc) so `_DegradedServiceRow` can disable its tap target instead of
+    // staying tappable mid-request or immediately after a failed retry.
+    final Set<String> retryingServiceIds =
+        coverageResult?.retryingServiceIds ?? const <String>{};
+    final Map<String, DateTime> retryCooldownUntil =
+        coverageResult?.retryCooldownUntil ?? const <String, DateTime>{};
+    final DateTime cooldownNow = ref.watch(clockProvider)();
+    final Set<String> retryCooldownServiceIds = <String>{
+      for (final MapEntry<String, DateTime> e in retryCooldownUntil.entries)
+        if (cooldownNow.isBefore(e.value)) e.key,
+    };
 
     Widget body;
     Widget? bottomBar;
@@ -232,35 +382,18 @@ class _SalonMasterSelectionScreenState
       body = const _LoadingBody();
     } else {
       final (_, List<SalonMasterSummary> masters) = salonData;
-      final List<SalonCatalogService> allServices = <SalonCatalogService>[
-        for (final SalonServiceCategoryEntry c in catalog) ...c.services,
-      ];
-      final List<SalonCatalogService> selected = <SalonCatalogService>[
-        for (final String id in widget.args.selectedServiceIds)
-          if (allServices
-              .where((SalonCatalogService s) => s.id == id)
-              .isNotEmpty)
-            allServices.firstWhere((SalonCatalogService s) => s.id == id),
-      ];
+      final (
+        List<SalonCatalogService> selected,
+        List<MasterService> shelfServices,
+      ) = _resolveSelected(
+        catalog,
+      );
 
-      // Computed once per outer `build()` (never per pick/choice tap, which
-      // only reruns the narrower `ValueListenableBuilder<_PickState>` below)
-      // — the display-only adapter feeding the pinned selected-services
-      // shelf, so the client never loses sight of what they picked while
-      // assigning masters. Mirrors `SalonServiceSelectionScreen`'s identical
-      // adapter use for `BookingSummaryBar`.
-      final List<MasterService> shelfServices = <MasterService>[
-        for (final SalonCatalogService s in selected) salonServiceForShelf(s),
-      ];
-
-      // Recomputed only when the underlying async data changes (masters /
-      // catalog / coverage) — never on a pick/choice toggle, since the O(N ×
-      // selected) `eligible` filter + `eligibleIndex` map are built once per
-      // data load rather than once per tap.
-      final _MasterSelectionStatic staticModel = _MasterSelectionStatic(
+      final _MasterSelectionStatic staticModel = _resolveStaticModel(
         masters: masters,
         selected: selected,
         coverage: coverage,
+        degradedServiceIds: degradedServiceIds,
       );
 
       body = _Body(
@@ -268,6 +401,9 @@ class _SalonMasterSelectionScreenState
         pickListenable: _pickNotifier,
         onToggleMaster: _toggleMaster,
         onChoose: _choose,
+        onRetryService: _retryService,
+        retryingServiceIds: retryingServiceIds,
+        retryCooldownServiceIds: retryCooldownServiceIds,
       );
 
       bottomBar = ValueListenableBuilder<_PickState>(
@@ -341,6 +477,7 @@ class _MasterSelectionStatic {
     required this.masters,
     required this.selected,
     required this.coverage,
+    required this.degradedServiceIds,
   }) : eligible = masters
            .where(
              (SalonMasterSummary m) => selected.any(
@@ -358,6 +495,13 @@ class _MasterSelectionStatic {
   final List<SalonMasterSummary> masters;
   final List<SalonCatalogService> selected;
   final Map<String, Map<String, String>> coverage;
+
+  /// Selected service ids whose OWN `getBookableMasters` call failed (Phase
+  /// 266) — see `salon_master_coverage_notifier.dart`'s `SalonCoverage` doc.
+  /// A degraded service is always absent from every row in [coverage], so it
+  /// reads identically to genuine non-coverage everywhere EXCEPT this set —
+  /// this is the only source of truth that tells the two apart.
+  final Set<String> degradedServiceIds;
 
   /// Masters who perform ≥1 selected service — the only ones rendered.
   final List<SalonMasterSummary> eligible;
@@ -479,11 +623,33 @@ class _MasterSelectionDerived {
     return list;
   }
 
-  /// Selected services no picked master can perform yet.
+  /// Selected services no picked master can perform yet — GENUINELY: the
+  /// service is not in [_MasterSelectionStatic.degradedServiceIds], so an
+  /// empty [candidateIds] here really does mean "nobody performs this",
+  /// never "we couldn't check" (Phase 266 D1/D5 — see [degraded] for the
+  /// other half of this split).
   List<String> get uncovered => staticModel.selected
-      .where((SalonCatalogService s) => candidateIds(s.id).isEmpty)
+      .where(
+        (SalonCatalogService s) =>
+            candidateIds(s.id).isEmpty &&
+            !staticModel.degradedServiceIds.contains(s.id),
+      )
       .map((SalonCatalogService s) => s.name)
       .toList();
+
+  /// Selected services whose OWN coverage fetch FAILED (Phase 266) — always a
+  /// subset of "no picked master can perform it" (a degraded service has zero
+  /// coverage rows anywhere, picked or not), but rendered as a retryable
+  /// error instead of [uncovered]'s terminal row. See
+  /// `salon_master_coverage_notifier.dart`'s `SalonCoverage` doc for why
+  /// [_MasterSelectionStatic.degradedServiceIds] is the only way to tell this
+  /// apart from a genuine empty result.
+  List<SalonCatalogService> get degraded => staticModel.selected
+      .where(
+        (SalonCatalogService s) =>
+            staticModel.degradedServiceIds.contains(s.id),
+      )
+      .toList(growable: false);
 }
 
 @immutable
@@ -686,6 +852,9 @@ class _Body extends StatelessWidget {
     required this.pickListenable,
     required this.onToggleMaster,
     required this.onChoose,
+    required this.onRetryService,
+    required this.retryingServiceIds,
+    required this.retryCooldownServiceIds,
   });
 
   final _MasterSelectionStatic staticModel;
@@ -693,11 +862,34 @@ class _Body extends StatelessWidget {
   final ValueChanged<String> onToggleMaster;
   final void Function(String serviceId, String masterId) onChoose;
 
+  /// D4's retry entry point, forwarded down to whichever row renders a
+  /// degraded service — see `_MasterGroupingPreview` and the eligible-empty
+  /// branch just below.
+  final ValueChanged<String> onRetryService;
+
+  /// Phase 266 audit cycle 1 (verifier LOW #8) — service ids whose retry is
+  /// currently in flight / within its post-failure cooldown, forwarded to
+  /// every `_DegradedServiceRow` this body renders.
+  final Set<String> retryingServiceIds;
+  final Set<String> retryCooldownServiceIds;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
 
     if (staticModel.eligible.isEmpty) {
+      // Phase 266 D1 — this is the sharpest form of the ambiguity the phase
+      // exists to fix: an empty `eligible` list used to read identically
+      // whether the salon genuinely has nobody for these services or a
+      // service's own coverage fetch just failed. The heading/icon below are
+      // UNCHANGED (so a genuine empty roster still renders byte-for-byte as
+      // before); a degraded service ADDITIONALLY gets its own retryable row.
+      final List<SalonCatalogService> degradedSelected = staticModel.selected
+          .where(
+            (SalonCatalogService s) =>
+                staticModel.degradedServiceIds.contains(s.id),
+          )
+          .toList(growable: false);
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(VelvetSpacing.xl),
@@ -725,6 +917,27 @@ class _Body extends StatelessWidget {
                 style: VelvetText.heading20,
                 textAlign: TextAlign.center,
               ),
+              if (degradedSelected.isNotEmpty) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.lg),
+                for (int i = 0; i < degradedSelected.length; i++) ...<Widget>[
+                  _DegradedServiceRow(
+                    key: Key(
+                      'salon_booking_degraded_service_${degradedSelected[i].id}',
+                    ),
+                    serviceId: degradedSelected[i].id,
+                    serviceName: degradedSelected[i].name,
+                    onRetry: onRetryService,
+                    retrying: retryingServiceIds.contains(
+                      degradedSelected[i].id,
+                    ),
+                    cooldown: retryCooldownServiceIds.contains(
+                      degradedSelected[i].id,
+                    ),
+                  ),
+                  if (i < degradedSelected.length - 1)
+                    const SizedBox(height: VelvetSpacing.sm),
+                ],
+              ],
             ],
           ),
         ),
@@ -832,8 +1045,12 @@ class _Body extends StatelessWidget {
                       groups: derived.groups,
                       choices: derived.choices,
                       uncovered: derived.uncovered,
+                      degraded: derived.degraded,
                       hasPicks: pick.picked.isNotEmpty,
                       onChoose: onChoose,
+                      onRetryService: onRetryService,
+                      retryingServiceIds: retryingServiceIds,
+                      retryCooldownServiceIds: retryCooldownServiceIds,
                     ),
                     const SizedBox(height: VelvetSpacing.sm),
                     Center(
@@ -1165,15 +1382,29 @@ class _MasterGroupingPreview extends StatelessWidget {
     required this.groups,
     required this.choices,
     required this.uncovered,
+    required this.degraded,
     required this.hasPicks,
     required this.onChoose,
+    required this.onRetryService,
+    required this.retryingServiceIds,
+    required this.retryCooldownServiceIds,
   });
 
   final List<_MasterGroupVM> groups;
   final List<_ServiceChoiceVM> choices;
   final List<String> uncovered;
+
+  /// Selected services whose OWN coverage fetch failed (Phase 266) — rendered
+  /// as [_DegradedServiceRow] instead of [_UncoveredRow], right below it.
+  final List<SalonCatalogService> degraded;
   final bool hasPicks;
   final void Function(String serviceId, String masterId) onChoose;
+  final ValueChanged<String> onRetryService;
+
+  /// Phase 266 audit cycle 1 (verifier LOW #8) — forwarded verbatim to every
+  /// [_DegradedServiceRow] this card renders; see `_Body`'s identical fields.
+  final Set<String> retryingServiceIds;
+  final Set<String> retryCooldownServiceIds;
 
   @override
   Widget build(BuildContext context) {
@@ -1256,6 +1487,33 @@ class _MasterGroupingPreview extends StatelessWidget {
                           ) ...<Widget>[
                             _UncoveredRow(service: uncovered[i]),
                             if (i < uncovered.length - 1)
+                              const SizedBox(height: VelvetSpacing.sm),
+                          ],
+                        ],
+                        // Phase 266 D5 — a DIFFERENT row than [_UncoveredRow]
+                        // just above: that one is terminal (nobody performs
+                        // this), this one is a retryable error (we couldn't
+                        // check). Never merged into the same list — see
+                        // `_MasterSelectionDerived.uncovered`/`.degraded`.
+                        if (degraded.isNotEmpty) ...<Widget>[
+                          if (groups.isNotEmpty || uncovered.isNotEmpty)
+                            const SizedBox(height: VelvetSpacing.md),
+                          for (int i = 0; i < degraded.length; i++) ...<Widget>[
+                            _DegradedServiceRow(
+                              key: Key(
+                                'salon_booking_degraded_service_${degraded[i].id}',
+                              ),
+                              serviceId: degraded[i].id,
+                              serviceName: degraded[i].name,
+                              onRetry: onRetryService,
+                              retrying: retryingServiceIds.contains(
+                                degraded[i].id,
+                              ),
+                              cooldown: retryCooldownServiceIds.contains(
+                                degraded[i].id,
+                              ),
+                            ),
+                            if (i < degraded.length - 1)
                               const SizedBox(height: VelvetSpacing.sm),
                           ],
                         ],
@@ -1567,6 +1825,106 @@ class _UncoveredRow extends StatelessWidget {
             child: Text(
               l10n.salonBookingUncoveredSemantics(service),
               style: VelvetText.bookFeedbackSec125,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A selected service whose coverage fetch FAILED (Phase 266) — mirrors
+/// [_UncoveredRow]'s icon+text row shape (same font sizes, same layout) so
+/// the two read as siblings, but is NEVER the terminal row: the icon/color
+/// differ (a "couldn't check" glyph in accent-deep, not [_UncoveredRow]'s red
+/// error glyph) and it carries its own retry action, wired to
+/// `SalonMasterServiceCoverage.retryService` (D4) through [onRetry]. A server
+/// error must never render identically to "nobody performs this service" —
+/// that identical rendering is the exact defect this phase exists to fix.
+///
+/// [retrying]/[cooldown] (Phase 266 audit cycle 1, verifier LOW #8) disable
+/// the tap target and swap its label — mirrors `SalonInviteRow.
+/// _CancelAction`'s identical busy-spinner shape in `salon_invite_row.dart`
+/// (same spinner extent/stroke, same `Semantics(enabled: !busy)` +
+/// `GestureDetector(onTap: busy ? null : ...)` shape), reused here rather
+/// than re-invented: [retrying] swaps the "Retry" link for a small inline
+/// spinner (a request for this id is actually in flight); [cooldown] mutes
+/// the same link without a spinner (nothing is in flight — the id is just
+/// inside its post-failure cooldown window, see `salon_master_coverage_
+/// notifier.dart`'s `_kRetryCooldown`).
+class _DegradedServiceRow extends StatelessWidget {
+  const _DegradedServiceRow({
+    super.key,
+    required this.serviceId,
+    required this.serviceName,
+    required this.onRetry,
+    this.retrying = false,
+    this.cooldown = false,
+  });
+
+  final String serviceId;
+  final String serviceName;
+  final ValueChanged<String> onRetry;
+  final bool retrying;
+  final bool cooldown;
+
+  static const double _spinnerExtent = 15;
+  static const double _spinnerStroke = 2;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final bool disabled = retrying || cooldown;
+    return Semantics(
+      label: l10n.salonBookingDegradedServiceSemantics(serviceName),
+      child: Row(
+        children: <Widget>[
+          const Icon(
+            Icons.sync_problem_rounded,
+            size: 16,
+            color: BrandColors.accentDeep,
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          Expanded(
+            child: Text(
+              l10n.salonBookingDegradedServiceLabel(serviceName),
+              style: VelvetText.bookFeedbackSec125,
+            ),
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          Semantics(
+            button: true,
+            enabled: !disabled,
+            child: GestureDetector(
+              key: Key('salon_booking_retry_service_$serviceId'),
+              onTap: disabled ? null : () => onRetry(serviceId),
+              child: retrying
+                  // mobile-perf LOW precedent (`salon_invite_row.dart`'s
+                  // `_CancelAction`) — the RepaintBoundary keeps the
+                  // spinner's per-frame repaint from re-rasterising this
+                  // row's own layer.
+                  ? const RepaintBoundary(
+                      child: SizedBox(
+                        height: _spinnerExtent,
+                        width: _spinnerExtent,
+                        child: CircularProgressIndicator(
+                          strokeWidth: _spinnerStroke,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            BrandColors.accentDeep,
+                          ),
+                        ),
+                      ),
+                    )
+                  : Text(
+                      l10n.retryLabel,
+                      style: cooldown
+                          ? VelvetText.link().copyWith(
+                              color: BrandColors.textSecondary.withValues(
+                                alpha: 0.5,
+                              ),
+                            )
+                          : VelvetText.link(),
+                    ),
             ),
           ),
         ],

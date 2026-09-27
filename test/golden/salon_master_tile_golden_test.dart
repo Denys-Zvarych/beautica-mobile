@@ -112,6 +112,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
+import '../helpers/fake_salon_master_coverage.dart';
 import '../helpers/pump_app.dart' show TapCalendarDay;
 import 'helpers/golden_pump.dart';
 
@@ -396,7 +397,8 @@ List<Object> _overrides() => <Object>[
     ],
   ),
   salonMasterServiceCoverageProvider.overrideWith(
-    (ref, args) async => _coverageAOnly(),
+    () =>
+        FakeSalonMasterServiceCoverage(() => salonCoverageOf(_coverageAOnly())),
   ),
   salonServiceCatalogProvider.overrideWith(
     (ref, String salonId) async => _kCatalog,
@@ -416,7 +418,9 @@ List<Object> _overridesMulti() => <Object>[
     ],
   ),
   salonMasterServiceCoverageProvider.overrideWith(
-    (ref, args) async => _coverageBothFull(),
+    () => FakeSalonMasterServiceCoverage(
+      () => salonCoverageOf(_coverageBothFull()),
+    ),
   ),
   salonServiceCatalogProvider.overrideWith(
     (ref, String salonId) async => _kMultiCatalog,

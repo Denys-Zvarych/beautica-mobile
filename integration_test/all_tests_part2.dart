@@ -43,6 +43,8 @@ import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
 import 'salon_archive_flow_test.dart' as salon_archive;
+import 'salon_booking_coverage_retry_flow_test.dart'
+    as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_create_booking_test.dart' as salon_create_booking;
@@ -221,6 +223,11 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Phase 266 (mobile-qa, Step 2.7 Rule 3b) — the getBookableMasters
+  // degraded/retry sibling of `salon_booking_flow`: one selected service's
+  // coverage fetch fails, must render the retry row (never the terminal
+  // uncovered row), and a successful retry must recover it.
+  group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

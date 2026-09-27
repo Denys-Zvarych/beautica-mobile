@@ -79,6 +79,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../helpers/fake_salon_master_coverage.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 
@@ -198,7 +199,9 @@ void main() {
           // throw synchronously while building the provider graph.
           salonMastersRosterProvider.overrideWith((ref, salonId) async => []),
           salonMasterServiceCoverageProvider.overrideWith(
-            (ref, args) async => {},
+            () => FakeSalonMasterServiceCoverage(
+              () => salonCoverageOf(<String, Map<String, String>>{}),
+            ),
           ),
           salonServiceCatalogProvider.overrideWith((ref, salonId) async => []),
           // Phase 21.1 follow-up — the authenticated SALON_OWNER session's

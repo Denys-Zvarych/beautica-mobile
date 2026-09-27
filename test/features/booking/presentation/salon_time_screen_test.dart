@@ -55,6 +55,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 
 /// Tall test surface so the slot chip grid (below the calendar/day-header,
@@ -450,7 +451,9 @@ List<Object> _baseOverrides({
       salonId: _kSalonId,
       selectedServiceIds: selectedServiceIds,
     ),
-  ).overrideWith((ref) => coverage),
+  ).overrideWith(
+    () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(coverage)),
+  ),
   if (slotRepository != null)
     slotRepositoryProvider.overrideWith((_) => slotRepository),
 ];
@@ -1249,7 +1252,11 @@ void main() {
                 salonId: _kSalonId,
                 selectedServiceIds: <String>['svc-1'],
               ),
-            ).overrideWith((ref) => _kIdentityCoverage),
+            ).overrideWith(
+              () => FakeSalonMasterServiceCoverage(
+                () => salonCoverageOf(_kIdentityCoverage),
+              ),
+            ),
           ],
         );
         await tester.pump();
@@ -1387,7 +1394,11 @@ void main() {
                 salonId: _kSalonId,
                 selectedServiceIds: <String>['svc-1'],
               ),
-            ).overrideWith((ref) => _kIdentityCoverage),
+            ).overrideWith(
+              () => FakeSalonMasterServiceCoverage(
+                () => salonCoverageOf(_kIdentityCoverage),
+              ),
+            ),
           ],
         );
         await tester.pumpAndSettle();

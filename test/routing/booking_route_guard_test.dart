@@ -101,6 +101,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../helpers/fake_salon_master_coverage.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
@@ -474,9 +475,11 @@ void main() {
               selectedServiceIds: <String>['svc-1'],
             ),
           ).overrideWith(
-            (ref) => const <String, Map<String, String>>{
-              _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
-            },
+            () => FakeSalonMasterServiceCoverage(
+              () => salonCoverageOf(const <String, Map<String, String>>{
+                _kSalonMasterId: <String, String>{'svc-1': 'svc-1'},
+              }),
+            ),
           ),
           // Malformed/guard-redirect cases land the CLIENT session on
           // `RouteNames.clientHome` (HomeHubScreen), whose `_StatPillsRow`

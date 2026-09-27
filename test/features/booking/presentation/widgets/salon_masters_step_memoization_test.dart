@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 
 import '../../../../helpers/booking_fixture_dates.dart';
+import '../../../../helpers/fake_salon_master_coverage.dart';
 import '../../../../helpers/fakes/fake_slot_repository.dart';
 import '../../../../helpers/pump_app.dart';
 
@@ -144,7 +145,9 @@ Future<_HostController> _pump(WidgetTester tester) async {
         ],
       ),
       salonMasterServiceCoverageProvider.overrideWith(
-        (ref, args) async => _coverageBoth(),
+        () => FakeSalonMasterServiceCoverage(
+          () => salonCoverageOf(_coverageBoth()),
+        ),
       ),
       // 2026-09-18 — `_SalonMasterTile` now watches
       // `salonMasterDaySlotsProvider` EAGERLY (not only on expand) to know

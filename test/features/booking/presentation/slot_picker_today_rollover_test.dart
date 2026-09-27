@@ -64,6 +64,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 
 /// 2026-08-01T20:30Z — Kyiv 23:30 on Aug 1. "Today" is Aug 1.
@@ -339,7 +340,11 @@ void main() {
               salonId: _kSalonId,
               selectedServiceIds: <String>['svc-1'],
             ),
-          ).overrideWith((ref) => _stubCoverage),
+          ).overrideWith(
+            () => FakeSalonMasterServiceCoverage(
+              () => salonCoverageOf(_stubCoverage),
+            ),
+          ),
         ],
       );
       await tester.pumpAndSettle();

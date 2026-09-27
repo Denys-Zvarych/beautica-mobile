@@ -55,11 +55,13 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
 import '../../../helpers/fake_media_cache.dart';
+import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -3160,7 +3162,9 @@ void main() {
             salonId: _kSalonId,
             selectedServiceIds: <String>['svc-1'],
           ),
-        ).overrideWith((ref) async => map);
+        ).overrideWith(
+          () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(map)),
+        );
 
     const Map<String, Map<String, String>> svc1Coverage =
         <String, Map<String, String>>{
@@ -3352,18 +3356,20 @@ void main() {
         await _pumpTall(tester);
         // A never-completing coverage future keeps the tab in its loading
         // sub-state for the duration of the test.
-        final Completer<Map<String, Map<String, String>>> never =
-            Completer<Map<String, Map<String, String>>>();
+        final Completer<SalonCoverage> never = Completer<SalonCoverage>();
         await tester.pumpApp(
           const PublicSalonProfileScreen(salonId: _kSalonId),
           overrides: _overrides(
             repo: _FakeSalonRepository(masters: () async => filterMasters),
-            coverage: salonMasterServiceCoverageProvider(
-              const SalonBookingMasterSelectionArgs(
-                salonId: _kSalonId,
-                selectedServiceIds: <String>['svc-1'],
-              ),
-            ).overrideWith((ref) => never.future),
+            coverage:
+                salonMasterServiceCoverageProvider(
+                  const SalonBookingMasterSelectionArgs(
+                    salonId: _kSalonId,
+                    selectedServiceIds: <String>['svc-1'],
+                  ),
+                ).overrideWith(
+                  () => FakeSalonMasterServiceCoverage(() => never.future),
+                ),
           ),
         );
         await tester.pumpAndSettle();
@@ -3413,11 +3419,13 @@ void main() {
                     salonId: _kSalonId,
                     selectedServiceIds: <String>['svc-1'],
                   ),
-                ).overrideWith((ref) async {
-                  attempt++;
-                  if (attempt == 1) throw const NetworkFailure();
-                  return svc1Coverage;
-                }),
+                ).overrideWith(
+                  () => FakeSalonMasterServiceCoverage(() {
+                    attempt++;
+                    if (attempt == 1) throw const NetworkFailure();
+                    return salonCoverageOf(svc1Coverage);
+                  }),
+                ),
           ),
           // Disable Riverpod's default backoff retry so the AsyncError stays
           // put through pumpAndSettle (and leaves no pending backoff Timer).
@@ -3645,6 +3653,118 @@ void main() {
           find.byKey(const Key('salon-masters-show-all')),
           findsOneWidget,
           reason: 'the filtered set over the cap still offers the reveal',
+        );
+      },
+    );
+
+    // -------------------------------------------------------------------
+    // mobile-perf LOW (Phase 266 audit cycle 3) — `_MastersTabState.
+    // _resolveFilteredMasters` memo. A Phase 266 retry-cooldown-expiry write
+    // on `salonMasterServiceCoverageProvider` reuses `byMaster` BY
+    // REFERENCE (only `retryCooldownUntil` gets a fresh Map — see
+    // `_armCooldownExpiry` in `salon_master_coverage_notifier.dart`), so an
+    // unrelated coverage rewrite must not force this filter's O(masters)
+    // `.where()` to recompute; a GENUINE `byMaster` change (a new master now
+    // covering the filtered service) must.
+    // -------------------------------------------------------------------
+    testWidgets(
+      'a coverage AsyncData write that reuses `byMaster` BY REFERENCE does '
+      'not recompute the filtered masters list; a genuine byMaster change '
+      'does',
+      (tester) async {
+        // This file's counter is a module-level global shared by every test
+        // in it (there is no per-test `_MastersTabState` reset otherwise) —
+        // reset it BEFORE this test runs too, not just after, since an
+        // earlier test in this same group also exercises the filtered path
+        // and would otherwise leave a stale non-zero count behind.
+        debugResetMastersTabFilterCallCount();
+        addTearDown(debugResetMastersTabFilterCallCount);
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => filterMasters),
+            coverage: coverageOverride(svc1Coverage),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await selectSvc1(tester);
+        expect(
+          debugMastersTabFilterCallCount,
+          1,
+          reason: 'the initial filtered build is the one expected cache miss',
+        );
+
+        const SalonBookingMasterSelectionArgs args =
+            SalonBookingMasterSelectionArgs(
+              salonId: _kSalonId,
+              selectedServiceIds: <String>['svc-1'],
+            );
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byKey(const Key('salon-masters-filter-chip'))),
+        );
+        final SalonMasterServiceCoverage notifier = container.read(
+          salonMasterServiceCoverageProvider(args).notifier,
+        );
+        final SalonCoverage before = notifier.state.value!;
+
+        // Mirrors `_armCooldownExpiry`'s own write: `byMaster` reused BY
+        // REFERENCE, only `retryCooldownUntil` is a fresh Map — the exact
+        // shape a real cooldown-expiry write produces, and unrelated to
+        // THIS filter's svc-1 coverage.
+        notifier.state = AsyncData<SalonCoverage>((
+          byMaster: before.byMaster,
+          degradedServiceIds: before.degradedServiceIds,
+          retryingServiceIds: before.retryingServiceIds,
+          retryCooldownUntil: <String, DateTime>{
+            // An opaque cooldown-expiry INSTANT the memo under test never
+            // reads or compares against a calendar day — only its identity
+            // as "some new Map" (vs. `before.retryCooldownUntil`) matters.
+            // instant-ok: elapsed-wall-time-shaped value, not a calendar day
+            'svc-other': DateTime.now(),
+          },
+        ));
+        await tester.pump();
+
+        expect(
+          debugMastersTabFilterCallCount,
+          1,
+          reason:
+              'byMaster is the SAME reference as before the write — the '
+              'filtered list must not recompute for an unrelated coverage '
+              'change',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsNothing,
+        );
+
+        // A GENUINE byMaster change — master-2 now also covers svc-1.
+        notifier.state = AsyncData<SalonCoverage>((
+          byMaster: <String, Map<String, String>>{
+            ...before.byMaster,
+            'master-2': <String, String>{'svc-1': 'assign-2b'},
+          },
+          degradedServiceIds: before.degradedServiceIds,
+          retryingServiceIds: before.retryingServiceIds,
+          retryCooldownUntil: before.retryCooldownUntil,
+        ));
+        await tester.pump();
+
+        expect(
+          debugMastersTabFilterCallCount,
+          2,
+          reason: 'a genuine byMaster change must recompute the filtered list',
+        );
+        expect(
+          find.byKey(const Key('salon-master-card-master-2')),
+          findsOneWidget,
+          reason: 'master-2 now covers svc-1 post-recompute',
         );
       },
     );
