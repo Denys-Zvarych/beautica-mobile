@@ -75,45 +75,50 @@ void main() {
   }
 
   /// Scrolls [key] into view. The flutter-tester canvas is 800x600 landscape, so
-  /// the category rail and price slider sit below the fold once the locality
-  /// cascade is committed. FORWARD-ONLY: the outer ListView can unbuild a widget
+  /// the category rail and price slider sit below the fold once the settlement
+  /// is committed. FORWARD-ONLY: the outer ListView can unbuild a widget
   /// scrolled far outside its cache extent, so no target is ever revisited.
   Future<void> ensureVisibleByKey(WidgetTester tester, String key) async {
     await tester.ensureVisible(find.byKey(Key(key), skipOffstage: false));
     await tester.pumpAndSettle();
   }
 
-  /// Region («Київська») → City («Київ») through the REAL picker sheets. City is
-  /// gated on Region; the seeded «Київ» has no districts.
-  Future<void> pickRegionThenCity(WidgetTester tester) async {
-    await tester.tap(find.byKey(const Key('search_region_value')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+  /// Picks «Київ» through the REAL settlement autocomplete — the discovery
+  /// filters screen's field keeps the retired city row's key
+  /// (`search_city_value`), so this still resolves to the locality control.
+  Future<void> pickCity(WidgetTester tester) async {
+    await AppHarness.pickSettlement(
+      tester,
+      'city-kyiv',
+      fieldKey: const Key('search_city_value'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('search_city_value')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-    );
-    await tester.pumpAndSettle();
   }
 
   /// Assembles city + Cyrillic query + NAILS category + a price bound on the
   /// Пошук screen, then pushes the results screen via the CTA.
   ///
-  /// The query is typed BEFORE any scrolling: it sits at the top of the fold and
-  /// [ensureVisibleByKey] is forward-only. Ordering is a canvas concession — the
-  /// screen submits nothing until the CTA tap.
+  /// The query is typed BEFORE the settlement is picked: it sits at the top of
+  /// the fold and [ensureVisibleByKey] is forward-only. Ordering is a canvas
+  /// concession — the screen submits nothing until the CTA tap.
+  ///
+  /// mobile-qa (phase 346 conversion) — [AppHarness.pickSettlement] internally
+  /// `ensureVisible`s the settlement field before opening its sheet. That is a
+  /// small but real scroll of the outer `ListView` (the settlement field sits
+  /// right below the query field), which leaves `search_query_field` outside
+  /// the built/onstage window — `find.byKey`'s default `skipOffstage: true`
+  /// then finds NOTHING for it (`WidgetTester.enterText` throws `Bad state: No
+  /// element`), even though the retired oblast/city cascade rows never
+  /// triggered this (they needed no `ensureVisible` — both sat at the same
+  /// scroll offset as the query field). Typing the query FIRST, before the
+  /// settlement pick can scroll anything, sidesteps it entirely.
   Future<void> assembleAndPush(
     WidgetTester tester, {
     required String term,
   }) async {
-    await pickRegionThenCity(tester);
-
     await tester.enterText(find.byKey(const Key('search_query_field')), term);
     await tester.pumpAndSettle();
+
+    await pickCity(tester);
 
     await ensureVisibleByKey(tester, 'search_service_type_NAILS');
     await tester.tap(find.byKey(const Key('search_service_type_NAILS')));

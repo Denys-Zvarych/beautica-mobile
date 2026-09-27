@@ -19,7 +19,6 @@ test/features/discovery/presentation/service_type_tile_test.dart
 test/features/discovery/presentation/widgets/category_rail_test.dart
 test/features/home/presentation/home_hub_screen_test.dart
 test/features/home/presentation/home_hub_supplemental_test.dart
-test/features/location/presentation/widgets/locality_cascade_test.dart
 test/features/location/presentation/widgets/locality_tap_row_test.dart
 test/features/master/presentation/master_profile_screen_test.dart
 test/features/master/presentation/widgets/contact_service_tile_test.dart

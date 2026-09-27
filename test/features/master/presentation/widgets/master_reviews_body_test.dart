@@ -1,8 +1,10 @@
 // Phase 4.x — Widget tests for MasterReviewsBody + MasterReviewsBodySkeleton.
 //
-// MasterReviewsBody was extracted from MasterReceivedReviewsScreen so it can
-// be shared with PublicMasterReviewsScreen (the CLIENT-facing surface). It
-// had NO dedicated test file before this — the verifier flagged the gap.
+// MasterReviewsBody was originally extracted from the now-deleted own-master
+// «Мої відгуки» screen (Phase 351, D11 — its content moved inline into every
+// master profile's «Відгуки» tab) so it can be shared with
+// PublicMasterReviewsScreen (the CLIENT-facing surface). It had NO dedicated
+// test file before this — the verifier flagged the gap.
 //
 // Covers:
 //   1. Loading  — shimmer scope present for both the summary card and the
@@ -159,6 +161,33 @@ void main() {
       expect(find.byType(ReviewCard), findsNothing);
       expect(find.byType(RatingSummaryCard), findsOneWidget);
     });
+  });
+
+  // Phase 354 (D3) — additive nullable `masterId`: `SalonStaffProfileScreen`'s
+  // «Відгуки» tab passes `null` for the Phase 318 data-anomaly case (a
+  // resolved MASTER entry with no `masterId`). No provider is overridden
+  // here — deliberately, mirroring the identity-confusion guard's own
+  // "never overridden" convention below: a null id must never key a fetch at
+  // all, so there is no family instance to stub in the first place.
+  group('null masterId (Phase 354)', () {
+    testWidgets(
+      'renders the same zero-reviews shape as a genuinely-empty catalogue, '
+      'with no provider watch',
+      (tester) async {
+        await tester.pumpApp(const MasterReviewsBody(masterId: null));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('master-reviews-empty')), findsOneWidget);
+        expect(find.byType(RatingSummaryCard), findsOneWidget);
+        final Text avg = tester.widget<Text>(
+          find.byKey(const Key('master-review-summary-average')),
+        );
+        expect(avg.data, '—');
+        expect(find.byType(ReviewCard), findsNothing);
+        expect(find.byType(SkeletonShimmerScope), findsNothing);
+        expect(find.byType(ErrorState), findsNothing);
+      },
+    );
   });
 
   group('error states', () {

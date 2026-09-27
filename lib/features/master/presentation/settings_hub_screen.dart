@@ -35,8 +35,76 @@ import 'widgets/section_scaffold.dart';
 import 'widgets/settings_row.dart';
 
 /// The settings hub reached from the master profile menu icon.
+//
+// Reused VERBATIM by the SALON_MASTER own-profile settings hub
+// (`RouteNames.salonMasterSettings`, `/staff/settings`) and the SALON_ADMIN
+// own-profile settings hub (`RouteNames.adminSettings`,
+// `/profile/admin/settings`) via five additive params — every existing
+// (INDEPENDENT_MASTER) call site passes none of them and renders EXACTLY as
+// before:
+//   * [showLocation]     — SALON_MASTER/SALON_ADMIN have no personal location
+//     to manage (works from the salon's address, which is the salon's to
+//     edit, not theirs); the row is omitted entirely rather than disabled,
+//     since it names a concept that does not apply to the role at all.
+//   * [contactsEnabled] / [contactsRoute] — SALON_MASTER's «Контакти» row IS
+//     live (2026-09-01): it pushes [contactsRoute], which for this role is
+//     `RouteNames.salonMasterEditContacts` — the SAME [ContactsEditScreen]
+//     widget INDEPENDENT_MASTER's row pushes, but with its additive
+//     `showInstagram: false` param, since SALON_MASTER contacts are
+//     phone-only by product decision (no Instagram, no location, for this
+//     role — Instagram belongs to the master's own public presence, which a
+//     salon-employed master does not separately manage). SALON_ADMIN's
+//     «Контакти» row went live too (Phase 356): [contactsRoute] is
+//     `RouteNames.adminEditContacts`, pushing the reused
+//     [ClientContactsEditScreen]. `contactsEnabled` itself stays
+//     general-purpose (`false` renders the row PRESENT BUT DISABLED with a
+//     «незабаром» trailing value, following the `StaffSettingsScreen`
+//     «Перевести в майстри» precedent — never a fake success, never silently
+//     dropped) for a FUTURE role that genuinely has no destination yet — no
+//     current call site passes `false`.
+//   * [personalInfoRoute] — the «Особисті дані» row's push target. Always
+//     live (audit-fix cycle 1, 2026-09-26 — the earlier `personalInfoEnabled`
+//     disable switch was removed: no call site ever passed it `false`, unlike
+//     `contactsEnabled`, which SALON_MASTER genuinely still disables for a
+//     role with no destination — see above). SALON_ADMIN's row is live via
+//     Phase 356: [personalInfoRoute] is `RouteNames.adminEditPersonal`,
+//     pushing the reused [ClientPersonalInfoEditScreen]. Every other caller
+//     leaves [personalInfoRoute] at its default, unaffected.
+//   * [fallbackHomeRoute] — the hub's own onBack no-pop fallback, so the
+//     SAME [SettingsRow] destinations resolve per-role without forking the
+//     hub.
 class SettingsHubScreen extends ConsumerStatefulWidget {
-  const SettingsHubScreen({super.key});
+  const SettingsHubScreen({
+    super.key,
+    this.showLocation = true,
+    this.contactsEnabled = true,
+    this.contactsRoute = RouteNames.masterEditContacts,
+    this.personalInfoRoute = RouteNames.masterEditPersonal,
+    this.fallbackHomeRoute = RouteNames.masterProfile,
+  });
+
+  /// Whether the «Локація» row renders. Defaults to `true` (INDEPENDENT_
+  /// MASTER, every pre-existing call site).
+  final bool showLocation;
+
+  /// Whether the «Контакти» row is a live push target. `false` renders it
+  /// PRESENT BUT DISABLED with a «незабаром» trailing value — see the class
+  /// doc. Defaults to `true` (INDEPENDENT_MASTER, unaffected).
+  final bool contactsEnabled;
+
+  /// Push target for the «Контакти» row when [contactsEnabled] is `true`.
+  /// Defaults to [RouteNames.masterEditContacts] (INDEPENDENT_MASTER,
+  /// unaffected).
+  final String contactsRoute;
+
+  /// Push target for the always-live «Особисті дані» row. Defaults to
+  /// [RouteNames.masterEditPersonal] (INDEPENDENT_MASTER, unaffected).
+  final String personalInfoRoute;
+
+  /// `onBack`'s no-pop fallback destination (reached only when this hub is
+  /// somehow the FIRST route in its stack — e.g. a deep link). Defaults to
+  /// [RouteNames.masterProfile] (INDEPENDENT_MASTER, unaffected).
+  final String fallbackHomeRoute;
 
   @override
   ConsumerState<SettingsHubScreen> createState() => _SettingsHubScreenState();
@@ -44,8 +112,12 @@ class SettingsHubScreen extends ConsumerStatefulWidget {
 
 class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     with SingleTickerProviderStateMixin {
-  // Logout double-tap guard, shared with [runLogoutFlow].
+  // Logout re-entrancy guard, shared with [runLogoutFlow]. Never bound to a
+  // widget — see `logout_action.dart`'s flag-lifetime doc.
   final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
+  // Logout UI-visible loading flag — drives `SettingsRow(loading:)` only.
+  // Flips true after consent, immediately before the network call.
+  final ValueNotifier<bool> _loggingOutLoading = ValueNotifier<bool>(false);
 
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
@@ -98,6 +170,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
     _anim7.dispose();
     _controller.dispose();
     _loggingOut.dispose();
+    _loggingOutLoading.dispose();
     super.dispose();
   }
 
@@ -122,7 +195,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.masterProfile);
+          context.go(widget.fallbackHomeRoute);
         }
       },
       body: Column(
@@ -136,41 +209,60 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
             ),
           ),
 
-          // Navigational group.
+          // Navigational group. «Особисті дані» is always a live push target
+          // — see the class doc's [personalInfoRoute] note.
           _reveal(
             _anim1,
             SettingsRow(
               key: const Key('row-personal'),
               icon: Icons.person_outline_rounded,
               label: l10n.settingsHubPersonal,
-              onTap: () => context.push(RouteNames.masterEditPersonal),
+              onTap: () => context.push(widget.personalInfoRoute),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
             _anim2,
-            SettingsRow(
-              key: const Key('row-contacts'),
-              icon: Icons.call_outlined,
-              label: l10n.settingsHubContacts,
-              onTap: () => context.push(RouteNames.masterEditContacts),
-            ),
+            widget.contactsEnabled
+                ? SettingsRow(
+                    key: const Key('row-contacts'),
+                    icon: Icons.call_outlined,
+                    label: l10n.settingsHubContacts,
+                    onTap: () => context.push(widget.contactsRoute),
+                  )
+                : SettingsRow(
+                    key: const Key('row-contacts'),
+                    icon: Icons.call_outlined,
+                    label: l10n.settingsHubContacts,
+                    // This caller has no contacts-edit destination —
+                    // present but visibly inert, never a fake success. No
+                    // current call site passes `contactsEnabled: false`
+                    // (SALON_MASTER's «Контакти» is live — see the class
+                    // doc); kept general-purpose for a future role that
+                    // genuinely has none yet.
+                    enabled: false,
+                    showChevron: false,
+                    value: l10n.settingsHubContactsSoon,
+                    onTap: () {},
+                  ),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          _reveal(
-            _anim3,
-            SettingsRow(
-              key: const Key('row-location'),
-              icon: Icons.location_on_outlined,
-              iconWidget: const AppIcon(
-                BeauticaAssetIcons.locationMarker,
-                size: 19,
-                color: BrandColors.accentDeep,
+          if (widget.showLocation) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _reveal(
+              _anim3,
+              SettingsRow(
+                key: const Key('row-location'),
+                icon: Icons.location_on_outlined,
+                iconWidget: const AppIcon(
+                  BeauticaAssetIcons.locationMarker,
+                  size: 19,
+                  color: BrandColors.accentDeep,
+                ),
+                label: l10n.settingsHubLocation,
+                onTap: () => context.push(RouteNames.masterEditLocation),
               ),
-              label: l10n.settingsHubLocation,
-              onTap: () => context.push(RouteNames.masterEditLocation),
             ),
-          ),
+          ],
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
             _anim4,
@@ -209,15 +301,31 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
           ),
 
           // Terminal / destructive action — set apart.
+          //
+          // mobile-perf consistency fix (2026-09-08) — wired to
+          // `SettingsRow`'s EXISTING `loading` param via `_loggingOut`, the
+          // same one-line pattern the CLIENT settings hub's logout row and
+          // the sibling delete-salon/delete-account rows already use
+          // (dims the row, swaps the chevron for a spinner, absorbs taps
+          // for the duration of the network call).
           _reveal(
             _anim7,
-            SettingsRow(
-              key: const Key('row-logout'),
-              icon: Icons.logout_rounded,
-              label: l10n.logout,
-              destructive: true,
-              showChevron: false,
-              onTap: () => runLogoutFlow(context, ref, _loggingOut),
+            ValueListenableBuilder<bool>(
+              valueListenable: _loggingOutLoading,
+              builder: (context, loggingOutLoading, _) => SettingsRow(
+                key: const Key('row-logout'),
+                icon: Icons.logout_rounded,
+                label: l10n.logout,
+                destructive: true,
+                showChevron: false,
+                loading: loggingOutLoading,
+                onTap: () => runLogoutFlow(
+                  context,
+                  ref,
+                  inFlight: _loggingOut,
+                  loading: _loggingOutLoading,
+                ),
+              ),
             ),
           ),
         ],

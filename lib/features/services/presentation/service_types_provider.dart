@@ -30,6 +30,9 @@ part 'service_types_provider.g.dart';
 /// pinned each category's list for 3 minutes and masked new approvals. The
 /// services list screen additionally invalidates this family on its refresh
 /// surfaces (entry / pop-back / pull-to-refresh) to cover the kept-alive route.
-@riverpod
+/// Phase 317 — `dependencies: [serviceRepository]` so the family resolves the
+/// scoped repository inside the salon subtree. See
+/// [serviceRepositoryProvider]'s SCOPED-TARGET CONTRACT doc.
+@Riverpod(dependencies: [serviceRepository])
 Future<List<ServiceTypeOption>> serviceTypes(Ref ref, String categoryName) =>
     ref.watch(serviceRepositoryProvider).fetchServiceTypes(categoryName);

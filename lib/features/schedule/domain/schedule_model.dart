@@ -25,6 +25,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
 
 // Phase 7.7 — the nominative month table moved to `shared/formatters/` when the
 // range calendar was promoted to `shared/widgets/` and gained a second (booking)
@@ -740,7 +741,7 @@ class ScheduleOverride {
       start.day == end.day;
 
   /// Inclusive day count of the span.
-  int get dayCount => end.difference(start).inDays + 1;
+  int get dayCount => kyivDaysBetween(start, end) + 1;
 
   DateTime get sortKey => start;
 

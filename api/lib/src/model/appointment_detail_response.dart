@@ -576,6 +576,9 @@ class AppointmentDetailResponseStatusEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'CANCELLED')
   static const AppointmentDetailResponseStatusEnum CANCELLED =
       _$appointmentDetailResponseStatusEnum_CANCELLED;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AppointmentDetailResponseStatusEnum unknownDefaultOpenApi =
+      _$appointmentDetailResponseStatusEnum_unknownDefaultOpenApi;
 
   static Serializer<AppointmentDetailResponseStatusEnum> get serializer =>
       _$appointmentDetailResponseStatusEnumSerializer;
@@ -604,6 +607,9 @@ class AppointmentDetailResponseMasterTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
   static const AppointmentDetailResponseMasterTypeEnum INDEPENDENT_MASTER =
       _$appointmentDetailResponseMasterTypeEnum_INDEPENDENT_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AppointmentDetailResponseMasterTypeEnum unknownDefaultOpenApi =
+      _$appointmentDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<AppointmentDetailResponseMasterTypeEnum> get serializer =>
       _$appointmentDetailResponseMasterTypeEnumSerializer;

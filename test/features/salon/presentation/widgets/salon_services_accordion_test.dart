@@ -373,4 +373,55 @@ void main() {
       );
     },
   );
+
+  // mobile-qa (2026-09-14). `_SalonServiceRow` splits on `onTap == null`:
+  // the TAPPABLE arm (the client-facing filter surface) has always carried
+  // `Key('salon-service-row-<id>')`; the READ-ONLY arm carried NO key at
+  // all. That read-only arm is the entire salon-management «Послуги» tab —
+  // `_ServicesTab` there passes no `onServiceTap` — so an owner's own
+  // service rows were unreachable by `find.byKey` in every tier. The gap was
+  // found the hard way: an integration flow asserting the owner's catalogue
+  // rendered came back `findsNothing` on a tab that was rendering perfectly.
+  //
+  // The key exists only so tests can find the row, which is exactly the kind
+  // of line that gets deleted as "unused". This pins it. `_kCategories` is
+  // built with no `onServiceTap`, so this test IS the read-only arm.
+  testWidgets(
+    'the READ-ONLY service row carries salon-service-row-<id>, same key as '
+    'the tappable arm',
+    (tester) async {
+      await tester.pumpApp(
+        const SalonServicesAccordion(categories: _kCategories),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-service-row-svc-1')),
+        findsOneWidget,
+        reason:
+            'a read-only row (onServiceTap == null) must still be findable by '
+            'key — without it the ONLY handle on a salon-management service '
+            'row is its localised name, which M2 bans',
+      );
+      // Not a tappable row: the read-only arm must stay non-interactive, so
+      // the key must NOT have arrived by accidentally re-enabling the filter
+      // GestureDetector.
+      expect(
+        tester
+            .widgetList(
+              find.descendant(
+                of: find.byKey(const Key('salon-service-row-svc-1')),
+                matching: find.byWidgetPredicate(
+                  (Widget w) => w is GestureDetector && w.onTap != null,
+                ),
+              ),
+            )
+            .isEmpty,
+        isTrue,
+        reason:
+            'the read-only arm must remain non-interactive — a keyed row that '
+            'is also tappable means the onTap == null branch was collapsed',
+      );
+    },
+  );
 }

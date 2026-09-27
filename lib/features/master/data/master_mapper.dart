@@ -16,6 +16,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 
 import '../domain/master.dart';
 
@@ -46,6 +47,11 @@ abstract final class MasterMapper {
       firstName: dto.firstName ?? '',
       lastName: dto.lastName ?? '',
       city: dto.city,
+      // Phase-330 label parts. The enum's `name` IS the wire value.
+      region: dto.region,
+      // The unknown-value fallback maps to null (no prefix), never its name.
+      citySettlementType: knownEnumName(dto.citySettlementType),
+      cityHromadaName: dto.cityHromadaNameUk,
       cityId: dto.cityId,
       oblastId: dto.oblastId,
       districtId: dto.districtId,
@@ -74,6 +80,10 @@ abstract final class MasterMapper {
       // kept on [Master] for compatibility but left empty here so no deprecated
       // working-hours DTO crosses this boundary.
       workingHours: const [],
+      // Passed through UNCOALESCED (Qase defect #25): null is "this endpoint
+      // does not supply it", which only `GET /masters/me` does. See
+      // `Master.bookingsThisMonth`.
+      bookingsThisMonth: dto.bookingsThisMonth,
     );
   }
 
@@ -86,8 +96,9 @@ abstract final class MasterMapper {
     if (e == MasterDetailResponseMasterTypeEnum.SALON_OWNER) {
       return MasterType.salonOwner;
     }
-    // Covers SALON_MASTER and any future values that may be added before
-    // this mapper is updated — fail-safe to salonMaster.
+    // Covers SALON_MASTER, the generated unknown-value fallback
+    // (`unknownDefaultOpenApi`) and any future value — fail-safe to
+    // salonMaster.
     return MasterType.salonMaster;
   }
 }

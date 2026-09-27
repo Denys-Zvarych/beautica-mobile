@@ -24,6 +24,11 @@
 // fail at runtime and silently re-throw the wrapper.
 import 'dart:async' as async;
 
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch to
+// the identity-bearing slice via [authUserIdOrNull]) is not part of
+// `riverpod_annotation`'s show-list — same reason `bookings_day_notifier.dart`
+// reaches for the full package.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/presentation/auth_notifier.dart';
@@ -57,7 +62,14 @@ Future<PublicMasterProfileData> publicMasterProfile(
   // cache lifetime to the session keeps a stale 5-minute entry from surviving a
   // re-login. When the session flips the watched value changes, the kept-alive
   // link from the previous compute is closed on dispose and the family rebuilds.
-  ref.watch(authProvider);
+  //
+  // NARROWED to the user id (mobile-perf LOW, 2026-09-01) — "the session
+  // flips" above IS a change of signed-in identity (including → null on
+  // logout). A bare `ref.watch(authProvider)` also fired on every silent token
+  // refresh, discarding a live 5-minute cache entry and refetching
+  // `GET /masters/{id}` + `GET /masters/{id}/services` mid-scroll. Nothing in
+  // this body reads any other part of the session.
+  ref.watch(authProvider.select(authUserIdOrNull));
 
   // 5-minute cache window. Keep the link alive across the push/pop of the
   // profile, then close it so a stale profile eventually refetches. The timer

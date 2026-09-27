@@ -30,18 +30,19 @@
 //      regression guard (a profile edit used to surface on the card only after
 //      a cold start).
 //   3. Hub → Location edit (row-location) → the three free-text address fields
-//      (street / buildingNo / locationNote) are GONE → the CLIENT picks
-//      oblast → city through the REAL cascade picker sheets → Save
+//      (street / buildingNo / locationNote) are GONE → the CLIENT picks a
+//      settlement through the REAL settlement autocomplete → Save
 //      (btn-save-location) → the PATCH location slice carries the selected
 //      cityId WITHOUT any address key (and no instagram), the save SUCCEEDS, the
 //      screen leaves the editor, and the city round-trips on re-fetch.
 //
 // LOCATION NOTE (forward-compat — see QA brief)
 // ---------------------------------------------
-// A parallel backend change adds `oblastId` to the profile response so the
-// Location screen can drop its oblast-resolution scan. This flow asserts the
-// SAVE / null-city BEHAVIOR (stable contract), NOT the internal pre-population
-// mechanism (about to change), so it survives that refactor.
+// This flow asserts the SAVE / null-city BEHAVIOR (stable contract), NOT the
+// internal pre-population mechanism, so it survives further refactors of the
+// locality field itself (phase 346 already replaced the oblast → city
+// cascade this comment used to describe with the single settlement
+// autocomplete driven below).
 //
 // NATIVE TIER: NONE NEEDED.
 // This journey has no OS permission / deep-link / FCM / biometric / WebView
@@ -213,8 +214,8 @@ void main() {
   //
   // Address-field removal guard: the CLIENT Location screen no longer renders or
   // sends the free-text street / building / note fields. This flow proves the
-  // E2E journey still works with ONLY the locality cascade — the user picks
-  // oblast → city through the REAL picker sheets, saves, and the PATCH carries
+  // E2E journey still works with ONLY the settlement autocomplete — the user
+  // picks a settlement through the REAL field, saves, and the PATCH carries
   // the selected cityId WITHOUT any address key (street / buildingNo /
   // locationNote) and WITHOUT instagram. The picked city round-trips on the next
   // GET /users/me. Selecting a city (vs. the old "type a street") is now what
@@ -235,11 +236,11 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 2));
       AppHarness.expectLocation(router, RouteNames.clientEditLocation);
 
-      // The locality cascade renders…
+      // The locality block renders…
       expect(
         find.byKey(const Key('location-cascade')),
         findsOneWidget,
-        reason: 'Location edit must render the locality cascade',
+        reason: 'Location edit must render the locality block',
       );
       // …and the three free-text address fields are GONE (the removal guard).
       expect(
@@ -260,21 +261,9 @@ void main() {
 
       final int patchesBefore = fb.patchMeCalls;
 
-      // Drive the REAL cascade: tap the Область row → pick the seeded oblast.
-      await tester.tap(find.byKey(const Key('locality_row_oblast')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-
-      // Tap the Місто row → pick the seeded city (no districts → cascade done).
-      await tester.tap(find.byKey(const Key('locality_row_city')));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-      );
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      // Drive the REAL settlement autocomplete — pick the seeded city (no
+      // districts, so nothing further to pick).
+      await AppHarness.pickSettlement(tester, 'city-kyiv');
 
       await tester.ensureVisible(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
@@ -303,9 +292,10 @@ void main() {
         reason: 'the PATCH body must carry the city the CLIENT selected',
       );
       // ── ADDRESS-FIELD REMOVAL GUARD (the contract this flow protects) ──────
-      // The CLIENT only edits the locality cascade — the free-text address keys
-      // must NEVER appear on the wire body (the backend preserves any existing
-      // values). A present key here is the regression this flow guards.
+      // The CLIENT only edits the settlement field — the free-text address
+      // keys must NEVER appear on the wire body (the backend preserves any
+      // existing values). A present key here is the regression this flow
+      // guards.
       expect(
         body.containsKey('street'),
         isFalse,

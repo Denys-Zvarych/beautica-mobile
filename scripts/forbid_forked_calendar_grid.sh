@@ -195,13 +195,13 @@ EOF
 
   fail=0
   check_present() {
-    if ! printf '%s\n' "$out" | grep -qF "$1"; then
+    if ! grep -qF -- "$1" <<< "$out"; then
       echo "SELF-TEST FAIL: expected an offender matching: $1"
       fail=1
     fi
   }
   check_absent() {
-    if printf '%s\n' "$out" | grep -qF "$1"; then
+    if grep -qF -- "$1" <<< "$out"; then
       echo "SELF-TEST FAIL: did NOT expect an offender matching: $1"
       fail=1
     fi

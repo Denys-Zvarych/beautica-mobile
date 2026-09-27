@@ -85,6 +85,21 @@ void main() {
   ProviderContainer rootContainer(WidgetTester tester) =>
       ProviderScope.containerOf(tester.element(find.byType(ClientShell)));
 
+  /// Reads the displayed label off a `SettlementSelectField`/
+  /// `SearchableSelectField` closed field. [fieldKey] resolves to the
+  /// field's `GestureDetector`, not a `Text` — the display text is a
+  /// keyless descendant, so it must be found relative to the keyed field.
+  String settlementFieldLabel(WidgetTester tester, Key fieldKey) {
+    return tester
+        .widget<Text>(
+          find.descendant(
+            of: find.byKey(fieldKey),
+            matching: find.byType(Text),
+          ),
+        )
+        .data!;
+  }
+
   testWidgets(
     'CLIENT manually picks a city through the Пошук locality picker, then '
     'saves a DIFFERENT city on the profile Location screen — returning to '
@@ -110,22 +125,18 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
       expect(find.byKey(const Key('client-branch-search')), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('search_region_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
+      // Phase 346 — ONE «Населений пункт» field replaces the region + city
+      // rows. The field keeps the retired city row's key so this finder still
+      // resolves to the locality control.
+      await AppHarness.pickSettlement(
+        tester,
+        'city-kyiv',
+        fieldKey: const Key('search_city_value'),
       );
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('search_city_value')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-      );
-      await tester.pumpAndSettle();
 
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
-        'Київ',
+        settlementFieldLabel(tester, const Key('search_city_value')),
+        'м. Київ',
         reason: 'the manual Search-picker pick must render immediately',
       );
       expect(
@@ -151,19 +162,7 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientEditLocation);
 
       // ── 3. Pick a DIFFERENT city (Львів) through the REAL cascade → Save ────
-      await tester.tap(find.byKey(const Key('locality_row_oblast')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('locality_row_city')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_city-lviv')),
-      );
-      await tester.pumpAndSettle();
+      await AppHarness.pickSettlement(tester, 'city-lviv');
 
       await tester.ensureVisible(find.byKey(const Key('btn-save-location')));
       await tester.pumpAndSettle();
@@ -197,7 +196,7 @@ void main() {
         rootContainer(
           tester,
         ).read(searchFilterLabelsControllerProvider).cityName,
-        'Львів',
+        'м. Львів, Львівська обл.',
         reason: 'the sibling label controller must be updated too',
       );
 
@@ -211,8 +210,8 @@ void main() {
       AppHarness.expectLocation(router, RouteNames.clientSearch);
 
       expect(
-        tester.widget<Text>(find.byKey(const Key('search_city_value'))).data,
-        'Львів',
+        settlementFieldLabel(tester, const Key('search_city_value')),
+        'м. Львів, Львівська обл.',
         reason:
             'returning to Пошук after the profile-location save must show the '
             'NEWLY SAVED city — never the earlier Search-picker touch '

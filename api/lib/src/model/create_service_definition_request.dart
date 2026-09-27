@@ -284,6 +284,10 @@ class CreateServiceDefinitionRequestPriceTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'RANGE')
   static const CreateServiceDefinitionRequestPriceTypeEnum RANGE =
       _$createServiceDefinitionRequestPriceTypeEnum_RANGE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const CreateServiceDefinitionRequestPriceTypeEnum
+      unknownDefaultOpenApi =
+      _$createServiceDefinitionRequestPriceTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<CreateServiceDefinitionRequestPriceTypeEnum>
       get serializer => _$createServiceDefinitionRequestPriceTypeEnumSerializer;

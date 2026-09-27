@@ -12,6 +12,9 @@ const FavoriteServiceResponseSourceTypeEnum
 const FavoriteServiceResponseSourceTypeEnum
     _$favoriteServiceResponseSourceTypeEnum_SALON =
     const FavoriteServiceResponseSourceTypeEnum._('SALON');
+const FavoriteServiceResponseSourceTypeEnum
+    _$favoriteServiceResponseSourceTypeEnum_unknownDefaultOpenApi =
+    const FavoriteServiceResponseSourceTypeEnum._('unknownDefaultOpenApi');
 
 FavoriteServiceResponseSourceTypeEnum
     _$favoriteServiceResponseSourceTypeEnumValueOf(String name) {
@@ -20,8 +23,10 @@ FavoriteServiceResponseSourceTypeEnum
       return _$favoriteServiceResponseSourceTypeEnum_MASTER;
     case 'SALON':
       return _$favoriteServiceResponseSourceTypeEnum_SALON;
+    case 'unknownDefaultOpenApi':
+      return _$favoriteServiceResponseSourceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$favoriteServiceResponseSourceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<FavoriteServiceResponseSourceTypeEnum>
         FavoriteServiceResponseSourceTypeEnum>(const <FavoriteServiceResponseSourceTypeEnum>[
   _$favoriteServiceResponseSourceTypeEnum_MASTER,
   _$favoriteServiceResponseSourceTypeEnum_SALON,
+  _$favoriteServiceResponseSourceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 const FavoriteServiceResponsePriceTypeEnum
@@ -38,6 +44,9 @@ const FavoriteServiceResponsePriceTypeEnum
 const FavoriteServiceResponsePriceTypeEnum
     _$favoriteServiceResponsePriceTypeEnum_RANGE =
     const FavoriteServiceResponsePriceTypeEnum._('RANGE');
+const FavoriteServiceResponsePriceTypeEnum
+    _$favoriteServiceResponsePriceTypeEnum_unknownDefaultOpenApi =
+    const FavoriteServiceResponsePriceTypeEnum._('unknownDefaultOpenApi');
 
 FavoriteServiceResponsePriceTypeEnum
     _$favoriteServiceResponsePriceTypeEnumValueOf(String name) {
@@ -46,8 +55,10 @@ FavoriteServiceResponsePriceTypeEnum
       return _$favoriteServiceResponsePriceTypeEnum_FIXED;
     case 'RANGE':
       return _$favoriteServiceResponsePriceTypeEnum_RANGE;
+    case 'unknownDefaultOpenApi':
+      return _$favoriteServiceResponsePriceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$favoriteServiceResponsePriceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -56,6 +67,7 @@ final BuiltSet<FavoriteServiceResponsePriceTypeEnum>
         FavoriteServiceResponsePriceTypeEnum>(const <FavoriteServiceResponsePriceTypeEnum>[
   _$favoriteServiceResponsePriceTypeEnum_FIXED,
   _$favoriteServiceResponsePriceTypeEnum_RANGE,
+  _$favoriteServiceResponsePriceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<FavoriteServiceResponseSourceTypeEnum>
@@ -70,10 +82,12 @@ class _$FavoriteServiceResponseSourceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -102,10 +116,12 @@ class _$FavoriteServiceResponsePriceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

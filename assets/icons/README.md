@@ -52,6 +52,8 @@ tied to the original Flaticon asset, not to the exact bytes in this folder.**
 | `location_marker.svg` | https://www.flaticon.com/free-icon-font/marker_3916880 | `71111aa34ced576c936597993e431167ac111ce897203f52b9e05303b74a211c` |
 | `star.svg` | https://www.flaticon.com/free-icon-font/star_3916582 | `5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6` |
 | `filter.svg` | https://www.flaticon.com/free-icon-font/filter_3914366 | `099791fb4a43ba6d05cdca105e2b9b1bc77898ada7ccc83bf04a3ca5e87ad5fa` |
+| `team_filled.svg` | — (sourced locally, `/media/sf_ubuntu_trash/icons_svg/people-group.svg`; URL not recorded) | `1361953d49b1d7b73edf799512b1923cfcb081d9838c00a2862137f36f1650f6` |
+| `team_outline.svg` | — (sourced locally, `/media/sf_ubuntu_trash/icons_svg/team.svg`; URL not recorded) | `92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554` |
 
 ### `category_*.svg` (7) — MODIFIED FROM ORIGINAL, 2026-08-26
 

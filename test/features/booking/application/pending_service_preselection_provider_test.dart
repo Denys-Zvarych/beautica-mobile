@@ -240,5 +240,87 @@ void main() {
             'pending service pre-selection',
       );
     });
+
+    // ── The auth watch is NARROWED to the user id ─────────────────────────
+    //
+    // mobile-perf LOW (2026-09-01), and a CORRECTNESS fix rather than only
+    // waste. `AuthNotifier.setAccessToken` is called by
+    // `refresh_interceptor.dart` on EVERY silent token refresh and re-emits
+    // `Authenticated` with the SAME user and a new accessToken. Rebuilding
+    // this controller resets `state` to null, so the old bare
+    // `ref.watch(authProvider)` WIPED the payload the user was mid-flow with:
+    // search with a service filter → tap a result → a refresh lands during
+    // the push → the booking step opens with nothing pre-checked.
+    //
+    // The pair below: the token-only re-emission must be INERT, and a real
+    // identity change must STILL clear the payload — that second half is the
+    // cross-session hole the watch was added for, and a `.select` returning a
+    // constant would pass the first test alone.
+    test('a silent token refresh (same user, new accessToken) does NOT clear '
+        'the pending payload', () {
+      final made = _make();
+      final c = made.container;
+      _controller(c).set(
+        targetId: 'master-1',
+        serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+        serviceTypeLabels: <String>{'Класичний манікюр'},
+      );
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      c.read(authProvider.notifier).setAccessToken('tok-rotated-2');
+
+      expect(
+        _state(c)?.targetId,
+        'master-1',
+        reason:
+            'a token rotation is not a session change — the pending '
+            'pre-selection must survive it, or the user loses their '
+            'pre-checked services mid-flow',
+      );
+      expect(
+        c.read(authProvider).value,
+        isA<Authenticated>().having(
+          (Authenticated a) => a.accessToken,
+          'accessToken',
+          'tok-rotated-2',
+        ),
+        reason:
+            'sanity: the session really did re-emit with a new token, so the '
+            'assertion above is about the .select narrowing and not about '
+            'setAccessToken having silently no-opped',
+      );
+    });
+
+    test('logging in as a DIFFERENT user DOES clear the pending payload', () {
+      final made = _make();
+      final c = made.container;
+      _controller(c).set(
+        targetId: 'master-1',
+        serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+        serviceTypeLabels: <String>{'Класичний манікюр'},
+      );
+      expect(_state(c), isNotNull);
+
+      made.auth.emit(
+        const AsyncData<AuthSession>(
+          AuthSession.authenticated(
+            user: User(
+              id: 'u-client-2',
+              email: 'other@beautica.ua',
+              role: UserRole.client,
+            ),
+            accessToken: 'tok',
+          ),
+        ),
+      );
+
+      expect(
+        _state(c),
+        isNull,
+        reason:
+            'one user\'s search must never pre-check services in the next '
+            'user\'s booking flow',
+      );
+    });
   });
 }

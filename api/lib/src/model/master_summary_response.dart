@@ -253,6 +253,9 @@ class MasterSummaryResponseMasterTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON_OWNER')
   static const MasterSummaryResponseMasterTypeEnum SALON_OWNER =
       _$masterSummaryResponseMasterTypeEnum_SALON_OWNER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const MasterSummaryResponseMasterTypeEnum unknownDefaultOpenApi =
+      _$masterSummaryResponseMasterTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<MasterSummaryResponseMasterTypeEnum> get serializer =>
       _$masterSummaryResponseMasterTypeEnumSerializer;

@@ -6,8 +6,11 @@
 // the `#EDE4D5` camel-wash card (a single `NeumorphicCard`-style bordered
 // decoration carrying the fill colour, hairline border AND a non-offset
 // `borderedCard` shadow together — Impeller-GLES-safe, see the build comment) +
-// `Row[ MasterAvatarBadge, Expanded(Column[ top
-// label, name, one subtitle line ]), trailing ]` structure, and exposes the
+// `Row[ MasterAvatarBadge, Expanded(Column[ top label, name,
+// Row[ Expanded(subtitle), trailing ] ]) ]` structure — the trailing readout
+// ALWAYS rides the SUB-LINE row, never the outer row, so the name keeps the
+// column's full width unconditionally (see the placement note in `build`) —
+// and exposes the
 // variable parts as slots ([middleLine], [trailing], [avatarGradient]/
 // [avatarBordered], [topLabel], [semanticsLabel]) so the card's surface,
 // radius, paddings, text tokens and avatar badge live in exactly one place.
@@ -46,7 +49,6 @@ class MasterStripShell extends StatelessWidget {
     this.trailing,
     this.avatarGradient,
     this.avatarBordered = false,
-    this.middleGap = 2,
     this.onTap,
   });
 
@@ -65,6 +67,13 @@ class MasterStripShell extends StatelessWidget {
   final Widget? middleLine;
 
   /// Optional trailing widget — the ★ rating readout.
+  ///
+  /// ALWAYS rendered right-aligned on the sub-line row under the name, so it
+  /// can never compete with the master's name for horizontal space. When
+  /// there is no [middleLine] the shell synthesises that row with an empty
+  /// `Expanded` in front of the readout rather than falling back to the outer
+  /// row — there is deliberately no outer-row placement left to fall back to.
+  /// See the placement note in [build].
   final Widget? trailing;
 
   /// Two-stop diagonal avatar gradient; `null` falls back to
@@ -73,10 +82,6 @@ class MasterStripShell extends StatelessWidget {
 
   /// Adds the salon flow's translucent-white avatar ring.
   final bool avatarBordered;
-
-  /// Vertical gap between the name and [middleLine]. [MasterStrip] leaves it
-  /// at the default 2.
-  final double middleGap;
 
   /// Makes the whole card tappable. `null` (the default) leaves it inert —
   /// the card is then a pure identity readout with no button semantics.
@@ -135,6 +140,66 @@ class MasterStripShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget? middle = middleLine;
+    final Widget? trail = trailing;
+
+    // WHERE THE TRAILING READOUT SITS (2026-09-19, audit HIGH + its LOW
+    // follow-up).
+    //
+    // It ALWAYS rides a SUB-LINE row, NEVER the outer row. There is no longer
+    // a branch that can put it beside the name.
+    //
+    // Hung off the outer `Row`, the readout's full intrinsic width (a 16dp
+    // star + «4.8» + «(12)» ≈ 70dp, plus its 8dp gap) came out of the name's
+    // `Expanded` — the name and the readout competed for the same horizontal
+    // budget even though they sit on different visual lines. At 320dp @ text
+    // scale 1.0 — the DEFAULT on a small phone, not an a11y edge case — that
+    // left «Олена Ковальчук» 8dp short and it ellipsized. The name is the
+    // card's primary identity; it is the one thing here that must never
+    // truncate.
+    //
+    // Moving the readout onto the sub-line row gives the name the column's
+    // full width and also binds the rating to the line it actually qualifies
+    // (the master's role/title) instead of floating it at the card's vertical
+    // centre. This is the composition the deleted `_SalonConfirmMasterCard`
+    // fork used, now folded back into the ONE shared shell so all ten booking
+    // screens get the wider name column — REUSE-FIRST: the propagation is the
+    // point.
+    //
+    // WHY THERE IS NO `middleLine == null` FALLBACK ANY MORE (the LOW both
+    // audits raised, from opposite directions). The first cut of this fix
+    // kept the outer-row placement for a card with no sub-line, gated on
+    // `middle != null && trail != null`. That left the pre-fix narrow-name
+    // layout one keyword away: `MasterStrip.showRole` defaults to FALSE on
+    // three of its four constructors, so any future
+    // `showRating: true`-without-`showRole: true` call site would have routed
+    // straight back onto it — and it was the only untested branch in the
+    // shell. An unreachable, untested branch that silently restores a shipped
+    // defect is worse than no branch, so the branch is GONE: whenever there
+    // is a [trailing] slot the shell SYNTHESISES the sub-line row, putting an
+    // empty `Expanded` where there is no [middleLine] to go. The name keeps
+    // the column's full width unconditionally — the narrow layout is not
+    // representable.
+    //
+    // NO new parameter: the shell decides from the slots it already has, and
+    // the constructor is unchanged. The TRUE name-only card
+    // (`middleLine == null` AND `trailing == null` — what every production
+    // `showRole: false, showRating: false` call site renders) is untouched:
+    // it still emits no sub-line row at all.
+    final Widget? subLine = trail != null
+        ? Row(
+            children: <Widget>[
+              // The sub-line still yields first: it is a role label that
+              // already ellipsizes at every call site, whereas the readout is
+              // four glyphs that mean nothing clipped. With no [middleLine]
+              // the `Expanded` is empty and simply right-aligns the readout.
+              Expanded(child: middle ?? const SizedBox.shrink()),
+              if (middle != null) const SizedBox(width: VelvetSpacing.sm),
+              trail,
+            ],
+          )
+        : middle;
+
     Widget content = Padding(
       padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
       child: Row(
@@ -156,17 +221,19 @@ class MasterStripShell extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                if (middleLine != null) ...<Widget>[
-                  SizedBox(height: middleGap),
-                  middleLine!,
+                if (subLine != null) ...<Widget>[
+                  // Same 2dp the top-label gap above uses — one spelling for
+                  // "hairline gap inside this card's text column". Was a
+                  // `middleGap` parameter until 2026-09-19 (audit LOW): it
+                  // had exactly ONE production value across all ten booking
+                  // screens and no `lib/` call site ever set it, so it was a
+                  // knob that could only ever drift the shared card apart.
+                  const SizedBox(height: 2),
+                  subLine,
                 ],
               ],
             ),
           ),
-          if (trailing != null) ...<Widget>[
-            const SizedBox(width: VelvetSpacing.sm),
-            trailing!,
-          ],
         ],
       ),
     );

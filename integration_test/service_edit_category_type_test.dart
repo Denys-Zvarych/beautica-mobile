@@ -258,4 +258,97 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );
+
+  // ── CONTROL — the INDEPENDENT-master save still PATCHes the DEFINITION ────
+  //
+  // Phase 317 split the salon-target save across two endpoints. The null-target
+  // arm — an independent master editing their OWN service definition, which
+  // nobody else resolves against — must be completely unchanged: one PATCH to
+  // `/api/v1/services/{defId}` carrying the price AND the duration, and NOTHING
+  // to the per-master band endpoint.
+  //
+  // This is the negative arm of the phase-317 flow in
+  // `salon_master_services_target_flow_test.dart`. Without it, a "fix" that
+  // routed BOTH targets to the band endpoint would pass every salon assertion
+  // in the suite and break the independent master silently — the same shape as
+  // the bug being fixed, in mirror image.
+  testWidgets(
+    'an INDEPENDENT master\'s price + duration edit still PATCHes the service '
+    'DEFINITION (price + baseDurationMinutes) and never touches the '
+    'per-master band endpoint',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.serviceEdit('assign-typed'));
+      await pumpBounded(tester);
+      AppHarness.expectLocation(router, '/services/assign-typed/edit');
+
+      // 500 → 640 ₴ and 60 → 75 хв. Both halves move, because both halves had
+      // the salon-side defect and both must keep landing on the DEFINITION
+      // here.
+      Future<void> enterInto(Key wrapper, String text) async {
+        final Finder field = find.descendant(
+          of: find.byKey(wrapper),
+          matching: find.byType(TextField),
+        );
+        expect(field, findsOneWidget, reason: 'the $wrapper field must render');
+        await tester.ensureVisible(field);
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.enterText(field, text);
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+
+      await enterInto(const Key('pricing-fixed-amount'), '640');
+      await enterInto(const Key('field-service-duration'), '75');
+
+      final Finder submit = find.byKey(const Key('btn-submit-service'));
+      await tester.ensureVisible(submit);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(submit);
+      await pumpBounded(tester);
+
+      expect(
+        fb.patchServiceCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the null-target save is still ONE PATCH to the definition',
+      );
+      final Map<String, dynamic> body = fb.lastTypedPatchBody!;
+      expect(
+        body['price'],
+        640,
+        reason:
+            'an independent master OWNS their definition — the price belongs '
+            'on it, and the phase-317 split must not have stripped it',
+      );
+      expect(
+        body['baseDurationMinutes'],
+        75,
+        reason:
+            'likewise the duration: `baseDurationMinutes` is correct HERE, '
+            'and only wrong under a salon target',
+      );
+      expect(
+        body.containsKey('durationOverrideMinutes'),
+        isFalse,
+        reason: 'the per-master override key belongs to the band endpoint only',
+      );
+
+      // THE CONTROL ASSERTION. A dispatch that fired for every target — not
+      // only `SalonMasterTarget` — would show up here and nowhere else.
+      expect(
+        fb.updateMasterBandCalls,
+        0,
+        reason:
+            'PATCH /salons/{s}/masters/{m}/services/{d} is meaningless for an '
+            'independent master and must never fire on this path',
+      );
+      expect(fb.lastBandPatchPath, isNull);
+
+      AppHarness.expectLocation(router, RouteNames.services);
+      await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
 }

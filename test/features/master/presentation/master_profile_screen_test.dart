@@ -46,12 +46,17 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_address_block.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/service_category_cards.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -61,6 +66,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -460,6 +466,125 @@ void main() {
       expect(find.text(_stubMaster.bio!), findsOneWidget);
     });
 
+    // mobile-qa gap-closure (shared-widget promotion, 2026-09-01) — this
+    // screen's own PortfolioRail call site (`master_profile_screen.dart:591`,
+    // `onSeeAll: () {}` — link VISIBLE, the one call site that differs from
+    // the other two consumers) had ZERO portfolio assertions before this
+    // test, on the old private tile as well as the promoted shared one.
+    testWidgets(
+      'renders the portfolio rail with 6 tiles and the «Всі фото» link '
+      '(onSeeAll supplied — the master\'s own editable profile keeps the '
+      'link the other two consumers omit)',
+      (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PortfolioRail), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNWidgets(6));
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterAllPhotos), findsOneWidget);
+      },
+    );
+
+    // ── Qase defect #25: «Записів місяця» tile ────────────────────────────
+    //
+    // This tile rendered a hardcoded '—' until the field existed on the DTO.
+    // Three states, because two of them look identical if the mapper is sloppy:
+    // a real 0 (an empty month) and a null (the endpoint does not report it).
+
+    testWidgets('renders the monthly bookings count when supplied', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            Master(
+              id: 'user-1',
+              firstName: 'Тест',
+              lastName: 'Майстер',
+              avgRating: 4.8,
+              reviewCount: 42,
+              type: MasterType.independentMaster,
+              bookingsThisMonth: 17,
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('17'),
+        findsOneWidget,
+        reason: 'the tile must show the count, not the legacy hardcoded «—»',
+      );
+    });
+
+    testWidgets('renders a real ZERO as "0", not as the «—» placeholder', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(
+            Master(
+              id: 'user-1',
+              firstName: 'Тест',
+              lastName: 'Майстер',
+              avgRating: 4.8,
+              reviewCount: 42,
+              type: MasterType.independentMaster,
+              bookingsThisMonth: 0,
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('0'),
+        findsOneWidget,
+        reason:
+            'an empty month is a FACT the master should see. Rendering it as '
+            '«—» would make it indistinguishable from "not reported".',
+      );
+    });
+
+    testWidgets('falls back to «—» when the count is null', (tester) async {
+      // _stubMaster carries no bookingsThisMonth — the public-endpoint shape.
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: const AsyncData<Master>(_stubMaster),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('—'),
+        findsWidgets,
+        reason:
+            'null means the endpoint did not supply it; coalescing to 0 would '
+            'tell a master with a full calendar that they have none',
+      );
+    });
+
     testWidgets('shows correct rating and reviews values', (tester) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
@@ -586,6 +711,242 @@ void main() {
     );
   });
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
+  // Phase 351's card → tab mechanism (U6/U7, D15/D16): a card tap must leave
+  // the selected tab and route unchanged, and expose no button semantics.
+  // The bookings card was already non-interactive; the other three now match
+  // it. The «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to
+  // switch tabs.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('stat cards are display-only (user decision 2026-09-26)', () {
+    List<Object> overridesWithReviews() => <Object>[
+      ..._buildOverrides(
+        masterState: const AsyncData<Master>(_stubMaster),
+        repo: repo,
+        serviceRepo: mockServiceRepo,
+      ),
+      masterReviewSummaryProvider(_stubMaster.id).overrideWith(
+        (ref) async => MasterReviewSummary(
+          avgRating: _stubMaster.avgRating,
+          reviewCount: _stubMaster.reviewCount,
+          distribution: const <int>[0, 0, 0, 0, 0],
+        ),
+      ),
+      masterReviewsProvider(
+        _stubMaster.id,
+        MasterReviewSort.newest,
+      ).overrideWith((ref) async => const <MasterReviewItem>[]),
+    ];
+
+    Future<void> pumpTall(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: overridesWithReviews(),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('default tab is «Про майстра» — bio visible, no category '
+        'cards, no MasterReviewsBody', (tester) async {
+      await pumpTall(tester);
+
+      expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+      expect(find.byType(ServiceCategoryCardList), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+    });
+
+    for (final String cardKey in <String>[
+      'master-profile-rating-tile',
+      'master-profile-reviews-tile',
+      'master-profile-services-tile',
+    ]) {
+      testWidgets(
+        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
+        (tester) async {
+          await pumpTall(tester);
+
+          expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+          expect(find.byType(MasterReviewsBody), findsNothing);
+
+          // No InkWell/GestureDetector on the card — warnIfMissed would flag
+          // a real interactive target the tap failed to land on.
+          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('master-profile-bio')),
+            findsOneWidget,
+            reason: 'a card tap must never switch the screen\'s own tab',
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(MasterProfileScreen), findsOneWidget);
+        },
+      );
+
+      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        await pumpTall(tester);
+
+        expect(
+          tester.getSemantics(find.byKey(Key(cardKey))),
+          isNot(isSemantics(isButton: true)),
+        );
+
+        handle.dispose();
+      });
+    }
+
+    testWidgets('the bookings card has no tap handler (non-interactive)', (
+      tester,
+    ) async {
+      await pumpTall(tester);
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      );
+      final Finder bookingsTile = find.ancestor(
+        of: find.text(l10n.masterStatsBookingsLabel),
+        matching: find.byType(StatTile),
+      );
+      expect(bookingsTile, findsOneWidget);
+      expect(
+        find.descendant(of: bookingsTile, matching: find.byType(InkWell)),
+        findsNothing,
+      );
+
+      await tester.tap(bookingsTile, warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+    });
+
+    // mobile-perf LOW (Phase 351 audit-fix cycle 1) — `selectProfileTab` used
+    // to call `setState` on the WHOLE screen `State`, so a tab switch
+    // rebuilt the identity card (avatar/name/RoleChip/address) and the
+    // stat-card row along with the tab bar/body that actually changed.
+    // `ProfileTabSelection` now drives the switch through a `ValueNotifier`,
+    // and `_ProfileBody` wraps ONLY the tab-bar + tab-body region in a
+    // `ProfileTabSection` (`ValueListenableBuilder`) — this proves the
+    // isolation actually confines the rebuild, via Flutter's own
+    // `debugPrintRebuildDirtyWidgets` diagnostic rather than a build-counter
+    // hand-rolled into `lib/` (not allowed there). The cards are display-only
+    // now (user decision 2026-09-26), so the tap that exercises the switch is
+    // on the TAB itself — the only remaining entry point.
+    //
+    // HOW THIS FAILS PRE-FIX: with `selectProfileTab` restored to a plain
+    // `setState(() => profileTab = i)` (no `ValueNotifier`/`ProfileTabSection`
+    // isolation), the ancestor `_MasterProfileScreenState` rebuilds on every
+    // tab switch, which reconstructs `_ProfileBody`'s entire widget tree —
+    // including the identity card's `RoleChip` (not `const`: its `label`
+    // depends on runtime `master` data). Flutter's element diffing then
+    // re-invokes `RoleChip`'s `build()` (an `Element.update` + `rebuild()`
+    // cascade, since the new `RoleChip` instance is never `identical()` to
+    // the old one), which prints `Rebuilding RoleChip` — flipping the second
+    // `expect` below to red. Manually confirmed by reverting
+    // `profile_tab_selection.dart`'s `selectProfileTab` to the old
+    // `setState`-only body; restored immediately, not committed.
+    testWidgets(
+      'tapping the «Відгуки» tab does not rebuild the identity card — only '
+      'the isolated tab-bar/tab-body region does',
+      (tester) async {
+        await pumpTall(tester);
+
+        final List<String> rebuiltLines = <String>[];
+        final originalDebugPrint = debugPrint;
+        debugPrint = (String? message, {int? wrapWidth}) {
+          if (message != null) rebuiltLines.add(message);
+        };
+        debugPrintRebuildDirtyWidgets = true;
+        addTearDown(() {
+          debugPrintRebuildDirtyWidgets = false;
+          debugPrint = originalDebugPrint;
+        });
+
+        await tester.tap(find.byKey(const Key('master-profile-tab-2')));
+        // ONE frame — enough for `Element.rebuild()` to run (and log) for
+        // every element the tap actually marks dirty; a `pumpAndSettle`
+        // would also capture the entrance `AnimationController`'s remaining
+        // frames, adding unrelated noise to the exact same widgets either
+        // way (the reveal sections are already fully settled by `pumpTall`).
+        await tester.pump();
+
+        debugPrintRebuildDirtyWidgets = false;
+        debugPrint = originalDebugPrint;
+
+        final String rebuilt = rebuiltLines.join('\n');
+        // Sanity: the isolated subtree DOES rebuild — proves this run
+        // actually captured the tap's effect rather than silently matching
+        // on empty output (e.g. a debugPrint wiring failure).
+        expect(
+          rebuilt,
+          contains('ProfileTabBar'),
+          reason:
+              'sanity check: the tab bar is INSIDE the isolated '
+              'ProfileTabSection and must rebuild when the tab changes',
+        );
+        // The identity card must NOT rebuild.
+        expect(
+          rebuilt,
+          isNot(contains('RoleChip')),
+          reason:
+              'the identity card (RoleChip lives inside it, non-const since '
+              'its label depends on runtime master data) must not rebuild '
+              'on a tab switch — only the ProfileTabSection subtree may',
+        );
+      },
+    );
+
+    testWidgets('the selected tab survives a push/pop through the category '
+        'editor', (tester) async {
+      final router = GoRouter(
+        initialLocation: RouteNames.masterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.masterProfile,
+            builder: (context, state) => const MasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.serviceSetup,
+            builder: (context, state) =>
+                const Scaffold(body: Text('service-setup-stub')),
+          ),
+        ],
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpRoutedApp(router, overrides: overridesWithReviews());
+      await tester.pumpAndSettle();
+
+      // The cards are display-only (user decision 2026-09-26) — reach
+      // «Послуги» via the tab itself.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('btn-master-add-services')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('btn-master-add-services')));
+      await tester.pumpAndSettle();
+      expect(find.text('service-setup-stub'), findsOneWidget);
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('btn-master-add-services')),
+        findsOneWidget,
+        reason: 'still on «Послуги» after back — the tab State was kept',
+      );
+    });
+  });
+
   // ── 3. Error state ───────────────────────────────────────────────────────
 
   group('error state', () {
@@ -642,21 +1003,72 @@ void main() {
   // ── 5. Empty bio ─────────────────────────────────────────────────────────
 
   group('empty bio', () {
-    testWidgets('bio section is absent when bio is null', (tester) async {
+    // Phase 351 (U-locked "Both rows" empty-state decision) — an empty bio on
+    // the master's OWN profile no longer omits the section outright: the
+    // section (heading + either the bio card or the promoted `AddLink`
+    // «Додати опис») always renders now. Tapping the link opens this
+    // master's own bio editor.
+    testWidgets(
+      'bio section shows the «Додати опис» AddLink (not omitted) when bio '
+      'is null, and tapping it opens the personal-info editor',
+      (tester) async {
+        final router = GoRouter(
+          initialLocation: RouteNames.masterProfile,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterProfile,
+              builder: (context, state) => const MasterProfileScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.masterEditPersonal,
+              builder: (context, state) =>
+                  const Scaffold(body: Text('edit-personal-stub')),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMasterNoBio),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // The section itself is present (heading survives) — only the bio
+        // card is swapped for the AddLink.
+        expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+        final Finder addLink = find.byKey(const Key('master-profile-add-bio'));
+        expect(addLink, findsOneWidget);
+        // Name should still render correctly.
+        expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+
+        await tester.ensureVisible(addLink);
+        await tester.tap(addLink);
+        await tester.pumpAndSettle();
+
+        expect(find.text('edit-personal-stub'), findsOneWidget);
+      },
+    );
+
+    testWidgets('bio section shows the bio card (no AddLink) when bio is set', (
+      tester,
+    ) async {
       await tester.pumpApp(
         const MasterProfileScreen(),
         overrides: _buildOverrides(
-          masterState: const AsyncData<Master>(_stubMasterNoBio),
+          masterState: const AsyncData<Master>(_stubMaster),
           repo: repo,
           serviceRepo: mockServiceRepo,
         ),
       );
       await tester.pumpAndSettle();
 
-      // Bio section must not be in the tree.
-      expect(find.byKey(const Key('master-profile-bio')), findsNothing);
-      // Name should still render correctly.
-      expect(find.byKey(const Key('master-profile-name')), findsOneWidget);
+      expect(find.byKey(const Key('master-profile-bio')), findsOneWidget);
+      expect(find.byKey(const Key('master-profile-add-bio')), findsNothing);
+      expect(find.text(_stubMaster.bio!), findsOneWidget);
     });
   });
 
@@ -1314,6 +1726,37 @@ void main() {
   // assignment) is caught here even if the pure function stays correct.
 
   group('location line — edge-matrix gap-fill', () {
+    // Phase-330 — the locality line reads as the «Населений пункт» picker
+    // labels it, not the bare city name.
+    testWidgets('a typed saved settlement renders the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: _buildOverrides(
+          masterState: AsyncData<Master>(
+            _stubMasterCityAndBuildingNoStreet.copyWith(
+              city: 'Іванівка',
+              region: 'Полтавська',
+              citySettlementType: 'VILLAGE',
+              cityHromadaName: 'Шишацька',
+            ),
+          ),
+          repo: repo,
+          serviceRepo: mockServiceRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Іванівка'), findsNothing);
+    });
+
     testWidgets('city + buildingNo, NO street: building is dropped — only the '
         'locality line renders, no address-text line, no dangling comma', (
       tester,
@@ -1690,6 +2133,12 @@ void main() {
       // pumpAndSettle would block forever because listMyServices() never completes.
       await tester.pump(const Duration(milliseconds: 1200));
 
+      // Phase 351 — the categories section (and its own loading skeleton)
+      // lives under the «Послуги» tab now; it is not built at all on the
+      // default «Про майстра» tab.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+      await tester.pump();
+
       // The services section renders two SkeletonBlock rows while loading.
       // The profile skeleton (AsyncLoading for master) also emits SkeletonBlocks
       // but here master is AsyncData so only the services skeleton contributes.
@@ -1732,6 +2181,11 @@ void main() {
           serviceRepo: mockServiceRepo,
         ),
       );
+      await tester.pumpAndSettle();
+
+      // Phase 351 — the categories section (and its own error text) lives
+      // under the «Послуги» tab now.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
       await tester.pumpAndSettle();
 
       // Resolve l10n from the widget tree — no raw Ukrainian strings.
@@ -1910,6 +2364,13 @@ void main() {
         // self-contradictory against the very state this test targets.
         verify(() => mockServiceRepo.listMyServices()).called(1);
 
+        // Phase 351 — the categories section (and its own skeleton) lives
+        // under the «Послуги» tab now. `pump()` with no duration advances
+        // zero fake-clock time, so this does not touch the retry timing
+        // above or below.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+        await tester.pump();
+
         // (a) The stat tile shows the unresolved placeholder, NOT the failure
         // glyph — the load has not failed yet, it is still being attempted.
         final Text servicesValue = tester.widget<Text>(
@@ -1974,6 +2435,10 @@ void main() {
             serviceRepo: mockServiceRepo,
           ),
         );
+        await tester.pumpAndSettle();
+
+        // Phase 351 — the empty-state CTA lives under the «Послуги» tab now.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
         await tester.pumpAndSettle();
 
         final l10n = AppLocalizations.of(
@@ -2049,6 +2514,11 @@ void main() {
           serviceRepo: mockServiceRepo,
         ),
       );
+      await tester.pumpAndSettle();
+
+      // Phase 351 — the category card lives under the «Послуги» tab now; the
+      // stat tile checked below stays on the always-visible cards row.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
       await tester.pumpAndSettle();
 
       // The uncategorized bucket card must be present (no category on svc-1).
@@ -2229,6 +2699,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Phase 351 — the empty-state CTA lives under the «Послуги» tab now.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+        await tester.pumpAndSettle();
+
         final cta = find.byKey(const Key('btn-master-add-services'));
         expect(cta, findsOneWidget);
         await tester.ensureVisible(cta);
@@ -2312,6 +2786,10 @@ void main() {
           ],
         ),
       );
+      await tester.pumpAndSettle();
+
+      // Phase 351 — the categories section lives under the «Послуги» tab now.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
       await tester.pumpAndSettle();
 
       final l10n = AppLocalizations.of(
@@ -2571,6 +3049,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Phase 351 — category cards live under the «Послуги» tab now.
+      await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
       // One card per non-empty category — keys use the upper-cased slug.
       expect(
         find.byKey(const Key('profile-category-MANICURE')),
@@ -2617,6 +3099,10 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        // Phase 351 — category cards live under the «Послуги» tab now.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
+        await tester.pumpAndSettle();
+
         // MANICURE card present; BROWS has no services so no card rendered.
         expect(
           find.byKey(const Key('profile-category-MANICURE')),
@@ -2656,6 +3142,10 @@ void main() {
             serviceRepo: mockServiceRepo,
           ),
         );
+        await tester.pumpAndSettle();
+
+        // Phase 351 — category cards live under the «Послуги» tab now.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
         await tester.pumpAndSettle();
 
         expect(
@@ -2714,6 +3204,10 @@ void main() {
         // Settle all microtasks (master data, services data, categories data)
         // and the 1100 ms entrance animation. pumpAndSettle is safe here
         // because the data state renders no repeating animations.
+        await tester.pumpAndSettle();
+
+        // Phase 351 — category cards live under the «Послуги» tab now.
+        await tester.tap(find.byKey(const Key('master-profile-tab-1')));
         await tester.pumpAndSettle();
 
         // The card must be in the tree and on-screen (tall viewport ensures

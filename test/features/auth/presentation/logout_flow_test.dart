@@ -251,7 +251,13 @@ void main() {
 
         // Tap the logout row — this opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
-        await tester.pumpAndSettle(); // dialog animates in
+        // mobile-perf MEDIUM fix (2026-09-08) — the re-entrancy guard
+        // (`_loggingOut`) flips on this tap, but it is no longer bound to
+        // `SettingsRow(loading:)`; only `_loggingOutLoading` drives the
+        // spinner, and that flips true only AFTER the dialog is confirmed.
+        // So nothing is ticking yet here — a real `pumpAndSettle` works
+        // again (stronger sync than the bounded pump it replaced).
+        await tester.pumpAndSettle();
 
         // Confirm the dialog — tap the confirm button.
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
@@ -602,7 +608,10 @@ void main() {
 
         // Tap the logout row — opens the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
-        await tester.pumpAndSettle(); // dialog animates in
+        // mobile-perf MEDIUM fix (2026-09-08) — see Test 4's identical note:
+        // the spinner-driving flag no longer flips until AFTER confirm, so
+        // nothing is ticking here — a real `pumpAndSettle` works again.
+        await tester.pumpAndSettle();
 
         // Dismiss the dialog via the cancel button.
         await tester.tap(find.byKey(const Key('btn-logout-cancel')));
@@ -676,7 +685,10 @@ void main() {
 
         // Open the confirmation dialog.
         await tester.tap(find.byKey(const Key('row-logout')));
-        await tester.pumpAndSettle(); // dialog animates in
+        // mobile-perf MEDIUM fix (2026-09-08) — see Test 4's identical note:
+        // the spinner-driving flag no longer flips until AFTER confirm, so
+        // nothing is ticking here — a real `pumpAndSettle` works again.
+        await tester.pumpAndSettle();
 
         // The confirm button's label must render in the destructive error color.
         final confirmText = tester.widget<Text>(

@@ -10,6 +10,13 @@
 // routes instead of the master ones:
 //   Personal → clientEditPersonal, Contacts → clientEditContacts,
 //   Location → clientEditLocation, Account → settings, Help → contactSupport.
+//
+// The CLIENT-only «Видалити акаунт» row lives on the «Акаунт» page
+// (`RouteNames.settings` → `settings_screen.dart`), NOT here — it was
+// relocated off this hub because `row-account` above is what actually reads
+// «Акаунт» to the user; this hub screen's own title is «Налаштування». See
+// `settings_screen.dart`'s header doc for the row + [runDeleteAccountFlow]
+// wiring.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,8 +46,12 @@ class ClientSettingsHubScreen extends ConsumerStatefulWidget {
 class _ClientSettingsHubScreenState
     extends ConsumerState<ClientSettingsHubScreen>
     with SingleTickerProviderStateMixin {
-  // Logout double-tap guard, shared with [runLogoutFlow].
+  // Logout re-entrancy guard, shared with [runLogoutFlow]. Never bound to a
+  // widget — see `logout_action.dart`'s flag-lifetime doc.
   final ValueNotifier<bool> _loggingOut = ValueNotifier<bool>(false);
+  // Logout UI-visible loading flag — drives `SettingsRow(loading:)` only.
+  // Flips true after consent, immediately before the network call.
+  final ValueNotifier<bool> _loggingOutLoading = ValueNotifier<bool>(false);
 
   // Animation — pre-built in initState; zero allocations in build().
   late final AnimationController _controller;
@@ -93,6 +104,7 @@ class _ClientSettingsHubScreenState
     _anim7.dispose();
     _controller.dispose();
     _loggingOut.dispose();
+    _loggingOutLoading.dispose();
     super.dispose();
   }
 
@@ -201,16 +213,27 @@ class _ClientSettingsHubScreenState
             ),
           ),
 
-          // Terminal / destructive action — set apart.
+          // Terminal / destructive action — set apart. Wired to its own
+          // `_loggingOutLoading` UI flag, scoped with its own
+          // `ValueListenableBuilder`.
           _reveal(
             _anim7,
-            SettingsRow(
-              key: const Key('row-logout'),
-              icon: Icons.logout_rounded,
-              label: l10n.logout,
-              destructive: true,
-              showChevron: false,
-              onTap: () => runLogoutFlow(context, ref, _loggingOut),
+            ValueListenableBuilder<bool>(
+              valueListenable: _loggingOutLoading,
+              builder: (context, loggingOutLoading, _) => SettingsRow(
+                key: const Key('row-logout'),
+                icon: Icons.logout_rounded,
+                label: l10n.logout,
+                destructive: true,
+                showChevron: false,
+                loading: loggingOutLoading,
+                onTap: () => runLogoutFlow(
+                  context,
+                  ref,
+                  inFlight: _loggingOut,
+                  loading: _loggingOutLoading,
+                ),
+              ),
             ),
           ),
         ],

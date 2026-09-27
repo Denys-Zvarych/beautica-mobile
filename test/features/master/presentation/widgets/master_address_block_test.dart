@@ -105,6 +105,60 @@ double _measure(TextStyle style) {
 bool _overflowed(WidgetTester tester, Key key) =>
     tester.renderObject<RenderParagraph>(find.byKey(key)).didExceedMaxLines;
 
+/// Number of lines the paragraph behind [key] actually laid out, reproduced
+/// from its own span + style + the width it was given (mirrors the identical
+/// helper in home_profile_card_test.dart / passport_screen_test.dart).
+int _lineCount(WidgetTester tester, Key key) {
+  final RenderParagraph p = tester.renderObject<RenderParagraph>(
+    find.byKey(key),
+  );
+  final TextPainter painter = TextPainter(
+    text: p.text,
+    textAlign: p.textAlign,
+    textDirection: p.textDirection,
+    textScaler: p.textScaler,
+    maxLines: p.maxLines,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  final int lines = painter.computeLineMetrics().length;
+  painter.dispose();
+  return lines;
+}
+
+/// Pumps the block with ONLY a locality line — `streetLine: null` — which
+/// routes it through the `(city, null)` single-field arm (the one that gained
+/// `maxLines: 2`, 2026-09-26 user-reported). [localityLine] doubles as
+/// [MasterAddressBlock.combinedLine]: with no street, the two are the same
+/// string in production too (`buildCombinedAddressLine` degenerates to the
+/// locality alone).
+Future<void> _pumpLocalityOnly(
+  WidgetTester tester, {
+  required double width,
+  required String localityLine,
+}) {
+  return tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: width,
+            child: MasterAddressBlock(
+              keyPrefix: 'fixture',
+              icon: const SizedBox(
+                width: MasterAddressBlock.iconSize,
+                height: MasterAddressBlock.iconSize,
+              ),
+              localityLine: localityLine,
+              streetLine: null,
+              combinedLine: localityLine,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   group('MasterAddressBlock — the collapsed path never over-promises', () {
     testWidgets(
@@ -250,5 +304,74 @@ void main() {
       expect(find.byKey(_combinedKey), findsNothing);
       expect(find.byKey(_localityKey), findsOneWidget);
     });
+  });
+
+  // ---------------------------------------------------------------------
+  // Locality-ONLY (`streetLine: null`) wrapping — guards the `maxLines: 1`
+  // → 2 fix on the `(city, null)` arm (2026-09-26, user-reported). This is
+  // the ONE case `_pumpAt` above never exercises (it always supplies both
+  // fields), so it needs its own pump helper (`_pumpLocalityOnly`).
+  // ---------------------------------------------------------------------
+  group('MasterAddressBlock — locality-only (no street) wrapping', () {
+    testWidgets(
+      'a SHORT locality still renders on one line (unchanged rendering)',
+      (WidgetTester tester) async {
+        await _pumpLocalityOnly(tester, width: 180, localityLine: 'Київ');
+
+        expect(_lineCount(tester, _localityKey), 1);
+        expect(_overflowed(tester, _localityKey), isFalse);
+      },
+    );
+
+    testWidgets(
+      'a long composed saved-settlement label wraps to two lines, FULLY '
+      'shown, at a realistic identity-card column width',
+      (WidgetTester tester) async {
+        const String longLocality = 'м. Новомосковськ, Дніпропетровська обл.';
+        await _pumpLocalityOnly(tester, width: 180, localityLine: longLocality);
+
+        expect(find.text(longLocality), findsOneWidget);
+        expect(
+          _lineCount(tester, _localityKey),
+          2,
+          reason:
+              'the long locality label wraps onto a SECOND line — under a '
+              'reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          _overflowed(tester, _localityKey),
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+
+    testWidgets(
+      'the EXACT user-reported village+hromada+oblast label uses BOTH '
+      'allowed lines at a narrower column — never collapsed back to one',
+      (WidgetTester tester) async {
+        const String villageLocality =
+            'с. Іванівка, Шишацька громада, Полтавська обл.';
+        // A narrower column than the "fully shown" case above — even 2
+        // lines is not always enough for the longest real label, which is
+        // fine: the contract is "up to two lines, then ellipsis", not
+        // "every string fits". The regression this guards is the label
+        // being collapsed to ONE line, not the (expected) ellipsis here.
+        await _pumpLocalityOnly(
+          tester,
+          width: 140,
+          localityLine: villageLocality,
+        );
+
+        expect(
+          _lineCount(tester, _localityKey),
+          2,
+          reason:
+              'the label must use BOTH allowed lines — under a reverted '
+              'maxLines: 1 (the bug this group guards) it would collapse to '
+              'exactly one line instead.',
+        );
+      },
+    );
   });
 }

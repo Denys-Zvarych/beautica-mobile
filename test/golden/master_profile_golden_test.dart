@@ -1,15 +1,14 @@
-// Phase 17.4 — Visual regression goldens for MasterProfileScreen.
+// Phase 17.4 + Phase 351 — Visual regression goldens for MasterProfileScreen.
 //
 // MasterProfileScreen is the primary home screen for INDEPENDENT_MASTER role.
-// It has a staggered entrance animation (6 sections, 1100 ms controller) and
-// renders neumorphic stat tiles, a contact section, and a services preview.
+// It has a staggered entrance animation (4 sections, 1100 ms controller,
+// Phase 351 D14) and renders the identity card, 4 stat cards (bookings /
+// rating / services / reviews), the «Про майстра» / «Послуги» / «Відгуки»
+// tab bar, and the active tab body.
 //
-// One state goldened per matrix cell:
-//   • DATA state — a fully-loaded master with bio, city, contacts, no avatar.
-//     The entrance animation is bypassed by pumpAndSettle so all sections
-//     are visible at opacity 1.0 when the golden is captured.
-//
-// Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} = 6 golden PNGs.
+// Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} × {About, Services,
+// Reviews tab} = 18 golden PNGs. Replaces the pre-351 6-PNG DATA-only matrix
+// (the old 6-section stacked layout has no tabs to vary against).
 //
 // Clock: MasterProfileScreen shows no date — no clock override needed.
 //
@@ -21,21 +20,30 @@
 //     through the repository for some edge cases).
 //   • Override [serviceRepositoryProvider] with [FakeServiceRepository]
 //     (services section resolves to empty — no network needed).
+//   • Override [masterReviewSummaryProvider]/[masterReviewsProvider] so the
+//     «Відгуки» tab (the same [MasterReviewsBody] the deleted standalone «Мої
+//     відгуки» screen used to render) resolves without a real network read.
 //   • Override [secureStorageProvider] with [FakeSecureStorage].
-//   • Override [UrlLauncherPlatform] is NOT needed — goldens don't tap links.
 //   • [pumpWidget] uses [goldenPumpWidget] for ProviderScope + l10n.
-//   • pumpAndSettle lets the animation controller quiesce.
+//   • pumpAndSettle lets the animation controller quiesce; a Services/Reviews
+//     cell then taps the matching tab.
 
+import 'package:alchemist/alchemist.dart' show PumpWidget;
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../helpers/fakes/fake_secure_storage.dart';
@@ -118,7 +126,42 @@ List<Object> _overrides() {
     masterRepositoryProvider.overrideWithValue(repo),
     serviceRepositoryProvider.overrideWithValue(FakeServiceRepository()),
     secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+    masterReviewSummaryProvider(_seedMaster.id).overrideWith(
+      (ref) async => MasterReviewSummary(
+        avgRating: _seedMaster.avgRating,
+        reviewCount: _seedMaster.reviewCount,
+        distribution: const <int>[2, 4, 6, 10, 20],
+      ),
+    ),
+    masterReviewsProvider(_seedMaster.id, MasterReviewSort.newest).overrideWith(
+      (ref) async => <MasterReviewItem>[
+        MasterReviewItem(
+          id: 'rev-1',
+          clientDisplayName: 'Ірина П.',
+          rating: 5,
+          comment: 'Дуже задоволена результатом!',
+          createdAt: DateTime(2026, 6, 1),
+        ),
+      ],
+    ),
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Custom pumpWidget — settle, then (for Services/Reviews) tap the tab.
+// ---------------------------------------------------------------------------
+
+PumpWidget _pumpTab({required double width, int? tapTabIndex}) {
+  final PumpWidget base = goldenPumpWidget(
+    overrides: _overrides(),
+    width: width,
+  );
+  if (tapTabIndex == null) return base;
+  return (WidgetTester tester, Widget alchemistWidget) async {
+    await base(tester, alchemistWidget);
+    await tester.tap(find.byKey(Key('master-profile-tab-$tapTabIndex')));
+    await tester.pumpAndSettle();
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -131,11 +174,29 @@ void main() {
       final suffix = widthScaleSuffix(width, scale);
 
       goldenTest(
-        'master_profile DATA ${width.toInt()}dp text-${scale}x',
-        fileName: 'master_profile_$suffix',
+        'master_profile About $suffix',
+        fileName: 'master_profile_about_$suffix',
         constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
         textScaleFactor: scale,
-        pumpWidget: goldenPumpWidget(overrides: _overrides(), width: width),
+        pumpWidget: _pumpTab(width: width),
+        builder: () => const MasterProfileScreen(),
+      );
+
+      goldenTest(
+        'master_profile Services $suffix',
+        fileName: 'master_profile_services_$suffix',
+        constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
+        textScaleFactor: scale,
+        pumpWidget: _pumpTab(width: width, tapTabIndex: 1),
+        builder: () => const MasterProfileScreen(),
+      );
+
+      goldenTest(
+        'master_profile Reviews $suffix',
+        fileName: 'master_profile_reviews_$suffix',
+        constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
+        textScaleFactor: scale,
+        pumpWidget: _pumpTab(width: width, tapTabIndex: 2),
         builder: () => const MasterProfileScreen(),
       );
     }

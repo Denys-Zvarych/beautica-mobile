@@ -95,6 +95,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show kyivAddDays, kyivDaysBetween;
 import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
     show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
@@ -153,8 +155,10 @@ const double _kChipIntrinsicWidth = 44;
 /// file header for what breaks otherwise. Exposed (not private) so the screen
 /// and the tests derive rail dates through the exact same function the rail
 /// itself uses.
-DateTime railDayAt(DateTime from, int offset) =>
-    DateTime(from.year, from.month, from.day + offset);
+///
+/// Delegates to `shared/time/kyiv_day.dart`'s [kyivAddDays] (promoted there so
+/// `features/schedule/` can share it) — behaviour is byte-identical.
+DateTime railDayAt(DateTime from, int offset) => kyivAddDays(from, offset);
 
 /// The number of CALENDAR days between date-only [from] and [to] (positive
 /// when [to] is after [from]), independent of any DST transition crossed in
@@ -179,11 +183,18 @@ DateTime railDayAt(DateTime from, int offset) =>
 /// count through the exact same function, mirroring [railDayAt]'s pattern.
 /// (It used to back the retired `_centreRailOn`'s pixel-offset math on the
 /// continuous strip; the week pager needs the same arithmetic, one level up.)
-int calendarDayCount(DateTime from, DateTime to) {
-  final DateTime fromUtc = DateTime.utc(from.year, from.month, from.day);
-  final DateTime toUtc = DateTime.utc(to.year, to.month, to.day);
-  return toUtc.difference(fromUtc).inDays;
-}
+///
+/// Phase 284 PROMOTED the body of this function to
+/// `shared/time/kyiv_day.dart`'s [kyivDaysBetween] and left this name as a
+/// delegating alias — behaviour is byte-identical, every existing caller
+/// (`railWeekIndex`, `bookings_day_rail_test.dart`,
+/// `booked_days_notifier_test.dart`) is untouched. The promotion happened
+/// because `shared/formatters/relative_date.dart` had hand-rolled the UNSAFE
+/// `.difference(...).inDays` form two directories away and shipped the exact
+/// off-by-one this doc warns about: the safe implementation was unreachable
+/// from `shared/` without importing another feature's `presentation/`, which
+/// the layering forbids. The date-token contract now owns it.
+int calendarDayCount(DateTime from, DateTime to) => kyivDaysBetween(from, to);
 
 /// The MONDAY of the calendar week containing [day], date-only.
 ///
@@ -376,6 +387,28 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     if (!identical(widget.controller, oldWidget.controller)) {
       _lastSettledPage = widget.controller.initialPage;
     }
+    // Render-identity cache eviction — a SEPARATE concern from the baseline
+    // re-seed above, deliberately not folded into that `if`. See [_cached]'s
+    // doc for the full enumeration of what `build()` reads, and for why
+    // `onVisibleWeekChanged` is absent from this list.
+    //
+    // `!=` on `onSelectDay`, NOT `!identical` — the host hands over an
+    // instance-method tear-off (`_selectDay` in `bookings_discovery_view
+    // .dart`), and Dart mints a FRESH closure object for each tear-off, so two
+    // of the same method on the same receiver are `==` but never `identical`.
+    // `!identical` would clear the cache on every single rebuild and silently
+    // delete this optimisation with no test failing. Same trap, same
+    // reasoning, as `_BoardStack.didUpdateWidget`'s `onBookingTap` line in
+    // `bookings_timeline_grid.dart`.
+    if (!identical(widget.controller, oldWidget.controller) ||
+        widget.weekCount != oldWidget.weekCount ||
+        widget.firstWeekStart != oldWidget.firstWeekStart ||
+        widget.today != oldWidget.today ||
+        widget.selectedDay != oldWidget.selectedDay ||
+        !identical(widget.bookedDays, oldWidget.bookedDays) ||
+        widget.onSelectDay != oldWidget.onSelectDay) {
+      _cached = null;
+    }
   }
 
   /// The rail's page-turn analogue of `bookings_month_calendar_panel.dart`'s
@@ -428,12 +461,71 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
     return metrics.pixels / metrics.viewportDimension;
   }
 
+  /// The last built rail, and the [AppLocalizations] instance it was built
+  /// from. Returned UNCHANGED — the same instance — whenever nothing
+  /// [build] reads has moved, so `Element.updateChild` skips the whole
+  /// `PageView` subtree.
+  ///
+  /// ## WHY (mobile-perf LOW, 2026-09-17)
+  ///
+  /// The rail is SHAPE-INDEPENDENT chrome that was paying a full rebuild on
+  /// every rebuild of the board above it: **161 of 175** elements took a fresh
+  /// widget instance per no-op rebuild, byte-constant across all seven
+  /// measured board shapes. It already sits behind an `AnimatedBuilder`'s
+  /// `child:` in `bookings_month_calendar_panel.dart`, so animation ticks
+  /// never reached it — this closes the other door, the host's own rebuilds.
+  ///
+  /// It holds no state; the cache is a pure render-identity optimisation, the
+  /// same shape as `_BoardStack._columnCache` in `bookings_timeline_grid.dart`
+  /// and `MasterColumnStrip`'s.
+  ///
+  /// ## THE GATE'S INPUTS, ENUMERATED AGAINST WHAT `build()` ACTUALLY READS
+  ///
+  /// A gate narrower than the recompute ships a stale rail, so every read is
+  /// accounted for — including the two deliberately absent:
+  ///
+  /// | read by `build()`                          | in the gate? |
+  /// |--------------------------------------------|--------------|
+  /// | `AppLocalizations.of(context)`             | yes — [_cachedL10n] |
+  /// | `_weekdayShorts(l10n)`                     | via `l10n` (its own key) |
+  /// | `widget.controller` (`PageView.controller`)| yes |
+  /// | `widget.weekCount` (`itemCount`)           | yes |
+  /// | `widget.firstWeekStart` (itemBuilder capture) | yes |
+  /// | `widget.today` / `selectedDay` / `bookedDays` (captures) | yes |
+  /// | `widget.onSelectDay` (capture)             | yes, via `!=` |
+  /// | `widget.onVisibleWeekChanged`              | NO — see below |
+  /// | `_onRailScroll` (bound tear-off)           | NO — see below |
+  ///
+  /// `onVisibleWeekChanged` is never captured into the built tree: it is read
+  /// through `widget.` inside [_onRailScroll], at notification time, so it is
+  /// always the CURRENT value no matter which build produced the widget the
+  /// cache is holding. Putting it in the gate would only throw the cache away
+  /// whenever the host minted a new tear-off. `_onRailScroll` is likewise a
+  /// method on THIS `State`, so a cached `NotificationListener` still calls
+  /// the live implementation.
+  ///
+  /// `bookedDays` is compared with `identical`, not `setEquals`: the host
+  /// passes `bookedDaysAsync?.value ?? const <DateTime>{}` (see
+  /// `bookings_discovery_view.dart`), which is the provider's own `Set`
+  /// instance and is therefore stable between emissions. A caller that
+  /// rebuilt an equal-but-fresh set simply gets no cache hit — the
+  /// conservative direction, never a stale render, and it keeps the gate O(1)
+  /// instead of hashing up to 361 dates per board rebuild.
+  Widget? _cached;
+  AppLocalizations? _cachedL10n;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    // Read from the TREE, not from `widget`, so a locale change (which marks
+    // this element dirty without running `didUpdateWidget`) has to be caught
+    // here rather than in the gate above.
+    final Widget? cached = _cached;
+    if (cached != null && identical(l10n, _cachedL10n)) return cached;
+
     final List<String> weekdayShort = _weekdayShorts(l10n);
 
-    return SizedBox(
+    final Widget built = SizedBox(
       // The design's strip is 70dp. It is 78 here because the app's
       // `VelvetText` styles carry line-height multipliers the preview's raw
       // `TextStyle`s did not, so the same three-element column measures ~8dp
@@ -508,6 +600,9 @@ class _BookingsDayRailState extends State<BookingsDayRail> {
         ),
       ),
     );
+    _cached = built;
+    _cachedL10n = l10n;
+    return built;
   }
 }
 

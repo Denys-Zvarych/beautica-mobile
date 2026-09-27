@@ -44,6 +44,25 @@
 // still cannot be expressed this way, and why that's stated rather than
 // papered over).
 //
+// ## The SCOPE is a field on the family key, not on the notifier (phase 342)
+//
+// [MasterArchiveQuery.salonId] selects WHICH history is read: `null` means
+// "mine" (`GET /bookings/me`, byte-identical to every pre-342 caller) and a
+// non-null id means "this salon's whole history, across every master"
+// (`GET /bookings/salon/{salonId}`, backend phase 322's `partition=HISTORY`).
+// Everything else in this file is scope-agnostic and stayed untouched by that
+// change: [_archiveStatusPredicate], [_applyPredicate], the
+// [_generation]/[_mergeTargetFor] re-entrancy guard, the raw-page `hasMore`
+// walk, the failed-`loadMore` recovery, and
+// [markClientReviewed]/[markClientsReviewed] (which patch a SERVER-supplied
+// flag and therefore need no client-side role gate — `bookings_capability.
+// dart`'s "there is no third boolean for may-leave-client-feedback").
+//
+// The scope lives on the QUERY because this is an autoDispose family keyed by
+// it — see [MasterArchiveQuery.of]'s doc for why two scopes sharing one cache
+// entry would serve the wrong list. The branch itself lives in exactly one
+// place, [_fetchPage], which both [_fetchFirstPage] and [loadMore] call.
+//
 // ## Outcome filtering («Підтверджено»/«Виконано»/«Скасовано») is applied
 // CLIENT-SIDE, on top of the fixed `partition: HISTORY` fetch
 //
@@ -111,10 +130,19 @@
 // this screen's own maximal set).
 
 import 'package:flutter/foundation.dart';
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch
+// to the identity-bearing slice — phase 342 D6) is not part of
+// `riverpod_annotation`'s show-list; every other caller of
+// `authProvider.select(authUserIdOrNull)` in this codebase reaches it through
+// the full `flutter_riverpod` package for the same reason.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 
+import '../../auth/presentation/auth_notifier.dart';
 import '../data/booking_providers.dart';
 import '../data/booking_repository.dart';
 import '../domain/booking.dart';
@@ -125,8 +153,15 @@ import '../domain/master_archive_query.dart';
 
 part 'master_archive_notifier.g.dart';
 
+/// Sentinel for [MasterArchiveState.copyWith]'s nullable [retryNotBefore]:
+/// `copyWith(retryNotBefore: null)` has to mean "CLEAR the cooldown", which a
+/// plain `?? this.x` idiom cannot express. Compare-by-identity, so no real
+/// value can ever collide with it.
+const Object _kUnset = Object();
+
 /// Immutable snapshot of the archive's accumulated, already-filtered
-/// bookings + paging cursor. Mirrors `MyBookingsState`.
+/// bookings + paging cursor. Mirrors `MyBookingsState`, plus the one field
+/// that shape does not carry — [retryNotBefore].
 @immutable
 class MasterArchiveState {
   const MasterArchiveState({
@@ -134,6 +169,7 @@ class MasterArchiveState {
     required this.page,
     required this.hasMore,
     this.isLoadingMore = false,
+    this.retryNotBefore,
   });
 
   /// The VISIBLE bookings accumulated so far — already narrowed by the
@@ -152,20 +188,97 @@ class MasterArchiveState {
   /// flight.
   final bool isLoadingMore;
 
+  /// THE FAILURE MEMORY (mobile-security HIGH, 2026-09-20). The instant before
+  /// which no further [MasterArchiveNotifier.loadMore] may be issued, or
+  /// `null` when the tail is free to fetch.
+  ///
+  /// ## The storm this closes
+  ///
+  /// `loadMore` swallows its own failure and restores `isLoadingMore: false`
+  /// while `hasMore` stays `true` — so BOTH of the screen's scroll-listener
+  /// guards re-satisfy immediately and the same failing request re-fires on
+  /// every subsequent scroll notification. Under `ClampingScrollPhysics`
+  /// (Android/Linux/Windows) the position comes to rest exactly at
+  /// `maxScrollExtent`, the controller stops notifying, and the cost is one
+  /// fetch per gesture. Under `BouncingScrollPhysics` (iOS — `ios/` exists in
+  /// this repo, and the archive list passes a parentless
+  /// `AlwaysScrollableScrollPhysics()` that inherits ambient physics) the
+  /// overscroll settle keeps the position CHANGING for its whole duration.
+  /// Measured on flutter-tester 800×600 with page 1 failing: 12 fetches for a
+  /// single drag, 109 for one fling, 556 for four — ~687 across ten gestures,
+  /// against the backend's 60/min per-user budget.
+  ///
+  /// ## Why a DEADLINE and not `hasMore = false`
+  ///
+  /// Clearing `hasMore` would stop the storm and also delete the
+  /// «Завантажити ще» affordance, the `ListView`'s tail spinner slot, and the
+  /// screen's auto-continue branch — a paging list permanently convinced it
+  /// had reached the end because one request failed once. The deadline stops
+  /// the re-arm while leaving every one of those intact.
+  ///
+  /// An ABSOLUTE instant, never a Kyiv day token — see `kyiv_day.dart`'s
+  /// header for why the two must not be confused. Set from the server's own
+  /// `Retry-After` when the failure is a [SalonBoardRateLimitedFailure] and
+  /// from [kLoadMoreFailureBackoff] otherwise, and CLEARED (to `null`) by
+  /// every page-0 fetch, so a pull-to-refresh or a filter change always starts
+  /// the tail unblocked.
+  final DateTime? retryNotBefore;
+
+  /// Whether [retryNotBefore] is still in the future at [now] — the single
+  /// predicate both [MasterArchiveNotifier.loadMore] and the screen's scroll
+  /// listener consult, so the gate cannot be spelled two subtly different ways.
+  ///
+  /// instant-ok: a cooldown deadline is a genuine absolute-instant comparison
+  /// (`kyiv_day.dart` exemption) — nothing here resolves a calendar DAY, so
+  /// `kyivToday` would be the wrong tool and `.toUtc()`/`.toLocal()` on either
+  /// side would be meaningless.
+  bool isRetryBlockedAt(DateTime now) {
+    final DateTime? until = retryNotBefore;
+    return until != null && now.isBefore(until);
+  }
+
+  /// Seconds still to wait at [now], rounded UP so a partially-elapsed second
+  /// never renders as «0 с». `0` when nothing is blocked.
+  ///
+  /// instant-ok: see [isRetryBlockedAt].
+  int retrySecondsRemainingAt(DateTime now) {
+    final DateTime? until = retryNotBefore;
+    if (until == null || !now.isBefore(until)) return 0;
+    final int ms = until.difference(now).inMilliseconds;
+    return (ms + 999) ~/ 1000;
+  }
+
   MasterArchiveState copyWith({
     List<Booking>? items,
     int? page,
     bool? hasMore,
     bool? isLoadingMore,
+    Object? retryNotBefore = _kUnset,
   }) {
     return MasterArchiveState(
       items: items ?? this.items,
       page: page ?? this.page,
       hasMore: hasMore ?? this.hasMore,
       isLoadingMore: isLoadingMore ?? this.isLoadingMore,
+      // Sentinel, not `??` — passing `null` explicitly must CLEAR the
+      // cooldown, which is how an explicit retry re-arms the tail.
+      retryNotBefore: identical(retryNotBefore, _kUnset)
+          ? this.retryNotBefore
+          : retryNotBefore as DateTime?,
     );
   }
 }
+
+/// How long the archive tail parks itself after a load-more failure that
+/// carries no server-supplied `Retry-After`.
+///
+/// Five seconds, sized against the thing it has to outlast rather than picked
+/// round: an iOS overscroll bounce settles in well under two seconds, and a
+/// fling's whole ballistic simulation in well under four. Anything shorter
+/// re-opens the gate mid-settle and the storm resumes at a lower rate; much
+/// longer starts punishing a master who genuinely wants to re-tap
+/// «Завантажити ще» after a transient blip.
+const Duration kLoadMoreFailureBackoff = Duration(seconds: 5);
 
 /// The full status coverage `BookingsFilterSheet`'s three rows
 /// (`widgets/bookings_filter_sheet.dart`'s `BookingStatusFilterGroup`) can
@@ -263,26 +376,142 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
   int _generation = 0;
 
   @override
-  Future<MasterArchiveState> build(MasterArchiveQuery query) =>
-      _fetchFirstPage(query);
+  Future<MasterArchiveState> build(MasterArchiveQuery query) {
+    // Session-boundary PII (phase 342 D6; `mobile-backlog.md:120`, filed
+    // 2026-08-16 by mobile-security precisely against the moment this family
+    // gained a second host). Ties every member's lifetime to the
+    // AUTHENTICATED IDENTITY, not merely to its listeners: a logout (id →
+    // null) or a different account signing in (id → a different id) rebuilds
+    // through the ordinary Riverpod cascade instead of leaving a cached page
+    // of a previous account's booking PII behind an autoDispose element a
+    // fast re-login could re-read. This matters strictly more for the
+    // salon-scoped member than it ever did for "mine": salon history carries
+    // CLIENT NAMES ACROSS THE WHOLE ROSTER, not one master's own bookings.
+    //
+    // NARROWED through the shared [authUserIdOrNull] selector — never a bare
+    // `ref.watch(authProvider)`. `RefreshInterceptor` calls
+    // `AuthNotifier.setAccessToken` on EVERY silent token refresh, emitting a
+    // new `Authenticated` with the same user and a different `accessToken`; a
+    // bare watch cannot tell that apart from a logout and would throw away
+    // every accumulated page and the master's scroll position mid-session.
+    // Selecting just the id makes a refresh a no-op (same id, same `==`, no
+    // rebuild) while a real identity change still rebuilds. Same discipline
+    // `bookings_day_notifier.dart`'s `build` uses, and the reason
+    // [authUserIdOrNull] was promoted in the first place — see its doc.
+    //
+    // ACCEPTED LIMIT, documented rather than fixed (audit-fix LOW-4,
+    // 2026-09-19): this scopes the cache to IDENTITY, not to ENTITLEMENT. An
+    // entitlement revocation that leaves the id unchanged — an admin removed
+    // from salon B while still signed in as themselves — emits no new id, so
+    // an already-cached salon-scoped page is NOT evicted and its rows keep
+    // rendering until something else disposes the member. The exposure is
+    // bounded on three sides: the server re-authorises EVERY fetch (the route
+    // is gated by `@authz.canManageSalon`, so the next page, refresh or
+    // re-open 403s rather than serving more), this family is autoDispose (the
+    // member dies the moment the archive screen is popped), and nothing here
+    // is persisted to disk, so the window closes at the latest on app
+    // restart. Widening to a bare `ref.watch(authProvider)` would NOT fix it
+    // either — a revocation emits no auth state at all — and would reintroduce
+    // exactly the failure mode the `.select` above exists to avoid: every
+    // silent token refresh discarding every accumulated page and the master's
+    // scroll position. Closing this properly needs a server-pushed
+    // entitlement signal, not a wider watch.
+    ref.watch(authProvider.select(authUserIdOrNull));
+    return _fetchFirstPage(query);
+  }
+
+  /// The ONE place this notifier talks to the repository — both
+  /// [_fetchFirstPage] and [loadMore] route through it, so the scope branch
+  /// exists exactly once (phase 342 D5). They differ only in [page].
+  ///
+  /// `query.salonId == null` is the pre-342 "mine" arm and is BYTE-IDENTICAL
+  /// to what this notifier has always sent: the same [getMyBookings]
+  /// argument set, in the same order, with the same values.
+  ///
+  /// ## The status narrowing on BOTH arms is unavoidably CLIENT-SIDE, and
+  /// that costs round trips (mobile-perf LOW, audit-fix 2026-09-19)
+  ///
+  /// `partition` and `status` cannot co-exist as predicates: the backend
+  /// ignores `status` outright whenever `partition` is present
+  /// (`BookingService#getMyBookings`'s javadoc; backend phase 322 D2 for the
+  /// salon route — see `booking_repository.dart`'s `getSalonBookings` doc).
+  /// Since this notifier hard-requires `partition: HISTORY` for correctness
+  /// (only the server can compute "elapsed CONFIRMED", which `status` alone
+  /// cannot express), the outcome filter is applied by [_applyPredicate]
+  /// AFTER the page lands — so a filtered page can render far fewer rows than
+  /// it fetched, and `_MasterArchiveScreenState._kMaxAutoContinueAttempts`
+  /// lets the screen burn up to THREE extra `loadMore` round trips filling
+  /// the first screenful. The salon arm pays this over roster-wide pages.
+  ///
+  /// This is NOT fixable mobile-side — it is the backend's precedence rule,
+  /// not a client choice, and the only alternatives (drop `partition`, or
+  /// stop filtering) each give up correctness. Closing it needs a BACKEND
+  /// change letting `partition` and `status` narrow together; until then this
+  /// cost is accepted, not worked around. Do not "optimise" it by dropping
+  /// `partition` — that reintroduces the phase-231 bug where declined and
+  /// cancelled visits never appeared here at all.
+  ///
+  /// DECIDED, NOT PENDING (phase 342 § D10 — recorded here because the two
+  /// paragraphs above otherwise read as an open TODO and have been re-raised
+  /// as one). The ruling is: **no backend change**, and none is planned. The
+  /// accepted cost above is the final answer at today's scale. It is
+  /// reopened under ONE named condition and no other — a FILTERED archive at
+  /// real roster scale that exhausts all three
+  /// `_kMaxAutoContinueAttempts` and STILL renders short while
+  /// `hasMore == true`. That is a measurement against the phase-345 fixture,
+  /// not a judgement call: if the walk terminates inside its budget, the
+  /// finding is recorded and nothing moves. Do not raise the constant
+  /// defensively — an unbounded walk is a spin (see
+  /// `_MasterArchiveScreenState._autoContinueAttempts`'s anti-spin doc).
+  Future<PageResponse<Booking>> _fetchPage(
+    MasterArchiveQuery query,
+    Set<BookingStatus> predicate,
+    int page,
+  ) {
+    final BookingRepository repo = ref.read(bookingRepositoryProvider);
+    final String? salonId = query.salonId;
+    if (salonId == null) {
+      return repo.getMyBookings(
+        statuses: _legacyStatusesFor(predicate),
+        // ALWAYS sent, unconditionally — see file header's first section.
+        // This is the hard requirement asserted on the CAPTURED request, not
+        // just the repository call args. Requires a HISTORY-capable backend
+        // (`81e8166`+) — see [BookingPartition.history]'s doc.
+        partition: BookingPartition.history,
+        serviceIds: query.serviceIds,
+        sort: BookingSort.newest,
+        page: page,
+      );
+    }
+
+    // `serviceIds` is deliberately NOT forwarded on the salon arm, and cannot
+    // be non-empty here: [MasterArchiveQuery.of] REJECTS
+    // `salonId != null && serviceIds.isNotEmpty` at construction with an
+    // `ArgumentError`. This used to be an `assert` on this very line; it was
+    // moved to the family key in audit-fix MEDIUM-2 (2026-09-19) because an
+    // `assert` is stripped in profile/release, so a shipped build would drop
+    // the ids here while `MasterArchiveQuery.hasFilters` still reported
+    // `true` — «Скинути» offered for a filter that narrowed nothing. Do NOT
+    // re-add a local assert: the invalid state is now unrepresentable, and a
+    // second copy of the rule is a second thing to drift.
+    //
+    // No `from`/`to`: the archive wants the salon's WHOLE history, and this
+    // route has always accepted open-ended bounds.
+    return repo.getSalonBookings(
+      salonId: salonId,
+      statuses: _legacyStatusesFor(predicate),
+      partition: BookingPartition.history,
+      sort: BookingSort.newest,
+      page: page,
+    );
+  }
 
   Future<MasterArchiveState> _fetchFirstPage(MasterArchiveQuery query) async {
     _generation++;
     final Set<BookingStatus> predicate = _archiveStatusPredicate(
       query.statuses.toSet(),
     );
-    final BookingRepository repo = ref.read(bookingRepositoryProvider);
-    final PageResponse<Booking> page = await repo.getMyBookings(
-      statuses: _legacyStatusesFor(predicate),
-      // ALWAYS sent, unconditionally — see file header's first section. This
-      // is the hard requirement asserted on the CAPTURED request, not just
-      // the repository call args. Requires a HISTORY-capable backend
-      // (`81e8166`+) — see [BookingPartition.history]'s doc.
-      partition: BookingPartition.history,
-      serviceIds: query.serviceIds,
-      sort: BookingSort.newest,
-      page: 0,
-    );
+    final PageResponse<Booking> page = await _fetchPage(query, predicate, 0);
 
     return MasterArchiveState(
       items: _applyPredicate(page.items, predicate),
@@ -329,6 +558,17 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
     if (current == null) return;
     if (current.isLoadingMore) return; // double-fetch guard
     if (!current.hasMore) return; // last raw page no-op
+    // FAILURE-MEMORY guard (mobile-security HIGH, 2026-09-20). Gated HERE as
+    // well as in `_MasterArchiveScreenState._onScroll`, deliberately: the
+    // screen has three other entry points into this method (the
+    // auto-continue post-frame callback, the `_ArchiveContinueState` tap, and
+    // the tail affordance), and a gate that lived only in the scroll listener
+    // would leave each of them free to re-fire the same failing request. See
+    // [MasterArchiveState.retryNotBefore].
+    //
+    // instant-ok: a cooldown deadline compared against the injected clock —
+    // an absolute-instant question, not a calendar-day one.
+    if (current.isRetryBlockedAt(ref.read(clockProvider)())) return;
 
     // The pagination generation this call belongs to — see [_mergeTargetFor].
     final int generation = _generation;
@@ -338,15 +578,12 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
     final Set<BookingStatus> predicate = _archiveStatusPredicate(
       query.statuses.toSet(),
     );
-    final BookingRepository repo = ref.read(bookingRepositoryProvider);
 
     try {
-      final PageResponse<Booking> page = await repo.getMyBookings(
-        statuses: _legacyStatusesFor(predicate),
-        partition: BookingPartition.history,
-        serviceIds: query.serviceIds,
-        sort: BookingSort.newest,
-        page: fromPage + 1,
+      final PageResponse<Booking> page = await _fetchPage(
+        query,
+        predicate,
+        fromPage + 1,
       );
 
       final MasterArchiveState? target = _mergeTargetFor(generation);
@@ -360,15 +597,57 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
           page: page.page,
           hasMore: page.hasMore,
           isLoadingMore: false,
+          // A page that LANDED clears any cooldown a previous failure left —
+          // explicitly, because `copyWith` preserves the field otherwise.
+          retryNotBefore: null,
         ),
       );
-    } catch (_) {
+    } catch (e) {
       // A failed load-more must not blow away the already-rendered list —
       // mirrors `MyBookingsNotifier.loadMore`'s identical catch.
+      //
+      // What is NEW (mobile-security HIGH, 2026-09-20) is that the failure is
+      // now REMEMBERED. Restoring `isLoadingMore: false` with `hasMore` still
+      // `true` re-satisfies every caller's guard instantly, which under iOS
+      // bouncing physics re-fired this exact request once per frame for the
+      // whole overscroll settle. `retryNotBefore` is what the callers now
+      // consult instead — see that field's doc for the measurement.
+      //
+      // instant-ok: a deadline built from the injected clock.
       final MasterArchiveState? target = _mergeTargetFor(generation);
       if (target == null) return;
-      state = AsyncData(target.copyWith(isLoadingMore: false));
+      state = AsyncData(
+        target.copyWith(
+          isLoadingMore: false,
+          retryNotBefore: ref.read(clockProvider)().add(_backoffFor(e)),
+        ),
+      );
     }
+  }
+
+  /// How long the tail parks after [error].
+  ///
+  /// The SERVER's own number wins when it sent one: backend PR #130 answers a
+  /// board 429 with `Retry-After`, which `ErrorMapperInterceptor` now surfaces
+  /// as [SalonBoardRateLimitedFailure.retryAfterSeconds] (it used to reach the
+  /// app as an `UnknownFailure` with the header discarded). Re-fetching before
+  /// that window closes cannot succeed and spends the budget the master's next
+  /// deliberate tap needs.
+  ///
+  /// Everything else — a dropped connection, a 5xx, a deserialization
+  /// breakdown — takes the flat [kLoadMoreFailureBackoff], which exists to
+  /// outlast the SCROLL GESTURE rather than to model the server.
+  Duration _backoffFor(Object error) {
+    if (error is SalonBoardRateLimitedFailure) {
+      final int? seconds = error.retryAfterSeconds;
+      // `null` means absent / unparsable / above the 10-minute UX ceiling —
+      // there is no honest server number, so the gesture-scale backoff is
+      // still strictly better than none.
+      if (seconds != null && seconds > 0) {
+        return Duration(seconds: seconds);
+      }
+    }
+    return kLoadMoreFailureBackoff;
   }
 
   /// The state a completed [loadMore] round trip may write into, re-read AFTER

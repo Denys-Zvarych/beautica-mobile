@@ -8,12 +8,26 @@
 // `(SERVICE, masterServiceId)` and the Beauty Passport genuinely reads it
 // back. Phase F shipped the identical affordance on the SALON catalogue
 // (`SalonServiceSelectionScreen`, `FavoriteTargetType.salonService`), and
-// `salon_service_selection_screen_test.dart` (widget tier) already proves the
-// heart renders and POSTs the right target type — against a STUBBED
+// `salon_service_selection_screen_test.dart` (widget tier) proves the heart
+// renders and POSTs the right target type — against a STUBBED
 // `favoriteRepositoryProvider`. Neither of those proves the other half: that a
 // real `POST /favorites` with `SALON_SERVICE` actually lands somewhere the
 // Beauty Passport can read back as a SALON row (storefront glyph, salon name,
 // verbatim price — Phase F's whole render contract).
+//
+// CORRECTION (mobile-qa, 2026-09-12): the claim above that the widget tier
+// "already proves" the heart was STALE and wrong for 13 days. `4fe8642a`
+// (2026-08-10) wired `showFavoriteHeart` onto this screen's
+// `CatalogueCategorySection(...)` call site; `92644d2e` (2026-08-23) silently
+// dropped it while restoring a pre-MO-4 version of the file (the commit
+// message never mentions the heart), and `showFavoriteHeart` defaults to
+// `false` — so the heart stopped rendering for every client, and NOTHING in
+// the widget tier caught it, because `salon_service_selection_screen_test.dart`
+// had zero tests mentioning "favourite" or "heart" despite this very comment
+// claiming coverage existed. Fixed in the same pass as the production
+// re-wiring: see that file's "favourite heart (regression: MO-4 wiring
+// silently dropped by 92644d2e, restored)" group, mutation-proven against
+// deleting `showFavoriteHeart: true` at the call site.
 //
 // `wishlist_salon_service_redirect_flow_test.dart` (Phase G) exercises the
 // PASSPORT → tap → salon-profile-redirect direction against a SALON row it

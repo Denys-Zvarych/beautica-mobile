@@ -118,11 +118,15 @@ abstract final class RouteNames {
   static String masterPublicProfile(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}';
 
-  /// Phase 4.x — public master reviews, opened from the public master
-  /// profile's «Відгуки» stat tile. CLIENT-guarded like [masterPublicProfile]
-  /// (same `clientOnlyGuard` in `app_router.dart`). Distinct from
-  /// [masterReceivedReviews] below, which is param-less and always resolves
-  /// to the AUTHENTICATED master's own reviews.
+  /// Phase 4.x — public master reviews. CLIENT-guarded like
+  /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
+  /// Kept (D7, Phase 351) for its other consumers
+  /// (`booking_counterparty_header.dart`, `leave_review_screen.dart`,
+  /// `booking_confirm_screen.dart`) — the public master profile itself no
+  /// longer pushes it (its own «Відгуки» tab renders inline instead). The
+  /// param-less own-master equivalent («Мої відгуки») was deleted in the
+  /// same phase — its content now lives inline in the master's own profile
+  /// tabs (`MasterProfileScreen` / `SalonMasterProfileScreen`).
   static String masterPublicReviews(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}/reviews';
 
@@ -140,6 +144,437 @@ abstract final class RouteNames {
   /// the "Послуги" tab is a separate, unaffected feature.
   static String salonPublicProfile(String salonId) =>
       '/salons/${Uri.encodeComponent(salonId)}';
+
+  /// Phase 21.2 — owner/admin editable salon profile (structurally a mirror
+  /// of [salonPublicProfile], with edit/staff-management/delete affordances
+  /// layered on top). `SALON_OWNER` (any owned salon) / `SALON_ADMIN` (their
+  /// own salon only) — gated in `app_router.dart` via `_salonManageGuard`,
+  /// mirroring the `/master/*`/`/salon/*` prefix-gate convention in
+  /// `auth_redirect.dart` (this route sits under `/salons/:salonId/manage`,
+  /// a NESTED child of [salonPublicProfile]'s own literal-path segment, not
+  /// the `/salon/*` prefix those gates cover, so it needs its own).
+  static String salonManage(String salonId) =>
+      '${salonPublicProfile(salonId)}/manage';
+
+  /// Phase 21.2 — the salon settings page the management profile's top-right
+  /// `Icons.tune_rounded` cover control opens. Two rows only: «Редагувати
+  /// профіль» (nav — pops back to [salonManage] with edit mode toggled on)
+  /// and, owner-only, the destructive «Видалити салон». Phase 21.9 later
+  /// supersedes this 2-row page with a full multi-row settings hub (mirroring
+  /// the preview's `salon_settings_screen.dart`) — that phase EXTENDS this
+  /// route/screen rather than replacing it outright, so the path is not
+  /// versioned or phase-suffixed.
+  static String salonManageSettings(String salonId) =>
+      '${salonManage(salonId)}/settings';
+
+  /// Phase 21.4 — the «Запросити персонал» form (form only — the «Очікують
+  /// підтвердження» pending-invites list/cancel pair is descoped to Phase
+  /// 21.11, once backend Phase 23.1's `GET/DELETE /salons/{salonId}/invites/
+  /// ...` endpoints exist). A literal `/invite` leaf below the
+  /// ALREADY-RESOLVED [salonManage] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply here (that concern is
+  /// limited to a literal declared after a dynamic SIBLING at the SAME
+  /// segment, e.g. `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s
+  /// own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonManageSettings] document.
+  static String salonInviteStaff(String salonId) =>
+      '${salonManage(salonId)}/invite';
+
+  /// Phase 21.11 — «Надіслані запрошення», the list of sent-but-unaccepted
+  /// staff invitations, reached from the Phase 21.9 settings hub's own row.
+  ///
+  /// Owner AND admin (that hub renders the row outside its owner-only block,
+  /// and backend 23.1's `GET/DELETE /salons/{salonId}/invites/...` pair is
+  /// owner+admin scoped), so `app_router.dart` gates it with
+  /// `salonManageGuard` — NOT the owner-only `salonManageOwnerOnlyGuard` the
+  /// three Phase 21.10 edit forms use.
+  ///
+  /// A literal `/pending-invites` leaf below the ALREADY-RESOLVED
+  /// [salonPublicProfile] `:salonId` capture, so declaration-order
+  /// literal-vs-dynamic shadowing does not apply (that concern is limited to
+  /// a literal declared after a dynamic SIBLING at the SAME segment, e.g.
+  /// `/salons/mine` vs `/salons/:salonId` — see [salonHome]'s own doc).
+  /// Registered as a STANDALONE top-level route in `app_router.dart`, same
+  /// "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document.
+  static String salonPendingInvites(String salonId) =>
+      '${salonPublicProfile(salonId)}/pending-invites';
+
+  /// Phase 21.5 — the staff member (master OR admin) management profile,
+  /// reached from a «Персонал» grid card tap. A literal `/staff/:memberId`
+  /// leaf below the ALREADY-RESOLVED [salonManage] `:salonId` capture — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents. Registered as a STANDALONE top-level route in
+  /// `app_router.dart`, same "an ancestor's own redirect always runs" reason
+  /// [salonManage]/[salonInviteStaff] document — nesting under
+  /// `/salons/:salonId` would let `clientOnlyGuard` bounce owners/admins
+  /// first. Reuses `salonManageGuard` VERBATIM.
+  ///
+  /// [memberId] is the roster entry's `userId` (works for both a master and
+  /// an admin entry — an admin has no `masterId`).
+  static String salonManageStaffMember(String salonId, String memberId) =>
+      '${salonManage(salonId)}/staff/${Uri.encodeComponent(memberId)}';
+
+  /// Phase 21.6, generalized Phase 305 — «Налаштування» for ONE staff
+  /// member, reached from the trailing `tune_rounded` control on that
+  /// member's [salonManageStaffMember] profile. A literal `/settings` leaf
+  /// below the ALREADY-RESOLVED `:salonId`/`:memberId` captures, so no
+  /// literal-vs-dynamic shadowing applies (that concern is limited to a
+  /// literal declared after a dynamic SIBLING at the SAME segment — see
+  /// [salonHome]'s own doc). Registered as a STANDALONE top-level route in
+  /// `app_router.dart` for the same "an ancestor's own redirect always runs"
+  /// reason [salonManage]/[salonManageStaffMember] document, and gated by
+  /// `salonManageGuard` VERBATIM: an assigned `SALON_ADMIN` may manage a
+  /// fellow admin, exactly as the backend's own
+  /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon`
+  /// gate on all three endpoints this screen calls allows. As of Phase 305
+  /// only the ADMIN branch of the page exists; phase 307 adds a MASTER
+  /// branch behind the same route.
+  ///
+  /// [memberId] is the roster entry's `userId` — the same id
+  /// [salonManageStaffMember] takes, and the `{userId}` path variable of
+  /// `DELETE|PATCH /salons/{salonId}/admins/{userId}`.
+  static String salonManageStaffSettings(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/settings';
+
+  /// Phase 21.6 — the rotate-admin destination picker pushed from
+  /// [salonManageStaffSettings]'s «Перемістити до іншого салону» row. A
+  /// literal `/move` sibling of that route's `/settings` leaf, same gating,
+  /// same standalone registration, same reasoning.
+  static String salonManageAdminMove(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/move';
+
+  /// Phase 312 — «Графік роботи» for a chosen MASTER on the roster,
+  /// reached from the `SettingsRow` D3 adds to [salonManageStaffMember]'s
+  /// profile screen. Renders the SAME `MasterScheduleScreen` widget
+  /// [masterSchedule] does, pointed at a [ScheduleScope.salonMaster] instead
+  /// of "me" (D1: byte-identical screen). A literal `/schedule` leaf below
+  /// the ALREADY-RESOLVED `:salonId`/`:memberId` captures — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents — registered as a STANDALONE top-level route, same
+  /// "an ancestor's own redirect always runs" reason [salonManage] /
+  /// [salonManageStaffMember] document. Gated by `salonManageGuard`
+  /// VERBATIM, exactly like every sibling route under this subtree.
+  ///
+  /// [memberId] is the roster entry's `userId` — the SAME id
+  /// [salonManageStaffMember] takes. The route builder resolves the viewed
+  /// master id from `state.extra` (the caller's already-resolved
+  /// [ScheduleScope], the normal in-app tap path) and falls back to
+  /// re-resolving it from this [memberId] via `salonStaffMemberProfileProvider`
+  /// only for a genuine cold deep link with no `extra` — see
+  /// `app_router.dart`'s builder for the full reasoning.
+  static String salonManageStaffSchedule(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/schedule';
+
+  /// Phase 312 (D9) — the PARAMETERISED weekly-template editor. A SIBLING of
+  /// [salonManageStaffSchedule] under the SAME `:memberId` capture (D9's own
+  /// text lists `/schedule`, `/weekly`, `/day`, `/copy` as four peer
+  /// suffixes on the identical base — NOT `/weekly` nested under `/schedule`;
+  /// `app_router.dart` registers all four as siblings, and this helper must
+  /// match that literally or `NL-R01` (`navigation_links_test.dart`) fails
+  /// with a genuine unresolved-route gap).
+  /// `MasterScheduleScreen._openTemplateEditor` pushes here (never the root
+  /// `/schedule/weekly`, which is hard-wired to "me") whenever its resolved
+  /// scope is a [ScheduleScope.salonMaster] — otherwise an admin's
+  /// «Редагувати» tap would either 403 or silently edit the WRONG master's
+  /// template. Always pushed with `extra:` carrying the [ScheduleScope] —
+  /// the caller already has it resolved, so [memberId]'s URL VALUE is never
+  /// re-resolved for this leaf (unlike [salonManageStaffSchedule] itself,
+  /// which IS a genuine entry point).
+  static String salonManageStaffScheduleWeekly(
+    String salonId,
+    String memberId,
+  ) => '${salonManageStaffMember(salonId, memberId)}/weekly';
+
+  /// Phase 312 (D9) — registered for symmetry with the root `/schedule/day`
+  /// (auth-guarded but not a live UI destination — `DayHoursSheet` is a
+  /// direct modal, never routed, for either scope shape). A SIBLING of
+  /// [salonManageStaffSchedule], same reasoning as
+  /// [salonManageStaffScheduleWeekly]'s doc.
+  static String salonManageStaffScheduleDay(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/day';
+
+  /// Phase 312 (D9) — registered for symmetry with the root `/schedule/copy`
+  /// (auth-guarded but not a live UI destination — `ApplyScheduleSheet` is a
+  /// direct modal, never routed, for either scope shape). A SIBLING of
+  /// [salonManageStaffSchedule], same reasoning as
+  /// [salonManageStaffScheduleWeekly]'s doc.
+  static String salonManageStaffScheduleCopy(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/copy';
+
+  /// Phase 317 — «Послуги» for a chosen MASTER on the roster. Renders the
+  /// SAME `ServicesListScreen` [services] does, inside a `ProviderScope` that
+  /// points `serviceTargetProvider` at that salon master instead of "me"
+  /// (D2 — byte-identical screen, no new pixels). A literal `/services` leaf
+  /// below the ALREADY-RESOLVED `:salonId`/`:memberId` captures — same
+  /// "no literal-vs-dynamic shadowing risk" reasoning [salonInviteStaff]
+  /// documents.
+  ///
+  /// Its OWN subtree rather than a widened guard on [services]: D1 rejects
+  /// `/services?salonId=…&masterId=…` because a query parameter is not gated
+  /// by `salonManageGuard`, which would leave an `INDEPENDENT_MASTER` free to
+  /// hand-craft a URL into another salon's catalogue and rely on the backend
+  /// 403 as the only fence. Registered under a `ShellRoute` (the one in
+  /// `app_router.dart`) so all three leaves share ONE `ProviderScope`, but
+  /// each leaf keeps its own full path and its own `redirect:
+  /// salonManageGuard` VERBATIM — the flat-guard convention every sibling
+  /// route in this subtree follows.
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId` — the SAME id
+  /// [salonManageStaffMember] takes, NOT a `masters` row id. ⚠️ The route
+  /// builder resolves the master row id itself, from
+  /// `salonStaffMemberProfileProvider(salonId, memberId)`; a userId on
+  /// `/salons/{s}/masters/{m}/...` yields 404, not 403.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: this builder appends a
+  /// bare literal `/services` and does **not** call `Uri.encodeComponent`
+  /// itself. That is correct, not an omission: both path VARIABLES are
+  /// already percent-encoded by the base builders it composes —
+  /// [salonId] by [salonPublicProfile] and [memberId] by
+  /// [salonManageStaffMember] — so encoding again here would DOUBLE-ENCODE
+  /// (`%20` → `%2520`) and break every route in this subtree. A future
+  /// sibling copied from this one MUST keep composing on an encoding base
+  /// (`salonManageStaffMember(...)` or [salonManageStaffServices] itself)
+  /// rather than interpolating a raw [salonId]/[memberId] of its own — see
+  /// `test/routing/salon_manage_staff_services_route_test.dart`'s "hostile
+  /// id" group for the pinned proof.
+  static String salonManageStaffServices(String salonId, String memberId) =>
+      '${salonManageStaffMember(salonId, memberId)}/services';
+
+  /// Phase 317 — the bulk service-setup screen for a chosen MASTER. Renders
+  /// the SAME `ServiceSetupScreen` [serviceSetup] does, inside the same
+  /// `ProviderScope` as [salonManageStaffServices]; its `bulkCreate` therefore
+  /// POSTs to `/salons/{s}/masters/{m}/services/bulk`. A literal `/setup` leaf
+  /// under the already-resolved [salonManageStaffServices] path, declared
+  /// BEFORE the `:serviceId` sibling in `app_router.dart` so the literal wins
+  /// (`project_gorouter_literal_before_dynamic_shadowing` — this is the one
+  /// place in the subtree where the trap is live, since `/setup` and
+  /// `/:serviceId` are peers at the same segment).
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId`, and ⚠️ the route builder
+  /// resolves the master row id itself — same two warnings
+  /// [salonManageStaffServices] carries.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: same inherited-not-
+  /// omitted encoding as [salonManageStaffServices] — [salonId]/[memberId]
+  /// are already encoded two call-levels up ([salonPublicProfile] /
+  /// [salonManageStaffMember]); do not add a local `Uri.encodeComponent`
+  /// here, it would double-encode.
+  static String salonManageStaffServiceSetup(String salonId, String memberId) =>
+      '${salonManageStaffServices(salonId, memberId)}/setup';
+
+  /// Phase 317 — the single-service edit screen for a chosen MASTER. Renders
+  /// the SAME `ServiceEditScreen` [serviceEdit] does, inside the same
+  /// `ProviderScope`, so its delete button dispatches to the UNASSIGN
+  /// endpoint (phase 316) rather than `DELETE /services/{id}` — which on a
+  /// salon-owned definition would destroy it for every master who performs it.
+  ///
+  /// ⚠️ [memberId] is the roster entry's `userId`, and ⚠️ the route builder
+  /// resolves the master row id itself — same two warnings
+  /// [salonManageStaffServices] carries. [serviceId] is the master-service id,
+  /// exactly what [serviceEdit] takes.
+  ///
+  /// mobile-security audit (phase 318, cycle 1) — LOW: unlike its two
+  /// siblings above, this builder DOES call `Uri.encodeComponent` itself —
+  /// on [serviceId], the one segment it adds that no base builder already
+  /// covers. [salonId]/[memberId] remain inherited from
+  /// [salonManageStaffServices] and must NOT be re-encoded here for the same
+  /// double-encoding reason.
+  static String salonManageStaffServiceEdit(
+    String salonId,
+    String memberId,
+    String serviceId,
+  ) =>
+      '${salonManageStaffServices(salonId, memberId)}'
+      '/${Uri.encodeComponent(serviceId)}/edit';
+
+  /// Phase 21.10 — dedicated «Назва та опис» edit screen (name +
+  /// description), reached from the Phase 21.9 settings hub's own
+  /// navigational row. A literal child of [salonManageSettings], gated by the
+  /// SAME `salonManageGuard` (registered as a standalone top-level route in
+  /// `app_router.dart`, mirroring [salonManage]/[salonManageSettings]'s own
+  /// "an ancestor's own redirect always runs" rationale). No in-app entry
+  /// point exists yet — Phase 21.9 (the settings hub) is what wires a row to
+  /// this route; that phase is unbuilt.
+  static String salonProfileEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/profile-edit';
+
+  /// Phase 21.10 — dedicated «Локація» edit screen (locality cascade +
+  /// street/buildingNo/locationNote). Sibling of [salonProfileEdit] — same
+  /// gating, same "no entry point yet" caveat.
+  static String salonAddressEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/address-edit';
+
+  /// Phase 21.10 — dedicated «Контакти» edit screen (phone + Instagram).
+  /// Sibling of [salonProfileEdit] — same gating, same "no entry point yet"
+  /// caveat.
+  static String salonContactsEdit(String salonId) =>
+      '${salonManageSettings(salonId)}/contacts-edit';
+
+  /// Phase 21.8 — the SHARED `SALON_OWNER`/`SALON_ADMIN` landing
+  /// (`roleHomePath`), rendering [SalonHomeResolverScreen]. A transient
+  /// stopover, not a destination the viewer lingers on: it resolves which
+  /// salon's shell ([salonShell]) to enter and forwards there (a
+  /// `SALON_ADMIN` reads `session.user.salonId` synchronously; a
+  /// `SALON_OWNER` picks the primary salon from `mySalonsProvider`, falling
+  /// back to the My Salons hub when they own none).
+  ///
+  /// A LITERAL top-level path under the SAME `/salons/` prefix as
+  /// [salonPublicProfile] (`/salons/:salonId`, dynamic) — registered BEFORE
+  /// that dynamic route, same "declaration order, not specificity" rationale
+  /// [mySalons] documents (a second literal under this prefix would
+  /// otherwise be swallowed as a `:salonId` value: `/salons/home` would
+  /// resolve to the public-profile route with `salonId == 'home'`).
+  static const String salonHome = '/salons/home';
+
+  /// Phase 21.8 — the salon-scoped bottom-nav shell
+  /// ([SalonHomeResolverScreen] forwards here). `SALON_OWNER`/`SALON_ADMIN`
+  /// only — gated by `salonHomeGuard`'s route-level role check plus
+  /// `salonManageGuard` (reused VERBATIM from [salonManage]/
+  /// [salonManageSettings] — it already binds ownership for both roles) on
+  /// the route itself.
+  ///
+  /// A literal `/shell` suffix on the same `/salons/:salonId` segment
+  /// [salonManage]/[salonManageSettings] extend — registered as a STANDALONE
+  /// top-level route for the identical "an ancestor's own redirect always
+  /// runs" reason those two document, LAST among the four `/salons/:salonId`-
+  /// prefixed siblings (declaration order does not matter among them, since
+  /// none is a literal that a dynamic sibling could shadow — only [mySalons]
+  /// and [salonHome] have that concern, both literals under the shorter
+  /// `/salons/` prefix).
+  static String salonShell(String salonId) =>
+      '${salonPublicProfile(salonId)}/shell';
+
+  /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
+  /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
+  /// as a tappable card, plus the "+ Додати салон" CTA. `SALON_OWNER`-only —
+  /// a `SALON_ADMIN` belongs to exactly one salon and lands straight on
+  /// [salonManage] instead.
+  ///
+  /// A LITERAL path under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic). Registered in `app_router.dart` as a
+  /// standalone top-level `GoRoute` (same "cannot nest under `:salonId`"
+  /// rationale as [salonManage]) and declared BEFORE the dynamic
+  /// `/salons/:salonId` route so the literal wins the match instead of being
+  /// shadowed by it — go_router resolves literal-vs-dynamic purely by
+  /// declaration order, not specificity.
+  static const String mySalons = '/salons/mine';
+
+  /// Phase 21.3 — the «+ Додати салон» form, reached from the [mySalons]
+  /// hub's own CTA. `SALON_OWNER`-only.
+  ///
+  /// A THIRD literal under the same `/salons/` prefix as [salonPublicProfile]
+  /// (`/salons/:salonId`, dynamic) — mirrors [mySalons]/[salonHome]'s own
+  /// "declaration order, not specificity" rationale: `app_router.dart`
+  /// registers this route BEFORE the dynamic `/salons/:salonId` route so the
+  /// literal `register` segment is never swallowed as a `:salonId` value
+  /// (otherwise `/salons/register` would resolve to the public-profile route
+  /// with `salonId == 'register'`). Gated by `mySalonsGuard` REUSED VERBATIM
+  /// — identical "SALON_OWNER only, bounce every other authenticated role to
+  /// its own landing" semantics [mySalons] already needs, so no second guard
+  /// closure was written.
+  static const String registerSalon = '/salons/register';
+
+  /// Phase 21.14 — the `SALON_OWNER`'s own first-person profile
+  /// (`OwnerOwnProfileScreen`), pushed STAND-ALONE with a back button. The
+  /// same screen is ALSO hosted, without a route of its own, as the «Профіль»
+  /// tab of `SalonShellScreen`'s owner branch (`embedded: true`) — the tab is
+  /// an `IndexedStack` slot, not a nested route, so this constant is only ever
+  /// the stand-alone entry.
+  ///
+  /// SHADOWING — unlike [mySalons]/[registerSalon]/[salonHome], this path has
+  /// NO dynamic sibling to lose a match to: `/profile` is a fresh top-level
+  /// prefix and `app_router.dart` registers no `/:something` route at the root
+  /// level, so there is nothing for go_router's declaration-order
+  /// literal-vs-dynamic resolution to shadow it with. Adding any future
+  /// `/profile/:id` route WOULD reintroduce that hazard and must be declared
+  /// AFTER this one.
+  ///
+  /// Gated by `mySalonsGuard` REUSED VERBATIM — identical "SALON_OWNER only,
+  /// bounce every other authenticated role to its own landing" semantics, so
+  /// no second guard closure was written.
+  static const String ownerOwnProfile = '/profile/owner';
+
+  /// Phase 21.16 — the `SALON_ADMIN`'s own first-person profile
+  /// ([AdminOwnProfileScreen]), pushed STAND-ALONE with a back button. The
+  /// same screen is ALSO hosted, without a route of its own, as the «Профіль»
+  /// tab of `SalonShellScreen`'s admin branch (`embedded: true`) — the tab is
+  /// an `IndexedStack` slot, not a nested route, so this constant is only ever
+  /// the stand-alone entry.
+  ///
+  /// SHADOWING — a second literal under the `/profile/` prefix, sibling to
+  /// [ownerOwnProfile]. Neither can shadow the other (two literals at the same
+  /// segment match exactly one path each), and `app_router.dart` still
+  /// registers no `/profile/:something` route. Adding any future
+  /// `/profile/:id` WOULD reintroduce that hazard for BOTH of these and must
+  /// be declared AFTER them.
+  ///
+  /// Gated by `salonAdminOnlyGuard` — the SALON_ADMIN mirror of the
+  /// SALON_OWNER-only `mySalonsGuard` [ownerOwnProfile] reuses. A separate
+  /// closure is unavoidable here: no shipped guard admits SALON_ADMIN and only
+  /// SALON_ADMIN (`salonManageGuard` admits both salon roles and binds them to
+  /// a `:salonId` path param this route does not have).
+  static const String adminOwnProfile = '/profile/admin';
+
+  /// DEBUG-chain fix (2026-09-26) — the `SALON_ADMIN`'s own settings hub,
+  /// reached from [adminOwnProfile]'s trailing `tune_rounded` action. Renders
+  /// the SAME [SettingsHubScreen] widget [masterMenu] and
+  /// [salonMasterSettings] do, via its additive `showLocation` (`false` — no
+  /// personal location) and `fallbackHomeRoute` ([adminOwnProfile]) params —
+  /// see `settings_hub_screen.dart`'s class doc.
+  ///
+  /// Before this route existed, [adminOwnProfile]'s tune button pushed
+  /// [settings] directly — the shared «Акаунт» sub-screen — so a SALON_ADMIN
+  /// had NO sign-out affordance anywhere on that path and «Видалити акаунт»,
+  /// at the bottom of [settings], read as the terminal action (the reported
+  /// bug). This hub's own `row-account` still pushes [settings] unchanged,
+  /// so «Видалити акаунт» stays exactly where it already was; «Вийти» is now
+  /// the hub's terminal row, exactly as it already is for CLIENT and both
+  /// master roles. Phase 21.17's originally-planned dedicated Admin Personal
+  /// Settings screen remains unbuilt — this reuses the shared hub instead of
+  /// waiting on it.
+  ///
+  /// Phase 356 — «Особисті дані» and «Контакти» are now LIVE rows: the hub
+  /// is wired with `personalInfoRoute: adminEditPersonal` and
+  /// `contactsRoute: adminEditContacts` (both below), replacing the
+  /// `contactsEnabled: false` this route used to pass for «Контакти» while
+  /// neither destination existed. «Особисті дані» used a matching
+  /// `personalInfoEnabled: false` switch at the time; that param was removed
+  /// entirely (audit-fix cycle 1, 2026-09-26) once no caller anywhere passed
+  /// it `false` — the row is now unconditionally live, see
+  /// `settings_hub_screen.dart`'s class doc.
+  ///
+  /// Gated by `salonAdminOnlyGuard`, reused VERBATIM — see
+  /// [adminOwnProfile]'s own doc for why no other shipped guard expresses
+  /// "SALON_ADMIN only".
+  static const String adminSettings = '/profile/admin/settings';
+
+  /// Phase 356 — «Особисті дані» edit for a SALON_ADMIN. An admin is a
+  /// `User`, not a `Master`: this reuses [ClientPersonalInfoEditScreen]
+  /// VERBATIM (firstName + lastName through `PATCH /users/me`) rather than
+  /// the master `PersonalInfoEditScreen`, which calls a Master-only endpoint
+  /// (`PATCH /independent-masters/me/profile` / `PATCH /masters/me/profile`)
+  /// an admin session 403s on and which edits Master-only fields (bio).
+  ///
+  /// A NEW top-level sibling rather than a reuse of [clientEditPersonal]:
+  /// `auth_redirect.dart`'s `/client/*` role gate sends every non-CLIENT
+  /// user away from that path, so the existing CLIENT route cannot be
+  /// reused as-is. Registered the SAME way [adminSettings] is — a top-level
+  /// literal, not nested — gated by `salonAdminOnlyGuard`.
+  ///
+  /// [ClientPersonalInfoEditScreen]'s additive `doneRoute` param is passed
+  /// as [adminSettings] here, so saving returns to the admin hub instead of
+  /// the CLIENT default ([clientHome]).
+  static const String adminEditPersonal = '/profile/admin/settings/personal';
+
+  /// Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. Reuses
+  /// [ClientContactsEditScreen] VERBATIM (Instagram is already removed from
+  /// that screen, matching the admin profile, which deliberately has no
+  /// Instagram tile either). See [adminEditPersonal]'s doc for why this is a
+  /// new top-level sibling rather than a reuse of [clientEditContacts], and
+  /// why `doneRoute: adminSettings` is passed.
+  static const String adminEditContacts = '/profile/admin/settings/contacts';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
@@ -350,6 +785,115 @@ abstract final class RouteNames {
   /// fails on `Navigator` in `lib/features/`.
   static const String salonStaffBookingNew = '$salonStaffBookings/new';
 
+  /// Phase 344 — the SALON_OWNER/SALON_ADMIN's «Архів», pushed from the salon
+  /// «Записи» board header ([SalonBookingsScreen]).
+  ///
+  /// Renders the SAME [MasterArchiveScreen] that [masterBookingsArchive] and
+  /// [salonMasterBookingsArchive] render, parameterised by phase 343 with
+  /// `salonId` (scope = this salon's whole history, across every master) and
+  /// `showMasterAttribution: true` (each row names who performed it). No new
+  /// screen and no new strings — the title is `masterArchiveTitle` («Архів»),
+  /// reused verbatim (phase 344 D6), because the surrounding salon shell
+  /// already says whose archive it is.
+  ///
+  /// ⚠ DECLARATION ORDER: a second literal sibling of [salonStaffBookingNew]
+  /// under `/salon/bookings`, and therefore — exactly like it — it MUST be
+  /// registered BEFORE the dynamic [salonStaffBookingDetail]:
+  /// `/salon/bookings/:bookingId` matches `/salon/bookings/archive` perfectly
+  /// happily with `bookingId == 'archive'`, and go_router takes the FIRST
+  /// sibling hit in declaration order. Pinned by
+  /// `test/routing/salon_bookings_route_shadowing_test.dart`, which asserts
+  /// the resolved page TYPE, not the location string (a location assertion
+  /// passes while the wrong screen renders).
+  ///
+  /// ⚠ NOT DEEP-LINKABLE. Like [salonStaffBookingNew], the target salon id
+  /// rides `state.extra` as a bare non-empty `String` — nothing on this
+  /// route's own path carries it, and [SalonBookingsScreen] receives its own
+  /// `salonId` by constructor from [SalonShellScreen] rather than from a path
+  /// parameter. `extra` does not survive a cold link, so the route's redirect
+  /// bounces a link-in to the role home instead of rendering an unscoped
+  /// archive. Accepted (phase 344 D2): this screen is one tap from the board.
+  ///
+  /// Inherits the `/salon/*` `SALON_OWNER`/`SALON_ADMIN` role gate in
+  /// `auth_redirect.dart` (a `startsWith('/salon/')` PREFIX match, verified —
+  /// not an exact-path list, so no gate edit was needed). `SALON_MASTER` is
+  /// bounced here and keeps its own unchanged archive at
+  /// [salonMasterBookingsArchive]; `/master/*` is NOT widened.
+  ///
+  /// Reached with `context.push` (never `Navigator`, never `go` — `go`
+  /// excludes `fullPath` from the match, which nav-detection tests need).
+  static const String salonStaffBookingsArchive = '$salonStaffBookings/archive';
+
+  /// Phase 21.12 — the SALON_OWNER/SALON_ADMIN's «Деталі запису», pushed from
+  /// a card tap on the salon «Записи» board ([SalonBookingsScreen]).
+  ///
+  /// ⚠ THIS ROUTE EXISTS BECAUSE [bookingDetail] CANNOT BE USED HERE.
+  /// `bookingDetail` resolves to `/bookings/:id`, and `/bookings` is
+  /// `clientBranchPrefixes[3]` in `auth_redirect.dart` — every non-CLIENT
+  /// role that reaches it is redirected to `roleHomePath(role)`. An owner
+  /// tapping a card on their own salon board was therefore bounced clean out
+  /// of the salon shell to the owner home, never reaching a detail screen.
+  /// The `/salon/*` gate admits exactly SALON_OWNER + SALON_ADMIN, which is
+  /// the audience of the board this is pushed from.
+  ///
+  /// Resolves to the SAME [BookingDetailScreen] as [bookingDetail] and
+  /// [masterBookingDetail] — one screen, role-branched off
+  /// `bookingViewerRoleProvider` (locked decision D5) — exactly as
+  /// [salonMasterBookingDetail] does for the `/staff/*` audience.
+  ///
+  /// ⚠ DECLARATION ORDER: it is the dynamic sibling of the literal
+  /// [salonStaffBookingNew] under `/salon/bookings`, so it MUST be registered
+  /// AFTER it — `/salon/bookings/:bookingId` matches `/salon/bookings/new`
+  /// perfectly happily with `bookingId == 'new'`. Pinned by
+  /// `test/routing/salon_bookings_route_shadowing_test.dart`, which asserts
+  /// the resolved page TYPE, not the location string.
+  ///
+  /// Navigate with `context.push` (never `Navigator`); note that a pushed
+  /// leaf collapses to its PARENT in `GoRouterState.fullPath`, so
+  /// nav-detection must inspect `leaf.matches.fullPath`.
+  static String salonStaffBookingDetail(String bookingId) =>
+      '$salonStaffBookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Phase 21.12 — «ВІДГУК ПРО КЛІЄНТА» reached from
+  /// [salonStaffBookingDetail]'s COMPLETED footer. The SAME
+  /// [LeaveClientFeedbackScreen] [clientReview] and [salonMasterClientReview]
+  /// render.
+  ///
+  /// ⚠ AUDIENCE (Phase 320, narrowed — this doc asserted the opposite until
+  /// then): only an OWNER-AS-MASTER reaches this route, i.e. a `SALON_OWNER`
+  /// who personally performed the booking. `Booking.providerCanReviewClient`
+  /// is computed server-side by
+  /// `BookingService#computeProviderCanReviewClient`
+  /// (`booking/service/BookingService.java` — read at backend `a0df4cf`),
+  /// whose provider-authority leg is now the SINGLE term
+  /// `isPerformingMasterOfBooking(...)`, behind an `isOwningClientViewer`
+  /// cost gate that cannot change the answer. The former
+  /// `|| hasProviderAuthorityOverBooking(...)` disjunct — which admitted the
+  /// salon's owner and the assigned `SALON_ADMIN` regardless of who performed
+  /// the service — is GONE. Per the locked product decision, an owner or
+  /// admin may still COMPLETE a booking; only the master who performed it may
+  /// rate its client.
+  ///
+  /// ⚠ STILL NOT OPTIONAL. The route's audience shrank; its necessity did
+  /// not. An owner who IS the performing master still gets
+  /// `providerCanReviewClient: true`, and views that booking through the
+  /// salon board's [salonStaffBookingDetail] mount. Without this route
+  /// `clientReviewRouteBuilder` falls back to [clientReview]
+  /// (`/master/bookings/:id/review`), whose INDEPENDENT_MASTER-only gate in
+  /// `auth_redirect.dart` bounces them clean out of the salon shell to
+  /// `/salons/mine` — the exact dead-end tap [salonStaffBookingDetail] itself
+  /// exists to remove, for a real reachable user.
+  ///
+  /// `BookingDetailScreen._providerActions` renders the CTA above the
+  /// `bookingTransitionsEnabledProvider` gate, so read-only-ness does not
+  /// suppress it either — the server flag is the only gate.
+  ///
+  /// STANDALONE top-level `GoRoute`, mirroring [clientReview] and
+  /// [salonMasterClientReview] for the identical reason (nesting under a plain
+  /// content screen mounts a shadow detail page underneath it).
+  static String salonStaffClientReview(String bookingId) =>
+      '${salonStaffBookingDetail(bookingId)}/review';
+
   /// Track 7.x Wave B — «ВІДГУК ПРО КЛІЄНТА» (leave-client-feedback).
   ///
   /// Same URL shape as [masterBookingDetail]'s `/review` child would be, but
@@ -402,11 +946,153 @@ abstract final class RouteNames {
   static const String masterEditContacts = '/master/edit/contacts';
   static const String masterEditLocation = '/master/edit/location';
 
-  // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
-  // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
-  // masterId from the session (authProvider), so the reviews are always the
-  // authenticated master's own.
-  static const String masterReceivedReviews = '/master/received-reviews';
+  // SALON_MASTER's own personal-profile surface — fixes the "blank home"
+  // landing bug (an invited SALON_MASTER previously fell through
+  // `roleHomePath`'s wildcard onto the bare `/` placeholder; see
+  // `role_home.dart`). Read-only self-view ONLY: no salon profile, no
+  // «Команда»/team surface — those are a later increment (product decision,
+  // see the phase doc). Hosts the same `VelvetBottomNavBar` shell as
+  // INDEPENDENT_MASTER (2026-09-01) — see
+  // `salon_master_profile_screen.dart`'s header for the gated-tile caveat.
+  //
+  // Deliberately its OWN `/staff/*` subtree, not a widened `/master/*`
+  // (INDEPENDENT_MASTER-only — bookings/schedule/services must stay fenced
+  // off from SALON_MASTER) and not `/salons/*` (salon management,
+  // owner/admin-only). Gated to SALON_MASTER exclusively in
+  // `auth_redirect.dart`.
+  static const String salonMasterProfile = '/staff/profile';
+
+  /// Settings hub reached from [salonMasterProfile]'s trailing
+  /// `tune_rounded` action. Renders the SAME [SettingsHubScreen] widget
+  /// [masterMenu] does (additive `showLocation: false` — a SALON_MASTER has
+  /// no personal location — plus `contactsEnabled: true` +
+  /// `contactsRoute: salonMasterEditContacts`, a phone-only «Контакти» edit
+  /// — see `settings_hub_screen.dart`).
+  static const String salonMasterSettings = '/staff/settings';
+
+  /// «Особисті дані» edit for a SALON_MASTER. Reuses [PersonalInfoEditScreen]
+  /// VERBATIM — the same widget [masterEditPersonal] pushes. The screen
+  /// itself picks the endpoint that admits SALON_MASTER: `PATCH
+  /// /masters/me/profile` (`MasterController.java:486-487`), NOT the
+  /// `/independent-masters/me/profile` endpoint [masterEditPersonal]'s
+  /// INDEPENDENT_MASTER save uses — see [MasterUpdate.masterType] /
+  /// [HttpMasterRepository.updateMyProfile] for the branch (a HIGH bug fixed
+  /// 2026-09-01: the repository used to hardcode the independent-master path
+  /// for every caller, 403ing every SALON_MASTER save). Registered under its
+  /// own `/staff/*` path rather than widening [masterEditPersonal]'s guard,
+  /// so the rest of `/master/*` stays fenced to INDEPENDENT_MASTER exactly as
+  /// before.
+  static const String salonMasterEditPersonal = '/staff/edit/personal';
+
+  /// «Контакти» edit for a SALON_MASTER — phone only (product decision: no
+  /// Instagram, no location, for this role). Reuses [ContactsEditScreen] via
+  /// its additive `showInstagram: false` param — the same widget
+  /// [masterEditContacts] pushes for INDEPENDENT_MASTER, same shape as
+  /// [salonMasterEditPersonal] above. Registered under its own `/staff/*`
+  /// path rather than widening [masterEditContacts]'s guard.
+  static const String salonMasterEditContacts = '/staff/edit/contacts';
+
+  /// «Графік роботи» read-only view for a SALON_MASTER. Renders the SAME
+  /// [MasterScheduleScreen] widget [masterSchedule] does — every edit
+  /// affordance on that screen is already gated on `scheduleEditableProvider`
+  /// (which already resolves `SALON_MASTER → false`), so this route reuses it
+  /// verbatim rather than forking a read-only variant. Registered under its
+  /// own `/staff/*` subtree rather than widening [masterSchedule]'s guard, so
+  /// `/schedule/weekly`, `/schedule/day` and `/schedule/copy` — full edit
+  /// surfaces — stay fenced to INDEPENDENT_MASTER exactly as before; see
+  /// `auth_redirect.dart`'s `/schedule` gate comment. No `?date=` query
+  /// param: [masterSchedule]'s param has exactly one producer
+  /// (`master_bookings_screen.dart`, an INDEPENDENT_MASTER-only surface), so
+  /// there is no producer for this role and nothing to parse.
+  static const String salonMasterSchedule = '/staff/schedule';
+
+  /// Phase 321 — «Послуги» read-only view for a SALON_MASTER. Renders the
+  /// SAME [ServicesListScreen] widget [services] does, `writable: false`
+  /// (phase 320's D1 flag) — every write affordance is already hidden by that
+  /// flag, so this route reuses the screen verbatim rather than forking a
+  /// read-only variant. Registered under its own `/staff/*` subtree rather
+  /// than widening [services]'s guard, mirroring [salonMasterSchedule]'s
+  /// reasoning immediately above: `/services/setup` and `/services/:id/edit`
+  /// — full write surfaces — stay fenced to INDEPENDENT_MASTER exactly as
+  /// before; see `auth_redirect.dart`'s `/services` gate comment. The route
+  /// resolves the viewer's own salon + `masters` row id from
+  /// `masterProfileProvider` and overrides `serviceTargetProvider` with a
+  /// `SalonMasterTarget` for the subtree — see `app_router.dart`'s
+  /// `_SalonMasterOwnServicesRoute`.
+  static const String salonMasterServices = '/staff/services';
+
+  /// Phase 330 — «Записи» read-only view for a SALON_MASTER. Renders the SAME
+  /// [MasterBookingsScreen] widget [masterBookings] does; every write
+  /// affordance on it is already hidden by phase 328's capability resolvers
+  /// (`bookingCreationEnabledProvider` hides the header's (+) add button,
+  /// `bookingTransitionsEnabledProvider` empties the detail footer), so this
+  /// route reuses the screen verbatim rather than forking a read-only
+  /// variant. Registered under its own `/staff/*` subtree rather than
+  /// widening [masterBookings]'s guard, mirroring [salonMasterSchedule] and
+  /// [salonMasterServices] above: `/master/bookings/new` — the walk-in
+  /// creation chain — stays fenced to INDEPENDENT_MASTER exactly as before
+  /// (and carries its own `independentMasterOnlyGuard` on top, so a hidden
+  /// button is never the only thing standing between a read-only master and
+  /// a write). A TOP-LEVEL tab root, as every [VelvetBottomNavBar] target
+  /// must be.
+  static const String salonMasterBookings = '/staff/bookings';
+
+  /// Phase 330 — the SALON_MASTER's read-only «Деталі запису». The SAME
+  /// [BookingDetailScreen] [masterBookingDetail] renders; the viewer role is
+  /// still derived from the session (`booking_viewer_role.dart`, locked
+  /// decision D5), never from this route.
+  ///
+  /// Registered as a STANDALONE top-level `GoRoute`, NOT nested under
+  /// [salonMasterBookings] — that path is a leaf of the `ShellRoute` holding
+  /// the role's three (now four) bottom-nav tab roots, and nesting a pushed
+  /// drill-in inside it would put the detail page on the SHELL's navigator
+  /// (breaking `ModalRoute.impliesAppBarDismissal`, exactly the failure
+  /// `_SalonManageServicesListRoute` documents) instead of the root one.
+  /// `/staff/settings` and `/staff/edit/*` sit outside the shell for the same
+  /// reason.
+  ///
+  /// ⚠ ORDERING — declared AFTER [salonMasterBookingsArchive] in
+  /// `app_router.dart`. `:bookingId` matches the literal `archive` happily;
+  /// only declaration order keeps it from swallowing it. See
+  /// `test/routing/salon_master_bookings_route_shadowing_test.dart`.
+  static String salonMasterBookingDetail(String bookingId) =>
+      '$salonMasterBookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Phase 332 — the SALON_MASTER's «Архів». The SAME [MasterArchiveScreen]
+  /// [masterBookingsArchive] renders, with «Виконано» gated off
+  /// `bookingTransitionsEnabledProvider` at the row's call site (the card is
+  /// unchanged — `MasterBookingCard.onComplete` has always been nullable).
+  ///
+  /// Not optional for this track: a COMPLETED booking is where
+  /// `Booking.providerCanReviewClient` becomes true, and the archive is where
+  /// a salon master's COMPLETED bookings live — so without this route the
+  /// «Залишити відгук про клієнта» capability backend phase 316 just shipped
+  /// is unreachable in practice.
+  ///
+  /// ⚠ ORDERING — declared BEFORE [salonMasterBookingDetail] in
+  /// `app_router.dart`, for the same literal-before-dynamic reason
+  /// [masterBookingsArchive] documents one level up.
+  static const String salonMasterBookingsArchive =
+      '$salonMasterBookings/archive';
+
+  /// Phase 330 — «ВІДГУК ПРО КЛІЄНТА» for a SALON_MASTER. The SAME
+  /// [LeaveClientFeedbackScreen] [clientReview] renders, reached from the
+  /// same two entry points ([BookingDetailScreen]'s COMPLETED footer and the
+  /// archive row's «Відгук» slot), both of which stay gated on the
+  /// server-computed `Booking.providerCanReviewClient`.
+  ///
+  /// This route exists because backend phase 316 (✅ COMPLETE 2026-09-15)
+  /// grants a `SALON_MASTER` exactly ONE write on their own booking: leaving
+  /// feedback about its client. Without a `/staff/*` counterpart the CTA
+  /// would render and then bounce off the `/master/*` gate — the dead-end tap
+  /// this whole track exists to remove.
+  ///
+  /// STANDALONE top-level `GoRoute`, mirroring [clientReview]'s own
+  /// registration and for the identical reason (nesting under a plain content
+  /// screen mounts a shadow detail page underneath and breaks pop-back from
+  /// the archive entry path).
+  static String salonMasterClientReview(String bookingId) =>
+      '${salonMasterBookingDetail(bookingId)}/review';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';

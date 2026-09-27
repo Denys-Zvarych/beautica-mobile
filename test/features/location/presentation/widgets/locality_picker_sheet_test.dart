@@ -7,7 +7,7 @@
 //   * AC#4 — keepAlive memoization (no refetch when the picker is reopened in
 //     the same session) was unverified.
 //
-// Strategy: open the REAL sheet by tapping a [LocalityCascade] row (so the
+// Strategy: open the REAL sheet by tapping a harness row (so the
 // production `provider` + `onRetry: ref.invalidate(provider)` wiring is
 // exercised end-to-end), backed by a hand-written fake repository that:
 //   * counts calls per fetch method (proves keepAlive memoization), and
@@ -20,10 +20,13 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/locality_picker_sheet.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -95,6 +98,16 @@ class _CountingLocationRepository implements LocationRepository {
       ),
     ];
   }
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 // ---------------------------------------------------------------------------
@@ -118,26 +131,42 @@ class _HangingLocationRepository implements LocationRepository {
 
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async => const [];
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 // ---------------------------------------------------------------------------
-// Test harness — the same shape as locality_cascade_test, but the parent owns
-// selection state so that re-tapping a row reopens the picker.
+// Test harness — three tap targets that open the REAL sheet with the
+// production providers and `onRetry: ref.invalidate(provider)` wiring. The
+// parent owns selection state so re-tapping a row reopens the picker.
+//
+// Phase 346 deleted the `LocalityCascade` widget this harness used to drive
+// (the settlement autocomplete replaced it on every screen). The sheet itself
+// survives — `SettlementLocalityField` opens it for «Район» — and the oblast /
+// city providers survive for `resolvedLocalityProvider` / the home hub, so the
+// harness now calls `showLocalityPickerSheet` directly with the same keys.
 // ---------------------------------------------------------------------------
 
-class _CascadeHarness extends StatefulWidget {
+class _CascadeHarness extends ConsumerStatefulWidget {
   const _CascadeHarness({this.initialCity});
 
   final City? initialCity;
 
   @override
-  State<_CascadeHarness> createState() => _CascadeHarnessState();
+  ConsumerState<_CascadeHarness> createState() => _CascadeHarnessState();
 }
 
-class _CascadeHarnessState extends State<_CascadeHarness> {
+class _CascadeHarnessState extends ConsumerState<_CascadeHarness> {
   Oblast? _oblast;
   City? _city;
-  CityDistrict? _district;
 
   @override
   void initState() {
@@ -149,15 +178,73 @@ class _CascadeHarnessState extends State<_CascadeHarness> {
     }
   }
 
+  Future<void> _pickOblast() async {
+    final picked = await showLocalityPickerSheet<Oblast>(
+      context: context,
+      provider: oblastListProvider,
+      labelOf: (o) => o.name,
+      idOf: (o) => o.id,
+      titleLabel: 'oblast',
+      onRetry: () => ref.invalidate(oblastListProvider),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _oblast = picked;
+        _city = null;
+      });
+    }
+  }
+
+  Future<void> _pickCity(Oblast oblast) async {
+    final provider = cityListProvider(oblast.id);
+    final picked = await showLocalityPickerSheet<City>(
+      context: context,
+      provider: provider,
+      labelOf: (c) => c.name,
+      idOf: (c) => c.id,
+      titleLabel: 'city',
+      onRetry: () => ref.invalidate(provider),
+    );
+    if (picked != null && mounted) setState(() => _city = picked);
+  }
+
+  Future<void> _pickDistrict(City city) async {
+    final provider = districtListProvider(city.id);
+    await showLocalityPickerSheet<CityDistrict>(
+      context: context,
+      provider: provider,
+      labelOf: (d) => d.name,
+      idOf: (d) => d.id,
+      titleLabel: 'district',
+      onRetry: () => ref.invalidate(provider),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return LocalityCascade(
-      selectedOblast: _oblast,
-      selectedCity: _city,
-      selectedDistrict: _district,
-      onOblast: (o) => setState(() => _oblast = o),
-      onCity: (c) => setState(() => _city = c),
-      onDistrict: (d) => setState(() => _district = d),
+    final oblast = _oblast;
+    final city = _city;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextButton(
+          key: const Key('locality_row_oblast'),
+          onPressed: _pickOblast,
+          child: Text(oblast?.name ?? '-'),
+        ),
+        TextButton(
+          key: const Key('locality_row_city'),
+          onPressed: oblast == null ? null : () => _pickCity(oblast),
+          child: Text(city?.name ?? '-'),
+        ),
+        TextButton(
+          key: const Key('locality_row_district'),
+          onPressed: (city == null || !city.hasDistricts)
+              ? null
+              : () => _pickDistrict(city),
+          child: const Text('-'),
+        ),
+      ],
     );
   }
 }

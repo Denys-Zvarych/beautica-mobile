@@ -323,4 +323,86 @@ void main() {
       );
     });
   });
+
+  // ── 6. build() — the authProvider watch is NARROWED to the user id ───────
+  //
+  // mobile-perf MEDIUM (2026-08-31). `build()` used to `ref.watch(authProvider)`
+  // un-narrowed. `AuthNotifier.setAccessToken` is called by
+  // `refresh_interceptor.dart` on EVERY silent token refresh and emits a NEW
+  // `Authenticated` carrying the same user with a new accessToken — so the
+  // un-narrowed watch refetched `GET /masters/me` on every silent refresh, and
+  // dragged every downstream of this keepAlive provider (notably
+  // `ownerOwnProfileProvider`, which then also refired an uncached
+  // `GET /masters/{id}/services`) along with it.
+  //
+  // These two tests are the pair: the token-only re-emission must be INERT,
+  // and a genuine identity change must STILL rebuild — a `.select` that
+  // returned a constant would pass the first alone.
+  group('build() — narrowed authProvider watch', () {
+    test('a silent token refresh (same user id, new accessToken) does NOT '
+        'refetch GET /masters/me', () async {
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
+
+      final container = _makeContainer(
+        authFactory: _StubAuthAuthenticated.new,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      // Keep the keepAlive provider subscribed so a rebuild would actually be
+      // scheduled (an unlistened provider proves nothing).
+      final sub = container.listen(masterProfileProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(masterProfileProvider.future);
+      verify(() => repo.getMyProfile(_testUserId)).called(1);
+
+      // Exactly what `refresh_interceptor.dart` does after a 401 → refresh.
+      container.read(authProvider.notifier).setAccessToken('tok-rotated-2');
+      await pumpEventQueue();
+
+      verifyNever(() => repo.getMyProfile(any()));
+      expect(
+        container.read(authProvider).value,
+        isA<Authenticated>().having(
+          (Authenticated a) => a.accessToken,
+          'accessToken',
+          'tok-rotated-2',
+        ),
+        reason:
+            'sanity: the session really did re-emit with a new token, so the '
+            'no-refetch assertion above is about the .select narrowing and '
+            'not about setAccessToken having silently no-opped.',
+      );
+    });
+
+    test('a real identity change (different user id) DOES refetch', () async {
+      when(() => repo.getMyProfile(any())).thenAnswer((_) async => _stubMaster);
+
+      final container = _makeContainer(
+        authFactory: _StubAuthAuthenticated.new,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      final sub = container.listen(masterProfileProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(masterProfileProvider.future);
+      verify(() => repo.getMyProfile(_testUserId)).called(1);
+
+      // A different account on the same device — the ONE change that must
+      // still invalidate this cache.
+      const User other = User(
+        id: 'user-99',
+        email: 'other@beautica.ua',
+        role: UserRole.independentMaster,
+      );
+      container.read(authProvider.notifier).state = const AsyncData(
+        AuthSession.authenticated(user: other, accessToken: 'tok'),
+      );
+      await pumpEventQueue();
+      await container.read(masterProfileProvider.future);
+
+      verify(() => repo.getMyProfile('user-99')).called(1);
+    });
+  });
 }

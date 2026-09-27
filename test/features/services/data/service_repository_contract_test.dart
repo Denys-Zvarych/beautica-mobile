@@ -33,6 +33,7 @@ import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
@@ -154,6 +155,79 @@ const Map<String, dynamic> _okVoid = <String, dynamic>{
     masterId: _masterId,
   );
   return (dio: dio, adapter: adapter, repo: repo);
+}
+
+const _salonId = 'salon-abc';
+const _salonMasterId = 'master-xyz';
+const _salonMutatePath =
+    '/api/v1/salons/$_salonId/masters/$_salonMasterId/services/$_serviceDefId';
+
+/// Same harness as [_wire], but the repository carries a [SalonMasterTarget]
+/// — phase 316's unassign branch. [lastRequestData] exposes the body of the
+/// LAST request that matched [_salonMutatePath] (captured via a lightweight
+/// interceptor, independent of the mock adapter's lenient default body
+/// matching) so a test can assert "no request body was sent" precisely.
+({
+  Dio dio,
+  DioAdapter adapter,
+  HttpServiceRepository repo,
+  Object? Function() lastRequestData,
+})
+_wireSalon() {
+  final dio = Dio(
+    BaseOptions(
+      baseUrl: _baseUrl,
+      headers: const <String, dynamic>{
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+    ),
+  );
+  Object? capturedData;
+  var captured = false;
+  dio.interceptors.add(
+    InterceptorsWrapper(
+      onRequest: (options, handler) {
+        if (options.path == _salonMutatePath) {
+          captured = true;
+          capturedData = options.data;
+        }
+        handler.next(options);
+      },
+    ),
+  );
+  dio.interceptors.add(ErrorMapperInterceptor());
+  final adapter = DioAdapter(dio: dio);
+  final api = ServiceControllerApi(dio, standardSerializers);
+  final categoryApi = CategoryRequestControllerApi(dio, standardSerializers);
+  final catalogApi = ServiceCatalogControllerApi(dio, standardSerializers);
+  final repo = HttpServiceRepository(
+    serviceApi: api,
+    categoryApi: categoryApi,
+    catalogApi: catalogApi,
+    dio: dio,
+    masterId: '',
+    target: const SalonMasterTarget(
+      salonId: _salonId,
+      masterId: _salonMasterId,
+    ),
+    sessionUserId: 'user-row-uuid',
+  );
+  return (
+    dio: dio,
+    adapter: adapter,
+    repo: repo,
+    lastRequestData: () {
+      expect(
+        captured,
+        isTrue,
+        reason:
+            'no request ever matched $_salonMutatePath — the test '
+            'fixture is wrong, not the assertion',
+      );
+      return capturedData;
+    },
+  );
 }
 
 const _validCreate = MasterServiceCreate(
@@ -724,6 +798,797 @@ void main() {
       await expectLater(
         h.repo.deactivate(_serviceDefId),
         throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // =========================================================================
+  // deactivate — salon-target (unassign) full transport contract (phase 316)
+  // =========================================================================
+  //
+  // Same REAL interceptor + REAL Dio + REAL HttpServiceRepository harness as
+  // [_wire] above, but the repository carries a [SalonMasterTarget]
+  // (`_wireSalon`). Pins the two properties `service_repository_test.dart`'s
+  // mocked-Dio unit tests cannot: (1) the REAL [ErrorMapperInterceptor]
+  // agrees with `_mapUnassignException`'s status-code checks rather than
+  // racing them, and (2) the salon branch sends NO request body — the
+  // generated client's DELETE calls never do either, but this branch is
+  // hand-built raw `_dio.delete`, so nothing enforces that at compile time.
+
+  group('deactivate — salon-target full transport contract (phase 316)', () {
+    test('POSITIVE: 204 void → completes; the path carries the DEFINITION id '
+        '($_serviceDefId), never the assignment id ($_assignmentId — the two '
+        'differ in this fixture on purpose)', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(_salonMutatePath, (s) => s.reply(204, null));
+
+      await expectLater(h.repo.deactivate(_serviceDefId), completes);
+    });
+
+    test('POSITIVE: the unassign DELETE sends NO request body', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(_salonMutatePath, (s) => s.reply(204, null));
+
+      await h.repo.deactivate(_serviceDefId);
+
+      expect(
+        h.lastRequestData(),
+        isNull,
+        reason:
+            'phase 316 D1 — the unassign DELETE carries no body, mirroring '
+            'the null-target branch and the generated client\'s DELETE',
+      );
+    });
+
+    test('NEGATIVE: 409 (future CONFIRMED bookings) → '
+        'ServiceUnassignBlockedFailure — nothing written', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(
+        _salonMutatePath,
+        (s) => s.reply(409, {
+          'message':
+              'Master has 2 future confirmed booking(s) for this service',
+        }),
+      );
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(isA<ServiceUnassignBlockedFailure>()),
+      );
+    });
+
+    test('NEGATIVE: 404 (no active assignment for this pair) → '
+        'NotFoundFailure', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(
+        _salonMutatePath,
+        (s) => s.reply(404, {'message': 'not found'}),
+      );
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('NEGATIVE: 403 → falls through with NO special handling (D2 — the '
+        'route guard makes this unreachable in practice); never mistaken for '
+        'ServiceUnassignBlockedFailure or NotFoundFailure', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(
+        _salonMutatePath,
+        (s) => s.reply(403, {'message': 'forbidden'}),
+      );
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(
+          allOf(
+            isNot(isA<ServiceUnassignBlockedFailure>()),
+            isNot(isA<NotFoundFailure>()),
+          ),
+        ),
+      );
+    });
+
+    test('NEGATIVE: 429 → ServiceRateLimitedFailure', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(
+        _salonMutatePath,
+        (s) => s.reply(
+          429,
+          {'message': 'rate limited'},
+          headers: {
+            Headers.contentTypeHeader: [Headers.jsonContentType],
+            'retry-after': ['30'],
+          },
+        ),
+      );
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(
+          isA<ServiceRateLimitedFailure>().having(
+            (f) => f.retryAfterSeconds,
+            'retryAfterSeconds',
+            30,
+          ),
+        ),
+      );
+    });
+
+    test('NEGATIVE: connection error → NetworkFailure', () async {
+      final h = _wireSalon();
+      h.adapter.onDelete(
+        _salonMutatePath,
+        (s) => s.throws(
+          0,
+          DioException.connectionError(
+            requestOptions: RequestOptions(path: _salonMutatePath),
+            reason: 'socket closed',
+          ),
+        ),
+      );
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(isA<NetworkFailure>()),
+      );
+    });
+  });
+
+  // =========================================================================
+  // update — salon-target full transport contract (phase 317)
+  // =========================================================================
+  //
+  // THE DEFECT. With a [SalonMasterTarget] in scope, `update` PATCHed the
+  // SHARED service definition with the price AND the duration, silently
+  // re-pricing and re-timing every OTHER master in the salon who performs
+  // that service. The write now SPLITS: price/duration to the per-master
+  // band, identity only to the shared definition.
+  //
+  // WHY THIS GROUP EXISTS ALONGSIDE THE MOCKED-DIO UNIT GROUP.
+  // `service_repository_test.dart`'s `update — salon-target dispatch` group
+  // asserts the request OBJECTS handed to a mocked generated API. This group
+  // asserts what those objects BECOME ON THE WIRE, which is a different claim
+  // and the one that actually protects the other masters:
+  //
+  //   • the band endpoint names the RANGE floor `price`; the definition
+  //     endpoint names it `priceMin`. `UpdateMasterServiceBandRequest` has no
+  //     `priceMin` field AT ALL, so a mapper that transcribed the definition's
+  //     shape would leave `price` null — the floor vanishing from the
+  //     serialized map with no compile error and no unit-level symptom unless
+  //     the assertion reaches the serialized body.
+  //   • the duration is `durationOverrideMinutes` here and
+  //     `baseDurationMinutes` on the definition — the SHARED one. Same trap.
+  //   • the identity PATCH must carry NO price/duration key of EITHER name.
+  //
+  // Real Dio + the REAL generated [ServiceControllerApi] + the REAL
+  // [HttpServiceRepository]; only the socket is faked. Every body asserted is
+  // `RequestOptions.data` exactly as the generated client serialized it — the
+  // map Dio encodes onto the socket, not a hand-built stand-in.
+
+  group('update — salon-target full transport contract (phase 317)', () {
+    /// [_wireSalon]'s counterpart for the SPLIT write. Records EVERY request
+    /// the repository emits — not only the ones matching a single path — so a
+    /// test can assert both halves of the split AND that a half which must not
+    /// fire never did.
+    ({
+      DioAdapter adapter,
+      HttpServiceRepository repo,
+      List<({String method, Uri uri, Object? data})> sent,
+    })
+    wire() {
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: _baseUrl,
+          headers: const <String, dynamic>{
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        ),
+      );
+      final sent = <({String method, Uri uri, Object? data})>[];
+      // FIRST interceptor, so it sees the request the generated client built
+      // before anything else can touch it.
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (RequestOptions options, RequestInterceptorHandler h) {
+            sent.add((
+              method: options.method,
+              uri: options.uri,
+              data: options.data,
+            ));
+            h.next(options);
+          },
+        ),
+      );
+      dio.interceptors.add(ErrorMapperInterceptor());
+      final adapter = DioAdapter(dio: dio);
+      final repo = HttpServiceRepository(
+        serviceApi: ServiceControllerApi(dio, standardSerializers),
+        categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+        catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+        dio: dio,
+        masterId: '',
+        target: const SalonMasterTarget(
+          salonId: _salonId,
+          masterId: _salonMasterId,
+        ),
+        sessionUserId: 'user-row-uuid',
+      );
+      return (adapter: adapter, repo: repo, sent: sent);
+    }
+
+    /// The ONE request whose URI path is [path]. Fails loudly when the count
+    /// is not exactly one, so "never fired" and "fired twice" are distinct,
+    /// readable failures rather than a null-dereference.
+    ({String method, Uri uri, Object? data}) only(
+      List<({String method, Uri uri, Object? data})> sent,
+      String path,
+    ) {
+      final List<({String method, Uri uri, Object? data})> matches = sent
+          .where(
+            (({String method, Uri uri, Object? data}) r) => r.uri.path == path,
+          )
+          .toList();
+      expect(
+        matches,
+        hasLength(1),
+        reason:
+            'expected exactly ONE request to $path; the repository sent '
+            '${sent.map((({String method, Uri uri, Object? data}) r) => '${r.method} ${r.uri.path}').toList()}',
+      );
+      return matches.single;
+    }
+
+    /// The serialized body of [r] as a plain string-keyed map.
+    Map<String, Object?> body(({String method, Uri uri, Object? data}) r) {
+      expect(
+        r.data,
+        isA<Map<Object?, Object?>>(),
+        reason:
+            'the generated client serializes its request DTO to a Map before '
+            'Dio encodes it; a non-Map here means the body was hand-built',
+      );
+      return (r.data! as Map<Object?, Object?>).map(
+        (Object? k, Object? v) => MapEntry<String, Object?>(k.toString(), v),
+      );
+    }
+
+    /// Stubs BOTH halves of the split write to succeed.
+    void stubBothOk(DioAdapter adapter) {
+      adapter.onPatch(
+        _mutatePath,
+        (s) => s.reply(200, _serviceDefEnvelope(name: 'Манікюр PRO')),
+        data: Matchers.any,
+      );
+      adapter.onPatch(
+        _salonMutatePath,
+        (s) => s.reply(
+          200,
+          _masterServiceEnvelope(
+            priceType: 'RANGE',
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+        ),
+        data: Matchers.any,
+      );
+    }
+
+    test('RANGE — the band PATCH targets '
+        '/api/v1/salons/{s}/masters/{m}/services/{defId}, carries the FLOOR as '
+        '`price` + the ceiling as `priceMax`, and NEITHER `priceMin` NOR '
+        '`baseDurationMinutes` reaches the wire', () async {
+      final h = wire();
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 120,
+          priceType: ServicePriceType.range,
+          priceMin: 800,
+          priceMax: 1500,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final band = only(h.sent, _salonMutatePath);
+      expect(band.method, 'PATCH');
+      expect(
+        band.uri.path,
+        '/api/v1/salons/$_salonId/masters/$_salonMasterId/services/$_serviceDefId',
+        reason: 'the literal per-master band URI, post-normalization',
+      );
+
+      final Map<String, Object?> b = body(band);
+      expect(b['priceType'], 'RANGE');
+      expect(
+        b['price'],
+        800,
+        reason:
+            'the band endpoint names the RANGE FLOOR `price` — the opposite '
+            'of the definition endpoint, whose floor key is `priceMin`',
+      );
+      expect(b['priceMax'], 1500);
+      expect(
+        b.containsKey('priceMin'),
+        isFalse,
+        reason:
+            'there is NO `priceMin` key on UpdateMasterServiceBandRequest; a '
+            'floor sent under that name is dropped and the master silently '
+            'keeps their old price',
+      );
+      expect(
+        b['durationOverrideMinutes'],
+        120,
+        reason: 'the duration is the PER-MASTER override',
+      );
+      expect(
+        b.containsKey('baseDurationMinutes'),
+        isFalse,
+        reason:
+            '`baseDurationMinutes` is the SHARED definition duration — on this '
+            'endpoint it is not a key at all',
+      );
+    });
+
+    test('RANGE — the identity PATCH to /api/v1/services/{defId} carries '
+        'name/category and NO price or duration key of EITHER name', () async {
+      final h = wire();
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 120,
+          priceType: ServicePriceType.range,
+          priceMin: 800,
+          priceMax: 1500,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final identity = only(h.sent, _mutatePath);
+      expect(identity.method, 'PATCH');
+
+      final Map<String, Object?> b = body(identity);
+      expect(b['name'], 'Манікюр PRO');
+      expect(b['category'], 'MANICURE');
+      // THE assertion the defect fails. Every wire name either endpoint uses
+      // for money or time is checked, so a regression cannot slip through by
+      // picking the other spelling.
+      for (final String leaked in <String>[
+        'price',
+        'priceMin',
+        'priceMax',
+        'priceType',
+        'baseDurationMinutes',
+        'durationMinutes',
+        'durationOverrideMinutes',
+      ]) {
+        expect(
+          b.containsKey(leaked),
+          isFalse,
+          reason:
+              '`$leaked` on the SHARED definition re-prices/re-times every '
+              'other master in the salon — the exact phase-317 defect',
+        );
+      }
+    });
+
+    test('FIXED — the band PATCH carries the amount as `price` with NO '
+        '`priceMax`, and the definition PATCH still carries no money', () async {
+      final h = wire();
+      h.adapter.onPatch(
+        _mutatePath,
+        (s) => s.reply(200, _serviceDefEnvelope()),
+        data: Matchers.any,
+      );
+      h.adapter.onPatch(
+        _salonMutatePath,
+        (s) => s.reply(200, _masterServiceEnvelope(priceMin: 990)),
+        data: Matchers.any,
+      );
+
+      final MasterService updated = await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр PRO',
+          category: 'MANICURE',
+          durationMinutes: 75,
+          priceType: ServicePriceType.fixed,
+          price: 990,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      final Map<String, Object?> band = body(only(h.sent, _salonMutatePath));
+      expect(band['priceType'], 'FIXED');
+      expect(band['price'], 990);
+      expect(
+        band.containsKey('priceMax'),
+        isFalse,
+        reason: 'a FIXED band has no ceiling; `priceMax` must stay absent',
+      );
+      expect(band['durationOverrideMinutes'], 75);
+
+      final Map<String, Object?> identity = body(only(h.sent, _mutatePath));
+      expect(identity.containsKey('price'), isFalse);
+      expect(identity.containsKey('baseDurationMinutes'), isFalse);
+
+      // The returned object is deserialized from the BAND response by the real
+      // generated client — proving the response half of the contract too.
+      expect(updated.priceMin, 990.0);
+    });
+
+    test('a price/duration-only patch sends the band PATCH and NOTHING to '
+        '/api/v1/services/{defId}', () async {
+      final h = wire();
+      // BOTH halves stubbed, though only one may fire: an unstubbed route
+      // would make a regression fail as an unmatched-route UnknownFailure
+      // instead of on the assertion that names what went wrong.
+      stubBothOk(h.adapter);
+
+      await h.repo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 45,
+          priceType: ServicePriceType.fixed,
+          price: 990,
+        ),
+        assignmentId: _assignmentId,
+      );
+
+      expect(
+        h.sent.where(
+          (({String method, Uri uri, Object? data}) r) =>
+              r.uri.path == _mutatePath,
+        ),
+        isEmpty,
+        reason:
+            'with no identity field to change the shared definition must not '
+            'be touched at all',
+      );
+      expect(body(only(h.sent, _salonMutatePath))['price'], 990);
+    });
+  });
+
+  // =========================================================================
+  // raw-path segment safety — POST-NORMALIZATION, on a REAL Dio
+  // (mobile-security S1/S2/S3, phase-316 audit-fix cycle 1)
+  // =========================================================================
+  //
+  // WHY THIS GROUP LIVES HERE AND NOT IN THE MOCKED-DIO UNIT TESTS
+  // -------------------------------------------------------------
+  // The unit tests capture the path STRING handed to a mocked `Dio.delete` /
+  // `.get` / `.post`. Dio does not send that string. It sends
+  // `RequestOptions.uri`, which is `Uri.parse(baseUrl + path).normalizePath()`
+  // (`dio-5.9.2/lib/src/options.dart:642`) — and `normalizePath` REMOVES
+  // dot-segments (RFC 3986 §5.2.4). So a corpus asserted against the
+  // pre-normalization string is structurally incapable of catching the one
+  // input that matters:
+  //
+  //   masterId = '..', serviceDefId = '..'
+  //     string  : /api/v1/salons/salon-abc/masters/../services/..
+  //     ON THE WIRE: /api/v1/salons/salon-abc/    ← the salon itself
+  //
+  // `Uri.encodeComponent` does NOT escape `.`, so encoding alone never closed
+  // this. `HttpServiceRepository._pathSegment` therefore REJECTS dot-segments
+  // instead of sanitising them, and these rows assert the wire URI a real Dio
+  // computes — never the argument string.
+  group('raw salon paths — post-normalization URI shape (real Dio)', () {
+    // Values that MUST survive as exactly one path segment. `a/../../b` is the
+    // deliberate near-miss: it CONTAINS dot-segments, but its separators
+    // encode to %2F so `normalizePath` (which splits on literal `/` only)
+    // cannot see them. It must pass, proving the guard rejects dot-SEGMENTS
+    // rather than any string containing dots.
+    const encodable = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+      'a/../../b',
+    ];
+
+    // The S1 corpus gap: both survive `Uri.encodeComponent` VERBATIM and are
+    // then eaten by `normalizePath`. These are the rows the old corpus was
+    // missing — `'../evil'` above encodes to `..%2Fevil`, which reads as
+    // coverage but is a different case entirely.
+    const dotSegments = <String>['..', '.'];
+
+    // `''` is also unusable as a segment (it collapses two separators into
+    // one) but is caught one layer EARLIER, by `_assertAuthenticated`, for
+    // salonId/masterId. Kept separate so each row pins the guard that
+    // actually fires rather than a lowest-common-denominator matcher.
+    const rejected = <String>[...dotSegments, ''];
+
+    /// A REAL [Dio] whose first interceptor records `options.uri` — the
+    /// post-normalization URI Dio would actually put on the socket — and then
+    /// short-circuits with a canned success, so no adapter or socket is
+    /// needed. Returns the repository plus the recorded URIs.
+    ({HttpServiceRepository repo, List<Uri> uris}) probe({
+      String salonId = _salonId,
+      String masterId = _salonMasterId,
+    }) {
+      final dio = Dio(BaseOptions(baseUrl: _baseUrl));
+      final uris = <Uri>[];
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            uris.add(options.uri);
+            handler.resolve(
+              Response<Object?>(
+                requestOptions: options,
+                statusCode: 200,
+                data: <String, Object?>{'success': true, 'data': <Object?>[]},
+              ),
+            );
+          },
+        ),
+      );
+      return (
+        repo: HttpServiceRepository(
+          serviceApi: ServiceControllerApi(dio, standardSerializers),
+          categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+          catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+          dio: dio,
+          masterId: '',
+          target: SalonMasterTarget(salonId: salonId, masterId: masterId),
+          sessionUserId: 'user-row-uuid',
+        ),
+        uris: uris,
+      );
+    }
+
+    // ── DELETE (unassign) — the S1 site ────────────────────────────────────
+
+    for (final injected in encodable) {
+      test('unassign DELETE: masterId "$injected" lands as ONE segment on the '
+          'wire, post-normalizePath', () async {
+        final h = probe(masterId: injected);
+
+        await h.repo.deactivate(_serviceDefId);
+
+        expect(
+          h.uris.single.pathSegments,
+          <String>[
+            'api',
+            'v1',
+            'salons',
+            _salonId,
+            'masters',
+            injected,
+            'services',
+            _serviceDefId,
+          ],
+          reason:
+              'pathSegments DECODES, so the injected value is compared '
+              'raw — what matters is that it is ONE element, not that it '
+              'looks encoded',
+        );
+      });
+    }
+
+    for (final injected in dotSegments) {
+      test(
+        'unassign DELETE: masterId "$injected" is REJECTED as UnknownFailure '
+        'and NO request is issued',
+        () async {
+          final h = probe(masterId: injected);
+
+          await expectLater(
+            h.repo.deactivate(_serviceDefId),
+            throwsA(isA<UnknownFailure>()),
+          );
+          expect(
+            h.uris,
+            isEmpty,
+            reason:
+                'rejection must happen BEFORE the request — a request that '
+                'flies and is then thrown away has already hit the backend',
+          );
+        },
+      );
+
+      test('unassign DELETE: serviceDefId "$injected" is REJECTED as '
+          'UnknownFailure and NO request is issued — it is CALLER-SUPPLIED and '
+          'has NO _assertAuthenticated guard behind it, so _pathSegment is the '
+          'only thing standing between it and the wire', () async {
+        final h = probe();
+
+        await expectLater(
+          h.repo.deactivate(injected),
+          throwsA(isA<UnknownFailure>()),
+        );
+        expect(h.uris, isEmpty);
+      });
+    }
+
+    test('unassign DELETE: an empty masterId is rejected by the EARLIER '
+        '_assertAuthenticated guard (UnauthorizedFailure), still with no '
+        'request', () async {
+      final h = probe(masterId: '');
+
+      await expectLater(
+        h.repo.deactivate(_serviceDefId),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+      expect(h.uris, isEmpty);
+    });
+
+    test('unassign DELETE: an empty serviceDefId has no earlier guard, so '
+        '_pathSegment is the one that rejects it', () async {
+      final h = probe();
+
+      await expectLater(h.repo.deactivate(''), throwsA(isA<UnknownFailure>()));
+      expect(h.uris, isEmpty);
+    });
+
+    test('unassign DELETE: the S1 exploit — masterId AND serviceDefId both '
+        '".." — never degenerates to /api/v1/salons/{id}', () async {
+      final h = probe(masterId: '..');
+
+      await expectLater(
+        h.repo.deactivate('..'),
+        throwsA(isA<UnknownFailure>()),
+      );
+      expect(
+        h.uris,
+        isEmpty,
+        reason:
+            'unguarded, Dio would have sent DELETE /api/v1/salons/$_salonId/ '
+            '— one trailing slash from SalonController.java:208, which '
+            'deletes the entire salon',
+      );
+    });
+
+    // ── GET (list) and POST (bulk) — the S3 sibling sites ──────────────────
+    //
+    // Same helper, same corpus: the fix is ONE `_pathSegment` encoder shared
+    // by all three raw paths, so all three are pinned the same way. A fix
+    // applied only to the DELETE would leave these RED.
+
+    for (final injected in rejected) {
+      test(
+        'list GET: salonId ${injected.isEmpty ? '<empty>' : '"$injected"'} is '
+        'REJECTED and NO request is issued',
+        () async {
+          // A `''` salonId is caught one layer earlier by
+          // `_assertAuthenticated` (UnauthorizedFailure), which is also a
+          // rejection before any request — assert on the shared invariant
+          // (nothing flew) rather than pinning which guard won.
+          final h = probe(salonId: injected);
+
+          await expectLater(h.repo.listMyServices(), throwsA(isA<Failure>()));
+          expect(h.uris, isEmpty);
+        },
+      );
+
+      test(
+        'bulkCreate POST: masterId ${injected.isEmpty ? '<empty>' : '"$injected"'} '
+        'is REJECTED and NO request is issued',
+        () async {
+          final h = probe(masterId: injected);
+
+          await expectLater(
+            h.repo.bulkCreate(const <MasterServiceBulkItem>[
+              MasterServiceBulkItem(
+                serviceTypeId: 'type-fixed',
+                durationMinutes: 60,
+                priceType: ServicePriceType.fixed,
+                price: 500,
+              ),
+            ]),
+            throwsA(isA<Failure>()),
+          );
+          expect(h.uris, isEmpty);
+        },
+      );
+    }
+
+    test('list GET: a masterId that merely CONTAINS dot-segments '
+        '("a/../../b") still flies, as ONE segment', () async {
+      final h = probe(masterId: 'a/../../b');
+
+      await h.repo.listMyServices();
+
+      expect(h.uris.single.pathSegments, <String>[
+        'api',
+        'v1',
+        'salons',
+        _salonId,
+        'masters',
+        'a/../../b',
+        'services',
+      ]);
+    });
+
+    test('bulkCreate POST: a salonId that merely CONTAINS dot-segments '
+        '("a/../../b") still flies, as ONE segment', () async {
+      final h = probe(salonId: 'a/../../b');
+
+      await h.repo.bulkCreate(const <MasterServiceBulkItem>[
+        MasterServiceBulkItem(
+          serviceTypeId: 'type-fixed',
+          durationMinutes: 60,
+          priceType: ServicePriceType.fixed,
+          price: 500,
+        ),
+      ]);
+
+      expect(h.uris.single.pathSegments, <String>[
+        'api',
+        'v1',
+        'salons',
+        'a/../../b',
+        'masters',
+        _salonMasterId,
+        'services',
+        'bulk',
+      ]);
+    });
+
+    // ── The null-target branch is untouched ────────────────────────────────
+
+    // ── The null-target branch is BYTE-IDENTICAL (phase 316 D1) ────────────
+    //
+    // `_pathSegment` guards the THREE hand-built raw paths only. The
+    // null-target `deactivate` goes through the generated
+    // `ServiceControllerApi`, is untouched by this change, and stays so.
+    //
+    // ⚠️ ADJACENT, PRE-EXISTING, OUT OF SCOPE — reported, not fixed here.
+    // Measured while writing this group: the generated client does NOT
+    // percent-encode its path params either, so `deactivate('..')` on a null
+    // target puts `DELETE /api/v1/` on the wire (verified: pathSegments comes
+    // back as ['api','v1','']). That is harmless — no endpoint matches, and
+    // `..` cannot reach a delete-something-bigger route the way the salon
+    // path's `/salons/{id}/` prefix could — but it is the SAME root cause on
+    // every generated call in `lib/api/`, which is generated code this phase
+    // is forbidden to edit. Deliberately NOT pinned as expected behaviour: a
+    // test asserting `/api/v1/` is correct would cement the bug.
+    test('null target: a well-formed serviceDefId still produces the '
+        'unchanged DELETE /api/v1/services/{id}', () async {
+      final dio = Dio(BaseOptions(baseUrl: _baseUrl));
+      final uris = <Uri>[];
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            uris.add(options.uri);
+            handler.resolve(
+              Response<Object?>(
+                requestOptions: options,
+                statusCode: 200,
+                data: _okVoid,
+              ),
+            );
+          },
+        ),
+      );
+      final repo = HttpServiceRepository(
+        serviceApi: ServiceControllerApi(dio, standardSerializers),
+        categoryApi: CategoryRequestControllerApi(dio, standardSerializers),
+        catalogApi: ServiceCatalogControllerApi(dio, standardSerializers),
+        dio: dio,
+        masterId: _masterId,
+        sessionUserId: 'user-row-uuid',
+      );
+
+      await repo.deactivate(_serviceDefId);
+
+      expect(
+        uris.single.pathSegments,
+        <String>['api', 'v1', 'services', _serviceDefId],
+        reason:
+            'phase 316 D1 — the null-target branch is byte-identical and '
+            'never routes through _pathSegment',
       );
     });
   });

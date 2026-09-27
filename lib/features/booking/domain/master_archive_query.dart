@@ -41,6 +41,7 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
   const factory MasterArchiveQuery.raw({
     required List<BookingStatus> statuses,
     required List<String> serviceIds,
+    required String? salonId,
   }) = _MasterArchiveQuery;
 
   const MasterArchiveQuery._();
@@ -51,10 +52,63 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
   /// canonicalises them into sorted, unmodifiable `List`s: [statuses] by enum
   /// declaration order, [serviceIds] lexicographically — exactly
   /// [BookingsDayQuery.of]'s discipline.
+  ///
+  /// [salonId] is the phase-342 SCOPE selector: `null` (the default) means
+  /// "mine" — `GET /bookings/me`, byte-identically to every pre-342 caller —
+  /// and a non-null id means "this salon's whole history, across every
+  /// master" (`GET /bookings/salon/{salonId}`). It is a scalar, so it needs
+  /// no canonicalisation. It lives HERE, on the family key, rather than on
+  /// the notifier or the screen, precisely because `masterArchiveProvider` is
+  /// an **autoDispose family keyed by this class**: two scopes that compared
+  /// `==` would share ONE cache entry, so an owner who opened the salon
+  /// archive and then their own staff archive would be served the wrong
+  /// list, and freezed's `DeepCollectionEquality` would have no field left to
+  /// tell them apart. Putting it in the key is what makes the two scopes
+  /// independently cached and independently disposed.
+  ///
+  /// ## Rejects the one combination that cannot be honoured: a salon scope
+  /// carrying [serviceIds]
+  ///
+  /// `GET /bookings/salon/{salonId}` surfaces no service predicate
+  /// (`booking_repository.dart`'s `getSalonBookings` doc — deliberately not
+  /// surfaced, YAGNI), and the salon host switches the service facet off
+  /// (phase 343 D3: an owner has no master service catalogue of their own,
+  /// which is why the salon BOARD already passes `showServiceFilter: false`).
+  /// So a salon-scoped query carrying service ids describes a filter that
+  /// CANNOT reach the wire.
+  ///
+  /// This is enforced HERE, at construction, rather than in
+  /// `MasterArchiveNotifier._fetchPage` where it began life as an `assert`
+  /// (audit-fix MEDIUM-2, 2026-09-19). An `assert` is STRIPPED in profile and
+  /// release: shipped, the salon arm would silently drop the ids while
+  /// [hasFilters] below still reported `true`, so «Скинути» would be offered
+  /// for a filter that narrowed nothing. Fail-closed at the type boundary
+  /// instead — the invalid state becomes unrepresentable, and unlike an
+  /// `assert` it is testable in every build mode (`flutter test --release`
+  /// does not exist and the test VM always runs with asserts enabled, so the
+  /// assert form was structurally unpinnable).
+  ///
+  /// [MasterArchiveQuery.raw] is deliberately NOT guarded — it is the freezed
+  /// pass-through documented above as "build through [MasterArchiveQuery.of]
+  /// instead", and every caller in `lib/` does.
   factory MasterArchiveQuery.of({
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
+    String? salonId,
   }) {
+    if (salonId != null && serviceIds.isNotEmpty) {
+      throw ArgumentError.value(
+        serviceIds,
+        'serviceIds',
+        'A salon-scoped MasterArchiveQuery must carry no serviceIds — '
+            'GET /bookings/salon/{salonId} has no service predicate and the '
+            'salon host switches the service facet off (phase 343 D3). '
+            'Forwarding them is not expressible, and dropping them silently '
+            'would leave hasFilters reporting a filter that narrows nothing. '
+            'If a salon service filter is ever wanted, wire it explicitly.',
+      );
+    }
+
     final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
       ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
     final List<String> sortedServiceIds = serviceIds.toList(growable: false)
@@ -63,10 +117,16 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
     return MasterArchiveQuery.raw(
       statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
       serviceIds: List<String>.unmodifiable(sortedServiceIds),
+      salonId: salonId,
     );
   }
 
   /// Whether any filter narrows the list — mirrors
   /// `BookingsFilterSelection.activeCount > 0`/`BookingsDayQuery.hasFilters`.
+  ///
+  /// [salonId] is deliberately NOT counted: it selects WHICH history is being
+  /// read, not how that history is narrowed, so a salon archive with nothing
+  /// ticked must still read as unfiltered (the «Скинути» affordance and the
+  /// empty-state copy both key off this).
   bool get hasFilters => statuses.isNotEmpty || serviceIds.isNotEmpty;
 }

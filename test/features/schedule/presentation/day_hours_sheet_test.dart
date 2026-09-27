@@ -59,6 +59,7 @@ import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart'
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/day_hours_sheet.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -107,6 +108,15 @@ final ScheduleRange _range = ScheduleRange(
   to: DateTime(2026, 6, 30),
 );
 
+/// Phase 312 — passed explicitly to every `DayHoursSheet.show(...)` call so
+/// the sheet never has to resolve `ownScheduleScopeProvider` (which would
+/// otherwise watch the REAL `masterProfileProvider` — unmocked in this file
+/// — for the INDEPENDENT_MASTER session `_StubAuthNotifier` sets up). The
+/// exact masterId is irrelevant here: every test overrides
+/// `scheduleRepositoryProvider` at the FAMILY level (ignoring the scope
+/// argument), so this only needs to be a stable, consistent key.
+const ScheduleScope _scope = ScheduleScope.own(masterId: 'master-1');
+
 final DateTime _date = DateTime(2026, 6, 21);
 
 /// Fixed "today" injected into the sheet so its submit-time past-date guard is
@@ -153,7 +163,13 @@ Future<void> _pumpSheet(
     ProviderScope(
       retry: beauticaProviderRetry,
       overrides: <Object>[
-        scheduleRepositoryProvider.overrideWithValue(repo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+        // Phase 311 — this whole file exercises the EDITABLE
+        // (INDEPENDENT_MASTER) path; without this the new
+        // scheduleEditableProvider self-check would resolve `false` (no
+        // Authenticated session) and hide every control this suite asserts
+        // on. The role-gating cases live in day_hours_sheet_read_only_test.dart.
+        authProvider.overrideWith(_StubAuthNotifier.new),
       ].cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -166,6 +182,7 @@ Future<void> _pumpSheet(
                 key: const Key('open-sheet'),
                 onPressed: () => DayHoursSheet.show(
                   context,
+                  scope: _scope,
                   date: _date,
                   weekdayFull: 'Неділя',
                   dateLabel: '21 червня',
@@ -911,7 +928,8 @@ void main() {
         final container = ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1179,7 +1197,8 @@ void main() {
         final container = ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1234,7 +1253,8 @@ void main() {
         final container = ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -1357,7 +1377,7 @@ void main() {
       final container = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          scheduleRepositoryProvider.overrideWithValue(scheduleRepo),
+          scheduleRepositoryProvider.overrideWith((ref, scope) => scheduleRepo),
           bookingRepositoryProvider.overrideWithValue(bookingRepo),
           authProvider.overrideWith(_StubAuthNotifier.new),
           bookedDaysProvider.overrideWith((ref) async {
@@ -1513,19 +1533,20 @@ void main() {
         final container = ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
         // Hold a live subscription so the autoDispose family is NOT torn down
         // (the sheet stays open here, but this keeps the read-back state stable).
         final sub = container.listen(
-          overridesProvider(_range),
+          overridesProvider(_scope, _range),
           (_, _) {},
           fireImmediately: true,
         );
         addTearDown(sub.close);
-        await container.read(overridesProvider(_range).future);
+        await container.read(overridesProvider(_scope, _range).future);
 
         await _pumpSheetInContainer(tester, container: container);
 
@@ -1537,7 +1558,7 @@ void main() {
         // The put was attempted exactly once.
         verify(() => repo.putOverride(any())).called(1);
         // The error landed in provider state (the notifier's AsyncError).
-        final state = container.read(overridesProvider(_range));
+        final state = container.read(overridesProvider(_scope, _range));
         expect(state.hasError, isTrue);
         expect(state.error, isA<ServerFailure>());
 
@@ -1572,17 +1593,18 @@ void main() {
         final container = ProviderContainer(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
         );
         addTearDown(container.dispose);
         final sub = container.listen(
-          overridesProvider(_range),
+          overridesProvider(_scope, _range),
           (_, _) {},
           fireImmediately: true,
         );
         addTearDown(sub.close);
-        await container.read(overridesProvider(_range).future);
+        await container.read(overridesProvider(_scope, _range).future);
 
         // hasExistingOverride → the «Видалити» (clear) action is present.
         await _pumpSheetInContainer(
@@ -1600,7 +1622,7 @@ void main() {
         verify(() => repo.clearOverride(any())).called(1);
         verifyNever(() => repo.putOverride(any()));
         // The error landed in provider state.
-        final state = container.read(overridesProvider(_range));
+        final state = container.read(overridesProvider(_scope, _range));
         expect(state.hasError, isTrue);
         expect(state.error, isA<ServerFailure>());
 
@@ -1650,7 +1672,8 @@ void main() {
           ProviderScope(
             retry: beauticaProviderRetry,
             overrides: <Object>[
-              scheduleRepositoryProvider.overrideWithValue(repo),
+              scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
             ].cast(),
             child: MaterialApp(
               localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -1663,6 +1686,7 @@ void main() {
                       key: const Key('open-sheet'),
                       onPressed: () => DayHoursSheet.show(
                         context,
+                        scope: _scope,
                         date: _date,
                         weekdayFull: 'Неділя',
                         dateLabel: '21 червня',
@@ -1781,7 +1805,8 @@ void main() {
           ProviderScope(
             retry: beauticaProviderRetry,
             overrides: <Object>[
-              scheduleRepositoryProvider.overrideWithValue(repo),
+              scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
             ].cast(),
             child: MaterialApp(
               localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -1794,6 +1819,7 @@ void main() {
                       key: const Key('open-sheet'),
                       onPressed: () => DayHoursSheet.show(
                         context,
+                        scope: _scope,
                         date: targetDate,
                         weekdayFull: 'Субота',
                         dateLabel: '1 серпня',
@@ -2282,6 +2308,7 @@ Future<void> _pumpSheetInContainer(
                 key: const Key('open-sheet'),
                 onPressed: () => DayHoursSheet.show(
                   context,
+                  scope: _scope,
                   date: _date,
                   weekdayFull: 'Неділя',
                   dateLabel: '21 червня',
@@ -2342,7 +2369,13 @@ Future<void> _pumpSheetWithSink(
     ProviderScope(
       retry: beauticaProviderRetry,
       overrides: <Object>[
-        scheduleRepositoryProvider.overrideWithValue(repo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+        // Phase 311 — this whole file exercises the EDITABLE
+        // (INDEPENDENT_MASTER) path; without this the new
+        // scheduleEditableProvider self-check would resolve `false` (no
+        // Authenticated session) and hide every control this suite asserts
+        // on. The role-gating cases live in day_hours_sheet_read_only_test.dart.
+        authProvider.overrideWith(_StubAuthNotifier.new),
       ].cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -2356,6 +2389,7 @@ Future<void> _pumpSheetWithSink(
                 onPressed: () async {
                   final DateTime? r = await DayHoursSheet.show(
                     context,
+                    scope: _scope,
                     date: _date,
                     weekdayFull: 'Неділя',
                     dateLabel: '21 червня',

@@ -32,6 +32,12 @@ import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
 import 'package:beautica_mobile/features/calendar/presentation/working_hours_screen.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
@@ -45,12 +51,14 @@ import 'package:beautica_mobile/features/schedule/presentation/widgets/slot_colo
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
@@ -209,7 +217,10 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 /// RANGE-AWARE fake for the month-boundary spillover regression.
@@ -237,7 +248,10 @@ class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
   static final List<ScheduleRange> observedRanges = <ScheduleRange>[];
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
     observedRanges.add(range);
     final List<EffectiveDay> out = <EffectiveDay>[];
     DateTime cursor = _dateOnly(range.from);
@@ -250,7 +264,8 @@ class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -294,7 +309,8 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -310,7 +326,7 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
   }
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     _initialRange ??= range;
     if (range == _initialRange) {
       return Future<List<EffectiveDay>>.value(_resolveDays(range));
@@ -326,15 +342,17 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
 
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     return Completer<List<EffectiveDay>>().future; // never completes
   }
 }
 
 class _ErrorSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async =>
-      throw Exception('boom');
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => throw Exception('boom');
 }
 
 /// Month-change fake for the loading-flash regression: resolves [_days] for the
@@ -355,7 +373,7 @@ class _MonthAwareSchedule extends EffectiveScheduleNotifier {
   final List<EffectiveDay> _days;
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     if (range == _initialMonth) return Future<List<EffectiveDay>>.value(_days);
     // Any other month (e.g. after tapping `>`) stays loading forever.
     return Completer<List<EffectiveDay>>().future;
@@ -395,7 +413,8 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_effective[cursor] ?? _noSchedule(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -498,7 +517,8 @@ class _CountingRangeScheduleRepository implements ScheduleRepository {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -613,7 +633,8 @@ class _CompleterScheduleRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_dayFor(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -717,14 +738,42 @@ class _WeeklyData extends WeeklyScheduleNotifier {
   _WeeklyData(this._templates);
   final List<WeeklySchedule> _templates;
   @override
-  Future<List<WeeklySchedule>> build() async => _templates;
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async => _templates;
+}
+
+/// Phase 312 (D8) — the SALON_OWNER edit-affordances test's membership
+/// fixtures: `scheduleEditable`'s owner arm reads `mySalonsProvider` (fact 1
+/// — does the caller manage the viewed scope's salon) and
+/// `salonManagementProfileProvider` (fact 2 — is the viewed master actually
+/// on that salon's roster, scanned by `masterId`).
+class _SettledMySalonsOwning extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: 'salon-owner-test', name: 'Test Salon'),
+  ];
+}
+
+class _SettledSalonRosterWithMaster extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: 'salon-owner-test', name: 'Test Salon'),
+    const <SalonStaffMember>[
+      SalonStaffMember(
+        userId: 'user-for-msst-test-master',
+        masterId: 'msst-test-master',
+        role: SalonStaffRole.master,
+        firstName: 'Майстер',
+        lastName: 'Тестовий',
+      ),
+    ],
+  );
 }
 
 /// Never-completing weekly signal — used to assert the empty-state verdict is
 /// deferred until BOTH sources resolve (no premature empty state flash).
 class _LoadingWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() {
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) {
     return Completer<List<WeeklySchedule>>().future; // never completes
   }
 }
@@ -733,7 +782,8 @@ class _LoadingWeekly extends WeeklyScheduleNotifier {
 /// empty-state verdict (the second error branch in `_body`).
 class _ErrorWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() async => throw Exception('weekly boom');
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      throw Exception('weekly boom');
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -837,6 +887,23 @@ List<RouteBase> _routes() => <RouteBase>[
     builder: (context, state) =>
         const Scaffold(key: Key('master-profile-stub')),
   ),
+  // Phase 309 — the SALON_MASTER read-only landing, reusing this same
+  // MasterScheduleScreen (see route_names.dart's [RouteNames
+  // .salonMasterSchedule] doc). Registered here too so the back-fallback
+  // tests (Phase 309 D4) can pump this screen at its OWN `/staff/schedule`
+  // location, mirroring production's second GoRoute registration.
+  GoRoute(
+    path: RouteNames.salonMasterSchedule,
+    builder: (context, state) =>
+        MasterScheduleScreen(clock: () => asClockInstant(_today)),
+  ),
+  // Phase 309 D4 — the SALON_MASTER role-home stub, distinct from the
+  // INDEPENDENT_MASTER master-profile-stub above so a back-fallback test can
+  // tell the two apart.
+  GoRoute(
+    path: RouteNames.salonMasterProfile,
+    builder: (context, state) => const Scaffold(key: Key('staff-profile-stub')),
+  ),
   GoRoute(
     path: RouteNames.home,
     builder: (context, state) => const Scaffold(key: Key('home-stub')),
@@ -856,11 +923,28 @@ GoRouter _router() =>
 /// [authProvider]. Used by the CTA-navigation tests so a CTA aimed at the wrong
 /// screen (e.g. a non-`/master/*` dead stub, or a screen the role can't reach)
 /// is rejected by the real guard — the exact gap that let BUG #1 ship.
-GoRouter _redirectRouter(ProviderContainer container) => GoRouter(
-  initialLocation: RouteNames.masterSchedule,
+///
+/// [initialLocation] defaults to [RouteNames.masterSchedule] (every existing
+/// call site's behaviour, unchanged) — the Phase 309 D4 back-fallback tests
+/// pass [RouteNames.salonMasterSchedule] instead, so a SALON_MASTER session
+/// starts on ITS OWN schedule route with an empty navigator stack (`canPop ==
+/// false`), matching production.
+///
+/// [redirectLog], when given, records every `state.matchedLocation` the
+/// `redirect:` callback is asked to resolve (Phase 309 D4 proof: a SINGLE
+/// entry after a back-fallback tap means no intermediate hop through the
+/// wrong role-home literal before the guard corrects it).
+GoRouter _redirectRouter(
+  ProviderContainer container, {
+  String initialLocation = RouteNames.masterSchedule,
+  List<String>? redirectLog,
+}) => GoRouter(
+  initialLocation: initialLocation,
   refreshListenable: _ContainerListenable(container),
-  redirect: (context, state) =>
-      authRedirect(container.read(authProvider), state),
+  redirect: (context, state) {
+    redirectLog?.add(state.matchedLocation);
+    return authRedirect(container.read(authProvider), state);
+  },
   routes: _routes(),
 );
 
@@ -899,6 +983,8 @@ Object _fakeWorkingHours() => workingHoursRepositoryProvider.overrideWithValue(
 Future<ProviderContainer> _pumpGuarded(
   WidgetTester tester, {
   required List<Object> overrides,
+  String initialLocation = RouteNames.masterSchedule,
+  List<String>? redirectLog,
 }) async {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
@@ -908,7 +994,11 @@ Future<ProviderContainer> _pumpGuarded(
     UncontrolledProviderScope(
       container: container,
       child: MaterialApp.router(
-        routerConfig: _redirectRouter(container),
+        routerConfig: _redirectRouter(
+          container,
+          initialLocation: initialLocation,
+          redirectLog: redirectLog,
+        ),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
         locale: const Locale('uk'),
@@ -924,6 +1014,15 @@ Future<ProviderContainer> _pumpGuarded(
 /// calendar renders, not the focused empty state).
 List<Object> _editableData(List<EffectiveDay> days) => <Object>[
   authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
+  // Phase 312 — additive `scope` on MasterScheduleScreen defaults to null,
+  // resolving through `ownScheduleScopeProvider`, which (for
+  // INDEPENDENT_MASTER/SALON_MASTER) watches the REAL `masterProfileProvider`.
+  // Forced here so no test in this file ever touches real Dio; the exact
+  // masterId is irrelevant — every `effectiveScheduleProvider`/
+  // `weeklyScheduleProvider` fake below ignores its scope argument.
+  ownScheduleScopeProvider.overrideWithValue(
+    const ScheduleScope.own(masterId: 'msst-test-master'),
+  ),
   effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
   weeklyScheduleProvider.overrideWith(
     () => _WeeklyData(<WeeklySchedule>[_template()]),
@@ -939,6 +1038,9 @@ List<Object> _withWeekly(
   List<WeeklySchedule> templates,
 ) => <Object>[
   authProvider.overrideWith(() => _FixedAuth(role)),
+  ownScheduleScopeProvider.overrideWithValue(
+    const ScheduleScope.own(masterId: 'msst-test-master'),
+  ),
   effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
   weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
 ];
@@ -1041,7 +1143,8 @@ class _MutableDiscreteRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_dayFor(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -1166,6 +1269,78 @@ void main() {
         matchesGoldenFile('goldens/schedule_custom_hours.png'),
       );
     });
+  });
+
+  // ── Bottom-nav label tripwire for the full-screen goldens ─────────────────
+  //
+  // Every golden in this file captures `find.byType(MasterScheduleScreen)`,
+  // and that screen mounts `VelvetBottomNavBar` as its Scaffold's
+  // `bottomNavigationBar` (master_schedule_screen.dart) — so a one-word edit
+  // to ANY nav tab label repaints all seven baselines under
+  // `test/features/schedule/presentation/goldens/`.
+  //
+  // That is exactly how commit 77677a95 («Мої записи» → «Записи») went wrong:
+  // it regenerated the 15 baselines under `test/golden/goldens/` but swept by
+  // directory, so this feature-local goldens dir was left behind. Nothing tied
+  // the schedule screen to the bookings ARB key, so the only signal was an
+  // opaque 283 px pixel diff deep into CI.
+  //
+  // This NON-golden assertion is that missing tie, and it is deliberately
+  // split from the copy itself:
+  //
+  //   • HERE (structural): the schedule screen really does mount
+  //     `VelvetBottomNavBar`, and tile 1 really does render
+  //     `masterNavTabBookings` — not a sibling key, not nothing. It resolves
+  //     the expected string from the live [AppLocalizations] rather than
+  //     hardcoding «Записи», so it does NOT (and cannot) fail on a copy
+  //     change; what it catches is the tile being rewired to another key,
+  //     dropped, or the bar being unmounted from this screen.
+  //   • The COPY change is already gated by the literal ledger in
+  //     `test/l10n/staff_profile_services_count_copy_test.dart` ("masterNavTab*
+  //     tile labels are pinned"), which pins all four labels against
+  //     hardcoded literals in both locales. That ledger's `reason:` now names
+  //     BOTH golden directories, so the next «…» → «…» edit fails there with
+  //     a readable Expected:/Actual: that says exactly which baselines to
+  //     regenerate — instead of surfacing as an opaque pixel diff.
+  //
+  // Duplicating the literal here instead would re-encode the copy in a third
+  // place and rot the same way the PNGs did.
+  group('MasterScheduleScreen — bottom-nav label tripwire', () {
+    testWidgets(
+      'tile 1 renders l10n.masterNavTabBookings — the structural tie that '
+      'makes every nav label part of this screen\'s goldens',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        await _pump(tester, overrides: _editableData(days));
+
+        // The bar really is part of this screen's captured subtree — that is
+        // the whole reason its labels reach the goldens.
+        expect(
+          find.descendant(
+            of: find.byType(MasterScheduleScreen),
+            matching: find.byType(VelvetBottomNavBar),
+          ),
+          findsOneWidget,
+          reason:
+              'the schedule screen hosts the shared bottom nav bar, so every '
+              'nav label is baked into every schedule golden',
+        );
+
+        final l10n = _l10n(tester);
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('master-nav-tile-1')),
+            matching: find.text(l10n.masterNavTabBookings),
+          ),
+          findsOneWidget,
+          reason:
+              'tile 1 must render the live `masterNavTabBookings` value — if '
+              'this fails the tile was rewired to another key or the label '
+              'stopped rendering (a COPY change fails in test/l10n/'
+              'staff_profile_services_count_copy_test.dart instead)',
+        );
+      },
+    );
   });
 
   // ── Selected-day body branch contract (regression) ────────────────────────
@@ -1609,7 +1784,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
             _fakeWorkingHours(),
           ].cast(),
         );
@@ -1690,6 +1868,9 @@ void main() {
         final l10n = _l10n(tester);
         expect(find.text(l10n.scheduleNoScheduleDay), findsOneWidget);
         expect(find.text(l10n.scheduleNoSchedulePeriod), findsNothing);
+        // Editable viewer → the imperative helper, not the read-only variant.
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsOneWidget);
+        expect(find.text(l10n.scheduleNoScheduleHelperReadOnly), findsNothing);
 
         await expectLater(
           find.byType(MasterScheduleScreen),
@@ -1850,12 +2031,62 @@ void main() {
         // Read content still renders.
         expect(find.byType(MasterScheduleScreen), findsOneWidget);
 
+        // Phase 311/309 test-list requirement: a test that only proves
+        // absence would pass on a blank screen. Prove the read content
+        // actually rendered — the day rail and the slot legend — not just
+        // that the edit affordances below are gone.
+        expect(
+          find.byType(WeekStripDay),
+          findsWidgets,
+          reason: 'the week strip must render for a read-only viewer too',
+        );
+        expect(
+          find.byType(SlotLegend),
+          findsOneWidget,
+          reason: 'the slot legend must render for a read-only viewer too',
+        );
+
         // Every edit affordance is gone.
         expect(find.byKey(const Key('schedule-weekly-card')), findsNothing);
         expect(find.byKey(const Key('schedule-day-pencil')), findsNothing);
         expect(find.byKey(const Key('schedule-add-hours')), findsNothing);
         expect(find.byKey(const Key('schedule-time-off')), findsNothing);
         expect(find.byKey(const Key('schedule-copy')), findsNothing);
+
+        // No GestureDetector/InkWell hides under the (semantics-only) weekly
+        // card either — tapping where the card renders must not navigate.
+        final router = _router();
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: <Object>[
+              ..._withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+                _template(),
+              ]),
+              _fakeWorkingHours(),
+            ].cast(),
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final String beforeTap =
+            // router-location-ok: go-only navigation in this harness.
+            router.routerDelegate.currentConfiguration.uri.toString();
+        await tester.tap(find.text(_l10n(tester).scheduleWeeklyCardTitle));
+        await tester.pumpAndSettle();
+        expect(
+          // router-location-ok: go-only navigation in this harness, no push.
+          router.routerDelegate.currentConfiguration.uri.toString(),
+          beforeTap,
+          reason:
+              'tapping the read-only weekly-summary card must never '
+              'navigate to the weekly editor',
+        );
 
         await expectLater(
           find.byType(MasterScheduleScreen),
@@ -1882,6 +2113,15 @@ void main() {
         expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
         // ...but the CTA is suppressed for the read-only role.
         expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+
+        // Phase 312 role-aware helper: the owner/admin-addressed variant,
+        // never the imperative "you add hours" one this viewer cannot act on.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.scheduleNoScheduleHelperReadOnly),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsNothing);
       },
     );
 
@@ -1944,18 +2184,128 @@ void main() {
     testWidgets('SALON_OWNER (their salon master): edit affordances present', (
       tester,
     ) async {
+      // Phase 312 (D8) — a SALON_OWNER is editable ONLY when viewing a
+      // [ScheduleScope.salonMaster] for a salon they manage AND whose roster
+      // contains the viewed master — never an unconditional `true` for the
+      // role, and never for an [OwnScheduleScope] (D8's own doc: "an
+      // owner/admin has no 'own' master row this feature ever constructs a
+      // scope for"). So this test — unlike every other case in this file —
+      // does NOT use `_withWeekly`'s fixed `own(...)` scope override; it
+      // wires the full membership chain `scheduleEditable`'s owner arm
+      // actually reads: `mySalonsProvider` (fact 1) and
+      // `salonManagementProfileProvider` (fact 2, the roster scan by
+      // `masterId`).
+      const String salonId = 'salon-owner-test';
+      const String masterId = 'msst-test-master';
       final days = _weekWith(todayDay: _working, filler: _working);
       await _pump(
         tester,
-        overrides: _withWeekly(UserRole.salonOwner, days, <WeeklySchedule>[
-          _template(),
-        ]),
+        overrides: <Object>[
+          authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.salonMaster(
+              salonId: salonId,
+              masterId: masterId,
+            ),
+          ),
+          effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+          mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
+          salonManagementProfileProvider.overrideWith(
+            () => _SettledSalonRosterWithMaster(),
+          ),
+        ],
       );
 
       expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
       expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
     });
   });
+
+  // ── Back-fallback lands on role home (Phase 309 D4) ───────────────────────
+  //
+  // `VelvetTopBar.onBack` falls back to `context.go(roleHomePath(role))` when
+  // there is nothing to pop (empty navigator stack — this screen is the FIRST
+  // route, exactly as it is when reached via `context.go` from either
+  // `/schedule` or `/staff/schedule`). Before D4 the literal
+  // `RouteNames.masterProfile` was hardcoded, so a SALON_MASTER's fallback
+  // bounced through the wrong role home before the `/master/*` guard
+  // corrected it to `/staff/profile` — a double navigation. These tests pin
+  // BOTH the final location AND that no such intermediate hop occurs.
+  group(
+    'MasterScheduleScreen — back-fallback lands on role home (Phase 309 D4)',
+    () {
+      testWidgets('INDEPENDENT_MASTER: back-fallback from /schedule lands on '
+          '/master/profile in ONE navigation (byte-identical to before D4)', (
+        tester,
+      ) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        final redirectLog = <String>[];
+        final container = await _pumpGuarded(
+          tester,
+          overrides: _editableData(days),
+          redirectLog: redirectLog,
+        );
+        addTearDown(container.dispose);
+        redirectLog.clear();
+
+        expect(
+          find.byType(NeumorphicIconButton),
+          findsOneWidget,
+          reason: 'the back arrow must be present (onBack != null)',
+        );
+        await tester.tap(find.byType(NeumorphicIconButton));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('master-profile-stub')), findsOneWidget);
+        expect(find.byKey(const Key('staff-profile-stub')), findsNothing);
+        expect(
+          redirectLog,
+          <String>[RouteNames.masterProfile],
+          reason:
+              'exactly one matched location — the fallback goes straight '
+              'to /master/profile, never through a wrong literal first',
+        );
+      });
+
+      testWidgets(
+        'SALON_MASTER: back-fallback from /staff/schedule lands on '
+        '/staff/profile in ONE navigation — no intermediate /master/profile hop',
+        (tester) async {
+          final days = _weekWith(todayDay: _working, filler: _working);
+          final redirectLog = <String>[];
+          final container = await _pumpGuarded(
+            tester,
+            overrides: _withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+              _template(),
+            ]),
+            initialLocation: RouteNames.salonMasterSchedule,
+            redirectLog: redirectLog,
+          );
+          addTearDown(container.dispose);
+          redirectLog.clear();
+
+          await tester.tap(find.byType(NeumorphicIconButton));
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('staff-profile-stub')), findsOneWidget);
+          expect(find.byKey(const Key('master-profile-stub')), findsNothing);
+          expect(
+            redirectLog,
+            <String>[RouteNames.salonMasterProfile],
+            reason:
+                'if D4 regressed to the RouteNames.masterProfile literal, the '
+                'tap would `go` to /master/profile (rejected by the /master/* '
+                'guard) and THEN /staff/profile (the correction) — two '
+                'matched locations for one tap. Exactly one proves the '
+                'single-hop landing.',
+          );
+        },
+      );
+    },
+  );
 
   // ── Focused "no schedule at all" empty state ──────────────────────────────
   //
@@ -1984,6 +2334,10 @@ void main() {
         expect(find.byKey(const Key('no-schedule-add-hours')), findsOneWidget);
         final l10n = _l10n(tester);
         expect(find.text(l10n.scheduleNoSchedulePeriod), findsOneWidget);
+        // Editable viewer → the imperative "you add hours" helper, NOT the
+        // owner/admin-addressed read-only variant (Phase 312 role-aware copy).
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsOneWidget);
+        expect(find.text(l10n.scheduleNoScheduleHelperReadOnly), findsNothing);
 
         // The full layout is ABSENT — no week strip, no day cells, no legend,
         // no template card, no month-navigator "Today" action, no quick actions.
@@ -2021,6 +2375,17 @@ void main() {
         expect(find.byKey(const Key('no-schedule-banner')), findsOneWidget);
         // ...but the CTA is suppressed for the read-only role (OQ-2).
         expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+
+        // Phase 312 role-aware helper copy: a read-only SALON_MASTER cannot
+        // act on the imperative "you add hours" text (only the salon
+        // owner/admin can set their hours), so they get the owner/admin-
+        // addressed variant instead — and NEVER the imperative one.
+        final l10n = _l10n(tester);
+        expect(
+          find.text(l10n.scheduleNoScheduleHelperReadOnly),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.scheduleNoScheduleHelper), findsNothing);
 
         // Full layout still absent.
         expect(find.byType(WeekStripDay), findsNothing);
@@ -2155,6 +2520,9 @@ void main() {
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
               ),
+              ownScheduleScopeProvider.overrideWithValue(
+                const ScheduleScope.own(masterId: 'msst-test-master'),
+              ),
               effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
               weeklyScheduleProvider.overrideWith(() => _LoadingWeekly()),
             ].cast(),
@@ -2190,6 +2558,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(() => _ErrorWeekly()),
           ],
@@ -2213,6 +2584,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(() => _LoadingSchedule()),
             weeklyScheduleProvider.overrideWith(
@@ -2267,6 +2641,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(
               () => _MonthAwareSchedule(month1, days),
@@ -2364,6 +2741,9 @@ void main() {
         overrides: <Object>[
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
           effectiveScheduleProvider.overrideWith(() => _ErrorSchedule()),
           weeklyScheduleProvider.overrideWith(
@@ -2879,6 +3259,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(
               () => _MonthAwareSchedule(month1, days),
             ),
@@ -2978,7 +3361,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -3105,7 +3491,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -3222,6 +3611,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
@@ -3353,6 +3745,9 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
+            ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
             effectiveScheduleProvider.overrideWith(
               () => _PerWeekdayRangeSchedule(),
@@ -3488,6 +3883,9 @@ void main() {
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
           ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
+          ),
           effectiveScheduleProvider.overrideWith(
             () => _PerWeekdayRangeSchedule(),
           ),
@@ -3607,6 +4005,9 @@ void main() {
         overrides: <Object>[
           authProvider.overrideWith(
             () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
           effectiveScheduleProvider.overrideWith(
             () => _PendingNewRangeSchedule(),
@@ -3734,7 +4135,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4064,7 +4468,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4126,7 +4533,10 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -4192,6 +4602,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
               () => _WeeklyData(<WeeklySchedule>[_template()]),
@@ -4223,6 +4636,9 @@ void main() {
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),
+            ownScheduleScopeProvider.overrideWithValue(
+              const ScheduleScope.own(masterId: 'msst-test-master'),
+            ),
             effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
             weeklyScheduleProvider.overrideWith(
               () => _WeeklyData(<WeeklySchedule>[_template()]),
@@ -4235,6 +4651,66 @@ void main() {
         expect(_selectedStripDayNumber(tester), _today.day);
       },
     );
+  });
+
+  // 2026-09-24 — `_stepWeek` moved `_weekStart` by `+Duration(days: 7 * n)`
+  // then truncated. Across a Europe/Kyiv DST transition that lands an hour off
+  // midnight and the truncation re-anchored the strip onto a SUNDAY: forward
+  // from Mon 19 Oct 2026 → Sun 25 Oct 23:00 → week «25..31»; back from Mon 30
+  // Mar 2026 → Sun 22 Mar 23:00 → week «22..28». Every later week stayed
+  // mis-aligned. Only discriminating under `TZ=Europe/Kyiv`; holds under UTC.
+  group('MasterScheduleScreen — week stepping across DST', () {
+    Future<void> pumpOn(WidgetTester tester, DateTime day) async {
+      await tester.pumpApp(
+        MasterScheduleScreen(
+          initialDate: day,
+          clock: () => asClockInstant(day),
+        ),
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
+          ),
+          effectiveScheduleProvider.overrideWith(
+            () => _DataSchedule(const <EffectiveDay>[]),
+          ),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+          _fakeWorkingHours(),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    List<int> stripDays(WidgetTester tester) => tester
+        .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+        .map((WeekStripDay c) => c.day)
+        .toList();
+
+    testWidgets('next week from the fall-back week (Mon 19 Oct 2026) is '
+        'Mon 26 Oct .. Sun 1 Nov, not Sun 25 .. Sat 31', (tester) async {
+      await pumpOn(tester, DateTime(2026, 10, 20));
+      expect(stripDays(tester), <int>[19, 20, 21, 22, 23, 24, 25]);
+
+      await tester.tap(find.byKey(const Key('schedule-week-next')));
+      await tester.pumpAndSettle();
+
+      expect(stripDays(tester), <int>[26, 27, 28, 29, 30, 31, 1]);
+    });
+
+    testWidgets('previous week from Mon 30 Mar 2026 (after the spring forward) '
+        'is Mon 23 .. Sun 29 Mar, not Sun 22 .. Sat 28', (tester) async {
+      await pumpOn(tester, DateTime(2026, 3, 31));
+      expect(stripDays(tester), <int>[30, 31, 1, 2, 3, 4, 5]);
+
+      await tester.tap(find.byKey(const Key('schedule-week-prev')));
+      await tester.pumpAndSettle();
+
+      expect(stripDays(tester), <int>[23, 24, 25, 26, 27, 28, 29]);
+    });
   });
 }
 
@@ -4287,7 +4763,10 @@ Future<ProviderContainer> _pumpOverrideFlow(
     retry: beauticaProviderRetry,
     overrides: <Object>[
       authProvider.overrideWith(() => _FixedAuth(UserRole.independentMaster)),
-      scheduleRepositoryProvider.overrideWithValue(repo),
+      ownScheduleScopeProvider.overrideWithValue(
+        const ScheduleScope.own(masterId: 'msst-test-master'),
+      ),
+      scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
     ].cast(),
   );
   addTearDown(container.dispose);
@@ -4330,7 +4809,8 @@ Future<void> _drainKeepAliveTimers(WidgetTester tester) async {
 }
 
 _StatefulFakeScheduleRepository _repoOf(ProviderContainer c) =>
-    c.read(scheduleRepositoryProvider) as _StatefulFakeScheduleRepository;
+    c.read(scheduleRepositoryProvider(c.read(ownScheduleScopeProvider)))
+        as _StatefulFakeScheduleRepository;
 
 /// Opens the day-override sheet (via the pencil) for the currently-selected day,
 /// adds a 13:00–14:00 pause by inserting a break, and saves. The shared

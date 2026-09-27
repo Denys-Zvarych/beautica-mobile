@@ -27,6 +27,13 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 /// When [label] is provided (e.g. "Instagram"), it renders as a muted caption
 /// above [value], turning the text column into a two-line block so the
 /// platform is always clear without relying on a branded icon.
+///
+/// When [valueIsPlaceholder] is `true` (default `false`, so every existing
+/// call site is unaffected), [value] renders in [VelvetText.link] — the same
+/// mocha link weight the screen's other bare "add this" affordances use —
+/// instead of [VelvetText.bodyStrong]. Use it for an "add a value" row (e.g.
+/// «Додати посилання» standing in for an unset Instagram handle) so the
+/// placeholder reads as an invitation to act rather than as real tile data.
 class ContactTile extends StatefulWidget {
   const ContactTile({
     super.key,
@@ -35,6 +42,7 @@ class ContactTile extends StatefulWidget {
     required this.onTap,
     required this.semanticLabel,
     this.label,
+    this.valueIsPlaceholder = false,
   });
 
   final IconData icon;
@@ -45,12 +53,19 @@ class ContactTile extends StatefulWidget {
   /// Optional platform label shown above [value] in muted caption style.
   final String? label;
 
+  /// When `true`, [value] renders as a link-styled placeholder rather than a
+  /// real value. See class doc.
+  final bool valueIsPlaceholder;
+
   @override
   State<ContactTile> createState() => _ContactTileState();
 }
 
 class _ContactTileState extends State<ContactTile> {
   bool _pressed = false;
+
+  TextStyle get _valueStyle =>
+      widget.valueIsPlaceholder ? VelvetText.link() : VelvetText.bodyStrong();
 
   @override
   Widget build(BuildContext context) {
@@ -105,10 +120,10 @@ class _ContactTileState extends State<ContactTile> {
                               style: VelvetText.contactPlatformLabel,
                             ),
                             const SizedBox(height: 2),
-                            Text(widget.value, style: VelvetText.bodyStrong()),
+                            Text(widget.value, style: _valueStyle),
                           ],
                         )
-                      : Text(widget.value, style: VelvetText.bodyStrong()),
+                      : Text(widget.value, style: _valueStyle),
                 ),
                 const Icon(
                   Icons.chevron_right_rounded,

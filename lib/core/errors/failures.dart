@@ -17,6 +17,27 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:flutter/material.dart';
 
+/// The longest cooldown, in seconds, this app is willing to render as a live
+/// numeric countdown (10 minutes).
+///
+/// ONE threshold, two enforcement points — keep them reading the same constant:
+///
+///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network)
+///     returns `null` instead of a server value above this, so a rogue or
+///     merely long `Retry-After` never reaches a widget as a number.
+///   * `OtpResendRow` (auth presentation) renders its non-numeric
+///     "unavailable" label — and starts NO periodic timer — for a cooldown
+///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
+///
+/// Lives here (not in `core/network`) because it is a UX presentation
+/// ceiling, not an HTTP concern — and both the network and presentation
+/// layers already depend on `core/errors`, so this is the neutral home that
+/// avoids a presentation → network layering inversion.
+///
+/// Was a function-local const until 2026-09-15; promoted so the second
+/// enforcement point could not drift into a duplicate magic number.
+const int kMaxUxCooldownSeconds = 600;
+
 /// Base class for all domain-level failures.
 ///
 /// Every public repository method either returns a value or throws a `Failure`
@@ -40,10 +61,96 @@ sealed class Failure implements Exception {
 /// Emitted when a request fails due to absent or broken network connectivity
 /// (e.g. `DioExceptionType.connectionError`, `DioExceptionType.receiveTimeout`).
 final class NetworkFailure extends Failure {
-  const NetworkFailure({super.cause});
+  const NetworkFailure({super.cause, this.mayHaveReachedServer = false});
+
+  /// `true` only for [DioExceptionType.receiveTimeout] — the request body was
+  /// fully SENT and the server may have processed it before the client gave
+  /// up waiting for a response. `false` (the default) for every other
+  /// transport failure (`connectionTimeout`, `connectionError`,
+  /// `sendTimeout`): the request never completed, so a retry is genuinely
+  /// safe and an offline user must keep seeing plain [errNetwork] copy, never
+  /// "your account may already exist" (invite-accept post-success design,
+  /// 2026-09-01). Set by [ErrorMapperInterceptor]; existing call sites are
+  /// unaffected by the default.
+  final bool mayHaveReachedServer;
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errNetwork;
+}
+
+/// The server answered 2xx but the client could not turn the response body
+/// into a usable domain object (a malformed/unexpected envelope, or a null
+/// field the mapper assumed was present).
+///
+/// The request DID take effect server-side — the 2xx already happened.
+/// Never tell the user to retry a single-use operation (e.g. invite accept)
+/// on this failure; [userMessage] intentionally reuses the generic
+/// [errUnknown] copy because this failure is always paired with a more
+/// specific recovery path by its caller (see `InviteHandoffFailure`) rather
+/// than shown standalone.
+final class ResponseUnusableFailure extends Failure {
+  const ResponseUnusableFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errUnknown;
+}
+
+/// Why [InviteHandoffFailure] is routing the user to /login instead of
+/// showing a retry affordance.
+///
+/// Each variant maps 1:1 to an ARB key via [InviteHandoffFailure.userMessage]
+/// — see `lib/l10n/app_uk.arb` / `app_en.arb` (`inviteHandoff*` keys).
+enum InviteHandoffReason {
+  /// The 201 response body could not be parsed ([ResponseUnusableFailure]).
+  /// The account was created server-side; only the client-side mapping
+  /// failed.
+  accountReady,
+
+  /// The connection dropped after the request was fully sent
+  /// ([NetworkFailure.mayHaveReachedServer]). The account may or may not
+  /// have been created — the client genuinely cannot tell.
+  accountMayBeReady,
+
+  /// The backend rejected the invite token itself (already used, expired, or
+  /// not found) — a 400 `BusinessException` with no populated field-error
+  /// map.
+  inviteNoLongerValid,
+
+  /// The invited email already has an account (409).
+  emailAlreadyRegistered,
+}
+
+/// Terminal, non-retryable outcome of an invite-accept (or equivalent
+/// single-use) flow: the calling notifier maps a handful of specific
+/// [Failure]s into this type so the screen can hand off to `/login` with the
+/// right copy instead of offering a "try again" affordance that can never
+/// succeed on a spent token.
+///
+/// See the invite-accept post-success failure design (2026-09-01) — the HTTP
+/// 2xx is the point of no return; this failure exists only for the outcomes
+/// where the client cannot confirm success but also must not suggest a
+/// retry.
+final class InviteHandoffFailure extends Failure {
+  const InviteHandoffFailure({required this.reason, super.cause});
+
+  /// Why the hand-off is happening — selects the ARB copy in [userMessage].
+  final InviteHandoffReason reason;
+
+  @override
+  String userMessage(BuildContext ctx) => switch (reason) {
+    InviteHandoffReason.accountReady => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffAccountReady,
+    InviteHandoffReason.accountMayBeReady => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffAccountMayBeReady,
+    InviteHandoffReason.inviteNoLongerValid => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffNoLongerValid,
+    InviteHandoffReason.emailAlreadyRegistered => AppLocalizations.of(
+      ctx,
+    ).inviteHandoffEmailAlreadyRegistered,
+  };
 }
 
 /// Emitted when the TLS handshake was rejected by the app's PINNED trust
@@ -184,6 +291,24 @@ final class UnknownFailure extends Failure {
 
   @override
   String userMessage(BuildContext ctx) => AppLocalizations.of(ctx).errUnknown;
+}
+
+/// The signed-in session is authenticated but MISSING a field the screen needs
+/// to route or render — it was never fully hydrated from `GET /users/me`.
+///
+/// NOT a transport error: there is no request to re-issue and no server fault
+/// to report. The one recovery is re-fetching the profile
+/// ([AuthNotifier.refreshUser]), so every screen raising this MUST pair it with
+/// an `onRetry` that does exactly that — a bare [UnknownFailure] here is a
+/// dead end, which is precisely the bug this type replaced
+/// (`salon_home_resolver_screen.dart`, a `SALON_ADMIN` whose `salonId` never
+/// made it into the session).
+final class SessionIncompleteFailure extends Failure {
+  const SessionIncompleteFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errSessionIncomplete;
 }
 
 /// Typed error codes returned by `POST /auth/verify-email` (backend Phase 1.5).
@@ -406,6 +531,42 @@ final class ResetTokenInvalidFailure extends Failure {
       AppLocalizations.of(ctx).resetErrTokenInvalid;
 }
 
+/// Emitted when any step of the password-reset journey returns **429** because
+/// the backend's per-IP `AuthRateLimitFilter` bucket is exhausted.
+///
+/// Covers all three endpoints of the same journey. Each has its OWN bucket in
+/// `RateLimitConfig`, and the budgets are NOT uniform:
+///
+/// | Endpoint                          | Capacity      | `Retry-After` |
+/// |-----------------------------------|---------------|---------------|
+/// | `/auth/forgot-password`           | 3 per 60 min  | 3600          |
+/// | `/auth/reset-password`            | 10 per 60 min | 3600          |
+/// | `/auth/verify-password-reset-otp` | 10 per 15 min | 900           |
+///
+/// The filter runs BEFORE the controller, so the anti-enumeration generic-200
+/// contract of forgot-password does not apply: the body is the filter's own
+/// `{"error":"Too many requests"}` — no `message`, no `errors`, no
+/// `data.code`.
+///
+/// Deliberately carries NO `retryAfterSeconds`. Every window above — 3600 s,
+/// and 900 s for the OTP step — is beyond `ErrorMapperInterceptor`'s 600 s UX
+/// ceiling, so the extracted value would be `null` on every single occurrence
+/// and a countdown could never render. A field that is structurally always
+/// `null` is worse than no field — it invites a countdown branch that is dead
+/// code.
+///
+/// The copy must NOT invite an IMMEDIATE retry: at these budgets the very next
+/// tap is guaranteed to fail. Nor may it name a window — the three differ by
+/// 4×, and telling an OTP-throttled user to wait an hour strands a legitimate
+/// reset.
+final class PasswordResetRateLimitedFailure extends Failure {
+  const PasswordResetRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).authResetErrRateLimited;
+}
+
 /// Emitted when `POST /api/v1/service-categories/requests` returns **409**
 /// because the requested category already exists or is already pending review.
 ///
@@ -533,6 +694,92 @@ final class ServiceRateLimitedFailure extends Failure {
   }
 }
 
+/// Emitted when one of the SALON BOARD's four read routes returns HTTP **429**
+/// because the shared per-user 60/min budget (backend PR #130) is exhausted:
+///
+///   GET /bookings/salon/{salonId}
+///   GET /bookings/salon/{salonId}?partition=HISTORY   («Архів», salon scope)
+///   GET /bookings/salon/{salonId}/booked-days
+///   GET /salons/{salonId}/masters/effective-schedule
+///
+/// ## Why this type had to exist
+///
+/// Before it, a board 429 fell all the way through `ErrorMapperInterceptor`'s
+/// status chain to the terminal [UnknownFailure]. That was not merely an
+/// imprecise label: the interceptor runs LAST in the production chain and
+/// re-rejects with a `DioException` whose `error` IS the mapped failure, and
+/// every repository mapper opens with `if (e.error is Failure) return e.error
+/// as Failure;` — so each repository's own `badResponse → ServerFailure(429)`
+/// arm is structurally unreachable on the wired chain. The `Retry-After` the
+/// backend sends reached [Failure.cause] and nowhere else, so no screen could
+/// render a cooldown and every retry affordance re-fired straight back into a
+/// live limiter. Pinned end-to-end by
+/// `test/core/network/salon_board_429_contract_test.dart`, which drives the
+/// REAL `dioProvider` rather than a fabricated `DioException`.
+///
+/// [retryAfterSeconds] is parsed by the interceptor's own
+/// `_extractRetryAfterSecondsNullable` — the same header-then-body resolver and
+/// the same [kMaxUxCooldownSeconds] ceiling every other throttle in this file
+/// uses. `null` means absent / unparsable / above the ceiling, and
+/// [userMessage] then drops the countdown.
+///
+/// **Never auto-retried.** [isTransientFailure] answers `true` (a limiter does
+/// clear on its own), and [beauticaProviderRetry] still refuses it because
+/// [isThrottleFailure] is consulted FIRST — the invariant
+/// `salon_board_429_contract_test.dart`'s group 1 pins alongside "never logs
+/// out" and "never refreshes the token".
+final class SalonBoardRateLimitedFailure extends Failure {
+  const SalonBoardRateLimitedFailure({this.retryAfterSeconds, super.cause});
+
+  /// Seconds until the board's next read is allowed, from `Retry-After`.
+  /// `null` when absent / unparsable / over the UX ceiling — the UI then shows
+  /// the wait-a-moment variant instead of a countdown.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    final seconds = retryAfterSeconds;
+    if (seconds == null || seconds <= 0) {
+      return l10n.boardErrRateLimitedNoWait;
+    }
+    return l10n.boardErrRateLimited(seconds);
+  }
+}
+
+/// Emitted when the Phase 346 settlement autocomplete
+/// (`GET /api/v1/settlements`) returns HTTP **429** — the per-IP 240/min
+/// `AuthRateLimitFilter` bucket on that unauthenticated endpoint is exhausted.
+///
+/// Before this type a 429 there fell through to the terminal [UnknownFailure]:
+/// the sheet showed a generic error with an immediate Retry, and every 400 ms
+/// keystroke fired another request straight into the closed limiter (security
+/// audit #4).
+///
+/// [retryAfterSeconds] comes from the interceptor's shared header-then-body
+/// resolver with the [kMaxUxCooldownSeconds] ceiling; `null` means absent /
+/// unparsable / over the ceiling, and the sheet then waits
+/// `kSettlementThrottleFallback` instead. The sheet uses it to hold every
+/// request (and hide Retry) until it elapses. After that, text typed meanwhile
+/// is applied once and an unchanged query waits for the user's Retry — hence
+/// the countdown-free «спробуйте ще раз за мить» copy.
+///
+/// **Never auto-retried** — a member of the [isThrottleFailure] family, which
+/// [beauticaProviderRetry] consults before transience.
+final class SettlementSearchRateLimitedFailure extends Failure {
+  const SettlementSearchRateLimitedFailure({
+    this.retryAfterSeconds,
+    super.cause,
+  });
+
+  /// Seconds until the next settlement search is allowed, or `null`.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).settlementSearchErrRateLimited;
+}
+
 /// Emitted when a booking write returns HTTP **409 Conflict** because the
 /// requested slot is no longer available.
 ///
@@ -632,6 +879,43 @@ final class ServiceDuplicateFailure extends Failure {
   @override
   String userMessage(BuildContext ctx) =>
       AppLocalizations.of(ctx).serviceErrDuplicate;
+}
+
+/// Emitted when a salon-target service UNASSIGN
+/// (`DELETE /salons/{s}/masters/{m}/services/{serviceDefId}`, backend phase
+/// 307) returns HTTP **409**: the master still has future **CONFIRMED**
+/// bookings for this service, so the backend refuses the unassign before any
+/// write happens.
+///
+/// **This `409` is the SHIPPING contract, not a placeholder** — backend phase
+/// 307 D4, verbatim: the user deferred phase 308 (cascade-cancel) on
+/// 2026-09-08. There is no scheduled follow-up that replaces this refusal; the
+/// caller cancels the blocking bookings first, or waits for them to elapse.
+///
+/// Carries **no fields** (mobile phase 316 D3, deliberate): the 409 body is a
+/// plain English `String` built by Java concatenation —
+/// `"Master has " + futureConfirmedCount + " future confirmed booking(s)..."`
+/// (`ServiceCatalogService.java:295-297`) — with no error code and no
+/// structured count. Parsing a number out of that string would couple
+/// Ukrainian UI copy to the exact wording of a Java string literal (a backend
+/// copy edit breaks the app silently) and would surface an English fragment on
+/// any parse miss. If the backend later returns a structured count, adding a
+/// field here is additive and the copy can be upgraded then.
+///
+/// Decoded by `HttpServiceRepository._mapUnassignException` — checked BEFORE
+/// deferring to any [Failure] the [ErrorMapperInterceptor] may already have
+/// attached (a non-auth 409 there maps to a generic [ServerFailure], which
+/// carries no distinguishing copy).
+///
+/// The dedicated blocked-delete dialog that renders this failure's copy is
+/// mobile phase 319 — no ARB key is added by this failure; [userMessage]
+/// reuses the existing generic validation copy as a placeholder.
+final class ServiceUnassignBlockedFailure extends Failure {
+  const ServiceUnassignBlockedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).errValidation;
 }
 
 /// Emitted when a booking WRITE (create/reschedule) returns HTTP **409** with
@@ -1007,4 +1291,53 @@ final class OverrideSpanPartialFailure extends Failure {
   String userMessage(BuildContext ctx) => AppLocalizations.of(
     ctx,
   ).scheduleOverrideSpanPartialFailure(failedDates.length);
+}
+
+/// Emitted when `DELETE /api/v1/users/me` returns HTTP **422** because the
+/// authenticated CLIENT has more than 50 upcoming bookings — the backend
+/// requires cancelling some first before the account can be deleted.
+///
+/// [serverMessage] carries the backend's own Ukrainian copy (already
+/// extracted onto the interceptor's [ValidationFailure.serverMessage] and
+/// truncated to 200 chars) — unlike most [ValidationFailure] call sites,
+/// this ONE is shown verbatim by design: the backend authors real,
+/// user-facing Ukrainian text for this specific business rule, not a
+/// generic/technical validation message. Falls back to a localized generic
+/// message only if the body was malformed and carried no usable text, so a
+/// user never sees a dead end.
+///
+/// Decoded by `HttpUserRepository._mapDeleteAccountException` — the 422
+/// status check runs BEFORE deferring to the [ValidationFailure] the
+/// [ErrorMapperInterceptor] already attached, reading its [serverMessage]
+/// straight through rather than re-parsing the response body.
+final class AccountDeleteBookingLimitFailure extends Failure {
+  const AccountDeleteBookingLimitFailure({this.serverMessage, super.cause});
+
+  /// The backend's own Ukrainian message telling the client to cancel some
+  /// upcoming bookings first. `null`/blank only on a malformed body.
+  final String? serverMessage;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final message = serverMessage?.trim();
+    if (message != null && message.isNotEmpty) return message;
+    return AppLocalizations.of(ctx).accountDeleteErrTooManyBookings;
+  }
+}
+
+/// Emitted when `DELETE /api/v1/users/me` returns HTTP **429** — the
+/// per-account delete-account rate limit (3 attempts/hour) is exhausted.
+///
+/// Decoded by `HttpUserRepository._mapDeleteAccountException` — checked
+/// BEFORE deferring to any [Failure] the [ErrorMapperInterceptor] already
+/// attached (that interceptor has no delete-account-specific 429 case and
+/// would otherwise surface a generic [UnknownFailure]), mirroring the
+/// [CategoryRequestThrottledFailure] / [BookingRateLimitedFailure]
+/// precedents.
+final class AccountDeleteRateLimitedFailure extends Failure {
+  const AccountDeleteRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).accountDeleteErrRateLimited;
 }

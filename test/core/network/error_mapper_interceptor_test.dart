@@ -193,6 +193,116 @@ void main() {
       );
       expect(rejected.error, isA<NetworkFailure>());
     });
+
+    // -------------------------------------------------------------------
+    // Invite-accept post-success failure design (2026-09-01) —
+    // NetworkFailure.mayHaveReachedServer per-DioExceptionType split.
+    //
+    // Only receiveTimeout means the request body was fully SENT before the
+    // client gave up waiting — the server may have processed it.
+    // connectionTimeout / connectionError / sendTimeout mean the request
+    // never completed at all, so a retry is genuinely safe and an offline
+    // user must keep seeing plain errNetwork, never "your account may
+    // exist". A mutation collapsing this per-type split back to a single
+    // `true` (or a single `false`) must fail at least one of these four.
+    // -------------------------------------------------------------------
+    test('connectionTimeout → NetworkFailure.mayHaveReachedServer == false '
+        '(request never completed)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.connectionTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('connectionError → NetworkFailure.mayHaveReachedServer == false '
+        '(offline user must not be told the account may exist)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.connectionError),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('sendTimeout → NetworkFailure.mayHaveReachedServer == false '
+        '(request never completed)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.sendTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isFalse);
+    });
+
+    test('receiveTimeout → NetworkFailure.mayHaveReachedServer == true '
+        '(request body was fully sent — server may have processed it)', () {
+      final rejected = _captureRejected(
+        _typeError(DioExceptionType.receiveTimeout),
+      );
+      expect((rejected.error as NetworkFailure).mayHaveReachedServer, isTrue);
+    });
+  });
+
+  group('ErrorMapperInterceptor — 2xx-carrying DioException (invite-accept '
+      'post-success failure design, 2026-09-01)', () {
+    // A DioException carrying a 2xx response means Dio's response
+    // transformer (or a downstream mapper) threw AFTER the server already
+    // answered success — surfaced as DioExceptionType.unknown with the
+    // response attached. The request DID take effect; only the
+    // client-side parse failed. This must be checked BEFORE both the
+    // transport-type switch and the status-code chain — a mutation that
+    // drops or reorders this check would fall through to
+    // DioExceptionType.unknown's default branch instead.
+    test(
+      '200 response attached to a DioException → ResponseUnusableFailure',
+      () {
+        final opts = _opts();
+        final err = DioException(
+          requestOptions: opts,
+          type: DioExceptionType.unknown,
+          error: const FormatException('unexpected token'),
+          response: Response<dynamic>(
+            requestOptions: opts,
+            statusCode: 200,
+            data: {'success': true, 'data': null},
+          ),
+        );
+        final rejected = _captureRejected(err);
+        expect(rejected.error, isA<ResponseUnusableFailure>());
+      },
+    );
+
+    test('201 response attached to a DioException → ResponseUnusableFailure '
+        '(acceptInvite\'s success status)', () {
+      final opts = _opts();
+      final err = DioException(
+        requestOptions: opts,
+        type: DioExceptionType.unknown,
+        error: const FormatException('unexpected token'),
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 201,
+          data: {'success': true, 'data': null},
+        ),
+      );
+      final rejected = _captureRejected(err);
+      expect(rejected.error, isA<ResponseUnusableFailure>());
+    });
+
+    test('299 (upper 2xx boundary) response attached to a DioException → '
+        'ResponseUnusableFailure', () {
+      final opts = _opts();
+      final err = DioException(
+        requestOptions: opts,
+        type: DioExceptionType.unknown,
+        response: Response<dynamic>(requestOptions: opts, statusCode: 299),
+      );
+      final rejected = _captureRejected(err);
+      expect(rejected.error, isA<ResponseUnusableFailure>());
+    });
+
+    test('400 response attached to a DioException does NOT map to '
+        'ResponseUnusableFailure (boundary — the 2xx-only check must not '
+        'swallow ordinary 4xx handling)', () {
+      final rejected = _captureRejected(_httpError(400));
+      expect(rejected.error, isNot(isA<ResponseUnusableFailure>()));
+    });
   });
 
   group('ErrorMapperInterceptor — HTTP 422 (Spring @Validated)', () {
@@ -940,6 +1050,126 @@ void main() {
       final rejected = _captureRejected(input);
       final failure = rejected.error as Failure;
       expect(failure.cause, same(input));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Password-reset journey 429 — per-IP AuthRateLimitFilter (2026-09-15)
+  // ---------------------------------------------------------------------------
+  //
+  // The live bug: a real, active, verified user asked for a password reset and
+  // got «Щось пішло не так. Спробуйте ще раз.» — the errUnknown copy. The
+  // backend caps each of these three endpoints at 3 requests/hour per IP in a
+  // servlet FILTER that runs BEFORE the controller, so forgot-password's
+  // anti-enumeration generic-200 contract never gets a say: the filter answers
+  // 429 with `Retry-After: 3600` and its own bare `{"error":"Too many
+  // requests"}` — no `message`, no `errors`, no `data.code`. With no branch
+  // for it the response fell to the terminal UnknownFailure.
+  //
+  // The body below is that exact filter shape on purpose: a fixture carrying
+  // the richer `{data:{retryAfterSeconds}}` envelope would let a branch that
+  // merely reads the body look correct, which is the mistake that produced
+  // the gap in the first place.
+  group('ErrorMapperInterceptor — password-reset 429 (per-IP filter)', () {
+    DioException filterThrottle(String path) {
+      final opts = _opts(path: path);
+      return DioException(
+        requestOptions: opts,
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 429,
+          data: <String, dynamic>{'error': 'Too many requests'},
+          headers: Headers.fromMap({
+            'retry-after': ['3600'],
+          }),
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
+
+    // All three steps of the same journey (request → verify OTP → set
+    // password) have their own bucket and had the identical hole. Gating only
+    // the first would leave the user hitting the same wall two taps later.
+    for (final String path in <String>[
+      '/api/v1/auth/forgot-password',
+      '/api/v1/auth/verify-password-reset-otp',
+      '/api/v1/auth/reset-password',
+    ]) {
+      test('429 on $path → PasswordResetRateLimitedFailure, NOT '
+          'UnknownFailure', () {
+        final rejected = _captureRejected(filterThrottle(path));
+
+        expect(rejected.error, isA<PasswordResetRateLimitedFailure>());
+        expect(
+          rejected.error,
+          isNot(isA<UnknownFailure>()),
+          reason:
+              'falling through to UnknownFailure is the reported bug — it '
+              'renders errUnknown («Спробуйте ще раз»), which at 3 '
+              'requests/hour is the one action that cannot work',
+        );
+      });
+    }
+
+    // The suffix match must not swallow the whole 429 space: the
+    // change-password entry point immediately above it keeps its own
+    // per-account ResendThrottledFailure, and an unrelated 429 keeps falling
+    // through. Without this the new branch could be a no-op-looking widening.
+    test('429 on /users/me/change-password/request-otp still maps to '
+        'ResendThrottledFailure (the new branch did not swallow it)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          429,
+          path: '/api/v1/users/me/change-password/request-otp',
+          body: <String, dynamic>{
+            'data': <String, dynamic>{'retryAfterSeconds': 42},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<ResendThrottledFailure>());
+      expect(
+        (rejected.error as ResendThrottledFailure).retryAfterSeconds,
+        equals(42),
+      );
+    });
+
+    test('429 on an unrelated path is untouched by the password-reset '
+        'branch', () {
+      final rejected = _captureRejected(
+        _httpError(429, path: '/api/v1/bookings'),
+      );
+
+      expect(rejected.error, isNot(isA<PasswordResetRateLimitedFailure>()));
+    });
+
+    // A 400 on the same path must keep its typed-code handling — the new
+    // branch is gated on the status code as well as the path.
+    test('400 on /auth/verify-password-reset-otp still maps to '
+        'PasswordResetOtpFailure', () {
+      final rejected = _captureRejected(
+        _httpError(
+          400,
+          path: '/api/v1/auth/verify-password-reset-otp',
+          body: <String, dynamic>{
+            'data': <String, dynamic>{'code': 'CODE_EXPIRED'},
+          },
+        ),
+      );
+
+      expect(rejected.error, isA<PasswordResetOtpFailure>());
+    });
+
+    test('the failure carries the original DioException as its cause', () {
+      final input = filterThrottle('/api/v1/auth/forgot-password');
+      final rejected = _captureRejected(input);
+
+      // Pin the TYPE as well. Without it this assertion survives deleting the
+      // password-reset branch outright: whatever failure the 429 then falls
+      // through to still carries `cause`, so it stayed GREEN while the three
+      // path tests above went red (mobile-qa mutation M6, 2026-09-16).
+      expect(rejected.error, isA<PasswordResetRateLimitedFailure>());
+      expect((rejected.error as Failure).cause, same(input));
     });
   });
 

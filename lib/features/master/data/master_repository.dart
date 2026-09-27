@@ -23,6 +23,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -77,8 +78,20 @@ abstract interface class MasterRepository {
 
   /// Persists the authenticated master's editable profile fields.
   ///
-  /// Wraps `PATCH /independent-masters/me/profile`. All [update] fields are
-  /// trimmed before sending. Backend contract (`UserService.updateMasterProfile`):
+  /// Wraps `PATCH /independent-masters/me/profile` for
+  /// [MasterType.independentMaster] (the default — see [MasterUpdate
+  /// .masterType]) or `PATCH /masters/me/profile` for
+  /// [MasterType.salonMaster] — the caller MUST set [MasterUpdate.masterType]
+  /// to the actual role for any screen shared between the two (e.g.
+  /// `personal_info_edit_screen.dart`, `contacts_edit_screen.dart`), since
+  /// only the independent-master endpoint admits `INDEPENDENT_MASTER` and
+  /// only the salon-master endpoint admits `SALON_MASTER`
+  /// (`IndependentMasterController.java:93-94` /
+  /// `MasterController.java:486-487`, each single-role `@PreAuthorize`d;
+  /// `UserService.updateMasterProfile` unions the two roles as a
+  /// defence-in-depth backstop, it does not widen either controller's gate).
+  /// All [update] fields are trimmed before sending. Backend contract
+  /// (`UserService.updateMasterProfile`):
   ///   - `bio` and `instagram` are written whenever the key is **non-null**, so
   ///     an empty string `''` clears them server-side. They are therefore ALWAYS
   ///     included in the body (sending the trimmed value, `''` on clear).
@@ -231,9 +244,16 @@ final class HttpMasterRepository implements MasterRepository {
     // Trim all values before building the body so the backend never receives
     // untrimmed whitespace.
     //
-    // Endpoint: PATCH /independent-masters/me/profile (not /me, which is the
-    // locality endpoint). Field name is 'phoneNumber' (not 'contactPhone') to
-    // match MasterProfileUpdateRequest on the backend.
+    // Endpoint: role-aware — see the interface doc above for why. Both
+    // `personal_info_edit_screen.dart` and `contacts_edit_screen.dart` are
+    // shared between INDEPENDENT_MASTER and SALON_MASTER and pass the
+    // caller's actual [MasterUpdate.masterType] (from the already-loaded
+    // cached [Master.type]); [MasterType.salonOwner] and any future role
+    // fall through to the [MasterType.independentMaster] endpoint (the
+    // pre-existing default — no salon-owner-as-master caller exists yet).
+    // Field name is 'phoneNumber' (not 'contactPhone') to match
+    // MasterProfileUpdateRequest on the backend — same body shape on both
+    // endpoints.
     //
     // Backend contract (UserService.updateMasterProfile):
     //   - bio / instagram are persisted whenever the key is non-null, so an
@@ -257,12 +277,15 @@ final class HttpMasterRepository implements MasterRepository {
     final trimmedPhone = update.contactPhone.trim();
     if (trimmedPhone.isNotEmpty) body['phoneNumber'] = trimmedPhone;
 
+    final String path = switch (update.masterType) {
+      MasterType.salonMaster => '/api/v1/masters/me/profile',
+      MasterType.independentMaster ||
+      MasterType.salonOwner => '/api/v1/independent-masters/me/profile',
+    };
+
     await _runIdempotentPatch(
       operation: 'updateMyProfile',
-      request: () => _dio.patch<Map<String, dynamic>>(
-        '/api/v1/independent-masters/me/profile',
-        data: body,
-      ),
+      request: () => _dio.patch<Map<String, dynamic>>(path, data: body),
     );
   }
 
@@ -274,9 +297,37 @@ final class HttpMasterRepository implements MasterRepository {
     // than the generated `ReviewControllerApi.getMasterReviewSummary`) keeps
     // this repository on the single injected Dio (no second client, no
     // constructor churn) while still producing a generated built_value DTO.
+    // Hardened via [encodePathSegment] (mobile-security LOW, 2026-09-17).
+    // A bare [Uri.encodeComponent] stood here, and it does NOT escape `.` —
+    // so a `..` survived verbatim into Dio's `Uri.parse(url).normalizePath()`,
+    // which collapses dot-segments per RFC 3986 §5.2.4 and retargets the
+    // request on the authenticated [_dio] that carries the bearer token.
+    // [encodePathSegment] percent-encodes AND rejects dot-segments; see its
+    // doc. Encoding a well-formed UUID is a no-op, so this is
+    // behaviour-neutral on every real id.
+    //
+    // ITS POSITION ABOVE THE `try` IS STYLISTIC, NOT LOAD-BEARING (corrected
+    // 2026-09-17, cycle-3 finding D1 — an earlier revision of this comment
+    // claimed the hoist was what kept the [UnknownFailure] unreshaped, and no
+    // test held that). The first catch below is `on Failure { rethrow; }`, so
+    // moving this call inside the `try` rethrows the identical exception and
+    // still issues no request — the encode throws before `_dio.get` is
+    // reached either way. MEASURED, not assumed (2026-09-17): with the encode
+    // moved inside the `try` at all four hardened sites, the `path hardening`
+    // groups stay fully green — master 4/4, salon 4/4, and location 7/7 as an
+    // untouched control.
+    //
+    // WHAT ACTUALLY PINS PRE-WIRE REJECTION is `verifyNever(dio.get)` beside
+    // each `throwsA` in those tests. That pair — and only that pair —
+    // distinguishes "rejected before the wire" from "issued, then remapped".
+    final String masterSegment = encodePathSegment(
+      masterId,
+      'masterId',
+      logTag: 'master.repository',
+    );
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews/summary',
+        '/api/v1/masters/$masterSegment/reviews/summary',
       );
       final decoded = _deserialize<ApiResponseMasterReviewSummaryResponse>(
         response.data,
@@ -327,9 +378,37 @@ final class HttpMasterRepository implements MasterRepository {
     // `page`/`size` keys (the same bug documented in
     // `HttpSalonRepository.getSalonReviews`). So bypass it: issue a raw GET with
     // flat query params and deserialize with the shared serializers.
+    // Hardened via [encodePathSegment] (mobile-security LOW, 2026-09-17).
+    // A bare [Uri.encodeComponent] stood here, and it does NOT escape `.` —
+    // so a `..` survived verbatim into Dio's `Uri.parse(url).normalizePath()`,
+    // which collapses dot-segments per RFC 3986 §5.2.4 and retargets the
+    // request on the authenticated [_dio] that carries the bearer token.
+    // [encodePathSegment] percent-encodes AND rejects dot-segments; see its
+    // doc. Encoding a well-formed UUID is a no-op, so this is
+    // behaviour-neutral on every real id.
+    //
+    // ITS POSITION ABOVE THE `try` IS STYLISTIC, NOT LOAD-BEARING (corrected
+    // 2026-09-17, cycle-3 finding D1 — an earlier revision of this comment
+    // claimed the hoist was what kept the [UnknownFailure] unreshaped, and no
+    // test held that). The first catch below is `on Failure { rethrow; }`, so
+    // moving this call inside the `try` rethrows the identical exception and
+    // still issues no request — the encode throws before `_dio.get` is
+    // reached either way. MEASURED, not assumed (2026-09-17): with the encode
+    // moved inside the `try` at all four hardened sites, the `path hardening`
+    // groups stay fully green — master 4/4, salon 4/4, and location 7/7 as an
+    // untouched control.
+    //
+    // WHAT ACTUALLY PINS PRE-WIRE REJECTION is `verifyNever(dio.get)` beside
+    // each `throwsA` in those tests. That pair — and only that pair —
+    // distinguishes "rejected before the wire" from "issued, then remapped".
+    final String masterSegment = encodePathSegment(
+      masterId,
+      'masterId',
+      logTag: 'master.repository',
+    );
     try {
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/masters/${Uri.encodeComponent(masterId)}/reviews',
+        '/api/v1/masters/$masterSegment/reviews',
         queryParameters: <String, dynamic>{
           'sort': sort.wireValue,
           'page': page,

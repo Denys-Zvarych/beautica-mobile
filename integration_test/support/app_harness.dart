@@ -97,6 +97,7 @@
 //   });
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -424,6 +425,161 @@ abstract final class AppHarness {
     await settle(tester);
     await pumpUntilFound(tester, finder.hitTestable(), timeout: timeout);
     await tester.tap(finder);
+  }
+
+  /// Picks a settlement in the shared «Населений пункт» autocomplete
+  /// (`SettlementSelectField`), Phase 346's replacement for the Область →
+  /// Місто cascade.
+  ///
+  /// REUSE-FIRST — six E2E flows drive this control. Hand-copying the sequence
+  /// into each is exactly how the four `_selectRailDay` helpers drifted, so
+  /// this is the single copy.
+  ///
+  /// [fieldKey] defaults to the field's own key; the discovery filters screen
+  /// keys its instance `search_city_value` (deliberately the retired city
+  /// row's key, so existing finders still resolve to the locality control).
+  ///
+  /// ⚠ THE DEBOUNCE PUMP IS LOAD-BEARING. `settle` fires no `Timer`, so
+  /// typing and settling measures the PRE-KEYSTROKE state — the sheet still
+  /// shows the blank-query major list and a row tap "succeeds" against the
+  /// wrong data. The explicit `tester.pump(kSettlementSearchDebounce)` below
+  /// is what commits the query.
+  ///
+  /// Leaving [query] empty skips typing entirely and picks straight off the
+  /// pre-typing major-settlement list, which is the cheaper path whenever the
+  /// target settlement is in it.
+  static Future<void> pickSettlement(
+    WidgetTester tester,
+    String settlementId, {
+    String query = '',
+    Key fieldKey = const Key('settlement_select_field'),
+  }) async {
+    await tapVisible(tester, find.byKey(fieldKey));
+    await settle(tester);
+    if (query.isNotEmpty) {
+      await tester.enterText(
+        find.byKey(const Key('select-menu-search')),
+        query,
+      );
+      await tester.pump(kSettlementSearchDebounce);
+      await settle(tester);
+    }
+    final Finder row = find.byKey(Key('settlement_option_$settlementId'));
+    await pumpUntilFound(tester, row);
+    await tester.tap(row);
+    await settle(tester);
+  }
+
+  /// Scrolls the OUTER (vertical) [Scrollable] on `search_filters_screen.dart`
+  /// until [key] is inflated AND visible.
+  ///
+  /// `-d flutter-tester`'s window is `Size(800, 600)` — short and wide, unlike
+  /// any phone. The query field plus the three-field `_LocationSection`
+  /// (Region/City/District) alone consume the whole 600px budget, pushing
+  /// `_CategorySection` (the rail + service-chip drawer) and `_PriceSection`
+  /// below the fold. The screen body is a plain `ListView(children: [...])`
+  /// (search_filters_screen.dart, NOT `.builder`) — it still only inflates
+  /// Elements near the viewport (`SliverChildListDelegate` under a
+  /// `SliverList`), so an un-scrolled `find.byKey(...)` on anything below the
+  /// locality block reports 0 matches. Plain `tester.ensureVisible` requires
+  /// the target Element to already exist, so it cannot bring an un-inflated
+  /// widget into view; `scrollUntilVisible` drags the enclosing scrollable in
+  /// bounded steps and re-checks after each drag, which is what actually
+  /// builds the element.
+  ///
+  /// `scrollUntilVisible` only ever drags in ONE fixed direction per call
+  /// (derived once from the `Scrollable`'s current `axisDirection`) — it
+  /// cannot recover a target ABOVE the current scroll offset, only one
+  /// further along. Once a prior call has scrolled down to the category rail
+  /// / price slider, a later call for a locality field back near the top
+  /// would just keep dragging further down and exhaust `maxScrolls` without
+  /// ever finding it (`Bad state: No element`). Jumping to offset 0 first
+  /// makes every call direction-agnostic: fields at/near the top are
+  /// immediately visible with nothing left to drag, and fields further down
+  /// are then reached by the forward drag. `.first` on the `Scrollable`
+  /// finder always resolves to the outer vertical list (a depth-first
+  /// ancestor of the category rail's own nested horizontal
+  /// `ListView.separated`), so this stays unambiguous once the rail mounts.
+  ///
+  /// Shared by every E2E that drives the search filters screen — the same
+  /// below-the-fold problem hits `client_search_flow_test.dart`'s locality
+  /// fields/category rail/price slider AND `service_preselection_flow_test.dart`'s
+  /// `search_service_type_NAILS` tile. Duplicating this per-file drifts (see
+  /// REUSE-FIRST); this is the single copy.
+  static Future<void> scrollFilterFieldIntoView(
+    WidgetTester tester,
+    Key key,
+  ) async {
+    final Finder outerScrollable = find.byType(Scrollable).first;
+    tester.state<ScrollableState>(outerScrollable).position.jumpTo(0);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(key),
+      200,
+      scrollable: outerScrollable,
+    );
+    await tester.pumpAndSettle();
+  }
+
+  /// Reveals a `salon-manage-staff-card-<userId>` roster card so it is BUILT
+  /// and findable, then returns. The single way to locate a roster card.
+  ///
+  /// `_StaffTab`'s roster is a genuine `SliverGrid.builder`
+  /// (`lib/features/salon/presentation/salon_management_profile_screen.dart`,
+  /// the `SliverGrid.builder` inside `_StaffTab.build`) spliced into the salon
+  /// shell's ONE `CustomScrollView`, so it inflates only the cells the current
+  /// viewport needs. `-d flutter-tester`'s window is `Size(800, 600)`;
+  /// measured on that surface a 2-column roster lays row 0 out at
+  /// y = 435…625 and row 1 at y = 641…831 — row 1 is entirely past the fold
+  /// and NOT within the built cache either (a probe found exactly two cards
+  /// built, the trailing "add staff" tile unbuilt as well). A widget that was
+  /// never BUILT cannot be found by key, so a bare [pumpUntilFound] polls
+  /// until it times out and `tester.ensureVisible` throws "Found 0 widgets" —
+  /// `project_integration_scroll_filter_into_view`, the same lazily-inflated-
+  /// tile trap [scrollFilterFieldIntoView] exists for on the discovery rail.
+  ///
+  /// Whether a given flow's target lands in row 0 is pure FIXTURE ACCIDENT —
+  /// e.g. `FakeBackend.salonAdminOneStaff` self-excludes the viewer's own row,
+  /// which leaves the SALON_ADMIN twin's target at cell 1 and inside row 0,
+  /// while the SALON_OWNER roster's third member sits at cell 2 and is never
+  /// built. That is exactly why this is ONE helper rather than a per-file
+  /// judgement call: a fixture gaining one member silently moves a target
+  /// below the fold, and every call site is already correct.
+  ///
+  /// Two behaviours, and both matter:
+  ///
+  /// 1. It GATES on the grid having loaded (any roster card rendered) before
+  ///    dragging anything. Dragging the loading state's scrollable fails
+  ///    opaquely from inside `scrollUntilVisible` (`Bad state: No element`)
+  ///    instead of reporting a clean, attributed timeout naming the roster.
+  /// 2. It NO-OPS — no drag at all — when [card] is already built, so a
+  ///    row-0 target behaves exactly as an unrevealed `find.byKey` did.
+  ///
+  /// Hand-copying this per file is precisely the REUSE-FIRST failure the
+  /// project bans: the first two copies had already diverged within one
+  /// cycle, one of them missing the loaded-gate. This is the single copy.
+  static Future<void> revealRosterCard(
+    WidgetTester tester,
+    Finder card, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    await pumpUntilFound(
+      tester,
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith(
+              'salon-manage-staff-card-',
+            ),
+        description: 'any rendered roster staff card',
+      ),
+      timeout: timeout,
+    );
+    if (card.evaluate().isNotEmpty) {
+      return;
+    }
+    await tester.scrollUntilVisible(card, 200, maxScrolls: 20);
+    await tester.pump();
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
@@ -922,8 +1078,18 @@ abstract final class AppHarness {
     final email = switch (role) {
       UserRole.client => 'client@beautica.ua',
       UserRole.salonOwner => 'owner@beautica.ua',
+      // Must match `_adminUserJson.email` in fake_backend.dart. Without this
+      // arm an admin login fell through to the master persona's address; that
+      // is harmless ONLY because the fake's login handler ignores the
+      // submitted credentials and branches on `currentRole` — the moment it
+      // actually checks them, the omission becomes a silent wrong-persona
+      // login. (mobile-qa 21.14 F2.)
+      UserRole.salonAdmin => 'admin@beautica.ua',
+      // Must match `_salonMasterUserJson.email` in fake_backend.dart — same
+      // reasoning as the SALON_ADMIN arm above (mobile-qa, Phase 309-311
+      // track, 2026-09-06 gap-closure).
+      UserRole.salonMaster => 'salonmaster@beautica.ua',
       UserRole.independentMaster => 'master@beautica.ua',
-      _ => 'master@beautica.ua',
     };
 
     // Drain any in-flight splash→login redirect / route transition BEFORE

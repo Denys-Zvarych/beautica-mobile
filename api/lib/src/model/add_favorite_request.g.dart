@@ -18,6 +18,9 @@ const AddFavoriteRequestTargetTypeEnum
 const AddFavoriteRequestTargetTypeEnum
     _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE =
     const AddFavoriteRequestTargetTypeEnum._('SALON_SERVICE');
+const AddFavoriteRequestTargetTypeEnum
+    _$addFavoriteRequestTargetTypeEnum_unknownDefaultOpenApi =
+    const AddFavoriteRequestTargetTypeEnum._('unknownDefaultOpenApi');
 
 AddFavoriteRequestTargetTypeEnum _$addFavoriteRequestTargetTypeEnumValueOf(
     String name) {
@@ -30,8 +33,10 @@ AddFavoriteRequestTargetTypeEnum _$addFavoriteRequestTargetTypeEnumValueOf(
       return _$addFavoriteRequestTargetTypeEnum_SERVICE;
     case 'SALON_SERVICE':
       return _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE;
+    case 'unknownDefaultOpenApi':
+      return _$addFavoriteRequestTargetTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$addFavoriteRequestTargetTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -42,6 +47,7 @@ final BuiltSet<AddFavoriteRequestTargetTypeEnum>
   _$addFavoriteRequestTargetTypeEnum_SALON,
   _$addFavoriteRequestTargetTypeEnum_SERVICE,
   _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE,
+  _$addFavoriteRequestTargetTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<AddFavoriteRequestTargetTypeEnum>
@@ -55,12 +61,14 @@ class _$AddFavoriteRequestTargetTypeEnumSerializer
     'SALON': 'SALON',
     'SERVICE': 'SERVICE',
     'SALON_SERVICE': 'SALON_SERVICE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'MASTER': 'MASTER',
     'SALON': 'SALON',
     'SERVICE': 'SERVICE',
     'SALON_SERVICE': 'SALON_SERVICE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

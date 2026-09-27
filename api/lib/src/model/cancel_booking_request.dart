@@ -150,6 +150,10 @@ class CancelBookingRequestCancellationReasonEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'OTHER')
   static const CancelBookingRequestCancellationReasonEnum OTHER =
       _$cancelBookingRequestCancellationReasonEnum_OTHER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const CancelBookingRequestCancellationReasonEnum
+      unknownDefaultOpenApi =
+      _$cancelBookingRequestCancellationReasonEnum_unknownDefaultOpenApi;
 
   static Serializer<CancelBookingRequestCancellationReasonEnum>
       get serializer => _$cancelBookingRequestCancellationReasonEnumSerializer;

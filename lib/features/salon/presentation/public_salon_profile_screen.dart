@@ -41,10 +41,12 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 // 14.13) and is REUSED here rather than duplicated, so the masters grid can be
 // filtered by the selected service without a second bespoke fan-out. Only
 // triggered while a service filter is active (see [_MastersTab]).
+import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -54,6 +56,8 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
@@ -402,17 +406,6 @@ class _LoadedBody extends StatelessWidget {
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
 
-  static Widget _reveal(
-    Animation<double> fade,
-    Animation<Offset> slide,
-    Widget child,
-  ) => RepaintBoundary(
-    child: FadeTransition(
-      opacity: fade,
-      child: SlideTransition(position: slide, child: child),
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -430,17 +423,17 @@ class _LoadedBody extends StatelessWidget {
           coverHeight: coverHeight,
           topInset: topInset,
           salon: salon,
-          reveal: _reveal,
           anim0: anim0,
           slide0: slide0,
         ),
         const SizedBox(height: VelvetSpacing.lg),
-        _reveal(
-          anim1,
-          slide1,
-          Padding(
+        RevealTransition(
+          key: const Key('public-salon-profile-reveal-1'),
+          fade: anim1,
+          slide: slide1,
+          child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: SalonTabBar(
+            child: ProfileTabBar(
               tabs: tabs,
               selected: tab,
               onSelect: onTabSelected,
@@ -448,10 +441,11 @@ class _LoadedBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: VelvetSpacing.lg),
-        _reveal(
-          anim2,
-          slide2,
-          KeyedSubtree(
+        RevealTransition(
+          key: const Key('public-salon-profile-reveal-2'),
+          fade: anim2,
+          slide: slide2,
+          child: KeyedSubtree(
             key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
             child: switch (tab) {
               0 => _AboutTab(salon: salon),
@@ -550,7 +544,6 @@ class _CoverAndHero extends StatelessWidget {
     required this.coverHeight,
     required this.topInset,
     required this.salon,
-    required this.reveal,
     required this.anim0,
     required this.slide0,
   });
@@ -558,7 +551,6 @@ class _CoverAndHero extends StatelessWidget {
   final double coverHeight;
   final double topInset;
   final Salon salon;
-  final Widget Function(Animation<double>, Animation<Offset>, Widget) reveal;
   final Animation<double> anim0;
   final Animation<Offset> slide0;
 
@@ -638,7 +630,12 @@ class _CoverAndHero extends StatelessWidget {
             VelvetSpacing.lg,
             0,
           ),
-          child: reveal(anim0, slide0, _SalonHeroCard(salon: salon)),
+          child: RevealTransition(
+            key: const Key('public-salon-profile-reveal-0'),
+            fade: anim0,
+            slide: slide0,
+            child: _SalonHeroCard(salon: salon),
+          ),
         ),
       ],
     );
@@ -665,14 +662,13 @@ class _SalonHeroCard extends StatelessWidget {
     final String? monogram = salon.name.trim().isEmpty
         ? null
         : salon.name.trim()[0].toUpperCase();
-    final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
     // Phase 223 (b) — locality + street/building, each its own line, one
     // `Text` per helper, both `maxLines: 1`. `locationNote` is never
     // concatenated onto either of these lines — it renders as its own
     // [ExpandableNote] below (Phase 224) — so a note up to 1000 chars long
     // can never push the address itself out of its budget the way a single
     // combined line did pre-223.
-    final String? localityLine = _localityLine(salon);
+    final String? localityLine = _localityLine(salon, l10n);
     final String? streetLine = _streetLine(salon);
     // Phase 224 — `locationNote` moved back onto the hero card (it briefly
     // lived on the About tab under Phase 223 (b) — see the `_AboutTab` and
@@ -740,36 +736,16 @@ class _SalonHeroCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 5),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const Icon(
-                                Icons.star_rounded,
-                                size: 16,
-                                color: BrandColors.accentDeep,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                ratingLabel,
-                                key: const Key('salon-profile-rating'),
-                                style: _ratingInlineStyle,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                                  // Keyed so the review-invalidation regression
-                                  // can pin the hero's COUNT half of the
-                                  // aggregate by widget rather than by a
-                                  // localised string (M2) — `avgRating` alone
-                                  // moving is not proof the whole snapshot
-                                  // refreshed.
-                                  key: const Key('salon-profile-review-count'),
-                                  style: VelvetText.feedbackMuted13,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          // Keyed so the review-invalidation regression can
+                          // pin the hero's COUNT half of the aggregate by
+                          // widget rather than by a localised string (M2) —
+                          // `avgRating` alone moving is not proof the whole
+                          // snapshot refreshed.
+                          RatingSummaryLine(
+                            rating: salon.avgRating,
+                            reviewCount: salon.reviewCount,
+                            ratingKey: const Key('salon-profile-rating'),
+                            countKey: const Key('salon-profile-review-count'),
                           ),
                         ],
                       ),
@@ -816,17 +792,32 @@ class _SalonHeroCard extends StatelessWidget {
                             // here when there is no locality (mirrors the
                             // master identity card's promotion convention
                             // in `shared/formatters/address_lines.dart`).
-                            // `maxLines: 1` (not 2, as the pre-223 combined
-                            // line allowed) is what makes the budget FIXED
-                            // rather than variable — this row can occupy at
-                            // most 2 lines total, ever.
+                            //
+                            // 2026-09-26 (user-reported) — `maxLines: 1` here
+                            // silently collapsed a long composed
+                            // saved-settlement label (village + hromada +
+                            // oblast) instead of wrapping it. Raised to `2` —
+                            // the hero card has no fixed height (`_CoverAndHero
+                            // ._cardCoverOverlap` is a FIXED pixel overlap,
+                            // independent of the card's content height — see
+                            // that class doc), so it simply grows taller, the
+                            // same way it already absorbs a long
+                            // `ExpandableNote`. The pre-223 "at most 2 lines
+                            // total, ever" budget was about keeping this row's
+                            // OWN two lines (locality + street) from growing
+                            // further by re-concatenating the note onto it —
+                            // that constraint is untouched; this only lets
+                            // line 1 itself wrap, which can now make the row 3
+                            // lines tall in the (rare) legacy-address case
+                            // where BOTH a long locality and a street line
+                            // render.
                             Text(
                               localityLine ?? streetLine!,
                               key: localityLine != null
                                   ? const Key('salon-profile-locality-text')
                                   : const Key('salon-profile-address-text'),
                               style: VelvetText.bookFeedbackSec13,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                             // Line 2: street + building — only when a
@@ -885,24 +876,29 @@ class _SalonHeroCard extends StatelessWidget {
     );
   }
 
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
-
   /// The hero card's locality (city) line, or `null` when unavailable.
   ///
   /// Unlike [Master]'s identity card, this never resolves `cityId` to a
-  /// human-readable name: [Salon] carries no `oblastId`, and
-  /// `LocationRepository.fetchCities` requires one to list cities — so a raw
-  /// `cityId` alone cannot be looked up client-side. When the taxonomy
-  /// `street` field is set, this method deliberately returns `null` rather
-  /// than falling back to the legacy `city` field: the backend stopped
+  /// human-readable name — a lookup would need `LocationRepository
+  /// .fetchCities(salon.oblastId)` plus a live network round-trip, which this
+  /// synchronous hero-card builder can't do; the raw id is not rendered
+  /// directly. When the taxonomy `street` field is set, this method
+  /// deliberately returns `null` rather than falling back to the legacy
+  /// `city` field: the backend stopped
   /// writing legacy `city`/`address` once a salon re-saves its location under
   /// the taxonomy (Phase 10.6+), so a still-populated `city` alongside a
   /// fresh `street` would be a STALE value the mapper never clears (mirrors
   /// the pre-Phase-223 `_buildLocationLine`'s taxonomy branch, which never
   /// rendered `city` once `street` was present).
-  static String? _localityLine(Salon salon) {
+  ///
+  /// Composed as the «Населений пункт» picker composes it («м. Львів,
+  /// Львівська обл.»); the bare [Salon.city] when the read carries no
+  /// settlement type.
+  static String? _localityLine(Salon salon, AppLocalizations l10n) {
     if (_hasTaxonomyStreet(salon)) return null;
-    return buildLocalityLine(salon.city);
+    return buildLocalityLine(
+      savedSettlementLabel(l10n, salon.savedSettlement) ?? salon.city,
+    );
   }
 
   /// Whether the salon has a taxonomy `street` with VISIBLE content.
@@ -955,7 +951,7 @@ class _SalonHeroCard extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _AboutTab — "Про салон": blurb + optional Instagram contact
+// _AboutTab — "Про салон": blurb + optional phone/Instagram contacts
 // ---------------------------------------------------------------------------
 
 class _AboutTab extends StatelessWidget {
@@ -968,6 +964,13 @@ class _AboutTab extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final String? description = (salon.description?.trim().isNotEmpty ?? false)
         ? salon.description!.trim()
+        : null;
+    // Both contact fields arrive already blank-normalised from
+    // `SalonMapper._blankToNull` (see [Salon.phone]'s wire-contract doc); the
+    // local guards below are belt-and-braces for hand-built test fixtures,
+    // and mirror `salon_management_profile_screen.dart`'s identical pair.
+    final String? phone = (salon.phone?.trim().isNotEmpty ?? false)
+        ? salon.phone!.trim()
         : null;
     final String? instagram = (salon.instagramUrl?.isNotEmpty ?? false)
         ? salon.instagramUrl
@@ -991,7 +994,13 @@ class _AboutTab extends StatelessWidget {
                 : VelvetText.bodyStrong(),
           ),
           _SalonPortfolioRail(salonId: salon.id),
-          if (instagram != null) ...<Widget>[
+          // Each contact row is gated INDEPENDENTLY and the section heading on
+          // "either is present" — structure mirrored verbatim from
+          // `salon_management_profile_screen.dart`'s `_AboutReadView`, which
+          // already had it right. Before the `PublicSalonResponse.phone`
+          // gap-fix this whole block hung off `instagram != null` and had no
+          // phone row at all, so a phone-only salon showed no contacts.
+          if (phone != null || instagram != null) ...<Widget>[
             const SizedBox(height: VelvetSpacing.xl),
             Padding(
               padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
@@ -1000,14 +1009,29 @@ class _AboutTab extends StatelessWidget {
                 style: VelvetText.sectionLabel(),
               ),
             ),
-            ContactTile(
-              key: const Key('salon-contact-instagram'),
-              icon: Icons.alternate_email,
-              label: l10n.masterInstagramLabel,
-              value: instagram,
-              semanticLabel: l10n.masterInstagramLabel,
-              onTap: () => _openInstagram(context, instagram),
-            ),
+            if (phone != null)
+              ContactTile(
+                key: const Key('salon-contact-phone'),
+                icon: Icons.phone_outlined,
+                value: phone,
+                semanticLabel: l10n.phoneLabel,
+                // Dialing out is not wired on any Beautica profile screen yet
+                // (the master public profile has no phone row at all) — the
+                // tile stays a non-acting affordance, exactly as the
+                // owner/admin screen's own phone row does.
+                onTap: () {},
+              ),
+            if (phone != null && instagram != null)
+              const SizedBox(height: VelvetSpacing.sm + 2),
+            if (instagram != null)
+              ContactTile(
+                key: const Key('salon-contact-instagram'),
+                icon: Icons.alternate_email,
+                label: l10n.masterInstagramLabel,
+                value: instagram,
+                semanticLabel: l10n.masterInstagramLabel,
+                onTap: () => _openInstagram(context, instagram),
+              ),
           ],
         ],
       ),
@@ -1302,6 +1326,21 @@ class _SalonPortfolioTile extends StatelessWidget {
 /// below regardless of how close a roster gets to [kSalonMastersPageSize].
 const int kSalonMastersInitialCount = 6;
 
+/// mobile-perf LOW (Phase 266 audit cycle 3) — bumped once per genuine
+/// recompute of the filtered-masters list in
+/// `_MastersTabState._resolveFilteredMasters`, never on a cache hit. Mirrors
+/// `salon_booking_wizard_steps.dart`'s `debugResolveSalonMastersCallCount`
+/// precedent.
+@visibleForTesting
+int debugMastersTabFilterCallCount = 0;
+
+/// Resets [debugMastersTabFilterCallCount] to 0 — call at the top of a test
+/// that asserts an exact recompute count.
+@visibleForTesting
+void debugResetMastersTabFilterCallCount() {
+  debugMastersTabFilterCallCount = 0;
+}
+
 class _MastersTab extends ConsumerStatefulWidget {
   const _MastersTab({
     required this.salonId,
@@ -1324,6 +1363,53 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
   // user-triggered build of the remainder is an acceptable cost; it is
   // ONLY the unconditional first-paint build this guards against.
   bool _showAll = false;
+
+  // mobile-perf LOW (Phase 266 audit cycle 3) — memoized filtered-masters
+  // list. Mirrors `_SalonMastersStepState._resolveDerived`'s `identical()`
+  // pattern in `salon_booking_wizard_steps.dart` (own doc there): a Phase 266
+  // retry write on `salonMasterServiceCoverageProvider` replaces the owning
+  // `SalonCoverage` while reusing `byMaster` BY REFERENCE for every service
+  // untouched by that retry (see `salon_master_coverage_notifier.dart`'s
+  // header) — before this memo, every such retry re-ran the O(masters)
+  // `.where()` filter below on this filtered-masters tab too, even though
+  // neither `masters` nor `coverage` (as seen by THIS filter) had changed.
+  // `masters` (`widget.masters`, sourced from `PublicSalonProfileData.$2` — a
+  // plain record field, never a getter that reallocates per access, so no
+  // `project_freezed_getter_defeats_identical_memo` trap) and `coverage`
+  // (`result.byMaster`) are both safe `identical()` keys; `filter.id` is
+  // compared by value since a fresh `SalonServiceSelection` instance can
+  // carry the same id.
+  List<SalonMasterSummary>? _cachedMastersForFilter;
+  Map<String, Map<String, String>>? _cachedCoverageForFilter;
+  String? _cachedFilterId;
+  List<SalonMasterSummary>? _cachedFilteredMasters;
+
+  List<SalonMasterSummary> _resolveFilteredMasters(
+    List<SalonMasterSummary> masters,
+    Map<String, Map<String, String>> coverage,
+    String filterId,
+  ) {
+    final bool hit =
+        _cachedFilteredMasters != null &&
+        identical(_cachedMastersForFilter, masters) &&
+        identical(_cachedCoverageForFilter, coverage) &&
+        _cachedFilterId == filterId;
+    if (hit) return _cachedFilteredMasters!;
+
+    debugMastersTabFilterCallCount++;
+    final List<SalonMasterSummary> filtered = masters
+        .where(
+          (SalonMasterSummary m) =>
+              coverage[m.masterId]?.containsKey(filterId) ?? false,
+        )
+        .toList();
+
+    _cachedMastersForFilter = masters;
+    _cachedCoverageForFilter = coverage;
+    _cachedFilterId = filterId;
+    _cachedFilteredMasters = filtered;
+    return filtered;
+  }
 
   @override
   void didUpdateWidget(covariant _MastersTab oldWidget) {
@@ -1377,8 +1463,9 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
           salonId: widget.salonId,
           selectedServiceIds: <String>[filter.id],
         );
-    final AsyncValue<Map<String, Map<String, String>>> coverageAsync = ref
-        .watch(salonMasterServiceCoverageProvider(coverageArgs));
+    final AsyncValue<SalonCoverage> coverageAsync = ref.watch(
+      salonMasterServiceCoverageProvider(coverageArgs),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1414,13 +1501,18 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
               salonMasterServiceCoverageProvider(coverageArgs),
             ),
           ),
-          data: (Map<String, Map<String, String>> coverage) {
-            final List<SalonMasterSummary> filtered = masters
-                .where(
-                  (SalonMasterSummary m) =>
-                      coverage[m.masterId]?.containsKey(filter.id) ?? false,
-                )
-                .toList();
+          // Phase 266 — `.byMaster` only; this filter path has no per-service
+          // retry UI (D5 scopes that to `SalonMasterSelectionScreen` alone),
+          // so a degraded service renders here exactly as before: absent
+          // from every master's coverage row, same as a genuine "nobody
+          // covers it".
+          data: (SalonCoverage result) {
+            final Map<String, Map<String, String>> coverage = result.byMaster;
+            final List<SalonMasterSummary> filtered = _resolveFilteredMasters(
+              masters,
+              coverage,
+              filter.id,
+            );
             if (filtered.isEmpty) {
               return const _MastersForServiceEmpty();
             }

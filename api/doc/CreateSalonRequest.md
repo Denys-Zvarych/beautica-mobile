@@ -10,12 +10,12 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **name** | **String** |  | 
 **description** | **String** |  | [optional] 
-**city** | **String** |  | [optional] 
-**region** | **String** |  | [optional] 
-**address** | **String** |  | [optional] 
+**city** | **String** | Ignored — derived from cityId | [optional] 
+**region** | **String** | Ignored — derived from cityId | [optional] 
+**address** | **String** | Ignored — use street/buildingNo/locationNote | [optional] 
 **phone** | **String** |  | [optional] 
 **instagramUrl** | **String** |  | [optional] 
-**cityId** | **String** |  | [optional] 
+**cityId** | **String** |  | 
 **districtId** | **String** |  | [optional] 
 **street** | **String** |  | 
 **buildingNo** | **String** |  | 

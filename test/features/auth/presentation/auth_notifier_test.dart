@@ -25,10 +25,13 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_mobile/core/cache/lru_cache.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
@@ -42,6 +45,11 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/discovery/data/search_suggestion_cache_provider.dart';
+import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
+import 'package:beautica_mobile/features/location/data/settlement_search_cache.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -53,6 +61,50 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
+
+/// A [SecureStorage] that delegates everything to a real [FakeSecureStorage]
+/// except `deleteAll()`, which throws.
+///
+/// The seam for the ONE scenario that still discriminates `logout()`'s
+/// `finally` gate — see the `_logoutInFlight` test that uses it.
+final class _DeleteAllThrowsStorage implements SecureStorage {
+  _DeleteAllThrowsStorage(this._inner);
+
+  final FakeSecureStorage _inner;
+
+  @override
+  Future<void> deleteAll() async => throw StateError('keystore wedged');
+
+  @override
+  Future<String?> readRefreshToken() => _inner.readRefreshToken();
+  @override
+  Future<void> writeRefreshToken(String token) =>
+      _inner.writeRefreshToken(token);
+  @override
+  Future<String?> readUserJson() => _inner.readUserJson();
+  @override
+  Future<void> writeUserJson(String json) => _inner.writeUserJson(json);
+  @override
+  Future<String?> readPendingLocality() => _inner.readPendingLocality();
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _inner.writePendingLocality(json);
+  @override
+  Future<void> deletePendingLocality() => _inner.deletePendingLocality();
+  @override
+  Future<String?> readLastSalon() => _inner.readLastSalon();
+  @override
+  Future<void> writeLastSalon(String json) => _inner.writeLastSalon(json);
+  @override
+  Future<void> deleteLastSalon() => _inner.deleteLastSalon();
+}
+
+/// A [ScreenProtectionManager] whose `reset()` can be made to throw — the
+/// injection point for the "a cleanup failure after the storage wipe" test.
+/// Mocked rather than subclassed because the real `reset()` is not virtual in
+/// spirit: the test is about the CALLER's control flow, not this class's.
+class _ThrowingScreenProtection extends Mock
+    implements ScreenProtectionManager {}
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -91,12 +143,70 @@ class SpySecureStorage extends Mock implements SecureStorage {
   Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
 
   @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+
+  @override
   Future<void> deleteAll() {
     // super.noSuchMethod records the invocation so verify(...) works; we then
     // delegate to the real fake so the backing map is actually cleared.
     super.noSuchMethod(Invocation.method(#deleteAll, const []));
     return _backing.deleteAll();
   }
+}
+
+/// Invite-accept post-success failure design (2026-09-01) — a [SecureStorage]
+/// fake whose [writeRefreshToken] always throws, so tests can drive
+/// [AuthNotifier._persistRefreshTokenTolerant]'s catch branch. Every other
+/// method delegates to a backing [FakeSecureStorage] (same pattern as
+/// [SpySecureStorage] above) so tests can still assert on reads that must
+/// stay untouched (e.g. no refresh token ever lands in storage).
+final class _ThrowingWriteStorage implements SecureStorage {
+  final FakeSecureStorage _backing = FakeSecureStorage();
+
+  @override
+  Future<void> writeRefreshToken(String token) async {
+    throw PlatformException(
+      code: 'write_error',
+      message: 'Keystore unavailable',
+    );
+  }
+
+  @override
+  Future<String?> readRefreshToken() => _backing.readRefreshToken();
+
+  @override
+  Future<String?> readUserJson() => _backing.readUserJson();
+
+  @override
+  Future<void> writeUserJson(String json) => _backing.writeUserJson(json);
+
+  @override
+  Future<String?> readPendingLocality() => _backing.readPendingLocality();
+
+  @override
+  Future<void> writePendingLocality(String json) =>
+      _backing.writePendingLocality(json);
+
+  @override
+  Future<void> deletePendingLocality() => _backing.deletePendingLocality();
+
+  @override
+  Future<String?> readLastSalon() => _backing.readLastSalon();
+
+  @override
+  Future<void> writeLastSalon(String json) => _backing.writeLastSalon(json);
+
+  @override
+  Future<void> deleteLastSalon() => _backing.deleteLastSalon();
+
+  @override
+  Future<void> deleteAll() => _backing.deleteAll();
 }
 
 void main() {
@@ -125,7 +235,7 @@ void main() {
 
   ProviderContainer makeContainer({
     required AuthRepository repo,
-    required FakeSecureStorage storage,
+    required SecureStorage storage,
   }) {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
@@ -421,6 +531,9 @@ void main() {
       final repo = MockAuthRepository();
       final storage = FakeSecureStorage();
       await storage.writeRefreshToken('stored-refresh');
+      // Phase 286 — should_clearLastSalon_when_deleteAllCalled, pinned via
+      // the REAL logout() path (not deleteAll() called directly).
+      await storage.writeLastSalon('{"userId":"u1","salonId":"s1"}');
 
       when(
         () => repo.refresh('stored-refresh'),
@@ -440,6 +553,8 @@ void main() {
 
       // All tokens must be wiped from storage.
       expect(await storage.readRefreshToken(), isNull);
+      // Phase 286 — the last-visited-salon pointer must be wiped too.
+      expect(await storage.readLastSalon(), isNull);
     });
 
     // -----------------------------------------------------------------------
@@ -511,6 +626,340 @@ void main() {
         expect(
           container.read(authProvider).value,
           equals(const AuthSession.unauthenticated()),
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b — mobile-security INFO, accepted at `mobile-backlog.md:76` on
+    // 2026-08-17 and CLOSED 2026-09-17 because that audit cycle widened it.
+    //
+    // THE WINDOW: `logout()` wipes secure storage, then runs a run of cleanup
+    // calls that are NOT individually try/caught — `screenProtectionProvider
+    // .reset()`, `registerDraftProvider.notifier.reset()`,
+    // `dayKeepAliveLruProvider.clear()`, and (new this cycle) FOUR schedule-
+    // family sweeps. The state flip to `Unauthenticated` used to be the LAST
+    // statement of the `try`, so a throw anywhere in that run escaped with
+    // storage already wiped and the in-memory session still reading
+    // `Authenticated`: a router guard happily rendering authenticated screens
+    // against a token store that no longer holds a token.
+    //
+    // The fix moves the flip into the `finally`, gated on `wipedStorage` — so
+    // the two halves of "this session is over" can no longer disagree, while a
+    // wipe that never completed still leaves a genuinely-signed-in user alone.
+    //
+    // The exception must STILL propagate: a `finally` cannot swallow it, and a
+    // silently-swallowed cleanup failure would be a worse bug than the one
+    // being fixed. Both halves are asserted.
+    //
+    // `screenProtectionProvider` is the injection point only because it is the
+    // cheapest of the uncaught calls to make throw; the finding is about the
+    // WINDOW, not about that particular call.
+    // -----------------------------------------------------------------------
+    test('a cleanup failure AFTER the storage wipe still leaves the session '
+        'Unauthenticated — the in-memory session can never outlive the wiped '
+        'token store (mobile-security INFO, closed 2026-09-17)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final screenProtection = _ThrowingScreenProtection();
+      when(screenProtection.reset).thenThrow(StateError('cleanup exploded'));
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          screenProtectionProvider.overrideWithValue(screenProtection),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(
+        container.read(authProvider).value,
+        equals(
+          const AuthSession.authenticated(
+            user: testUser,
+            accessToken: 'access-123',
+          ),
+        ),
+        reason: 'the session is genuinely alive before the logout',
+      );
+
+      await expectLater(
+        container.read(authProvider.notifier).logout(),
+        throwsA(isA<StateError>()),
+        reason:
+            'the cleanup failure must still surface — a finally that '
+            'swallowed it would hide a real fault',
+      );
+
+      // The wipe DID complete (it runs before the throwing call), so both
+      // halves of "signed out" must agree.
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'storage was wiped before the cleanup threw',
+      );
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason:
+            'the in-memory session must not survive a wipe that completed '
+            '— that disagreement is the whole finding',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b2 — mobile-security MEDIUM, audit cycle 3, 2026-09-17.
+    //
+    // The sibling above pins that a cleanup throw leaves the SESSION
+    // `Unauthenticated`. This pins the other half of that same turn: it must
+    // also leave no LIVE BEARER TOKEN behind.
+    //
+    // `_lastKnownAccessToken` / `coldStartAccessToken` used to be wiped as the
+    // try block's last two statements, i.e. AFTER the five uncaught cleanup
+    // calls. A throw from any of them skipped the wipe, and
+    // [AuthNotifier.lastKnownAccessToken] — which reads
+    // `coldStartAccessToken ?? _lastKnownAccessToken` and deliberately does
+    // NOT consult `logoutInFlight` — kept handing `AuthInterceptor` the
+    // outgoing session's token while the notifier reported `Unauthenticated`.
+    //
+    // MUTATION that reddens this and nothing else: move the two assignments
+    // back out of the `finally` (to where the `NOTE` in the `try` now stands).
+    // The sibling test above stays green, because the state flip is already in
+    // the `finally`; only this assertion falls.
+    // -----------------------------------------------------------------------
+    test('a cleanup failure AFTER the storage wipe still clears the bearer '
+        'token fallback — lastKnownAccessToken must not outlive the wipe '
+        '(mobile-security MEDIUM, 2026-09-17)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final screenProtection = _ThrowingScreenProtection();
+      when(screenProtection.reset).thenThrow(StateError('cleanup exploded'));
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          screenProtectionProvider.overrideWithValue(screenProtection),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+      expect(
+        notifier.lastKnownAccessToken,
+        equals('access-123'),
+        reason: 'the interceptor fallback is live before the logout',
+      );
+
+      await expectLater(
+        notifier.logout(),
+        throwsA(isA<StateError>()),
+        reason: 'the cleanup failure must still surface',
+      );
+
+      expect(
+        await storage.readRefreshToken(),
+        isNull,
+        reason: 'storage was wiped before the cleanup threw',
+      );
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason: 'precondition — the session is reported as over',
+      );
+      expect(
+        notifier.lastKnownAccessToken,
+        isNull,
+        reason:
+            'a session reported Unauthenticated must not still hand the '
+            'interceptor the outgoing bearer token',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2b3 — THE ORDER OF THE TWO `finally` BLOCKS (mobile-qa,
+    // 2026-09-18).
+    //
+    // `logout()`'s `finally` does two things under the same `wipedStorage`
+    // gate: it clears the bearer-token fallback, and it flips the session to
+    // `Unauthenticated`. The source comment calls the ORDER load-bearing —
+    // "ABOVE the flip, not below it… flipping to `Unauthenticated`
+    // synchronously notifies every listener, and a listener that fires a
+    // request in that turn must not find a live token still sitting in the
+    // fallback."
+    //
+    // NOTHING ENFORCED THAT. Swapping the two blocks left all 573 tests under
+    // `test/features/auth/` green (measured 2026-09-18), because every
+    // sibling assertion runs AFTER `logout()` returns, by which time both
+    // blocks have run and the two orders are indistinguishable. This is the
+    // same shape as cycle-2 finding B3 — a documented causal ordering with no
+    // gate — so it is closed the same way: by SAMPLING INSIDE the turn.
+    //
+    // The listener below is the stand-in for the real reader, `AuthInterceptor`,
+    // which calls [AuthNotifier.lastKnownAccessToken] on a request it fires in
+    // response to the session flip. It records what that reader would have
+    // seen at the instant the flip was announced.
+    //
+    // MUTATION that reddens this and nothing else: move the token-wipe block
+    // BELOW the state-flip block inside the same `finally`.
+    // -----------------------------------------------------------------------
+    test('the bearer-token fallback is already gone at the instant logout '
+        'announces Unauthenticated — a listener that fires a request in that '
+        'turn cannot pick up the outgoing token', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+      expect(
+        notifier.lastKnownAccessToken,
+        equals('access-123'),
+        reason: 'precondition — the interceptor fallback is live',
+      );
+
+      // Sampled AT NOTIFICATION TIME, never afterwards. `false` would mean
+      // the listener never saw the flip at all, which would make the
+      // assertion below vacuous — so it is checked separately.
+      bool sawFlip = false;
+      String? tokenAtFlip = 'never-sampled';
+      container.listen<AsyncValue<AuthSession>>(authProvider, (_, next) {
+        if (next.value == const AuthSession.unauthenticated()) {
+          sawFlip = true;
+          tokenAtFlip = notifier.lastKnownAccessToken;
+        }
+      });
+
+      await notifier.logout();
+
+      expect(
+        sawFlip,
+        isTrue,
+        reason:
+            'the listener must actually have observed the Unauthenticated '
+            'announcement — otherwise the token assertion below proves '
+            'nothing',
+      );
+      expect(
+        tokenAtFlip,
+        isNull,
+        reason:
+            'the wipe must run ABOVE the flip: a listener reacting to '
+            '«signed out» by firing a request must not be handed the '
+            'outgoing session bearer token',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // Test 5a2c — THE SCENARIO THAT STILL DISCRIMINATES THE `finally` GATE,
+    // added 2026-09-17 because the test above took the previous one away.
+    //
+    // `logout()`'s `finally` resets `_logoutInFlight` only when the wipe did
+    // NOT complete. The original mobile-security MEDIUM-2 fix (phase 287)
+    // replaced a `state.value is! Unauthenticated` predicate with that
+    // `wipedStorage` flag, and `salon_shell_screen_test.dart`'s
+    // `should_notWriteLastSalon_when_postWipeCleanupCallThrows` discriminated
+    // the two by exploiting the fact that a post-wipe throw left `state`
+    // stale-`Authenticated`. Moving the state flip into the `finally` (the
+    // test above) removed exactly that asymmetry: after a post-wipe throw
+    // `state` is now `Unauthenticated`, so BOTH predicates agree there and
+    // that test no longer tells them apart. Its stale precondition was updated
+    // in the same commit, with a pointer here.
+    //
+    // ONE asymmetry survives, in the opposite direction, and this is it:
+    // `logout()` on an ALREADY-unauthenticated session whose `deleteAll()`
+    // throws. The wipe did NOT complete, so the writer must be re-enabled —
+    // but `state` was `Unauthenticated` the whole time, so a `state`-gated
+    // predicate reads "already signed out", skips the reset, and WEDGES
+    // `_logoutInFlight` at `true` for the rest of the notifier's life
+    // (recoverable only by a successful `login()`, which is the phase-287
+    // flag-wedge regression this suite already knows about).
+    //
+    // Reachable in production: `RefreshInterceptor` force-logs-out on a failed
+    // token refresh and can do so after the user has already signed out;
+    // `deleteAll()` throwing is the platform-channel failure the whole
+    // `wipedStorage` design exists for.
+    // -----------------------------------------------------------------------
+    test(
+      'logout() on an ALREADY-unauthenticated session whose deleteAll() '
+      'throws still RE-ENABLES the lastSalon writer — the wipe did not '
+      'complete, so gating the finally on `state` would wedge the flag',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = _DeleteAllThrowsStorage(FakeSecureStorage());
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // No stored refresh token → the cold start resolves Unauthenticated.
+        await container.read(authProvider.future);
+        expect(
+          container.read(authProvider).value,
+          equals(const AuthSession.unauthenticated()),
+          reason:
+              'precondition: `state` is Unauthenticated BEFORE logout runs, '
+              'which is what makes a state-gated predicate misread the wipe',
+        );
+
+        final notifier = container.read(authProvider.notifier);
+        await expectLater(
+          notifier.logout(),
+          throwsA(isA<StateError>()),
+          reason: 'the deleteAll() failure must still surface',
+        );
+
+        expect(
+          notifier.logoutInFlight,
+          isFalse,
+          reason:
+              'the wipe did NOT complete, so the user may still be holding a '
+              'live session on disk and _writeLastSalon must be re-enabled. A '
+              '`state`-gated finally sees Unauthenticated here and skips the '
+              'reset, wedging the flag — that is the MEDIUM-2 regression this '
+              'case now pins on its own.',
         );
       },
     );
@@ -599,6 +1048,100 @@ void main() {
 
       verify(() => lruSpy.clear()).called(1);
     });
+
+    // Phase 347 audit (security LOW): the settlement autocomplete's keepAlive
+    // result cache is keyed by what the user TYPED, and nothing in the auth
+    // cascade reaches it (it watches no provider). Unlike the day-LRU above,
+    // an OUTCOME assertion is discriminating here: the only thing that can
+    // empty a held, never-invalidated cache instance is the `clear()` call in
+    // logout().
+    test('logout() empties the settlement search cache — the previous '
+        "account's typed terms do not survive into the next session", () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final SettlementSearchCache cache = SettlementSearchCache()
+        ..put('львів', const <Settlement>[
+          Settlement(id: 's-lviv', name: 'Львів', oblastName: 'Львівська'),
+        ]);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          settlementSearchCacheProvider.overrideWithValue(cache),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(cache.length, 1, reason: 'the typed term is cached while in');
+
+      await container.read(authProvider.notifier).logout();
+
+      expect(cache.length, 0);
+      expect(cache.get('львів'), isNull);
+    });
+
+    // Phase 352 cycle-1 audit (mobile-perf HIGH + mobile-security MEDIUM,
+    // 2026-09-26): the «Пошук» suggestion list's OWN keepAlive result cache
+    // is keyed by what the user TYPED plus the chosen place — the exact same
+    // shape as the settlement cache above, and just as unreached by the auth
+    // cascade (it watches nothing either). An OUTCOME assertion is
+    // discriminating here for the identical reason it is above: the only
+    // thing that can empty a held, never-invalidated cache instance is the
+    // `clear()` call in logout().
+    test(
+      "logout() empties the search suggestion cache — the previous account's "
+      'typed terms + chosen place do not survive into the next session',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        final LruCache<SuggestionCacheKey, List<SearchSuggestion>> cache =
+            LruCache<SuggestionCacheKey, List<SearchSuggestion>>(64)..put(
+              ('манікюр', null, null),
+              const <SearchSuggestion>[
+                SearchSuggestion(
+                  type: SearchSuggestionType.category,
+                  label: 'Манікюр',
+                  categoryKey: 'MANICURE',
+                ),
+              ],
+            );
+
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {});
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            searchSuggestionCacheProvider.overrideWithValue(cache),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await container.read(authProvider.future);
+        expect(cache.length, 1, reason: 'the typed term is cached while in');
+
+        await container.read(authProvider.notifier).logout();
+
+        expect(cache.length, 0);
+        expect(cache.get(('манікюр', null, null)), isNull);
+      },
+    );
 
     // -----------------------------------------------------------------------
     // Test 5b — Logout cascades teardown to servicesListProvider (keepAlive)
@@ -985,37 +1528,36 @@ void main() {
     // -----------------------------------------------------------------------
     // Test 10 — cold-start raw exception (non-Failure)
     // -----------------------------------------------------------------------
-    test(
-      'cold start: raw Exception (non-Failure) from repo.refresh → '
-      'Unauthenticated (caught in background task) and storage wiped',
-      () async {
-        final repo = MockAuthRepository();
-        final storage = FakeSecureStorage();
-        await storage.writeRefreshToken('stored-refresh');
+    test('cold start: raw Exception (non-Failure) from repo.refresh → '
+        'Unauthenticated (caught in background task), storage KEPT', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
 
-        // Throw a raw exception that is NOT a Failure subclass.
-        // F4 — the background restoration task has a catch-all so any
-        // non-Failure exception is treated like a failed refresh: storage
-        // is wiped and state ends up Unauthenticated. The exception must
-        // NOT bubble up to AsyncError because that would re-trigger
-        // build() on `ref.invalidate(authProvider)` and produce a redirect
-        // loop in production.
-        when(
-          () => repo.refresh('stored-refresh'),
-        ).thenThrow(Exception('format error'));
+      // Throw a raw exception that is NOT a Failure subclass.
+      // F4 — the background restoration task has a catch-all so any
+      // non-Failure exception ends Unauthenticated. Since the 2026-09-24
+      // audit (security LOW) it no longer wipes storage: a client-side
+      // format error is not the server rejecting the token (see
+      // `isAuthRejection`). The exception must
+      // NOT bubble up to AsyncError because that would re-trigger
+      // build() on `ref.invalidate(authProvider)` and produce a redirect
+      // loop in production.
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenThrow(Exception('format error'));
 
-        final container = makeContainer(repo: repo, storage: storage);
+      final container = makeContainer(repo: repo, storage: storage);
 
-        // async build() awaits repo.refresh(), catches the non-Failure exception,
-        // wipes storage, and returns Unauthenticated.
-        await container.read(authProvider.future);
+      // async build() awaits repo.refresh(), catches the non-Failure
+      // exception, keeps storage, and returns Unauthenticated.
+      await container.read(authProvider.future);
 
-        final value = container.read(authProvider);
-        expect(value, isA<AsyncData<AuthSession>>());
-        expect(value.value, equals(const AuthSession.unauthenticated()));
-        expect(await storage.readRefreshToken(), isNull);
-      },
-    );
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(value.value, equals(const AuthSession.unauthenticated()));
+      expect(await storage.readRefreshToken(), 'stored-refresh');
+    });
 
     // -----------------------------------------------------------------------
     // Test 10b — cold-start partial success: refresh OK, repo.me throws →
@@ -1092,6 +1634,144 @@ void main() {
         reason:
             'storage.deleteAll() must run when repo.me() throws on cold start',
       );
+    });
+
+    // -----------------------------------------------------------------------
+    // Audit (2026-09-24, security LOW) — only a credential REJECTION wipes the
+    // stored session on cold start. A 200 the client cannot parse (e.g. an
+    // unknown enum value in `/users/me`) must not log the user out for good.
+    // -----------------------------------------------------------------------
+    group('cold start: storage is wiped ONLY on a credential rejection', () {
+      DioException dioAt(String path, int status, {DioExceptionType? type}) {
+        final RequestOptions options = RequestOptions(path: path);
+        return DioException(
+          requestOptions: options,
+          type: type ?? DioExceptionType.badResponse,
+          response: Response<Object?>(
+            requestOptions: options,
+            statusCode: status,
+            data: '{"success":true,"data":{"citySettlementType":',
+          ),
+        );
+      }
+
+      Future<(ProviderContainer, FakeSecureStorage)> coldStart({
+        required Object meError,
+      }) async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => rotatedTokens);
+        when(() => repo.me()).thenThrow(meError);
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+        return (container, storage);
+      }
+
+      test('/users/me answers 200 with malformed JSON → the ROTATED refresh '
+          'token is KEPT (Unauthenticated in memory)', () async {
+        // What `HttpAuthRepository.me()` throws when the generated client
+        // cannot deserialize a 200: the DioException(unknown) mapped to
+        // UnknownFailure.
+        final (container, storage) = await coldStart(
+          meError: UnknownFailure(
+            cause: dioAt(
+              '/api/v1/users/me',
+              200,
+              type: DioExceptionType.unknown,
+            ),
+          ),
+        );
+
+        expect(
+          container.read(authProvider).value,
+          const AuthSession.unauthenticated(),
+        );
+        expect(
+          await storage.readRefreshToken(),
+          rotatedTokens.refreshToken,
+          reason:
+              'an unparseable 200 says nothing about the credentials — the '
+              'next cold start must be able to retry',
+        );
+      });
+
+      test(
+        'a non-Failure mapping error after a 200 also keeps the token',
+        () async {
+          final (_, storage) = await coldStart(meError: TypeError());
+          expect(await storage.readRefreshToken(), rotatedTokens.refreshToken);
+        },
+      );
+
+      // INFO-3 (Phase 348 re-audit) — a 400 is a credential rejection ONLY
+      // from `/auth/refresh`. A ValidationFailure from `/users/me` (after the
+      // refresh already succeeded and rotated the token) says nothing about
+      // the credentials, so the rotated token must survive.
+      test(
+        '/users/me answers 400 (ValidationFailure, NOT from refresh) → the '
+        'ROTATED refresh token is KEPT (Unauthenticated in memory)',
+        () async {
+          final (container, storage) = await coldStart(
+            meError: ValidationFailure(
+              fieldErrors: const <String, String>{},
+              cause: dioAt('/api/v1/users/me', 400),
+            ),
+          );
+
+          expect(
+            container.read(authProvider).value,
+            const AuthSession.unauthenticated(),
+          );
+          expect(
+            await storage.readRefreshToken(),
+            rotatedTokens.refreshToken,
+            reason:
+                'only the refresh endpoint may reject with a 400 — a 400 from '
+                '/users/me must not log the user out for good',
+          );
+        },
+      );
+
+      test('/users/me answers 401 → storage IS wiped', () async {
+        final (_, storage) = await coldStart(
+          meError: UnauthorizedFailure(cause: dioAt('/api/v1/users/me', 401)),
+        );
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('/users/me answers 403 → storage IS wiped', () async {
+        final (_, storage) = await coldStart(
+          meError: UnknownFailure(cause: dioAt('/api/v1/users/me', 403)),
+        );
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('/auth/refresh rejects the token as malformed (400) → wiped; a 5xx '
+          'from it → kept', () async {
+        Future<String?> afterRefreshError(Object error) async {
+          final repo = MockAuthRepository();
+          final storage = FakeSecureStorage();
+          await storage.writeRefreshToken('stored-refresh');
+          when(() => repo.refresh('stored-refresh')).thenThrow(error);
+          final container = makeContainer(repo: repo, storage: storage);
+          await container.read(authProvider.future);
+          return storage.readRefreshToken();
+        }
+
+        expect(
+          await afterRefreshError(
+            const ValidationFailure(fieldErrors: <String, String>{}),
+          ),
+          isNull,
+        );
+        expect(
+          await afterRefreshError(const ServerFailure(statusCode: 503)),
+          'stored-refresh',
+        );
+      });
     });
 
     // -----------------------------------------------------------------------
@@ -1610,6 +2290,49 @@ void main() {
         container.read(authProvider.notifier).lastKnownAccessToken,
         isNull,
         reason: 'a failed verify must clear both in-memory access-token caches',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // item 13 — same tolerant-persist generalisation as acceptInvite's item
+    // 8: a secure-storage write failure after a successful verifyEmail must
+    // not become an error. verifyEmail additionally calls repo.me() — stub
+    // it so the session settles rather than surfacing the unrelated
+    // Finding-1 failure path exercised above.
+    // -----------------------------------------------------------------------
+    test('item 13: verifyEmail succeeds but writeRefreshToken throws → '
+        'refreshTokenPersisted == false, session still settles as '
+        'AsyncData(Authenticated)', () async {
+      final repo = MockAuthRepository();
+      final storage = _ThrowingWriteStorage();
+
+      when(
+        () => repo.verifyEmail(
+          email: any(named: 'email'),
+          otp: any(named: 'otp'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .verifyEmail(email: 'anya@example.com', otp: '123456');
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncData<AuthSession>>());
+      expect(value.hasError, isFalse);
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+            refreshTokenPersisted: false,
+          ),
+        ),
       );
     });
   });
@@ -2172,6 +2895,420 @@ void main() {
         expect(await storage.readRefreshToken(), isNull);
       },
     );
+
+    // =========================================================================
+    // Invite-accept post-success failure design (2026-09-01) — items 8-12 of
+    // the mobile-qa test plan. The HTTP 2xx is the point of no return: once
+    // repo.acceptInvite() returns, nothing local may downgrade success into
+    // an apparent failure (item 8). Failures BEFORE that point are
+    // classified by AuthNotifier._inviteHandoffReason into a terminal
+    // InviteHandoffFailure for exactly the 3 unrecoverable cases (items
+    // 9-12) — everything else must rethrow the original Failure unchanged.
+    // =========================================================================
+
+    // -----------------------------------------------------------------------
+    // item 8 — POINT OF NO RETURN: a secure-storage write failure AFTER a
+    // successful repo.acceptInvite() must NOT become an error state.
+    //
+    // Guards the AsyncLoading(retrying:true) trap (project memory:
+    // project_asyncvalue_haserror_retrying_trap.md) — AsyncLoading can also
+    // report hasError:true mid-retry, so `!hasError` alone cannot prove a
+    // settled success. This asserts the concrete settled AsyncData TYPE.
+    // -----------------------------------------------------------------------
+    test('item 8: acceptInvite succeeds but writeRefreshToken throws → '
+        'settled state is AsyncData(Authenticated) with '
+        'refreshTokenPersisted == false, hasError == false (tolerant persist, '
+        'point of no return)', () async {
+      final repo = MockAuthRepository();
+      final storage = _ThrowingWriteStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenAnswer((_) async => (testUser, testTokens));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'invite-abc',
+            password: 'Secret1!',
+            firstName: 'Test',
+            lastName: 'User',
+            phoneNumber: '+380501234567',
+          );
+
+      final value = container.read(authProvider);
+      // Pin the concrete settled type, not `!hasError` — AsyncLoading can
+      // also report hasError:true mid-retry (see the retrying trap above).
+      expect(
+        value,
+        isA<AsyncData<AuthSession>>(),
+        reason:
+            'a tolerated storage failure must settle as AsyncData, never '
+            'AsyncError — the 2xx already happened',
+      );
+      expect(value.hasError, isFalse);
+      expect(
+        value.value,
+        equals(
+          AuthSession.authenticated(
+            user: testUser,
+            accessToken: testTokens.accessToken,
+            refreshTokenPersisted: false,
+          ),
+        ),
+        reason:
+            'refreshTokenPersisted must observably flip to false so the '
+            'tolerated failure is assertable rather than silently lost',
+      );
+    });
+
+    // -----------------------------------------------------------------------
+    // item 9 — ResponseUnusableFailure → InviteHandoffFailure(accountReady)
+    // -----------------------------------------------------------------------
+    test('item 9: acceptInvite throws ResponseUnusableFailure → AsyncError '
+        'whose error is InviteHandoffFailure(reason: accountReady)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ResponseUnusableFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncError<AuthSession>>());
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.accountReady,
+        ),
+      );
+      expect(await storage.readRefreshToken(), isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // item 10 — NetworkFailure.mayHaveReachedServer split
+    // -----------------------------------------------------------------------
+    test('item 10a: NetworkFailure(mayHaveReachedServer: true) → '
+        'InviteHandoffFailure(reason: accountMayBeReady)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const NetworkFailure(mayHaveReachedServer: true));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.accountMayBeReady,
+        ),
+      );
+    });
+
+    test(
+      'item 10b: NetworkFailure(mayHaveReachedServer: false, the default) → '
+      'stays a plain NetworkFailure, NO hand-off (offline retry stays safe)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 't',
+              password: 'p',
+              firstName: 'f',
+              lastName: 'l',
+            );
+
+        final value = container.read(authProvider);
+        expect(value.error, isA<NetworkFailure>());
+        expect(
+          value.error,
+          isNot(isA<InviteHandoffFailure>()),
+          reason:
+              'an offline user (request never reached the server) must keep '
+              'seeing plain errNetwork copy, never the "account may exist" '
+              'hand-off',
+        );
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 11 — ValidationFailure.fieldErrors emptiness split
+    // -----------------------------------------------------------------------
+    test('item 11a: ValidationFailure(fieldErrors: {}) → '
+        'InviteHandoffFailure(reason: inviteNoLongerValid)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ValidationFailure(fieldErrors: <String, String>{}));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 'spent',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.inviteNoLongerValid,
+        ),
+      );
+    });
+
+    test('item 11b: ValidationFailure with a non-empty fieldErrors map stays a '
+        'plain ValidationFailure, NO hand-off (bean-validation 400s are '
+        'ordinary form errors, not a spent-token signal)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(
+        const ValidationFailure(
+          fieldErrors: <String, String>{'phoneNumber': 'must not be blank'},
+        ),
+      );
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<ValidationFailure>().having(
+          (f) => f.fieldErrors,
+          'fieldErrors',
+          isNotEmpty,
+        ),
+      );
+      expect(value.error, isNot(isA<InviteHandoffFailure>()));
+    });
+
+    // -----------------------------------------------------------------------
+    // item 12 — ServerFailure(409) vs ServerFailure(500)
+    // -----------------------------------------------------------------------
+    test('item 12a: ServerFailure(statusCode: 409) → '
+        'InviteHandoffFailure(reason: emailAlreadyRegistered)', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const ServerFailure(statusCode: 409));
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.emailAlreadyRegistered,
+        ),
+      );
+    });
+
+    test(
+      'item 12b: ServerFailure(statusCode: 500) stays a plain ServerFailure, '
+      'NO hand-off (a transient 500 remains a normal retryable failure)',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+
+        when(
+          () => repo.acceptInvite(
+            token: any(named: 'token'),
+            password: any(named: 'password'),
+            firstName: any(named: 'firstName'),
+            lastName: any(named: 'lastName'),
+            phoneNumber: any(named: 'phoneNumber'),
+          ),
+        ).thenThrow(const ServerFailure(statusCode: 500));
+
+        final container = makeContainer(repo: repo, storage: storage);
+        await container.read(authProvider.future);
+
+        await container
+            .read(authProvider.notifier)
+            .acceptInvite(
+              token: 't',
+              password: 'p',
+              firstName: 'f',
+              lastName: 'l',
+            );
+
+        final value = container.read(authProvider);
+        expect(
+          value.error,
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 500),
+        );
+        expect(value.error, isNot(isA<InviteHandoffFailure>()));
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // item 12c — EmailAlreadyRegisteredFailure() is a SEPARATE switch arm
+    // from ServerFailure(statusCode: 409) that reaches the same
+    // emailAlreadyRegistered reason. Adjacency in the same exhaustive switch
+    // is exactly how one arm can rot while its sibling (12a) keeps a test
+    // green — this pins the EmailAlreadyRegisteredFailure() arm on its own
+    // so deleting it independently is caught.
+    // -----------------------------------------------------------------------
+    test('item 12c: EmailAlreadyRegisteredFailure() → '
+        'InviteHandoffFailure(reason: emailAlreadyRegistered) — a SEPARATE '
+        'switch arm from ServerFailure(409) (item 12a), reaching the same '
+        'reason via a different Failure type', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+
+      when(
+        () => repo.acceptInvite(
+          token: any(named: 'token'),
+          password: any(named: 'password'),
+          firstName: any(named: 'firstName'),
+          lastName: any(named: 'lastName'),
+          phoneNumber: any(named: 'phoneNumber'),
+        ),
+      ).thenThrow(const EmailAlreadyRegisteredFailure());
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      await container
+          .read(authProvider.notifier)
+          .acceptInvite(
+            token: 't',
+            password: 'p',
+            firstName: 'f',
+            lastName: 'l',
+          );
+
+      final value = container.read(authProvider);
+      expect(value, isA<AsyncError<AuthSession>>());
+      expect(
+        value.error,
+        isA<InviteHandoffFailure>().having(
+          (f) => f.reason,
+          'reason',
+          InviteHandoffReason.emailAlreadyRegistered,
+        ),
+      );
+    });
   });
 
   // =========================================================================
@@ -3028,6 +4165,49 @@ void main() {
       expect(value, isA<AsyncData<AuthSession>>());
       expect(value.value, equals(const AuthSession.unauthenticated()));
       expect(notifier.lastKnownAccessToken, isNull);
+    });
+
+    // -----------------------------------------------------------------------
+    // Phase 286 — M5-4 — should_clearLastSalon_when_userLogsOut
+    //
+    // End-to-end through the REAL logout(), not through storage.deleteAll()
+    // directly — asserted via readLastSalon() so this cannot pass by reading
+    // the fake's internal map. Mirrors M5-3: repo.logout() throws a
+    // non-Failure error and must be swallowed, but the unconditional local
+    // wipe (which clears lastSalon alongside the refresh token) still runs.
+    // -----------------------------------------------------------------------
+    test('should_clearLastSalon_when_userLogsOut — wipe survives repo.logout() '
+        'throwing, asserted through readLastSalon()', () async {
+      final repo = MockAuthRepository();
+      final backing = FakeSecureStorage();
+      await backing.writeRefreshToken('stored-refresh');
+      await backing.writeLastSalon('{"userId":"u1","salonId":"s1"}');
+      final storage = SpySecureStorage(backing);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      // Network half fails — logout() must tolerate/swallow this.
+      when(() => repo.logout()).thenThrow(const NetworkFailure());
+
+      final container = makeM5Container(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final notifier = container.read(authProvider.notifier);
+      await expectLater(notifier.logout(), completes);
+
+      verify(() => storage.deleteAll()).called(1);
+      expect(
+        await storage.readLastSalon(),
+        isNull,
+        reason:
+            'logout() must clear the last-visited-salon pointer even when '
+            'the server-side revocation call fails',
+      );
+
+      final value = container.read(authProvider);
+      expect(value.value, equals(const AuthSession.unauthenticated()));
     });
   });
 

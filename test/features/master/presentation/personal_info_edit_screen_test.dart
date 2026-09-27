@@ -673,6 +673,134 @@ void main() {
     );
     // pumpAndSettle above already drained the dwell Timer.
   });
+
+  // ===========================================================================
+  // mobile-qa (2026-09-01) — role-aware routing (`_homeRouteFor`/
+  // `_menuRouteFor`, `personal_info_edit_screen.dart:77-89`). This screen is
+  // pushed by BOTH the INDEPENDENT_MASTER hub (`/master/edit/personal`) and
+  // the SALON_MASTER one (`/staff/edit/personal`) — same widget. Only the
+  // INDEPENDENT_MASTER arm of `_homeRouteFor` was covered before this file
+  // (the save-success test above, which caches `MasterType.independentMaster`
+  // and asserts `stub-profile`); the SALON_MASTER arm of `_homeRouteFor` and
+  // BOTH arms of `_menuRouteFor` (the onBack no-pop fallback) had no test at
+  // all.
+  // ===========================================================================
+  group('role-aware routing (_homeRouteFor / _menuRouteFor)', () {
+    const salonMasterCached = Master(
+      id: 'user-2',
+      firstName: 'Ірина',
+      lastName: 'Бондар',
+      reviewCount: 0,
+      type: MasterType.salonMaster,
+    );
+
+    GoRouter buildStaffRouter() => GoRouter(
+      initialLocation: RouteNames.salonMasterEditPersonal,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.salonMasterEditPersonal,
+          pageBuilder: (_, _) =>
+              const NoTransitionPage<void>(child: PersonalInfoEditScreen()),
+        ),
+        GoRoute(
+          path: RouteNames.salonMasterProfile,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.salonMasterSettings,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-staff-settings'))),
+          ),
+        ),
+      ],
+    );
+
+    testWidgets('_homeRouteFor(salonMaster): save success navigates to '
+        'salonMasterProfile, NOT masterProfile', (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+
+      await tester.pumpRoutedApp(
+        buildStaffRouter(),
+        overrides: _overrides(repo, master: salonMasterCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(_field('field-firstName'), 'Марія');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('stub-staff-profile')),
+        findsOneWidget,
+        reason:
+            'MasterType.salonMaster must resolve _homeRouteFor to '
+            'RouteNames.salonMasterProfile (/staff/profile)',
+      );
+    });
+
+    testWidgets(
+      '_menuRouteFor(salonMaster): onBack with no prior history goes to '
+      'salonMasterSettings, NOT masterMenu',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          buildStaffRouter(),
+          overrides: _overrides(repo, master: salonMasterCached),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-back-personal')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('stub-staff-settings')),
+          findsOneWidget,
+          reason:
+              'canPop is false at the root of this router — onBack must '
+              'context.go(_menuRouteFor(cached.type)), which for '
+              'MasterType.salonMaster is RouteNames.salonMasterSettings '
+              '(/staff/settings), not the INDEPENDENT_MASTER default '
+              'masterMenu',
+        );
+      },
+    );
+
+    testWidgets(
+      '_menuRouteFor(independentMaster): onBack with no prior history goes '
+      'to masterMenu — the default arm is unchanged',
+      (tester) async {
+        final GoRouter router = GoRouter(
+          initialLocation: RouteNames.masterEditPersonal,
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.masterEditPersonal,
+              pageBuilder: (_, _) =>
+                  const NoTransitionPage<void>(child: PersonalInfoEditScreen()),
+            ),
+            GoRoute(
+              path: RouteNames.masterMenu,
+              pageBuilder: (_, _) => const NoTransitionPage<void>(
+                child: Scaffold(body: SizedBox(key: Key('stub-menu'))),
+              ),
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _overrides(repo));
+        await tester.pump();
+        await tester.pump();
+
+        await tester.tap(find.byKey(const Key('btn-back-personal')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-menu')), findsOneWidget);
+      },
+    );
+  });
 }
 
 /// Watches [masterProfileProvider] and records each emission so a test can

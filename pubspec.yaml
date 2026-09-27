@@ -193,6 +193,13 @@ dev_dependencies:
   # When golden tests are needed, use Flutter's built-in matchesGoldenFile or the alchemist package.
   mocktail: ^1.0.4
 
+  # Phase 266 audit cycle 2 — fakes a Timer's clock so
+  # salon_master_coverage_notifier_test.dart can assert the cooldown-expiry
+  # Timer fires (and clears retryCooldownUntil) without a real 3-second wait.
+  # Already a transitive dep (via package:test); declared here for the direct
+  # import, satisfying the depend_on_referenced_packages lint CI runs.
+  fake_async: ^1.3.3
+
   # In-memory filesystem for the shared media-loader tests: FakeMediaCacheManager
   # yields a FileInfo backed by a MemoryFileSystem file so the "loaded" state
   # decodes real bytes without touching disk. Already a transitive dep of

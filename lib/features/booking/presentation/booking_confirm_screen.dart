@@ -102,6 +102,7 @@ import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -356,45 +357,76 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
         ref.invalidate(bookingDetailProvider(rescheduleId));
         ref.invalidate(myBookingsProvider(BookingTab.upcoming));
         ref.invalidate(nextAppointmentProvider);
-        if (rescheduleAppointmentId != null) {
-          // Track 30.x per-item VISIT reschedule only — `_onReschedule`
-          // forwards `appointmentId` for BOTH the client and provider
-          // viewers, so a PROVIDER moving one service of their own visit
-          // must also drop the master's own «Мої записи» day-calendar cache
-          // for the affected date(s), or it keeps showing the item at its
-          // OLD slot until the ≤3-day keepAlive LRU evicts (mobile-perf
-          // CRITICAL). Scoped to the NEW day (`widget.args.startAt`) and, if
-          // resolvable, the OLD day (`oldStartAt`, captured above BEFORE the
-          // write) — a move across midnight changes both. Mirrors
-          // `booking_calendar_invalidation.dart`'s per-date-scoped precedent,
-          // NEVER the bare-family `ref.invalidate(bookingsDayProvider)` that
-          // file's own header documents as a mobile-perf MEDIUM fix (2026-07-
-          // 26): the whole family refetches every day currently cached —
-          // including days this write never touched — defeating the bounded
-          // 3-day keepAlive LRU's "settled revisit costs nothing" guarantee.
-          // Invalidating a family MEMBER with no live listener is still a
-          // documented no-op, so this is safe to run unconditionally even for
-          // a CLIENT viewer who has no day-calendar screen at all.
-          //
-          // FIX A (mobile-debugger, this session) — a bare `ref.invalidate`
-          // loop here used to be able to crash `bookings_discovery_view.dart`
-          // ("Bad state: ProviderSubscription.read on a subscription that was
-          // closed") or leave its skeleton stuck forever, whenever the
-          // invalidated day was pinned-but-unwatched. See
-          // `invalidateBookingsDayAfterAppointmentItemReschedule`'s doc in
-          // `booking_calendar_invalidation.dart` for the full mechanism and
-          // fix — extracted there (not left inline) so the exact same
-          // invalidation this call site performs is independently testable
-          // and reusable, mirroring that file's other "one fan-out point"
-          // helpers.
-          invalidateBookingsDayAfterAppointmentItemReschedule(
-            ref,
-            affectedDays: <DateTime>{
-              dateOnly(toBeauticaTime(widget.args.startAt)),
-              if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
-            },
-          );
-        }
+        // CALENDAR FAN-OUT — BOTH RESCHEDULE ARMS, not just the per-item one
+        // (2026-09-19, mobile-perf LOW, pre-existing). `_onReschedule`
+        // forwards `appointmentId` for BOTH the client and provider viewers,
+        // so a PROVIDER moving a service must also drop the master's own
+        // «Мої записи» day-calendar cache for the affected date(s), or it
+        // keeps showing the item at its OLD slot until the ≤3-day keepAlive
+        // LRU evicts (mobile-perf CRITICAL). Scoped to the NEW day
+        // (`widget.args.startAt`) and, if resolvable, the OLD day
+        // (`oldStartAt`, captured above BEFORE the write) — a move across
+        // midnight changes both. Mirrors
+        // `booking_calendar_invalidation.dart`'s per-date-scoped precedent,
+        // NEVER the bare-family `ref.invalidate(bookingsDayProvider)` that
+        // file's own header documents as a mobile-perf MEDIUM fix (2026-07-
+        // 26): the whole family refetches every day currently cached —
+        // including days this write never touched — defeating the bounded
+        // 3-day keepAlive LRU's "settled revisit costs nothing" guarantee.
+        // Invalidating a family MEMBER with no live listener is still a
+        // documented no-op, so this is safe to run unconditionally even for
+        // a CLIENT viewer who has no day-calendar screen at all.
+        //
+        // WHY IT IS NO LONGER GATED ON `rescheduleAppointmentId != null`:
+        // this call used to sit inside that `if`, so ONLY a track-30.x
+        // per-item VISIT reschedule dropped the two dot-set singletons.
+        // `Booking.appointmentId` is NULLABLE (`booking.dart:242`), so a
+        // legacy single-service booking — no appointment wrapper — rescheduled
+        // from the salon «Записи» board took the whole-booking arm and left
+        // BOTH `bookedDaysProvider` and `salonBookedDaysProvider` serving the
+        // pre-move dot set for up to their full thirty-minute keepAlive TTL,
+        // even though the write moved the booking exactly the same way. The
+        // gap was never salon-only: the MASTER-side `bookedDaysProvider` rail
+        // was stale on that arm too, on the independent-master mount as much
+        // as the salon board. The two arms differ only in WHICH endpoint moves
+        // the booking; what goes stale afterwards is identical, which is why
+        // the fan-out now hangs off the reschedule as a whole — the same
+        // "one answer per helper" rule `booking_calendar_invalidation.dart`
+        // argues at length. The CLIENT path reaches this too and behaves
+        // correctly by construction: the `bookingsDayProvider` members were
+        // never built for a client (documented no-op), `bookedDaysProvider`
+        // has no client listener so its invalidate is free, and
+        // `rescheduleSalonId` is `null` there, so no salon member is touched.
+        //
+        // FIX A (mobile-debugger, this session) — a bare `ref.invalidate`
+        // loop here used to be able to crash `bookings_discovery_view.dart`
+        // ("Bad state: ProviderSubscription.read on a subscription that was
+        // closed") or leave its skeleton stuck forever, whenever the
+        // invalidated day was pinned-but-unwatched. See
+        // `invalidateBookingsDayAfterAppointmentItemReschedule`'s doc in
+        // `booking_calendar_invalidation.dart` for the full mechanism and
+        // fix — extracted there (not left inline) so the exact same
+        // invalidation this call site performs is independently testable
+        // and reusable, mirroring that file's other "one fan-out point"
+        // helpers.
+        invalidateBookingsDayAfterAppointmentItemReschedule(
+          ref,
+          affectedDays: <DateTime>{
+            dateOnly(toBeauticaTime(widget.args.startAt)),
+            if (oldStartAt != null) dateOnly(toBeauticaTime(oldStartAt)),
+          },
+          // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — non-null only
+          // when this reschedule was started from a salon «Записи» board.
+          // Threaded independently of `rescheduleAppointmentId`
+          // (`reschedule_navigation.dart:276` vs `:267`), which is exactly
+          // how the whole-booking arm could carry a salon scope and still
+          // skip this call.
+          // ONE member invalidate covers BOTH days above: `salonBookedDays`
+          // is not keyed by date, it returns the whole ±180-day set from a
+          // single request (see the helper's own bullet). `null` on the
+          // CLIENT and independent-master paths.
+          salonId: widget.args.rescheduleSalonId,
+        );
       } else if (guest != null) {
         // Phase 262 D2/D3 — the WALK-IN branch. An `else if` hanging off the
         // reschedule `if` above, so it is structurally impossible for this
@@ -549,6 +581,31 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           // every non-reschedule-provider path, same as those args fields.
           rescheduleClientName: widget.args.rescheduleClientName,
           rescheduleClientPhone: widget.args.rescheduleClientPhone,
+          // PROVIDER-VIEWER CALENDAR GATE (2026-09-18) — seeded from the
+          // ALREADY-THREADED `hideMasterIdentity`, which
+          // `reschedule_navigation.dart` derives from
+          // `bookingViewerRoleProvider.isProvider` INTERSECTED with the
+          // viewer's relation to the booking being moved (a provider who is
+          // that booking's own `clientId` is acting as a CLIENT and resolves
+          // `false`); no second read, and no new signal invented. The done
+          // screen uses it to suppress «Додати в календар» for a provider who
+          // just moved someone else's booking. A CLIENT rescheduling their own
+          // booking resolves `false` here (as it always has) and KEEPS the
+          // button — a locked product decision, and the reason this is NOT
+          // gated on `isReschedule`. So does a salon owner/admin/master
+          // rescheduling a booking they made for THEMSELVES as a customer
+          // (mobile-security LOW, 2026-09-18) — merely HOLDING a provider role
+          // is not the condition; acting in provider capacity is. The
+          // walk-in CREATE path (`walk_in_service_step_screen.dart`) hard-codes
+          // `hideMasterIdentity: true` and is untouched by that intersection —
+          // there the master genuinely IS the provider.
+          isProviderViewer: widget.args.hideMasterIdentity,
+          // VENUE ADDRESS (2026-09-18) — forwarded verbatim from the picker
+          // chain; `null` on every create path, so those render unchanged.
+          venueStreet: widget.args.venueStreet,
+          venueBuildingNo: widget.args.venueBuildingNo,
+          venueCity: widget.args.venueCity,
+          venueLocationNote: widget.args.venueLocationNote,
         ),
       );
     } on Failure catch (failure) {
@@ -776,10 +833,14 @@ class _ConfirmBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // Same short settlement label as the salon address lines («с. Іванівка»,
+    // no oblast); the bare city when the read carries no settlement type.
     final String? addressLine = formatStreetCityLine(
       street: master.street,
       buildingNo: master.buildingNo,
-      city: master.city,
+      city:
+          savedSettlementShortLabel(l10n, master.savedSettlement) ??
+          master.city,
     );
     final String? addressDetail =
         (master.locationNote?.trim().isNotEmpty ?? false)

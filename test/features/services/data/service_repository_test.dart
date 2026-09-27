@@ -13,16 +13,52 @@
 //   5.  deactivate()     — correct API method called; idempotent (2× → no throw)
 //   6.  update()         — happy path; PATCH issued, domain object returned (no second GET)
 //   7.  empty masterId   — listMyServices() throws UnauthorizedFailure without network call
+//   7b. _assertAuthenticated D4 matrix (phase 314) — FIVE named rows over the
+//       (ServiceTarget, masterId-empty) combinations: the phase doc's four,
+//       plus row 4b, which splits the salon arm's `salonId.isEmpty ||
+//       masterId.isEmpty` into two independently load-bearing halves.
+//       Mutation-verified 2026-09-09: reducing the salon arm to
+//       `masterId.isEmpty` reddens row 4 ALONE, reducing it to
+//       `salonId.isEmpty` reddens row 4b ALONE, and neutering the null arm
+//       reddens row 2 ALONE — no row masks another. A single "salon mode does
+//       not throw" test would hide row 2, the independent-master arm a careless
+//       "just make salon mode work" refactor deletes.
+//
+//       Row 5 — "salon target on an UNAUTHENTICATED session" — deliberately
+//       does NOT live here. HttpServiceRepository holds no session object, and
+//       row 3 exists precisely to allow `_masterId` to be empty in salon mode,
+//       so the case is only expressible where target and session meet: see
+//       `service_repository_provider_test.dart`'s `row 5`. That row is LIVE —
+//       unskipped and green since the phase-314 audit pass landed the
+//       `sessionUserId` readiness predicate on the salon arm (D4 revision). Do
+//       not read it as an inert placeholder.
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+/// The path segments Dio ACTUALLY puts on the wire for [rawPath].
+///
+/// Dio sends `RequestOptions.uri`, i.e. `Uri.parse(baseUrl + path)
+/// .normalizePath()` (`dio-5.9.2/lib/src/options.dart:642`) — NOT the string
+/// handed to `Dio.delete/get/post`. `normalizePath` REMOVES dot-segments
+/// (RFC 3986 §5.2.4) and `Uri.encodeComponent` does not escape `.`, so a
+/// corpus asserted against the raw argument string is structurally incapable
+/// of failing on a bare `..` (mobile-security S2, phase-316 audit cycle 1).
+/// Note [Uri.pathSegments] DECODES, so an injected value is compared verbatim
+/// — what is being pinned is that it is ONE element, not that it looks
+/// encoded.
+List<String> _wireSegments(String rawPath) =>
+    Uri.parse('http://localhost:8080$rawPath').normalizePath().pathSegments;
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +69,11 @@ class _MockCategoryRequestControllerApi extends Mock
 
 class _MockServiceCatalogControllerApi extends Mock
     implements ServiceCatalogControllerApi {}
+
+/// Only exercised by the phase 315 D1 salon-target read-dispatch group below
+/// — every other test in this file uses a real `Dio()` because it never
+/// leaves the generated-client (mocked `serviceApi`) path.
+class _MockDio extends Mock implements Dio {}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -298,6 +339,312 @@ void main() {
         () => serviceApi.getMasterServices(masterId: any(named: 'masterId')),
       );
     });
+  });
+
+  // ── Phase 315 D1 — listMyServices() salon-target dispatch ─────────────────
+  //
+  // Read dispatch: a `null` target hits the owner endpoint via the generated
+  // client (already pinned above); a SalonMasterTarget hits the raw-Dio
+  // salon-scoped GET. Assert the URI the fake Dio actually SAW, never the
+  // response payload — a mapper test passes on either path
+  // (`project_widget_field_assertion_is_vacuous`).
+
+  group('listMyServices — salon-target dispatch (phase 315 D1)', () {
+    late _MockDio mockDio;
+
+    setUp(() {
+      mockDio = _MockDio();
+    });
+
+    HttpServiceRepository salonRepo({
+      String salonId = 'salon-row-uuid',
+      String masterId = 'master-row-uuid',
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: mockDio,
+      masterId: '',
+      target: SalonMasterTarget(salonId: salonId, masterId: masterId),
+      sessionUserId: 'user-row-uuid',
+    );
+
+    test(
+      'null target — listMyServices() hits the owner endpoint, NEVER the raw '
+      'Dio (the byte-identical-to-today branch)',
+      () async {
+        when(
+          () => serviceApi.getMyServices(),
+        ).thenAnswer((_) async => _listResponse(const []));
+
+        final result = await repository.listMyServices();
+
+        expect(result, isEmpty);
+        verify(() => serviceApi.getMyServices()).called(1);
+      },
+    );
+
+    test(
+      'SalonMasterTarget — GETs /api/v1/salons/{salonId}/masters/{masterId}/services',
+      () async {
+        String? capturedPath;
+        when(() => mockDio.get<Object?>(any())).thenAnswer((invocation) async {
+          capturedPath = invocation.positionalArguments[0] as String;
+          return Response<Object?>(
+            requestOptions: RequestOptions(path: capturedPath!),
+            statusCode: 200,
+            data: <String, Object?>{'success': true, 'data': <Object?>[]},
+          );
+        });
+
+        final result = await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).listMyServices();
+
+        expect(result, isEmpty);
+        expect(
+          capturedPath,
+          '/api/v1/salons/salon-abc/masters/master-xyz/services',
+        );
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test('SalonMasterTarget — masterId is sent VERBATIM even when it is a '
+        'user-id-shaped UUID (no re-derivation from the session; resolving the '
+        'id kind is phase 317\'s job)', () async {
+      const userIdShaped = '11111111-2222-3333-4444-555555555555';
+      String? capturedPath;
+      when(() => mockDio.get<Object?>(any())).thenAnswer((invocation) async {
+        capturedPath = invocation.positionalArguments[0] as String;
+        return Response<Object?>(
+          requestOptions: RequestOptions(path: capturedPath!),
+          statusCode: 200,
+          data: <String, Object?>{'success': true, 'data': <Object?>[]},
+        );
+      });
+
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: userIdShaped,
+      ).listMyServices();
+
+      expect(
+        capturedPath,
+        '/api/v1/salons/salon-abc/masters/$userIdShaped/services',
+        reason:
+            'this layer is a pass-through — a future "helpful" '
+            'normalisation must be caught here',
+      );
+    });
+
+    test(
+      'SalonMasterTarget — a populated response maps to domain objects',
+      () async {
+        when(() => mockDio.get<Object?>(any())).thenAnswer(
+          (_) async => Response<Object?>(
+            requestOptions: RequestOptions(
+              path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+            ),
+            statusCode: 200,
+            data: <String, Object?>{
+              'success': true,
+              'data': <Map<String, Object?>>[
+                <String, Object?>{
+                  'id': 'svc-001',
+                  'masterId': 'master-xyz',
+                  'serviceDefinition': <String, Object?>{
+                    'id': 'def-001',
+                    'name': 'Манікюр',
+                    'baseDurationMinutes': 60,
+                    'priceType': 'FIXED',
+                    'priceMin': 500,
+                    'priceDisplay': '500 ₴',
+                    'isActive': true,
+                  },
+                  'isActive': true,
+                },
+              ],
+            },
+          ),
+        );
+
+        final result = await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).listMyServices();
+
+        expect(result, hasLength(1));
+        expect(result.first.name, 'Манікюр');
+        expect(result.first.priceMin, 500.0);
+      },
+    );
+
+    test(
+      'SalonMasterTarget — connectionError maps to NetworkFailure through the '
+      'shared mapper',
+      () async {
+        when(() => mockDio.get<Object?>(any())).thenThrow(
+          DioException(
+            requestOptions: RequestOptions(
+              path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+            ),
+            type: DioExceptionType.connectionError,
+          ),
+        );
+
+        await expectLater(
+          salonRepo(
+            salonId: 'salon-abc',
+            masterId: 'master-xyz',
+          ).listMyServices(),
+          throwsA(isA<NetworkFailure>()),
+        );
+      },
+    );
+
+    // ── mobile-security finding 1/2 (phase-315 audit-fix cycle 1) ──────────
+    //
+    // [t.salonId] / [t.masterId] are interpolated raw into this path (no
+    // generated-client encoding, unlike every other salon/master path param
+    // in this codebase). A value containing `/`, `..`, `?`, or `#` could
+    // silently retarget this request on the authenticated [_dio] — the one
+    // that carries the bearer token. These pin the SHAPE of the resulting
+    // path (exactly the intended segments, no extra one carved out by an
+    // unencoded separator), not merely "the string changed" — a broken
+    // re-implementation that still mangles the URL differently would still
+    // pass a weaker assertion.
+    const pathInjections = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+      // The deliberate near-miss (mobile-security S2): CONTAINS dot-segments,
+      // but its separators encode to %2F and `normalizePath` splits on
+      // literal `/` only — so it must still fly, as ONE segment. `'../evil'`
+      // above is NOT this case: it encodes to `..%2Fevil`. Neither of them is
+      // a BARE `..`, which is the input that actually collapses the path and
+      // which `_pathSegment` now rejects outright (see the reject rows below
+      // and `service_repository_contract_test.dart`).
+      'a/../../b',
+    ];
+
+    // Bare dot-segments survive `Uri.encodeComponent` verbatim and are eaten
+    // by dio's `normalizePath()` — `_pathSegment` REJECTS them rather than
+    // sanitising, so no request is issued at all.
+    const pathRejections = <String>['..', '.'];
+
+    for (final injected in pathRejections) {
+      test(
+        'SalonMasterTarget — a masterId of "$injected" is REJECTED and NO GET '
+        'is issued: encoding leaves it verbatim and dio normalizePath() would '
+        'then delete/collapse its segment',
+        () async {
+          when(() => mockDio.get<Object?>(any())).thenAnswer(
+            (_) async => Response<Object?>(
+              requestOptions: RequestOptions(path: '/'),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            ),
+          );
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: injected,
+            ).listMyServices(),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.get<Object?>(any()));
+        },
+      );
+    }
+
+    test(
+      'SalonMasterTarget — a salonId containing a path-significant '
+      'character is percent-encoded, never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          String? capturedPath;
+          when(() => mockDio.get<Object?>(any())).thenAnswer((
+            invocation,
+          ) async {
+            capturedPath = invocation.positionalArguments[0] as String;
+            return Response<Object?>(
+              requestOptions: RequestOptions(path: capturedPath!),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            );
+          });
+
+          await salonRepo(
+            salonId: injected,
+            masterId: 'master-xyz',
+          ).listMyServices();
+
+          final segments = _wireSegments(capturedPath!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              injected,
+              'masters',
+              'master-xyz',
+              'services',
+            ],
+            reason:
+                'injected salonId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test(
+      'SalonMasterTarget — a masterId containing a path-significant '
+      'character is percent-encoded, never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          String? capturedPath;
+          when(() => mockDio.get<Object?>(any())).thenAnswer((
+            invocation,
+          ) async {
+            capturedPath = invocation.positionalArguments[0] as String;
+            return Response<Object?>(
+              requestOptions: RequestOptions(path: capturedPath!),
+              statusCode: 200,
+              data: <String, Object?>{'success': true, 'data': <Object?>[]},
+            );
+          });
+
+          await salonRepo(
+            salonId: 'salon-abc',
+            masterId: injected,
+          ).listMyServices();
+
+          final segments = _wireSegments(capturedPath!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              'salon-abc',
+              'masters',
+              injected,
+              'services',
+            ],
+            reason:
+                'injected masterId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
   });
 
   // ── getMyService — list round-trip + filter + failure mapping ───────────────
@@ -742,6 +1089,615 @@ void main() {
     });
   });
 
+  // ── _mapServiceWriteException — the 429 branch, on ALL THREE writes ────────
+  //
+  // 2026-09-13 audit (M4). `_mapServiceWriteException`'s
+  // `if (statusCode == 429) return _rateLimited(e);` line
+  // (`service_repository.dart:929`) was covered by exactly ZERO tests for the
+  // three writes that actually route through it. Both pre-existing 429 tests
+  // — this file's "429 → ServiceRateLimitedFailure (shares the single-write
+  // bucket)" row in the salon-deactivate group, and
+  // `service_repository_contract_test.dart:894` — drive the salon UNASSIGN
+  // path, which is mapped by a DIFFERENT function. Deleting that one line left
+  // both of them green.
+  //
+  // MUTATION-VERIFIED: with `if (statusCode == 429) return _rateLimited(e);`
+  // deleted from `_mapServiceWriteException`, all three rows below go RED
+  // (each falls through to `_mapDioException` and yields a generic
+  // ServerFailure) while every other test in the repository suites stays
+  // green.
+  //
+  // The 429 bucket is per-master and shared by every single-service write, so
+  // an operator who trips it on `create` must see the same friendly
+  // "slow down" copy as one who trips it on `update` or `deactivate` — a
+  // generic ServerFailure reads as "the server is broken", which is wrong and
+  // unactionable.
+  group('_mapServiceWriteException — 429 on every write path', () {
+    DioException rateLimited(String path) => DioException(
+      requestOptions: RequestOptions(path: path),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(path: path),
+        statusCode: 429,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test(
+      'create → ServiceRateLimitedFailure, never a generic ServerFailure',
+      () async {
+        when(
+          () => serviceApi.addIndependentMasterService(
+            createServiceDefinitionRequest: any(
+              named: 'createServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(rateLimited('/api/v1/independent-masters/me/services'));
+
+        await expectLater(
+          repository.create(
+            const MasterServiceCreate(
+              name: 'Манікюр',
+              durationMinutes: 60,
+              priceType: ServicePriceType.fixed,
+              price: 500,
+              category: 'MANICURE',
+              serviceTypeId: _serviceTypeId,
+            ),
+          ),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    test(
+      'update → ServiceRateLimitedFailure, never a generic ServerFailure',
+      () async {
+        when(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: _serviceDefId,
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        ).thenThrow(rateLimited('/api/v1/services/$_serviceDefId'));
+
+        await expectLater(
+          repository.update(
+            _serviceDefId,
+            const MasterServiceUpdate(
+              name: 'Манікюр Оновлений',
+              durationMinutes: 75,
+              priceType: ServicePriceType.fixed,
+              price: 600,
+            ),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    test('deactivate with a NULL target (the INDEPENDENT_MASTER branch, which '
+        'goes through the generated client and this mapper — not the salon '
+        'raw-Dio unassign) → ServiceRateLimitedFailure', () async {
+      when(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).thenThrow(rateLimited('/api/v1/services/$_serviceDefId'));
+
+      await expectLater(
+        repository.deactivate(_serviceDefId),
+        throwsA(isA<ServiceRateLimitedFailure>()),
+      );
+    });
+  });
+
+  // ── 5b. deactivate — salon-target dispatch (phase 316 D1) ───────────────────
+  //
+  // Mirrors the "listMyServices — salon-target dispatch (phase 315 D1)" group
+  // above: null target keeps using the generated client (already pinned in
+  // the `deactivate` group above, byte-identical); a SalonMasterTarget hits
+  // the raw-Dio salon-scoped DELETE. Assert the URI the fake Dio actually
+  // SAW, never a mocked success payload — a mapper test passes on either path
+  // (`project_widget_field_assertion_is_vacuous`).
+
+  group('deactivate — salon-target dispatch (phase 316 D1)', () {
+    late _MockDio mockDio;
+
+    setUp(() {
+      mockDio = _MockDio();
+    });
+
+    HttpServiceRepository salonRepo({
+      String salonId = 'salon-row-uuid',
+      String masterId = 'master-row-uuid',
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: mockDio,
+      masterId: '',
+      target: SalonMasterTarget(salonId: salonId, masterId: masterId),
+      sessionUserId: 'user-row-uuid',
+    );
+
+    /// Stubs [mockDio.delete] to succeed with [statusCode] and returns a
+    /// getter for the path the fake Dio actually saw.
+    String? Function() stubDelete({int statusCode = 204}) {
+      String? capturedPath;
+      when(() => mockDio.delete<Object?>(any())).thenAnswer((invocation) async {
+        capturedPath = invocation.positionalArguments[0] as String;
+        return Response<Object?>(
+          requestOptions: RequestOptions(path: capturedPath!),
+          statusCode: statusCode,
+        );
+      });
+      return () => capturedPath;
+    }
+
+    test('null target — deactivate() hits the generated client, NEVER the raw '
+        'Dio (the byte-identical-to-today branch)', () async {
+      when(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).thenAnswer(
+        (_) async => Response<void>(
+          requestOptions: RequestOptions(
+            path: '/api/v1/services/$_serviceDefId',
+          ),
+          statusCode: 200,
+        ),
+      );
+
+      await repository.deactivate(_serviceDefId);
+
+      verify(
+        () =>
+            serviceApi.deactivateServiceDefinition(serviceDefId: _serviceDefId),
+      ).called(1);
+      verifyNever(() => mockDio.delete<Object?>(any()));
+    });
+
+    test('SalonMasterTarget — DELETEs '
+        '/api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId}, '
+        'NEVER DELETE /api/v1/services/{serviceDefId}', () async {
+      final capturedPath = stubDelete();
+
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: 'master-xyz',
+      ).deactivate(_serviceDefId);
+
+      expect(
+        capturedPath(),
+        '/api/v1/salons/salon-abc/masters/master-xyz/services/$_serviceDefId',
+      );
+      verifyNever(
+        () => serviceApi.deactivateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+        ),
+      );
+    });
+
+    test('SalonMasterTarget — the id sent is the DEFINITION id, NOT the '
+        'assignment id (differing-ids fixture: $_serviceDefId vs $_serviceId — '
+        'with equal ids this assertion would pass on either, which is exactly '
+        'how this bug ships)', () async {
+      final capturedPath = stubDelete();
+
+      // Mirrors `service_edit_screen.dart:115-156`, which passes
+      // `service.serviceDefId` — never `service.id`.
+      await salonRepo(
+        salonId: 'salon-abc',
+        masterId: 'master-xyz',
+      ).deactivate(_serviceDefId);
+
+      expect(capturedPath(), endsWith('/services/$_serviceDefId'));
+      expect(
+        capturedPath(),
+        isNot(contains(_serviceId)),
+        reason: 'the assignment id must never appear in the unassign path',
+      );
+    });
+
+    // ── Status mapping (salon branch) — phase 316 D2 ───────────────────────
+    //
+    // Five NAMED rows: a single "non-2xx throws" test would hide the two
+    // that are handled DIFFERENTLY upstream (409, 429) from the three that
+    // fall through to the shared mapper unchanged (204, 404, 403).
+
+    DioException badResponse(int status) => DioException(
+      requestOptions: RequestOptions(
+        path:
+            '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+            '$_serviceDefId',
+      ),
+      response: Response<dynamic>(
+        requestOptions: RequestOptions(
+          path:
+              '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+              '$_serviceDefId',
+        ),
+        statusCode: status,
+      ),
+      type: DioExceptionType.badResponse,
+    );
+
+    test('204 → completes normally', () async {
+      stubDelete(statusCode: 204);
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        completes,
+      );
+    });
+
+    test('409 → ServiceUnassignBlockedFailure (future CONFIRMED bookings block '
+        'the unassign; NOTHING written)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(409));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(isA<ServiceUnassignBlockedFailure>()),
+      );
+    });
+
+    test('404 → NotFoundFailure (no active assignment for this pair — a '
+        'second tap after a stale-list race)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(404));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(isA<NotFoundFailure>()),
+      );
+    });
+
+    test('403 → falls through to the shared mapper with NO special handling '
+        '(D2 — the route guard makes this unreachable)', () async {
+      when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(403));
+
+      await expectLater(
+        salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(_serviceDefId),
+        throwsA(
+          isA<ServerFailure>().having((f) => f.statusCode, 'statusCode', 403),
+        ),
+      );
+    });
+
+    test(
+      '429 → ServiceRateLimitedFailure (shares the single-write bucket)',
+      () async {
+        when(() => mockDio.delete<Object?>(any())).thenThrow(badResponse(429));
+
+        await expectLater(
+          salonRepo(
+            salonId: 'salon-abc',
+            masterId: 'master-xyz',
+          ).deactivate(_serviceDefId),
+          throwsA(isA<ServiceRateLimitedFailure>()),
+        );
+      },
+    );
+
+    // ── Encoding — every segment, mirroring phase 315's list/bulk precedent ──
+
+    const pathInjections = <String>[
+      'a/b',
+      '../evil',
+      'x?y=1',
+      'z#frag',
+      '%2Falready-encoded',
+      // The deliberate near-miss (mobile-security S2): CONTAINS dot-segments,
+      // but its separators encode to %2F and `normalizePath` splits on
+      // literal `/` only — so it must still fly, as ONE segment. `'../evil'`
+      // above is NOT this case: it encodes to `..%2Fevil`. Neither of them is
+      // a BARE `..`, which is the input that actually collapses the path and
+      // which `_pathSegment` now rejects outright (see the reject rows below
+      // and `service_repository_contract_test.dart`).
+      'a/../../b',
+    ];
+
+    // Bare dot-segments survive `Uri.encodeComponent` verbatim and are eaten
+    // by dio's `normalizePath()` — `_pathSegment` REJECTS them rather than
+    // sanitising, so no request is issued at all.
+    const pathRejections = <String>['..', '.'];
+
+    for (final injected in pathRejections) {
+      test(
+        'a masterId of "$injected" is REJECTED and NO DELETE is issued',
+        () async {
+          stubDelete();
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: injected,
+            ).deactivate(_serviceDefId),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.delete<Object?>(any()));
+        },
+      );
+
+      test(
+        'a serviceDefId of "$injected" is REJECTED and NO DELETE is issued — '
+        'unlike salonId/masterId it has NO _assertAuthenticated guard behind '
+        'it, so this is the only thing between it and the wire',
+        () async {
+          stubDelete();
+
+          await expectLater(
+            salonRepo(
+              salonId: 'salon-abc',
+              masterId: 'master-xyz',
+            ).deactivate(injected),
+            throwsA(isA<UnknownFailure>()),
+          );
+          verifyNever(() => mockDio.delete<Object?>(any()));
+        },
+      );
+    }
+
+    test(
+      'a salonId containing a path-significant character is percent-encoded, '
+      'never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          final capturedPath = stubDelete();
+
+          await salonRepo(
+            salonId: injected,
+            masterId: 'master-xyz',
+          ).deactivate(_serviceDefId);
+
+          final segments = _wireSegments(capturedPath()!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              injected,
+              'masters',
+              'master-xyz',
+              'services',
+              _serviceDefId,
+            ],
+            reason:
+                'injected salonId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test(
+      'a masterId containing a path-significant character is percent-encoded, '
+      'never widening the path shape',
+      () async {
+        for (final injected in pathInjections) {
+          final capturedPath = stubDelete();
+
+          await salonRepo(
+            salonId: 'salon-abc',
+            masterId: injected,
+          ).deactivate(_serviceDefId);
+
+          final segments = _wireSegments(capturedPath()!);
+          expect(
+            segments,
+            <String>[
+              'api',
+              'v1',
+              'salons',
+              'salon-abc',
+              'masters',
+              injected,
+              'services',
+              _serviceDefId,
+            ],
+            reason:
+                'injected masterId "$injected" must land as ONE encoded '
+                'segment, not create/shift a segment boundary',
+          );
+        }
+      },
+    );
+
+    test('a serviceDefId containing a path-significant character is '
+        'percent-encoded, never widening the path shape — it is '
+        'CALLER-SUPPLIED too', () async {
+      for (final injected in pathInjections) {
+        final capturedPath = stubDelete();
+
+        await salonRepo(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ).deactivate(injected);
+
+        final segments = _wireSegments(capturedPath()!);
+        expect(
+          segments,
+          <String>[
+            'api',
+            'v1',
+            'salons',
+            'salon-abc',
+            'masters',
+            'master-xyz',
+            'services',
+            injected,
+          ],
+          reason:
+              'injected serviceDefId "$injected" must land as ONE encoded '
+              'segment, not create/shift a segment boundary',
+        );
+      }
+    });
+  });
+
+  // ── 5c. deactivate — D4: a 409 leaves servicesListProvider untouched ────────
+  //
+  // The backend refuses BEFORE any write (`ServiceCatalogService.java:289-297`),
+  // so the mobile side must leave local state exactly as it found it: no
+  // optimistic removal, no `ref.invalidate(servicesListProvider)`, no pop.
+  //
+  // ⚠️ Riverpod seamless-invalidate trap: `invalidate` RETAINS `.value`, so
+  // "the list is still non-null" would pass even after an invalidation that
+  // is merely PENDING a rebuild. This asserts on the underlying GET call
+  // count (via the fake Dio `verify(...).called(n)`) AND a rebuild-notify
+  // counter — both are insensitive to `.value` staying populated and only
+  // move if a REAL re-fetch happens.
+
+  group('deactivate — D4 no-write-on-refusal (salon 409)', () {
+    test('a 409 leaves servicesListProvider untouched — no invalidation, no '
+        'refetch, list still holds all three seeded services', () async {
+      final mockDio = _MockDio();
+      final salonRepository = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: mockDio,
+        masterId: '',
+        target: const SalonMasterTarget(
+          salonId: 'salon-abc',
+          masterId: 'master-xyz',
+        ),
+        sessionUserId: 'user-row-uuid',
+      );
+
+      final container = ProviderContainer(
+        overrides: [
+          serviceRepositoryProvider.overrideWithValue(salonRepository),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // Seed with three services via the salon-target GET. A manual
+      // counter (not a second `verify(...).called()`) tracks invocations —
+      // mocktail's `verify` CONSUMES matched calls, so a second `verify`
+      // with the same matcher only sees calls made AFTER the first verify,
+      // which is exactly right for "no NEW call happened" but reads
+      // confusingly; a plain counter is unambiguous either way.
+      var getCallCount = 0;
+      when(() => mockDio.get<Object?>(any())).thenAnswer((_) async {
+        getCallCount++;
+        return Response<Object?>(
+          requestOptions: RequestOptions(
+            path: '/api/v1/salons/salon-abc/masters/master-xyz/services',
+          ),
+          statusCode: 200,
+          data: <String, Object?>{
+            'success': true,
+            'data': <Map<String, Object?>>[
+              for (final id in ['svc-1', 'svc-2', 'svc-3'])
+                <String, Object?>{
+                  'id': id,
+                  'masterId': 'master-xyz',
+                  'serviceDefinition': <String, Object?>{
+                    'id': 'def-$id',
+                    'name': 'Послуга $id',
+                    'baseDurationMinutes': 60,
+                    'priceType': 'FIXED',
+                    'priceMin': 500,
+                    'priceDisplay': '500 ₴',
+                    'isActive': true,
+                  },
+                  'isActive': true,
+                },
+            ],
+          },
+        );
+      });
+
+      final initial = await container.read(servicesListProvider.future);
+      expect(initial, hasLength(3));
+      expect(getCallCount, 1);
+
+      // A widget still watching the list (e.g. ServicesListScreen behind
+      // the just-closed delete dialog) would receive a rebuild
+      // notification if the provider were invalidated.
+      var notifyCount = 0;
+      container.listen(
+        servicesListProvider,
+        (_, _) => notifyCount++,
+        fireImmediately: false,
+      );
+
+      // Drive the 409.
+      when(() => mockDio.delete<Object?>(any())).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(
+            path:
+                '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+                '$_serviceDefId',
+          ),
+          response: Response<dynamic>(
+            requestOptions: RequestOptions(
+              path:
+                  '/api/v1/salons/salon-abc/masters/master-xyz/services/'
+                  '$_serviceDefId',
+            ),
+            statusCode: 409,
+          ),
+          type: DioExceptionType.badResponse,
+        ),
+      );
+
+      await expectLater(
+        container.read(serviceRepositoryProvider).deactivate(_serviceDefId),
+        throwsA(isA<ServiceUnassignBlockedFailure>()),
+      );
+
+      // ⚠️ DRAIN THE EVENT LOOP BEFORE ASSERTING — without this the test is
+      // VACUOUS against the very mutation it exists to catch.
+      //
+      // `ref.invalidate` is LAZY: it marks the provider dirty and the rebuild
+      // (and therefore the re-fetch and the listener notification) is
+      // scheduled, not synchronous. `expectLater` above resolves the moment
+      // `deactivate` throws, so assertions placed directly after it run in the
+      // SAME event-loop turn — before any scheduled rebuild could possibly be
+      // observed. Measured, not assumed (phase-316 mutation check 4,
+      // 2026-09-10): injecting `container.invalidate(servicesListProvider)` at
+      // the 409 handler left this test GREEN without the drain and turns it
+      // RED with it (`getCallCount` 1 → 2).
+      //
+      // `Future.delayed(Duration.zero)` and not `Future.value()`: the latter
+      // yields ONE microtask, which is not guaranteed to cover Riverpod's
+      // scheduling plus the repository's own async GET; a full event-loop turn
+      // covers both.
+      await Future<void>.delayed(Duration.zero);
+
+      // D4 — assert on the GET call count / rebuild-notify count, never on
+      // `.value != null` (that stays non-null through an invalidation too).
+      expect(
+        getCallCount,
+        1,
+        reason: 'a 409 refusal must not trigger any re-fetch of the list',
+      );
+      expect(
+        notifyCount,
+        0,
+        reason:
+            'a 409 refusal must not trigger any rebuild of '
+            'servicesListProvider',
+      );
+      expect(container.read(servicesListProvider).value, hasLength(3));
+    });
+  });
+
   // ── 6. update — happy path; no second GET ──────────────────────────────────
 
   group('update', () {
@@ -887,6 +1843,461 @@ void main() {
           throwsA(isA<UnauthorizedFailure>()),
         );
 
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+      },
+    );
+  });
+
+  // ── 6a. update — salon-target dispatch (phase 317) ─────────────────────────
+  //
+  // The defect these pin: with a SalonMasterTarget in scope, `update` used to
+  // PATCH the SHARED service definition with the price AND the duration,
+  // silently re-pricing every other master in the salon. The write now splits —
+  // price/duration to the per-master band endpoint, identity to the definition
+  // — so each test asserts BOTH halves: what the band request carries, AND that
+  // the definition request carries no price and no duration. Asserting only the
+  // band call would pass while the definition PATCH still leaked the price.
+
+  group('update — salon-target dispatch (phase 317)', () {
+    const salonId = 'salon-row-uuid';
+    const masterId = 'master-row-uuid';
+
+    late HttpServiceRepository salonRepo;
+
+    setUp(() {
+      salonRepo = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: Dio(),
+        masterId: '',
+        target: const SalonMasterTarget(salonId: salonId, masterId: masterId),
+        sessionUserId: 'user-row-uuid',
+      );
+      registerFallbackValue(
+        UpdateMasterServiceBandRequest(
+          (b) => b
+            ..priceType = UpdateMasterServiceBandRequestPriceTypeEnum.FIXED
+            ..price = 100,
+        ),
+      );
+    });
+
+    /// Stubs the band PATCH to succeed, returning [dto] in the envelope.
+    void stubBand(MasterServiceResponse dto) {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => _singleResponse(dto));
+    }
+
+    /// Stubs the shared-definition PATCH to succeed.
+    void stubIdentity() {
+      when(
+        () => serviceApi.updateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+          updateServiceDefinitionRequest: any(
+            named: 'updateServiceDefinitionRequest',
+          ),
+        ),
+      ).thenAnswer((_) async => _updateResponse(_buildDef()));
+    }
+
+    UpdateMasterServiceBandRequest capturedBand() =>
+        verify(
+              () => serviceApi.updateMasterServiceBand(
+                salonId: salonId,
+                masterId: masterId,
+                serviceDefId: _serviceDefId,
+                updateMasterServiceBandRequest: captureAny(
+                  named: 'updateMasterServiceBandRequest',
+                ),
+              ),
+            ).captured.single
+            as UpdateMasterServiceBandRequest;
+
+    UpdateServiceDefinitionRequest capturedIdentity() =>
+        verify(
+              () => serviceApi.updateServiceDefinition(
+                serviceDefId: _serviceDefId,
+                updateServiceDefinitionRequest: captureAny(
+                  named: 'updateServiceDefinitionRequest',
+                ),
+              ),
+            ).captured.single
+            as UpdateServiceDefinitionRequest;
+
+    test('FIXED — price and duration go to the per-master band; the SHARED '
+        'definition PATCH carries NEITHER', () async {
+      stubIdentity();
+      stubBand(
+        _buildMasterServiceDto(
+          serviceDefinition: _buildDef(id: _serviceDefId, name: 'Манікюр+'),
+          effectivePrice: 750,
+          effectiveDurationMinutes: 75,
+        ),
+      );
+
+      await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          name: 'Манікюр+',
+          category: 'NAILS',
+          serviceTypeId: _serviceTypeId,
+          durationMinutes: 75,
+          priceType: ServicePriceType.fixed,
+          price: 750,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      final band = capturedBand();
+      expect(band.priceType, UpdateMasterServiceBandRequestPriceTypeEnum.FIXED);
+      expect(band.price, 750);
+      expect(band.priceMax, isNull);
+      expect(
+        band.durationOverrideMinutes,
+        75,
+        reason:
+            'duration must be the PER-MASTER override, never the shared '
+            'definition baseDurationMinutes',
+      );
+      expect(band.clearBand, isNull);
+      expect(band.clearDurationOverride, isNull);
+
+      // This is the assertion that fails if the bug comes back.
+      final identity = capturedIdentity();
+      expect(identity.name, 'Манікюр+');
+      expect(identity.category, 'NAILS');
+      expect(identity.serviceTypeId, _serviceTypeId);
+      expect(
+        identity.price,
+        isNull,
+        reason: 'a price on the shared definition re-prices every master',
+      );
+      expect(identity.priceMin, isNull);
+      expect(identity.priceMax, isNull);
+      expect(identity.priceType, isNull);
+      expect(
+        identity.baseDurationMinutes,
+        isNull,
+        reason: 'a duration on the shared definition re-times every master',
+      );
+    });
+
+    test(
+      'RANGE — the FLOOR is sent as `price`, and no `priceMin` key reaches the '
+      'wire',
+      () async {
+        stubIdentity();
+        stubBand(_buildMasterServiceDto());
+
+        await salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            name: 'Фарбування',
+            durationMinutes: 120,
+            priceType: ServicePriceType.range,
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+          assignmentId: _serviceId,
+        );
+
+        final band = capturedBand();
+        expect(
+          band.priceType,
+          UpdateMasterServiceBandRequestPriceTypeEnum.RANGE,
+        );
+        expect(
+          band.price,
+          800,
+          reason:
+              'the band endpoint names the RANGE floor `price`, NOT `priceMin` '
+              '— the opposite of the definition endpoint',
+        );
+        expect(band.priceMax, 1500);
+
+        // Serialize to the actual wire map: a `priceMin` key here would mean
+        // the floor was dropped server-side (the field does not exist on the
+        // band DTO) and the master silently kept their old price.
+        final wire =
+            standardSerializers.serializeWith(
+                  UpdateMasterServiceBandRequest.serializer,
+                  band,
+                )!
+                as Map<Object?, Object?>;
+        expect(wire.containsKey('priceMin'), isFalse);
+        expect(wire['price'], 800);
+        expect(wire['priceMax'], 1500);
+        expect(wire['durationOverrideMinutes'], 120);
+        expect(wire.containsKey('baseDurationMinutes'), isFalse);
+      },
+    );
+
+    test('the result is mapped from the BAND response, not the definition '
+        'response', () async {
+      stubIdentity();
+      // The nested definition still carries the SHARED band (500) — the
+      // top-level per-master values (900) are the ones that must win.
+      stubBand(
+        (MasterServiceResponseBuilder()
+              ..id = 'assignment-from-band'
+              ..masterId = masterId
+              ..serviceDefinition.replace(_buildDef(id: _serviceDefId))
+              ..priceType = MasterServiceResponsePriceTypeEnum.FIXED
+              ..priceMin = 900
+              ..priceDisplay = '900 ₴'
+              ..effectiveDurationMinutes = 90
+              ..isActive = true)
+            .build(),
+      );
+
+      final result = await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 90,
+          priceType: ServicePriceType.fixed,
+          price: 900,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      expect(result.priceMin, 900.0);
+      expect(result.durationMinutes, 90);
+      expect(
+        result.id,
+        'assignment-from-band',
+        reason:
+            'the band response carries the real assignment id; the caller '
+            'assignmentId is not threaded through on this branch',
+      );
+    });
+
+    test('a patch with no identity field skips the shared-definition PATCH '
+        'entirely', () async {
+      stubBand(_buildMasterServiceDto());
+
+      await salonRepo.update(
+        _serviceDefId,
+        const MasterServiceUpdate(
+          durationMinutes: 45,
+          priceType: ServicePriceType.fixed,
+          price: 400,
+        ),
+        assignmentId: _serviceId,
+      );
+
+      verifyNever(
+        () => serviceApi.updateServiceDefinition(
+          serviceDefId: any(named: 'serviceDefId'),
+          updateServiceDefinitionRequest: any(
+            named: 'updateServiceDefinitionRequest',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'an identity-only patch is rejected before ANY network call',
+      () async {
+        await expectLater(
+          salonRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(name: 'Тільки назва'),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateServiceDefinition(
+            serviceDefId: any(named: 'serviceDefId'),
+            updateServiceDefinitionRequest: any(
+              named: 'updateServiceDefinitionRequest',
+            ),
+          ),
+        );
+        verifyNever(
+          () => serviceApi.updateMasterServiceBand(
+            salonId: any(named: 'salonId'),
+            masterId: any(named: 'masterId'),
+            serviceDefId: any(named: 'serviceDefId'),
+            updateMasterServiceBandRequest: any(
+              named: 'updateMasterServiceBandRequest',
+            ),
+          ),
+        );
+      },
+    );
+
+    test('an injected salonId is REJECTED before either PATCH', () async {
+      final injected = HttpServiceRepository(
+        serviceApi: serviceApi,
+        categoryApi: categoryApi,
+        catalogApi: catalogApi,
+        dio: Dio(),
+        masterId: '',
+        target: const SalonMasterTarget(salonId: '..', masterId: masterId),
+        sessionUserId: 'user-row-uuid',
+      );
+
+      await expectLater(
+        injected.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.fixed,
+            price: 100,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(isA<UnknownFailure>()),
+      );
+
+      verifyNever(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      );
+    });
+
+    test('a RANGE 400 keyed `price` is re-keyed onto `priceMin` so the form '
+        'can render it under the range floor', () async {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/x'),
+          error: const ValidationFailure(
+            fieldErrors: <String, String>{
+              'price': 'Price must be positive',
+              'durationOverrideMinutes': 'Duration override must be at least 1',
+            },
+          ),
+        ),
+      );
+
+      await expectLater(
+        salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.range,
+            priceMin: 800,
+            priceMax: 1500,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(
+          isA<ValidationFailure>()
+              .having(
+                (ValidationFailure f) => f.fieldErrors['priceMin'],
+                'priceMin',
+                'Price must be positive',
+              )
+              .having(
+                (ValidationFailure f) => f.fieldErrors.containsKey('price'),
+                'price key dropped',
+                isFalse,
+              )
+              .having(
+                (ValidationFailure f) => f.fieldErrors['baseDurationMinutes'],
+                'baseDurationMinutes',
+                'Duration override must be at least 1',
+              ),
+        ),
+      );
+    });
+
+    test('a FIXED 400 keyed `price` is left alone — the form already renders '
+        'that key', () async {
+      when(
+        () => serviceApi.updateMasterServiceBand(
+          salonId: any(named: 'salonId'),
+          masterId: any(named: 'masterId'),
+          serviceDefId: any(named: 'serviceDefId'),
+          updateMasterServiceBandRequest: any(
+            named: 'updateMasterServiceBandRequest',
+          ),
+        ),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/x'),
+          error: const ValidationFailure(
+            fieldErrors: <String, String>{'price': 'Price must be positive'},
+          ),
+        ),
+      );
+
+      await expectLater(
+        salonRepo.update(
+          _serviceDefId,
+          const MasterServiceUpdate(
+            priceType: ServicePriceType.fixed,
+            price: 750,
+          ),
+          assignmentId: _serviceId,
+        ),
+        throwsA(
+          isA<ValidationFailure>().having(
+            (ValidationFailure f) => f.fieldErrors['price'],
+            'price',
+            'Price must be positive',
+          ),
+        ),
+      );
+    });
+
+    test(
+      'an invalid RANGE band throws ArgumentError before any network call',
+      () async {
+        await expectLater(
+          salonRepo.update(
+            _serviceDefId,
+            const MasterServiceUpdate(
+              priceType: ServicePriceType.range,
+              priceMin: 800,
+              priceMax: 800,
+            ),
+            assignmentId: _serviceId,
+          ),
+          throwsA(isA<ArgumentError>()),
+        );
+
+        verifyNever(
+          () => serviceApi.updateMasterServiceBand(
+            salonId: any(named: 'salonId'),
+            masterId: any(named: 'masterId'),
+            serviceDefId: any(named: 'serviceDefId'),
+            updateMasterServiceBandRequest: any(
+              named: 'updateMasterServiceBandRequest',
+            ),
+          ),
+        );
         verifyNever(
           () => serviceApi.updateServiceDefinition(
             serviceDefId: any(named: 'serviceDefId'),
@@ -1133,6 +2544,161 @@ void main() {
         );
       },
     );
+  });
+
+  // ── 7b. _assertAuthenticated — the phase 314 D4 matrix ─────────────────────
+  //
+  // `_assertAuthenticated()` is the repository's readiness guard. Phase 314
+  // gave it a SECOND arm rather than widening the first:
+  //
+  //   | target                          | masterId   | expected             |
+  //   |---------------------------------|------------|----------------------|
+  //   | null (independent master)       | non-empty  | passes               |
+  //   | null (independent master)       | ''         | UnauthorizedFailure  |
+  //   | SalonMasterTarget (both set)    | '' (owner) | PASSES               |
+  //   | SalonMasterTarget(salonId: '')  | anything   | UnauthorizedFailure  |
+  //
+  // Row 3 is the whole point of the second arm: in salon mode the acting user
+  // is a SALON_OWNER/SALON_ADMIN who has NO master row of their own, so
+  // `_masterId` is legitimately '' and the first arm would reject every call.
+  // Row 2 is the arm that must survive that change — it is pinned separately
+  // for exactly that reason.
+  //
+  // Driven through `listMyServices()` because it is the first thing the guard
+  // runs on and `verifyNever` proves the guard fired BEFORE any network call.
+
+  group('_assertAuthenticated D4 matrix', () {
+    /// [sessionUserId] is the signed-in principal's User UUID — the salon
+    /// arm's session-readiness evidence. It defaults to a non-empty value
+    /// here because every row below is about the TARGET/masterId axes, not
+    /// the session axis: "salon target on an unauthenticated session" is not
+    /// expressible on the guard alone (D4 row 3 exists precisely to allow an
+    /// empty `masterId` in salon mode, so the repository holds no other
+    /// session evidence) and is pinned at the provider seam instead —
+    /// `service_repository_provider_test`'s row 5.
+    HttpServiceRepository repoWith({
+      required String masterId,
+      ServiceTarget? target,
+      String sessionUserId = 'user-row-uuid',
+      Dio? dio,
+    }) => HttpServiceRepository(
+      serviceApi: serviceApi,
+      categoryApi: categoryApi,
+      catalogApi: catalogApi,
+      dio: dio ?? Dio(),
+      masterId: masterId,
+      target: target,
+      sessionUserId: sessionUserId,
+    );
+
+    test('row 1 — target null + non-empty masterId → PASSES (the independent '
+        'master, i.e. every shipped call site today)', () async {
+      when(
+        () => serviceApi.getMyServices(),
+      ).thenAnswer((_) async => _listResponse(const []));
+
+      await expectLater(
+        repoWith(masterId: _masterId).listMyServices(),
+        completion(isEmpty),
+      );
+
+      verify(() => serviceApi.getMyServices()).called(1);
+    });
+
+    test(
+      'row 2 — target null + EMPTY masterId → throws UnauthorizedFailure with '
+      'no network call (the arm a "just make salon mode work" edit deletes)',
+      () async {
+        await expectLater(
+          repoWith(masterId: '').listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test(
+      'row 3 — SalonMasterTarget + EMPTY masterId → PASSES; an owner/admin has '
+      'no master row of their own, so an empty masterId is legitimate here',
+      () async {
+        // Phase 315 D1 — a SalonMasterTarget now DISPATCHES to the raw-Dio
+        // salon GET (see the dedicated "salon-target dispatch" group above),
+        // never `serviceApi.getMyServices()`. This row's job is ONLY the
+        // readiness guard (`_assertAuthenticated` must not throw with an
+        // empty masterId in salon mode), so the mocked Dio just needs to
+        // resolve — the URI itself is pinned by the dispatch group.
+        final mockDio = _MockDio();
+        when(() => mockDio.get<Object?>(any())).thenAnswer(
+          (_) async => Response<Object?>(
+            requestOptions: RequestOptions(
+              path:
+                  '/api/v1/salons/salon-row-uuid/masters/master-row-uuid/services',
+            ),
+            statusCode: 200,
+            data: <String, Object?>{'success': true, 'data': <Object?>[]},
+          ),
+        );
+
+        await expectLater(
+          repoWith(
+            masterId: '',
+            target: const SalonMasterTarget(
+              salonId: 'salon-row-uuid',
+              // The `masters` ROW id — NOT a userId. A userId on
+              // /salons/{s}/masters/{m}/... yields 404, not 403.
+              masterId: 'master-row-uuid',
+            ),
+            dio: mockDio,
+          ).listMyServices(),
+          completion(isEmpty),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test(
+      'row 4 — SalonMasterTarget with an EMPTY salonId → throws '
+      'UnauthorizedFailure with no network call, whatever masterId says',
+      () async {
+        const unresolved = SalonMasterTarget(
+          salonId: '',
+          masterId: 'master-row-uuid',
+        );
+
+        // Non-empty masterId on the repository: proves the salon arm is what
+        // rejected the call, not a fallback onto the independent-master arm.
+        await expectLater(
+          repoWith(masterId: _masterId, target: unresolved).listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        // And with an empty one too.
+        await expectLater(
+          repoWith(masterId: '', target: unresolved).listMyServices(),
+          throwsA(isA<UnauthorizedFailure>()),
+        );
+
+        verifyNever(() => serviceApi.getMyServices());
+      },
+    );
+
+    test('row 4b — SalonMasterTarget with an EMPTY masterId → throws '
+        'UnauthorizedFailure with no network call', () async {
+      await expectLater(
+        repoWith(
+          masterId: _masterId,
+          target: const SalonMasterTarget(
+            salonId: 'salon-row-uuid',
+            masterId: '',
+          ),
+        ).listMyServices(),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+
+      verifyNever(() => serviceApi.getMyServices());
+    });
   });
 
   // ── 8. fetchApprovedCategories ──────────────────────────────────────────────

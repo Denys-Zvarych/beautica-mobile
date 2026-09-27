@@ -6,8 +6,13 @@
 // [DioException]s.
 //
 // Mapping rules:
-//   connectionTimeout | connectionError | sendTimeout | receiveTimeout
-//                                         → NetworkFailure
+//   any DioException carrying a 2xx response
+//                                         → ResponseUnusableFailure
+//   connectionTimeout | connectionError | sendTimeout
+//                                         → NetworkFailure(mayHaveReachedServer: false)
+//   receiveTimeout    → NetworkFailure(mayHaveReachedServer: true)
+//   HTTP 429 on a salon-board read route
+//                                         → SalonBoardRateLimitedFailure
 //   HTTP 401          → UnauthorizedFailure
 //   HTTP 404          → NotFoundFailure
 //   HTTP 409          → ServerFailure(statusCode: 409)
@@ -35,7 +40,9 @@ final class ErrorMapperInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final failure = _mapError(err);
 
-    if (kDebugMode) {
+    // A deliberate cancellation is not worth a WARNING line (security L1) —
+    // see the same skip in `LoggingInterceptor.onError`.
+    if (kDebugMode && err.type != DioExceptionType.cancel) {
       log(
         'Mapped ${err.type} / ${err.response?.statusCode} → ${failure.runtimeType}',
         name: 'network.error',
@@ -64,13 +71,31 @@ final class ErrorMapperInterceptor extends Interceptor {
   // ---------------------------------------------------------------------------
 
   Failure _mapError(DioException err) {
+    // Invite-accept post-success design (2026-09-01): a 2xx response
+    // attached to a DioException means Dio's response transformer (or a
+    // downstream mapper) threw AFTER the server already answered success —
+    // typically surfaced as DioExceptionType.unknown. The request DID take
+    // effect; only the client-side parse failed. Must be checked before the
+    // transport-error switch below and before the status-code chain so it
+    // wins over both.
+    final sc = err.response?.statusCode;
+    if (sc != null && sc >= 200 && sc < 300) {
+      return ResponseUnusableFailure(cause: err);
+    }
+
     // Network-level errors (no HTTP response).
     switch (err.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.connectionError:
       case DioExceptionType.sendTimeout:
-      case DioExceptionType.receiveTimeout:
+        // The request never completed — retry is genuinely safe, and an
+        // offline user must keep seeing plain errNetwork copy, never "your
+        // account may exist" (invite-accept post-success design, 2026-09-01).
         return NetworkFailure(cause: err);
+      case DioExceptionType.receiveTimeout:
+        // The request body was fully SENT before the client gave up waiting
+        // for a response — the server may have processed it.
+        return NetworkFailure(cause: err, mayHaveReachedServer: true);
       default:
         break;
     }
@@ -122,12 +147,113 @@ final class ErrorMapperInterceptor extends Interceptor {
       }
 
       // Backend Phase A3 — authenticated change-password OTP resend cooldown.
-      // Unlike /auth/forgot-password (anti-enumeration — no 429 surfaced),
-      // this authenticated entry point DOES throw the same
-      // ResendThrottledException shape as /auth/resend-verification.
+      // This authenticated entry point throws the same
+      // ResendThrottledException shape as /auth/resend-verification:
+      // {success:false, message:"...", data:{retryAfterSeconds:N}}, i.e. a
+      // per-ACCOUNT cooldown raised by the controller.
+      //
+      // Contrast with the password-reset branch below, which is a different
+      // mechanism entirely (per-IP servlet filter, no envelope) — see there.
       if (statusCode == 429 &&
           path.endsWith('/users/me/change-password/request-otp')) {
         return ResendThrottledFailure(
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
+          cause: err,
+        );
+      }
+
+      // Password-reset journey 429 — per-IP `AuthRateLimitFilter`
+      // (`RateLimitConfig.java`). The three endpoints below have SEPARATE
+      // buckets, and the budgets are NOT uniform:
+      //
+      //   /auth/forgot-password            3 per 60 min, Retry-After 3600
+      //   /auth/reset-password            10 per 60 min, Retry-After 3600
+      //   /auth/verify-password-reset-otp 10 per 15 min, Retry-After  900
+      //
+      // (Do not paraphrase this as "3/hour on all three" — that was the
+      // original comment, it was wrong for two of the three, and copy is
+      // deliberately window-agnostic because of it.)
+      //
+      // CORRECTION (this was previously believed not to happen, and that
+      // belief is why this branch did not exist): /auth/forgot-password's
+      // anti-enumeration contract — always a generic 200 — is a property of
+      // the CONTROLLER. The rate-limit filter sits in front of it and never
+      // reaches the controller, so it DOES answer 429, with
+      // `Retry-After: 3600` and the filter's own bare body
+      // `{"error":"Too many requests"}` — no `message`, no `errors`, no
+      // `data.code`. Without this branch the response fell all the way to the
+      // terminal UnknownFailure and the user was told «Спробуйте ще раз»,
+      // which at 3/hour is the one action that cannot work.
+      //
+      // All three steps of the journey are covered: the buckets are separate
+      // but the hole was identical, and gating only the first step leaves the
+      // user hitting the same wall two taps later.
+      //
+      // Note the failure carries no retry-after: every window above (3600 s,
+      // and 900 s for the OTP step) is beyond
+      // [_extractRetryAfterSecondsNullable]'s 600 s UX ceiling, so the value
+      // would be `null` every time (see PasswordResetRateLimitedFailure).
+      //
+      // Suffix match (see verify-email above) — immune to baseUrl prefix drift.
+      if (statusCode == 429 &&
+          (path.endsWith('/auth/forgot-password') ||
+              path.endsWith('/auth/reset-password') ||
+              path.endsWith('/auth/verify-password-reset-otp'))) {
+        return PasswordResetRateLimitedFailure(cause: err);
+      }
+
+      // Backend PR #130 — the SALON BOARD's shared per-user 60/min read
+      // budget. Four routes, ONE budget, one typed failure:
+      //
+      //   GET /bookings/salon/{salonId}                       (the day board)
+      //   GET /bookings/salon/{salonId}?partition=HISTORY     («Архів»)
+      //   GET /bookings/salon/{salonId}/booked-days           (the rail dots)
+      //   GET /salons/{salonId}/masters/effective-schedule    (working hours)
+      //
+      // WHY THE MAPPING MUST LIVE HERE AND NOT IN THE REPOSITORIES. Both
+      // repositories already carry a `badResponse → ServerFailure(429)` arm,
+      // and it is UNREACHABLE on the wired chain: this interceptor runs LAST
+      // (`dio_provider.dart`) and re-rejects with a DioException whose `error`
+      // IS the mapped Failure, while every repository mapper opens with
+      // `if (e.error is Failure) return e.error as Failure;`. Measured through
+      // the real `dioProvider`, not read statically — see
+      // `test/core/network/salon_board_429_contract_test.dart`, which is what
+      // settled two audits that disagreed about it.
+      //
+      // CONTAINS, not `endsWith` — unlike every path test above this one, the
+      // matched segment is followed by a path PARAMETER (and, for booked-days,
+      // a further literal), so a suffix match cannot express it. Both patterns
+      // are anchored on a leading slash and a literal the app owns, so they
+      // stay immune to `AppConfig.baseUrl` prefix drift exactly as the suffix
+      // matches above do.
+      //
+      // The WRITE routes under `/bookings/...` are deliberately NOT matched:
+      // they keep their own typed 429 ([BookingRateLimitedFailure]) mapped by
+      // the booking repository, and widening this branch to swallow them would
+      // change what a create/cancel surfaces.
+      // Phase 346 — the settlement autocomplete's per-IP 240/min bucket
+      // (`AuthRateLimitFilter`, backend phase 326). Path-scoped like every
+      // other throttle in this chain rather than a blanket 429 mapping: each
+      // backend bucket has its own window and each surface its own copy, so a
+      // catch-all would hand a booking write or a password reset the wrong
+      // message. Exact suffix — the route has no sub-paths and its term
+      // travels as a query parameter, which `requestOptions.path` excludes.
+      if (statusCode == 429 && path.endsWith('/api/v1/settlements')) {
+        return SettlementSearchRateLimitedFailure(
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
+          cause: err,
+        );
+      }
+
+      if (statusCode == 429 &&
+          (path.contains('/bookings/salon/') ||
+              path.contains('/masters/effective-schedule'))) {
+        return SalonBoardRateLimitedFailure(
+          // The SAME resolver every other throttle here uses — header first,
+          // `data.retryAfterSeconds` second, [kMaxUxCooldownSeconds] ceiling.
+          // Deliberately NOT a second parser: `HttpScheduleRepository` and
+          // `ServiceRepository` each have a private copy of this logic, and a
+          // third would be a third thing to drift.
           retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
           cause: err,
         );
@@ -149,8 +275,14 @@ final class ErrorMapperInterceptor extends Interceptor {
       // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on duplicate
       // registration. Surface as the dedicated typed failure so the step-3
       // submit handler can render an inline error + Sign In CTA without
-      // probing strings. Other 409 shapes (resource-conflict, future codes)
-      // still fall through to a generic `ServerFailure(statusCode: 409)`.
+      // probing strings. This mapping is NOT path-gated — it keys purely on
+      // the body code — so it also covers backend Phase 287's
+      // `POST /auth/invite` / `POST /salons/{id}/invite`, which return the
+      // SAME {code:"EMAIL_ALREADY_REGISTERED"} envelope when the invited
+      // email already has an account; `InviteStaffScreen` (mobile Phase 303)
+      // branches on this same typed failure to render its own inline error.
+      // Other 409 shapes (resource-conflict, future codes) still fall
+      // through to a generic `ServerFailure(statusCode: 409)`.
       //
       // That fallthrough is NOT retryable, despite `ServerFailure` being the
       // type 5xx also maps to. `beauticaProviderRetry`
@@ -324,7 +456,6 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Returns `0` when both sources are absent or malformed.
   int? _extractRetryAfterSecondsNullable(DioException err) {
     const int kMaxCooldown = 1 << 31; // overflow guard (MASVS-PLATFORM)
-    const int kMaxUxCooldownSeconds = 600; // 10 min UX ceiling
 
     // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;
     //    HTTP-date form is intentionally not parsed here since the backend

@@ -316,7 +316,7 @@ EOF
     exit 1
   fi
   for ln in "${offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^$tmp/$probe_path:$ln:"; then
+    if ! grep -q -- "^$tmp/$probe_path:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected an offender at $probe_path:$ln, none found."
       echo "                Is 'lib' listed in scan_dirs AND actually walked"
       echo "                by run_scan?"
@@ -324,7 +324,7 @@ EOF
       exit 1
     fi
   done
-  if ! printf '%s\n' "$out" | grep -q "^$tmp/$exempt_probe_path:9:"; then
+  if ! grep -q -- "^$tmp/$exempt_probe_path:9:" <<< "$out"; then
     echo "SELF-TEST FAIL: expected the non-exempt DateTime.now() at"
     echo "                $exempt_probe_path:9 to be flagged — the hard-coded"
     echo "                exemption must be scoped to its exact line shape,"
@@ -332,7 +332,7 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "^$tmp/$exempt_probe_path:4:"; then
+  if grep -q -- "^$tmp/$exempt_probe_path:4:" <<< "$out"; then
     echo "SELF-TEST FAIL: the hard-coded clock-seam exemption line"
     echo "                ($exempt_probe_path:4) was flagged — the exemption"
     echo "                is not matching its own reference shape:"

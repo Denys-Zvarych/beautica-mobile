@@ -11,6 +11,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
@@ -19,6 +20,8 @@ import 'package:beautica_mobile/features/booking/presentation/salon_master_selec
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/public_salon_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
@@ -30,7 +33,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 
 /// Tall test surface so every row (including the contested-service candidate
@@ -44,6 +49,13 @@ Future<void> _pumpTall(WidgetTester tester) async {
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 }
+
+/// Phase 266 — stubs ONLY `getBookableMasters`, the one repository method
+/// `SalonMasterServiceCoverage.retryService` reads. Every other
+/// `SalonRepository` member is unstubbed on purpose: no test in this file
+/// exercises D4's retry against anything else, and mocktail throws loudly
+/// (rather than silently returning null) if one ever did.
+class _MockSalonRepository extends Mock implements SalonRepository {}
 
 const String _kSalonId = 'salon-1';
 
@@ -141,9 +153,9 @@ List<Object> _overrides() => <Object>[
     _kSalonId,
   ).overrideWith((ref) => (_stubSalon, _stubMasters)),
   salonServiceCatalogProvider(_kSalonId).overrideWith((ref) => _stubCatalog),
-  salonMasterServiceCoverageProvider(
-    _args(),
-  ).overrideWith((ref) => _stubCoverage),
+  salonMasterServiceCoverageProvider(_args()).overrideWith(
+    () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(_stubCoverage)),
+  ),
 ];
 
 /// [GoRouter] with the screen under test at its initial location, plus a
@@ -248,7 +260,9 @@ List<Object> _titleOverrides() => <Object>[
       salonId: _kSalonId,
       selectedServiceIds: <String>['svc-1'],
     ),
-  ).overrideWith((ref) => _titleCoverage),
+  ).overrideWith(
+    () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(_titleCoverage)),
+  ),
 ];
 
 /// Router whose master-selection screen selects ONLY svc-1, so all four
@@ -924,9 +938,11 @@ void main() {
             ),
           ],
         ),
-        salonMasterServiceCoverageProvider(
-          args,
-        ).overrideWith((ref) => _stubCoverage),
+        salonMasterServiceCoverageProvider(args).overrideWith(
+          () => FakeSalonMasterServiceCoverage(
+            () => salonCoverageOf(_stubCoverage),
+          ),
+        ),
       ];
     }
 
@@ -1085,5 +1101,526 @@ void main() {
         );
       },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 266 D5 — the degraded-service retry row. Doc test case 6
+  // (`phase-266-coverage-degraded-service-set.md`): a service whose OWN
+  // coverage fetch failed must render as a RETRYABLE error, never the
+  // terminal `_UncoveredRow` a genuine "nobody performs this" gets.
+  // ---------------------------------------------------------------------
+  group('Phase 266 — degraded-service retry row', () {
+    testWidgets('should_renderRetryNotUncovered_when_theServiceIsDegraded', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final repo = _MockSalonRepository();
+      // NO `salonMasterServiceCoverageProvider` override in this test — the
+      // REAL `SalonMasterServiceCoverage` runs against this mocked
+      // repository, so this test is sensitive to the SAME mutation
+      // `salon_master_coverage_notifier_test.dart`'s case 2 guards (the
+      // catch block silently omitting a failed id from
+      // `degradedServiceIds`): mutating that catch block would make THIS
+      // test render `_UncoveredRow` for svc-2 instead of the retry row,
+      // exactly the doc's "cases 2 and 6 go RED" mutation check.
+      //
+      // svc-1 covered by m1 (real coverage); svc-2's fetch FAILS on the
+      // initial load, so `eligible` stays non-empty (m1 qualifies via
+      // svc-1) and this exercises the grouping-preview row, not the
+      // eligible-empty branch.
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-1'),
+      ).thenAnswer(
+        (_) async => const <BookableMasterAssignment>[
+          (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+        ],
+      );
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).thenThrow(const NetworkFailure());
+
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: <Object>[
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) => _stubCatalog),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      // m1 (real coverage on svc-1) renders; pick it so the grouping
+      // preview mounts (it is gated behind `hasPicks`, same as every
+      // other row in this preview — see `_MasterGroupingPreview`).
+      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+      await tester.pumpAndSettle();
+
+      final Finder degradedRow = find.byKey(
+        const Key('salon_booking_degraded_service_svc-2'),
+      );
+      final Finder retryButton = find.byKey(
+        const Key('salon_booking_retry_service_svc-2'),
+      );
+      expect(
+        degradedRow,
+        findsOneWidget,
+        reason: 'svc-2 is DEGRADED — it must render the retry row',
+      );
+      expect(retryButton, findsOneWidget);
+      // The MUTATION this doc case guards: a degraded service must never
+      // ALSO satisfy the terminal uncovered semantics — the two rows are
+      // mutually exclusive per service (see `_MasterSelectionDerived
+      // .uncovered`/`.degraded`). The exact `_UncoveredRow` text is asserted
+      // (not `textContaining`), because "Педикюр" alone legitimately
+      // recurs elsewhere on this screen (the selected-services shelf) — a
+      // substring match would find those and give a false negative.
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonMasterSelectionScreen)),
+      );
+      expect(
+        // i18n-finder-ok: locale-coupled by design — this line's ONLY job is
+        // proving the two rows are mutually exclusive for the SAME service;
+        // an EN build needs the EN copy here, which is fine, not a gap.
+        find.text(l10n.salonBookingUncoveredSemantics('Педикюр')),
+        findsNothing,
+        reason:
+            'svc-2 must NOT ALSO render as the terminal _UncoveredRow — '
+            'that identical rendering is the exact defect Phase 266 fixes',
+      );
+
+      // Re-stub svc-2 to succeed — simulates "the client tapped retry
+      // after the transient failure cleared".
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).thenAnswer(
+        (_) async => const <BookableMasterAssignment>[
+          (masterId: 'm2', masterServiceId: 'assignment-m2-svc-2'),
+        ],
+      );
+
+      await tester.tap(retryButton);
+      await tester.pumpAndSettle();
+
+      expect(
+        degradedRow,
+        findsNothing,
+        reason: 'the retry resolved — svc-2 is no longer degraded',
+      );
+      expect(
+        find.byKey(const Key('salon_booking_master_row_m2')),
+        findsOneWidget,
+        reason:
+            'the retry revealed m2 as a real, newly-eligible covering '
+            'master for svc-2 — proof the retry actually reached the '
+            'repository and merged a real result, not a stub no-op',
+      );
+      // Two calls total for svc-2: the initial failing fetch + the one
+      // retry — never a re-fetch of svc-1 (D4: never the whole family).
+      verify(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).called(2);
+      verify(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-1'),
+      ).called(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 266, AUDIT CYCLE 1 — verifier LOW #8 (in-flight UI reflection)
+  // and LOW #9 (memoized `_MasterSelectionStatic`). Both against the REAL
+  // `SalonMasterServiceCoverage` notifier (never `FakeSalonMasterServiceCoverage`)
+  // so the network call actually has an observable in-flight window.
+  // ---------------------------------------------------------------------
+  group('Phase 266 audit cycle 1 — retry in-flight UI + memoization', () {
+    setUp(debugResetResolveMasterSelectionStaticCallCount);
+
+    testWidgets(
+      'the retry row shows an in-flight spinner while its own retry is '
+      'awaiting the network, and a second tap while retrying issues no '
+      'second repo call',
+      (tester) async {
+        await _pumpTall(tester);
+        final repo = _MockSalonRepository();
+        when(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-1',
+          ),
+        ).thenAnswer(
+          (_) async => const <BookableMasterAssignment>[
+            (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+          ],
+        );
+        // svc-2 FAILS on the INITIAL fetch, exactly like the sibling
+        // "degraded-service retry row" test above — the Completer below is
+        // wired in ONLY for the RETRY call, re-stubbed after the initial
+        // settle; using it from the start would stall build() itself (both
+        // services fit in one `_kFetchChunkSize` chunk, so `Future.wait`
+        // would never resolve).
+        when(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-2',
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: <Object>[
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) => _stubCatalog),
+            salonRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+        await tester.pumpAndSettle();
+
+        final Finder retryButton = find.byKey(
+          const Key('salon_booking_retry_service_svc-2'),
+        );
+        expect(retryButton, findsOneWidget);
+        expect(
+          find.descendant(
+            of: retryButton,
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsNothing,
+          reason: 'not retrying yet — the plain "Retry" link renders',
+        );
+
+        final svc2 = Completer<List<BookableMasterAssignment>>();
+        when(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-2',
+          ),
+        ).thenAnswer((_) => svc2.future);
+
+        await tester.tap(retryButton);
+        // ONE pump — lets the in-flight state write land WITHOUT resolving
+        // `svc2` (a `pumpAndSettle` here would hang waiting on the never-
+        // completed `Completer`).
+        await tester.pump();
+
+        expect(
+          find.descendant(
+            of: retryButton,
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsOneWidget,
+          reason: 'a request for svc-2 is now in flight',
+        );
+
+        // A second tap while retrying: the `GestureDetector`'s `onTap` is
+        // `null` while disabled, so this must not issue a second repo call.
+        await tester.tap(retryButton);
+        await tester.pump();
+
+        // `pump()`, never `pumpAndSettle()`, from here — `pumpAndSettle`
+        // never converges while the spinner's INDETERMINATE
+        // `CircularProgressIndicator` is still mounted (mirrors
+        // `salon_invite_row_test.dart`'s identical "while cancelling"
+        // case, which uses only `pump()` for the same reason). Two pumps:
+        // one to let the completed Future's continuation (`_settle`'s
+        // state write) run, one to let the resulting rebuild remove the
+        // now-resolved row from the tree.
+        svc2.complete(const <BookableMasterAssignment>[
+          (masterId: 'm2', masterServiceId: 'assignment-m2-svc-2'),
+        ]);
+        await tester.pump();
+        await tester.pump();
+
+        verify(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-2',
+          ),
+        ).called(2); // the initial failing fetch + the ONE retry — the
+        // second tap while retrying issued no third call
+      },
+    );
+
+    testWidgets('an in-flight retry state change alone does not recompute '
+        '_MasterSelectionStatic — only a genuine coverage/master data change '
+        'does', (tester) async {
+      await _pumpTall(tester);
+      final repo = _MockSalonRepository();
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-1'),
+      ).thenAnswer(
+        (_) async => const <BookableMasterAssignment>[
+          (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+        ],
+      );
+      // svc-2 FAILS on the INITIAL fetch — see the sibling test's identical
+      // note on why the Completer below is wired in only for the retry.
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).thenThrow(const NetworkFailure());
+
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: <Object>[
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) => _stubCatalog),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        debugResolveMasterSelectionStaticCallCount,
+        1,
+        reason: 'one recompute for the initial resolved masters/coverage',
+      );
+
+      final svc2 = Completer<List<BookableMasterAssignment>>();
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).thenAnswer((_) => svc2.future);
+
+      await tester.tap(
+        find.byKey(const Key('salon_booking_retry_service_svc-2')),
+      );
+      await tester.pump(); // the in-flight-marking state write only
+
+      expect(
+        debugResolveMasterSelectionStaticCallCount,
+        1,
+        reason:
+            "retryService's in-flight write reuses byMaster/"
+            'degradedServiceIds BY REFERENCE — must not force a recompute',
+      );
+
+      // `pump()`, never `pumpAndSettle()` — see the sibling test's identical
+      // note on why `pumpAndSettle` cannot be used while the row's spinner
+      // is mounted.
+      svc2.complete(const <BookableMasterAssignment>[
+        (masterId: 'm2', masterServiceId: 'assignment-m2-svc-2'),
+      ]);
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        debugResolveMasterSelectionStaticCallCount,
+        2,
+        reason:
+            'the merged retry result genuinely changed byMaster/'
+            'degradedServiceIds — this recompute is expected, proving the '
+            'memo invalidates on REAL data changes, not just always '
+            'hitting',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 266, AUDIT CYCLE 2 — MEDIUM #2: the cooldown needs its OWN expiry
+  // trigger. Against the REAL `SalonMasterServiceCoverage` notifier (never
+  // `FakeSalonMasterServiceCoverage`), so the notifier's cooldown-expiry
+  // `Timer` (see `salon_master_coverage_notifier.dart`'s "PHASE 266, AUDIT
+  // CYCLE 2" note) is the thing actually under test — `tester.pump(duration)`
+  // advances the SAME fake-Timer clock `flutter_test` already runs widget
+  // tests under, so no `fakeAsync`/`clockProvider` override is needed here
+  // (unlike the notifier-level unit test, which pins `clockProvider` too):
+  // the Timer's firing, not any `DateTime` comparison, is what clears the
+  // row.
+  // ---------------------------------------------------------------------
+  group('Phase 266 audit cycle 2 — cooldown re-enable', () {
+    testWidgets(
+      'after a FAILED retry the row is disabled, and once the cooldown '
+      'window elapses on its own it re-enables WITHOUT any other tap or '
+      'interaction',
+      (tester) async {
+        await _pumpTall(tester);
+        final repo = _MockSalonRepository();
+        when(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-1',
+          ),
+        ).thenAnswer(
+          (_) async => const <BookableMasterAssignment>[
+            (masterId: 'm1', masterServiceId: 'assignment-m1-svc-1'),
+          ],
+        );
+        // svc-2 fails on the initial fetch AND on the retry below — the
+        // retry's own failure is what starts the cooldown this test pins.
+        when(
+          () => repo.getBookableMasters(
+            salonId: _kSalonId,
+            serviceDefId: 'svc-2',
+          ),
+        ).thenThrow(const NetworkFailure());
+
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: <Object>[
+            publicSalonProfileProvider(
+              _kSalonId,
+            ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) => _stubCatalog),
+            salonRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+        await tester.pumpAndSettle();
+
+        final Finder retryButton = find.byKey(
+          const Key('salon_booking_retry_service_svc-2'),
+        );
+        expect(retryButton, findsOneWidget);
+
+        // The retry ALSO fails (same stub as the initial fetch) — svc-2
+        // stays degraded and its cooldown starts.
+        await tester.tap(retryButton);
+        await tester.pumpAndSettle();
+
+        GestureDetector row = tester.widget<GestureDetector>(retryButton);
+        expect(
+          row.onTap,
+          isNull,
+          reason:
+              'a just-failed retry must leave the row disabled for the '
+              'cooldown window',
+        );
+
+        // Advance PAST the cooldown window with no further interaction —
+        // no second tap, no unrelated provider invalidation. If the
+        // notifier's cooldown-expiry Timer were never armed (or were
+        // scheduled and then not scheduled at all), this row would stay
+        // disabled forever, exactly the audit finding.
+        // fixed-wait-ok: crossing `_kRetryCooldown` (3s) is the exact TTL
+        // this test proves the Timer fires against — 4s is comfortably past
+        // it, and the assertion is that the row re-enables, not a race on
+        // timing.
+        await tester.pump(const Duration(seconds: 4));
+
+        row = tester.widget<GestureDetector>(retryButton);
+        expect(
+          row.onTap,
+          isNotNull,
+          reason:
+              'the cooldown elapsed on its own — the row must re-enable '
+              'without any other interaction triggering the rebuild',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 266, AUDIT CYCLE 3, finding #2 — `FakeSalonMasterServiceCoverage`
+  // (`test/helpers/fake_salon_master_coverage.dart`) OVERRIDES `build()`
+  // wholesale rather than calling through to the real one (Dart never
+  // chains an overridden method to its superclass's body automatically), so
+  // before this fix it never registered the real `build()`'s own
+  // `ref.onDispose(cancelCooldownTimers)` cleanup. A FAILED `retryService`
+  // call still arms a REAL cooldown-expiry `Timer` via the INHERITED
+  // `_armCooldownExpiry` (never overridden by the fake either) — so a
+  // widget test using the fake that exercises a failing retry used to leave
+  // that Timer pending past the widget tree's own teardown. Unlike the
+  // cycle-2 test above, this test deliberately never pumps past
+  // `_kRetryCooldown` — reaching the end of the test body at all, without
+  // `flutter_test` failing it at teardown with "A Timer is still pending",
+  // is the proof the fake's cleanup registration works.
+  // ---------------------------------------------------------------------
+  group('Phase 266 audit cycle 3 — FakeSalonMasterServiceCoverage cooldown-'
+      'timer cleanup', () {
+    testWidgets('a FAILED retry against the FAKE coverage notifier leaves no '
+        'pending cooldown Timer at teardown', (tester) async {
+      await _pumpTall(tester);
+      final repo = _MockSalonRepository();
+      when(
+        () =>
+            repo.getBookableMasters(salonId: _kSalonId, serviceDefId: 'svc-2'),
+      ).thenThrow(const NetworkFailure());
+
+      // svc-2 already degraded on first paint (`salonCoverageOf` always
+      // sets an EMPTY degraded set, so this test builds the record by
+      // hand) — the retry row renders immediately, no need to reach it
+      // via an initial failing fetch first.
+      const SalonCoverage initial = (
+        byMaster: <String, Map<String, String>>{
+          'm1': <String, String>{'svc-1': 'assignment-m1-svc-1'},
+        },
+        degradedServiceIds: <String>{'svc-2'},
+        retryingServiceIds: <String>{},
+        retryCooldownUntil: <String, DateTime>{},
+      );
+
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: <Object>[
+          publicSalonProfileProvider(
+            _kSalonId,
+          ).overrideWith((ref) => (_stubSalon, _stubMasters)),
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) => _stubCatalog),
+          salonRepositoryProvider.overrideWithValue(repo),
+          salonMasterServiceCoverageProvider(
+            _args(),
+          ).overrideWith(() => FakeSalonMasterServiceCoverage(() => initial)),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon_booking_master_row_m1')));
+      await tester.pumpAndSettle();
+
+      final Finder retryButton = find.byKey(
+        const Key('salon_booking_retry_service_svc-2'),
+      );
+      expect(retryButton, findsOneWidget);
+
+      // The retry FAILS again — this reaches the inherited (never
+      // overridden by the fake) `retryService`/`_armCooldownExpiry`,
+      // arming a real pending `Timer` on the fake notifier instance.
+      await tester.tap(retryButton);
+      await tester.pumpAndSettle();
+
+      final GestureDetector row = tester.widget<GestureDetector>(retryButton);
+      expect(
+        row.onTap,
+        isNull,
+        reason:
+            'the failed retry must leave the row disabled — proof the '
+            'cooldown Timer was genuinely armed, not skipped entirely',
+      );
+
+      // Deliberately NO `tester.pump(Duration(seconds: ...))` here — the
+      // cooldown Timer is left PENDING on purpose, unlike the cycle-2
+      // test above. If `FakeSalonMasterServiceCoverage` still failed to
+      // cancel it on dispose, `flutter_test` would fail this test right
+      // here at teardown instead of letting it reach this point clean.
+    });
   });
 }

@@ -76,6 +76,22 @@ const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
 
+/// Phase 330 — the fixture for the `/master/*`-stays-fenced group. Its own
+/// user id so a failure message names this group rather than borrowing one of
+/// the `/services` fixtures above.
+const _salonMasterSessionForMasterFence = AsyncData<AuthSession>(
+  AuthSession.authenticated(
+    user: User(
+      id: 'u-sm-master-fence',
+      email: 'salonmaster-fence@example.com',
+      role: UserRole.salonMaster,
+      firstName: 'Salon',
+      lastName: 'Master',
+    ),
+    accessToken: 'token',
+  ),
+);
+
 const _loadingSession = AsyncLoading<AuthSession>();
 
 // ---------------------------------------------------------------------------
@@ -488,6 +504,129 @@ void main() {
       );
     });
 
+    // mobile-qa (2026-09-01, Rule 3b negative matrix) — SALON_MASTER must be
+    // blocked from /services exactly like every other non-INDEPENDENT_MASTER
+    // role (the gate's `!= independentMaster` branch is role-agnostic and
+    // already pinned for CLIENT above; this closes the SALON_MASTER-specific
+    // assertion the Rule 3b negative matrix names explicitly).
+    test('SALON_MASTER at /services is redirected to /staff/profile', () {
+      const salonMasterUser = User(
+        id: 'u-sm3',
+        email: 'salonmaster3@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonMasterSession, RouteNames.services),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    // Phase 330 D-list — the structural claim that gaining `/staff/bookings`
+    // does NOT widen `/master/*` for a SALON_MASTER. Named individually, one
+    // per leaf, because a single "some /master/* path bounces" assertion
+    // would stay green while exactly one of them was carved out. Mutation:
+    // delete the `/master/` gate's non-INDEPENDENT_MASTER bounce
+    // (`auth_redirect.dart`) and all four of these must go RED.
+    test(
+      'SALON_MASTER at /master/bookings is redirected to /staff/profile',
+      () {
+        expect(
+          authRedirectForLocation(
+            _salonMasterSessionForMasterFence,
+            RouteNames.masterBookings,
+          ),
+          equals(RouteNames.salonMasterProfile),
+        );
+      },
+    );
+
+    test('SALON_MASTER at /master/bookings/archive is redirected to '
+        '/staff/profile', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.masterBookingsArchive,
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test('SALON_MASTER at /master/bookings/new is redirected to /staff/profile '
+        '— the walk-in creation chain stays fenced', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.masterBookingNew,
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test('SALON_MASTER at /master/bookings/:id/review is redirected to '
+        '/staff/profile — the INDEPENDENT_MASTER review path stays fenced even '
+        'though the role now has its own at /staff/bookings/:id/review', () {
+      expect(
+        authRedirectForLocation(
+          _salonMasterSessionForMasterFence,
+          RouteNames.clientReview('b-001'),
+        ),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    // Phase 321 D2 — the structural claim that gaining `/staff/services`
+    // does NOT widen `/services`'s two write leaves for a SALON_MASTER.
+    // Named individually per this track's mutation check #5: deleting the
+    // `/services` gate's SALON_MASTER bounce must turn these (and the case
+    // immediately above) RED.
+    test('SALON_MASTER at /services/setup is redirected to /staff/profile', () {
+      const salonMasterUser = User(
+        id: 'u-sm3b',
+        email: 'salonmaster3b@example.com',
+        role: UserRole.salonMaster,
+        firstName: 'Salon',
+        lastName: 'Master',
+      );
+      const salonMasterSession = AsyncData<AuthSession>(
+        AuthSession.authenticated(user: salonMasterUser, accessToken: 'token'),
+      );
+      expect(
+        authRedirectForLocation(salonMasterSession, RouteNames.serviceSetup),
+        equals(RouteNames.salonMasterProfile),
+      );
+    });
+
+    test(
+      'SALON_MASTER at /services/:id/edit is redirected to /staff/profile',
+      () {
+        const salonMasterUser = User(
+          id: 'u-sm3c',
+          email: 'salonmaster3c@example.com',
+          role: UserRole.salonMaster,
+          firstName: 'Salon',
+          lastName: 'Master',
+        );
+        const salonMasterSession = AsyncData<AuthSession>(
+          AuthSession.authenticated(
+            user: salonMasterUser,
+            accessToken: 'token',
+          ),
+        );
+        expect(
+          authRedirectForLocation(
+            salonMasterSession,
+            RouteNames.serviceEdit('svc-001'),
+          ),
+          equals(RouteNames.salonMasterProfile),
+        );
+      },
+    );
+
     // Phase 6.2 — /master/working-hours role gate (SEC regression).
     //
     // The /master/* prefix guard in auth_redirect.dart redirects any
@@ -502,7 +641,8 @@ void main() {
       );
     });
 
-    test('SALON_MASTER at /master/working-hours is redirected to /', () {
+    test('SALON_MASTER at /master/working-hours is redirected to '
+        '/staff/profile', () {
       const salonMasterUser = User(
         id: 'u-sm',
         email: 'salonmaster@example.com',
@@ -515,11 +655,12 @@ void main() {
       );
       expect(
         authRedirectForLocation(salonMasterSession, RouteNames.workingHours),
-        equals(RouteNames.home),
+        equals(RouteNames.salonMasterProfile),
       );
     });
 
-    test('SALON_OWNER at /master/working-hours is redirected to /', () {
+    test('SALON_OWNER at /master/working-hours is redirected to '
+        '/salons/home', () {
       const salonOwnerUser = User(
         id: 'u-so',
         email: 'owner@example.com',
@@ -532,7 +673,7 @@ void main() {
       );
       expect(
         authRedirectForLocation(salonOwnerSession, RouteNames.workingHours),
-        equals(RouteNames.home),
+        equals(RouteNames.salonHome),
       );
     });
 
@@ -594,8 +735,9 @@ void main() {
       );
     });
 
-    test('SALON_MASTER at /salon/bookings/new is redirected to / — a read-only '
-        'calendar is not a walk-in-booking affordance', () {
+    test('SALON_MASTER at /salon/bookings/new is redirected to '
+        '/staff/profile — a read-only calendar is not a walk-in-booking '
+        'affordance', () {
       const salonMasterUser = User(
         id: 'u-sm2',
         email: 'salonmaster2@example.com',
@@ -611,7 +753,7 @@ void main() {
           salonMasterSession,
           RouteNames.salonStaffBookingNew,
         ),
-        equals(RouteNames.home),
+        equals(RouteNames.salonMasterProfile),
       );
     });
 
@@ -735,27 +877,31 @@ void main() {
           );
         });
 
-        test('SALON_MASTER at $route is redirected to /', () {
+        test('SALON_MASTER at $route is redirected to /staff/profile', () {
           expect(
             authRedirectForLocation(salonMasterSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.salonMasterProfile),
             reason:
                 'a read-only SALON_MASTER must NOT reach the schedule edit '
                 'surfaces (the exact OQ-2 leak this gate closes)',
           );
         });
 
-        test('SALON_OWNER at $route is redirected to /', () {
+        test('SALON_OWNER at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.salonHome),
           );
         });
 
-        test('SALON_ADMIN at $route is redirected to /', () {
+        test('SALON_ADMIN at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonAdminSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.salonHome),
+            reason:
+                'Phase 21.8 — SALON_ADMIN now shares the Salon Shell landing '
+                'with SALON_OWNER instead of falling through to the bare `/` '
+                'wildcard.',
           );
         });
 
@@ -766,6 +912,105 @@ void main() {
           expect(
             authRedirectForLocation(_unauthenticatedSession, route),
             equals(RouteNames.login),
+          );
+        });
+      }
+    });
+
+    // mobile-qa (2026-09-01) — /staff/* role gate (SEC MEDIUM, mobile-security
+    // audit-fix). Mirrors the /services role-gate block above EXACTLY: the
+    // SALON_MASTER's own read-only personal-profile surface
+    // (`/staff/profile`, `/staff/settings`, `/staff/edit/personal`) is
+    // SALON_MASTER-only — every other authenticated role is bounced through
+    // roleHomePath, and an unauthenticated session goes to /login before the
+    // role gate is even reached.
+    //
+    // Before this block the gate (`auth_redirect.dart`'s `/staff/` prefix
+    // check) was only ever exercised as a LANDING TARGET reached from other
+    // prefixes' redirects (e.g. "SALON_MASTER at /master/working-hours is
+    // redirected to /staff/profile") — never asserted AT its own route. A
+    // refactor that widened or removed the /staff/* gate itself would have
+    // gone undetected by any of those.
+    group('/staff/* role gate', () {
+      const staffRoutes = <String>[
+        RouteNames.salonMasterProfile, // /staff/profile
+        RouteNames.salonMasterSettings, // /staff/settings
+        RouteNames.salonMasterEditPersonal, // /staff/edit/personal
+        RouteNames.salonMasterEditContacts, // /staff/edit/contacts
+        // Phase 309 — /staff/schedule (read-only MasterScheduleScreen reuse).
+        // Added to this EXISTING matrix rather than a new group: the row
+        // generator below already produces the exact five assertions this
+        // phase's test list calls for (SALON_MASTER admitted;
+        // INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/CLIENT/unauthenticated
+        // each bounced to their own landing) for every route in this list —
+        // one insertion covers all five without hand-duplicating them.
+        RouteNames.salonMasterSchedule, // /staff/schedule
+        // Phase 321 — /staff/services (read-only ServicesListScreen reuse).
+        // Same reasoning as the phase-309 insertion immediately above: one
+        // insertion covers the six-assertion matrix (SALON_MASTER admitted;
+        // INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/CLIENT each bounced;
+        // unauthenticated → /login) without hand-duplicating them.
+        RouteNames.salonMasterServices, // /staff/services
+        // Phase 330/332 — the read-only «Записи» surface and its three
+        // drill-ins. Same reasoning as the phase-309 / phase-321 insertions
+        // above: each inserted route gets the full six-assertion matrix
+        // (SALON_MASTER admitted; INDEPENDENT_MASTER/SALON_OWNER/SALON_ADMIN/
+        // CLIENT each bounced to their own landing; unauthenticated →
+        // /login) from the generator below.
+        RouteNames.salonMasterBookings, // /staff/bookings
+        RouteNames.salonMasterBookingsArchive, // /staff/bookings/archive
+        '/staff/bookings/b-001', // salonMasterBookingDetail('b-001')
+        '/staff/bookings/b-001/review', // salonMasterClientReview('b-001')
+      ];
+
+      for (final route in staffRoutes) {
+        test('SALON_MASTER at $route is allowed (null)', () {
+          expect(
+            authRedirectForLocation(salonMasterSession, route),
+            isNull,
+            reason: 'the role this subtree exists for must reach $route',
+          );
+        });
+
+        test('CLIENT at $route is redirected to /home', () {
+          expect(
+            authRedirectForLocation(_clientSession, route),
+            equals(RouteNames.clientHome),
+          );
+        });
+
+        test(
+          'INDEPENDENT_MASTER at $route is redirected to /master/profile',
+          () {
+            expect(
+              authRedirectForLocation(_authenticatedSession, route),
+              equals(RouteNames.masterProfile),
+            );
+          },
+        );
+
+        test('SALON_OWNER at $route is redirected to /salons/home', () {
+          expect(
+            authRedirectForLocation(salonOwnerSession, route),
+            equals(RouteNames.salonHome),
+          );
+        });
+
+        test('SALON_ADMIN at $route is redirected to /salons/home', () {
+          expect(
+            authRedirectForLocation(salonAdminSession, route),
+            equals(RouteNames.salonHome),
+          );
+        });
+
+        test('unauthenticated at $route is redirected to /login', () {
+          expect(
+            authRedirectForLocation(_unauthenticatedSession, route),
+            equals(RouteNames.login),
+            reason:
+                'the auth gate has precedence — a deep link to a /staff/* '
+                'route while signed out must never leak the role-gate\'s '
+                'non-login bounce targets',
           );
         });
       }
@@ -808,10 +1053,10 @@ void main() {
           },
         );
 
-        test('SALON_OWNER at $route is redirected to /', () {
+        test('SALON_OWNER at $route is redirected to /salons/home', () {
           expect(
             authRedirectForLocation(salonOwnerSession, route),
-            equals(RouteNames.home),
+            equals(RouteNames.salonHome),
           );
         });
 

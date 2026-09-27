@@ -29,6 +29,7 @@
 import 'package:beautica_mobile/features/services/presentation/widgets/searchable_select_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -390,5 +391,364 @@ void main() {
     // Menu never opened.
     expect(find.byKey(const Key('select-menu-search')), findsNothing);
     expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+  });
+
+  // -------------------------------------------------------------------------
+  // Perf N2 — a keyboard-inset frame reuses the cached body: the remote
+  // source's `resolve` (and so the Consumer, the option mapping, the rows) is
+  // not re-run just because the modal route rebuilt the sheet.
+  // -------------------------------------------------------------------------
+  testWidgets('N2 — keyboard-inset frames do not rebuild the sheet body', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+
+    final List<String> resolved = <String>[];
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Scaffold(
+            body: Center(
+              child: SearchableSelectField<String>(
+                fieldKey: const Key('field-under-test'),
+                label: 'Категорія',
+                menuTitle: 'Категорія',
+                placeholder: 'Оберіть зі списку',
+                searchHint: 'Пошук…',
+                emptyLabel: 'Нічого не знайдено',
+                errorLabel: 'Не вдалося завантажити',
+                retryLabel: 'Спробувати знову',
+                selectedLabel: null,
+                fieldState: SelectFieldState.idle,
+                options: const <SelectOption<String>>[],
+                onSelected: (_) {},
+                onMenuRetry: () {},
+                source: SearchableSelectSource<String>(
+                  debounce: const Duration(milliseconds: 100),
+                  belowMinimumLabel: 'min',
+                  isSearchable: (_) => true,
+                  resolve: (WidgetRef ref, String query) {
+                    resolved.add(query);
+                    return const AsyncData<List<SelectOption<String>>>(
+                      _options,
+                    );
+                  },
+                  onRetry: (_, _) {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _openMenu(tester);
+    expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+    final int before = resolved.length;
+    expect(before, greaterThan(0));
+
+    // Simulate the keyboard sliding up over several frames.
+    for (final double inset in <double>[80, 160, 240, 320]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: inset);
+      await tester.pump();
+    }
+
+    expect(resolved.length, before, reason: 'inset frames reused the body');
+    expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+
+    // Non-vacuous: a real query change DOES rebuild it.
+    await tester.enterText(find.byKey(const Key('select-menu-search')), 'ман');
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump();
+    expect(resolved.last, 'ман');
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 347 — `SearchableSelectSource.provisional` is ADDITIVE.
+  // -------------------------------------------------------------------------
+  group('Phase 347 provisional rows', () {
+    const Duration debounce = Duration(milliseconds: 100);
+    const Duration cooldown = Duration(seconds: 5);
+
+    Future<List<String>> pumpRemote(
+      WidgetTester tester, {
+      required AsyncValue<List<SelectOption<String>>> Function(String query)
+      answer,
+      List<SelectOption<String>>? Function(WidgetRef ref, String typed)?
+      provisional,
+      Duration? Function(Object error)? throttleCooldownOf,
+    }) async {
+      tester.view.physicalSize = const Size(800, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final List<String> resolved = <String>[];
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: Scaffold(
+              body: Center(
+                child: SearchableSelectField<String>(
+                  fieldKey: const Key('field-under-test'),
+                  label: 'Категорія',
+                  menuTitle: 'Категорія',
+                  placeholder: 'Оберіть зі списку',
+                  searchHint: 'Пошук…',
+                  emptyLabel: 'Нічого не знайдено',
+                  errorLabel: 'Не вдалося завантажити',
+                  retryLabel: 'Спробувати знову',
+                  selectedLabel: null,
+                  fieldState: SelectFieldState.idle,
+                  options: const <SelectOption<String>>[],
+                  onSelected: (_) {},
+                  onMenuRetry: () {},
+                  source: SearchableSelectSource<String>(
+                    debounce: debounce,
+                    belowMinimumLabel: 'min',
+                    isSearchable: (String q) => q.isEmpty || q.length >= 3,
+                    throttleCooldownOf: throttleCooldownOf,
+                    provisional: provisional,
+                    resolve: (WidgetRef ref, String query) {
+                      resolved.add(query);
+                      return answer(query);
+                    },
+                    onRetry: (_, _) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.byKey(const Key('field-under-test')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      return resolved;
+    }
+
+    List<SelectOption<String>>? prefixOf(WidgetRef ref, String typed) {
+      final List<SelectOption<String>> rows = _options
+          .where((o) => o.label.toLowerCase().startsWith(typed.toLowerCase()))
+          .toList();
+      return rows.isEmpty ? null : rows;
+    }
+
+    // ---- phase 347 audit (perf M1 / L2 / L1) --------------------------------
+    // Thirty rows so the list genuinely scrolls inside the 1120 px sheet.
+    final List<SelectOption<String>> many = List<SelectOption<String>>.generate(
+      30,
+      (int i) {
+        final String n = i.toString().padLeft(2, '0');
+        return SelectOption<String>(
+          value: n,
+          label: 'Опція $n',
+          rowKey: Key('opt-$n'),
+        );
+      },
+    );
+
+    List<SelectOption<String>>? prefixOfMany(WidgetRef ref, String typed) {
+      final List<SelectOption<String>> rows = many
+          .where((o) => o.label.toLowerCase().startsWith(typed.toLowerCase()))
+          .toList();
+      return rows.isEmpty ? null : rows;
+    }
+
+    Finder listScrollable() => find.descendant(
+      of: find.byType(ListView),
+      matching: find.byType(Scrollable),
+    );
+
+    Future<void> typeOneFrame(WidgetTester tester, String text) async {
+      await tester.enterText(find.byKey(const Key('select-menu-search')), text);
+      await tester.pump();
+    }
+
+    testWidgets('M1 — provisional -> server keeps the list element, its rows '
+        'and its scroll offset', (tester) async {
+      await pumpRemote(
+        tester,
+        answer: (String q) => AsyncData<List<SelectOption<String>>>(many),
+        provisional: prefixOfMany,
+      );
+
+      await typeOneFrame(tester, 'опц');
+      expect(
+        find.byKey(const Key('select-menu-refreshing')),
+        findsOneWidget,
+        reason: 'the provisional rows are showing, before the debounce',
+      );
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        listScrollable(),
+      );
+      scrollable.position.jumpTo(300);
+      await tester.pump();
+      final Element row = tester.element(find.byKey(const Key('opt-10')));
+
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(
+        find.byKey(const Key('select-menu-refreshing')),
+        findsNothing,
+        reason: 'the server answer for «опц» is what renders now',
+      );
+
+      expect(
+        identical(tester.state<ScrollableState>(listScrollable()), scrollable),
+        isTrue,
+        reason: 'the list was not remounted',
+      );
+      expect(scrollable.position.pixels, 300);
+      expect(
+        identical(tester.element(find.byKey(const Key('opt-10'))), row),
+        isTrue,
+        reason: 'the row element survived the swap',
+      );
+    });
+
+    testWidgets('L2 — below-minimum -> provisional keeps the list element', (
+      tester,
+    ) async {
+      await pumpRemote(
+        tester,
+        answer: (String q) => AsyncData<List<SelectOption<String>>>(many),
+        provisional: prefixOfMany,
+      );
+
+      await typeOneFrame(tester, 'оп');
+      expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
+      final ScrollableState scrollable = tester.state<ScrollableState>(
+        listScrollable(),
+      );
+      final Element row = tester.element(find.byKey(const Key('opt-01')));
+
+      await typeOneFrame(tester, 'опц');
+      expect(find.byKey(const Key('select-menu-minimum')), findsNothing);
+      expect(
+        identical(tester.state<ScrollableState>(listScrollable()), scrollable),
+        isTrue,
+      );
+      expect(
+        identical(tester.element(find.byKey(const Key('opt-01'))), row),
+        isTrue,
+      );
+      await tester.pump(debounce);
+      await tester.pump();
+    });
+
+    testWidgets('L1 — a keystroke that changes no provisional rows does not '
+        'rebuild the body', (tester) async {
+      final List<String> resolved = await pumpRemote(
+        tester,
+        answer: (String q) => AsyncData<List<SelectOption<String>>>(many),
+        provisional: prefixOfMany,
+      );
+
+      // «xyz» prefixes nothing: the view flips from "applied" to "pending
+      // with no local rows" — one rebuild, which re-reads the applied state.
+      final int beforeFirst = resolved.length;
+      await typeOneFrame(tester, 'xyz');
+      expect(resolved.length, beforeFirst + 1);
+
+      // «xyzw» still prefixes nothing: the same view, so no rebuild at all.
+      final int beforeSecond = resolved.length;
+      await typeOneFrame(tester, 'xyzw');
+      expect(
+        resolved.length,
+        beforeSecond,
+        reason: 'the body was not rebuilt for an unchanged view',
+      );
+      expect(find.byKey(const Key('opt-00')), findsOneWidget);
+
+      // Non-vacuous: once the debounce applies it, the body DOES rebuild.
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(resolved.last, 'xyzw');
+    });
+
+    testWidgets('without provisional: below-min is the label ALONE and a load '
+        'keeps the previous rows (unchanged default)', (tester) async {
+      final List<String> resolved = await pumpRemote(
+        tester,
+        answer: (String q) => q.isEmpty
+            ? const AsyncData<List<SelectOption<String>>>(_options)
+            : const AsyncLoading<List<SelectOption<String>>>(),
+      );
+      expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+
+      await tester.enterText(find.byKey(const Key('select-menu-search')), 'ма');
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(find.byKey(const Key('select-menu-minimum')), findsOneWidget);
+      expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+
+      await tester.enterText(
+        find.byKey(const Key('select-menu-search')),
+        'пед',
+      );
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(resolved.last, 'пед');
+      expect(find.byKey(const Key('select-menu-refreshing')), findsOneWidget);
+      // Previous rows, NOT a prefix narrowing: Манікюр is still there.
+      expect(find.byKey(const Key('opt-MANICURE')), findsOneWidget);
+      expect(find.byKey(const Key('opt-PEDICURE')), findsOneWidget);
+    });
+
+    testWidgets('during a 429 cooldown, typing updates the provisional rows '
+        'and issues NO request', (tester) async {
+      final Object throttled = Exception('429');
+      final List<String> resolved = await pumpRemote(
+        tester,
+        answer: (String q) => q.isEmpty
+            ? AsyncError<List<SelectOption<String>>>(
+                throttled,
+                StackTrace.empty,
+              )
+            : const AsyncData<List<SelectOption<String>>>(_options),
+        throttleCooldownOf: (Object e) =>
+            identical(e, throttled) ? cooldown : null,
+        provisional: prefixOf,
+      );
+      expect(find.byKey(const Key('select-menu-error')), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const Key('select-menu-search')),
+        'пед',
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('opt-PEDICURE')), findsOneWidget);
+      expect(find.byKey(const Key('opt-MANICURE')), findsNothing);
+      expect(
+        find.byKey(const Key('select-menu-refreshing')),
+        findsNothing,
+        reason: 'no request is on its way while the limiter is shut',
+      );
+
+      await tester.pump(debounce);
+      await tester.pump();
+      expect(
+        resolved.where((String q) => q.isNotEmpty),
+        isEmpty,
+        reason: 'the debounce elapsed inside the cooldown — nothing sent',
+      );
+      expect(find.byKey(const Key('opt-PEDICURE')), findsOneWidget);
+
+      // The cooldown ends and applies the held text exactly once.
+      await tester.pump(cooldown);
+      await tester.pump();
+      expect(resolved.where((String q) => q.isNotEmpty).toSet(), <String>{
+        'пед',
+      });
+    });
   });
 }

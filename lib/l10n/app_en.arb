@@ -106,6 +106,10 @@
   "@errUnknown": {
     "description": "Fallback error message for unexpected failures."
   },
+  "errSessionIncomplete": "We couldn\u2019t load all of your profile details. Tap \u201cTry again\u201d to refresh them.",
+  "@errSessionIncomplete": {
+    "description": "Error message shown when the signed-in session is authenticated but missing a field the screen needs to continue (SessionIncompleteFailure) \u2014 e.g. a SALON_ADMIN whose salonId never reached the session. Always paired with a retry that re-fetches GET /users/me."
+  },
   "errConflict": "This time slot is no longer available. Please choose another.",
   "@errConflict": {
     "description": "Error message shown when a booking create/reschedule returns HTTP 409 because the requested slot is no longer available (ConflictFailure)."
@@ -135,6 +139,14 @@
   "bookingErrRateLimited": "Too many booking attempts. Please wait a few seconds and try again.",
   "@bookingErrRateLimited": {
     "description": "Error message shown when POST /bookings or PATCH /bookings/{id}/reschedule returns HTTP 429 (per-user booking-write rate limit)."
+  },
+  "accountDeleteErrTooManyBookings": "Please cancel some upcoming bookings first, then try deleting your account again.",
+  "@accountDeleteErrTooManyBookings": {
+    "description": "Fallback shown when DELETE /users/me returns HTTP 422 (more than 50 upcoming bookings) but the backend response carried no usable message. AccountDeleteBookingLimitFailure.userMessage prefers the backend's own message when present — this key is the defensive fallback only."
+  },
+  "accountDeleteErrRateLimited": "Too many account-deletion attempts. Please try again later.",
+  "@accountDeleteErrRateLimited": {
+    "description": "Error message shown when DELETE /users/me returns HTTP 429 (delete-account rate limit, 3 attempts/hour)."
   },
   "bookingErrMasterNotPermitted": "You don't have permission to create this booking.",
   "@bookingErrMasterNotPermitted": {
@@ -1190,6 +1202,10 @@
   "@resetOtpResendBtn": {
     "description": "Resend code link shown when the countdown reaches zero on the password-reset OTP screen."
   },
+  "resetOtpResendUnavailable": "Unavailable",
+  "@resetOtpResendUnavailable": {
+    "description": "Resend link label on the password-reset OTP screen while the cooldown exceeds the 10-minute UX ceiling (kMaxUxCooldownSeconds) — i.e. the per-IP AuthRateLimitFilter 429 with Retry-After: 3600. Replaces the numeric countdown, which would read \"Resend (3600s)\". Must NOT invite a retry: the inline banner (authResetErrRateLimited) already tells the user to come back later, so this label only states that the action is unavailable right now."
+  },
   "resetOtpSemantics": "Confirmation code, 6 digits",
   "@resetOtpSemantics": {
     "description": "Accessibility label for the OTP entry as a whole on the password-reset OTP screen."
@@ -1201,6 +1217,10 @@
   "resetOtpErrCodeExpired": "The code has expired. Send a new one.",
   "@resetOtpErrCodeExpired": {
     "description": "userMessage for PasswordResetOtpFailure.codeExpired (POST /auth/verify-password-reset-otp returns CODE_EXPIRED)."
+  },
+  "authResetErrRateLimited": "Too many attempts. Please try again later.",
+  "@authResetErrRateLimited": {
+    "description": "userMessage for PasswordResetRateLimitedFailure — the per-IP AuthRateLimitFilter answered 429 on /auth/forgot-password (3 per 60 min, Retry-After: 3600), /auth/reset-password (10 per 60 min, Retry-After: 3600) or /auth/verify-password-reset-otp (10 per 15 min, Retry-After: 900). The three windows differ, so the copy is deliberately window-agnostic: naming an hour would overstate the OTP endpoint's wait fourfold and strand a legitimate reset. Must NOT invite an IMMEDIATE retry — at these budgets the very next tap is guaranteed to fail — and no countdown is representable either way, since even 900 s is above the 600 s UX ceiling (kMaxUxCooldownSeconds)."
   },
   "changePasswordRowLabel": "Change password",
   "@changePasswordRowLabel": {
@@ -1277,6 +1297,22 @@
   "@inviteSuccessSnackbar": {
     "description": "Snackbar message shown after a successful invite acceptance (router then forwards to home)."
   },
+  "inviteHandoffAccountReady": "Your account has been created. Sign in with your email and the password you just set.",
+  "@inviteHandoffAccountReady": {
+    "description": "Login hand-off banner shown when accept-invite got a 2xx response the client could not parse (ResponseUnusableFailure) — the account was created server-side; invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffAccountMayBeReady": "The connection dropped. Your account was most likely created — try signing in with the password you just set. If that fails, ask the salon to send a new invite.",
+  "@inviteHandoffAccountMayBeReady": {
+    "description": "Login hand-off banner shown when the connection dropped after the accept-invite request was fully sent (NetworkFailure.mayHaveReachedServer) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffNoLongerValid": "This invite has already been used. If your account was created, sign in with the password you set. Otherwise ask the salon to send a new invite.",
+  "@inviteHandoffNoLongerValid": {
+    "description": "Login hand-off banner shown when the invite token was already used/expired/not found (400 with no field-error map) — invite-accept post-success design, 2026-09-01."
+  },
+  "inviteHandoffEmailAlreadyRegistered": "This email is already registered. Sign in to the existing account, or ask the salon to invite a different address.",
+  "@inviteHandoffEmailAlreadyRegistered": {
+    "description": "Login hand-off banner shown when accept-invite returned 409 (email already registered) — invite-accept post-success design, 2026-09-01."
+  },
 
   "roleSelectHeadline": "Welcome to premium\nBeauty Service",
   "@roleSelectHeadline": {
@@ -1321,6 +1357,11 @@
   "masterServicesLabel": "Services",
   "@masterServicesLabel": {
     "description": "Caption under the services stat tile and section header on the master profile screen."
+  },
+
+  "masterOwnCategoriesLabel": "My categories",
+  "@masterOwnCategoriesLabel": {
+    "description": "Section header on the SALON_MASTER own-profile screen (`SalonMasterProfileScreen`) above the read-only service-category cards — ported verbatim from the approved design's «Мої категорії» heading. Distinct from masterServicesLabel, which the owner/admin's THIRD-PERSON view of a staff member uses instead."
   },
 
   "masterPortfolioLabel": "Portfolio",
@@ -1445,9 +1486,13 @@
     "description": "Hint text inside the Instagram handle field on the master edit screen (Phase 4.3)."
   },
 
-  "servicesTitle": "My Services",
+  "servicesTitle": "Services",
   "@servicesTitle": {
-    "description": "Title for services list screen (Phase 5.2)."
+    "description": "Title for services list screen (Phase 5.2). Shared verbatim across an independent master managing their own catalogue, an owner/admin managing a staff master's catalogue, and a salon master viewing their own catalogue read-only — keep role-neutral."
+  },
+  "servicesListBackSemanticLabel": "Back",
+  "@servicesListBackSemanticLabel": {
+    "description": "Phase 323 — accessible label for the ServicesListScreen AppBar back arrow, supplied only on the SALON_OWNER / SALON_ADMIN route /salons/:salonId/manage/staff/:memberId/services (showBack: true). Its OWN key rather than a reuse of registerBackStep / salonProfileBackLabel, following this file's documented per-screen back-label convention (see salonPendingInvitesBackSemanticLabel): separate surfaces must be free to diverge."
   },
   "servicesAdd": "Add service",
   "@servicesAdd": {
@@ -1460,6 +1505,10 @@
   "servicesEmptyBody": "Add your first service so clients can book with you",
   "@servicesEmptyBody": {
     "description": "Empty state body text (Phase 5.2)."
+  },
+  "salonMasterServicesEmptyHint": "Ask the salon owner or administrator to add services for you.",
+  "@salonMasterServicesEmptyHint": {
+    "description": "Empty-catalogue body text for a READ-ONLY SALON_MASTER viewer (`ServicesListScreen(writable: false)` at `/staff/services`, AND the embedded «Послуги» tab on `SalonMasterProfileScreen`'s own profile) — this viewer cannot add services themselves, so `servicesEmptyBody`'s imperative 'add your first service' copy would address the wrong person. Addressed to the owner/admin in the third person, parallel to `scheduleNoScheduleHelperReadOnly`; do NOT merge with `servicesEmptyBody`."
   },
 
   "masterAllServices": "All services",
@@ -1600,6 +1649,18 @@
   "@servicePhotoChangeSemantics": {
     "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
   },
+  "serviceUnsavedChangesBody": "You have edited this service but not saved it. Leaving now discards your changes.",
+  "@serviceUnsavedChangesBody": {
+    "description": "Qase defect #26 (case 43 step 2) — body of the unsaved-changes confirmation on ServiceEditScreen, shown when the master leaves a DIRTY form via the system back gesture or the top-bar back icon. The dialog's TITLE reuses `serviceUnsavedChanges`, the same string the in-form dirty caption already renders, so the warning the tester was told to expect and the indicator they can see on screen read identically."
+  },
+  "serviceUnsavedChangesDiscardCta": "Leave without saving",
+  "@serviceUnsavedChangesDiscardCta": {
+    "description": "Qase defect #26 — the destructive action on the unsaved-changes dialog: leaves ServiceEditScreen and discards the edit. Deliberately NOT `actionDelete`; nothing is deleted, the edit is abandoned."
+  },
+  "serviceUnsavedChangesStayCta": "Stay",
+  "@serviceUnsavedChangesStayCta": {
+    "description": "Qase defect #26 — the safe action on the unsaved-changes dialog: dismisses it and keeps the master on the form. Deliberately NOT `actionCancel` («Скасувати»), which on a discard prompt is ambiguous about WHICH action is being cancelled — the leaving, or the edit."
+  },
   "serviceUnsavedChanges": "Unsaved changes",
   "@serviceUnsavedChanges": {
     "description": "Dirty-state badge shown beneath the sub-heading when the form diverges from the loaded service values (Phase 5.4)."
@@ -1688,6 +1749,10 @@
       "category": { "type": "String" },
       "count": { "type": "int" }
     }
+  },
+  "servicesCardEditSemanticVerb": "Edit",
+  "@servicesCardEditSemanticVerb": {
+    "description": "Action verb appended to a service card's accessibility label when the card is tappable and opens the edit form. Announced by a screen reader only; never rendered as visible text."
   },
   "categoryRequestTitle": "Suggest a category",
   "@categoryRequestTitle": {
@@ -1813,13 +1878,17 @@
   },
   "deleteServiceBlockedBody": "{count, plural, one{{count} future booking exists. Cancel it first.} other{{count} future bookings exist. Cancel them first.}}",
   "@deleteServiceBlockedBody": {
-    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5).",
+    "description": "Body text of the delete-service blocked dialog. Informs the master how many future bookings exist and asks them to cancel those bookings first (Phase 5.5). RETAINED but rendered nowhere as of Phase 319 — the backend's 409 carries no structured count (phase 316 D3); this plural waits for a future structured-count response. See deleteServiceBlockedBodyNoCount for the string actually rendered today.",
     "placeholders": {
       "count": {
         "type": "int",
         "example": "3"
       }
     }
+  },
+  "deleteServiceBlockedBodyNoCount": "This service has future bookings. Cancel them first.",
+  "@deleteServiceBlockedBodyNoCount": {
+    "description": "Body text of the delete-service blocked dialog (Phase 319 D2), shown when a salon-target unassign is refused with a 409 ServiceUnassignBlockedFailure. The backend's refusal carries no structured booking count (a plain-English Java string), so this body deliberately states NO count — rendering deleteServiceBlockedBody(0) here would be a false claim of zero future bookings."
   },
   "actionCancel": "Cancel",
   "@actionCancel": {
@@ -2121,6 +2190,10 @@
   "@scheduleViewOnly": {
     "description": "Read-only badge label replacing the edit pencil for past days (Phase 15.2)."
   },
+  "scheduleReadOnlyEditorBody": "You don't have permission to edit this schedule.",
+  "@scheduleReadOnlyEditorBody": {
+    "description": "Phase 311 — SalonNoticeCard body shown by WeeklyTemplateEditorScreen, DayHoursSheet and ApplyScheduleSheet when scheduleEditableProvider is false (a read-only viewer, e.g. SALON_MASTER, reached one of these edit surfaces). Paired with the existing scheduleViewOnly ('View only') as the card's title — no new title key needed."
+  },
   "scheduleDaySummaryWorking": "Working day: {intervals}",
   "@scheduleDaySummaryWorking": {
     "description": "Selected-day summary line for a working day (Phase 15.2). {intervals} is the formatted interval list (e.g. '09:00–18:00').",
@@ -2158,7 +2231,11 @@
   },
   "scheduleNoScheduleHelper": "Add working hours so clients can book.",
   "@scheduleNoScheduleHelper": {
-    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3)."
+    "description": "NO_SCHEDULE banner secondary helper line (Phase 15.2, OQ-3). Shown to an EDITABLE viewer (INDEPENDENT_MASTER, or a SALON_MASTER-editable membership) who can act on the imperative CTA themselves. Do NOT merge with scheduleNoScheduleHelperReadOnly — that variant is addressed to a DIFFERENT person (the salon owner/admin) for a viewer who cannot add their own hours."
+  },
+  "scheduleNoScheduleHelperReadOnly": "The salon owner or admin can add working hours so clients can book with you.",
+  "@scheduleNoScheduleHelperReadOnly": {
+    "description": "NO_SCHEDULE banner secondary helper line for a READ-ONLY salon-master viewer (scheduleEditableProvider == false). Phase 312 restricted setting a salon master's hours to the salon owner/admin, so this viewer cannot act on scheduleNoScheduleHelper's imperative 'you add hours' copy — it would address the wrong person. This variant is addressed to the owner/admin in the third person; do NOT merge it with scheduleNoScheduleHelper, whose audience is the viewer themselves."
   },
   "scheduleAddHoursCta": "Add working hours",
   "@scheduleAddHoursCta": {
@@ -2712,6 +2789,31 @@
   "@serviceErrRateLimitedNoWait": {
     "description": "Error shown when a service-catalogue write returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as serviceErrRateLimited minus the countdown."
   },
+  "boardErrRateLimited": "Too many requests. Wait {seconds} s, then try again.",
+  "@boardErrRateLimited": {
+    "description": "Error shown when one of the salon board's read routes (day board, archive, booked-days dots, roster effective-schedule) returns 429 with a usable Retry-After header. Names the wait so the owner knows the limit clears on its own; the retry action next to it stays disabled until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "boardErrRateLimitedNoWait": "Too many requests. Wait a moment, then try again.",
+  "@boardErrRateLimitedNoWait": {
+    "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
+  },
+  "boardRetryCooldown": "Try again in {seconds} s",
+  "@boardRetryCooldown": {
+    "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "masterArchiveLoadMorePaused": "Couldn't load. Retrying in {seconds} s",
+  "@masterArchiveLoadMorePaused": {
+    "description": "Footer notice at the bottom of the archive list after a failed next-page fetch. The list keeps its load-more affordance but pauses re-fetching for the cooldown named here, so an overscroll bounce cannot re-fire the same failing request once per frame.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
   "serviceSetupErrDuplicateAfterRetry": "These services are already in your menu. The earlier attempt may have gone through — check your services list.",
   "@serviceSetupErrDuplicateAfterRetry": {
     "description": "Shown when a 409 DUPLICATE_SERVICE arrives on a save that was itself a retry after a 503. The earlier attempt's outcome is genuinely unknown client-side (an edge-proxy 503 can follow a committed write), so the copy asserts neither 'saved' nor 'not saved' and points the master at their services list to check."
@@ -2743,6 +2845,10 @@
   "settingsHubContacts": "Contacts",
   "@settingsHubContacts": {
     "description": "Settings hub row label that opens the contacts edit page."
+  },
+  "settingsHubContactsSoon": "coming soon",
+  "@settingsHubContactsSoon": {
+    "description": "Trailing value on the disabled «Контакти» row in the SALON_MASTER own-profile settings hub — no contacts-edit destination exists yet for this role. Mirrors adminSettingsConvertToMasterSoon's convention."
   },
   "settingsHubLocation": "Location",
   "@settingsHubLocation": {
@@ -2879,6 +2985,22 @@
   "settingsHubHelp": "Help / Contact us",
   "@settingsHubHelp": {
     "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
+  },
+  "settingsHubDeleteAccount": "Delete account",
+  "@settingsHubDeleteAccount": {
+    "description": "Label for the CLIENT-only delete-account row at the bottom of the CLIENT settings hub, below logout. Also reused as the confirm dialog's title and destructive confirm-button label (mirrors how `logout` is reused for the logout dialog)."
+  },
+  "deleteAccountConfirmBody": "All your upcoming bookings will be cancelled. This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBody": {
+    "description": "Short body copy of the delete-account confirm dialog. Deliberately does NOT state a booking count (locked product decision) — just that upcoming bookings are cancelled, the action is irreversible, and the client loses all access and data. CLIENT ONLY — this role's own bookings are their own, so \"your upcoming bookings\" is accurate here. Do not reuse for SALON_MASTER / INDEPENDENT_MASTER, whose upcoming bookings belong to their CLIENTS, not to them — see deleteAccountConfirmBodyMaster."
+  },
+  "deleteAccountConfirmBodyMaster": "All your clients' upcoming appointments will be cancelled. This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBodyMaster": {
+    "description": "Body copy of the delete-account confirm dialog for SALON_MASTER and INDEPENDENT_MASTER. A master's upcoming bookings are their CLIENTS' appointments, not their own — deleteAccountConfirmBody's \"your upcoming bookings\" is factually wrong for this role, so this variant says clients' appointments are cancelled instead. Keeps the irreversibility and data-loss sentences unchanged. Deliberately no booking count (same locked product decision as deleteAccountConfirmBody)."
+  },
+  "deleteAccountConfirmBodyAdmin": "This action cannot be undone — you will permanently lose access and all your data in Beautica.",
+  "@deleteAccountConfirmBodyAdmin": {
+    "description": "Body copy of the delete-account confirm dialog for SALON_ADMIN. An admin has no calendar of their own (D3) and performs no bookings, so — unlike deleteAccountConfirmBody (CLIENT) and deleteAccountConfirmBodyMaster (SALON_MASTER / INDEPENDENT_MASTER) — this variant drops the bookings-cancelled sentence entirely rather than stating something untrue; the backend's StaffAccountSelfDeletionService confirms an admin's self-delete never checks or cancels any booking. Keeps only the irreversibility and data-loss sentences."
   },
   "contactSupportTitle": "Contact us",
   "@contactSupportTitle": {
@@ -3633,6 +3755,14 @@
   "@publicMasterBioLabel": {
     "description": "Section label above the bio on the public master profile (about the master, not self)."
   },
+  "publicMasterTabAbout": "About the master",
+  "@publicMasterTabAbout": {
+    "description": "Phase 351 — tab label for the public master profile's «Про майстра» tab (identical text to publicMasterBioLabel, which is the bio SECTION heading kept inside that tab; the two are separate keys because they are separate UI elements — a tab label vs a section heading — even though the wording matches, per the phase doc's D5)."
+  },
+  "publicMasterAboutEmpty": "No bio added yet",
+  "@publicMasterAboutEmpty": {
+    "description": "Phase 351 — muted placeholder shown in the «Про майстра» tab when a CLIENT views a master with no bio (always read-only on this screen — mirrors salonAboutEmpty's pattern). The master's OWN profile shows the AddLink «Додати опис» affordance instead, never this text."
+  },
   "publicMasterExperienceLabel": "Experience",
   "@publicMasterExperienceLabel": {
     "description": "Caption of the experience/tenure stat tile on the public master profile."
@@ -4118,9 +4248,9 @@
   "@masterCreateBookingServiceEmptyTitle": {
     "description": "Empty-state title on the master booking wizard's service step when the master has no services yet."
   },
-  "masterCreateBookingServiceEmptyBody": "Add a service under \"My services\" to create a booking.",
+  "masterCreateBookingServiceEmptyBody": "Add a service under \"Services\" to create a booking.",
   "@masterCreateBookingServiceEmptyBody": {
-    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet."
+    "description": "Empty-state body copy on the master booking wizard's service step when the master has no services yet. Names the services list screen by its servicesTitle label — keep the two in sync if either changes."
   },
   "masterCreateBookingGuestLabel": "Client",
   "@masterCreateBookingGuestLabel": {
@@ -4150,7 +4280,7 @@
   "@salonCreateBookingDateHeading": {
     "description": "Body heading above the calendar on the salon booking wizard's date step."
   },
-  "salonCreateBookingDateNextCta": "Next — Masters",
+  "salonCreateBookingDateNextCta": "Next",
   "@salonCreateBookingDateNextCta": {
     "description": "Advance CTA on the salon booking wizard's date step; disabled until a date is picked."
   },
@@ -4397,6 +4527,10 @@
   "@bookingDetailSublineCancelled": {
     "description": "Booking detail subline — CANCELLED."
   },
+  "bookingDetailSublineCancelledProvider": "The client cancelled this booking.",
+  "@bookingDetailSublineCancelledProvider": {
+    "description": "Booking detail subline — CANCELLED, PROVIDER viewer. No rebooking affordance offered."
+  },
   "bookingDetailSublineDeclined": "Booking cancelled",
   "@bookingDetailSublineDeclined": {
     "description": "Booking detail subline — DECLINED. Neutral, no who-cancelled distinction."
@@ -4517,6 +4651,25 @@
   "@bookingDetailClientReviewCta": {
     "description": "Track 7.x Wave B — PROVIDER footer action on a COMPLETED booking's detail screen; opens the leave-client-feedback screen. Offered on every COMPLETED provider booking (no server-side canReview-equivalent gate exists yet)."
   },
+  "bookingDetailClientReviewHeading": "Client's review",
+  "@bookingDetailClientReviewHeading": {
+    "description": "Phase 334 — heading above the read-only block on «Деталі запису» showing the review THIS booking's client left about the master. PROVIDER branch only. Viewer-relative and deliberately matched to the BookingNotes heading idiom («Побажання клієнта», «Причина клієнта») rather than the leave-review screens' ReviewSectionLabel, whose required/optional tag is a form affordance with no meaning on a read-only block. Not to be confused with bookingDetailClientReviewCta, which is the OPPOSITE direction — the provider reviewing the client."
+  },
+  "bookingDetailClientReviewSemantics": "Client's review: rated {rating} out of 5. {comment}",
+  "@bookingDetailClientReviewSemantics": {
+    "description": "Phase 334 — screen-reader label for the whole client-review block on «Деталі запису», used when the client left a comment. The shared ReviewCard renders its rating as five bare Icon glyphs, which a screen reader cannot interpret, so the section spells the score out. Use bookingDetailClientReviewSemanticsNoComment when comment is null.",
+    "placeholders": {
+      "rating": { "type": "int" },
+      "comment": { "type": "String" }
+    }
+  },
+  "bookingDetailClientReviewSemanticsNoComment": "Client's review: rated {rating} out of 5, no comment",
+  "@bookingDetailClientReviewSemanticsNoComment": {
+    "description": "Phase 334 — screen-reader label for the client-review block on «Деталі запису» when the client rated without writing anything (ClientAuthoredReviewResponse.comment is null). A separate key rather than string concatenation so the sentence stays fully translatable.",
+    "placeholders": {
+      "rating": { "type": "int" }
+    }
+  },
   "clientReviewScreenTitle": "FEEDBACK ABOUT CLIENT",
   "@clientReviewScreenTitle": {
     "description": "Top-bar title of the leave-client-feedback screen (track 7.x Wave B)."
@@ -4629,6 +4782,10 @@
   "@bookingRescheduleUnavailable": {
     "description": "Snackbar shown when a booking cannot be rescheduled (not confirmed, or its service is no longer offered)."
   },
+  "bookingRebookServiceUnavailable": "We couldn't find this service — please choose again.",
+  "@bookingRebookServiceUnavailable": {
+    "description": "Snackbar shown from booking_detail_screen.dart's _onRebook when the past booking carries no serviceId (Booking.serviceId is '' — the service record was removed), so ServiceSelectorSheet opens via the bare-masterId extra with nothing pre-checked. Explains the silent fallback (phase 350 D7)."
+  },
   "salonProfileBackLabel": "Back",
   "@salonProfileBackLabel": {
     "description": "Accessibility label for the back control floating over the salon profile cover photo."
@@ -4636,10 +4793,6 @@
   "salonCoverSemanticLabel": "Salon cover photo",
   "@salonCoverSemanticLabel": {
     "description": "Accessibility label for the salon profile's cover photo image."
-  },
-  "salonCoverEditPillLabel": "Cover",
-  "@salonCoverEditPillLabel": {
-    "description": "Small pill on the cover photo signalling it is the salon's uploadable cover slot."
   },
   "salonLogoSemanticLabel": "Salon logo",
   "@salonLogoSemanticLabel": {
@@ -4922,6 +5075,14 @@
   "@salonBookingNoCoveringMasterHint": {
     "description": "Empty-state hint guiding the client to adjust their service selection."
   },
+  "salonBookingNoCoveringMasterSingularTitle": "No master performs this service",
+  "@salonBookingNoCoveringMasterSingularTitle": {
+    "description": "Phase 335 — empty-state title when exactly ONE service is selected and no master performs it (distinct wording from the plural salonBookingNoCoveringMasterTitle, which reads oddly for a single service)."
+  },
+  "salonBookingNoCoveringMasterSingularHint": "Adjust the service to see available masters.",
+  "@salonBookingNoCoveringMasterSingularHint": {
+    "description": "Phase 335 — empty-state hint for the single-service no-covering-master case."
+  },
   "salonBookingMastersSectionLabel": "Available masters",
   "@salonBookingMastersSectionLabel": {
     "description": "Section label above the eligible-masters list on the salon booking master-assignment screen."
@@ -4985,6 +5146,26 @@
   "salonBookingUncoveredSemantics": "Choose a master who performs {service}",
   "@salonBookingUncoveredSemantics": {
     "description": "Accessibility label for a selected service no picked master can perform yet.",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Pedicure"
+      }
+    }
+  },
+  "salonBookingDegradedServiceLabel": "Couldn't check masters for \"{service}\"",
+  "@salonBookingDegradedServiceLabel": {
+    "description": "Phase 266 — inline label for a selected service whose OWN bookable-masters fetch failed (SalonCoverage.degradedServiceIds), rendered in place of the terminal _UncoveredRow. Distinct from salonBookingUncoveredSemantics: this is a retryable error, never a genuine \"nobody performs this service\".",
+    "placeholders": {
+      "service": {
+        "type": "String",
+        "example": "Pedicure"
+      }
+    }
+  },
+  "salonBookingDegradedServiceSemantics": "Couldn't check masters for {service}. Tap Try again to retry.",
+  "@salonBookingDegradedServiceSemantics": {
+    "description": "Accessibility label for the Phase 266 degraded-service retry row (see salonBookingDegradedServiceLabel).",
     "placeholders": {
       "service": {
         "type": "String",
@@ -5206,6 +5387,180 @@
       "total": { "type": "int", "example": "3" }
     }
   },
+  "salonManageTabStaff": "Team",
+  "@salonManageTabStaff": {
+    "description": "Phase 21.2 — the owner/admin salon management profile's second tab label, replacing the client-facing 'Майстри' tab with a staff-management grid. Renamed from 'Staff' to 'Team' 2026-08-29 (key kept for stability)."
+  },
+  "salonManageSettingsSemanticLabel": "Salon settings",
+  "@salonManageSettingsSemanticLabel": {
+    "description": "Phase 21.2 — semantic label for the tune_rounded cover control on the owner/admin salon management profile, which opens the salon settings page."
+  },
+  "salonManageNotificationsSemanticLabel": "Notifications",
+  "@salonManageNotificationsSemanticLabel": {
+    "description": "Semantic label for the notification bell cover control on the owner/admin salon management profile cover. Deliberately omits the unread state: the glyph shows the baked-in unread dot per the approved design, but the control is inert (notification centre out of scope, tap is a placeholder), so the accessible name must not assert a state the user cannot act on or dismiss."
+  },
+  "salonManageNameLabel": "Salon name",
+  "@salonManageNameLabel": {
+    "description": "Phase 21.2 — field label above the salon name input in the owner/admin profile edit form."
+  },
+  "salonManageDescriptionLabel": "Description",
+  "@salonManageDescriptionLabel": {
+    "description": "Phase 21.2 — field label above the salon description input in the owner/admin profile edit form."
+  },
+  "salonManageNameTooLong": "Max 255 characters",
+  "@salonManageNameTooLong": {
+    "description": "mobile-security LOW follow-up, 2026-08-27 — error shown under the salon name field when it exceeds UpdateSalonRequest's backend cap (Size max = 255)."
+  },
+  "salonProfileEditTitle": "Name & description",
+  "@salonProfileEditTitle": {
+    "description": "Phase 21.10 — SectionScaffold title for the dedicated SalonProfileEditScreen (name + description)."
+  },
+  "salonProfileEditSubheading": "How the salon is named and described to clients.",
+  "@salonProfileEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonProfileEditScreen."
+  },
+  "salonAddressEditSubheading": "Where the salon is located. The address is shown to clients on the profile.",
+  "@salonAddressEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonAddressEditScreen. Screen title reuses locationTitle ('Location')."
+  },
+  "salonContactsEditSubheading": "How clients can reach the salon.",
+  "@salonContactsEditSubheading": {
+    "description": "Phase 21.10 — subheading under the title on SalonContactsEditScreen. Screen title reuses contactsTitle ('Contacts')."
+  },
+  "salonManageStaffEmpty": "This salon has no masters yet.",
+  "@salonManageStaffEmpty": {
+    "description": "Phase 21.2 — empty-state message shown above the staff grid's invite tile when the salon has no masters yet."
+  },
+  "salonManageAddStaffLabel": "Invite to the team",
+  "@salonManageAddStaffLabel": {
+    "description": "Phase 21.2 — label/semantics for the trailing 'invite staff' tile in the owner/admin salon management profile's Команда grid."
+  },
+  "salonManageAddDescriptionLink": "Add a description",
+  "@salonManageAddDescriptionLink": {
+    "description": "Owner-only inline text link shown in place of the empty-description placeholder on the salon management profile's «Про салон» tab. Opens the «Про салон» profile-edit screen."
+  },
+  "salonManageAddInstagramLink": "Add a link",
+  "@salonManageAddInstagramLink": {
+    "description": "Owner-only inline text link shown in the «Контакти» block of the salon management profile when the salon has no Instagram on file. Opens the «Контакти» contacts-edit screen."
+  },
+  "salonStaffProfileMasterTitle": "Master profile",
+  "@salonStaffProfileMasterTitle": {
+    "description": "Phase 21.5 — app-bar title on the salon staff member management profile (SalonStaffProfileScreen) when the viewed member is a master."
+  },
+  "salonStaffProfileAdminTitle": "Admin profile",
+  "@salonStaffProfileAdminTitle": {
+    "description": "Phase 21.5 — app-bar title on the salon staff member management profile (SalonStaffProfileScreen) when the viewed member is an admin."
+  },
+  "salonStaffRoleAdmin": "Administrator",
+  "@salonStaffRoleAdmin": {
+    "description": "Phase 21.5 — role-chip label for an admin entry, used on both the salon management profile's Команда grid card and the staff member profile screen's identity card RoleChip."
+  },
+  "staffProfileScheduleNotSet": "Not set",
+  "@staffProfileScheduleNotSet": {
+    "description": "Phase 312, D3/D11 — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen (master branch) when the viewed master has no weekly template (an AsyncData with an empty/no-working-day schedule list). Do NOT reuse this for an AsyncError on the same row — that renders '—' instead, since «Не задано» would assert a fact (no schedule set) the app does not actually have."
+  },
+  "staffProfileScheduleVariedHours": "varying hours",
+  "@staffProfileScheduleVariedHours": {
+    "description": "Qase defect #36 (case 88) — trailing value of the «Графік роботи» SettingsRow on SalonStaffProfileScreen, substituted for the hours half of the summary when the master's working days do NOT all share the same hours. The row is a ONE-LINE summary, so it cannot list per-day hours; before this key it rendered a min-max span across the whole week (Mon 09:00-14:00 + Tue 15:00-20:00 became «Пн-Вт · 09:00-20:00»), asserting hours the owner never set. The full per-day breakdown is one tap away on the master's «Графік роботи» screen, which renders summariseSpan(day.intervals) per day."
+  },
+  "staffProfileServicesCount": "{count, plural, one{{count} service} other{{count} services}}",
+  "@staffProfileServicesCount": {
+    "description": "Phase 318, D3 — trailing value of the «Послуги» SettingsRow on SalonStaffProfileScreen (master branch): the active-service count already backing the services stat tile at the top of the same screen (no second fetch — see `salonStaffMemberProfileProvider`). Phase 325 carries this onto the `ManagementActionCard` value line for a NON-EMPTY catalogue only — an empty one uses `staffProfileServicesEmpty` instead (see D3), never `staffProfileServicesCount(0)`.",
+    "placeholders": {
+      "count": {
+        "type": "int",
+        "example": "3"
+      }
+    }
+  },
+  "staffProfileServicesEmpty": "None yet",
+  "@staffProfileServicesEmpty": {
+    "description": "Phase 325, D3 — the services `ManagementActionCard`'s value line when the viewed master has zero active services (a genuinely-resolved empty catalogue, distinct from a failed load — see the screen's own D3 comment). Transcribed verbatim from the approved preview (`docs/signup-designs/SalonServicesEntryPath`)."
+  },
+  "salonSettingsMySalons": "My salons",
+  "@salonSettingsMySalons": {
+    "description": "Phase 21.8 — owner-only settings row that pushes RouteNames.mySalons (the My Salons hub) from inside the salon shell."
+  },
+  "salonSettingsAbout": "About the salon",
+  "@salonSettingsAbout": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonProfileEdit (name + description). Distinct from salonTabAbout, which labels the public/management profile's own tab, not this settings row."
+  },
+  "salonSettingsLocation": "Location",
+  "@salonSettingsLocation": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonAddressEdit. Distinct from locationTitle, which is that destination screen's own top-bar title."
+  },
+  "salonSettingsContacts": "Contacts",
+  "@salonSettingsContacts": {
+    "description": "Phase 21.9 — salon settings hub row label (owner-only) that pushes RouteNames.salonContactsEdit. Distinct from contactsTitle, which is that destination screen's own top-bar title."
+  },
+  "salonSettingsSentInvites": "Sent invitations",
+  "@salonSettingsSentInvites": {
+    "description": "Phase 21.9 — salon settings hub row for the sent-invitations screen (Phase 21.11, not yet built). The row renders fully and looks enabled; onTap is a no-op placeholder until that phase wires the real screen — mirrors the salon management profile cover's notification-bell placeholder treatment."
+  },
+  "salonSettingsGeneral": "General",
+  "@salonSettingsGeneral": {
+    "description": "Phase 21.9 — salon settings hub row that pushes RouteNames.settings (the shared account page), carrying the owner-only «Delete salon» capability via AccountSettingsExtras."
+  },
+  "salonShellTabSalon": "Salon",
+  "@salonShellTabSalon": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 0 label (SalonBottomNav.ownerAdminItems)."
+  },
+  "salonShellTabBookings": "Bookings",
+  "@salonShellTabBookings": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 1 label. The design source's ownerAdminItems literal — NOT «Розклад» (the phase doc's tab list was corrected against the shipped design)."
+  },
+  "salonShellTabTeam": "Team",
+  "@salonShellTabTeam": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 2 label."
+  },
+  "salonShellTabProfile": "Profile",
+  "@salonShellTabProfile": {
+    "description": "Phase 21.8 — Salon Shell bottom-nav tab 3 label."
+  },
+  "salonShellBookingsSoonTitle": "Bookings are coming soon",
+  "@salonShellBookingsSoonTitle": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder title for the Bookings tab (no host screen until Phase 21.12)."
+  },
+  "salonShellBookingsSoonBlurb": "The salon-wide booking schedule will appear here.",
+  "@salonShellBookingsSoonBlurb": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder body for the Bookings tab."
+  },
+  "salonShellProfileSoonTitle": "Profile is coming soon",
+  "@salonShellProfileSoonTitle": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder title for the Profile tab (no host screen until Phase 21.14 owner / Phase 21.16 admin)."
+  },
+  "salonShellProfileSoonBlurb": "Your personal profile at the salon will appear here.",
+  "@salonShellProfileSoonBlurb": {
+    "description": "Phase 21.8 — SalonShellTabPlaceholder body for the Profile tab."
+  },
+  "salonHomeResolverLoadingSemantics": "Finding your salon",
+  "@salonHomeResolverLoadingSemantics": {
+    "description": "Phase 21.8 — accessibility label for SalonHomeResolverScreen's loading skeleton while it resolves which salon shell to forward to."
+  },
+  "deleteSalonAction": "Delete salon",
+  "@deleteSalonAction": {
+    "description": "Phase 21.2 — the salon settings page's owner-only destructive row label."
+  },
+  "deleteSalonTitle": "Delete salon?",
+  "@deleteSalonTitle": {
+    "description": "Phase 21.2 — title of the salon delete confirmation dialog."
+  },
+  "deleteSalonBody": "This cannot be undone:\n• the salon's photos will be lost permanently;\n• upcoming bookings will be cancelled and clients notified;\n• administrators and masters will lose access;\n• the salon will disappear from search.",
+  "@deleteSalonBody": {
+    "description": "Phase 291 — body of the salon delete confirmation dialog, shown when this is NOT the owner's last salon. Lists what DELETE /salons/{salonId} destroys, most-irreversible first. MUST NOT say «деактивовано» (that wording was the defect this phase fixes) and MUST NOT claim the photo bytes were erased from our servers — the R2 purge runs after commit and can leave an orphan on an outage, so the claim is scoped to permanent loss from the owner's point of view."
+  },
+  "deleteSalonBodyLastSalon": "This cannot be undone:\n• the salon's photos will be lost permanently;\n• upcoming bookings will be cancelled and clients notified;\n• administrators and masters will lose access;\n• the salon will disappear from search.\n\nThis is your only salon — you will need to create a new one afterwards.",
+  "@deleteSalonBodyLastSalon": {
+    "description": "Phase 291 — body of the salon delete confirmation dialog when this is the owner's ONLY salon. Identical to deleteSalonBody plus a closing sentence that they will be left with none and must create a new one. It must NOT say the owner is signed out — they are not: the flow lands every delete path on «Мої салони» (delete_salon_flow.dart) and the backend never revokes the owner's refresh token (SalonStaffHardDeleteIT: 'the owner's session is never revoked by this cascade')."
+  },
+  "deleteSalonSuccess": "Salon deleted",
+  "@deleteSalonSuccess": {
+    "description": "Phase 21.2 — success snackbar shown after DELETE /salons/{salonId} succeeds."
+  },
+  "mySalonsDeletingInProgress": "Deleting…",
+  "@mySalonsDeletingInProgress": {
+    "description": "mobile-perf MEDIUM follow-up (swipe-to-delete audit 2026-09) — label + semantics announcement on the card-sized overlay shown over a swiped salon card while its DELETE /salons/{salonId} call is in flight (`_DeleteInFlightOverlay`, my_salons_screen.dart)."
+  },
   "professionalTitleLabel": "Professional title",
   "@professionalTitleLabel": {
     "description": "Field label above the professional title input on the master edit screen."
@@ -5296,6 +5651,10 @@
   "bookingFilterSectionService": "Service",
   "@bookingFilterSectionService": {
     "description": "Filter-sheet section heading for the multi-select service rows."
+  },
+  "bookingFilterSectionMaster": "Master",
+  "@bookingFilterSectionMaster": {
+    "description": "Filter-sheet section heading for the multi-select salon-master rows (salon bookings board only)."
   },
   "bookingFilterReset": "Clear filters",
   "@bookingFilterReset": {
@@ -5514,5 +5873,586 @@
   "favoritesShowAllLabel": "Show all favourites",
   "@favoritesShowAllLabel": {
     "description": "«Улюблені» (Phase 111) — semantic label for the «Показати всі» action."
+  },
+  "mySalonsTitle": "My salons",
+  "@mySalonsTitle": {
+    "description": "Phase 21.1 — My Salons Hub (SALON_OWNER landing) screen heading."
+  },
+  "mySalonsSubtitle": "{count, plural, =0{No salons under your management} =1{1 salon under your management} other{{count} salons under your management}}",
+  "@mySalonsSubtitle": {
+    "description": "Phase 21.1 — My Salons Hub subtitle under the heading, stating how many salons the owner manages.",
+    "placeholders": {
+      "count": {"type": "int", "example": "3"}
+    }
+  },
+  "mySalonsAddCta": "Add salon",
+  "@mySalonsAddCta": {
+    "description": "Phase 21.1 — the hub's pinned bottom-shelf CTA label. Pushes RouteNames.registerSalon (Phase 21.3)."
+  },
+  "mySalonsPrimaryBadgeLabel": "Primary",
+  "@mySalonsPrimaryBadgeLabel": {
+    "description": "Phase 21.1 — the camel pill badge on the owner's designated primary salon card."
+  },
+  "mySalonsCardSemanticLabel": "{name}, {locality}",
+  "@mySalonsCardSemanticLabel": {
+    "description": "Phase 21.1 — semantic label for one salon card in the hub list.",
+    "placeholders": {
+      "name": {"type": "String", "example": "Velvet Salon"},
+      "locality": {"type": "String", "example": "Kyiv, Pecherskyi district"}
+    }
+  },
+  "mySalonsEmptyTitle": "No salons yet",
+  "@mySalonsEmptyTitle": {
+    "description": "Phase 21.1 — hub empty-state title. Not expected in practice (an owner always has ≥1 salon from registration), but rendered defensively."
+  },
+  "mySalonsEmptyBody": "Add your first salon to start managing it here.",
+  "@mySalonsEmptyBody": {
+    "description": "Phase 21.1 — hub empty-state body, paired with mySalonsEmptyTitle."
+  },
+  "registerSalonTitle": "New salon",
+  "@registerSalonTitle": {
+    "description": "Phase 21.3 — SectionScaffold title for RegisterSalonScreen, the SALON_OWNER's «+ Додати салон» form."
+  },
+  "registerSalonSubheading": "Add another salon under your account — with its own address and team.",
+  "@registerSalonSubheading": {
+    "description": "Phase 21.3 — subheading under the title on RegisterSalonScreen."
+  },
+  "registerSalonNameHint": "Velvet Salon",
+  "@registerSalonNameHint": {
+    "description": "Phase 21.3 — placeholder hint for the salon-name field on RegisterSalonScreen."
+  },
+  "registerSalonCta": "Create salon",
+  "@registerSalonCta": {
+    "description": "Phase 21.3 — RegisterSalonScreen's primary submit CTA label."
+  },
+  "registerSalonPrefilledHint": "Filled in from your primary salon — you can change it.",
+  "@registerSalonPrefilledHint": {
+    "description": "Phase 21.3 — muted caption shown above the phone/Instagram fields on RegisterSalonScreen when either was pre-seeded from the owner's primary salon."
+  },
+  "registerSalonSuccess": "Salon created",
+  "@registerSalonSuccess": {
+    "description": "Phase 21.3 — success VelvetSnack shown after POST /salons succeeds on RegisterSalonScreen."
+  },
+  "registerSalonSubmitInProgressHint": "Please wait, the salon is still being created…",
+  "@registerSalonSubmitInProgressHint": {
+    "description": "Phase 21.3 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on RegisterSalonScreen because POST /salons is still in flight."
+  },
+  "inviteStaffTitle": "Invite staff",
+  "@inviteStaffTitle": {
+    "description": "Phase 21.4 — SectionScaffold title for InviteStaffScreen, the SALON_OWNER/SALON_ADMIN's «Invite staff» form."
+  },
+  "inviteStaffSubtitle": "Send an invitation to join your salon. The recipient will get an email with a sign-in link.",
+  "@inviteStaffSubtitle": {
+    "description": "Phase 21.4 — subheading under the title on InviteStaffScreen. Generic (does not interpolate the salon name) — InviteStaffScreen is reached with only `salonId`, mirroring the route's own `state.pathParameters['salonId']` builder; the approved preview's own salon-name interpolation was dropped for this production port."
+  },
+  "inviteStaffRoleSectionLabel": "ROLE",
+  "@inviteStaffRoleSectionLabel": {
+    "description": "Phase 21.4 — label above the compact Admin/Master role toggle on InviteStaffScreen."
+  },
+  "inviteStaffRoleAdmin": "Admin",
+  "@inviteStaffRoleAdmin": {
+    "description": "Phase 21.4 — full label for the SALON_ADMIN segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleMaster": "Master",
+  "@inviteStaffRoleMaster": {
+    "description": "Phase 21.4 — full label for the SALON_MASTER segment of InviteStaffScreen's role toggle."
+  },
+  "inviteStaffRoleAdminDescription": "Manages the salon, its services, and the team",
+  "@inviteStaffRoleAdminDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Admin is selected."
+  },
+  "inviteStaffRoleMasterDescription": "Works the schedule and services the salon sets",
+  "@inviteStaffRoleMasterDescription": {
+    "description": "Phase 21.4 — one-line description shown beneath the role toggle when Master is selected."
+  },
+  "inviteStaffEmailLabel": "Email",
+  "@inviteStaffEmailLabel": {
+    "description": "Phase 21.4 — label for InviteStaffScreen's email NeumorphicTextField."
+  },
+  "inviteStaffEmailHint": "name@example.com",
+  "@inviteStaffEmailHint": {
+    "description": "Phase 21.4 — placeholder hint for InviteStaffScreen's email field."
+  },
+  "inviteStaffEmailHelper": "The invite is valid for 48 hours.",
+  "@inviteStaffEmailHelper": {
+    "description": "Phase 21.4 — helper text under InviteStaffScreen's email field."
+  },
+  "inviteStaffSubmitCta": "Send invite",
+  "@inviteStaffSubmitCta": {
+    "description": "Phase 21.4 — InviteStaffScreen's primary submit CTA label."
+  },
+  "inviteStaffSuccess": "Invite sent",
+  "@inviteStaffSuccess": {
+    "description": "Phase 21.4 — success VelvetSnack shown after POST /salons/{salonId}/invite succeeds on InviteStaffScreen, immediately before context.pop()."
+  },
+  "inviteStaffErrorForbidden": "You don't have permission to invite staff to this salon.",
+  "@inviteStaffErrorForbidden": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 403 (the caller does not own/administer this salon)."
+  },
+  "inviteStaffErrorRateLimited": "Too many invites. Wait a minute and try again.",
+  "@inviteStaffErrorRateLimited": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite returns HTTP 429 (backend's per-IP salonInviteBuckets rate limit, 15 requests/60s)."
+  },
+  "inviteStaffErrorGeneric": "Couldn't send the invite. Please try again.",
+  "@inviteStaffErrorGeneric": {
+    "description": "Phase 21.4 — error snack shown when POST /salons/{salonId}/invite fails for any other reason (network, 5xx, unknown)."
+  },
+  "inviteStaffErrorEmailAlreadyRegistered": "This email already has a Beautica account. You can only invite a new address.",
+  "@inviteStaffErrorEmailAlreadyRegistered": {
+    "description": "Phase 303 — inline error on the email field when POST /salons/{salonId}/invite returns HTTP 409 EMAIL_ALREADY_REGISTERED (backend Phase 287): the invited address already has an account."
+  },
+  "inviteStaffBackSemanticLabel": "Back",
+  "@inviteStaffBackSemanticLabel": {
+    "description": "Phase 21.4 — semantic label for InviteStaffScreen's SectionScaffold back icon."
+  },
+  "inviteStaffSubmitInProgressHint": "Please wait, the invite is still being sent…",
+  "@inviteStaffSubmitInProgressHint": {
+    "description": "Phase 21.4 — neutral info snack shown when a back press (top-bar icon or system back gesture/hardware button) is blocked on InviteStaffScreen because POST /salons/{salonId}/invite is still in flight. Mirrors RegisterSalonScreen's registerSalonSubmitInProgressHint guard (mobile-qa CRITICAL fix precedent) — added beyond the architect's enumerated key list because the mandated back-navigation-mid-submit guard needs its own accurate copy rather than reusing salon-creation-specific wording."
+  },
+  "salonPendingInvitesBackSemanticLabel": "Back",
+  "@salonPendingInvitesBackSemanticLabel": {
+    "description": "Phase 21.11 — semantic label for SalonPendingInvitesScreen's SectionScaffold back icon. Its own key rather than reusing inviteStaffBackSemanticLabel: the two screens are separate surfaces and their back affordances may diverge (the app's per-screen back-label convention)."
+  },
+  "salonPendingInvitesSectionLabel": "Invite history",
+  "@salonPendingInvitesSectionLabel": {
+    "description": "Phase 21.11 — section header above the list of sent, not-yet-accepted staff invitations. Rendered on BOTH SalonPendingInvitesScreen and the pending block appended under InviteStaffScreen's form; a count sits in the header's trailing slot."
+  },
+  "salonPendingInvitesSentAgo": "sent {when}",
+  "@salonPendingInvitesSentAgo": {
+    "description": "Phase 21.11 — meta caption beside the role chip on a pending-invite row, e.g. «надіслано 2 дні тому». {when} is the already-localized relative-date phrase from formatRelativeDate (relativeDateToday / relativeDateYesterday / relativeDateDaysAgo …), so this key supplies only the leading verb.",
+    "placeholders": {
+      "when": {
+        "type": "String",
+        "example": "2 дні тому"
+      }
+    }
+  },
+  "salonPendingInvitesCancelCta": "Cancel",
+  "@salonPendingInvitesCancelCta": {
+    "description": "Phase 21.11 — the destructive ghost text action on a pending-invite row; revokes the invitation (DELETE /salons/{salonId}/invites/{inviteId})."
+  },
+  "salonPendingInvitesCancelSemanticLabel": "Cancel the invitation for {email}",
+  "@salonPendingInvitesCancelSemanticLabel": {
+    "description": "Phase 21.11 — screen-reader label for a pending-invite row's «Скасувати» action. {email} is the recipient address, so a viewer with several outstanding invitations can tell the rows apart.",
+    "placeholders": {
+      "email": {
+        "type": "String",
+        "example": "olena@example.com"
+      }
+    }
+  },
+  "salonPendingInvitesCancelError": "Couldn't cancel. Try again.",
+  "@salonPendingInvitesCancelError": {
+    "description": "Phase 21.11 — in-row error chip shown when DELETE /salons/{salonId}/invites/{inviteId} fails. Scoped to the one row that failed (which is restored to the list), never a full-screen error: the other rows are unaffected."
+  },
+  "salonPendingInvitesEmptyTitle": "No invitations yet",
+  "@salonPendingInvitesEmptyTitle": {
+    "description": "Phase 21.11 — heading of SalonPendingInvitesScreen's empty state, shown when the salon has no outstanding invitations."
+  },
+  "salonPendingInvitesEmptyBody": "When you invite an admin or a master, the invitation appears here with its status.",
+  "@salonPendingInvitesEmptyBody": {
+    "description": "Phase 21.11 — body copy of SalonPendingInvitesScreen's empty state; explains when a row will appear here."
+  },
+  "salonPendingInvitesInviteCta": "Invite to the team",
+  "@salonPendingInvitesInviteCta": {
+    "description": "Phase 21.11 — pinned bottom CTA on SalonPendingInvitesScreen; pushes the «Запросити персонал» form (RouteNames.salonInviteStaff). Deliberately worded differently from inviteStaffSubmitCta («Надіслати запрошення»), which is that form's own submit button."
+  },
+  "salonInvitesStatusPending": "Pending",
+  "@salonInvitesStatusPending": {
+    "description": "Status chip on an invite-history row: the invitation was sent, has not been accepted, and has not expired. The ONLY state whose row offers «Скасувати». Renders in the default mocha tint, unlike the three terminal states."
+  },
+  "salonInvitesStatusAccepted": "Accepted",
+  "@salonInvitesStatusAccepted": {
+    "description": "Status chip on an invite-history row: the invitee followed the link and joined the salon. Rendered in BrandColors.success."
+  },
+  "salonInvitesStatusExpired": "Expired",
+  "@salonInvitesStatusExpired": {
+    "description": "Status chip on an invite-history row: the invitation's validity window elapsed, or a newer invitation to the same address superseded it. Rendered in BrandColors.muted."
+  },
+  "salonInvitesStatusCancelled": "Cancelled",
+  "@salonInvitesStatusCancelled": {
+    "description": "Status chip on an invite-history row: the owner or admin revoked the invitation. Rendered in BrandColors.error."
+  },
+  "salonInvitesStatusSemanticLabel": "Status: {status}",
+  "@salonInvitesStatusSemanticLabel": {
+    "description": "Screen-reader label wrapping an invite-history row's status chip, so the pill is announced as a status rather than as a bare word beside the role. {status} is one of salonInvitesStatusPending/Accepted/Expired/Cancelled.",
+    "placeholders": {
+      "status": {
+        "type": "String",
+        "example": "Accepted"
+      }
+    }
+  },
+  "salonInvitesTruncatedNote": "Showing the 200 most recent invitations",
+  "@salonInvitesTruncatedNote": {
+    "description": "Quiet footnote under SalonPendingInvitesScreen's list, shown only when the server reports data.truncated — the salon has sent more invitations than the endpoint's 200-row cap and the older ones are not listed. Never shown on the invite form's own pending-only block, where the cap describes rows that block does not render."
+  },
+  "inviteStaffPendingSectionLabel": "Awaiting acceptance",
+  "@inviteStaffPendingSectionLabel": {
+    "description": "Section header above the pending-only invitation block appended under InviteStaffScreen's form. Its OWN key rather than salonPendingInvitesSectionLabel, which now reads «Історія запрошень»: this block is filtered to invitations still awaiting acceptance and must not claim to show the history."
+  },
+  "adminSettingsContextRoleLabel": "Administrator",
+  "@adminSettingsContextRoleLabel": {
+    "description": "Phase 21.6 — the RoleChip label in AdminSettingsScreen's context subheading row, naming WHO is being managed. Same noun as salonStaffRoleAdmin; kept as its own key because this row is a chip on a settings page, not a roster label, and the two are free to diverge."
+  },
+  "adminSettingsNotAnAdminTitle": "Not an administrator",
+  "@adminSettingsNotAnAdminTitle": {
+    "description": "Phase 21.6 audit follow-up — heading of AdminSettingsScreen's role guard. Shown when the route is reached (back stack / deep link / in-app go) for a staff entry whose role is MASTER, not ADMIN: every action on this page targets /salons/{salonId}/admins/{userId}, which has no meaning for a master."
+  },
+  "adminSettingsNotAnAdminBody": "This team member is a master. Administrator settings are not available for them.",
+  "@adminSettingsNotAnAdminBody": {
+    "description": "Phase 21.6 audit follow-up — body of AdminSettingsScreen's role guard. States the fact, not a permission verdict: the server remains the gate, this copy only explains why the page is empty."
+  },
+  "adminSettingsMoveSalon": "Move to another salon",
+  "@adminSettingsMoveSalon": {
+    "description": "Phase 21.6 — AdminSettingsScreen navigational row; opens MoveAdminSalonScreen, the rotate-admin destination picker."
+  },
+  "adminSettingsConvertToMaster": "Make a master",
+  "@adminSettingsConvertToMaster": {
+    "description": "Phase 21.6 — AdminSettingsScreen row for converting this admin into a salon master. Ships DISABLED: no backend endpoint exists for role conversion, so the row is visibly present but inert (see adminSettingsConvertToMasterSoon)."
+  },
+  "adminSettingsConvertToMasterSoon": "coming soon",
+  "@adminSettingsConvertToMasterSoon": {
+    "description": "Phase 21.6 — trailing value on the disabled «Перевести в майстри» row, naming WHY it does nothing. Lowercase on purpose: it is a status note beside the label, not a second label."
+  },
+  "adminSettingsRemove": "Remove administrator",
+  "@adminSettingsRemove": {
+    "description": "Phase 21.6 — AdminSettingsScreen's terminal destructive row, below the hairline, OWNER-ONLY as of Phase 308. Phase 299 turned the endpoint into a HARD DELETE of the admin's user account — both this call and DELETE /salons/{salonId}/masters/{masterId} now hard-delete, so there is no surviving distinction between the two. The wording matches the approved design verbatim, and the confirm dialog body (adminSettingsRemoveDialogBody) is where the real consequence is spelled out."
+  },
+  "adminSettingsRemoveDialogTitle": "Remove administrator?",
+  "@adminSettingsRemoveDialogTitle": {
+    "description": "Phase 21.6 — title of the destructive confirmation for removing an admin from the salon. Phase 308: the action is a hard account delete since backend Phase 299, not a salon-membership removal; only this description changed, the title verb was already right and stays."
+  },
+  "adminSettingsRemoveDialogBody": "This cannot be undone:\n• {name} loses access immediately and their account is deleted;\n• they will disappear from the salon's team;\n• you can invite the same person again later, using the same email.",
+  "@adminSettingsRemoveDialogBody": {
+    "description": "Phase 308 — bulleted consequence body of the remove-admin confirmation, most-irreversible first (Phase 291 house shape). Backend Phase 299 turned DELETE /salons/{salonId}/admins/{userId} into a HARD DELETE of the admin's user account — it no longer nulls salon_id, and the pre-308 wording that promised only a loss of salon access was a factual under-warning. Deliberately THREE bullets, not four: an admin has no calendar, clients or reviews, so removeMasterDialogBody's booking-cancellation and history-under-a-saved-name bullets have no admin counterpart and MUST NOT be invented for symmetry. Bullet three is a guarantee, not a hedge — Phase 299 frees the email, so re-invite genuinely works.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      }
+    }
+  },
+  "adminSettingsRemoveConfirmCta": "Remove",
+  "@adminSettingsRemoveConfirmCta": {
+    "description": "Phase 21.6 — the destructive confirm button of the remove-admin dialog."
+  },
+  "adminSettingsRemoveSuccess": "The administrator was removed from the salon.",
+  "@adminSettingsRemoveSuccess": {
+    "description": "Phase 308 — success snack after DELETE /salons/{salonId}/admins/{userId}. Unchanged in English: this was already byte-parallel in shape to removeMasterSuccess (\"The master was removed from the salon.\"), and English \"removed\" does not carry the reversible connotation that Ukrainian «вилучено» carried — only the uk value needed the verb swap to «видалено». Backend Phase 299 hard-deletes the admin's user account; the OLD rationale here (\"the account survives\") is false and is corrected by this description, not by the string."
+  },
+  "adminSettingsRemoveErrorForbidden": "This administrator could not be removed. You cannot remove yourself, and you need owner access to this salon.",
+  "@adminSettingsRemoveErrorForbidden": {
+    "description": "Phase 308 (D7) — 403 from DELETE /salons/{salonId}/admins/{userId}. Backend Phase 299 narrowed the caller to SALON_OWNER, so the old \"you need management access to this salon\" became wrong — an admin HAS management access and is still refused. Byte-parallel to removeMasterErrorForbidden. This is a backstop, not the primary defence: the staff_settings_screen canManageStaff gate (D3) should make it unreachable in practice, but the role can go stale between a cached staff read and the tap."
+  },
+  "adminSettingsRemoveErrorGeneric": "The administrator could not be removed. Please try again.",
+  "@adminSettingsRemoveErrorGeneric": {
+    "description": "Phase 21.6 — fallback error snack for any non-403/409/404 failure of the remove-admin call."
+  },
+  "adminSettingsRemoveErrorConflict": "This administrator cannot be removed right now — they are also linked to bookings as a client.",
+  "@adminSettingsRemoveErrorConflict": {
+    "description": "Phase 308 — 409 from DELETE /salons/{salonId}/admins/{userId}, a failure mode backend Phase 299 introduced. Unlike removeMasterErrorConflict, which collapses three indistinguishable causes, this status has exactly ONE cause server-side (the admin's user row is also referenced as a client), so the copy names it instead of hedging. Before 308 this fell through to adminSettingsRemoveErrorGeneric and told the owner to retry an action that is deterministically refused."
+  },
+  "adminSettingsRemoveErrorNotFound": "Administrator not found — they may already have been removed.",
+  "@adminSettingsRemoveErrorNotFound": {
+    "description": "Phase 308 — 404 from DELETE /salons/{salonId}/admins/{userId}; the endpoint is idempotent by row absence, so a second DELETE lands here."
+  },
+  "adminSettingsManageSemanticLabel": "Manage administrator",
+  "@adminSettingsManageSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for the trailing tune icon on SalonStaffProfileScreen that opens AdminSettingsScreen. Shown for an admin staff entry only."
+  },
+  "removeMasterDialogTitle": "Remove master?",
+  "@removeMasterDialogTitle": {
+    "description": "Phase 306 — title of the destructive remove-master confirmation, opened from a MASTER profile's settings gear. Phase 308: backend Phase 299 turned the admin endpoint (adminSettingsRemoveDialogTitle) into a hard delete too, so the old \"categorically larger\" contrast between the two no longer exists — both DELETE /salons/{salonId}/masters/{masterId} and DELETE /salons/{salonId}/admins/{userId} delete their target's user account."
+  },
+  "removeMasterDialogBody": "This cannot be undone:\n• {name} loses access immediately and their account is deleted;\n• upcoming bookings with this master will be cancelled and clients notified;\n• the master will disappear from the salon's team and from search;\n• completed bookings stay in history under a saved name.",
+  "@removeMasterDialogBody": {
+    "description": "Phase 306 — bulleted consequence body of the remove-master confirmation, most-irreversible first (Phase 291 house shape). Phase 308: backend Phase 299 turned the admin endpoint's DELETE into a hard delete as well, so BOTH staff-removal endpoints now delete the target's user account — the old \"admin verb «вилучити із салону» only unassigns\" contrast this description used to draw is dead; adminSettingsRemoveDialogBody now uses «видалено» too. This body's four bullets stay because each is still true of MASTER removal specifically: booking cancellation/notification (bullet 2) and history-under-a-saved-name (bullet 4) have no admin counterpart and are NOT shared with adminSettingsRemoveDialogBody's three bullets. MUST NOT claim data was erased from our servers: completed bookings survive via a detach-with-name-snapshot, which bullet four states as «під збереженим імʼям», never implying the master's account survives.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      }
+    }
+  },
+  "removeMasterConfirmCta": "Remove",
+  "@removeMasterConfirmCta": {
+    "description": "Phase 306 — the destructive confirm button of the remove-master dialog. actionCancel is reused for the back-out; no new cancel key was added."
+  },
+  "removeMasterErrorForbidden": "This master could not be removed. You cannot remove yourself, and you need owner access to this salon.",
+  "@removeMasterErrorForbidden": {
+    "description": "Phase 306 — 403 from DELETE /salons/{salonId}/masters/{masterId}. Names both refusal reasons the backend collapses into one status: self-removal and missing owner access."
+  },
+  "removeMasterErrorConflict": "This master cannot be removed right now — it may be your own master profile, they may no longer be part of this salon, or they may also be linked to bookings as a client.",
+  "@removeMasterErrorConflict": {
+    "description": "Phase 306 — 409 from DELETE /salons/{salonId}/masters/{masterId}. Collapses the backend's three distinct refusal reasons (own master row, already detached, or the master's user is also referenced as a client elsewhere) into one non-technical message — the wire carries no discriminator to branch on."
+  },
+  "removeMasterErrorNotFound": "Master not found — they may already have been removed.",
+  "@removeMasterErrorNotFound": {
+    "description": "Phase 306 — 404 from DELETE /salons/{salonId}/masters/{masterId}."
+  },
+  "removeMasterErrorGeneric": "The master could not be removed. Please try again.",
+  "@removeMasterErrorGeneric": {
+    "description": "Phase 306 — fallback error snack for any non-403/404/409 failure of the remove-master call."
+  },
+  "staffSettingsRemoveMaster": "Remove master",
+  "@staffSettingsRemoveMaster": {
+    "description": "Phase 306 — the destructive SettingsRow label that opens the remove-master confirmation on a MASTER profile's settings screen. Not wired until phase 307."
+  },
+  "removeMasterSuccess": "The master was removed from the salon.",
+  "@removeMasterSuccess": {
+    "description": "Phase 306 — success snack after DELETE /salons/{salonId}/masters/{masterId}. Deliberately does not repeat the notification claim the dialog already made, and does not say «акаунт видалено» — that would read as an accusation at the moment the owner is looking for confirmation the action landed."
+  },
+  "staffSettingsManageMasterSemanticLabel": "Master settings",
+  "@staffSettingsManageMasterSemanticLabel": {
+    "description": "Phase 306 — screen-reader label for the trailing tune icon on SalonStaffProfileScreen when it opens a MASTER's settings route. adminSettingsManageSemanticLabel is unchanged and stays in use for an ADMIN profile."
+  },
+  "staffSettingsMasterOwnerOnlyTitle": "Owner only",
+  "@staffSettingsMasterOwnerOnlyTitle": {
+    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row gets staffSettingsMasterSelfTitle/Body instead — this pair is now only for a genuinely non-owner viewer."
+  },
+  "staffSettingsMasterOwnerOnlyBody": "Only the salon owner can manage masters. Ask the owner if this master needs to be removed.",
+  "@staffSettingsMasterOwnerOnlyBody": {
+    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row (see staffSettingsMasterSelfBody) — its 'ask the owner' phrasing is factually wrong for that viewer."
+  },
+  "staffSettingsMasterSelfTitle": "Your own master profile",
+  "@staffSettingsMasterSelfTitle": {
+    "description": "mobile-security LOW fix, Phase 307 (2026-09-05) — SalonNoticeCard title shown when the SALON OWNER views their OWN master row on StaffSettingsScreen. Distinct from staffSettingsMasterOwnerOnlyTitle, whose 'ask the owner' framing is nonsensical when the viewer IS the owner."
+  },
+  "staffSettingsMasterSelfBody": "You can't remove your own master profile from this screen. Contact support if you need this changed.",
+  "@staffSettingsMasterSelfBody": {
+    "description": "mobile-security LOW fix, Phase 307 (2026-09-05); reworded 2026-09-05 (second LOW pass) — paired with staffSettingsMasterSelfTitle. States plainly that the owner cannot remove their own master profile from THIS SCREEN and names no button/screen/self-service path — the earlier wording implied an in-app flow ('you manage that separately, in your own account') that does not exist; wiring one is Phase 297, PLANNED and currently blocked. Points to support instead, which stays true regardless of whether Phase 297 ever ships an in-app toggle."
+  },
+  "moveAdminSalonTitle": "Another salon",
+  "@moveAdminSalonTitle": {
+    "description": "Phase 21.6 — title of MoveAdminSalonScreen, the rotate-admin destination picker."
+  },
+  "moveAdminSalonBackSemanticLabel": "Back to administrator settings",
+  "@moveAdminSalonBackSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for MoveAdminSalonScreen's back affordance."
+  },
+  "moveAdminSalonPrompt": "Choose the salon to move {name} to.",
+  "@moveAdminSalonPrompt": {
+    "description": "Phase 21.6 — the instruction line above the destination list on MoveAdminSalonScreen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олену Ковальчук"
+      }
+    }
+  },
+  "moveAdminSalonEmptyTitle": "No other salons",
+  "@moveAdminSalonEmptyTitle": {
+    "description": "Phase 21.6 — heading of MoveAdminSalonScreen's empty state: GET /salons/{salonId}/sibling-salons returned nothing, i.e. the owner has only this one active salon."
+  },
+  "moveAdminSalonEmptyBody": "The owner has just one active salon for now — there is nowhere to move this administrator.",
+  "@moveAdminSalonEmptyBody": {
+    "description": "Phase 21.6 — body of MoveAdminSalonScreen's empty state. Says «у власника», not «у вас»: this screen is reachable by an assigned SALON_ADMIN too, who owns no salon at all."
+  },
+  "moveAdminSalonDialogTitle": "Move the administrator?",
+  "@moveAdminSalonDialogTitle": {
+    "description": "Phase 21.6 — title of the rotate-admin confirmation."
+  },
+  "moveAdminSalonDialogBody": "{name} will become an administrator of {salon}.",
+  "@moveAdminSalonDialogBody": {
+    "description": "Phase 21.6 — body of the rotate-admin confirmation, naming both the administrator and the destination salon.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "salon": {
+        "type": "String",
+        "example": "Вельвет"
+      }
+    }
+  },
+  "moveAdminSalonConfirmCta": "Move",
+  "@moveAdminSalonConfirmCta": {
+    "description": "Phase 21.6 — the confirm button of the rotate-admin dialog."
+  },
+  "moveAdminSalonSuccess": "The administrator was moved.",
+  "@moveAdminSalonSuccess": {
+    "description": "Phase 21.6 — success snack after PATCH /salons/{salonId}/admins/{userId}/salon."
+  },
+  "moveAdminSalonErrorForbidden": "The move failed. The destination salon must belong to the same owner, and you need management access to this salon.",
+  "@moveAdminSalonErrorForbidden": {
+    "description": "Phase 21.6 — 403 from PATCH /salons/{salonId}/admins/{userId}/salon. The backend refuses a cross-owner destination and a caller without management access with the same status; one sentence names both."
+  },
+  "moveAdminSalonErrorGeneric": "The administrator could not be moved. Please try again.",
+  "@moveAdminSalonErrorGeneric": {
+    "description": "Phase 21.6 — fallback error snack for any non-403 failure of the rotate-admin call."
+  },
+  "moveAdminSalonCardSemanticLabel": "Move to {name}",
+  "@moveAdminSalonCardSemanticLabel": {
+    "description": "Phase 21.6 — screen-reader label for one destination card on MoveAdminSalonScreen.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Вельвет"
+      }
+    }
+  },
+  "ownerOwnProfileTitle": "My profile",
+  "@ownerOwnProfileTitle": {
+    "description": "Phase 21.14 — top-bar title of the salon owner's own first-person profile screen."
+  },
+  "ownerOwnProfileSettingsSemanticLabel": "Account settings",
+  "@ownerOwnProfileSettingsSemanticLabel": {
+    "description": "Phase 21.14 — screen-reader label for the trailing tune action on the owner's own profile. Rendered disabled until the Phase 21.15 Owner Settings Hub ships."
+  },
+  "ownerOwnProfileBioLabel": "About me",
+  "@ownerOwnProfileBioLabel": {
+    "description": "Phase 21.14 — section label above the owner-as-master bio block on the owner's own profile."
+  },
+  "ownerOwnProfileCategoriesLabel": "My categories",
+  "@ownerOwnProfileCategoriesLabel": {
+    "description": "Phase 21.14 — section label above the owner-as-master service categories on the owner's own profile."
+  },
+  "ownerOwnProfileNoServices": "You have no services yet",
+  "@ownerOwnProfileNoServices": {
+    "description": "Phase 21.14 — empty state under the owner's «My categories» section when the owner works as a master but has configured no services yet."
+  },
+  "adminOwnProfileTitle": "My profile",
+  "@adminOwnProfileTitle": {
+    "description": "Phase 21.16 — top-bar title of the salon admin's own first-person profile screen. Its own key rather than a shared one with ownerOwnProfileTitle: the two screens are free to diverge, and a role-scoped key keeps the ARB readable as a per-screen inventory."
+  },
+  "adminOwnProfileSettingsSemanticLabel": "Account settings",
+  "@adminOwnProfileSettingsSemanticLabel": {
+    "description": "Phase 21.16 — screen-reader label for the trailing tune action on the admin's own profile. Rendered disabled until the Phase 21.17 Admin Personal Settings screen ships."
+  },
+  "adminOwnProfileRoleLabel": "Admin",
+  "@adminOwnProfileRoleLabel": {
+    "description": "Phase 21.16 — the RoleChip label on the admin's OWN profile. Deliberately the short form, not salonStaffRoleAdmin's «Administrator»: the approved preview draws the short form here, and this is a first-person self-view, not a roster label."
+  },
+  "adminOwnProfileSalonSectionLabel": "Salon",
+  "@adminOwnProfileSalonSectionLabel": {
+    "description": "Phase 21.16 — section label above the salon-affiliation card on the admin's own profile."
+  },
+  "salonAffiliationCardSemanticLabel": "Salon {salonName}",
+  "@salonAffiliationCardSemanticLabel": {
+    "description": "Phase 21.16 — screen-reader label for a TAPPABLE SalonAffiliationCard. Not emitted when the card is inert (no onTap).",
+    "placeholders": {
+      "salonName": {
+        "type": "String",
+        "example": "Velvet"
+      }
+    }
+  },
+  "masterNavTabServices": "Services",
+  "@masterNavTabServices": {
+    "description": "VelvetBottomNavBar tile 0 label on the master surface (INDEPENDENT_MASTER and SALON_MASTER). Deliberately its OWN key rather than a reuse of `servicesTitle`: the app-bar title and the nav-tab label happen to read the same today, but they are two independent copy decisions on two different surfaces and must be free to diverge. Was a hardcoded literal inside `velvet_bottom_nav_bar.dart` until the 2026-09-13 audit (the `no_raw_ui_strings` gate cannot see a string held in a `const _NavItem` record)."
+  },
+  "masterNavTabBookings": "Bookings",
+  "@masterNavTabBookings": {
+    "description": "VelvetBottomNavBar tile 1 label on the master surface. Own key for the same reason as masterNavTabServices — `masterBookingsTitle` is the SCREEN title and must stay free to diverge from the tab label."
+  },
+  "masterNavTabSchedule": "Schedule",
+  "@masterNavTabSchedule": {
+    "description": "VelvetBottomNavBar tile 2 label on the master surface. Short form, not the schedule screen's own longer title."
+  },
+  "masterNavTabProfile": "Profile",
+  "@masterNavTabProfile": {
+    "description": "VelvetBottomNavBar tile 3 label on the master surface."
+  },
+  "salonBookingsTitle": "Salon bookings",
+  "salonBookingsColumnFreeDay": "Free day",
+  "salonBookingsColumnDayOff": "Day off",
+  "salonBookingsMasterColumnFree": "free",
+  "salonBookingsMasterColumnSemantics": "{name}, {role}, {load}",
+  "salonBookingsRosterVisibleSemantics": "Masters shown: {visible} of {total}",
+  "salonBookingsAddSemantics": "Create booking",
+  "salonBookingsNoMastersTitle": "No masters in this salon yet",
+  "salonBookingsNoMastersBlurb": "Invite a master and their column will appear on the board.",
+  "@salonBookingsTitle": {
+    "description": "Phase 21.12 — header title of the salon-wide owner/admin bookings board (the «Записи» tab of the salon shell). The salon's own name renders as the subtitle beneath it."
+  },
+  "@salonBookingsColumnFreeDay": {
+    "description": "Phase 21.12 — marker centred in a salon board column whose master has no bookings on the shown day."
+  },
+  "@salonBookingsColumnDayOff": {
+    "description": "Phase 336 — the salon board's marker for a master who is NOT WORKING on the shown day. Used twice on the same board and deliberately one key: centred in that master's greyed-out grid column, and as the trailing readout on their roster chip. Distinct from salonBookingsColumnFreeDay, which means the master IS working and simply has nothing booked."
+  },
+  "@salonBookingsMasterColumnFree": {
+    "description": "Phase 21.12 — the roster chip's trailing readout when that master has nothing booked on the shown day. Lowercase: it sits inline beside the ★ rating, not as a heading."
+  },
+  "@salonBookingsMasterColumnSemantics": {
+    "description": "Phase 21.12 — accessibility label for one roster chip on the salon bookings board.",
+    "placeholders": {
+      "name": {
+        "type": "String",
+        "example": "Олена Ковальчук"
+      },
+      "role": {
+        "type": "String",
+        "example": "Стиліст"
+      },
+      "load": {
+        "type": "String",
+        "example": "3 записи"
+      }
+    }
+  },
+  "@salonBookingsRosterVisibleSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon board's horizontal scroll indicator, which encodes as a 3dp bar how much of the roster is off-screen.",
+    "placeholders": {
+      "visible": {
+        "type": "int",
+        "example": "2"
+      },
+      "total": {
+        "type": "int",
+        "example": "5"
+      }
+    }
+  },
+  "@salonBookingsAddSemantics": {
+    "description": "Phase 21.12 — accessibility label for the salon bookings board header's '+' button. PLACEHOLDER: the control renders in its final place and styling but its handler is a documented no-op until the salon walk-in wizard is wired to it."
+  },
+  "@salonBookingsNoMastersTitle": {
+    "description": "Phase 21.12 — empty state title on the salon bookings board when the salon's roster is empty."
+  },
+  "@salonBookingsNoMastersBlurb": {
+    "description": "Phase 21.12 — empty state body on the salon bookings board when the salon's roster is empty."
+  },
+  "settlementLabel": "Settlement",
+  "@settlementLabel": {
+    "description": "Phase 346 — section label above the single settlement autocomplete that replaced the oblast + city cascade. Also the title of its bottom sheet."
+  },
+  "settlementPlaceholder": "Choose a settlement",
+  "@settlementPlaceholder": {
+    "description": "Phase 346 — hint inside the closed settlement field before anything is chosen."
+  },
+  "settlementSearchHint": "Start typing a name…",
+  "@settlementSearchHint": {
+    "description": "Phase 346 — placeholder in the search input at the top of the settlement bottom sheet."
+  },
+  "settlementQueryTooShort": "Enter at least 3 characters",
+  "@settlementQueryTooShort": {
+    "description": "Phase 346 — shown in the settlement sheet instead of a result list when the typed term is 1–2 characters. No request is issued in this state."
+  },
+  "settlementSearchErrRateLimited": "Too many requests. Try again in a moment.",
+  "@settlementSearchErrRateLimited": {
+    "description": "Phase 346 — shown in the settlement sheet when GET /settlements returns 429 (per-IP rate limit). The sheet holds all requests (and hides Retry) until Retry-After elapses (or a 10 s fallback). After that, text typed meanwhile is applied once; an unchanged query is NOT re-issued — the Retry button returns instead. Hence 'try again in a moment', with no countdown."
+  },
+  "settlementHromadaWord": "hromada",
+  "@settlementHromadaWord": {
+    "description": "Phase 346 — the administrative noun appended after the bare hromada adjective when composing a settlement row label."
+  },
+  "settlementOblastAbbrev": "Oblast",
+  "@settlementOblastAbbrev": {
+    "description": "Phase 346 — the administrative noun appended after the bare oblast adjective when composing a settlement row label. Never appended for the city of Kyiv, whose region segment is dropped."
+  },
+  "settlementCityPrefix": "",
+  "@settlementCityPrefix": {
+    "description": "Phase 346 — INTENTIONALLY EMPTY in English: the UA «м.» city prefix has no clean English abbreviation ('c.' reads as 'circa'), so English labels carry no type prefix. composeSettlementLabel skips an empty prefix (no leading space)."
+  },
+  "settlementVillagePrefix": "",
+  "@settlementVillagePrefix": {
+    "description": "Phase 346 — INTENTIONALLY EMPTY in English: the UA «с.» village prefix has no clean English abbreviation, so English labels carry no type prefix. composeSettlementLabel skips an empty prefix (no leading space)."
+  },
+  "errSettlementRequired": "Choose a settlement",
+  "@errSettlementRequired": {
+    "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
   }
 }

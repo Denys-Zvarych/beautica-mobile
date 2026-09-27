@@ -78,6 +78,13 @@ jobs:
         # AppConfig.baseUrl never carries an /api/v1 prefix and the generated
         # client paths resolve to a SINGLE /api/v1/ segment (no double-prefix).
         # Run locally with:  ./scripts/regenerate_api.sh --check
+        #
+        # timeout-minutes (2026-09-27, PR #73): the `validate` job carries no
+        # job-level timeout (GitHub default 6h), and this step's first-run
+        # openapi_generator_cli JAR download can stall — job 108694409797's
+        # PR-event run sat here >27min while the push run on the SAME commit
+        # finished it in 63s. Fail fast instead of burning the 6h default.
+        timeout-minutes: 10
         run: ./scripts/regenerate_api.sh --check
 
       - name: Format check
@@ -456,6 +463,55 @@ jobs:
         shell: bash
         run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
 
+      # 2026-09-10 — phase 317 points the three services screens at a salon
+      # master through ONE `ProviderScope` overriding `serviceTargetProvider`.
+      # Riverpod 3 does not inherit scope transitively, so the whole watcher
+      # chain carries an explicit `dependencies:` declaration. A provider
+      # added to that chain later WITHOUT one does not crash — riverpod's
+      # "may be scoped" assert is kDebugMode-only and `riverpod_lint` was
+      # removed on 2026-08-18 — it silently resolves to ROOT, rendering the
+      # operator's own catalogue under the salon master's heading and
+      # dispatching `DELETE /services/{id}` against the SHARED salon service
+      # definition on a delete. This gate makes the missing declaration fail
+      # CI instead.
+      - name: Forbid an undeclared scoped-services provider dependency
+        shell: bash
+        run: ./scripts/forbid_undeclared_scoped_service_dep.sh
+
+      # 2026-09-17 (mobile-security S-L2) — enforce the path-encoding
+      # invariant `lib/core/network/path_segment.dart` had only ASSERTED.
+      # That file's promotion comment claimed the encoder moved to core "so a
+      # fix reaches every raw path in the app at once"; it had not — four
+      # sites kept a bare `Uri.encodeComponent` (which does not escape `.`, so
+      # `..` survives into Dio's `normalizePath()` and retargets the request
+      # on the bearer-token-carrying Dio) and two more interpolated an id with
+      # no encoding at all. All six were fixed in the same commit that added
+      # this gate, AFTER watching it catch every one of them on the unfixed
+      # tree. It checks hand-built `/api/v1/…` literals only — the provenance
+      # half of the invariant stays a code-review obligation, and the guard's
+      # header says so.
+      #
+      # 2026-09-17, same day: the first revision scanned ONE LINE AT A TIME
+      # and was therefore blind to a path `dart format` had wrapped into
+      # ADJACENT STRING LITERALS — which is how two of the six fixed sites
+      # (`location_repository.dart:96`, `:107`) are spelled, so the gate could
+      # not re-detect a regression at them. The scan is now group-aware and
+      # both directions are sentinelled in `--self-test`; see the guard's
+      # header, section "MULTI-LINE, and why that is not a detail".
+      - name: Forbid unencoded interpolation into a hand-built API path
+        shell: bash
+        run: ./scripts/forbid_unencoded_path_interpolation.sh
+
+      # 2026-09-24 (Phase 348 re-audit INFO-1) — every generated beautica_api
+      # enum now decodes an unknown wire value to `unknownDefaultOpenApi`
+      # (`enumUnknownDefaultCase=true`). The ONE reading of that fallback is
+      # `lib/core/network/api_enum_names.dart`; a `<GeneratedEnum>.valueOf(`
+      # or a stray `unknownDefaultOpenApi` literal in lib/ is a second, drifting
+      # reading of it. Enum names derived from api/lib on every run.
+      - name: Forbid reading the generated-enum fallback outside api_enum_names
+        shell: bash
+        run: ./scripts/forbid_api_enum_fallback.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).
@@ -482,12 +538,32 @@ jobs:
 
       # Phase 1.4 — enforce go_router-only navigation in feature code.
       # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
-      # finding. lib/features/ is currently empty so this always passes, but the
-      # gate is wired now so future feature code is gated from the first commit.
+      # finding. lib/features/ is fully populated now — this gate is live.
+      # Comment-only lines are excluded: ported-screen file headers routinely
+      # document the design-preview's imperative `Navigator.push`/`maybePop`
+      # → go_router swap as part of the REUSE-FIRST port record (see
+      # move_admin_salon_screen.dart, staff_settings_screen.dart), and failing
+      # CI for documenting compliance with the rule is backwards. A line is
+      # skipped only when its FIRST non-whitespace characters are a comment
+      # marker (`//`, `///`, `/*`, or a `*` block-comment continuation) — real
+      # code with a trailing comment (`Navigator.push(ctx); // TODO`) is still
+      # flagged.
       - name: Forbid direct Navigator usage in features
         run: |
-          ! grep -rE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null || \
-          { echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'; exit 1; }
+          MATCHES=$(grep -rnE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null | awk -F: '
+            {
+              content = $0
+              sub(/^[^:]*:[0-9]+:/, "", content)
+              trimmed = content
+              sub(/^[ \t]*/, "", trimmed)
+              if (trimmed !~ /^(\/\/|\/\*|\*)/) print $0
+            }
+          ') || true
+          if [ -n "$MATCHES" ]; then
+            echo 'Direct Navigator usage found in lib/features/ — use context.go(RouteNames.x) instead'
+            echo "$MATCHES"
+            exit 1
+          fi
 
       # MS1 — SharedPreferences must never be used for tokens or PII in feature
       # code. flutter_secure_storage is the only approved secure store.

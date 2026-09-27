@@ -9,8 +9,9 @@
 // update contract means the name + location slices are never sent here, so they
 // are preserved server-side, and `instagram` is NEVER sent by the repository.
 //
-// Save flow: validate → updateMyProfile(phone slice) → invalidate
-// clientEditProfileProvider + clientProfileProvider → saved SnackBar → home.
+// Save flow: validate → updateMyProfile(phone slice) → invalidateOwnIdentity
+// (clientEditProfileProvider + clientProfileProvider + the salon roster —
+// see that helper's own doc) → saved SnackBar → [doneRoute] or home.
 //
 // Phone onChanged only setState when the error actually changes (avoids a
 // full-card rebuild per keystroke).
@@ -34,7 +35,6 @@ import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
-import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -45,8 +45,20 @@ import 'package:beautica_mobile/shared/formatters/ua_phone_input_formatter.dart'
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 
 /// CLIENT contacts edit page (phone only — no Instagram).
+//
+// Phase 356 — REUSED VERBATIM by the SALON_ADMIN own-profile settings hub
+// (`RouteNames.adminEditContacts`, `/profile/admin/settings/contacts`) via
+// the additive [doneRoute] param below — the admin profile already has no
+// Instagram tile of its own, so this screen's phone-only shape matches
+// exactly.
 class ClientContactsEditScreen extends ConsumerStatefulWidget {
-  const ClientContactsEditScreen({super.key});
+  const ClientContactsEditScreen({super.key, this.doneRoute});
+
+  /// Where a successful save navigates. `null` (every pre-existing CLIENT
+  /// call site) keeps the original hard-coded `context.go(RouteNames.
+  /// clientHome)`. The admin route passes `RouteNames.adminSettings` so
+  /// saving returns to the admin hub instead of the CLIENT home.
+  final String? doneRoute;
 
   @override
   ConsumerState<ClientContactsEditScreen> createState() =>
@@ -228,10 +240,9 @@ class _ClientContactsEditScreenState
       // providers so they re-read from the now-current session.
       await ref.read(authProvider.notifier).refreshUser();
       if (!mounted) return;
-      ref.invalidate(clientEditProfileProvider);
-      ref.invalidate(clientProfileProvider);
+      invalidateOwnIdentity(ref);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
-      context.go(RouteNames.clientHome);
+      context.go(widget.doneRoute ?? RouteNames.clientHome);
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -291,7 +302,7 @@ class _ClientContactsEditScreenState
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(RouteNames.clientMenu);
+          context.go(widget.doneRoute ?? RouteNames.clientMenu);
         }
       },
       footer: _reveal(

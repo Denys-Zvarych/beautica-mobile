@@ -36,6 +36,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'auth_login_flow_test.dart' as auth_login;
+import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
+import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'admin_own_profile_flow_test.dart' as admin_own_profile;
+import 'invite_accept_admin_landing_flow_test.dart'
+    as invite_accept_admin_landing;
+import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
 import 'client_home_hub_flow_test.dart' as client_home_hub;
 import 'client_favorites_flow_test.dart' as client_favorites;
 import 'client_my_bookings_cancel_flow_test.dart' as client_my_bookings_cancel;
@@ -51,6 +58,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'client_rebook_from_past_flow_test.dart' as client_rebook_from_past;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
 import 'client_review_refreshes_salon_surfaces_flow_test.dart'
@@ -58,6 +66,8 @@ import 'client_review_refreshes_salon_surfaces_flow_test.dart'
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_delete_account_flow_test.dart' as client_delete_account;
+import 'staff_delete_account_flow_test.dart' as staff_delete_account;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
     as client_profile_location_save_overrides_search_touch;
 import 'client_profile_settings_flow_test.dart' as client_profile_settings;
@@ -66,6 +76,7 @@ import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
     as client_search_query_shrink;
+import 'search_suggestions_flow_test.dart' as search_suggestions;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
@@ -76,14 +87,48 @@ import 'client_shell_edge_swipe_back_flow_test.dart'
 import 'edit_profile_flow_test.dart' as edit_profile;
 import 'edit_profile_redirect_flow_test.dart' as edit_profile_redirect;
 import 'forgot_password_otp_flow_test.dart' as forgot_password_otp;
+import 'forgot_password_rate_limited_flow_test.dart'
+    as forgot_password_rate_limited;
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'salon_management_profile_flow_test.dart' as salon_management_profile;
+import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
+import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
+import 'saved_settlement_label_flow_test.dart' as saved_settlement_label;
+import 'register_salon_flow_test.dart' as register_salon;
+import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
+import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
+import 'salon_staff_settings_admin_gate_flow_test.dart'
+    as salon_staff_settings_admin_gate;
+import 'salon_admin_edit_master_schedule_flow_test.dart'
+    as salon_admin_edit_master_schedule;
+import 'salon_master_services_target_flow_test.dart'
+    as salon_master_services_target;
+import 'salon_owner_unassign_master_service_flow_test.dart'
+    as salon_owner_unassign_master_service;
+import 'salon_owner_edit_master_schedule_flow_test.dart'
+    as salon_owner_edit_master_schedule;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('auth_login_flow', auth_login.main);
+  // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
+  // login AND the post-registration done_to_app CTA both land on the My
+  // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
+  group('salon_owner_landing_flow', salon_owner_landing.main);
+  group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
+  // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
+  group('owner_own_profile_flow', owner_own_profile.main);
+  group('admin_own_profile_flow', admin_own_profile.main);
+  // The invite-accept -> /salons/home landing (2026-09-06 incident): an
+  // invited SALON_ADMIN's session must carry `salonId` off the accept
+  // envelope alone — the ONLY session-establishing flow with no `GET
+  // /users/me` behind it to repair a dropped binding.
+  group('invite_accept_admin_landing_flow', invite_accept_admin_landing.main);
+  group('salon_shell_tab_sync_flow', salon_shell_tab_sync.main);
   // Independent-master MULTI-SERVICE booking (Step 2.7 Rule 3b) — acceptance +
   // partial-failure/same-key-retry (re-authored from the removed
   // client_booking_conflict_flow against the new per-appointment contract).
@@ -136,6 +181,14 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // CLIENT rebook-from-past journey (Phase 350, Step 2.7 Rule 3b) — Минулі →
+  // a past booking's «Записатись знову» → the REAL Step 1 (ServiceSelector
+  // Sheet) opens for the SAME master with that booking's service already
+  // checked but editable; add-a-second/uncheck-and-pick-another both thread
+  // the exact resulting masterServiceId set into working-days/slots; a
+  // SALON-master booking rebooks directly (D4); a deactivated service
+  // pre-checks nothing (D6).
+  group('client_rebook_from_past_flow', client_rebook_from_past.main);
   // CLIENT review-staleness regression (Step 2.7 Rule 3b, mobile-qa) — the
   // REPORTED bug: a client who viewed a master's public profile, then left a
   // review WITHOUT restarting the app, saw a stale rating / review count and
@@ -178,6 +231,13 @@ void main() {
   group('client_home_hub_flow', client_home_hub.main);
   group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
+  group('client_delete_account_flow', client_delete_account.main);
+  // Staff delete-account widening (2026-09-08, Step 2.7 Rule 3b, mobile-qa)
+  // — SALON_MASTER / INDEPENDENT_MASTER / SALON_ADMIN reachability + the
+  // brand-new admin tune-button route, role-correct dialog copy, and the
+  // SALON_OWNER negative control. Registered beside `client_delete_account
+  // _flow`, whose row/dialog it shares.
+  group('staff_delete_account_flow', staff_delete_account.main);
   group('client_profile_settings_flow', client_profile_settings.main);
   group('client_search_flow', client_search.main);
   // Search-query + filters SIMULTANEITY (Step 2.7 Rule 3b) — a Cyrillic `q`
@@ -196,6 +256,12 @@ void main() {
   // result set is genuinely unreachable (no second GET for the pre-shrink
   // term). Plus the empty-box escape hatch.
   group('client_search_query_shrink_flow', client_search_query_shrink.main);
+  // Phase 352 — the «Пошук» suggestion list, place-scoped end to end: real
+  // debounce, real fake-backend round trip, a SERVICE suggestion tap landing
+  // on real results, and the list refetching when the chosen settlement
+  // changes while the term is still typed. Registered beside the other
+  // client_search_* flows, whose fixtures and harness it shares.
+  group('search_suggestions_flow', search_suggestions.main);
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(
@@ -225,5 +291,64 @@ void main() {
   group('edit_profile_redirect_flow', edit_profile_redirect.main);
   // Beautica OTP task Phase B6 — forgot-password email → OTP → new password.
   group('forgot_password_otp_flow', forgot_password_otp.main);
+  group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
   group('logout_flow', logout.main);
+  // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
+  // profile: real login → salonManageGuard admits a real session → PATCH
+  // dirty-diff proven on the real wire body (mandate 3) → DELETE.
+  group('salon_management_profile_flow', salon_management_profile.main);
+  // Phase 21.10 QA follow-up (Step 2.7 Rule 3b) — the three new edit-form
+  // routes (profile/address/contacts) reachable end-to-end via a real
+  // SALON_OWNER session, plus the address form's locality-PAIR dirty-diff
+  // regression pin (cityId/districtId diffed independently can submit an
+  // invalid pair — see the file's own header doc).
+  group('salon_edit_forms_flow', salon_edit_forms.main);
+  group('settlement_autocomplete_flow', settlement_autocomplete.main);
+  // Phase 348 (Step 2.7 Rule 3b) — saved-settlement labels off the phase-330
+  // wire: client village card + search prefill, village salon hub/hero short
+  // label, and an unknown `citySettlementType` surviving login + cold start.
+  group('saved_settlement_label_flow', saved_settlement_label.main);
+  // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
+  // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
+  // form fill -> real POST /api/v1/salons -> real pop -> the new salon
+  // rendered on the hub via the real ref.invalidate(mySalonsProvider)
+  // refetch, no manual refresh.
+  group('register_salon_flow', register_salon.main);
+  // Phase 21.11 QA follow-up (Step 2.7 Rule 3b) — «Надіслані запрошення»:
+  // real settings-hub row push -> real GET /invites/pending -> real per-row
+  // DELETE -> the cancel PERSISTS across a genuine autoDispose refetch (the
+  // one thing an optimistic client-side removal cannot be told apart from at
+  // the widget tier). Also carries the deliberately-RED pin for the missing
+  // `pendingInvitesProvider` invalidation on invite-send.
+  group('salon_pending_invites_flow', salon_pending_invites.main);
+  group('salon_staff_settings_flow', salon_staff_settings.main);
+  group(
+    'salon_staff_settings_admin_gate_flow',
+    salon_staff_settings_admin_gate.main,
+  );
+  // Phase 312 (Step 2.7 Rule 3b) — a SALON_ADMIN opens a chosen master's
+  // schedule from the roster («Команда» tab) and edits it, pinned to NEVER
+  // reach `GET /masters/me` (an admin has no master row of their own). The
+  // SALON_OWNER counterpart is registered directly below it.
+  group(
+    'salon_admin_edit_master_schedule_flow',
+    salon_admin_edit_master_schedule.main,
+  );
+  // Phase 312 (Step 2.7 Rule 3b) — the SALON_OWNER counterpart of the admin
+  // flow above: roster -> a chosen master's schedule -> a real edit and
+  // write against the VIEWED master, never "me".
+  group('salon_master_services_target_flow', salon_master_services_target.main);
+  // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
+  // outcomes: the happy-path 204 (anchored on the target flow above), the
+  // reactive 409 refusal re-showing the blocked dialog with no optimistic
+  // removal, and the INDEPENDENT_MASTER control arm proving the blocked
+  // dialog has no route to that persona at all.
+  group(
+    'salon_owner_unassign_master_service_flow',
+    salon_owner_unassign_master_service.main,
+  );
+  group(
+    'salon_owner_edit_master_schedule_flow',
+    salon_owner_edit_master_schedule.main,
+  );
 }

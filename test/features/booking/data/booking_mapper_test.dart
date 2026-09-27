@@ -54,6 +54,7 @@ import 'package:beautica_mobile/features/booking/data/booking_mapper.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/client_authored_review.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ---------------------------------------------------------------------------
@@ -93,6 +94,35 @@ BookingDetailResponse _validDto({
           ..priceAtBooking = 500
           ..durationMinutesAtBooking = 60
           ..canReview = false
+          ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+        .build();
+
+/// A [_validDto] carrying a nested `ClientAuthoredReviewResponse` (phase 334).
+/// Omitting [rating] leaves it null on the wire — the broken-contract case the
+/// mapper collapses to a null review.
+BookingDetailResponse _dtoWithReview({
+  required String id,
+  int? rating,
+  String? comment,
+  BookingDetailResponseStatusEnum status =
+      BookingDetailResponseStatusEnum.COMPLETED,
+}) =>
+    (BookingDetailResponseBuilder()
+          ..id = id
+          ..masterId = 'master-1'
+          ..masterServiceId = 'service-1'
+          ..masterFirstName = 'Оля'
+          ..masterLastName = 'Коваль'
+          ..serviceName = 'Манікюр'
+          ..status = status
+          ..startsAt = DateTime.utc(2026, 7, 10, 10)
+          ..endsAt = DateTime.utc(2026, 7, 10, 11)
+          ..priceAtBooking = 500
+          ..durationMinutesAtBooking = 60
+          ..canReview = false
+          ..reviewByClient = (ClientAuthoredReviewResponseBuilder()
+            ..rating = rating
+            ..comment = comment)
           ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
         .build();
 
@@ -1008,6 +1038,120 @@ void main() {
         reason:
             'a name must never be laundered into a cache key — the salon '
             'fan-out would then fire against a display string.',
+      );
+    });
+  });
+
+  // Phase 334 — `reviewByClient`: the CLIENT's review OF THE MASTER, the
+  // opposite direction from `providerCanReviewClient` above. Rendered
+  // read-only by the PROVIDER branch of «Деталі запису»
+  // (`ClientReviewSection`).
+  //
+  // The two are mapped on DELIBERATELY different terms and this group exists
+  // to keep them that way. `providerCanReviewClient` is a CAPABILITY — it
+  // unlocks a write CTA, so the mapper re-ANDs it with COMPLETED as a second
+  // fail-closed gate. `reviewByClient` is a FACT the server already holds; a
+  // review that exists exists, whatever the booking's status says, and there
+  // is no fail-closed posture to take on a read-only render. A future
+  // "consistency" refactor that gives this field the same status gate would
+  // silently blank a real review off a cancelled booking's detail screen.
+  group('BookingMapper.fromDto — reviewByClient', () {
+    test('an absent wire object maps to null', () {
+      // _validDto never sets reviewByClient → absent on the wire.
+      final Booking b = BookingMapper.fromDto(_validDto(id: 'booking-no-rev'));
+
+      expect(b.reviewByClient, isNull);
+    });
+
+    test('rating and comment map through verbatim', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithReview(
+          id: 'booking-reviewed',
+          rating: 5,
+          comment: 'Дуже задоволена, дякую!',
+        ),
+      );
+
+      final ClientAuthoredReview? review = b.reviewByClient;
+      expect(review, isNotNull);
+      expect(review?.rating, 5);
+      expect(review?.comment, 'Дуже задоволена, дякую!');
+    });
+
+    test('a null comment stays null — a client who rated without writing '
+        'anything is the ordinary case, not a gap to paper over with an '
+        'empty string', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithReview(id: 'booking-stars-only', rating: 4),
+      );
+
+      expect(b.reviewByClient?.rating, 4);
+      expect(
+        b.reviewByClient?.comment,
+        isNull,
+        reason:
+            'coalescing to "" would make ReviewCard render an empty comment '
+            'line (its null check is what omits the body), so the card would '
+            'grow a blank row for every stars-only review',
+      );
+    });
+
+    test('a review object whose rating is null collapses the WHOLE review to '
+        'null — never a fabricated 0 stars', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithReview(id: 'booking-broken-rev', comment: 'Все добре'),
+      );
+
+      expect(
+        b.reviewByClient,
+        isNull,
+        reason:
+            'a review row with no score is a broken backend contract; '
+            'mapping it to rating 0 would paint an empty five-star row the '
+            'client never gave, and mapping it to a ClientAuthoredReview at '
+            'all would put that row on screen',
+      );
+    });
+
+    test('a broken review never drops the BOOKING — fromDtoList keeps the '
+        'row', () {
+      final List<Booking> out = BookingMapper.fromDtoList(
+        <BookingDetailResponse>[
+          _dtoWithReview(id: 'booking-broken-rev', comment: 'Все добре'),
+        ],
+      );
+
+      expect(
+        out.map((Booking b) => b.id),
+        <String>['booking-broken-rev'],
+        reason:
+            'an optional display field must never reach the ServerFailure '
+            'path — fromDtoList drops a row on any Failure, and losing a '
+            'whole booking over a malformed review would be wildly '
+            'disproportionate',
+      );
+      expect(out.single.reviewByClient, isNull);
+    });
+
+    test('is NOT gated on status — a review on a CANCELLED booking survives '
+        'the mapper, unlike providerCanReviewClient', () {
+      final Booking b = BookingMapper.fromDto(
+        _dtoWithReview(
+          id: 'booking-cancelled-rev',
+          rating: 2,
+          comment: 'Не склалося',
+          status: BookingDetailResponseStatusEnum.CANCELLED,
+        ),
+      );
+
+      expect(b.status, BookingStatus.cancelled);
+      expect(
+        b.reviewByClient?.rating,
+        2,
+        reason:
+            'reviewByClient is a FACT, not a capability — re-ANDing it with '
+            'COMPLETED (the way providerCanReviewClient is deliberately '
+            'gated) would blank a real review off the screen',
       );
     });
   });

@@ -17,7 +17,10 @@ Method | HTTP request | Description
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
-[**getSalonServiceCatalog**](ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | 
+[**getSalonMasterServices**](ServiceControllerApi.md#getsalonmasterservices) | **GET** /api/v1/salons/{salonId}/masters/{masterId}/services | 
+[**getSalonServiceCatalog**](ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | Salon&#39;s public bookable service catalog
+[**unassignServiceFromMaster**](ServiceControllerApi.md#unassignservicefrommaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
+[**updateMasterServiceBand**](ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [**updateServiceDefinition**](ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [**updateServicePhoto**](ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
 
@@ -117,7 +120,7 @@ import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getServiceControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
 final AssignServiceToMasterRequest assignServiceToMasterRequest = ; // AssignServiceToMasterRequest | 
 
 try {
@@ -133,7 +136,7 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **salonId** | **String**|  | 
- **masterId** | **String**|  | 
+ **masterId** | **String**| Master row id (NOT a user id) | 
  **assignServiceToMasterRequest** | [**AssignServiceToMasterRequest**](AssignServiceToMasterRequest.md)|  | 
 
 ### Return type
@@ -164,7 +167,7 @@ import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getServiceControllerApi();
 final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
 final BulkCreateServicesRequest bulkCreateServicesRequest = ; // BulkCreateServicesRequest | 
 
 try {
@@ -180,7 +183,7 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **salonId** | **String**|  | 
- **masterId** | **String**|  | 
+ **masterId** | **String**| Master row id (NOT a user id) | 
  **bulkCreateServicesRequest** | [**BulkCreateServicesRequest**](BulkCreateServicesRequest.md)|  | 
 
 ### Return type
@@ -361,10 +364,59 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
+# **getSalonMasterServices**
+> ApiResponseListMasterServiceResponse getSalonMasterServices(salonId, masterId, page, size)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
+final int page = 56; // int | 
+final int size = 56; // int | 
+
+try {
+    final response = api.getSalonMasterServices(salonId, masterId, page, size);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->getSalonMasterServices: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **masterId** | **String**| Master row id (NOT a user id) | 
+ **page** | **int**|  | [optional] 
+ **size** | **int**|  | [optional] 
+
+### Return type
+
+[**ApiResponseListMasterServiceResponse**](ApiResponseListMasterServiceResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
 # **getSalonServiceCatalog**
 > ApiResponseSalonServiceCatalogResponse getSalonServiceCatalog(salonId)
 
+Salon's public bookable service catalog
 
+A service appears here iff ALL of: (1) its definition is owner_type=SALON with owner_id=salonId; (2) the definition is active; (3) at least one master_services assignment for it is active; (4) that assignment's master belongs to this salon and is active; (5) that master has a free future slot for the service's effective duration. Condition 5 is DELIBERATE, not a bug: a master with no working hours configured has none of their services listed here, because this endpoint answers \"what can a client book right now\", not \"what does the staff list on paper\".
 
 ### Example
 ```dart
@@ -398,6 +450,97 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **unassignServiceFromMaster**
+> unassignServiceFromMaster(salonId, masterId, serviceDefId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
+final String serviceDefId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    api.unassignServiceFromMaster(salonId, masterId, serviceDefId);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->unassignServiceFromMaster: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **masterId** | **String**| Master row id (NOT a user id) | 
+ **serviceDefId** | **String**|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **updateMasterServiceBand**
+> ApiResponseMasterServiceResponse updateMasterServiceBand(salonId, masterId, serviceDefId, updateMasterServiceBandRequest)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final String masterId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | Master row id (NOT a user id)
+final String serviceDefId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+final UpdateMasterServiceBandRequest updateMasterServiceBandRequest = ; // UpdateMasterServiceBandRequest | 
+
+try {
+    final response = api.updateMasterServiceBand(salonId, masterId, serviceDefId, updateMasterServiceBandRequest);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->updateMasterServiceBand: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+ **masterId** | **String**| Master row id (NOT a user id) | 
+ **serviceDefId** | **String**|  | 
+ **updateMasterServiceBandRequest** | [**UpdateMasterServiceBandRequest**](UpdateMasterServiceBandRequest.md)|  | 
+
+### Return type
+
+[**ApiResponseMasterServiceResponse**](ApiResponseMasterServiceResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

@@ -14,16 +14,20 @@ Name | Type | Description | Notes
 **city** | **String** |  | [optional] 
 **region** | **String** |  | [optional] 
 **address** | **String** |  | [optional] 
-**cityId** | **String** |  | [optional] 
+**cityId** | **String** | Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire. | 
+**oblastId** | **String** | Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire. | 
 **districtId** | **String** |  | [optional] 
 **street** | **String** |  | [optional] 
 **buildingNo** | **String** |  | [optional] 
 **locationNote** | **String** |  | [optional] 
+**phone** | **String** | Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none. | [optional] 
 **instagramUrl** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
 **coverImageUrl** | **String** |  | [optional] 
 **avgRating** | **num** |  | [optional] 
 **reviewCount** | **int** |  | [optional] 
+**citySettlementType** | **String** | Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve. | [optional] 
+**cityHromadaNameUk** | **String** | Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

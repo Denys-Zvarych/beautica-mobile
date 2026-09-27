@@ -17,10 +17,13 @@
 //   • the note show-more / show-less toggle → expands and collapses.
 //
 // Finders are key-first; all copy is asserted through l10n, never a raw
-// Cyrillic literal (CI no-raw-string gate). None of the flows below trigger a
-// VelvetSnack (every path here is the happy path) — `booking_detail_screen_
-// test.dart` / `reschedule_navigation_test.dart` own the failure-snack
-// coverage, using `test/helpers/velvet_snack_matchers.dart`.
+// Cyrillic literal (CI no-raw-string gate). Most flows below are the happy
+// path and trigger no VelvetSnack — `booking_detail_screen_test.dart` /
+// `reschedule_navigation_test.dart` own the general failure-snack coverage,
+// using `test/helpers/velvet_snack_matchers.dart`. The one exception is the
+// D7 empty-serviceId rebook case (mobile-security cycle-1 LOW): it asserts
+// its own `bookingRebookServiceUnavailable` warning snack locally, using the
+// same helper.
 
 import 'dart:async';
 
@@ -30,15 +33,18 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_entry_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot_picker_args.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -48,6 +54,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // The add_2_calendar plugin's platform boundary — intercepted so tapping
 // «Додати в календар» never opens a real OS calendar sheet.
@@ -72,9 +79,17 @@ Booking _booking({
   String id = 'b1',
   required BookingStatus status,
   String? salonName,
+  // Phase 350 — settable independently of [salonName] so a rebook test can
+  // pin a genuine salon-master booking (`salonId != null`) the same way the
+  // real `BookingDetailResponse` carries it (D4's "the stale comment" fix).
+  String? salonId,
   String? providerComment,
   String? clientComment,
   String? clientCancellationNote,
+  // Phase 350 — the booked service id. Defaults to 's1' (every pre-existing
+  // case in this file); a rebook test that needs the D7 empty-serviceId
+  // fallback passes ''.
+  String serviceId = 's1',
   // The frozen RANGE ceiling (`priceMaxAtBooking`). Default null = the
   // single-price booking every other case in this file drives; a non-null
   // value makes `BookingDisplayX.priceLabel` a band, which is what the
@@ -90,7 +105,8 @@ Booking _booking({
     masterAvatarUrl: null,
     masterType: salonName != null ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
     salonName: salonName,
-    serviceId: 's1',
+    salonId: salonId,
+    serviceId: serviceId,
     serviceName: 'Манікюр з покриттям',
     categoryName: 'NAIL_SERVICE',
     cityLabel: 'Львів',
@@ -135,10 +151,16 @@ Future<_MockBookingRepository> _pumpDetail(
 }
 
 /// Routed host — a GoRouter with a `/start` launcher that PUSHES the detail
-/// route (so there is something to pop back to) and a `/masters/:id` stub (the
-/// rebook target). Returns the id captured by the master stub, if reached.
+/// route (so there is something to pop back to) and the REAL
+/// `RouteNames.bookingNew` route, wired EXACTLY the way `app_router.dart`
+/// wires it (both the bare-`String` and [BookingEntryArgs] `extra` shapes),
+/// rendering the REAL `ServiceSelectorSheet` rather than a path-only stub —
+/// so a rebook test can assert the resolved page TYPE, not merely a location
+/// string that a shadowing route could satisfy for the wrong reason (memory
+/// `project_gorouter_literal_before_dynamic_shadowing`). Captures the exact
+/// `extra` object the rebook CTA pushed.
 class _RebookProbe {
-  String? masterId;
+  Object? extra;
 }
 
 Future<_RebookProbe> _pumpDetailRouted(
@@ -169,15 +191,34 @@ Future<_RebookProbe> _pumpDetailRouted(
         builder: (_, _) => BookingDetailScreen(bookingId: booking.id),
       ),
       GoRoute(
-        path: '/masters/:masterId',
+        path: RouteNames.bookingNew,
         builder: (BuildContext context, GoRouterState state) {
-          probe.masterId = state.pathParameters['masterId'];
-          return const Scaffold(key: Key('master_profile_stub'));
+          final Object? extra = state.extra;
+          probe.extra = extra;
+          if (extra is BookingEntryArgs) {
+            return ServiceSelectorSheet(
+              masterId: extra.masterId,
+              initialServiceId: extra.preselectedServiceId,
+              autoAdvance: extra.autoAdvance,
+            );
+          }
+          return ServiceSelectorSheet(masterId: extra! as String);
         },
       ),
     ],
   );
-  await tester.pumpRoutedApp(router, overrides: _overrides(booking, repo));
+  await tester.pumpRoutedApp(
+    router,
+    overrides: <Object>[
+      ..._overrides(booking, repo),
+      // Lets the REAL ServiceSelectorSheet resolve without a network call —
+      // masterId/serviceId match `_booking()`'s defaults ('m1'/'s1').
+      publicMasterProfileProvider(booking.masterId).overrideWith(
+        (ref) async =>
+            (_kRescheduleMaster, const <MasterService>[_kRescheduleService]),
+      ),
+    ],
+  );
   await tester.pumpAndSettle();
 
   await tester.tap(find.byKey(const Key('go-detail')));
@@ -313,28 +354,115 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
-  // «Записатись знову» → push the master's public profile
+  // «Записатись знову» → push booking Step 1 (ServiceSelectorSheet) for the
+  // SAME master with THIS booking's service pre-checked but editable
+  // (Phase 350 — supersedes the earlier "push the master's public profile"
+  // behaviour).
   // -------------------------------------------------------------------------
 
   group('rebook', () {
-    testWidgets('tapping «Записатись знову» pushes /masters/:id', (
-      tester,
-    ) async {
-      // COMPLETED carries the rebook action (see the screen's action table).
-      final Booking booking = _booking(status: BookingStatus.completed);
-      final _RebookProbe probe = await _pumpDetailRouted(tester, booking);
+    Future<void> tapRebook(WidgetTester tester) async {
       final l10n = _l10n(tester);
-
       final Finder rebook = find.text(l10n.bookingDetailRebookCta);
       await tester.ensureVisible(rebook);
       await tester.pumpAndSettle();
       await tester.tap(rebook);
       await tester.pumpAndSettle();
+    }
 
-      expect(find.byKey(const Key('master_profile_stub')), findsOneWidget);
-      // The booking's masterId is the only rebook target the record supports.
-      expect(probe.masterId, booking.masterId);
-    });
+    for (final BookingStatus status in <BookingStatus>[
+      BookingStatus.completed,
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+      BookingStatus.unknown,
+    ]) {
+      testWidgets(
+        'a ${status.name} booking: «Записатись знову» pushes bookingNew with '
+        'a BookingEntryArgs(masterId, preselectedServiceId: '
+        'booking.serviceId, autoAdvance: false) and lands on the REAL '
+        'ServiceSelectorSheet',
+        (tester) async {
+          final Booking booking = _booking(status: status);
+          final _RebookProbe probe = await _pumpDetailRouted(tester, booking);
+
+          await tapRebook(tester);
+
+          expect(
+            find.byType(ServiceSelectorSheet),
+            findsOneWidget,
+            reason:
+                'rebook must land on the REAL ServiceSelectorSheet TYPE, not '
+                'merely a matching path string',
+          );
+          expect(find.byType(BookingDetailScreen), findsNothing);
+
+          expect(probe.extra, isA<BookingEntryArgs>());
+          final BookingEntryArgs args = probe.extra! as BookingEntryArgs;
+          expect(args.masterId, booking.masterId);
+          expect(args.preselectedServiceId, booking.serviceId);
+          expect(
+            args.autoAdvance,
+            isFalse,
+            reason:
+                'the rebook shape lands on Step 1 pre-checked but '
+                'EDITABLE — it must never auto-advance past it',
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'a SALON-master booking (salonId != null) takes the SAME bookingNew '
+      'route — D4: same master, no salon-flow detour',
+      (tester) async {
+        final Booking booking = _booking(
+          status: BookingStatus.completed,
+          salonName: 'Салон «Вельвет»',
+          salonId: 'salon-1',
+        );
+        final _RebookProbe probe = await _pumpDetailRouted(tester, booking);
+
+        await tapRebook(tester);
+
+        expect(find.byType(ServiceSelectorSheet), findsOneWidget);
+        expect(probe.extra, isA<BookingEntryArgs>());
+        final BookingEntryArgs args = probe.extra! as BookingEntryArgs;
+        expect(args.masterId, booking.masterId);
+        expect(args.preselectedServiceId, booking.serviceId);
+        expect(args.autoAdvance, isFalse);
+      },
+    );
+
+    testWidgets(
+      'booking.serviceId == \'\' falls back to the legacy bare-String '
+      'masterId extra rather than a BookingEntryArgs holding an empty id, '
+      'and warns the client why nothing is pre-checked (mobile-security '
+      'cycle-1 LOW)',
+      (tester) async {
+        final Booking booking = _booking(
+          status: BookingStatus.completed,
+          serviceId: '',
+        );
+        final _RebookProbe probe = await _pumpDetailRouted(tester, booking);
+        final l10n = _l10n(tester);
+
+        await tapRebook(tester);
+
+        // The flow still opens (D7's fallback navigation is unchanged) …
+        expect(find.byType(ServiceSelectorSheet), findsOneWidget);
+        expect(probe.extra, isA<String>());
+        expect(probe.extra, booking.masterId);
+        // … but the client is told why nothing is pre-selected, instead of
+        // the silent drop the finding flagged.
+        expectVelvetSnack(
+          l10n.bookingRebookServiceUnavailable,
+          variant: VelvetSnackVariant.warning,
+        );
+
+        // Drain the dwell Timer so none is pending at teardown.
+        await pumpPastVelvetSnack(tester);
+      },
+    );
   });
 
   // -------------------------------------------------------------------------

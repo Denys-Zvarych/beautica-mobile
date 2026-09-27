@@ -14,6 +14,10 @@
 // (M6). `today` is injected so the presets/cap are deterministic (no wall-clock).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
@@ -28,6 +32,25 @@ import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
+
+/// Phase 311 — settled INDEPENDENT_MASTER session so `scheduleEditableProvider`
+/// resolves `true`. This whole file exercises the EDITABLE path (the sheet
+/// itself is an edit surface); without this override the new self-check
+/// would resolve `false` (no Authenticated session) and hide every control
+/// this suite asserts on. Mirrors `day_hours_sheet_test.dart`'s identical stub.
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master1@beautica.ua',
+      role: UserRole.independentMaster,
+      firstName: 'Оля',
+      lastName: 'Коваль',
+    ),
+    accessToken: 'token-1',
+  );
+}
 
 /// Fixed "today" so the presets, day-count, and far-future cap are stable.
 final DateTime _today = DateTime(2024, 5, 22);
@@ -68,7 +91,9 @@ void main() {
   Future<GoRouter> pumpHost(
     WidgetTester tester, {
     List<Object> extraOverrides = const <Object>[],
+    DateTime? today,
   }) async {
+    final DateTime sheetToday = today ?? _today;
     final router = GoRouter(
       initialLocation: '/',
       routes: <RouteBase>[
@@ -80,8 +105,8 @@ void main() {
                 key: const Key('open-apply-sheet'),
                 onPressed: () => showApplyScheduleSheet(
                   context,
-                  baseSchedule: _baseSchedule(),
-                  today: _today,
+                  baseSchedule: _baseSchedule(validFrom: sheetToday),
+                  today: sheetToday,
                 ),
                 child: const Text('open'),
               ),
@@ -95,7 +120,8 @@ void main() {
       ProviderScope(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          scheduleRepositoryProvider.overrideWithValue(repo),
+          scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
           ...extraOverrides,
         ].cast(),
         child: MaterialApp.router(
@@ -198,7 +224,7 @@ void main() {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
       overrides: <Object>[
-        scheduleRepositoryProvider.overrideWithValue(repo),
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
       ].cast(),
     );
     addTearDown(container.dispose);
@@ -285,7 +311,8 @@ void main() {
       ProviderScope(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          scheduleRepositoryProvider.overrideWithValue(repo),
+          scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
         child: MaterialApp.router(
           routerConfig: router,
@@ -379,7 +406,8 @@ void main() {
         ProviderScope(
           retry: beauticaProviderRetry,
           overrides: <Object>[
-            scheduleRepositoryProvider.overrideWithValue(repo),
+            scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+            authProvider.overrideWith(_StubAuthNotifier.new),
           ].cast(),
           child: MaterialApp.router(
             routerConfig: router,
@@ -429,6 +457,24 @@ void main() {
       );
     },
   );
+
+  // 2026-09-24 — the day-count readout used `DateTimeRange.duration.inDays`,
+  // one LOW for any window crossing the Kyiv spring forward (23 h day).
+  testWidgets('the day-count readout for «Наступні 3 місяці» from 2026-03-20 '
+      '(across the spring forward) reads 93 days, not 92', (tester) async {
+    await pumpHost(tester, today: DateTime(2026, 3, 20));
+    await openSheet(tester);
+
+    await tester.tap(find.byKey(const Key('preset-next-3-months')));
+    await tester.pumpAndSettle();
+
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byKey(const Key('preset-next-3-months'))),
+    );
+    // 2026-03-20 .. 2026-06-20 inclusive = 12 + 30 + 31 + 20 = 93.
+    expect(find.text(l10n.applyScheduleDayCount(93)), findsOneWidget);
+    expect(find.text(l10n.applyScheduleDayCount(92)), findsNothing);
+  });
 }
 
 /// A tappable day cell in the [PeriodRangePicker] for the given [day] number.

@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
@@ -58,6 +59,7 @@ import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_cta_footer.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/master/application/public_master_profile_notifier.dart';
@@ -244,6 +246,25 @@ BookingConfirmArgs _rescheduleArgs() => BookingConfirmArgs(
   idempotencyKey: _kIdemKey,
   rescheduleBookingId: 'booking-1',
 );
+
+/// The WHOLE-BOOKING reschedule arm — `rescheduleBookingId` set,
+/// `rescheduleAppointmentId` deliberately ABSENT — optionally carrying the
+/// [salonId] the «Записи» board seeds (`reschedule_navigation.dart:276`).
+///
+/// `Booking.appointmentId` is NULLABLE, so this is the shape a legacy
+/// single-service booking takes on EVERY viewer path: client, independent
+/// master, and the salon board. It is the arm the calendar fan-out used to
+/// skip entirely (mobile-qa re-audit cycle 2, 2026-09-19).
+BookingConfirmArgs _wholeBookingRescheduleArgs({String? salonId}) =>
+    BookingConfirmArgs(
+      masterId: _kMaster.id,
+      master: _kMaster,
+      services: const <MasterService>[_kService],
+      startAt: _kStartAt,
+      idempotencyKey: _kIdemKey,
+      rescheduleBookingId: 'booking-1',
+      rescheduleSalonId: salonId,
+    );
 
 /// [_rescheduleArgs] with a (never-produced-in-practice) `guest` ALSO set —
 /// the CTA label precedence pin (phase-261 D6/case 7): reschedule copy must
@@ -519,10 +540,34 @@ class _RecordingRescheduleRepository implements BookingRepository {
   }) => throw UnimplementedError();
 
   @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<Booking> getBookingById(String id) async {
     getBookingByIdCalls++;
     return _bookingFixture();
   }
+
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 
   @override
   Future<PageResponse<Booking>> getMyBookings({
@@ -732,6 +777,46 @@ void main() {
       await tester.pumpAndSettle();
       return router;
     }
+
+    // QA LOW (2026-09-24) — the master's venue line uses the SAME short
+    // settlement label as every address line (prefix, no oblast).
+    testWidgets('a village master renders the prefixed settlement, no oblast', (
+      tester,
+    ) async {
+      final Master village = _kMaster.copyWith(
+        city: 'Іванівка',
+        region: 'Полтавська',
+        citySettlementType: 'VILLAGE',
+      );
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith(
+            (_) => _FakeAppointmentRepository(
+              appointmentToReturn: _appointmentFixture(),
+            ),
+          ),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (village, const <MasterService>[_kService])),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: _confirmArgs()));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingConfirmScreen)),
+      );
+      // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+      // AppLocalizations; the Cyrillic left is fixture data.
+      expect(
+        find.text(
+          'вул. Хрещатик, 22, ${l10n.settlementVillagePrefix} Іванівка',
+        ),
+        findsOneWidget,
+      );
+    });
 
     testWidgets('renders the master + service summary once data resolves', (
       tester,
@@ -3245,5 +3330,245 @@ void main() {
       expect(confirmOffset, closeTo(timeOffset, 0.5));
       expect(confirmOffset, closeTo(dateOffset, 0.5));
     });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-09-19 (mobile-qa re-audit, cycle 2) — the WHOLE-BOOKING arm of the
+  // reschedule calendar fan-out.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // `invalidateBookingsDayAfterAppointmentItemReschedule` used to sit INSIDE
+  // `_submit`'s `if (rescheduleAppointmentId != null)`, so only a track-30.x
+  // per-item VISIT reschedule dropped the calendar caches. Cycle 1 ungated it
+  // (`booking_confirm_screen.dart:411`) — but nothing pinned the new
+  // behaviour: every existing guard in this file drives
+  // `_appointmentItemRescheduleArgs()` (appointmentId SET), and
+  // `rescheduleSalonId` had ZERO occurrences anywhere under `test/` or
+  // `integration_test/`. `client_reschedule_flow_test.dart` genuinely runs
+  // this arm but asserts nothing about invalidation, so the ungating was
+  // proven only as "does not regress", never as "now invalidates".
+  //
+  // These two tests are the missing half. Asserted by REFETCH COUNT, like
+  // every other invalidation guard here: `ref.invalidate` reloads seamlessly
+  // and RETAINS the previous `.value`, so no value-shape assertion could ever
+  // fail. A live subscription per member is mandatory — invalidating a member
+  // with no listener DROPS it instead of refetching, which would make the
+  // distinction unobservable in BOTH directions.
+  group('BookingConfirmScreen — whole-booking reschedule calendar fan-out', () {
+    const String kMeKey = '@me';
+    const String kSalonUnderTest = 'salon-1';
+    const String kOtherSalon = 'salon-2';
+
+    Future<
+      ({
+        _FakeAppointmentRepository appointments,
+        _RecordingRescheduleRepository bookings,
+        ProviderContainer container,
+        Map<String, int> dotFetches,
+      })
+    >
+    pumpArm(
+      WidgetTester tester, {
+      required String? salonId,
+      required AuthNotifier Function() authBuilder,
+    }) async {
+      final Map<String, int> dotFetches = <String, int>{};
+      final appointments = _FakeAppointmentRepository();
+      final bookings = _RecordingRescheduleRepository();
+      final router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith((_) => appointments),
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          authProvider.overrideWith(authBuilder),
+          // Counting closures, never the real bodies: both production
+          // providers park a 30-minute keepAlive `Timer` that `flutter_test`
+          // fails on at teardown, and counting is the only way to observe a
+          // seamless invalidate at all. Mirrors
+          // `master_create_booking_notifier_test.dart`'s `countingContainer`.
+          bookedDaysProvider.overrideWith((ref) async {
+            dotFetches[kMeKey] = (dotFetches[kMeKey] ?? 0) + 1;
+            return <DateTime>{};
+          }),
+          salonBookedDaysProvider.overrideWith((ref, String id) async {
+            dotFetches[id] = (dotFetches[id] ?? 0) + 1;
+            return <DateTime>{};
+          }),
+        ],
+      );
+      unawaited(
+        router.push(
+          RouteNames.bookingConfirm,
+          extra: _wholeBookingRescheduleArgs(salonId: salonId),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingConfirmScreen)),
+        listen: false,
+      );
+      // Pre-warm auth BEFORE subscribing to any per-user cache — the day/dot
+      // providers `ref.watch` the session id for their session-boundary PII
+      // fix, so a subscription taken while auth is still loading refetches a
+      // second time on its own and poisons every count below.
+      await container.read(authProvider.future);
+      return (
+        appointments: appointments,
+        bookings: bookings,
+        container: container,
+        dotFetches: dotFetches,
+      );
+    }
+
+    /// Keeps [sub] live for the whole test and settles [future], so a later
+    /// `ref.invalidate` REFETCHES the member rather than dropping it.
+    Future<void> warm<T>(
+      ProviderSubscription<AsyncValue<T>> sub,
+      Future<T> future,
+    ) async {
+      addTearDown(sub.close);
+      await future;
+    }
+
+    testWidgets(
+      'a WHOLE-BOOKING reschedule (rescheduleAppointmentId == null) started '
+      'from a SALON board drops the day list, the master dot set AND THIS '
+      'salon\'s dot set — leaving another salon\'s member alone',
+      (tester) async {
+        final r = await pumpArm(
+          tester,
+          salonId: kSalonUnderTest,
+          authBuilder: _StubAuth.new,
+        );
+        final ProviderContainer c = r.container;
+
+        // The member `BookingsDiscoveryView._rebuildQuery` actually watches —
+        // built through the shared factory, never a hand-written status
+        // literal (see the per-item guard above for the drift this avoids).
+        final BookingsDayQuery dayListQuery = BookingsDayQuery.dayList(
+          day: DateTime(2026, 7, 20),
+        );
+        await warm(
+          c.listen(
+            bookingsDayProvider(dayListQuery),
+            (_, _) {},
+            fireImmediately: true,
+          ),
+          c.read(bookingsDayProvider(dayListQuery).future),
+        );
+        await warm(
+          c.listen(bookedDaysProvider, (_, _) {}, fireImmediately: true),
+          c.read(bookedDaysProvider.future),
+        );
+        for (final String id in const <String>[kSalonUnderTest, kOtherSalon]) {
+          await warm(
+            c.listen(
+              salonBookedDaysProvider(id),
+              (_, _) {},
+              fireImmediately: true,
+            ),
+            c.read(salonBookedDaysProvider(id).future),
+          );
+        }
+        expect(r.bookings.getMyBookingsCalls, 1, reason: 'sanity');
+        expect(
+          r.dotFetches,
+          <String, int>{kMeKey: 1, kSalonUnderTest: 1, kOtherSalon: 1},
+          reason: 'sanity: one fetch per live member before the submit',
+        );
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        // The arm under test really is the whole-booking one: the plain
+        // `PATCH /bookings/{id}/reschedule` ran and the appointment-scoped
+        // per-item endpoint never did. Without this pair the test could pass
+        // against the OLD, gated code by silently taking the per-item arm.
+        expect(r.bookings.rescheduleCalls, hasLength(1));
+        expect(r.appointments.rescheduleItemCalls, isEmpty);
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await c.read(bookingsDayProvider(dayListQuery).future);
+        expect(
+          r.bookings.getMyBookingsCalls,
+          2,
+          reason:
+              'the whole-booking arm must drop the day-list member the '
+              'board renders from — gated on rescheduleAppointmentId it '
+              'kept serving the booking at its OLD slot until the ≤3-day '
+              'keepAlive LRU evicted',
+        );
+        await c.read(bookedDaysProvider.future);
+        await c.read(salonBookedDaysProvider(kSalonUnderTest).future);
+        await c.read(salonBookedDaysProvider(kOtherSalon).future);
+        expect(
+          r.dotFetches,
+          <String, int>{kMeKey: 2, kSalonUnderTest: 2, kOtherSalon: 1},
+          reason:
+              'BOTH dot sets must drop on this arm (the master rail was stale '
+              'here too, not only the salon board) — and the salon FAMILY KEY '
+              'is load-bearing: a wrong-argument invalidate would move '
+              'salon-2\'s counter instead',
+        );
+      },
+    );
+
+    testWidgets(
+      'the CLIENT path (no rescheduleSalonId) drops the master dot set and '
+      'touches NO salon member',
+      (tester) async {
+        // A genuine CLIENT session, not the provider stub: this arm is
+        // reached by a client rescheduling their own booking, and the screen
+        // routes on `bookingViewerRoleProvider`, not on an args flag.
+        final r = await pumpArm(
+          tester,
+          salonId: null,
+          authBuilder: () => _RoleAuth(UserRole.client),
+        );
+        final ProviderContainer c = r.container;
+
+        // No `bookingsDayProvider` subscription here on purpose: a client has
+        // no day-calendar screen, so those members are never built and their
+        // invalidate is a documented no-op. What must still be observable is
+        // that the salon member is left ALONE.
+        await warm(
+          c.listen(bookedDaysProvider, (_, _) {}, fireImmediately: true),
+          c.read(bookedDaysProvider.future),
+        );
+        await warm(
+          c.listen(
+            salonBookedDaysProvider(kSalonUnderTest),
+            (_, _) {},
+            fireImmediately: true,
+          ),
+          c.read(salonBookedDaysProvider(kSalonUnderTest).future),
+        );
+        expect(r.dotFetches, <String, int>{kMeKey: 1, kSalonUnderTest: 1});
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(r.bookings.rescheduleCalls, hasLength(1));
+        expect(r.appointments.rescheduleItemCalls, isEmpty);
+        expect(find.byType(BookingSuccessScreen), findsOneWidget);
+
+        await c.read(bookedDaysProvider.future);
+        await c.read(salonBookedDaysProvider(kSalonUnderTest).future);
+        expect(
+          r.dotFetches,
+          <String, int>{kMeKey: 2, kSalonUnderTest: 1},
+          reason:
+              'ungating the fan-out widened it onto the CLIENT path too — that '
+              'is safe ONLY because rescheduleSalonId is null there. A salon '
+              'refetch here would be a real request fired on behalf of a user '
+              'with no salon scope at all.',
+        );
+      },
+    );
   });
 }

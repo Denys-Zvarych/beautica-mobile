@@ -216,12 +216,22 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — `_loggingOut` (the re-entrancy
+      // guard) flips synchronously on this tap, but it is no longer bound to
+      // `SettingsRow(loading:)`; only `_loggingOutLoading` drives the
+      // spinner, and it flips true only AFTER confirm, immediately before
+      // `logout()`. So nothing is ticking yet here — a real `pumpAndSettle`
+      // works again (stronger sync than the bounded pump it replaced).
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(auth.logoutCalls, 0);
 
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      // From here `logout()` blocks forever (`_TrackingAuthNotifier`), which
+      // means `_loggingOutLoading` — now true — drives an indeterminate
+      // spinner for the rest of this test. `pumpAndSettle` can never settle
+      // while that ticks, so bounded pumps stay required past this point.
       await tester.pump(); // apply pop(true) + start logout()
       await tester.pump(const Duration(milliseconds: 300)); // dialog dismiss
 

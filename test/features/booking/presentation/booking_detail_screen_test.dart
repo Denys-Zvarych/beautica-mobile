@@ -637,7 +637,7 @@ void main() {
 
   group('CANCELLED (client backed out)', () {
     testWidgets(
-      'no status hero/title, subline, rebook action, NO price, optional note absent',
+      'no status hero icon, but title + subline, rebook action, NO price, optional note absent',
       (tester) async {
         await _pumpDetail(tester, _booking(status: BookingStatus.cancelled));
         final l10n = _l10n(tester);

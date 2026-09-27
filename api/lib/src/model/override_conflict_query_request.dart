@@ -233,6 +233,9 @@ class OverrideConflictQueryRequestKindEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'CUSTOM_HOURS')
   static const OverrideConflictQueryRequestKindEnum CUSTOM_HOURS =
       _$overrideConflictQueryRequestKindEnum_CUSTOM_HOURS;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const OverrideConflictQueryRequestKindEnum unknownDefaultOpenApi =
+      _$overrideConflictQueryRequestKindEnum_unknownDefaultOpenApi;
 
   static Serializer<OverrideConflictQueryRequestKindEnum> get serializer =>
       _$overrideConflictQueryRequestKindEnumSerializer;
@@ -252,6 +255,9 @@ class OverrideConflictQueryRequestModeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
   static const OverrideConflictQueryRequestModeEnum EXPLICIT_TIMES =
       _$overrideConflictQueryRequestModeEnum_EXPLICIT_TIMES;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const OverrideConflictQueryRequestModeEnum unknownDefaultOpenApi =
+      _$overrideConflictQueryRequestModeEnum_unknownDefaultOpenApi;
 
   static Serializer<OverrideConflictQueryRequestModeEnum> get serializer =>
       _$overrideConflictQueryRequestModeEnumSerializer;

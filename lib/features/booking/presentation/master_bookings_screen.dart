@@ -103,17 +103,123 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'bookings_discovery_view.dart';
+import '../application/bookings_capability.dart';
 import '../domain/booking.dart';
 import '../domain/bookings_day_query.dart';
 
-/// The independent master's own booking list. A thin wrapper — see the file
-/// header.
+/// A provider's own booking list. A thin wrapper — see the file header.
+///
+/// Phase 330 — mounted TWICE, at two routes, as ONE widget: `/master/bookings`
+/// for the `INDEPENDENT_MASTER` and `/staff/bookings` for the invited,
+/// read-only `SALON_MASTER`. Every parameter below is ADDITIVE and NULLABLE
+/// (or defaults to the pre-phase-330 literal), so the `/master/bookings`
+/// registration — and every test that pumps `const MasterBookingsScreen()` —
+/// renders byte-identically to before they existed. The read-only behaviour
+/// itself is NOT a parameter: it comes from
+/// `bookingCreationEnabledProvider` / `bookingTransitionsEnabledProvider`
+/// (phase 328), which read the session. These parameters only say WHERE this
+/// mount's own navigation lands, which is the host's concern, never the
+/// session's.
 class MasterBookingsScreen extends ConsumerWidget {
-  const MasterBookingsScreen({super.key});
+  const MasterBookingsScreen({
+    super.key,
+    this.detailRouteBuilder,
+    this.archiveRoute,
+    this.navServicesRoute,
+    this.navScheduleRoute,
+    this.navProfileRoute,
+    this.canAddWorkingHours = true,
+  });
+
+  /// Builds the booking-detail path from a booking id. `null` (the
+  /// `/master/bookings` mount and every existing test) means
+  /// [RouteNames.masterBookingDetail]; the `/staff/bookings` mount passes
+  /// [RouteNames.salonMasterBookingDetail] so the push does not land on a
+  /// `/master/*` path the `/staff/*` viewer is gated off.
+  final String Function(String bookingId)? detailRouteBuilder;
+
+  /// The «Архів» header button's destination. `null` means
+  /// [RouteNames.masterBookingsArchive]; the `/staff/bookings` mount passes
+  /// [RouteNames.salonMasterBookingsArchive] (phase 332).
+  final String? archiveRoute;
+
+  /// [VelvetBottomNavBar] tile overrides — tiles 0 / 2 / 3. `null` (the
+  /// `/master/bookings` mount) leaves each at the literal it has always used,
+  /// so that bar stays `const`. Tile 1 is this screen itself
+  /// (`activeIndex: 1`), so it resolves to `null` inside the bar regardless
+  /// and needs no override here.
+  final String? navServicesRoute;
+  final String? navScheduleRoute;
+  final String? navProfileRoute;
+
+  /// Whether the "no working hours" empty state offers its
+  /// «Додати робочі години» CTA. `true` (the `/master/bookings` mount and
+  /// every existing test) is the pre-phase-330 behaviour exactly.
+  ///
+  /// `false` at the `/staff/bookings` mount: publishing working hours is a
+  /// SCHEDULE write, which `scheduleEditableProvider` has resolved
+  /// `SALON_MASTER → false` since phase 309 — the salon sets their hours, not
+  /// them. A day with no hours is a common state for an invited master, so
+  /// this CTA would otherwise be the one affordance on the read-only surface
+  /// that still promised a write, landing them on a schedule screen with no
+  /// pencil to tap.
+  ///
+  /// A structural flag passed at the ROUTE (mirroring
+  /// `ServicesListScreen(writable: false)` at `/staff/services`), not a
+  /// `ref.watch(scheduleEditableProvider)` here: that provider lives in
+  /// `features/schedule/presentation/`, and a `features/booking/presentation/`
+  /// import of it would be the cross-feature presentation→presentation import
+  /// the architecture forbids.
+  final bool canAddWorkingHours;
+
+  /// The bottom bar, kept `const` for the default (`/master/bookings`) mount
+  /// so that call site is byte-identical to before phase 330 — the three
+  /// overrides are all `null` there, and a `const` instance is canonicalised
+  /// and skipped on rebuild.
+  ///
+  /// The `/staff/bookings` branch CANNOT be `const`, and not for want of
+  /// trying (mobile-perf LOW, 2026-09-15). The three arguments arrive as
+  /// INSTANCE FIELDS, and Dart admits no constant expression over those:
+  ///
+  ///   * inline — `const VelvetBottomNavBar(servicesRoute: navServicesRoute…)`
+  ///     is "Constant evaluation error: the variable is not a constant";
+  ///   * hoisted into a field — `const MasterBookingsScreen(…) : _navBar =
+  ///     VelvetBottomNavBar(servicesRoute: navServicesRoute…)` fails the same
+  ///     way, with or without an explicit `const`. A const constructor's
+  ///     initialiser must be *potentially constant*, and an object creation
+  ///     over a parameter is not. So "cache the instance in a field" is not
+  ///     expressible here either.
+  ///
+  /// The only shapes that WOULD be `const` both cost more than the allocation
+  /// is worth: a `static const` bar built from `RouteNames.salonMaster*`
+  /// hard-codes the host's routes into this screen — the exact coupling the
+  /// phase-330 parameters exist to prevent, plus a fallback branch nothing
+  /// exercises; and swapping the three route params for an injected bar
+  /// widget would fork the repo-wide `nav*Route` convention that
+  /// `ServicesListScreen` (`services_list_screen.dart:390`) also follows.
+  ///
+  /// The residual cost is one `VelvetBottomNavBar` (a `StatelessWidget` over
+  /// four tiles) per rebuild of THIS screen — and `build` watches exactly one
+  /// provider, `bookingCreationEnabledProvider`, which is session-derived and
+  /// settles once. Not a per-frame allocation.
+  VelvetBottomNavBar get _navBar =>
+      navServicesRoute == null &&
+          navScheduleRoute == null &&
+          navProfileRoute == null
+      ? const VelvetBottomNavBar(activeIndex: 1)
+      : VelvetBottomNavBar(
+          activeIndex: 1,
+          servicesRoute: navServicesRoute,
+          scheduleRoute: navScheduleRoute,
+          profileRoute: navProfileRoute,
+        );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final String scheduleRoute = navScheduleRoute ?? RouteNames.masterSchedule;
+    final String Function(String) detailRoute =
+        detailRouteBuilder ?? RouteNames.masterBookingDetail;
 
     // Outer Scaffold exists ONLY to host the bottom nav bar — see the file
     // header for why it wraps rather than modifies `BookingsDiscoveryView`.
@@ -156,16 +262,40 @@ class MasterBookingsScreen extends ConsumerWidget {
         // it. `context.go`, not `context.push` — this is a bottom-nav
         // destination, matching `VelvetBottomNavBar`'s own navigation
         // (see that file's header).
+        //
+        // Phase 330 — the base path is [navScheduleRoute] (the same constant
+        // tile 2 of the bottom bar uses), so the `/staff/bookings` mount
+        // never emits a `/master/schedule` location its own `/staff/*` gate
+        // would bounce. That mount passes `canAddWorkingHours: false`, so
+        // this callback is unreachable there; it stays correctly aimed
+        // anyway rather than left pointing at a bounced route.
         onAddWorkingHours: (DateTime date) =>
-            context.go('${RouteNames.masterSchedule}?date=${toApiDate(date)}'),
+            context.go('$scheduleRoute?date=${toApiDate(date)}'),
+        // Phase 330 — see [canAddWorkingHours].
+        canAddWorkingHours: canAddWorkingHours,
         onBookingTap: (Booking booking) =>
-            context.push(RouteNames.masterBookingDetail(booking.id)),
+            context.push(detailRoute(booking.id)),
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
-        onOpenArchive: () => context.push(RouteNames.masterBookingsArchive),
+        onOpenArchive: () =>
+            context.push(archiveRoute ?? RouteNames.masterBookingsArchive),
+        // Phase 329 — the (+) add-booking button is HIDDEN (not disabled)
+        // for a viewer who may not create bookings, i.e. the invited,
+        // read-only `SALON_MASTER`. `watch`, not `read`: the capability is
+        // derived from the session and must re-render the header the moment
+        // the role settles or the session is invalidated. Every other role
+        // this screen serves resolves `true`, so the independent master's
+        // header is unchanged. See `bookingCreationEnabledProvider`'s doc for
+        // why it reads the STRICT settled selector.
+        canCreateBooking: ref.watch(bookingCreationEnabledProvider),
       ),
-      // Tile 1 ("Мої записи") — this screen IS that destination.
-      bottomNavigationBar: const VelvetBottomNavBar(activeIndex: 1),
+      // Tile 1 («Мої записи») — this screen IS that destination, so the bar
+      // short-circuits it to `null` and no `bookingsRoute` override is
+      // needed. The other three tiles are aimed by the host (phase 330): at
+      // `/master/*` by default (the bar's own literals, so this stays `const`
+      // for the INDEPENDENT_MASTER mount) and at `/staff/*` when the
+      // `/staff/bookings` route supplies them.
+      bottomNavigationBar: _navBar,
     );
   }
 }

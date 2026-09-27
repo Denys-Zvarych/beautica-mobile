@@ -363,4 +363,33 @@ void main() {
       expect(find.byKey(const Key('day-off-conflict-dialog')), findsNothing);
     },
   );
+
+  // 2026-09-24 — the dateRange subline's day count used
+  // `to.difference(from).inDays + 1`, one LOW across the Kyiv spring forward.
+  testWidgets(
+    'a date-range subline across the spring forward (2026-03-28..30) reads '
+    '3 days, not 2',
+    (tester) async {
+      await pumpDialog(
+        tester,
+        DayOffConflictPreview(
+          kind: DayOffChangeKind.dateRange,
+          from: DateTime(2026, 3, 28),
+          to: DateTime(2026, 3, 30),
+          check: _check(_nConflictsSameDay(1)),
+        ),
+        onResolved: (_) {},
+      );
+      final AppLocalizations l10n = l10nOf(tester);
+
+      expect(
+        find.textContaining(l10n.dayOffConflictSublineDayCount(3)),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(l10n.dayOffConflictSublineDayCount(2)),
+        findsNothing,
+      );
+    },
+  );
 }

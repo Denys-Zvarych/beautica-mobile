@@ -108,9 +108,11 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/cooldown_ticker.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
+import '../application/bookings_capability.dart';
 import '../application/client_review_signal_provider.dart';
 import '../application/master_archive_dialog_visible_notifier.dart';
 import '../application/master_archive_in_flight_notifier.dart';
@@ -150,8 +152,101 @@ void debugResetGroupArchiveByKyivDayCallCount() {
 }
 
 /// The master's «Архів» page. See file header.
+///
+/// Phase 332 — mounted TWICE, at two routes, as ONE widget:
+/// `/master/bookings/archive` for the `INDEPENDENT_MASTER` and
+/// `/staff/bookings/archive` for the invited, read-only `SALON_MASTER`. Both
+/// parameters below are ADDITIVE and NULLABLE, so the `/master/*`
+/// registration — and every test that pumps `const MasterArchiveScreen()` —
+/// renders byte-identically to before they existed. Read-only-ness itself is
+/// NOT a parameter: «Виконано» is gated off `bookingTransitionsEnabledProvider`
+/// (phase 328), which reads the session.
+///
+/// Phase 343 — mounted a THIRD time, by the SAME mechanism and nothing else:
+/// `/salon/bookings/archive` (registered in phase 344) for the
+/// `SALON_OWNER`/`SALON_ADMIN`, showing the whole roster's history in one
+/// list. Note the path carries NO salon id: 344 D2 rides it on `state.extra`
+/// as a bare non-empty `String`, copying `/salon/bookings/new` verbatim,
+/// because there is no `/salon/bookings` parent route to inherit a path
+/// parameter from. (An earlier draft of this doc predicted
+/// `/salon/{salonId}/bookings/archive`; that path was never registered.)
+/// Three more additive parameters — [salonId], [showServiceFilter],
+/// [showMasterAttribution] — each defaulting so that the two master hosts
+/// pass NONE of them and render exactly as today. There is deliberately no
+/// `title` parameter (the salon host reuses `masterArchiveTitle`, «Архів» —
+/// 343 D4, zero new ARB keys) and no `showMasterFilter` (343 D5 defers the
+/// facet; the independent archive has no master facet either, so building
+/// one would go beyond what was asked).
 class MasterArchiveScreen extends ConsumerStatefulWidget {
-  const MasterArchiveScreen({super.key});
+  const MasterArchiveScreen({
+    super.key,
+    this.detailRouteBuilder,
+    this.reviewRouteBuilder,
+    this.salonId,
+    this.showServiceFilter = true,
+    this.showMasterAttribution = false,
+  });
+
+  /// Builds the booking-detail path from a booking id for a row tap. `null`
+  /// means [RouteNames.masterBookingDetail]; the `/staff/*` mount passes
+  /// [RouteNames.salonMasterBookingDetail] so the push does not land on a
+  /// `/master/*` path this viewer's own gate bounces.
+  final String Function(String bookingId)? detailRouteBuilder;
+
+  /// Builds the leave-client-feedback path for a row's «Відгук» slot. `null`
+  /// means [RouteNames.clientReview]; the `/staff/*` mount passes
+  /// [RouteNames.salonMasterClientReview]. Backend phase 316 grants a
+  /// `SALON_MASTER` exactly this one write on their own booking, so the slot
+  /// genuinely renders for them and genuinely needs somewhere to go.
+  final String Function(String bookingId)? reviewRouteBuilder;
+
+  /// Phase 343 — the SCOPE this archive reads. `null` (the default, and what
+  /// both master hosts pass) means "mine": `GET /bookings/me`, byte-identical
+  /// to every pre-343 mount. A non-null salon id means "this salon's whole
+  /// history, across every master" (`GET /bookings/salon/{salonId}`).
+  ///
+  /// THIS SCREEN DOES NOT HOLD THE SCOPE — it is a pure pass-through into
+  /// [_query]'s `MasterArchiveQuery.of(salonId: …)`. `masterArchiveProvider`
+  /// is an autoDispose family keyed by `MasterArchiveQuery`, so the query IS
+  /// the cache key (342 D4): two scopes that compared `==` would share ONE
+  /// cache entry, and an owner who opened the salon archive and then their
+  /// own staff archive would be served the wrong list. Anything that asserts
+  /// on this must assert on the QUERY the provider was read with, never on a
+  /// field of this widget.
+  final String? salonId;
+
+  /// Phase 343 — whether the filter sheet offers its «Послуга» section.
+  /// `true` (the default) on both master hosts; the salon host passes
+  /// `false`, because an owner has no master service catalogue of their own.
+  ///
+  /// NOT A NEW IDEA: this is the SAME additive flag, with the same default,
+  /// that `BookingsDiscoveryView` has carried since phase 21.12 and that the
+  /// salon BOARD already passes (`salon_bookings_screen.dart:784`). It is
+  /// implemented here the same way too — by handing
+  /// `BookingsFilterSheet.show` an EMPTY `services` list, which the sheet
+  /// already renders as "no «Послуга» section" (`bookings_filter_sheet.dart`'s
+  /// `if (widget.services.isNotEmpty)`), so no new sheet parameter exists.
+  /// Reading `masterServiceCatalogProvider` is also SKIPPED on that scope, so
+  /// the owner never fires a fetch for a catalogue they have no use for.
+  ///
+  /// The status section is untouched and stays fully reachable — the salon
+  /// host's sheet is a SMALLER sheet, not a broken one, and [_ArchiveEmptyState]
+  /// still distinguishes "no history" from "no matches" off
+  /// `MasterArchiveQuery.hasFilters`.
+  final bool showServiceFilter;
+
+  /// Phase 343 — whether each row names the master who performed the booking.
+  /// `false` (the default) on both master hosts, where every row is the
+  /// viewer's own and the line would be noise; `true` on the salon host,
+  /// where it is the row's first unanswered question. Forwarded verbatim to
+  /// `MasterBookingCard.showMasterAttribution` — see that field for the row's
+  /// shape and for why the master's avatar is deliberately not part of it.
+  ///
+  /// Deliberately SEPARATE from [salonId] rather than derived from it (343
+  /// D1): deriving would make the render shape a silent consequence of the
+  /// data scope, so a future scope wanting one without the other would have
+  /// to fork this screen. Two flags, one decision each.
+  final bool showMasterAttribution;
 
   @override
   ConsumerState<MasterArchiveScreen> createState() =>
@@ -237,6 +332,46 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// mutated in place. The day-header LABEL itself is formatted separately,
   /// at widget-build time, in `_ArchiveDayHeader.build()` — so a locale
   /// change is unaffected by this cache.
+  ///
+  /// ## Why this memo is the WHOLE fix, and the regroup stays full-list
+  ///
+  /// The memo makes the grouping run exactly ONCE PER LANDED PAGE (`loadMore`
+  /// is the only `copyWith` in the tail path that reallocates `items`;
+  /// `isLoadingMore: true` reuses the reference, so the spinner frame
+  /// regroups nothing). It is therefore O(n) per page and O(n²/pageSize)
+  /// cumulative — never per-frame. Phase 344 audit-fix (2026-09-19)
+  /// considered making it INCREMENTAL (group only the appended page, merge
+  /// into the last bucket) and DECLINED, on measurement:
+  ///
+  ///  * 3.49 µs per row, of which ~99 % is [kyivDayOf]'s Europe/Kyiv
+  ///    conversion — the flattening itself is ~29 µs per 1000 rows, and the
+  ///    notifier's own `[...items, ...page]` spread is ~37 µs per 1000 rows.
+  ///    So the grouping's cost is the tz conversion, not the algorithm, and
+  ///    an incremental walk would leave the per-row constant untouched.
+  ///  * At 1000 accumulated rows (50 user-driven scroll-to-tail page loads,
+  ///    `kBookingsPageSize` 20) one pass is 3.2 ms — and that is debug JIT on
+  ///    the VirtualBox dev VM, the most pessimistic environment available.
+  ///    It lands on the frame a page arrives, which is already showing a tail
+  ///    spinner. No frame is dropped at any depth the product reaches.
+  ///  * Incrementality is not soundly expressible here anyway. The memo key
+  ///    would have to prove "the new list EXTENDS the cached one", and
+  ///    [MasterArchiveNotifier.markClientsReviewed] rewrites `items` 1:1 with
+  ///    fresh `Booking` identities — same length, same days, new references —
+  ///    which is indistinguishable from an extend-by-zero without an O(n)
+  ///    element-wise check that defeats the point. The only cheap sound
+  ///    signal is an append-offset field on `MasterArchiveState`, and phase
+  ///    342 D9 rejected forking this state's shape away from
+  ///    `MyBookingsNotifier`'s (which shares the accumulation shape but does
+  ///    NOT group at all — «Мої записи» has a day rail instead).
+  ///
+  /// REOPEN TRIGGER (falsifiable, check before re-raising): reopen when a
+  /// single pass exceeds 8 ms — half a 60 fps budget. At the measured
+  /// 3.49 µs/row that is ~2300 accumulated rows (~115 pages), so the cheap
+  /// proxy is `state.items.length > 2300` being routinely reachable in the
+  /// salon scope. Also reopen if this memo is ever removed or bypassed, which
+  /// would move the pass onto a per-frame path where 3.2 ms IS a dropped
+  /// frame. If it does reopen, the lever is a [kyivDayOf] memo (app-wide
+  /// shared infra, its own phase), not an incremental walk here.
   List<Booking>? _lastGroupedItems;
   List<ArchiveListEntry>? _lastGroupedEntries;
 
@@ -249,8 +384,20 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     return entries;
   }
 
-  MasterArchiveQuery get _query =>
-      MasterArchiveQuery.of(statuses: _statuses, serviceIds: _serviceIds);
+  /// The family key every `masterArchiveProvider` read on this screen goes
+  /// through — and, since phase 343, the ONLY place this screen's scope
+  /// lives. See [MasterArchiveScreen.salonId].
+  ///
+  /// `MasterArchiveQuery.of` THROWS on a salon scope carrying service ids
+  /// (that combination cannot reach the wire — see its doc). That is not a
+  /// latent crash here: [_serviceIds] can only ever become non-empty through
+  /// [_applyFilters], which resolves the sheet's result against the
+  /// catalogue it OFFERED, and the salon host offers none.
+  MasterArchiveQuery get _query => MasterArchiveQuery.of(
+    statuses: _statuses,
+    serviceIds: _serviceIds,
+    salonId: widget.salonId,
+  );
 
   int get _activeFilterCount => bookingsActiveFilterCount(
     hasStatuses: _statuses.isNotEmpty,
@@ -272,12 +419,34 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     super.dispose();
   }
 
+  /// The deadline a FAILED load-more parked the tail behind, mirrored out of
+  /// the watched provider each build exactly as [_hasMore]/[_isLoadingMore]
+  /// are — `_onScroll` runs outside `build`, so it cannot read the provider
+  /// itself.
+  ///
+  /// See [MasterArchiveState.retryNotBefore] for the storm this closes and for
+  /// why the memory is a deadline rather than `hasMore = false`.
+  DateTime? _retryNotBefore;
+
   void _onScroll() {
     if (!_hasMore || _isLoadingMore) return;
+    // THE THIRD GUARD (mobile-security HIGH, 2026-09-20). The two above both
+    // re-satisfy the instant a failed `loadMore` restores
+    // `isLoadingMore: false` with `hasMore` still `true`, so under iOS
+    // bouncing physics — which keeps the position CHANGING for the whole
+    // overscroll settle, firing this listener every frame — the same failing
+    // request went out 12 times per drag and 109 times per fling. Measured;
+    // see `master_archive_screen_test.dart`'s bouncing-physics test, which is
+    // the acceptance gate for this line.
+    //
+    // instant-ok: a cooldown deadline, compared against the injected clock.
+    final DateTime? until = _retryNotBefore;
+    if (until != null && ref.read(clockProvider)().isBefore(until)) return;
     if (!_scrollController.hasClients) return;
     final ScrollPosition pos = _scrollController.position;
     if (pos.pixels >= pos.maxScrollExtent - _loadMoreThreshold) {
-      // The notifier itself guards against double-fetch + last-page no-op.
+      // The notifier itself guards against double-fetch, last-page no-op AND
+      // the same cooldown — this local check only avoids the provider read.
       ref.read(masterArchiveProvider(_query).notifier).loadMore();
     }
   }
@@ -289,9 +458,17 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   Future<void> _applyFilters() async {
-    final List<MasterService> services =
-        ref.read(masterServiceCatalogProvider).asData?.value ??
-        const <MasterService>[];
+    // Phase 343 — an EMPTY list when [MasterArchiveScreen.showServiceFilter]
+    // is false, which the sheet already renders as "no «Послуга» section"
+    // (`bookings_filter_sheet.dart`'s `if (widget.services.isNotEmpty)`), so
+    // no new sheet parameter was needed. Verbatim the idiom
+    // `bookings_discovery_view.dart:1207` already uses for the same flag.
+    // Reading the provider here would also SUBSCRIBE to it, which is a fetch
+    // the salon scope has no use for.
+    final List<MasterService> services = widget.showServiceFilter
+        ? (ref.read(masterServiceCatalogProvider).asData?.value ??
+              const <MasterService>[])
+        : const <MasterService>[];
     final BookingsFilterSelection? applied = await BookingsFilterSheet.show(
       context,
       initial: BookingsFilterSelection(
@@ -301,9 +478,27 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       services: services,
     );
     if (!mounted || applied == null) return;
+    // RESOLVED AGAINST THE FLAG, not taken verbatim — the same discipline
+    // `bookings_discovery_view.dart:1239` applies to its own «Майстер» facet:
+    // on a surface with no «Послуга» section the result is ALWAYS empty, so
+    // the flag cannot be bypassed by any sheet result whatsoever. That is
+    // what keeps [_query] clear of `MasterArchiveQuery.of`'s salon-scope
+    // `ArgumentError` structurally rather than by assumption.
+    //
+    // Gated on the FLAG and not on membership of `services` deliberately.
+    // Resolving against the offered CATALOGUE — what the «Майстер» facet
+    // does — would silently wipe the master host's ticks whenever the
+    // catalogue happened to be unresolved at the moment the sheet opened
+    // (`asData?.value ?? const []`), which is a live state, not a
+    // hypothetical. The flag is constant per mount, so this branch cannot
+    // misfire that way; `bookings_discovery_view` takes its own
+    // `applied.serviceIds` verbatim for the very same reason.
+    final Set<String> resolvedServiceIds = widget.showServiceFilter
+        ? applied.serviceIds
+        : const <String>{};
     setState(() {
       _statuses = applied.statuses;
-      _serviceIds = applied.serviceIds;
+      _serviceIds = resolvedServiceIds;
       // A new filter combination is a different provider-family instance
       // (fresh page 0) — give it its own auto-continue budget.
       _autoContinueAttempts = 0;
@@ -311,7 +506,9 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   void _openDetail(Booking booking) {
-    context.push(RouteNames.masterBookingDetail(booking.id));
+    context.push(
+      (widget.detailRouteBuilder ?? RouteNames.masterBookingDetail)(booking.id),
+    );
   }
 
   /// «Відгук» — pushes the SHIPPED leave-client-feedback screen (Track 7.x
@@ -417,7 +614,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // push→schedule ordering the warm-up depends on is exactly as it was; the
     // await happens only after both have run.
     final Future<bool?> popped = context.push<bool>(
-      RouteNames.clientReview(booking.id),
+      (widget.reviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
       extra: ClientReviewEntry.masterArchive,
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => warmup.close());
@@ -680,6 +877,22 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // `itemBuilder` where watching would be out of build scope. See
     // `core/time/clock_provider.dart`.
     final DateTime now = ref.watch(clockProvider)();
+    // Phase 332 — whether this viewer may apply a status TRANSITION, i.e.
+    // whether a not-yet-closed row offers «Виконано». `false` for the
+    // invited, read-only `SALON_MASTER` (and, fail-closed, for an unsettled
+    // session) — see `bookingTransitionsEnabledProvider`'s doc for the strict
+    // session read. `watch`, not `read`: the list must re-render the moment
+    // the role settles. Every other role this screen serves resolves `true`,
+    // so the independent master's rows are unchanged.
+    //
+    // Gated HERE, at the call site, and NOT inside `MasterBookingCard`:
+    // `onComplete` has been nullable since it was introduced, so the card
+    // already knows how to render a row without the button (the timeline grid
+    // and `declared_time_cards.dart` have always relied on exactly that). The
+    // card stays role-agnostic and route-agnostic; the host decides.
+    final bool transitionsEnabled = ref.watch(
+      bookingTransitionsEnabledProvider,
+    );
     // The session-scoped set of bookings whose client this provider has already
     // reviewed — see [_scheduleClientReviewSignalPatch]. `ref.watch` (not
     // `ref.listen`) on purpose: it is what makes an id deposited while this
@@ -689,6 +902,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     final MasterArchiveState? data = async.value;
     _hasMore = data?.hasMore ?? false;
     _isLoadingMore = data?.isLoadingMore ?? false;
+    _retryNotBefore = data?.retryNotBefore;
     _scheduleClientReviewSignalPatch(async, reviewSignals);
 
     return Scaffold(
@@ -726,19 +940,36 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                   // `master_archive_screen_test.dart`'s frame-by-frame
                   // "«Виконано» reload keeps the list" test stays GREEN.
                   //
-                  // A `skipLoadingOnReload: true` used to sit below, justified
-                  // as covering the OTHER trigger `skipLoadingOnRefresh` does
-                  // not: a reload caused by one of the provider's own
-                  // dependencies changing. That justification is FALSE for THIS
-                  // provider (mobile-perf INFO, 2026-08-17 cycle 2) —
-                  // `MasterArchiveNotifier.build` only ever `ref.read`s
-                  // (`master_archive_notifier.dart:262,312`), so it has zero
-                  // dependencies and `isReloading` can never be true. The flag
-                  // was provably inert and is removed rather than left as a
-                  // comment a reader would trust. (It IS load-bearing on
+                  // A `skipLoadingOnReload: true` used to sit below, covering
+                  // the OTHER trigger `skipLoadingOnRefresh` does not: a
+                  // reload caused by one of the provider's own dependencies
+                  // changing. It was removed in 2026-08-17 cycle 2 on the
+                  // grounds that `MasterArchiveNotifier.build` had NO
+                  // dependencies, so `isReloading` could never be true.
+                  //
+                  // THAT JUSTIFICATION IS NOW DEAD — DO NOT RE-ADD THE FLAG.
+                  // Phase 342 gave `MasterArchiveNotifier.build` a real
+                  // dependency: `ref.watch(authProvider.select(
+                  // authUserIdOrNull))`, the session-boundary PII watch. So
+                  // `isReloading` CAN be true today — precisely on an identity
+                  // change (logout, or a different account signing in). With
+                  // the flag back, that reload would be seamless and the
+                  // PREVIOUS ACCOUNT'S ROWS would keep painting across the
+                  // session boundary; with the salon host (phase 343) those
+                  // rows are client names across the whole salon roster.
+                  // Removing the flag is now LOAD-BEARING, not a tidy-up.
+                  //
+                  // Pinned, not merely asserted here: see
+                  // `master_archive_screen_test.dart`'s «session-boundary
+                  // reload is NOT seamless» group — "an IDENTITY CHANGE
+                  // repaints the skeleton". Re-adding the flag turns it RED
+                  // (mutation-verified).
+                  //
+                  // (The flag IS load-bearing the other way on
                   // `leave_client_feedback_screen.dart`, whose
-                  // `bookingDetailProvider` really does `ref.watch` — do not
-                  // "consistency-clean" that one away.)
+                  // `bookingDetailProvider` really does `ref.watch` a detail
+                  // it wants to keep on screen — do not "consistency-clean"
+                  // that one away.)
                   //
                   // The FIRST load still shows the skeleton below — there is no
                   // previous value to keep. Pull-to-refresh is unaffected too,
@@ -788,7 +1019,19 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                         // Keep advancing instead — bounded, see
                         // [_autoContinueAttempts]'s doc for the anti-spin
                         // reasoning and the bounded-vs-indefinite UX choice.
+                        // The SAME failure memory the scroll listener and the
+                        // notifier consult — without it this branch would
+                        // burn its whole three-attempt budget against a
+                        // cooldown that makes every attempt a guaranteed
+                        // no-op, and then fall through to the manual
+                        // affordance as if the pages had genuinely been
+                        // walked. See
+                        // [MasterArchiveState.retryNotBefore].
+                        final int autoCooldown = state.retrySecondsRemainingAt(
+                          now,
+                        );
                         final bool budgetLeft =
+                            autoCooldown == 0 &&
                             _autoContinueAttempts < _kMaxAutoContinueAttempts;
                         if (budgetLeft) {
                           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -818,7 +1061,20 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                           physics: const AlwaysScrollableScrollPhysics(),
                           padding: kMyBookingsListPadding,
                           children: <Widget>[
-                            if (budgetLeft)
+                            if (autoCooldown > 0)
+                              _ArchiveRetryCooldown(
+                                seconds: autoCooldown,
+                                // Fired from the ticker's TIMER, never from
+                                // its builder, so this `setState` is legal —
+                                // see [CooldownTicker.onElapsed]. It re-runs
+                                // the branch above, which now reads a zero
+                                // cooldown and re-arms the auto-continue.
+                                onElapsed: () {
+                                  if (!mounted) return;
+                                  setState(() {});
+                                },
+                              )
+                            else if (budgetLeft)
                               Semantics(
                                 label: l10n.masterArchiveScanningSemantics,
                                 liveRegion: true,
@@ -899,6 +1155,24 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                         },
                         itemBuilder: (BuildContext context, int i) {
                           if (i >= entries.length) {
+                            // THE COOLDOWN IS SURFACED, NOT SWALLOWED
+                            // (mobile-security HIGH, 2026-09-20). A failed
+                            // next-page fetch used to leave this slot
+                            // spinning forever while the scroll listener
+                            // silently re-fired the same request; it now
+                            // parks the tail behind
+                            // `MasterArchiveState.retryNotBefore` and says
+                            // so. `_ArchiveRetryCooldown` counts the window
+                            // down in its own subtree — the 1 Hz rebuild
+                            // never reaches this `State` — and falls back to
+                            // the ordinary spinner the instant it elapses,
+                            // which is also when `_onScroll` is free again.
+                            final int cooldown = state.retrySecondsRemainingAt(
+                              now,
+                            );
+                            if (cooldown > 0) {
+                              return _ArchiveRetryCooldown(seconds: cooldown);
+                            }
                             return const MyBookingsLoadMoreSpinner();
                           }
                           final ArchiveListEntry entry = entries[i];
@@ -911,7 +1185,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                               entry: entry,
                             ),
                             ArchiveBookingEntry(:final Booking booking) =>
-                              _archiveBookingRow(booking, completing, now),
+                              _archiveBookingRow(
+                                booking,
+                                completing,
+                                now,
+                                transitionsEnabled,
+                              ),
                           };
                         },
                       );
@@ -930,7 +1209,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// of the `itemBuilder` switch above purely so that switch stays a clean
   /// one-line-per-variant match; identical widget to what this screen
   /// rendered before date-group headers existed.
-  Widget _archiveBookingRow(Booking booking, bool completing, DateTime now) {
+  Widget _archiveBookingRow(
+    Booking booking,
+    bool completing,
+    DateTime now,
+    bool transitionsEnabled,
+  ) {
     return RepaintBoundary(
       key: ValueKey<String>(booking.id),
       // «Виконано» is now an ADDITIVE slot on `MasterBookingCard` itself
@@ -944,7 +1228,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         booking: booking,
         onTap: () => _openDetail(booking),
         minHeight: MasterBookingCard.fullLayoutMinHeight,
-        onComplete: () => _confirmComplete(booking),
+        // Phase 332 — ABSENT, not disabled, for a read-only viewer (the
+        // user-locked ruling that removed the permanently-disabled
+        // «Перенести» caption in `booking_detail_screen.dart`). `null` is the
+        // card's own long-standing "no close affordance" contract, so nothing
+        // in that widget changes.
+        onComplete: transitionsEnabled ? () => _confirmComplete(booking) : null,
         completing: completing,
         // Required alongside `onComplete` — the card's start-time gate. See
         // `MasterBookingCard.now`.
@@ -956,6 +1245,14 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
         // decision in exactly ONE place (the card) rather than duplicated at
         // every call site.
         onReview: () => _openReview(booking),
+        // Phase 343 — «row 1b», the performing master's name. `false` on
+        // both master hosts (every row is the viewer's own), `true` on the
+        // salon host, where the list spans the whole roster. THE ONLY ONE OF
+        // the card's three `lib/` construction sites that passes it: the
+        // declared-times list is one master's own day, and the salon board
+        // already attributes by COLUMN. See
+        // `MasterBookingCard.showMasterAttribution`.
+        showMasterAttribution: widget.showMasterAttribution,
       ),
     );
   }
@@ -1138,6 +1435,60 @@ class _ArchiveEmptyState extends StatelessWidget {
 /// (see [_MasterArchiveScreenState._autoContinueAttempts]'s doc for why an
 /// unbounded auto-spin is its own UX problem). [onLoadMore] resumes fetching
 /// and re-arms a fresh auto-continue burst.
+/// The tail slot while a failed `loadMore` is parked behind
+/// [MasterArchiveState.retryNotBefore] — the footer that SURFACES the
+/// cooldown instead of leaving a spinner turning over a request that will not
+/// be re-issued (mobile-security HIGH, 2026-09-20).
+///
+/// Counts down inside its own [CooldownTicker] subtree, so the 1 Hz rebuild
+/// never reaches `_MasterArchiveScreenState` and never regroups the list; and
+/// it falls back to the ordinary [MyBookingsLoadMoreSpinner] the instant the
+/// window elapses — which is the same instant `_onScroll` and
+/// `MasterArchiveNotifier.loadMore` are free again, so the two cannot disagree
+/// about whether the tail is live.
+///
+/// Reuses the shared ticker rather than owning a second `Timer`; see
+/// `shared/widgets/cooldown_ticker.dart`'s header for the relationship to
+/// `OtpResendRow`, which owns the original of this mechanism.
+class _ArchiveRetryCooldown extends StatelessWidget {
+  const _ArchiveRetryCooldown({required this.seconds, this.onElapsed});
+
+  final int seconds;
+
+  /// Lets the HOST re-evaluate when the window closes. Load-bearing in the
+  /// auto-continue branch, which decides inside `build` whether to schedule
+  /// the next `loadMore`: without it a lapsed cooldown would leave that
+  /// branch parked on a spinner with nothing in flight and nothing to wake
+  /// it. `null` on the tail slot, where the next scroll notification is the
+  /// natural wake-up.
+  final VoidCallback? onElapsed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CooldownTicker(
+      seconds: seconds,
+      onElapsed: onElapsed,
+      builder: (BuildContext context, int remaining, Widget? _) {
+        if (remaining <= 0) return const MyBookingsLoadMoreSpinner();
+        return Padding(
+          key: const Key('master-archive-retry-cooldown'),
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              AppLocalizations.of(
+                context,
+              ).masterArchiveLoadMorePaused(remaining),
+              textAlign: TextAlign.center,
+              style: VelvetText.body(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _ArchiveContinueState extends StatelessWidget {
   const _ArchiveContinueState({required this.onLoadMore});
 

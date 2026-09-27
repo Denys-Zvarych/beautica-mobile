@@ -13,9 +13,9 @@ part 'create_salon_request.g.dart';
 /// Properties:
 /// * [name]
 /// * [description]
-/// * [city]
-/// * [region]
-/// * [address]
+/// * [city] - Ignored — derived from cityId
+/// * [region] - Ignored — derived from cityId
+/// * [address] - Ignored — use street/buildingNo/locationNote
 /// * [phone]
 /// * [instagramUrl]
 /// * [cityId]
@@ -32,12 +32,18 @@ abstract class CreateSalonRequest
   @BuiltValueField(wireName: r'description')
   String? get description;
 
+  /// Ignored — derived from cityId
+  @Deprecated('city has been deprecated')
   @BuiltValueField(wireName: r'city')
   String? get city;
 
+  /// Ignored — derived from cityId
+  @Deprecated('region has been deprecated')
   @BuiltValueField(wireName: r'region')
   String? get region;
 
+  /// Ignored — use street/buildingNo/locationNote
+  @Deprecated('address has been deprecated')
   @BuiltValueField(wireName: r'address')
   String? get address;
 
@@ -48,7 +54,7 @@ abstract class CreateSalonRequest
   String? get instagramUrl;
 
   @BuiltValueField(wireName: r'cityId')
-  String? get cityId;
+  String get cityId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -135,13 +141,11 @@ class _$CreateSalonRequestSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.cityId != null) {
-      yield r'cityId';
-      yield serializers.serialize(
-        object.cityId,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'cityId';
+    yield serializers.serialize(
+      object.cityId,
+      specifiedType: const FullType(String),
+    );
     if (object.districtId != null) {
       yield r'districtId';
       yield serializers.serialize(

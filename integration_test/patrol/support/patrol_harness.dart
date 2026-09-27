@@ -161,6 +161,11 @@ abstract final class PatrolHarness {
     final email = switch (role) {
       UserRole.client => 'client@beautica.ua',
       UserRole.salonOwner => 'owner@beautica.ua',
+      // Kept in step with `AppHarness.loginAs` — the two tiers' login drivers
+      // are hand-mirrored copies and drift silently (see app_harness.dart's
+      // SHARED BOOT POLICY note). Without this arm an admin login submits the
+      // master persona's address.
+      UserRole.salonAdmin => 'admin@beautica.ua',
       UserRole.independentMaster => 'master@beautica.ua',
       _ => 'master@beautica.ua',
     };

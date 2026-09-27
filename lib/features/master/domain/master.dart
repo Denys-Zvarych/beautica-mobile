@@ -14,6 +14,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../calendar/domain/working_hours.dart';
+import '../../location/domain/settlement.dart';
 
 part 'master.freezed.dart';
 
@@ -39,6 +40,8 @@ enum MasterType {
 /// sub-object because [MasterDetailResponse] does not carry one.
 @freezed
 abstract class Master with _$Master {
+  const Master._();
+
   const factory Master({
     /// Backend-assigned UUID for this master.
     required String id,
@@ -52,13 +55,26 @@ abstract class Master with _$Master {
     /// City where the master operates (display string, not a UUID).
     String? city,
 
-    /// UUID of the city the master is located in. Used by [LocalityCascade]
-    /// to pre-populate the city picker when opening the edit screen.
+    /// Oblast name of the master's own settlement (phase-330). Null when no
+    /// city is set, and wherever the backend masks [city].
+    String? region,
+
+    /// Raw wire `citySettlementType` of the master's settlement (phase-330);
+    /// null when unset, masked, or the read predates it. Feeds
+    /// [savedSettlement].
+    String? citySettlementType,
+
+    /// Bare hromada adjective, populated by the server ONLY when the
+    /// settlement's name is ambiguous in its oblast; never derived here.
+    String? cityHromadaName,
+
+    /// UUID of the settlement the master is located in — the value the
+    /// location edit screen submits back as `cityId`.
     String? cityId,
 
-    /// UUID of the oblast (region) the master is located in. Used by
-    /// [LocalityCascade] to pre-populate the region picker when opening the
-    /// edit screen.
+    /// UUID of the oblast (region) the master is located in. No longer read
+    /// by the location edit screen since phase 346 (the settlement field has
+    /// no oblast picker to pre-populate).
     String? oblastId,
 
     /// UUID of the city district, or `null` when the city has no districts or
@@ -125,7 +141,29 @@ abstract class Master with _$Master {
     /// without a mapped profile (e.g. in tests); the mapper always materialises
     /// all 7 days.
     @Default(<WorkingHours>[]) List<WorkingHours> workingHours,
+
+    /// Count of the master's CONFIRMED/COMPLETED bookings in the current Kyiv
+    /// calendar month — the «Записів місяця» tile on the master hub.
+    ///
+    /// **`null` means "not supplied", never "zero bookings".** The backend
+    /// populates it on `GET /masters/me` ALONE: the public `GET /masters/{id}`
+    /// is `permitAll()` and `MasterDetailResponse.fromPublic` nulls the field so
+    /// a master's trading volume is not published. A `Master` mapped from any
+    /// other endpoint therefore legitimately carries `null` here, and the tile
+    /// renders «—» for it — do NOT coalesce to `0`, which would tell a master
+    /// with a full calendar that they have no bookings (Qase defect #25).
+    int? bookingsThisMonth,
   }) = _Master;
+
+  /// The master's settlement as a [Settlement], for
+  /// [composeSavedSettlementLabel]; `null` when [city] is unset or masked.
+  Settlement? get savedSettlement => Settlement.fromSaved(
+    id: cityId,
+    name: city,
+    settlementType: citySettlementType,
+    hromadaName: cityHromadaName,
+    oblastName: region,
+  );
 }
 
 /// Rating presentation helpers for [Master].

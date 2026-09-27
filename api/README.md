@@ -94,9 +94,11 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getSalonBookings**](doc/BookingControllerApi.md#getsalonbookings) | **GET** /api/v1/bookings/salon/{salonId} | List salon bookings (owner/admin)
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getUnclosedCount**](doc/BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**listSalonBookedDays**](doc/BookingControllerApi.md#listsalonbookeddays) | **GET** /api/v1/bookings/salon/{salonId}/booked-days | List the salon&#39;s booked days (owner/admin)
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**rescheduleBooking**](doc/BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 [*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**listApproved**](doc/CategoryRequestControllerApi.md#listapproved) | **GET** /api/v1/service-categories/approved | 
@@ -158,20 +160,27 @@ Class | Method | HTTP request | Description
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getReviewsByMaster**](doc/ReviewControllerApi.md#getreviewsbymaster) | **GET** /api/v1/masters/{masterId}/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviewSummary**](doc/ReviewControllerApi.md#getsalonreviewsummary) | **GET** /api/v1/salons/{salonId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getSalonReviews**](doc/ReviewControllerApi.md#getsalonreviews) | **GET** /api/v1/salons/{salonId}/reviews | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**cancelInvite**](doc/SalonControllerApi.md#cancelinvite) | **DELETE** /api/v1/salons/{salonId}/invites/{inviteId} | Cancel a pending invite
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**createSalon**](doc/SalonControllerApi.md#createsalon) | **POST** /api/v1/salons | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**deactivateSalon**](doc/SalonControllerApi.md#deactivatesalon) | **DELETE** /api/v1/salons/{salonId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getBookableMasters**](doc/SalonControllerApi.md#getbookablemasters) | **GET** /api/v1/salons/{salonId}/services/{serviceDefId}/masters | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getMastersBySalon**](doc/SalonControllerApi.md#getmastersbysalon) | **GET** /api/v1/salons/{salonId}/masters | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getOwnedSalons**](doc/SalonControllerApi.md#getownedsalons) | **GET** /api/v1/salons/mine | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalon**](doc/SalonControllerApi.md#getsalon) | **GET** /api/v1/salons/{salonId} | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonMastersEffectiveSchedule**](doc/SalonControllerApi.md#getsalonmasterseffectiveschedule) | **GET** /api/v1/salons/{salonId}/masters/effective-schedule | Effective schedule for every active master of a salon
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSalonStaff**](doc/SalonControllerApi.md#getsalonstaff) | **GET** /api/v1/salons/{salonId}/staff | List salon staff (masters and admins)
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**getSiblingSalons**](doc/SalonControllerApi.md#getsiblingsalons) | **GET** /api/v1/salons/{salonId}/sibling-salons | List sibling salons of the same owner
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**inviteMaster**](doc/SalonControllerApi.md#invitemaster) | **POST** /api/v1/salons/{salonId}/invite | 
+[*SalonControllerApi*](doc/SalonControllerApi.md) | [**listSalonInvites**](doc/SalonControllerApi.md#listsaloninvites) | **GET** /api/v1/salons/{salonId}/invites | List the salon&#39;s invite history
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**removeAdmin**](doc/SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**rotateAdmin**](doc/SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
+[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**removeMaster**](doc/SalonMasterControllerApi.md#removemaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId} | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
+[*SearchSuggestionControllerApi*](doc/SearchSuggestionControllerApi.md) | [**suggest**](doc/SearchSuggestionControllerApi.md#suggest) | **GET** /api/v1/search/suggestions | Autocomplete suggestions for the search box
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypesByPlatformCategory**](doc/ServiceCatalogControllerApi.md#getservicetypesbyplatformcategory) | **GET** /api/v1/service-types | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
@@ -183,11 +192,16 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonServiceCatalog**](doc/ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonMasterServices**](doc/ServiceControllerApi.md#getsalonmasterservices) | **GET** /api/v1/salons/{salonId}/masters/{masterId}/services | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonServiceCatalog**](doc/ServiceControllerApi.md#getsalonservicecatalog) | **GET** /api/v1/salons/{salonId}/services | Salon&#39;s public bookable service catalog
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**unassignServiceFromMaster**](doc/ServiceControllerApi.md#unassignservicefrommaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateMasterServiceBand**](doc/ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
+[*SettlementSearchControllerApi*](doc/SettlementSearchControllerApi.md) | [**searchSettlements**](doc/SettlementSearchControllerApi.md#searchsettlements) | **GET** /api/v1/settlements | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
+[*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMe**](doc/UserControllerApi.md#getme) | **GET** /api/v1/users/me | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**getMyRating**](doc/UserControllerApi.md#getmyrating) | **GET** /api/v1/users/me/rating | 
 [*UserControllerApi*](doc/UserControllerApi.md) | [**requestChangePasswordOtp**](doc/UserControllerApi.md#requestchangepasswordotp) | **POST** /api/v1/users/me/change-password/request-otp | 
@@ -221,8 +235,13 @@ Class | Method | HTTP request | Description
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformCategoryUsageResponse](doc/ApiResponseListPlatformCategoryUsageResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
+ - [ApiResponseListSalonMasterEffectiveScheduleResponse](doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
+ - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
  - [ApiResponseListScheduleOverrideResponse](doc/ApiResponseListScheduleOverrideResponse.md)
+ - [ApiResponseListSearchSuggestionResponse](doc/ApiResponseListSearchSuggestionResponse.md)
+ - [ApiResponseListSettlementSearchResponse](doc/ApiResponseListSettlementSearchResponse.md)
+ - [ApiResponseListSiblingSalonOption](doc/ApiResponseListSiblingSalonOption.md)
  - [ApiResponseListWeeklyScheduleResponse](doc/ApiResponseListWeeklyScheduleResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
@@ -252,6 +271,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonAdminResponse](doc/ApiResponseSalonAdminResponse.md)
+ - [ApiResponseSalonInviteHistoryResponse](doc/ApiResponseSalonInviteHistoryResponse.md)
  - [ApiResponseSalonResponse](doc/ApiResponseSalonResponse.md)
  - [ApiResponseSalonReviewSummaryResponse](doc/ApiResponseSalonReviewSummaryResponse.md)
  - [ApiResponseSalonServiceCatalogResponse](doc/ApiResponseSalonServiceCatalogResponse.md)
@@ -288,6 +308,7 @@ Class | Method | HTTP request | Description
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
  - [CityDistrictResponse](doc/CityDistrictResponse.md)
  - [CityResponse](doc/CityResponse.md)
+ - [ClientAuthoredReviewResponse](doc/ClientAuthoredReviewResponse.md)
  - [ClientReviewResponse](doc/ClientReviewResponse.md)
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
@@ -374,6 +395,10 @@ Class | Method | HTTP request | Description
  - [RotateAdminRequest](doc/RotateAdminRequest.md)
  - [RotateMasterRequest](doc/RotateMasterRequest.md)
  - [SalonAdminResponse](doc/SalonAdminResponse.md)
+ - [SalonDeletionBlockedResponse](doc/SalonDeletionBlockedResponse.md)
+ - [SalonInviteHistoryResponse](doc/SalonInviteHistoryResponse.md)
+ - [SalonInviteResponse](doc/SalonInviteResponse.md)
+ - [SalonMasterEffectiveScheduleResponse](doc/SalonMasterEffectiveScheduleResponse.md)
  - [SalonResponse](doc/SalonResponse.md)
  - [SalonReviewResponse](doc/SalonReviewResponse.md)
  - [SalonReviewSummaryResponse](doc/SalonReviewSummaryResponse.md)
@@ -381,16 +406,22 @@ Class | Method | HTTP request | Description
  - [SalonSearchResult](doc/SalonSearchResult.md)
  - [SalonServiceCatalogResponse](doc/SalonServiceCatalogResponse.md)
  - [SalonServiceCategoryGroup](doc/SalonServiceCategoryGroup.md)
+ - [SalonStaffMemberResponse](doc/SalonStaffMemberResponse.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
+ - [SearchSuggestionRequest](doc/SearchSuggestionRequest.md)
+ - [SearchSuggestionResponse](doc/SearchSuggestionResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
  - [ServiceSummaryDto](doc/ServiceSummaryDto.md)
+ - [SettlementSearchResponse](doc/SettlementSearchResponse.md)
+ - [SiblingSalonOption](doc/SiblingSalonOption.md)
  - [SortObject](doc/SortObject.md)
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)
  - [TimelineItemResponse](doc/TimelineItemResponse.md)
  - [UnclosedCountResponse](doc/UnclosedCountResponse.md)
  - [UnregisterDeviceTokenRequest](doc/UnregisterDeviceTokenRequest.md)
+ - [UpdateMasterServiceBandRequest](doc/UpdateMasterServiceBandRequest.md)
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
  - [UpdateSalonRequest](doc/UpdateSalonRequest.md)
  - [UpdateServiceDefinitionRequest](doc/UpdateServiceDefinitionRequest.md)

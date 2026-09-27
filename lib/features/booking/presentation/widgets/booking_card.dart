@@ -100,6 +100,7 @@ import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
+import 'booking_salon_row.dart';
 import 'booking_status_badge.dart';
 
 /// One booking in the «МОЇ ЗАПИСИ» list. See the library doc.
@@ -373,30 +374,7 @@ class _BookingCardState extends State<BookingCard> {
               ],
               if (salon != null) ...<Widget>[
                 const SizedBox(height: 2),
-                Row(
-                  children: <Widget>[
-                    Icon(
-                      Icons.storefront_rounded,
-                      size: 12,
-                      color: _isDead
-                          ? BrandColors.faint
-                          : BrandColors.accent.withValues(alpha: 0.9),
-                    ),
-                    const SizedBox(width: 3),
-                    Expanded(
-                      child: Text(
-                        salon,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: VelvetText.bookingCardCaption.copyWith(
-                          color: _isDead
-                              ? BrandColors.muted
-                              : BrandColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
+                BookingSalonRow(salonName: salon, dimmed: _isDead),
               ],
             ],
           ),

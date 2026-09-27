@@ -98,6 +98,22 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// file header.
     String? rescheduleAppointmentId,
 
+    /// 2026-09-19 (mobile-perf MEDIUM) — the SALON whose «Записи» board this
+    /// reschedule was started FROM, threaded so
+    /// `BookingConfirmScreen._submit`'s post-write fan-out can also drop
+    /// `salonBookedDaysProvider(salonId)`, the board's own day-rail dot set.
+    /// A reschedule genuinely MOVES a dot between days; without this the
+    /// board kept both the vacated day's dot and the new day's absence for
+    /// up to the provider's thirty-minute `keepAlive` TTL.
+    ///
+    /// Seeded by `startBookingReschedule` from `BookingDetailScreen.salonId`
+    /// (a ROUTE parameter — `BookingDetailResponse` carries no `salonId`, so
+    /// it cannot be read off the booking). `null` on EVERY other path: the
+    /// CLIENT reschedule, the independent master's own reschedule, and every
+    /// create/walk-in push — so this chain link is inert there, exactly like
+    /// the venue-address fields beside it.
+    String? rescheduleSalonId,
+
     /// Non-null only when this flow was entered from the master's own
     /// WALK-IN («Новий запис») entry point — the guest identity to submit
     /// with `CreateMasterBookingRequest`. See phase-258.
@@ -167,5 +183,32 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     /// existing "open on the current Kyiv month" behaviour — every existing
     /// call site is unaffected.
     DateTime? initialVisibleDate,
+
+    /// VENUE ADDRESS OVERRIDE (2026-09-18) — the address of the place the
+    /// visit actually happens, threaded through the picker → confirm → done
+    /// chain so the terminal recap can render it.
+    ///
+    /// Needed because the recap's default source — `Master.street /
+    /// .buildingNo / .city`, read off `MasterDetailResponse` — is
+    /// DELIBERATELY nulled by the backend for a `SALON_MASTER` /
+    /// `SALON_OWNER` ("a salon master's precise address is the salon's
+    /// business address", `MasterDetailResponse.java:104-127`), so a salon
+    /// booking's done screen fell back to «Адресу не вказано».
+    /// `reschedule_navigation.dart`'s `startBookingReschedule` seeds these
+    /// from the SAME freshly-fetched `Booking` it already reads
+    /// `rescheduleAppointmentId` / `hideMasterIdentity` off — `Booking
+    /// .street` / `.buildingNo` / `.cityLabel` / `.locationNote`, which the
+    /// backend already resolved salon-vs-independent server-side
+    /// (`BookingDetailResponse.java:580-648`).
+    ///
+    /// ALL default to `null`, and the done screen falls back to the `Master`
+    /// composition when the venue line comes out `null`, so every CREATE call
+    /// site (client, walk-in) renders byte-identically. Applies to BOTH a
+    /// client's and a provider's reschedule — a client rescheduling a salon
+    /// booking hits the identical empty-address bug.
+    String? venueStreet,
+    String? venueBuildingNo,
+    String? venueCity,
+    String? venueLocationNote,
   }) = _BookingSlotPickerArgs;
 }

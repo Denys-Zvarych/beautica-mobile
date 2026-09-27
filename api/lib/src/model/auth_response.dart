@@ -234,6 +234,9 @@ class AuthResponseRoleEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
   static const AuthResponseRoleEnum INDEPENDENT_MASTER =
       _$authResponseRoleEnum_INDEPENDENT_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AuthResponseRoleEnum unknownDefaultOpenApi =
+      _$authResponseRoleEnum_unknownDefaultOpenApi;
 
   static Serializer<AuthResponseRoleEnum> get serializer =>
       _$authResponseRoleEnumSerializer;

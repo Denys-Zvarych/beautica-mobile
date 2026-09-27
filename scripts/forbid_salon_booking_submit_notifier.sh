@@ -89,7 +89,7 @@ EOF
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
 
   if [ "$flagged" -ne 1 ] ||
-    ! printf '%s' "$out" | grep -q 'salon_time_screen.dart:1'; then
+    ! grep -q -- 'salon_time_screen.dart:1' <<< "$out"; then
     echo "SELF-TEST FAIL: expected exactly 1 hit (salon_time_screen.dart),"
     echo "                got:"
     printf '%s\n' "$out"

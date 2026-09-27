@@ -40,8 +40,36 @@ final RegExp _bidiAndZeroWidthPattern = RegExp(
   '[\u061C\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]',
 );
 
+// Phase 21.6(b) audit fix (mobile-security LOW) — `\n`/`\r` are NOT part of
+// the bidi/zero-width class above and were never stripped, on purpose: a
+// genuinely multi-line field (`Master.locationNote` / `Salon.locationNote`,
+// authored through a `maxLines: 3` `TextField` — see
+// `features/master/presentation/location_edit_screen.dart`) is rendered by
+// `ExpandableNote`, which WANTS the author's line breaks. Collapsing them
+// there would be a visible behaviour regression, not a fix.
+//
+// But a field that is supposed to be single-line (`SalonHubCard`'s legacy
+// `Salon.address` fallback — free text with backend `@Size`-only validation,
+// same caveat as `city`) has no `TextField` line-count contract stopping an
+// embedded `\n` from reaching a `Text`/`Semantics.label` that assumes one
+// line. This is opt-in, not the default, so every existing caller (the
+// `ExpandableNote` note, `search_mapper`'s note suffix, `favorite_mapper`'s
+// note, `salon_mapper`'s recipient email) keeps rendering exactly as it does
+// today — see `shared/formatters/address_lines.dart`'s `_visibleOrNull`,
+// the one caller that opts in via `buildLegacyAddressLine`.
+final RegExp _newlinePattern = RegExp(r'\r\n|\r|\n');
+
 /// Strips Unicode bidi override/format controls and zero-width characters
 /// from provider-authored free text before it reaches a client-facing
 /// `Text` widget.
-String sanitizeDisplayText(String input) =>
-    input.replaceAll(_bidiAndZeroWidthPattern, '');
+///
+/// [collapseNewlines] additionally folds `\r\n` / `\r` / `\n` to a single
+/// space — OFF by default so multi-line fields (e.g. a `locationNote`
+/// rendered through `ExpandableNote`) keep their author's line breaks; opt
+/// in only for a field the UI treats as single-line.
+String sanitizeDisplayText(String input, {bool collapseNewlines = false}) {
+  final String stripped = input.replaceAll(_bidiAndZeroWidthPattern, '');
+  return collapseNewlines
+      ? stripped.replaceAll(_newlinePattern, ' ')
+      : stripped;
+}

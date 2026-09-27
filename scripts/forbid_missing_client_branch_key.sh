@@ -206,11 +206,11 @@ EOF
 
   out="$(check "$tmp/router.dart" "$tmp/lib")"
 
-  echo "$out" | grep -q "^home: HomeHubScreen" || {
+  grep -q -- "^home: HomeHubScreen" <<< "$out" || {
     echo "SELF-TEST FAIL: the key-less real home screen was not flagged"; exit 1; }
-  echo "$out" | grep -q "^passport:" && {
+  grep -q -- "^passport:" <<< "$out" && {
     echo "SELF-TEST FAIL: the compliant passport screen was flagged"; exit 1; }
-  echo "$out" | grep -qE "^(favorites|search|bookings):" && {
+  grep -qE -- "^(favorites|search|bookings):" <<< "$out" && {
     echo "SELF-TEST FAIL: a placeholder-served branch was flagged"; exit 1; }
 
   echo "SELF-TEST PASS: the superseding screen that dropped its key is flagged;"

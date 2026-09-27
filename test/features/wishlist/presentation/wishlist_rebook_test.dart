@@ -302,6 +302,19 @@ void main() {
         final BookingEntryArgs args = extra! as BookingEntryArgs;
         expect(args.masterId, 'm-a');
         expect(args.preselectedServiceId, 'a');
+        // Phase 350 — `WishlistRebookHost.rebook` never sets `autoAdvance`,
+        // so this MUST resolve to the freezed default (`true`) — the
+        // wish-list rebook must keep skipping Step 1 exactly as before the
+        // additive field landed. A regression that flipped the default, or a
+        // future edit that started passing `false` here by mistake, would
+        // fail this line.
+        expect(
+          args.autoAdvance,
+          isTrue,
+          reason:
+              'the wish-list rebook CTA must keep skipping Step 1 — only the '
+              'past-booking rebook CTA sets autoAdvance:false',
+        );
         h.container.dispose();
       },
     );

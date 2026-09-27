@@ -4,7 +4,7 @@
 // THE REGRESSION THIS PINS
 // -------------------------
 // The four INDEPENDENT_MASTER bottom-nav tab-root screens rendered their
-// page title at THREE different sizes: «Мої послуги» used
+// page title at THREE different sizes: «Послуги» used
 // `VelvetText.heading()` (21 sp) via a private `_ServicesAppBar`, «Мої
 // записи» used a one-off `VelvetText.masterBookingsTitle` (22 sp), while
 // «Графік роботи»/«Мій профіль» used `VelvetText.subheading()` (14 sp) via
@@ -28,7 +28,7 @@
 //     to a title Text for either); a full pump of the heavier
 //     auth/redirect-guarded screens would exercise the identical single
 //     line of production code at much higher setup cost and fixture risk.
-//   • «Мої послуги» (ServicesListScreen) and «Мої записи»
+//   • «Послуги» (ServicesListScreen) and «Мої записи»
 //     (MasterBookingsScreen, via `bookings_discovery_view.dart`'s
 //     `_Header`) each have their OWN inline `Text(title, style:
 //     VelvetText.pageTitle)` call site — these two are pumped as real
@@ -130,7 +130,18 @@ Future<TextStyle> _servicesListTitleStyle(WidgetTester tester) async {
   final AppLocalizations l10n = AppLocalizations.of(
     tester.element(find.byType(ServicesListScreen)),
   );
-  final Text text = tester.widget<Text>(find.text(l10n.servicesTitle));
+  // Scoped to the AppBar: since `servicesTitle` became the role-neutral
+  // "Послуги", it is now IDENTICAL to `VelvetBottomNavBar`'s hardcoded tab-0
+  // label (also "Послуги", `velvet_bottom_nav_bar.dart`), and this screen
+  // renders both at once. An unscoped `find.text(l10n.servicesTitle)` matches
+  // two widgets and throws "Too many elements" — descend from the AppBar so
+  // this keeps pinning the app-bar title specifically, not the nav tab.
+  final Text text = tester.widget<Text>(
+    find.descendant(
+      of: find.byType(AppBar),
+      matching: find.text(l10n.servicesTitle),
+    ),
+  );
   final TextStyle? style = text.style;
   expect(style, isNotNull, reason: 'ServicesListScreen must style its title');
   return style!;
@@ -245,16 +256,15 @@ void main() {
       },
     );
 
-    testWidgets(
-      'ServicesListScreen («Мої послуги») renders VelvetText.pageTitle',
-      (tester) async {
-        final TextStyle style = await _servicesListTitleStyle(tester);
-        expect(style.fontSize, VelvetText.pageTitle.fontSize);
-        expect(style.fontWeight, VelvetText.pageTitle.fontWeight);
-        expect(style.fontFamily, VelvetText.pageTitle.fontFamily);
-        expect(style.color, VelvetText.pageTitle.color);
-      },
-    );
+    testWidgets('ServicesListScreen («Послуги») renders VelvetText.pageTitle', (
+      tester,
+    ) async {
+      final TextStyle style = await _servicesListTitleStyle(tester);
+      expect(style.fontSize, VelvetText.pageTitle.fontSize);
+      expect(style.fontWeight, VelvetText.pageTitle.fontWeight);
+      expect(style.fontFamily, VelvetText.pageTitle.fontFamily);
+      expect(style.color, VelvetText.pageTitle.color);
+    });
 
     testWidgets(
       'MasterBookingsScreen («Мої записи») renders VelvetText.pageTitle',

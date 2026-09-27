@@ -75,6 +75,7 @@ import 'package:beautica_mobile/features/discovery/presentation/widgets/result_a
 import 'package:beautica_mobile/features/discovery/presentation/widgets/result_card_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
+import 'package:beautica_mobile/shared/widgets/salon_affiliation_line.dart';
 
 import '../../domain/favorite_item.dart';
 
@@ -536,7 +537,7 @@ class FavoriteMasterCard extends StatelessWidget {
                 _IdentityLine(name: item.name, rating: item.rating),
                 if (item.salonName case final String salonName) ...<Widget>[
                   const SizedBox(height: _masterBandGap),
-                  _AffiliationLine(salonName: salonName),
+                  SalonAffiliationLine(salonName: salonName),
                 ],
                 if (hasAddress) ...<Widget>[
                   const SizedBox(height: _masterBandGap),
@@ -561,55 +562,14 @@ class FavoriteMasterCard extends StatelessWidget {
   }
 }
 
-/// Where a master works: a storefront glyph + the salon's name, one register
-/// below the person's own name. Shown only when the person is attached to a
-/// salon — an independent master gets nothing here, and that silence is the
-/// answer to "where do they work". Identical for `SALON_MASTER` and
-/// `SALON_OWNER`: to a client, both are "a master at salon X".
-///
-/// ── WHY THIS LINE IS ACCENT-COLOURED AND THE ADDRESS BELOW IT IS NOT ────────
-///
-/// It used to be muted, with a last-service line sitting between it and the
-/// address. With that line removed (user decision), the affiliation and the
-/// address became directly adjacent — two glyph-led secondary lines in the
-/// same tone, which is exactly how a card turns to mush. The separator is now
-/// HUE, and it is a semantic one rather than decoration: a salon is a NAVIGABLE
-/// entity, so it takes `accentDeep`, this design's link colour; an address is
-/// INERT orientation, so it stays muted. The two also differ in weight, size
-/// and glyph. Colour is the strongest register break VelvetTouch has after
-/// depth itself, which makes this a firmer separation than the service line
-/// ever provided — that one separated by position alone.
-///
-/// It also sharpens the hardest pair on the screen: «Crystal Room №1» renders
-/// as Comfortaa espresso when the row IS that salon, and as Nunito accentDeep
-/// behind a storefront glyph when the row is a person who works there.
-class _AffiliationLine extends StatelessWidget {
-  const _AffiliationLine({required this.salonName});
-
-  final String salonName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: <Widget>[
-        const Icon(
-          Icons.storefront_outlined,
-          size: 15,
-          color: BrandColors.accentDeep,
-        ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            salonName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: VelvetText.favAffiliation,
-          ),
-        ),
-      ],
-    );
-  }
-}
+// The affiliation line used to be a private `_AffiliationLine` widget here.
+// It is now `SalonAffiliationLine` (`shared/widgets/salon_affiliation_line
+// .dart`) — PROMOTED (REUSE-FIRST) so `SalonMasterProfileScreen`'s own
+// first-person "I work at X" line can reuse it verbatim instead of forking a
+// near-duplicate. See that file's doc for the accent-vs-muted colour
+// contract (a salon name is NAVIGABLE → accentDeep; an address is INERT
+// orientation → muted) and for why «Crystal Room №1» renders differently as
+// a salon card's own title vs. as another row's affiliation line.
 
 /// Salon favourite: recessed storefront well, name, rating, unlike, and the
 /// full address block — the card kind that most earns a street line, because a

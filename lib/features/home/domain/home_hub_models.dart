@@ -7,6 +7,8 @@
 // The `clientPhone` and `clientCity` fields on [ClientProfileSummary] are PII
 // that trigger the ScreenProtectionManager in HomeHubScreen (§ CRITICAL-4).
 
+import '../../location/domain/settlement.dart';
+
 /// The signed-in client's profile summary (hydrated from GET /users/me via
 /// [AuthSession.user]).
 class ClientProfileSummary {
@@ -17,11 +19,47 @@ class ClientProfileSummary {
     required this.phone,
     required this.clientRating,
     required this.memberSinceYear,
+    this.settlement,
+    this.districtName,
   });
 
   final String firstName;
   final String lastName;
+
+  /// The bare locality text — `«city»` or `«city, district»`, `''` when
+  /// none. The fallback [localityLabel] renders when [settlement] composes to
+  /// nothing — i.e. `/users/me` carried no visible settlement NAME and the
+  /// city was only resolvable from the taxonomy. A settlement with a name but
+  /// no TYPE still composes (to its bare name), so it never reaches here.
   final String city;
+
+  /// The saved settlement with its phase-330 label parts, or `null`. The
+  /// widget composes it with `savedSettlementLabel` (a domain model has no
+  /// localisations) and hands the result to [localityLabel].
+  final Settlement? settlement;
+
+  /// The resolved district name appended after a composed settlement label, or
+  /// `null` when the client has none. Already folded into [city].
+  final String? districtName;
+
+  /// The locality line: [composedSettlement] (the label
+  /// `savedSettlementLabel` built from [settlement]) followed by
+  /// [districtName], or the bare [city] when [composedSettlement] is `null`.
+  ///
+  /// Both [districtName] and the [city] fallback are server strings and go
+  /// through the same `sanitizeSettlementLabel` rule the composed label
+  /// already had applied (`composeSettlementLabel`'s `_visibleOrNull`): a
+  /// district that reduces to nothing is dropped with its separator.
+  ///
+  /// `''` when there is no locality — the caller shows its placeholder.
+  String localityLabel(String? composedSettlement) {
+    if (composedSettlement == null) return sanitizeSettlementLabel(city) ?? '';
+    final String? district = sanitizeSettlementLabel(districtName);
+    return district == null
+        ? composedSettlement
+        : '$composedSettlement, $district';
+  }
+
   final String phone;
 
   /// The client's aggregate rating from masters/salons (two-sided ratings system).

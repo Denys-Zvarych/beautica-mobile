@@ -9,6 +9,8 @@
 // Pure Dart: no Flutter imports.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -29,10 +31,21 @@ abstract final class UserMapper {
   /// [dto.role] is a [AuthResponseRoleEnum] (a built_value [EnumClass]); its
   /// [name] property returns the wire string (e.g. 'INDEPENDENT_MASTER') that
   /// [UserRole.fromWire] expects.
+  ///
+  /// [salonId] IS carried, even though the rest of the profile is not. The
+  /// backend populates it on `POST /auth/invite/accept` for an invited
+  /// `SALON_ADMIN` / `SALON_MASTER`, and [AuthNotifier.acceptInvite] is the one
+  /// session-establishing flow that does NOT follow with `repo.me()` (its
+  /// "point of no return" contract forbids a network call after the 2xx). So
+  /// this mapper is the only place that binding can enter the session —
+  /// dropping it left a freshly-created admin with `salonId == null`, which
+  /// `SalonHomeResolverScreen` renders as a dead-end error instead of their
+  /// salon shell.
   static User fromAuthResponse(AuthResponse dto) => User(
     id: dto.userId!,
     email: dto.email!,
-    role: UserRole.fromWire(dto.role!.name),
+    role: _roleOf(knownEnumName(dto.role)),
+    salonId: dto.salonId,
   );
 
   /// Maps a GET /users/me [UserProfileResponse] to the domain [User].
@@ -43,7 +56,7 @@ abstract final class UserMapper {
   static User fromProfileDto(UserProfileResponse dto) => User(
     id: dto.id!,
     email: dto.email!,
-    role: UserRole.fromWire(dto.role!),
+    role: _roleOf(dto.role),
     firstName: dto.firstName,
     lastName: dto.lastName,
     phoneNumber: dto.phoneNumber,
@@ -52,9 +65,40 @@ abstract final class UserMapper {
     oblastId: dto.oblastId,
     cityName: dto.cityName,
     oblastName: dto.oblastName,
+    // Phase-330 label parts. The enum's `name` IS the wire value.
+    // The unknown-value fallback maps to null (no prefix), never its name.
+    citySettlementType: knownEnumName(dto.citySettlementType),
+    cityHromadaName: dto.cityHromadaNameUk,
     districtName: dto.districtName,
     street: dto.street,
     buildingNo: dto.buildingNo,
     locationNote: dto.locationNote,
+    salonId: dto.salonId,
+    bio: dto.bio,
+    instagram: dto.instagram,
+    professionalTitle: dto.professionalTitle,
+    // Carried VERBATIM, including null. `UserProfileResponse.hasMasterProfile`
+    // is generated as `bool?` because the schema does not mark it required, so
+    // an older backend simply omits it — and null must stay null all the way
+    // into the domain rather than being coerced to `false` here. See
+    // [User.hasMasterProfile] for why an absent field is not a proven "no".
+    hasMasterProfile: dto.hasMasterProfile,
   );
+
+  /// Parses the wire role, turning an absent or unrecognised one — including
+  /// the generated enum's unknown-value fallback, which [knownEnumName] reads
+  /// as `null` — into a typed [UnknownFailure] rather than an
+  /// `ArgumentError`/`TypeError` escaping the repository's `DioException`
+  /// catch. A role this build does not know cannot be routed, so the session
+  /// fails like any other unusable response; it is never guessed.
+  static UserRole _roleOf(String? wire) {
+    if (wire == null) {
+      throw const UnknownFailure(cause: 'user role absent or unrecognised');
+    }
+    try {
+      return UserRole.fromWire(wire);
+    } on ArgumentError {
+      throw const UnknownFailure(cause: 'user role unrecognised');
+    }
+  }
 }

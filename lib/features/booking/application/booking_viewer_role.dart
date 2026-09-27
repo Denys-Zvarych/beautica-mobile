@@ -29,6 +29,7 @@
 // (Phase 7.3 fills the provider footer). Guessing "provider" from an
 // indeterminate session would hand provider affordances to whoever is looking.
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 // `auth_notifier.dart` lives under auth/presentation/ rather than
@@ -36,8 +37,6 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 // feature already uses to reach `authProvider` (salon, home, master,
 // favorites, discovery, schedule, and booking's own
 // `pending_service_preselection_provider.dart`).
-import '../../auth/domain/auth_session.dart';
-import '../../auth/domain/user.dart';
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
 
@@ -59,23 +58,44 @@ enum BookingViewerRole {
 /// Resolves the viewer's role from the authenticated session.
 ///
 /// Generated provider name: `bookingViewerRoleProvider`.
+///
+/// Watched through [authUserRoleOrNull] — the LENIENT selector — rather than
+/// a bare `ref.watch(authProvider)` (mobile-perf LOW, 2026-09-15).
+/// `AuthNotifier.setAccessToken` emits a fresh `AsyncData(Authenticated(...))`
+/// on every silent token refresh (same user, new `accessToken`, which
+/// participates in `Authenticated`'s `@freezed` equality), so an un-narrowed
+/// watch re-ran this body for the whole lifetime of an open
+/// `BookingDetailScreen`. The role is stable across a refresh, so `.select`
+/// absorbs the churn; see [authUserRoleOrNull]'s own doc.
+///
+/// LENIENT, deliberately — [authUserRoleOrNull] is the exact equivalent of
+/// the `.value` unwrap this provider used before, so narrowing changes
+/// nothing about WHICH branch an unsettled session lands on. Do NOT "harden"
+/// it to [authUserRoleSettledOrNull]: `bookings_capability.dart` uses the
+/// strict selector because it gates WRITES (transition buttons, the add
+/// entry point), whereas this provider only picks which counterparty header
+/// and footer to draw and already fails closed onto the client branch (file
+/// header). Swapping the selector here would change behaviour during an
+/// unsettled session — a different decision than the perf narrowing.
 @riverpod
 BookingViewerRole bookingViewerRole(Ref ref) {
-  final AuthSession? session = ref.watch(authProvider).value;
-  return switch (session) {
+  final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+  return switch (role) {
     // MVP ships INDEPENDENT_MASTER only. `SALON_MASTER` / `SALON_ADMIN` /
     // `SALON_OWNER` are listed so the provider view lights up for them the
     // moment those roles ship, rather than silently degrading to the client
-    // footer — but note they cannot currently REACH this screen (there is no
-    // salon shell yet), so today this is documentation of intent.
-    Authenticated(:final User user)
-        when user.role == UserRole.independentMaster ||
-            user.role == UserRole.salonMaster ||
-            user.role == UserRole.salonAdmin ||
-            user.role == UserRole.salonOwner =>
-      BookingViewerRole.provider,
-    // Every other case — CLIENT, unauthenticated, still loading. Fails closed
-    // onto the branch that grants no provider action; see the file header.
-    _ => BookingViewerRole.client,
+    // footer. As of the phase 328–331 track `SALON_MASTER` genuinely DOES
+    // reach this screen (read-only «Записи»), so this arm is live, not just
+    // documentation of intent — what keeps that viewer read-only is
+    // `bookings_capability.dart`'s write gates, never this role split.
+    UserRole.independentMaster ||
+    UserRole.salonMaster ||
+    UserRole.salonAdmin ||
+    UserRole.salonOwner => BookingViewerRole.provider,
+    // Every other case — CLIENT, unauthenticated, still loading (all three of
+    // which [authUserRoleOrNull] reports as `null` or `UserRole.client`).
+    // Fails closed onto the branch that grants no provider action; see the
+    // file header.
+    UserRole.client || null => BookingViewerRole.client,
   };
 }

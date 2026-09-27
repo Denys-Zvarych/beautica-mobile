@@ -19,6 +19,19 @@ abstract final class BrandColors {
   /// taupe tone. Never pure white so both highlight and shadow read clearly.
   static const Color base = Color(0xFFE6DDD0);
 
+  /// The lifted "hero" variant of [base] — a lighter, creamier taupe used to
+  /// single out ONE surface in a group without spending accent colour on it
+  /// (the identity card at the top of a profile, the emphasised half of a
+  /// [ManagementActionCard] pair, a hero tile in a grid). It is the design
+  /// system's "spend the boldness in one place" affordance: at most one
+  /// surface per group may carry it.
+  ///
+  /// 2026-09-14 (defect 10) — was inlined as a bare `Color(0xFFEDE4D5)` in
+  /// ~27 places with no name and no rule attached. The salon-staff profile's
+  /// three sites and `ManagementActionCard`'s own now read this token; the
+  /// remaining call sites are a known, separately-tracked remainder.
+  static const Color baseEmphasis = Color(0xFFEDE4D5);
+
   /// Primary camel accent — CTA gradient base, focus rings, active states.
   static const Color accent = Color(0xFFB89A7A);
 

@@ -31,6 +31,11 @@
 //   • Reading `.year` / `.month` / `.day`.
 //   • Passing to `toApiDate` (which reads exactly those three fields).
 //   • `.isBefore` / `.isAfter` against another date token.
+//   • Subtracting another date token — but ONLY via [kyivDaysBetween], never
+//     via a hand-written `.difference(...).inDays`. Both operands are
+//     host-local midnights, so a HOST DST transition between them makes the
+//     hand-written form 23 h or 25 h and `.inDays` truncates to N-1. See
+//     [kyivDaysBetween]'s own doc; Phase 284.
 //
 // ILLEGAL on a date token:
 //   • `.toUtc()` — there is no meaningful "UTC form" of a value that was
@@ -92,3 +97,71 @@ DateTime kyivDayOf(DateTime instant) => dateOnly(toBeauticaTime(instant));
 /// DAY follow Kyiv's calendar, not the device's. Returns a date token; see
 /// the file header for what is (and is not) legal to do with the result.
 DateTime kyivToday(DateTime Function() clock) => kyivDayOf(clock());
+
+/// Whole Kyiv calendar days from [earlier] to [later], both **date tokens**
+/// (see the file header) — positive when [later] is after [earlier], negative
+/// when it is before, zero when they name the same day.
+///
+/// THE ONLY SANCTIONED WAY TO SUBTRACT TWO DATE TOKENS. Writing
+/// `later.difference(earlier).inDays` by hand is the bug this function
+/// exists to remove, and it is a bug that has now shipped twice.
+///
+/// A date token is a HOST-LOCAL [DateTime] at host-local midnight.
+/// [DateTime.difference] measures elapsed ABSOLUTE time, so subtracting two
+/// host-local midnights that straddle the HOST zone's DST transition yields
+/// 23 h (spring forward) or 25 h (fall back) rather than 24 h, and
+/// [Duration.inDays] truncates toward zero — silently returning ONE DAY FEWER
+/// than the calendar actually spans. On a Europe/Kyiv-zoned device (i.e. most
+/// of this app's installs) that is not an edge case: every interval reaching
+/// back past the last Sunday of March counts one day low until the October
+/// fall-back cancels it.
+///
+/// Fall-back is benign on its own — a 25 h day still truncates to 1 — which
+/// is exactly what makes the spring-forward half so easy to miss in review.
+///
+/// This counts by RECONSTRUCTING both tokens at UTC midnight from their
+/// `.year`/`.month`/`.day` components. UTC observes no transitions, so every
+/// calendar day there is uniformly 24 h and the subtraction is always exact.
+/// Note this is a reconstruction, NOT `.toUtc()` on a token — that call is on
+/// the file header's ILLEGAL list (and is gated by
+/// `scripts/forbid_host_local_instant_anchor.sh` RULE 6) because it
+/// reinterprets host-local midnight as an instant; reading the three calendar
+/// fields, which a date token is DEFINED by, is legal and host-independent.
+///
+/// Phase 284 promoted this out of
+/// `features/booking/presentation/widgets/bookings_day_rail.dart`, where it
+/// lived as the private-to-that-feature `calendarDayCount` while
+/// `shared/formatters/relative_date.dart` hand-rolled the unsafe form two
+/// directories away. `calendarDayCount` now delegates here.
+int kyivDaysBetween(DateTime earlier, DateTime later) {
+  final DateTime earlierUtc = DateTime.utc(
+    earlier.year,
+    earlier.month,
+    earlier.day,
+  );
+  final DateTime laterUtc = DateTime.utc(later.year, later.month, later.day);
+  return laterUtc.difference(earlierUtc).inDays;
+}
+
+/// The **date token** [days] calendar days after [token] (before it when
+/// [days] is negative) — THE ONLY SANCTIONED WAY TO STEP A DATE TOKEN.
+///
+/// `token.add(Duration(days: n))` / `subtract(Duration(days: n))` is the bug
+/// this function exists to remove. [DateTime.add] adds absolute 24-hour
+/// blocks, so crossing a HOST DST transition lands on 23:00 (fall back) or
+/// 01:00 (spring forward) instead of midnight — and truncating that back to a
+/// date can yield the SAME day again. On a Europe/Kyiv host the fall-back day
+/// (last Sunday of October) makes `DateTime(2026, 10, 25).add(1 day)` return
+/// `2026-10-25 23:00`, so a "step one day, then truncate" loop never advances
+/// and spins forever (`OverridesNotifier.putSpan`, fixed 2026-09-24).
+///
+/// `DateTime(y, m, d + n)` normalises the out-of-range day component against
+/// the CALENDAR and always lands on host-local midnight, whatever transitions
+/// lie between. Reads only `.year`/`.month`/`.day`, so it is legal on a date
+/// token per the file header.
+///
+/// Promoted from `features/booking/presentation/widgets/bookings_day_rail.dart`
+/// (`railDayAt`, which now delegates here) so `features/schedule/` can reach
+/// the same arithmetic without importing another feature's `presentation/`.
+DateTime kyivAddDays(DateTime token, int days) =>
+    DateTime(token.year, token.month, token.day + days);

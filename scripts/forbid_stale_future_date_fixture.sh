@@ -556,7 +556,7 @@ EOF
     exit 1
   fi
   for probe in "${probe_paths[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^$tmp/$probe:$dt_offender_line:"; then
+    if ! grep -q -- "^$tmp/$probe:$dt_offender_line:" <<< "$out"; then
       echo "SELF-TEST FAIL: the DateTime.utc rule did not bite in scan root"
       echo "                '$(dirname "$(dirname "$probe")")' — no line-$dt_offender_line"
       echo "                offender for '$probe'. Is it listed in scan_dirs AND"
@@ -565,7 +565,7 @@ EOF
       exit 1
     fi
     for ln in "${str_offender_lines[@]}"; do
-      if ! printf '%s\n' "$out" | grep -q "^$tmp/$probe:$ln:"; then
+      if ! grep -q -- "^$tmp/$probe:$ln:" <<< "$out"; then
         echo "SELF-TEST FAIL: the ISO-8601 STRING rule did not bite in scan root"
         echo "                '$(dirname "$(dirname "$probe")")' — no line-$ln"
         echo "                offender for '$probe'. A stale STRING date is the"
@@ -581,7 +581,7 @@ EOF
   # (1c) Rule (c) bit in the E2E root — and did NOT bite in the widget tier,
   #      where the identical literal sits on the identical line. That asymmetry
   #      IS the scoping guarantee; a (c) that walked `scan_dirs` would flag both.
-  if ! printf '%s\n' "$out" | grep -q "^$tmp/$past_probe:$past_offender_line:"; then
+  if ! grep -q -- "^$tmp/$past_probe:$past_offender_line:" <<< "$out"; then
     echo "SELF-TEST FAIL: the FAR-PAST rule did not bite on line"
     echo "                $past_offender_line of '$past_probe'. That literal is"
     echo "                the 2026-08-17 unbounded-hang fixture's exact shape,"
@@ -590,7 +590,7 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "^$tmp/$widget_probe:$past_offender_line:"; then
+  if grep -q -- "^$tmp/$widget_probe:$past_offender_line:" <<< "$out"; then
     echo "SELF-TEST FAIL: the FAR-PAST rule bit in 'test/features/booking/'."
     echo "                It is scoped to \${past_scan_dirs[*]} on purpose — that"
     echo "                tree has no injected-clock convention to point a"
@@ -617,7 +617,7 @@ EOF
     printf '%s\n' "$out_grandfathered"
     exit 1
   fi
-  if printf '%s\n' "$out_grandfathered" | grep -q ":$dt_offender_line:"; then
+  if grep -q -- ":$dt_offender_line:" <<< "$out_grandfathered"; then
     echo "SELF-TEST FAIL: a grandfathered path was still flagged by the"
     echo "                DateTime.utc rule:"
     printf '%s\n' "$out_grandfathered"

@@ -142,7 +142,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   }
   printf '%s\n' "$out"
-  if ! printf '%s\n' "$out" | grep -q '^SELF-TEST OK: no_raw_ui_strings'; then
+  if ! grep -q -- '^SELF-TEST OK: no_raw_ui_strings' <<< "$out"; then
     echo "SELF-TEST FAIL: the CLI exited 0 but never printed its sentinel."
     echo "                An exit 0 with no output means the checker did not"
     echo "                run — which is indistinguishable from 'no probes"

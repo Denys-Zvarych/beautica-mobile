@@ -66,12 +66,15 @@ import 'package:beautica_mobile/features/booking/presentation/master_bookings_sc
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -104,13 +107,13 @@ class _LoadingServicesList extends ServicesList {
 
 class _LoadingEffectiveSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) =>
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) =>
       Completer<List<EffectiveDay>>().future;
 }
 
 class _LoadingWeeklySchedule extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() =>
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) =>
       Completer<List<WeeklySchedule>>().future;
 }
 
@@ -197,6 +200,15 @@ void main() {
     const ServicesListScreen(),
     overrides: <Object>[
       servicesListProvider.overrideWith(_LoadingServicesList.new),
+      // AUDIT cycle-2 (N1) — the screen's entry refresh now READS
+      // `approvedCategoriesProvider.future` (that is how it learns whether the
+      // refresh SUCCEEDED, so a failed one does not stamp the freshness
+      // marker). Overridden DIRECTLY: this provider sources
+      // `categoryRequestApiProvider` itself, not `serviceRepositoryProvider`
+      // (`project_approved_categories_provider_override_footgun`).
+      approvedCategoriesProvider.overrideWith(
+        (_) async => const <ServiceCategoryOption>[],
+      ),
     ],
   );
 
@@ -229,6 +241,15 @@ void main() {
     const MasterScheduleScreen(),
     overrides: <Object>[
       authProvider.overrideWith(_FixedAuth.new),
+      // Phase 312 — `MasterScheduleScreen` with no explicit `scope` now
+      // resolves "me" through `ownScheduleScopeProvider`
+      // (own_schedule_scope.dart), which for INDEPENDENT_MASTER watches
+      // `masterProfileProvider` before this provider ever runs. Without this
+      // override that reaches the REAL (unmocked) `HttpMasterRepository` and
+      // leaves a pending Dio timer at teardown ("A Timer is still pending
+      // even after the widget tree was disposed") — mirrors
+      // `pumpMasterProfile`'s own override above.
+      masterProfileProvider.overrideWith(_LoadingMasterProfile.new),
       effectiveScheduleProvider.overrideWith(_LoadingEffectiveSchedule.new),
       weeklyScheduleProvider.overrideWith(_LoadingWeeklySchedule.new),
     ],

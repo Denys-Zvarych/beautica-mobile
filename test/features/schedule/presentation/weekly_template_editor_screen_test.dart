@@ -30,7 +30,14 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -188,7 +195,26 @@ WeeklySchedule _legacyTemplate(
 // `effectiveScheduleProvider`, so a watched effective window rebuilds — letting
 // a test prove the editor's success path actually exercises the invalidation.
 // ───────────────────────────────────────────────────────────────────────────
-class _RecordingWeekly extends WeeklyScheduleNotifier {
+// Phase 312 — SPLIT from a single `extends WeeklyScheduleNotifier` class into
+// a plain "recording" HOLDER (this class — constructed ONCE by a test so it
+// can read `.saveCalled`/`.savedSchedule` etc. AFTER the widget acts) plus a
+// thin per-element `_RecordingWeeklyNotifier` wrapper (below) that DELEGATES
+// to it. `weeklyScheduleProvider` gained a `ScheduleScope` family parameter,
+// and `WeeklyTemplateEditorScreen` resolves its OWN scope reactively via
+// `ownScheduleScopeProvider` (which itself watches the async
+// `masterProfileProvider`) whenever no explicit `scope:` is passed — so a
+// screen under test can transiently watch TWO distinct scope keys during one
+// pump cycle (an unresolved `own('')` frame, then the settled
+// `own('master-1')` one) even when every test in this file ultimately
+// settles on a single value. Handing the SAME `WeeklyScheduleNotifier`
+// OBJECT to Riverpod's family override for two different keys throws "A
+// NotifierProvider returned a Notifier instance that is already associated
+// with another provider" — a hard Riverpod invariant, not a flake. The
+// wrapper sidesteps it: the override factory creates a FRESH
+// `_RecordingWeeklyNotifier` per family key, all sharing this ONE mutable
+// delegate, so the recorded flags/fields stay a single source of truth
+// regardless of how many (or which) scope keys the screen transiently reads.
+class _RecordingWeekly {
   _RecordingWeekly(this._initial);
 
   final List<WeeklySchedule> _initial;
@@ -199,15 +225,22 @@ class _RecordingWeekly extends WeeklyScheduleNotifier {
 
   String? deletedId;
   bool deleteCalled = false;
+}
+
+class _RecordingWeeklyNotifier extends WeeklyScheduleNotifier {
+  _RecordingWeeklyNotifier(this._delegate);
+
+  final _RecordingWeekly _delegate;
 
   @override
-  Future<List<WeeklySchedule>> build() async => _initial;
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      _delegate._initial;
 
   @override
   Future<void> save(WeeklySchedule schedule, {String? scheduleId}) async {
-    saveCalled = true;
-    savedSchedule = schedule;
-    savedScheduleId = scheduleId;
+    _delegate.saveCalled = true;
+    _delegate.savedSchedule = schedule;
+    _delegate.savedScheduleId = scheduleId;
     state = AsyncData<List<WeeklySchedule>>(<WeeklySchedule>[schedule]);
     // Mirror production: a successful save invalidates the effective cache so
     // the calendar repaints.
@@ -216,8 +249,8 @@ class _RecordingWeekly extends WeeklyScheduleNotifier {
 
   @override
   Future<void> delete(String scheduleId) async {
-    deleteCalled = true;
-    deletedId = scheduleId;
+    _delegate.deleteCalled = true;
+    _delegate.deletedId = scheduleId;
     state = const AsyncData<List<WeeklySchedule>>(<WeeklySchedule>[]);
     ref.invalidate(effectiveScheduleProvider);
   }
@@ -228,20 +261,30 @@ class _RecordingWeekly extends WeeklyScheduleNotifier {
 /// (the swallowed `Failure`) and performing NO `effectiveScheduleProvider`
 /// invalidation. The screen reads this post-await `hasError` state and must
 /// surface the error WITHOUT popping or showing the saved snackbar.
-class _FailingWeekly extends WeeklyScheduleNotifier {
+///
+/// Split into a holder + per-element wrapper for the SAME reason
+/// `_RecordingWeekly`/`_RecordingWeeklyNotifier` are — see that pair's doc.
+class _FailingWeekly {
   _FailingWeekly(this._initial);
 
   final List<WeeklySchedule> _initial;
 
   bool saveCalled = false;
   bool deleteCalled = false;
+}
+
+class _FailingWeeklyNotifier extends WeeklyScheduleNotifier {
+  _FailingWeeklyNotifier(this._delegate);
+
+  final _FailingWeekly _delegate;
 
   @override
-  Future<List<WeeklySchedule>> build() async => _initial;
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      _delegate._initial;
 
   @override
   Future<void> save(WeeklySchedule schedule, {String? scheduleId}) async {
-    saveCalled = true;
+    _delegate.saveCalled = true;
     // Mirror AsyncValue.guard swallowing the Failure into AsyncError; on
     // failure the effective cache is left intact (no invalidate).
     state = AsyncError<List<WeeklySchedule>>(
@@ -252,7 +295,7 @@ class _FailingWeekly extends WeeklyScheduleNotifier {
 
   @override
   Future<void> delete(String scheduleId) async {
-    deleteCalled = true;
+    _delegate.deleteCalled = true;
     state = AsyncError<List<WeeklySchedule>>(
       const ServerFailure(statusCode: 500),
       StackTrace.current,
@@ -263,14 +306,15 @@ class _FailingWeekly extends WeeklyScheduleNotifier {
 /// Never-completing weekly load — the loading branch.
 class _LoadingWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() =>
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) =>
       Completer<List<WeeklySchedule>>().future; // never completes
 }
 
 /// Errors on load — the error/retry branch.
 class _ErrorWeekly extends WeeklyScheduleNotifier {
   @override
-  Future<List<WeeklySchedule>> build() async => throw Exception('weekly boom');
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) async =>
+      throw Exception('weekly boom');
 }
 
 /// A trivial effective-schedule fake that counts builds, so a test can prove
@@ -278,11 +322,61 @@ class _ErrorWeekly extends WeeklyScheduleNotifier {
 class _CountingEffective extends EffectiveScheduleNotifier {
   static int builds = 0;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
     builds++;
     return const <EffectiveDay>[];
   }
 }
+
+/// Phase 311 — settled INDEPENDENT_MASTER session so `scheduleEditableProvider`
+/// resolves `true`. This whole file exercises the EDITABLE path (it is the
+/// editor itself); without this override the new self-check would resolve
+/// `false` (no Authenticated session) and hide every control this suite
+/// asserts on. Mirrors `day_hours_sheet_test.dart`'s identical stub.
+class _StubAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-1',
+      email: 'master1@beautica.ua',
+      role: UserRole.independentMaster,
+      firstName: 'Оля',
+      lastName: 'Коваль',
+    ),
+    accessToken: 'token-1',
+  );
+}
+
+/// Phase 312 — every schedule screen/editor now resolves `ownScheduleScopeProvider`
+/// (hence `masterProfileProvider`) UNCONDITIONALLY at the top of `build()`
+/// whenever `widget.scope` is null — not only when something actually reads
+/// `scheduleRepositoryProvider` through a real (non-faked) notifier. Without
+/// this stub `masterProfileProvider` falls through to the REAL
+/// `masterRepositoryProvider` → a genuine Dio HTTP attempt, which leaves a
+/// pending platform timer that trips `!timersPending` on any test that never
+/// lets it settle (e.g. the "loading shows a spinner" case, which pumps
+/// exactly once by design). Resolves to the SAME id `_StubAuthNotifier`
+/// authenticates as, so `ownScheduleScopeProvider` yields
+/// `ScheduleScope.own(masterId: 'master-1')` — see `_kOwnScope` below.
+class _StubMasterProfile extends MasterProfile {
+  @override
+  Future<Master> build() async => const Master(
+    id: 'master-1',
+    firstName: 'Оля',
+    lastName: 'Коваль',
+    avgRating: null,
+    reviewCount: 0,
+    type: MasterType.independentMaster,
+  );
+}
+
+/// What `ownScheduleScopeProvider` resolves to for every test in this file
+/// (none pass an explicit `scope:` to `WeeklyTemplateEditorScreen`) — see
+/// `_StubMasterProfile`'s doc.
+const ScheduleScope _kOwnScope = ScheduleScope.own(masterId: 'master-1');
 
 // ───────────────────────────────────────────────────────────────────────────
 // Harness.
@@ -298,8 +392,30 @@ Future<ProviderContainer> _pump(
 }) async {
   final ProviderContainer container = ProviderContainer(
     retry: beauticaProviderRetry,
-    overrides: overrides.cast(),
+    // Phase 311 — default editable session, appended (not prepended) so a
+    // caller wanting a different role would need to pass their own
+    // authProvider override BEFORE this one loses — no current caller does,
+    // so this is purely additive.
+    overrides: <Object>[
+      ...overrides,
+      authProvider.overrideWith(_StubAuthNotifier.new),
+      // Phase 312 — see `_StubMasterProfile`'s doc.
+      masterProfileProvider.overrideWith(_StubMasterProfile.new),
+    ].cast(),
   );
+  // Phase 312 — resolve `masterProfileProvider` BEFORE the first pump, so
+  // `ownScheduleScopeProvider` (which every schedule screen/editor watches
+  // unconditionally when `scope` is null) already sees a SETTLED value on
+  // the widget's very FIRST build. Without this, the screen's first build
+  // resolves `ScheduleScope.own(masterId: '')` (masterProfileProvider still
+  // AsyncLoading), then rebuilds a microtask later onto
+  // `own(masterId: 'master-1')` once it settles — a genuine mid-test
+  // FAMILY-KEY SWITCH on `weeklyScheduleProvider`/`effectiveScheduleProvider`,
+  // which this file's `.overrideWith(() => weekly)` class-based overrides
+  // hand the SAME notifier OBJECT to for both keys — attaching one Notifier
+  // instance to two different provider elements is not a supported shape and
+  // was observed to corrupt this suite's state assertions.
+  await container.read(masterProfileProvider.future);
   final GoRouter router = GoRouter(
     initialLocation: RouteNames.scheduleWeeklyEditor,
     routes: <RouteBase>[
@@ -552,7 +668,9 @@ void main() {
           tester,
           overrides: <Object>[
             weeklyScheduleProvider.overrideWith(
-              () => _RecordingWeekly(const <WeeklySchedule>[]),
+              () => _RecordingWeeklyNotifier(
+                _RecordingWeekly(const <WeeklySchedule>[]),
+              ),
             ),
             effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           ],
@@ -1047,7 +1165,9 @@ void main() {
           tester,
           overrides: <Object>[
             weeklyScheduleProvider.overrideWith(
-              () => _RecordingWeekly(const <WeeklySchedule>[]),
+              () => _RecordingWeeklyNotifier(
+                _RecordingWeekly(const <WeeklySchedule>[]),
+              ),
             ),
             effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           ],
@@ -1262,7 +1382,7 @@ void main() {
 
         // Watch an effective window so we can observe the invalidation rebuild.
         final ScheduleRange range = ScheduleRange.month(_clock);
-        await c.read(effectiveScheduleProvider(range).future);
+        await c.read(effectiveScheduleProvider(_kOwnScope, range).future);
         final int buildsBefore = _CountingEffective.builds;
 
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
@@ -1272,7 +1392,7 @@ void main() {
 
         // The editor's success branch ran: the effective cache was invalidated
         // (so the calendar refetches) …
-        await c.read(effectiveScheduleProvider(range).future);
+        await c.read(effectiveScheduleProvider(_kOwnScope, range).future);
         expect(
           _CountingEffective.builds,
           greaterThan(buildsBefore),
@@ -2921,10 +3041,13 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: <Object>[
           weeklyScheduleProvider.overrideWith(
-            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+            () => _RecordingWeeklyNotifier(
+              _RecordingWeekly(<WeeklySchedule>[_template()]),
+            ),
           ),
           effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
       );
       addTearDown(c.dispose);
@@ -3013,10 +3136,13 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: <Object>[
           weeklyScheduleProvider.overrideWith(
-            () => _RecordingWeekly(<WeeklySchedule>[_template()]),
+            () => _RecordingWeeklyNotifier(
+              _RecordingWeekly(<WeeklySchedule>[_template()]),
+            ),
           ),
           effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
+          authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
       );
       addTearDown(c.dispose);
@@ -3156,7 +3282,7 @@ Finder _dayCell(int day) => find.byWidgetPredicate(
 /// Editor overrides bound to a recording weekly notifier + a counting effective
 /// notifier (so the invalidation path is observable).
 List<Object> _overridesFor(_RecordingWeekly weekly) => <Object>[
-  weeklyScheduleProvider.overrideWith(() => weekly),
+  weeklyScheduleProvider.overrideWith(() => _RecordingWeeklyNotifier(weekly)),
   effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
 ];
 
@@ -3164,7 +3290,7 @@ List<Object> _overridesFor(_RecordingWeekly weekly) => <Object>[
 /// AsyncError) + a counting effective notifier (so the absence of an
 /// invalidation on failure is observable).
 List<Object> _failingOverridesFor(_FailingWeekly weekly) => <Object>[
-  weeklyScheduleProvider.overrideWith(() => weekly),
+  weeklyScheduleProvider.overrideWith(() => _FailingWeeklyNotifier(weekly)),
   effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
 ];
 
@@ -3175,7 +3301,9 @@ Future<ProviderContainer> _pumpLoaded(
   tester,
   overrides: <Object>[
     weeklyScheduleProvider.overrideWith(
-      () => _RecordingWeekly(<WeeklySchedule>[template]),
+      () => _RecordingWeeklyNotifier(
+        _RecordingWeekly(<WeeklySchedule>[template]),
+      ),
     ),
     effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
   ],
@@ -3188,7 +3316,8 @@ Future<ProviderContainer> _pumpEmpty(WidgetTester tester) => _pump(
   tester,
   overrides: <Object>[
     weeklyScheduleProvider.overrideWith(
-      () => _RecordingWeekly(const <WeeklySchedule>[]),
+      () =>
+          _RecordingWeeklyNotifier(_RecordingWeekly(const <WeeklySchedule>[])),
     ),
     effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
   ],
@@ -3239,7 +3368,11 @@ Future<ProviderContainer> _pumpWithClock(
 }) async {
   final ProviderContainer container = ProviderContainer(
     retry: beauticaProviderRetry,
-    overrides: overrides.cast(),
+    // Phase 311 — see [_pump]'s identical comment.
+    overrides: <Object>[
+      ...overrides,
+      authProvider.overrideWith(_StubAuthNotifier.new),
+    ].cast(),
   );
   final GoRouter router = GoRouter(
     initialLocation: RouteNames.scheduleWeeklyEditor,

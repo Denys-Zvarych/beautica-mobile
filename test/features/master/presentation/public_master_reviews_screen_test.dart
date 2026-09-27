@@ -148,10 +148,11 @@ void main() {
   });
 
   // mobile-qa LOW — the sort-reorder path is owned by the shared
-  // MasterReviewsBody and was previously only exercised transitively via
-  // MasterReceivedReviewsScreen's own sort-re-query test. This pins the same
-  // behaviour for THIS screen's masterId, hosted under a real GoRouter
-  // (required for the sort sheet's `context.pop(option)`).
+  // MasterReviewsBody and was previously only exercised transitively via the
+  // now-deleted own-master «Мої відгуки» screen's own sort-re-query test
+  // (Phase 351, D11). This pins the same behaviour for THIS screen's
+  // masterId, hosted under a real GoRouter (required for the sort sheet's
+  // `context.pop(option)`).
   group('sort re-query', () {
     testWidgets(
       'selecting a new sort re-keys the provider and reorders the list to '

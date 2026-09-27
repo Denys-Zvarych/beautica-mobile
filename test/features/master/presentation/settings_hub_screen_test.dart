@@ -112,6 +112,117 @@ GoRouter _hubRouter() => GoRouter(
   ],
 );
 
+/// mobile-qa (2026-09-01) — same hub, rooted at the SALON_MASTER `/staff/
+/// settings` location and carrying stub destinations for the SALON_MASTER
+/// additive-param wiring (`personalInfoRoute`, `contactsRoute`,
+/// `fallbackHomeRoute`). `contactsEnabled: true` — the «Контакти» row is a
+/// live phone-only push target for this role (2026-09-01).
+GoRouter _staffHubRouter() => GoRouter(
+  initialLocation: RouteNames.salonMasterSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        contactsEnabled: true,
+        contactsRoute: RouteNames.salonMasterEditContacts,
+        personalInfoRoute: RouteNames.salonMasterEditPersonal,
+        fallbackHomeRoute: RouteNames.salonMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditContacts,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-contacts'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+    ),
+  ],
+);
+
+/// A `_staffHubRouter` variant that still passes `contactsEnabled: false` —
+/// exercises the DISABLED «незабаром» rendering, which no current call site
+/// uses but remains a general-purpose, tested capability of the widget (see
+/// its class doc).
+GoRouter _staffHubRouterContactsDisabled() => GoRouter(
+  initialLocation: RouteNames.salonMasterSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.salonMasterSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        contactsEnabled: false,
+        personalInfoRoute: RouteNames.salonMasterEditPersonal,
+        fallbackHomeRoute: RouteNames.salonMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.salonMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-staff-profile'))),
+    ),
+  ],
+);
+
+/// DEBUG-chain fix (2026-09-26) — the SALON_ADMIN own-profile settings hub
+/// (`RouteNames.adminSettings`, `/profile/admin/settings`). Real wiring:
+/// `showLocation: false` (an admin has no personal location),
+/// `fallbackHomeRoute: RouteNames.adminOwnProfile`.
+///
+/// Phase 356 — `contactsEnabled` is no longer passed `false` here: both rows
+/// went LIVE, wired to `personalInfoRoute: RouteNames.adminEditPersonal` /
+/// `contactsRoute: RouteNames.adminEditContacts` — the exact real
+/// `app_router.dart` wiring. (`personalInfoEnabled` itself was removed
+/// entirely — audit-fix cycle 1, 2026-09-26 — once no caller anywhere passed
+/// it `false`; «Особисті дані» is now unconditionally live.)
+GoRouter _adminHubRouter() => GoRouter(
+  initialLocation: RouteNames.adminSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.adminSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        personalInfoRoute: RouteNames.adminEditPersonal,
+        contactsRoute: RouteNames.adminEditContacts,
+        fallbackHomeRoute: RouteNames.adminOwnProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.adminEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-admin-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.adminEditContacts,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-admin-contacts'))),
+    ),
+    GoRoute(
+      path: RouteNames.settings,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-admin-account'))),
+    ),
+    GoRoute(
+      path: RouteNames.adminOwnProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-admin-profile'))),
+    ),
+  ],
+);
+
 void main() {
   group('SettingsHubScreen navigation rows', () {
     // (rowKey, destinationSentinelKey)
@@ -199,6 +310,12 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — `_loggingOut` (the
+      // re-entrancy guard) flips synchronously on this tap, but it is no
+      // longer bound to `SettingsRow(loading:)`; only `_loggingOutLoading`
+      // drives the spinner, and it flips true only AFTER confirm. So
+      // nothing is ticking yet here — a real `pumpAndSettle` works again
+      // (stronger sync than the bounded pump it replaced).
       await tester.pumpAndSettle();
 
       expect(find.byType(AlertDialog), findsOneWidget);
@@ -224,6 +341,9 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-cancel')));
       await tester.pumpAndSettle();
@@ -250,11 +370,16 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
       // Pump frames to drive the dialog's deterministic dismiss transition.
-      // We cannot pumpAndSettle because logout() blocks forever by design (the
-      // in-flight guard test fixture), so we advance just the pop animation.
+      // We cannot pumpAndSettle here — confirming flips `_loggingOutLoading`
+      // true immediately before `logout()`, which blocks forever by design
+      // (the in-flight guard test fixture) and keeps its spinner ticking —
+      // so we advance just the pop animation.
       await tester.pump(); // apply ctx.pop(true) + start logout()
       await tester.pump(const Duration(milliseconds: 300)); // dialog dismiss
 
@@ -296,6 +421,10 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — see the identical note
+        // above: the spinner-driving flag no longer flips until AFTER
+        // confirm, so nothing is ticking here — a real `pumpAndSettle`
+        // works again.
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
         await tester.pumpAndSettle();
@@ -333,13 +462,23 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — the spinner-driving flag
+        // (`_loggingOutLoading`) does not flip on this tap (only the
+        // re-entrancy guard `_loggingOut` does, and it is unbound), so
+        // nothing is ticking yet — a real `pumpAndSettle` works here.
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+        // From here `_loggingOutLoading` flips true immediately before
+        // `logout()`, which blocks forever by design (`_TrackingAuthNotifier`)
+        // and neither flag is reset on the (never-reached) success path —
+        // so every subsequent step in this test uses bounded pumps, never
+        // `pumpAndSettle`.
         await tester.pump(); // logout() now in flight (blocks forever)
 
         // Re-open + re-confirm: the inFlight guard must short-circuit.
         await tester.tap(find.byKey(const Key('row-logout')));
-        await tester.pumpAndSettle();
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
         if (find.byKey(const Key('btn-logout-confirm')).evaluate().isNotEmpty) {
           await tester.tap(find.byKey(const Key('btn-logout-confirm')));
           await tester.pump();
@@ -372,6 +511,9 @@ void main() {
       await tester.ensureVisible(find.byKey(const Key('row-logout')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('row-logout')));
+      // mobile-perf MEDIUM fix (2026-09-08) — see the identical note above:
+      // the spinner-driving flag no longer flips until AFTER confirm, so
+      // nothing is ticking here — a real `pumpAndSettle` works again.
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('btn-logout-confirm')));
       await tester.pumpAndSettle();
@@ -450,6 +592,10 @@ void main() {
         await tester.ensureVisible(find.byKey(const Key('row-logout')));
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('row-logout')));
+        // mobile-perf MEDIUM fix (2026-09-08) — see the identical note
+        // above: the spinner-driving flag no longer flips until AFTER
+        // confirm, so nothing is ticking here — a real `pumpAndSettle`
+        // works again.
         await tester.pumpAndSettle();
 
         expect(
@@ -461,5 +607,322 @@ void main() {
         );
       },
     );
+  });
+
+  // ===========================================================================
+  // mobile-qa (2026-09-01) — SALON_MASTER additive-param wiring
+  // (`showLocation`, `contactsEnabled`, `contactsRoute`, `personalInfoRoute`,
+  // `fallbackHomeRoute`). Debt item 3: `showLocation:`/`contactsEnabled:` had
+  // NO consumer outside `settings_hub_screen.dart`/`app_router.dart` before
+  // this file. `contactsEnabled: false` is no longer any current call site's
+  // wiring — SALON_MASTER's «Контакти» went live (phone-only) the same day —
+  // but stays a tested, general-purpose capability via
+  // `_staffHubRouterContactsDisabled`.
+  // ===========================================================================
+  group('SALON_MASTER additive params (showLocation / contactsEnabled / '
+      'personalInfoRoute / fallbackHomeRoute)', () {
+    testWidgets('showLocation: false omits the «Локація» row entirely', (
+      tester,
+    ) async {
+      final router = _staffHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      // Sanity: this really is the hub, not an empty page.
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+    });
+
+    testWidgets(
+      'the default (INDEPENDENT_MASTER) hub is UNCHANGED — showLocation '
+      'still defaults to true',
+      (tester) async {
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('row-location')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'contactsEnabled: false renders the «Контакти» row PRESENT but with '
+      'Semantics(enabled: false), and absorbs the pointer before it reaches '
+      'onTap (general-purpose capability — no current call site passes '
+      'false; SALON_MASTER\'s own wiring is contactsEnabled: true, covered '
+      'below)',
+      (tester) async {
+        final router = _staffHubRouterContactsDisabled();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        final Finder row = find.byKey(const Key('row-contacts'));
+        expect(row, findsOneWidget, reason: 'present, not dropped');
+
+        final Semantics semantics = tester.widget<Semantics>(
+          find.descendant(of: row, matching: find.byType(Semantics)).first,
+        );
+        expect(
+          semantics.properties.enabled,
+          isFalse,
+          reason:
+              'a screen reader must announce this row as unavailable, not '
+              'silently let a tap fall on the floor',
+        );
+
+        // M14 — a held pointer must never reach the row's GestureDetector.
+        // Asserting only "no navigation happened" would pass identically for
+        // an ABSORBED pointer and a merely-inert onTap; the AnimatedScale
+        // press-depression is the observable that distinguishes them (mirrors
+        // `admin_settings_screen_test.dart`'s identical probe).
+        final TestGesture gesture = await tester.startGesture(
+          tester.getCenter(row),
+        );
+        await tester.pump();
+        final Finder scaleFinder = find.descendant(
+          of: row,
+          matching: find.byType(AnimatedScale),
+        );
+        expect(
+          tester.widget<AnimatedScale>(scaleFinder).scale,
+          1.0,
+          reason:
+              'AbsorbPointer(absorbing: true) must swallow the pointer '
+              'before the row\'s GestureDetector sees onTapDown',
+        );
+        await gesture.cancel();
+        await tester.pumpAndSettle();
+
+        // Still on the hub — no route was pushed.
+        expect(find.byKey(const Key('stub-staff-personal')), findsNothing);
+        expect(row, findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'the default (INDEPENDENT_MASTER) hub keeps «Контакти» a live push '
+      'target — the additive param leaves every existing call site alone',
+      (tester) async {
+        final router = _hubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-contacts')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-contacts')), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '«Особисті дані» pushes personalInfoRoute (salonMasterEditPersonal)',
+      (tester) async {
+        final router = _staffHubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-personal')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-staff-personal')), findsOneWidget);
+      },
+    );
+
+    testWidgets('close button with no prior history goes(fallbackHomeRoute) = '
+        'salonMasterProfile, not masterProfile', (tester) async {
+      final router = _staffHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-close-hub')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('stub-staff-profile')),
+        findsOneWidget,
+        reason:
+            'canPop is false at the root of this router — the close '
+            'button must go(widget.fallbackHomeRoute), which for the '
+            'SALON_MASTER hub is /staff/profile, not the INDEPENDENT_'
+            'MASTER default /master/profile',
+      );
+    });
+  });
+
+  // ===========================================================================
+  // DEBUG-chain fix (2026-09-26) — SALON_ADMIN additive-param wiring
+  // (`showLocation: false`, `fallbackHomeRoute: adminOwnProfile`). The
+  // reported bug: the admin's tune button used to push «Акаунт» directly, so
+  // «Вийти» was unreachable and «Видалити акаунт» read as the terminal
+  // action. This group proves the hub, wired the way `RouteNames.
+  // adminSettings` actually wires it, renders «Вийти» as the reachable
+  // terminal row.
+  //
+  // Phase 356 — «Особисті дані» and «Контакти» went LIVE (previously
+  // PRESENT-BUT-DISABLED); this group now proves they push the real admin
+  // edit routes instead.
+  // ===========================================================================
+  group('SALON_ADMIN additive params (showLocation / personalInfoRoute / '
+      'contactsRoute / fallbackHomeRoute)', () {
+    testWidgets('showLocation: false omits the «Локація» row; row-personal, '
+        'row-contacts, row-account and row-logout are all live', (
+      tester,
+    ) async {
+      final router = _adminHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+      expect(find.byKey(const Key('row-contacts')), findsOneWidget);
+      expect(find.byKey(const Key('row-account')), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('row-logout')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('row-logout')),
+        findsOneWidget,
+        reason:
+            'THE FIX: «Вийти» must be a reachable row on the admin '
+            'settings hub — it never was before this route existed.',
+      );
+    });
+
+    // mobile-qa (2026-09-26, C4/Phase 356 QA pass) — the row ORDER itself was
+    // never asserted for the admin hub: every test above only checked
+    // presence/absence and push targets, which would pass identically if
+    // `settings_hub_screen.dart`'s `Column` children were reordered. Pins
+    // the real reading order (top to bottom): «Особисті дані» → «Контакти»
+    // → «Акаунт» → «Допомога» → (hairline) → «Вийти», matching the task's
+    // own row list and `settings_hub_screen.dart:212-330`. No `row-location`
+    // for this role (`showLocation: false`), so it is excluded from the
+    // sequence rather than merely skipped.
+    testWidgets(
+      'the admin hub rows read top-to-bottom in order: personal, contacts, '
+      'account, help, then logout',
+      (tester) async {
+        final router = _adminHubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        // Sanity: this role never renders row-location at all — an ordering
+        // assertion built only from the OTHER rows would stay green even if
+        // a location row silently reappeared out of place.
+        expect(find.byKey(const Key('row-location')), findsNothing);
+
+        final double yPersonal = tester
+            .getTopLeft(find.byKey(const Key('row-personal')))
+            .dy;
+        final double yContacts = tester
+            .getTopLeft(find.byKey(const Key('row-contacts')))
+            .dy;
+        final double yAccount = tester
+            .getTopLeft(find.byKey(const Key('row-account')))
+            .dy;
+        final double yHelp = tester
+            .getTopLeft(find.byKey(const Key('row-help')))
+            .dy;
+        final double yLogout = tester
+            .getTopLeft(find.byKey(const Key('row-logout')))
+            .dy;
+
+        expect(
+          yPersonal,
+          lessThan(yContacts),
+          reason: '«Особисті дані» must sit above «Контакти»',
+        );
+        expect(
+          yContacts,
+          lessThan(yAccount),
+          reason: '«Контакти» must sit above «Акаунт»',
+        );
+        expect(
+          yAccount,
+          lessThan(yHelp),
+          reason: '«Акаунт» must sit above «Допомога»',
+        );
+        expect(
+          yHelp,
+          lessThan(yLogout),
+          reason:
+              '«Допомога» must sit above the terminal «Вийти» row, on the '
+              'far side of the hairline divider',
+        );
+      },
+    );
+
+    testWidgets(
+      '«Особисті дані» pushes personalInfoRoute (adminEditPersonal)',
+      (tester) async {
+        final router = _adminHubRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(router);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-personal')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-admin-personal')), findsOneWidget);
+      },
+    );
+
+    testWidgets('«Контакти» pushes contactsRoute (adminEditContacts)', (
+      tester,
+    ) async {
+      final router = _adminHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-contacts')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-admin-contacts')), findsOneWidget);
+    });
+
+    testWidgets('row-account pushes RouteNames.settings', (tester) async {
+      final router = _adminHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-account')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-admin-account')), findsOneWidget);
+    });
+
+    testWidgets('close button with no prior history goes(fallbackHomeRoute) = '
+        'adminOwnProfile', (tester) async {
+      final router = _adminHubRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-close-hub')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-admin-profile')), findsOneWidget);
+    });
   });
 }

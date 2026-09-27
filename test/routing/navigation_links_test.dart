@@ -62,6 +62,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -78,6 +79,7 @@ import 'package:beautica_mobile/features/auth/presentation/register_step_3_scree
 import 'package:beautica_mobile/features/auth/domain/reset_password_args.dart';
 import 'package:beautica_mobile/features/auth/presentation/reset_password_screen.dart';
 import 'package:beautica_mobile/features/auth/state/accept_invite_notifier.dart';
+import 'package:beautica_mobile/features/auth/state/login_notice_notifier.dart';
 import 'package:beautica_mobile/features/auth/state/register_draft_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
@@ -299,6 +301,128 @@ void main() {
       'masterPublicProfile()': RouteNames.masterPublicProfile(kSampleId),
       'masterPublicReviews()': RouteNames.masterPublicReviews(kSampleId),
       'salonPublicProfile()': RouteNames.salonPublicProfile(kSampleId),
+      // Phase 21.2 — owner/admin editable salon profile + its settings page.
+      // Registered as STANDALONE top-level routes (see `app_router.dart`'s
+      // own comment on why they cannot nest under `/salons/:salonId`).
+      'salonManage()': RouteNames.salonManage(kSampleId),
+      'salonManageSettings()': RouteNames.salonManageSettings(kSampleId),
+      // Phase 21.4 — the «Запросити персонал» form (form only). Standalone
+      // top-level route, same rationale as `salonManage()`/
+      // `salonManageSettings()` above.
+      'salonInviteStaff()': RouteNames.salonInviteStaff(kSampleId),
+      // Phase 21.11 — «Надіслані запрошення», the sent-but-unaccepted staff
+      // invitations. Standalone top-level route (owner + admin, gated by
+      // `salonManageGuard`), same rationale as `salonManage()`/
+      // `salonInviteStaff()` above.
+      'salonPendingInvites()': RouteNames.salonPendingInvites(kSampleId),
+      // Phase 21.5 — staff member (master OR admin) management profile.
+      // Standalone top-level route, same rationale as `salonManage()`/
+      // `salonManageSettings()` above.
+      'salonManageStaffMember()': RouteNames.salonManageStaffMember(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 21.6 — the admin-settings page and its rotate-destination
+      // picker, two literal leaves below the already-resolved
+      // `:salonId`/`:memberId` captures. Standalone top-level routes, same
+      // rationale as `salonManageStaffMember()` directly above; both reuse
+      // `salonManageGuard` (owner + admin), matching the owner+admin backend
+      // gate on all three endpoints they call.
+      'salonManageStaffSettings()': RouteNames.salonManageStaffSettings(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageAdminMove()': RouteNames.salonManageAdminMove(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 312 (D9) — a chosen master's «Графік роботи», reached from the
+      // D3 `SettingsRow` on `SalonStaffProfileScreen`. Standalone top-level
+      // route, same rationale as `salonManageStaffMember()` above; gated by
+      // `salonManageGuard`.
+      'salonManageStaffSchedule()': RouteNames.salonManageStaffSchedule(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 312 (D9) — the PARAMETERISED weekly-template editor under the
+      // same subtree; always pushed with `extra:` carrying the resolved
+      // `ScheduleScope` (see `app_router.dart`'s own doc).
+      'salonManageStaffScheduleWeekly()':
+          RouteNames.salonManageStaffScheduleWeekly(kSampleId, kSampleId),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/day` — auth-guarded but NOT a live UI destination
+      // (`DayHoursSheet` is a direct modal for either scope shape, never
+      // routed). See `app_router.dart`'s own doc for the full reasoning.
+      'salonManageStaffScheduleDay()': RouteNames.salonManageStaffScheduleDay(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 312 (D9) — registered for symmetry with the root
+      // `/schedule/copy` — same "dead but registered" reasoning as
+      // `salonManageStaffScheduleDay()` immediately above.
+      'salonManageStaffScheduleCopy()': RouteNames.salonManageStaffScheduleCopy(
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 317 — a chosen master's «Послуги» and the two leaves under it.
+      // The three render the SAME `ServicesListScreen` / `ServiceSetupScreen`
+      // / `ServiceEditScreen` the INDEPENDENT_MASTER's own `/services*` routes
+      // do, inside ONE `ProviderScope` supplied by the subtree's `ShellRoute`.
+      // Each leaf keeps its own full path and its own `salonManageGuard`, so
+      // `findMatch` resolves each independently — exactly like every other row
+      // in this map.
+      'salonManageStaffServices()': RouteNames.salonManageStaffServices(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceSetup()': RouteNames.salonManageStaffServiceSetup(
+        kSampleId,
+        kSampleId,
+      ),
+      'salonManageStaffServiceEdit()': RouteNames.salonManageStaffServiceEdit(
+        kSampleId,
+        kSampleId,
+        kSampleId,
+      ),
+      // Phase 21.10 — the three lightweight edit-form screens the (unbuilt)
+      // Phase 21.9 settings hub will push to. Standalone top-level routes,
+      // same rationale as `salonManage()`/`salonManageSettings()` above.
+      'salonProfileEdit()': RouteNames.salonProfileEdit(kSampleId),
+      'salonAddressEdit()': RouteNames.salonAddressEdit(kSampleId),
+      'salonContactsEdit()': RouteNames.salonContactsEdit(kSampleId),
+      // Phase 21.1 — My Salons Hub, the SALON_OWNER landing. A literal
+      // `/salons/mine` registered BEFORE the dynamic `/salons/:salonId`
+      // above so it is not shadowed by it (see `RouteNames.mySalons`'s own
+      // doc).
+      'mySalons': RouteNames.mySalons,
+      // Phase 21.8 — the shared SALON_OWNER/SALON_ADMIN landing (Salon Shell
+      // resolver stopover). A SECOND literal under `/salons/`, also
+      // registered before the dynamic `/salons/:salonId` route (see
+      // `RouteNames.salonHome`'s own doc).
+      'salonHome': RouteNames.salonHome,
+      // Phase 21.3 — the «+ Додати салон» form. A THIRD literal under
+      // `/salons/`, also registered before the dynamic `/salons/:salonId`
+      // route (see `RouteNames.registerSalon`'s own doc).
+      'registerSalon': RouteNames.registerSalon,
+      // Phase 21.14 — the owner's own first-person profile, pushed
+      // stand-alone. The SAME screen is also hosted as the owner shell's
+      // «Профіль» tab, but that is an `IndexedStack` slot rather than a
+      // nested route, so this constant is the only registration.
+      'ownerOwnProfile': RouteNames.ownerOwnProfile,
+      // Phase 21.16 — the ADMIN's own first-person profile, the literal
+      // sibling of the one above. Same shape: also hosted as the admin
+      // shell's «Профіль» tab via an `IndexedStack` slot rather than a nested
+      // route, so this constant is the only registration.
+      'adminOwnProfile': RouteNames.adminOwnProfile,
+      // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN's own settings hub,
+      // reached from `adminOwnProfile`'s trailing tune action.
+      'adminSettings': RouteNames.adminSettings,
+      // Phase 356 — the admin hub's «Особисті дані» / «Контакти» edit leaves,
+      // reusing the CLIENT editor screens via `doneRoute`.
+      'adminEditPersonal': RouteNames.adminEditPersonal,
+      'adminEditContacts': RouteNames.adminEditContacts,
+      // Phase 21.8 — the salon-scoped bottom-nav shell.
+      'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,
       'bookingSlots': RouteNames.bookingSlots,
       'bookingSlotsTime': RouteNames.bookingSlotsTime,
@@ -325,7 +449,36 @@ void main() {
       'masterEditPersonal': RouteNames.masterEditPersonal,
       'masterEditContacts': RouteNames.masterEditContacts,
       'masterEditLocation': RouteNames.masterEditLocation,
-      'masterReceivedReviews': RouteNames.masterReceivedReviews,
+      // SALON_MASTER's own personal-profile surface — fixes the "blank
+      // home" landing bug (see `role_home.dart`). Standalone top-level
+      // routes, same rationale as `masterProfile`/`masterMenu`/
+      // `masterEditPersonal` above.
+      'salonMasterProfile': RouteNames.salonMasterProfile,
+      'salonMasterSettings': RouteNames.salonMasterSettings,
+      'salonMasterEditPersonal': RouteNames.salonMasterEditPersonal,
+      'salonMasterEditContacts': RouteNames.salonMasterEditContacts,
+      // Phase 309 — SALON_MASTER's read-only «Графік роботи», reusing
+      // MasterScheduleScreen at its own /staff/* path (see route_names.dart's
+      // doc). Same rationale as the salonMaster* rows immediately above.
+      'salonMasterSchedule': RouteNames.salonMasterSchedule,
+      // Phase 321 — SALON_MASTER's read-only «Послуги», reusing
+      // ServicesListScreen(writable: false) at its own /staff/* path (see
+      // route_names.dart's doc). Same rationale as `salonMasterSchedule`
+      // immediately above.
+      'salonMasterServices': RouteNames.salonMasterServices,
+      // Phase 330/332 — SALON_MASTER's read-only «Записи» and its three
+      // drill-ins, reusing MasterBookingsScreen / MasterArchiveScreen /
+      // BookingDetailScreen / LeaveClientFeedbackScreen at their own /staff/*
+      // paths (see route_names.dart's docs). Same rationale as
+      // `salonMasterSchedule` / `salonMasterServices` above.
+      'salonMasterBookings': RouteNames.salonMasterBookings,
+      'salonMasterBookingsArchive': RouteNames.salonMasterBookingsArchive,
+      'salonMasterBookingDetail()': RouteNames.salonMasterBookingDetail(
+        kSampleId,
+      ),
+      'salonMasterClientReview()': RouteNames.salonMasterClientReview(
+        kSampleId,
+      ),
       'services': RouteNames.services,
       'serviceEdit()': RouteNames.serviceEdit(kSampleId),
       'serviceSetup': RouteNames.serviceSetup,
@@ -338,6 +491,27 @@ void main() {
       // (`app_router.dart`, near the `/salon/bookings/:bookingId` sibling
       // group) — see [RouteNames.salonStaffBookingNew]'s own doc.
       'salonStaffBookingNew': RouteNames.salonStaffBookingNew,
+      // Phase 344 — the salon board's «Архів», the SECOND literal sibling
+      // under `/salon/bookings`, registered (like `new`) BEFORE the dynamic
+      // `:bookingId` below. Reuses `MasterArchiveScreen` parameterised with
+      // the salon scope; see `route_names.dart`'s doc and
+      // `test/routing/salon_bookings_route_shadowing_test.dart` for the
+      // ordering pin.
+      'salonStaffBookingsArchive': RouteNames.salonStaffBookingsArchive,
+      // Phase 21.12 — the salon «Записи» board's OWNER-gated drill-in,
+      // registered as the dynamic sibling declared AFTER the literal `new`
+      // above (the order is what resolves them — see
+      // `test/routing/salon_bookings_route_shadowing_test.dart`).
+      'salonStaffBookingDetail()': RouteNames.salonStaffBookingDetail(
+        kSampleId,
+      ),
+      // Phase 21.12 — the owner/admin «ВІДГУК ПРО КЛІЄНТА», the twin of
+      // `salonMasterClientReview` above. Registered because
+      // `Booking.providerCanReviewClient` is TRUE for a salon owner/admin
+      // (its provider-authority leg is a union whose salon disjunct admits
+      // both), so the CTA renders on the drill-in and needs a `/salon/*`
+      // target instead of bouncing off the `/master/*` gate.
+      'salonStaffClientReview()': RouteNames.salonStaffClientReview(kSampleId),
     };
 
     // Deliberate exclusions. `/master/working-hours` was retired in Phase 6.2
@@ -468,148 +642,427 @@ void main() {
   // success — it deliberately leaves navigation to the router's refresh
   // listener. So this test wires authRedirect into the minimal GoRouter and
   // asserts that the router resolves to / after a successful accept.
-  group('NL-22: /invite/accept success → / via router redirect', () {
-    testWidgets('NL-22: tapping invite_accept CTA with valid form and successful '
-        'repository call causes the router to navigate to /', (tester) async {
-      const kToken = 'valid-invite-token';
+  group('NL-22: /invite/accept success → /staff/profile via router redirect', () {
+    testWidgets(
+      'NL-22: tapping invite_accept CTA with valid form and successful '
+      'repository call causes the router to navigate to /staff/profile',
+      (tester) async {
+        const kToken = 'valid-invite-token';
 
-      final validInvite = InviteDetails(
-        email: 'masha@salon.ua',
-        role: UserRole.salonMaster,
-        expiresAt: DateTime.now().add(const Duration(hours: 48)),
-      );
-
-      // We need a ProviderScope so we can override acceptInviteProvider,
-      // authRepositoryProvider, and secureStorageProvider simultaneously.
-      // The router's redirect calls authRedirectForLocation with a captured
-      // session — we capture it via authProvider.
-      final repo = FakeAuthRepository();
-      // Force acceptInvite() to return a salonMaster user so the role-based
-      // router redirect lands on /home (salonMaster has no dedicated route yet).
-      repo.acceptInviteResult = (
-        const User(
-          id: 'invited-u1',
+        final validInvite = InviteDetails(
           email: 'masha@salon.ua',
           role: UserRole.salonMaster,
-          firstName: 'Марія',
-          lastName: 'Бондар',
-        ),
-        const AuthTokens(
-          accessToken: 'access-token',
-          refreshToken: 'refresh-token',
-        ),
-      );
-      final storage = FakeSecureStorage();
+          expiresAt: DateTime.now().add(const Duration(hours: 48)),
+        );
 
-      // A container that starts with an unauthenticated session and
-      // transitions to Authenticated after acceptInvite() succeeds.
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
-        overrides: [
-          authRepositoryProvider.overrideWith((_) => repo),
-          secureStorageProvider.overrideWith((_) => storage),
-          acceptInviteProvider(
-            kToken,
-          ).overrideWith(() => _SyncInviteNotifier(validInvite)),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      // Build a minimal router that wires the REAL authRedirect so the
-      // authenticated→unauthOnlyRoute guard is exercised.
-      final router = GoRouter(
-        initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
-        // Fire the redirect on every navigation (same pattern as production).
-        refreshListenable: _ContainerListenable(container),
-        redirect: (context, state) =>
-            authRedirect(container.read(authProvider), state),
-        routes: <RouteBase>[
-          GoRoute(
-            path: RouteNames.acceptInvite,
-            builder: (context, state) {
-              final t = state.uri.queryParameters['token'] ?? '';
-              return AcceptInviteScreen(token: t);
-            },
+        // We need a ProviderScope so we can override acceptInviteProvider,
+        // authRepositoryProvider, and secureStorageProvider simultaneously.
+        // The router's redirect calls authRedirectForLocation with a captured
+        // session — we capture it via authProvider.
+        final repo = FakeAuthRepository();
+        // Force acceptInvite() to return a salonMaster user so the role-based
+        // router redirect lands on /staff/profile — the SALON_MASTER own-
+        // profile landing (fixes the "blank home" bug; see `role_home.dart`).
+        repo.acceptInviteResult = (
+          const User(
+            id: 'invited-u1',
+            email: 'masha@salon.ua',
+            role: UserRole.salonMaster,
+            firstName: 'Марія',
+            lastName: 'Бондар',
           ),
-          GoRoute(
-            path: RouteNames.home,
-            builder: (_, _) => const _Probe('home'),
+          const AuthTokens(
+            accessToken: 'access-token',
+            refreshToken: 'refresh-token',
           ),
-          GoRoute(
-            path: RouteNames.login,
-            builder: (_, _) => const _Probe('login'),
+        );
+        final storage = FakeSecureStorage();
+
+        // A container that starts with an unauthenticated session and
+        // transitions to Authenticated after acceptInvite() succeeds.
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            acceptInviteProvider(
+              kToken,
+            ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        // Build a minimal router that wires the REAL authRedirect so the
+        // authenticated→unauthOnlyRoute guard is exercised.
+        final router = GoRouter(
+          initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+          // Fire the redirect on every navigation (same pattern as production).
+          refreshListenable: _ContainerListenable(container),
+          redirect: (context, state) =>
+              authRedirect(container.read(authProvider), state),
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.acceptInvite,
+              builder: (context, state) {
+                final t = state.uri.queryParameters['token'] ?? '';
+                return AcceptInviteScreen(token: t);
+              },
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, _) => const _Probe('home'),
+            ),
+            GoRoute(
+              path: RouteNames.salonMasterProfile,
+              builder: (_, _) => const _Probe('staff-profile'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, _) => const _Probe('login'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
           ),
-        ],
-      );
-      addTearDown(router.dispose);
+        );
+        // Wait for acceptInviteProvider Stream to deliver AsyncData.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp.router(
-            routerConfig: router,
-            localizationsDelegates: AppLocalizations.localizationsDelegates,
-            supportedLocales: AppLocalizations.supportedLocales,
-            locale: const Locale('uk'),
-          ),
-        ),
-      );
-      // Wait for acceptInviteProvider Stream to deliver AsyncData.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.pumpAndSettle();
+        // Fill password (shared 8-char minimum — same policy as register/reset).
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPass12',
+        );
+        await tester.pump();
 
-      // Fill password (12-char minimum for invite path).
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_password')),
-        'StrongPass12',
-      );
-      await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_first_name')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_first_name')),
-        'Марія',
-      );
-      await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.pump();
 
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_last_name')),
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('invite_last_name')),
-        'Бондар',
-      );
-      await tester.pump();
+        // Phone is REQUIRED (InviteAcceptRequest.phoneNumber is @NotBlank) —
+        // without it _formValid stays false and the CTA never enables.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_phone')),
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
 
-      // Tap the accept CTA.
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('invite_accept')),
-      );
-      await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        // Tap the accept CTA.
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
 
-      // Let the async acceptInvite() complete and the session update settle.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 100));
-      await tester.pump(const Duration(milliseconds: 100));
+        // Let the async acceptInvite() complete and the session update settle.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 100));
 
-      // The router's redirect must have forwarded the now-authenticated user
-      // from /invite/accept (an unauthOnlyRoute) to /.
-      final currentUri = router.routerDelegate.currentConfiguration.uri
-          .toString();
-      expect(
-        currentUri,
-        equals(RouteNames.home),
-        reason:
-            'After a successful acceptInvite() the session transitions to '
-            'Authenticated. The router redirect fires because the user is now '
-            'authenticated on /invite/accept (an unauthOnlyRoute) and must be '
-            'forwarded to /.',
-      );
-    });
+        // The router's redirect must have forwarded the now-authenticated user
+        // from /invite/accept (an unauthOnlyRoute) to their role landing —
+        // roleHomePath(salonMaster) = /staff/profile.
+        final currentUri = router.routerDelegate.currentConfiguration.uri
+            .toString();
+        expect(
+          currentUri,
+          equals(RouteNames.salonMasterProfile),
+          reason:
+              'After a successful acceptInvite() the session transitions to '
+              'Authenticated. The router redirect fires because the user is now '
+              'authenticated on /invite/accept (an unauthOnlyRoute) and must be '
+              'forwarded to roleHomePath(salonMaster) = /staff/profile.',
+        );
+      },
+    );
   });
+
+  // ===========================================================================
+  // NL-23: /invite/accept post-success failure hand-off → /login via the
+  // SCREEN's own context.go (invite-accept post-success failure design,
+  // 2026-09-01).
+  //
+  // Same harness as NL-22 — real GoRouter, real authRedirect, real
+  // AuthNotifier via a live ProviderContainer, only Dio faked — extended to
+  // the two client-classified terminal failure paths. This is the Rule 3b
+  // "extend integration-tier coverage" pass for the invite-accept →
+  // login hand-off: NL-22/NL-23 together drive the full journey (screen →
+  // route hand-off → provider wiring → auth state → form submit) through
+  // PRODUCTION redirect logic, which the screen-level
+  // accept_invite_screen_test.dart harness (its own hand-rolled router with
+  // `redirect: (context, state) => null`) deliberately does not exercise.
+  //
+  // Proves two things NL-22 cannot: (a) the REAL authRedirect does not fight
+  // the screen's context.go(RouteNames.login) — state stays Unauthenticated
+  // after a hand-off failure (no repo Authenticated transition happens), so
+  // there is no competing auth-guard redirect to race; (b) loginNoticeProvider
+  // is populated on the SAME container the router reads from, proving the
+  // notice and the navigation are not accidentally decoupled across
+  // containers (a mistake screen-level tests with a fresh ProviderScope per
+  // test cannot catch).
+  // ===========================================================================
+  group(
+    'NL-23: /invite/accept post-success failure → /login hand-off via router',
+    () {
+      testWidgets('NL-23a: ResponseUnusableFailure → router lands on /login, '
+          'loginNoticeProvider holds accountReady + the invited email', (
+        tester,
+      ) async {
+        const kToken = 'valid-invite-token';
+        final validInvite = InviteDetails(
+          email: 'masha@salon.ua',
+          role: UserRole.salonMaster,
+          expiresAt: DateTime.now().add(const Duration(hours: 48)),
+        );
+
+        final repo = FakeAuthRepository()
+          ..acceptInviteResult = const ResponseUnusableFailure();
+        final storage = FakeSecureStorage();
+
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            acceptInviteProvider(
+              kToken,
+            ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        final router = GoRouter(
+          initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+          refreshListenable: _ContainerListenable(container),
+          redirect: (context, state) =>
+              authRedirect(container.read(authProvider), state),
+          routes: <RouteBase>[
+            GoRoute(
+              path: RouteNames.acceptInvite,
+              builder: (context, state) {
+                final t = state.uri.queryParameters['token'] ?? '';
+                return AcceptInviteScreen(token: t);
+              },
+            ),
+            GoRoute(
+              path: RouteNames.home,
+              builder: (_, _) => const _Probe('home'),
+            ),
+            GoRoute(
+              path: RouteNames.login,
+              builder: (_, _) => const _Probe('login'),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_password')),
+          'StrongPass12',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_first_name')),
+          'Марія',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_last_name')),
+          'Бондар',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('invite_phone')),
+          '0671234567',
+        );
+        await tester.pump();
+
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('invite_accept')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pumpAndSettle();
+
+        final currentUri = router.routerDelegate.currentConfiguration.uri
+            .toString();
+        expect(
+          currentUri,
+          equals(RouteNames.login),
+          reason:
+              'a ResponseUnusableFailure must hand off to /login via the '
+              'SCREEN\'s own context.go — the account was created '
+              'server-side, so state stays Unauthenticated and the REAL '
+              'authRedirect must not bounce this anywhere else (e.g. back '
+              'to /invite/accept, which IS an unauthOnlyRoute)',
+        );
+        expect(find.byType(AcceptInviteScreen), findsNothing);
+
+        final notice = container.read(loginNoticeProvider);
+        expect(notice, isNotNull);
+        expect(notice!.reason, InviteHandoffReason.accountReady);
+        expect(notice.email, validInvite.email);
+
+        // State-consistency check: the failed accept must NOT have
+        // transitioned the session to Authenticated (this is a genuine
+        // failure path, not a disguised success).
+        expect(
+          container.read(authProvider).value,
+          isA<Unauthenticated>(),
+          reason:
+              'a hand-off failure is still a failure — the session must '
+              'stay Unauthenticated, not silently become Authenticated',
+        );
+      });
+
+      testWidgets(
+        'NL-23b: ValidationFailure(fieldErrors: {}) (spent/expired token) → '
+        'router lands on /login, loginNoticeProvider holds '
+        'inviteNoLongerValid',
+        (tester) async {
+          const kToken = 'valid-invite-token';
+          final validInvite = InviteDetails(
+            email: 'masha@salon.ua',
+            role: UserRole.salonMaster,
+            expiresAt: DateTime.now().add(const Duration(hours: 48)),
+          );
+
+          final repo = FakeAuthRepository()
+            ..acceptInviteResult = const ValidationFailure(
+              fieldErrors: <String, String>{},
+            );
+          final storage = FakeSecureStorage();
+
+          final container = ProviderContainer(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => repo),
+              secureStorageProvider.overrideWith((_) => storage),
+              acceptInviteProvider(
+                kToken,
+              ).overrideWith(() => _SyncInviteNotifier(validInvite)),
+            ],
+          );
+          addTearDown(container.dispose);
+
+          final router = GoRouter(
+            initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
+            refreshListenable: _ContainerListenable(container),
+            redirect: (context, state) =>
+                authRedirect(container.read(authProvider), state),
+            routes: <RouteBase>[
+              GoRoute(
+                path: RouteNames.acceptInvite,
+                builder: (context, state) {
+                  final t = state.uri.queryParameters['token'] ?? '';
+                  return AcceptInviteScreen(token: t);
+                },
+              ),
+              GoRoute(
+                path: RouteNames.home,
+                builder: (_, _) => const _Probe('home'),
+              ),
+              GoRoute(
+                path: RouteNames.login,
+                builder: (_, _) => const _Probe('login'),
+              ),
+            ],
+          );
+          addTearDown(router.dispose);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: MaterialApp.router(
+                routerConfig: router,
+                localizationsDelegates: AppLocalizations.localizationsDelegates,
+                supportedLocales: AppLocalizations.supportedLocales,
+                locale: const Locale('uk'),
+              ),
+            ),
+          );
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 50));
+          await tester.pumpAndSettle();
+
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_password')),
+            'StrongPass12',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_first_name')),
+            'Марія',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_last_name')),
+            'Бондар',
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_phone')),
+            '0671234567',
+          );
+          await tester.pump();
+
+          await tester.ensureVisible(
+            find.byKey(const ValueKey<String>('invite_accept')),
+          );
+          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pumpAndSettle();
+
+          final currentUri = router.routerDelegate.currentConfiguration.uri
+              .toString();
+          expect(currentUri, equals(RouteNames.login));
+
+          final notice = container.read(loginNoticeProvider);
+          expect(notice, isNotNull);
+          expect(notice!.reason, InviteHandoffReason.inviteNoLongerValid);
+        },
+      );
+    },
+  );
 
   // -------------------------------------------------------------------------
   // NL-B01: /register/step-2 AuthScaffold back button navigates to /register

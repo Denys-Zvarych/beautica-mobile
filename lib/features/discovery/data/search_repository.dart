@@ -40,6 +40,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import '../domain/master_search_item.dart';
 import '../domain/salon_search_item.dart';
 import '../domain/search_filters.dart';
+import 'search_location_query.dart';
 import 'search_mapper.dart';
 
 /// Default page size for discovery search requests.
@@ -247,15 +248,12 @@ final class HttpSearchRepository implements SearchRepository {
   /// Adds the structured location keys (`location.cityId` / `location.districtId`)
   /// to [q] when present. Empty/blank ids are skipped so the key is omitted,
   /// matching the backend's "null id = no filter" semantics.
+  ///
+  /// Phase 352 D2 — delegates to the shared [addSearchLocationQuery] (also
+  /// used by `search_suggestion_repository.dart`) rather than mapping the ids
+  /// a second time; behaviour here is unchanged.
   static void _addLocation(Map<String, dynamic> q, SearchFilters f) {
-    final cityId = f.cityId;
-    final districtId = f.districtId;
-    if (cityId != null && cityId.isNotEmpty) {
-      q['location.cityId'] = cityId;
-    }
-    if (districtId != null && districtId.isNotEmpty) {
-      q['location.districtId'] = districtId;
-    }
+    addSearchLocationQuery(q, cityId: f.cityId, districtId: f.districtId);
   }
 
   /// Adds the per-service `serviceTypeSlugs` constraint to [q] when present.

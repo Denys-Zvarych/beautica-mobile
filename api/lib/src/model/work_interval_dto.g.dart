@@ -11,14 +11,11 @@ class _$WorkIntervalDto extends WorkIntervalDto {
   final String startTime;
   @override
   final String endTime;
-  @override
-  final bool? ordered;
 
   factory _$WorkIntervalDto([void Function(WorkIntervalDtoBuilder)? updates]) =>
       (WorkIntervalDtoBuilder()..update(updates))._build();
 
-  _$WorkIntervalDto._(
-      {required this.startTime, required this.endTime, this.ordered})
+  _$WorkIntervalDto._({required this.startTime, required this.endTime})
       : super._();
   @override
   WorkIntervalDto rebuild(void Function(WorkIntervalDtoBuilder) updates) =>
@@ -32,8 +29,7 @@ class _$WorkIntervalDto extends WorkIntervalDto {
     if (identical(other, this)) return true;
     return other is WorkIntervalDto &&
         startTime == other.startTime &&
-        endTime == other.endTime &&
-        ordered == other.ordered;
+        endTime == other.endTime;
   }
 
   @override
@@ -41,7 +37,6 @@ class _$WorkIntervalDto extends WorkIntervalDto {
     var _$hash = 0;
     _$hash = $jc(_$hash, startTime.hashCode);
     _$hash = $jc(_$hash, endTime.hashCode);
-    _$hash = $jc(_$hash, ordered.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -50,8 +45,7 @@ class _$WorkIntervalDto extends WorkIntervalDto {
   String toString() {
     return (newBuiltValueToStringHelper(r'WorkIntervalDto')
           ..add('startTime', startTime)
-          ..add('endTime', endTime)
-          ..add('ordered', ordered))
+          ..add('endTime', endTime))
         .toString();
   }
 }
@@ -68,10 +62,6 @@ class WorkIntervalDtoBuilder
   String? get endTime => _$this._endTime;
   set endTime(String? endTime) => _$this._endTime = endTime;
 
-  bool? _ordered;
-  bool? get ordered => _$this._ordered;
-  set ordered(bool? ordered) => _$this._ordered = ordered;
-
   WorkIntervalDtoBuilder() {
     WorkIntervalDto._defaults(this);
   }
@@ -81,7 +71,6 @@ class WorkIntervalDtoBuilder
     if ($v != null) {
       _startTime = $v.startTime;
       _endTime = $v.endTime;
-      _ordered = $v.ordered;
       _$v = null;
     }
     return this;
@@ -107,7 +96,6 @@ class WorkIntervalDtoBuilder
               startTime, r'WorkIntervalDto', 'startTime'),
           endTime: BuiltValueNullFieldError.checkNotNull(
               endTime, r'WorkIntervalDto', 'endTime'),
-          ordered: ordered,
         );
     replace(_$result);
     return _$result;

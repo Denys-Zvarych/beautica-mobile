@@ -1136,15 +1136,21 @@ void main() {
       expect(
         find.descendant(
           of: confirmAddressCard,
-          // i18n-finder-ok: address is real fixture wire data, not translated UI copy.
-          matching: find.text('вул. Хрещатик, 12'),
+          // i18n-finder-ok: the only UI word (the «м.» prefix) comes from
+          // AppLocalizations; the Cyrillic left is fixture wire data.
+          matching: find.text(
+            'вул. Хрещатик, 12, '
+            '${lookupAppLocalizations(const Locale('uk')).settlementCityPrefix} Київ',
+          ),
         ),
         findsOneWidget,
         reason:
             'the real `publicSalonProfileProvider` response must resolve '
-            "into the address card's value — salon-xyz has no legacy "
-            '`city` field (Phase 10.6+ taxonomy-only fixture), so the line '
-            'is street+buildingNo only, no trailing city',
+            "into the address card's value — salon-xyz's `city` is derived "
+            'from its `cityId` (backend Phase 328, mirrored by the fake), so '
+            'the line is street+buildingNo plus the trailing city — '
+            'prefixed from the phase-330 `citySettlementType` (no oblast, '
+            'like every salon address line)',
       );
 
       // master-ccc's OWN subtotal (salon-svc-shared, 400 ₴/60 min raw
@@ -1273,8 +1279,12 @@ void main() {
       expect(
         find.descendant(
           of: successAddressCard,
-          // i18n-finder-ok: address is real fixture wire data, not translated UI copy.
-          matching: find.text('вул. Хрещатик, 12'),
+          // i18n-finder-ok: the only UI word (the «м.» prefix) comes from
+          // AppLocalizations; the Cyrillic left is fixture wire data.
+          matching: find.text(
+            'вул. Хрещатик, 12, '
+            '${lookupAppLocalizations(const Locale('uk')).settlementCityPrefix} Київ',
+          ),
         ),
         findsOneWidget,
       );

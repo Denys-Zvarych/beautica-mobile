@@ -34,9 +34,11 @@ import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart'
 import 'package:beautica_mobile/features/booking/presentation/bookings_discovery_view.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_bookings_states.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/schedule_timeline_window.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -99,20 +101,25 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 class _LoadingSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) {
+  Future<List<EffectiveDay>> build(ScheduleScope scope, ScheduleRange range) {
     return Completer<List<EffectiveDay>>().future; // never completes
   }
 }
 
 class _ErrorSchedule extends EffectiveScheduleNotifier {
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async =>
-      throw Exception('schedule fetch boom');
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => throw Exception('schedule fetch boom');
 }
 
 /// EVERY rendered gridline (`BookingsTimelineGrid`'s hour + half-hour
@@ -160,6 +167,11 @@ void main() {
     // one. Defaults to the pre-existing unfiltered query so every call site
     // above is unaffected.
     BookingsDayQuery? query,
+    // Phase 335 / QA 2026-09-17 — the salon board's additive window seam.
+    // `null` for every pre-existing call site above, which is byte-for-byte
+    // the behaviour they had before this parameter existed.
+    ScheduleTimelineWindow? Function(List<Booking>, DateTime)?
+    boardWindowBuilder,
   }) async {
     final repo = _MockBookingRepository();
     when(
@@ -187,6 +199,7 @@ void main() {
         query: query ?? BookingsDayQuery.of(day: _day),
         title: 'Test',
         useScheduleWindow: useScheduleWindow,
+        boardWindowBuilder: boardWindowBuilder,
         onAddWorkingHours: useScheduleWindow
             ? (onAddWorkingHours ?? (DateTime _) {})
             : null,
@@ -853,6 +866,104 @@ void main() {
           closeTo(12, 0.01),
           reason: 'the hour ruler must sit 12dp from the screen edge',
         );
+      },
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // PHASE 335 QA — THE VACUITY TRIPWIRE IS ARMED.
+  //
+  // `_Loaded.build` runs the host-supplied `boardWindowBuilder`'s window
+  // through the SAME `bookingsInsideScheduleWindow` the master path uses, and
+  // then asserts — by `identical()`, in debug builds — that the filter
+  // excluded NOTHING. On a manager's board a dropped booking is data loss, so
+  // that assert is the only thing standing between a future builder that
+  // stops satisfying `salonBoardWindow`'s proof and a silently truncated
+  // board.
+  //
+  // Nothing exercised it: today's one builder
+  // (`SalonBookingsScreen.boardWindowFor`) is provably vacuous, so every test
+  // in the suite walks past the assert without touching it, and DELETING the
+  // assert would change no result anywhere. This group is the negative
+  // control for the tripwire itself — a deliberately too-narrow window, fed
+  // through the real composition.
+  // ═══════════════════════════════════════════════════════════════════════
+  group('the boardWindowBuilder vacuity assert', () {
+    testWidgets(
+      'a builder whose window EXCLUDES a booking trips the debug assert — the '
+      'guard that stops a future window silently truncating a salon board',
+      (tester) async {
+        await pump(
+          tester,
+          useScheduleWindow: false,
+          bookings: <Booking>[
+            _booking(id: 'in', startAtUtc: _kyivAtUtc(9)),
+            // 20:00 — outside the hostile window below, so the shared filter
+            // genuinely drops it and hands back a DIFFERENT list instance.
+            _booking(id: 'out', startAtUtc: _kyivAtUtc(20)),
+          ],
+          // 09:00–10:00: narrower than the day's own bookings, which is
+          // exactly the shape `salonBoardWindow` exists to make impossible.
+          boardWindowBuilder: (List<Booking> _, DateTime _) =>
+              const ScheduleTimelineWindow(
+                firstMinute: 9 * 60,
+                windowEndMinute: 10 * 60,
+                isExplicitTimes: false,
+              ),
+        );
+
+        expect(
+          tester.takeException(),
+          isA<AssertionError>().having(
+            (AssertionError e) => e.message.toString(),
+            'message',
+            contains('EXCLUDES bookings'),
+          ),
+          reason:
+              'the vacuity assert did not fire on a window that drops a '
+              'booking — deleting it would let a future boardWindowBuilder '
+              'truncate a manager\'s board with no test turning red',
+        );
+      },
+    );
+
+    testWidgets(
+      'and a VACUOUS window passes straight through — the assert is a '
+      'tripwire, not a blanket ban on the parameter',
+      (tester) async {
+        await pump(
+          tester,
+          useScheduleWindow: false,
+          bookings: <Booking>[
+            _booking(id: 'in', startAtUtc: _kyivAtUtc(9)),
+            _booking(id: 'out', startAtUtc: _kyivAtUtc(20)),
+          ],
+          // Wide enough to admit both starts — the shape today's real builder
+          // always produces.
+          boardWindowBuilder: (List<Booking> _, DateTime _) =>
+              const ScheduleTimelineWindow(
+                firstMinute: 8 * 60,
+                windowEndMinute: 22 * 60,
+                isExplicitTimes: false,
+              ),
+        );
+
+        expect(tester.takeException(), isNull);
+        // …and BOTH bookings are on the board, which is the outcome the
+        // assert exists to protect.
+        expect(find.byType(BookingsTimelineGrid), findsOneWidget);
+        // The ruler was bound by the SUPPLIED window, not by the bookings:
+        // 08:00 comes from neither booking (the earliest starts at 09:00).
+        final List<String> labels = tester
+            .widgetList<Text>(
+              find.descendant(
+                of: find.byType(TimelineHourRuler),
+                matching: find.byType(Text),
+              ),
+            )
+            .map((Text t) => t.data ?? '')
+            .toList(growable: false);
+        expect(labels.first, '08:00');
       },
     );
   });

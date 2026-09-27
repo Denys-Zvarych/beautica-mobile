@@ -82,6 +82,8 @@ import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 import 'package:flutter/foundation.dart';
 
+import 'api_enum_names.dart';
+
 /// Which `(DTO type → field → known wire values)` triples are tolerated.
 ///
 /// The value sets are derived from the GENERATED enum's own members, so a
@@ -124,7 +126,15 @@ final Map<Type, Map<String, Set<String>>> kBeauticaToleratedEnums =
 Map<String, Set<String>> _wireValuesOf(Iterable<EnumClass> members) =>
     Map<String, Set<String>>.unmodifiable(<String, Set<String>>{
       'status': Set<String>.unmodifiable(
-        members.map((EnumClass v) => v.name).toSet(),
+        members
+            // The generated unknown-value fallback (`enumUnknownDefaultCase`)
+            // is not a status the backend sends; keeping its name out of the
+            // known set means an unrecognised status is still STRIPPED here
+            // and reaches the mapper as null, exactly as before the fallback
+            // existed.
+            .where((EnumClass v) => !isOpenApiUnknownDefault(v))
+            .map((EnumClass v) => v.name)
+            .toSet(),
       ),
     });
 

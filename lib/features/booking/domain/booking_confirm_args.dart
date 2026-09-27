@@ -88,6 +88,21 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// file header.
     String? rescheduleAppointmentId,
 
+    /// 2026-09-19 (mobile-perf MEDIUM) — the SALON whose «Записи» board this
+    /// reschedule was started FROM, threaded so
+    /// `BookingConfirmScreen._submit`'s post-write fan-out can also drop
+    /// `salonBookedDaysProvider(salonId)`, the board's own day-rail dot set.
+    /// A reschedule genuinely MOVES a dot between days; without this the
+    /// board kept both the vacated day's dot and the new day's absence for
+    /// up to the provider's thirty-minute `keepAlive` TTL.
+    ///
+    /// Forwarded unchanged from
+    /// [BookingSlotPickerArgs.rescheduleSalonId] by `SlotTimeScreen._confirm`. `null` on EVERY other path: the
+    /// CLIENT reschedule, the independent master's own reschedule, and every
+    /// create/walk-in push — so this chain link is inert there, exactly like
+    /// the venue-address fields beside it.
+    String? rescheduleSalonId,
+
     /// Non-null only when this flow was entered from the master's own
     /// WALK-IN («Новий запис») entry point — the guest identity to submit
     /// with `CreateMasterBookingRequest`. See phase-258.
@@ -122,5 +137,19 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     /// the terminal done screen.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// VENUE ADDRESS OVERRIDE (2026-09-18). Forwarded unchanged from
+    /// [BookingSlotPickerArgs.venueStreet] / [BookingSlotPickerArgs
+    /// .venueBuildingNo] / [BookingSlotPickerArgs.venueCity] /
+    /// [BookingSlotPickerArgs.venueLocationNote] by `SlotTimeScreen._confirm`,
+    /// and on again onto [BookingSuccessArgs] by this screen's `_submit` — see
+    /// those fields' docs for the full rationale (the backend nulls a salon
+    /// master's USER-level address, so the visit's real address has to come
+    /// from the `Booking`). ALL default to `null` so every existing call site
+    /// is unaffected.
+    String? venueStreet,
+    String? venueBuildingNo,
+    String? venueCity,
+    String? venueLocationNote,
   }) = _BookingConfirmArgs;
 }

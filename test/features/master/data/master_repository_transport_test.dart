@@ -336,6 +336,190 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // updateMyProfile — endpoint selection by MasterUpdate.masterType
+  // (mobile-security HIGH fix, 2026-09-01)
+  //
+  // WHY THIS GROUP EXISTS
+  // ----------------------
+  // Before the fix, every `updateMyProfile` call hit the hardcoded
+  // `/independent-masters/me/profile` path regardless of the caller's real
+  // role. `personal_info_edit_screen.dart` and `contacts_edit_screen.dart`
+  // are BOTH shared between INDEPENDENT_MASTER and SALON_MASTER — so every
+  // SALON_MASTER save PATCHed an endpoint
+  // `IndependentMasterController` `@PreAuthorize`s to INDEPENDENT_MASTER
+  // only, and 403'd. This shipped and was never caught because every widget
+  // test up to this point mocks `updateMyProfile(any())` away entirely
+  // (`personal_info_edit_screen_test.dart:718`,
+  // `contacts_edit_screen_test.dart`), which proves the method was CALLED,
+  // never WHICH URL it hit.
+  //
+  // These tests drive the real `HttpMasterRepository` through the real Dio
+  // + `DioAdapter` transport (same rig as the group above), registering
+  // `adapter.onRoute` for ONLY the path each case expects. If the
+  // `switch (update.masterType)` branches in `master_repository.dart` were
+  // ever swapped, the request would hit the UNREGISTERED sibling path and
+  // `DioAdapter` throws for an unmatched route — so a swap fails LOUD, not
+  // silently. The `expect(sentPath, isNot(...))` assertions are an
+  // independent second guard on top of that: the interceptor captures the
+  // actual resolved path so the test does not rely on the adapter's error
+  // message shape.
+  // -------------------------------------------------------------------------
+
+  group('updateMyProfile — endpoint selection by masterType (mobile-security '
+      'HIGH fix)', () {
+    const salonProfilePath = '/api/v1/masters/me/profile';
+
+    MasterUpdate buildUpdate(MasterType type) => MasterUpdate(
+      firstName: 'Аня',
+      lastName: 'Коваль',
+      bio: '',
+      contactPhone: '',
+      instagram: '',
+      professionalTitle: '',
+      masterType: type,
+    );
+
+    test('MasterType.salonMaster PATCHes /api/v1/masters/me/profile — NEVER '
+        'the independent-master path', () async {
+      String? sentPath;
+      adapter.onRoute(
+        salonProfilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentPath = options.path;
+            handler.next(options);
+          },
+        ),
+      );
+
+      await repository.updateMyProfile(buildUpdate(MasterType.salonMaster));
+
+      expect(sentPath, salonProfilePath);
+      expect(
+        sentPath,
+        isNot(_profilePath),
+        reason:
+            'a SALON_MASTER save must never reach the INDEPENDENT_MASTER-'
+            'only endpoint — that is the exact HIGH this fix closes '
+            '(every SALON_MASTER save 403d).',
+      );
+    });
+
+    test(
+      'MasterType.independentMaster (explicit) PATCHes '
+      '/api/v1/independent-masters/me/profile — NEVER the salon-master path',
+      () async {
+        String? sentPath;
+        adapter.onRoute(
+          _profilePath,
+          (server) => server.reply(200, _okVoidEnvelope),
+          request: const Request(
+            method: RequestMethods.patch,
+            data: Matchers.any,
+          ),
+        );
+        dio.interceptors.add(
+          InterceptorsWrapper(
+            onRequest: (options, handler) {
+              sentPath = options.path;
+              handler.next(options);
+            },
+          ),
+        );
+
+        await repository.updateMyProfile(
+          buildUpdate(MasterType.independentMaster),
+        );
+
+        expect(sentPath, _profilePath);
+        expect(
+          sentPath,
+          isNot(salonProfilePath),
+          reason:
+              'a swapped branch would send the INDEPENDENT_MASTER save to '
+              'the SALON_MASTER-only endpoint instead, 403ing the far more '
+              'common role — the mirror-image regression a one-sided test '
+              'would miss.',
+        );
+      },
+    );
+
+    test('default masterType (unset, every pre-existing call site) falls back '
+        'to the independent-master path', () async {
+      String? sentPath;
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentPath = options.path;
+            handler.next(options);
+          },
+        ),
+      );
+
+      await repository.updateMyProfile(
+        const MasterUpdate(
+          firstName: 'Аня',
+          lastName: 'Коваль',
+          bio: '',
+          contactPhone: '',
+          instagram: '',
+          professionalTitle: '',
+          // masterType deliberately omitted.
+        ),
+      );
+
+      expect(
+        sentPath,
+        _profilePath,
+        reason:
+            'MasterUpdate.masterType defaults to independentMaster so '
+            'every call site written before this fix keeps hitting the '
+            'same endpoint it always has.',
+      );
+    });
+
+    test('MasterType.salonOwner (no dedicated endpoint yet) falls back to the '
+        'independent-master path', () async {
+      String? sentPath;
+      adapter.onRoute(
+        _profilePath,
+        (server) => server.reply(200, _okVoidEnvelope),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            sentPath = options.path;
+            handler.next(options);
+          },
+        ),
+      );
+
+      await repository.updateMyProfile(buildUpdate(MasterType.salonOwner));
+
+      expect(sentPath, _profilePath);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // updateLocality — real request body on the wire
   // -------------------------------------------------------------------------
 

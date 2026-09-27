@@ -3,7 +3,7 @@
 // JOURNEY (the user-flow this guards — Step 3b end-to-end coverage)
 // -----------------------------------------------------------------
 //   /register/role (CLIENT) → step1 → step2 →
-//   step3: pick a CITY via the real locality cascade → submit (register) →
+//   step3: pick a CITY via the real settlement autocomplete → submit (register) →
 //   ── SIMULATE OS-KILL: the in-memory RegisterDraft is wiped to null ── →
 //   /verification: enter OTP → submit →
 //   ASSERT: the fake backend received PATCH /api/v1/users/me carrying the
@@ -109,22 +109,8 @@ void main() {
     await tester.pumpAndSettle();
     AppHarness.expectLocation(router, RouteNames.registerStep3);
 
-    // ── Step 3 — pick a city via the REAL locality cascade ──────────────
-    // Open the Oblast picker → pick the seeded Kyiv oblast.
-    await tester.tap(find.byKey(const Key('locality_row_oblast')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-    );
-    await tester.pumpAndSettle();
-
-    // Open the City picker → pick the seeded Kyiv city.
-    await tester.tap(find.byKey(const Key('locality_row_city')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-    );
-    await tester.pumpAndSettle();
+    // ── Step 3 — pick a city via the REAL settlement autocomplete ────────
+    await AppHarness.pickSettlement(tester, 'city-kyiv');
 
     // Submit Step 3 (CLIENT "Далі") — runs register() AND stashes the durable
     // PendingLocality blob (city-kyiv) keyed by the returned email.

@@ -21,9 +21,11 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/network/api_client_provider.dart';
+import '../../auth/presentation/auth_notifier.dart';
 import '../data/passport_repository.dart';
 import '../domain/passport.dart';
 
@@ -45,6 +47,31 @@ PassportRepository passportRepository(Ref ref) =>
 /// TTL so tab-hopping does not re-fetch on every visit.
 @riverpod
 Future<Passport> passport(Ref ref) async {
+  // SESSION BOUNDARY (mobile-security MEDIUM, 2026-09-17) — this provider is
+  // `keepAlive` with a 5-minute TTL and its whole dependency chain
+  // (`passportRepositoryProvider` → `clientApiProvider` → `dioProvider`)
+  // touches nothing auth-shaped at any hop, so before this watch NOTHING
+  // rebuilt it and NOTHING evicted it on logout. It is also KEYLESS: unlike
+  // `effectiveScheduleProvider`, whose `ScheduleScope.masterId` re-keys a
+  // session flip onto a fresh member all by itself, there is exactly one
+  // member here for every account on the device. So on a shared phone the
+  // next sign-in within the TTL was served the OUTGOING client's visit
+  // history, member-since year and reviews-written count straight from
+  // memory — no wire call, no server re-check.
+  //
+  // Watching the identity (rather than bare-invalidating from
+  // `AuthNotifier.logout`) is self-healing: it evicts on logout, on login AND
+  // on an account switch, and it needs no `auth_notifier.dart` edit — so
+  // there is no back-edge from this provider into `authProvider` and no
+  // `CircularDependencyError` risk (`authProvider` does not watch this).
+  //
+  // NARROWED through the shared [authUserIdOrNull] selector, never a bare
+  // `ref.watch(authProvider)`: `Authenticated`'s freezed equality includes
+  // `accessToken`, so a bare watch would also discard a live cache entry on
+  // every silent token refresh. Nothing in this body reads any other part of
+  // the session.
+  ref.watch(authProvider.select(authUserIdOrNull));
+
   // Keep the result cached after all listeners drop, but only for the TTL —
   // then release the link so the next read re-fetches fresh derived data.
   final link = ref.keepAlive();

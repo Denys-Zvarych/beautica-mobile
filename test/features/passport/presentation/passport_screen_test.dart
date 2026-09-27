@@ -50,6 +50,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/passport/application/passport_notifier.dart';
 import 'package:beautica_mobile/features/passport/domain/passport.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
@@ -60,6 +61,7 @@ import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/features/wishlist/presentation/widgets/wishlist_compact_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_wishlist_repository.dart';
@@ -279,6 +281,43 @@ void main() {
       expect(find.text(_kProfileName), findsOneWidget);
       expect(find.text(_kProfileCity), findsOneWidget);
       expect(find.text(_kProfilePhone), findsOneWidget);
+    });
+
+    // Phase-330 (user-reported) — the saved locality reads as the
+    // «Населений пункт» picker labels it, not a bare «Львів».
+    testWidgets('a typed saved settlement renders the picker label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: _overrides(
+          passport: _populatedPassport,
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Львів',
+            phone: '+380671234567',
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'city-lviv',
+              name: 'Львів',
+              oblastName: 'Львівська',
+              settlementType: kSettlementTypeCity,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+        ),
+        findsOneWidget,
+      );
+      // i18n-finder-ok: settlement NAME is reference data, identical in every locale.
+      expect(find.text('Львів'), findsNothing);
     });
 
     testWidgets('profile location line has NO chevron (design dropped it)', (
@@ -983,6 +1022,358 @@ void main() {
         protection.acquirerCount,
         0,
         reason: 'PassportScreen must release() screen protection in dispose',
+      );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // 7. Phase 349 — pull-to-refresh. Case 9 step 6 ("Увімкнути режим польоту і
+  //    перезавантажити екран") needed a way to reload; the body is now wrapped
+  //    in `AppRefreshIndicator`, mirroring `home_hub_screen_test.dart`'s own
+  //    pull-to-refresh group for the identical invalidate + await-futures
+  //    shape (`home_hub_screen.dart:185-200`).
+  //
+  //    `tester.pumpApp` mounts `PassportScreen` directly inside a plain
+  //    `ProviderScope` + `MaterialApp` — no `StatefulShellBranch` ancestor —
+  //    so the single listener each test below creates is never offstage/
+  //    paused, and `ref.invalidate` takes effect on the very next pump
+  //    (`project_riverpod_offstage_pause_invalidate`).
+  // -------------------------------------------------------------------------
+  group('PassportScreen — pull-to-refresh', () {
+    testWidgets('REGRESSION: pull-to-refresh invalidates passportProvider, '
+        'clientProfileProvider and wishlistProvider', (tester) async {
+      int passportCalls = 0;
+      int profileCalls = 0;
+      final FakeWishlistRepository fakeWishlist = FakeWishlistRepository(
+        services: _kFiveFavourites,
+      );
+
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          clientProfileProvider.overrideWith((ref) async {
+            profileCalls++;
+            return _sampleProfile;
+          }),
+          passportProvider.overrideWith((ref) async {
+            passportCalls++;
+            // Distinct pre/post fixtures so the assertion below proves the
+            // RENDERED content changed, not just the call count.
+            return passportCalls == 1
+                ? _noDerivedDataPassport
+                : _populatedPassport;
+          }),
+          wishlistRepositoryProvider.overrideWithValue(fakeWishlist),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = await _uk();
+      expect(passportCalls, 1, reason: 'exactly one fetch on initial build');
+      expect(
+        find.text(l10n.passportReviewsLeft(3)),
+        findsOneWidget,
+        reason: 'the initial fetch must render the PRE-refresh fixture',
+      );
+      expect(find.byKey(_kDerivedBlock), findsNothing);
+
+      final Finder scrollableFinder = find
+          .descendant(
+            of: find.byType(PassportScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      // Reset scroll to the TOP so the pull gesture registers as an
+      // overscroll — `RefreshIndicator` only triggers from offset 0.
+      final ScrollableState scrollableState = tester.state<ScrollableState>(
+        scrollableFinder,
+      );
+      scrollableState.position.jumpTo(0);
+      await tester.pump();
+
+      // `pumpAndSettle` fires no `Timer` — the refresh gesture needs an
+      // explicit fling + pump sequence, matching
+      // `app_refresh_indicator_test.dart`'s own documented M6 recipe:
+      // `onRefresh` is NOT invoked until AFTER the 200ms drag-reveal pump.
+      // `FakeWishlistRepository.getMyWishlist` awaits an explicit
+      // `Future.delayed` (unlike a bare async gap), which schedules a real
+      // fake-clock `Timer` — skipping the drag-reveal pump left that Timer
+      // created too late to be flushed before teardown ("A Timer is still
+      // pending" — `project_pumpandsettle_misses_debounce_timer`).
+      await tester.fling(scrollableFinder, const Offset(0, 400), 800);
+      // Pump 1: RefreshIndicator intercepts the gesture, starts the pull
+      // animation.
+      await tester.pump();
+      // Pump 2: past the indicator's 200ms drag-reveal animation — this is
+      // the pump that actually invokes `onRefresh`.
+      // fixed-wait-ok: Material's RefreshIndicator drag-reveal is a fixed
+      // 200ms animation length (M6 exception), not a condition to pump-until.
+      await tester.pump(const Duration(milliseconds: 200));
+      // Pump 3: onRefresh runs (3x invalidate + await 3 provider futures,
+      // including the wishlist fake's `Future.delayed` timer).
+      await tester.pump();
+      // Pump 4: Riverpod notifier state transitions settle.
+      // fixed-wait-ok: draining the notifier state-transition queue after
+      // invalidate; nothing to pump-until against directly.
+      await tester.pump(const Duration(milliseconds: 50));
+      // Pump 5: Material RefreshIndicator's built-in 250ms dismiss
+      // animation (bounded by the Material library, not application code).
+      // fixed-wait-ok: fixed Material dismiss-animation duration (M6
+      // exception), not application state to pump-until.
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+        passportCalls,
+        greaterThan(1),
+        reason:
+            'pull-to-refresh must invalidate passportProvider and re-fetch. '
+            'If this fails, AppRefreshIndicator is not wired in '
+            'PassportScreen any more.',
+      );
+      expect(profileCalls, greaterThan(1));
+      expect(fakeWishlist.getCallCount, greaterThan(1));
+
+      expect(
+        find.text(l10n.passportReviewsLeft(_kReviewsWritten)),
+        findsOneWidget,
+        reason:
+            'after the pull, the strip must show the POST-refresh fixture '
+            '— this separates "refetched" from "call count incremented but '
+            'the screen never rebuilt"',
+      );
+      expect(find.byKey(_kDerivedBlock), findsOneWidget);
+    });
+
+    testWidgets(
+      'pull-to-refresh while the passport refetch fails shows the error card '
+      '(Qase defect #9 step 6)',
+      (tester) async {
+        int attempt = 0;
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: <Object>[
+            screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+            clientProfileProvider.overrideWith((ref) async => _sampleProfile),
+            passportProvider.overrideWith((ref) async {
+              attempt++;
+              if (attempt == 1) return _populatedPassport;
+              // Simulates the "airplane mode" pull from Qase defect #9.
+              throw const NetworkFailure();
+            }),
+            wishlistRepositoryProvider.overrideWithValue(
+              FakeWishlistRepository(services: _kFiveFavourites),
+            ),
+          ],
+          // Retry OFF, same reasoning as the error-state group above: a
+          // classified-transient failure would otherwise park in
+          // AsyncLoading(retrying: true) through the pumps below.
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(_kIdentityStrip), findsOneWidget);
+        expect(find.byKey(_kPassportError), findsNothing);
+
+        final Finder scrollableFinder = find
+            .descendant(
+              of: find.byType(PassportScreen),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        final ScrollableState scrollableState = tester.state<ScrollableState>(
+          scrollableFinder,
+        );
+        scrollableState.position.jumpTo(0);
+        await tester.pump();
+
+        // Same M6-recipe fix as the test above: the 200ms drag-reveal pump
+        // is what actually invokes `onRefresh` and must precede the plain
+        // pump that lets the wishlist fake's `Future.delayed` timer fire.
+        await tester.fling(scrollableFinder, const Offset(0, 400), 800);
+        await tester.pump();
+        // fixed-wait-ok: Material's RefreshIndicator drag-reveal is a fixed
+        // 200ms animation length (M6 recipe above), not a pump-until condition.
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
+        // fixed-wait-ok: draining the notifier state-transition queue after
+        // invalidate, same reasoning as the M6 recipe above.
+        await tester.pump(const Duration(milliseconds: 50));
+        // fixed-wait-ok: Material RefreshIndicator's built-in 250ms dismiss
+        // animation (M6 exception), same reasoning as the M6 recipe above.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        expect(attempt, 2, reason: 'the pull must trigger a genuine refetch');
+
+        final AppLocalizations l10n = await _uk();
+        expect(find.byKey(_kPassportError), findsOneWidget);
+        expect(find.text(l10n.passportErrorTitle), findsOneWidget);
+        expect(find.text(l10n.passportErrorBody), findsOneWidget);
+        expect(
+          find.byKey(_kIdentityStrip),
+          findsNothing,
+          reason:
+              'a failed refetch must not leave the stale strip visible '
+              'alongside the error card, and must not degrade into a '
+              'no-data rendering (same contract as the retry-button group '
+              'above, now exercised via the pull gesture)',
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Locality wrapping — guards the `maxLines: 1` → 2 fix on
+  // `passport_profile_city` (2026-09-26, user-reported). Mirrors the
+  // identical regression guard in home_profile_card_test.dart, since both
+  // sites route through the promoted `ProfileMetaLine`
+  // (lib/shared/widgets/profile_meta_line.dart).
+  // -------------------------------------------------------------------------
+  group('PassportScreen locality wrapping (320dp long-label regression)', () {
+    /// Number of lines the paragraph actually laid out, reproduced from its
+    /// own span + style + the width it was given (see the identical helper
+    /// in home_profile_card_test.dart).
+    int lineCount(RenderParagraph p) {
+      final TextPainter painter = TextPainter(
+        text: p.text,
+        textAlign: p.textAlign,
+        textDirection: p.textDirection,
+        textScaler: p.textScaler,
+        maxLines: p.maxLines,
+      )..layout(maxWidth: p.constraints.maxWidth);
+      final int lines = painter.computeLineMetrics().length;
+      painter.dispose();
+      return lines;
+    }
+
+    RenderParagraph cityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('passport_profile_city')),
+        );
+
+    testWidgets(
+      'a SHORT city still renders on one line at 320dp x1.0 (unchanged '
+      'rendering)',
+      (tester) async {
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _overrides(
+            passport: _populatedPassport,
+            profile: _sampleProfile, // city: 'Львів'
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(lineCount(cityParagraph(tester)), 1);
+        expect(cityParagraph(tester).didExceedMaxLines, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a moderately-long composed city+oblast label wraps to two lines at '
+      '320dp x1.0, FULLY shown, no ellipsis',
+      (tester) async {
+        await tester.pumpApp(
+          const PassportScreen(),
+          overrides: _overrides(
+            passport: _populatedPassport,
+            profile: const ClientProfileSummary(
+              firstName: 'Олена',
+              lastName: 'Коваль',
+              city: 'Новомосковськ',
+              phone: _kProfilePhone,
+              clientRating: null,
+              memberSinceYear: 2024,
+              settlement: Settlement(
+                id: 'c-novomoskovsk',
+                name: 'Новомосковськ',
+                oblastName: 'Дніпропетровська',
+                settlementType: kSettlementTypeCity,
+              ),
+            ),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<Text>(find.byKey(const Key('passport_profile_city')))
+              .data,
+          'м. Новомосковськ, Дніпропетровська обл.',
+        );
+
+        final RenderParagraph paragraph = cityParagraph(tester);
+        expect(
+          lineCount(paragraph),
+          2,
+          reason:
+              'the composed label wraps onto a SECOND line — under a '
+              'reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+
+    testWidgets('the EXACT user-reported village+hromada+oblast label uses BOTH '
+        'allowed lines — never collapsed back to one', (tester) async {
+      final AppLocalizations uk = await _uk();
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: _overrides(
+          passport: _populatedPassport,
+          // The exact label shape from the bug report:
+          // «с. Іванівка, Шишацька громада, Полтавська обл.» — long enough
+          // that, at this profile block's narrow ~132px text column, even
+          // the 2-line budget isn't quite enough to show it in full (it
+          // ellipsises after line 2). That is the CORRECT contract — "up
+          // to two lines, then ellipsis" — not "every string must fit".
+          // The regression this guards is the label being collapsed to
+          // ONE line, not the (expected) trailing ellipsis on a third.
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Іванівка',
+            phone: _kProfilePhone,
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'v-ivanivka',
+              name: 'Іванівка',
+              oblastName: 'Полтавська',
+              hromadaName: 'Шишацька',
+              settlementType: kSettlementTypeVillage,
+            ),
+          ),
+        ),
+        width: 320,
+        textScaleFactor: 1.0,
+      );
+      await tester.pumpAndSettle();
+
+      // Sanity: the fixture really does compose the user-reported picker
+      // label this regression is about.
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('passport_profile_city')))
+            .data,
+        '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+      );
+
+      expect(
+        lineCount(cityParagraph(tester)),
+        2,
+        reason:
+            'the label must use BOTH allowed lines — under a reverted '
+            'maxLines: 1 (the bug this file guards) it would collapse to '
+            'exactly one line instead.',
       );
     });
   });

@@ -48,10 +48,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show kyivAddDays, kyivDaysBetween;
+
 import '../../../core/errors/failures.dart';
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import 'overrides_revision_provider.dart';
 import 'schedule_range.dart';
 
@@ -79,22 +83,27 @@ const int _kPutSpanChunkSize = 6;
 /// and idle windows release after the TTL.
 const Duration _kOverridesCacheTtl = Duration(minutes: 5);
 
-/// Loads and mutates the per-date overrides for [range].
+/// Loads and mutates the per-date overrides for [scope]'s [range].
 ///
 /// Generated provider name: `overridesProvider` (a family — call
-/// `overridesProvider(range)`).
+/// `overridesProvider(scope, range)`; Phase 312 added [ScheduleScope] as the
+/// first parameter).
 @riverpod
 class OverridesNotifier extends _$OverridesNotifier {
   static const _tag = 'feature.schedule.overrides';
 
   @override
-  Future<List<ScheduleOverride>> build(ScheduleRange range) async {
-    // `watch` (not `read`): the schedule repository rebuilds when
-    // `masterProfileProvider` resolves the masterId from '' → the real UUID.
-    // An instance created pre-resolution must refetch once the authenticated
-    // repository is available, otherwise it stays stuck on UnauthorizedFailure.
+  Future<List<ScheduleOverride>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
+    // `watch` (not `read`): the schedule repository rebuilds when the
+    // resolved scope's masterId changes (e.g. `ownScheduleScopeProvider`
+    // resolving '' → the real UUID). An instance created pre-resolution must
+    // refetch once the authenticated repository is available, otherwise it
+    // stays stuck on UnauthorizedFailure.
     final List<ScheduleOverride> overrides = await ref
-        .watch(scheduleRepositoryProvider)
+        .watch(scheduleRepositoryProvider(scope))
         .listOverrides(range.from, range.to);
 
     // SUCCESS path only: pin this range for [_kOverridesCacheTtl] so a revisit
@@ -111,7 +120,7 @@ class OverridesNotifier extends _$OverridesNotifier {
     return overrides;
   }
 
-  ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider);
+  ScheduleRepository get _repo => ref.read(scheduleRepositoryProvider(scope));
 
   /// Read-only preview (2026-07-26 booking-conflict design) of every
   /// CONFIRMED booking that saving [span] would leave without availability —
@@ -180,20 +189,33 @@ class OverridesNotifier extends _$OverridesNotifier {
       // Phase 15.7 — validate the span's discrete shape ONCE up-front (every
       // expanded per-date PUT shares it), before any network call.
       _assertExplicitTimesValid(span);
-      // Build the date-only list, re-truncating each step so a DST boundary
-      // (where `+24h` can land at 23:00 / 01:00 of the wrong day) cannot skip
-      // or duplicate a calendar date.
-      final dates = <DateTime>[];
-      var cursor = DateTime(span.start.year, span.start.month, span.start.day);
-      final end = DateTime(span.end.year, span.end.month, span.end.day);
-      while (!cursor.isAfter(end)) {
-        dates.add(cursor);
-        final next = cursor.add(const Duration(days: 1));
-        cursor = DateTime(next.year, next.month, next.day);
-      }
-
-      if (dates.length > kMaxOverrideSpanDays) {
+      // Build the date-only list by CALENDAR stepping ([kyivAddDays]), never
+      // `+Duration(days: 1)` then truncate: on a DST fall-back day `+24h`
+      // lands at 23:00 of the SAME day (Europe/Kyiv 2026-10-25), truncation
+      // returns that same date, and the loop never advances — an unbounded
+      // spin that grew `dates` until the app froze / ran out of memory.
+      final DateTime start = DateTime(
+        span.start.year,
+        span.start.month,
+        span.start.day,
+      );
+      final DateTime end = DateTime(
+        span.end.year,
+        span.end.month,
+        span.end.day,
+      );
+      // Span cap enforced BEFORE the loop (defence in depth): the loop is then
+      // bounded by construction, whatever its step does.
+      if (kyivDaysBetween(start, end) + 1 > kMaxOverrideSpanDays) {
         throw const ValidationFailure(fieldErrors: <String, String>{});
+      }
+      final dates = <DateTime>[];
+      for (
+        var cursor = start;
+        !cursor.isAfter(end) && dates.length < kMaxOverrideSpanDays;
+        cursor = kyivAddDays(cursor, 1)
+      ) {
+        dates.add(cursor);
       }
 
       ScheduleOverride perDayFor(DateTime date) {
@@ -319,7 +341,9 @@ class OverridesNotifier extends _$OverridesNotifier {
       // THIS notifier's own `range` so a watcher whose range provably shares
       // no date with it can skip its refetch — see
       // `overrides_revision_provider.dart`'s `OverridesRevisionEvent` doc.
-      ref.read(overridesRevisionProvider.notifier).bump(range);
+      // Scoped to THIS notifier's own `scope` (Phase 312) — a write for one
+      // viewed master never bumps a DIFFERENT master's revision counter.
+      ref.read(overridesRevisionProvider(scope).notifier).bump(range);
     }
   }
 }

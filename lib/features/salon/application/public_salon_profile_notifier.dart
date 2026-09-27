@@ -20,6 +20,11 @@
 // fail at runtime and silently re-throw the wrapper.
 import 'dart:async' as async;
 
+// `ProviderListenable.select` (used below to narrow the `authProvider` watch to
+// the identity-bearing slice via [authUserIdOrNull]) is not part of
+// `riverpod_annotation`'s show-list — same reason `bookings_day_notifier.dart`
+// reaches for the full package.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/presentation/auth_notifier.dart';
@@ -48,7 +53,18 @@ Future<PublicSalonProfileData> publicSalonProfile(
   // Auth-boundary eviction (mobile-perf MP + mobile-security): watch the
   // session so this keepAlive family is torn down on a logout / session change
   // (logout → login), mirroring [publicMasterProfileProvider].
-  ref.watch(authProvider);
+  //
+  // NARROWED to the user id (mobile-perf LOW, 2026-09-01) — the eviction this
+  // watch exists for is a SESSION FLIP, and a session flip is exactly a change
+  // of signed-in identity (including → null on logout). A bare
+  // `ref.watch(authProvider)` could not tell that apart from a silent token
+  // refresh, so every refresh threw away a live 5-minute cache entry and
+  // refetched `GET /salons/{id}` + `GET /salons/{id}/masters` under the user.
+  // Nothing else in this body reads the session: the salon detail's
+  // authenticated-only address fields are gated by the interceptor's Bearer
+  // header, which the refresh replaces in place without changing WHO is
+  // calling.
+  ref.watch(authProvider.select(authUserIdOrNull));
 
   // 5-minute cache window. Keep the link alive across the push/pop of the
   // profile, then close it so a stale profile eventually refetches. The timer

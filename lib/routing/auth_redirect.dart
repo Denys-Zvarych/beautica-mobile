@@ -169,7 +169,81 @@ String? authRedirectForLocation(
     }
   }
 
+  // mobile-security / mobile-qa LOW (2026-09-05) — TWO reads, on purpose.
+  //
+  // [isAuthenticated] is the LENIENT one: it reads `.value` raw, so an
+  // `AsyncError` still carrying a previous `AsyncData(Authenticated)` counts as
+  // authenticated. It backs this file's eight raw `session.value` reads — this
+  // one plus the seven role gates below.
+  //
+  // Why leaving it lenient is SAFE — verified 2026-09-05 by enumerating every
+  // producer of `AsyncError` on `authProvider`. There are FIVE:
+  //
+  //   auth_notifier.dart:373  login()        — reachable only from /login
+  //   auth_notifier.dart:448  register()     — reachable only from /register/*
+  //   auth_notifier.dart:605  verifyEmail()  — reachable only from /verification
+  //   auth_notifier.dart:906  acceptInvite() — reachable only from /invite/accept
+  //   auth_notifier.dart:237  build()        — any surface; cold start, or a
+  //                                            `ref.invalidate(authProvider)`
+  //
+  // `build()` belongs on that list: its catch-all spans only the `try` opened
+  // at `auth_notifier.dart:291` and closed at `:335`. Three statements run
+  // BEFORE that try and are uncovered by it — `:261`
+  // `ref.read(secureStorageProvider)`, `:262` `await
+  // storage.readRefreshToken()` and `:287` `await storage.deleteAll()` — and
+  // `SecureStorage` forwards the latter two straight to the
+  // `FlutterSecureStorage` platform channel with no guard of its own
+  // (`secure_storage.dart:102`, `:142`). Whatever they throw therefore
+  // surfaces as an `AsyncError` on `authProvider`. Do NOT re-assert that
+  // `build()` cannot throw.
+  //
+  // Riverpod's `copyWithPrevious` is what leaves the errored state still
+  // carrying a value, and in all five cases that retained value belongs to the
+  // SAME account as the user in front of the screen:
+  //
+  //   * the four action producers are each reachable only after a settled
+  //     emission — `AsyncData(Unauthenticated)` for the three unauth-only
+  //     ones, `AsyncData(Authenticated)` for the auto-logged-in,
+  //     email-unverified user on `/verification`;
+  //   * a cold-start `build()` rejection has no previous `AsyncData` to
+  //     retain, so `.value` is null, `isAuthenticated` is false, and the
+  //     `!isAuthenticated` bounce below routes the user to `/login` —
+  //     fail-CLOSED, not lenient at all;
+  //   * a `build()` rejection after `ref.invalidate(authProvider)` retains the
+  //     value of the session that was live an instant earlier — the same
+  //     account.
+  //
+  // So a cross-account stale-role read — the only thing hardening would buy —
+  // is not constructible. Leniency here is therefore a UX choice (do not tear
+  // a user off a protected surface for a same-account transient), NOT a safety
+  // property. Re-derive it from the five producers above before trusting it.
+  //
+  // Corrected 2026-09-05 — two claims this comment used to make are FALSE; do
+  // not reinstate them. Hardening this read would NOT eject the OTP-mistyping
+  // user to `/login` (`/verification` is `isAtPostRegisterRoute`, hence
+  // `isAtAuthRoute`, so the bounce below is already false for them), and it
+  // would NOT turn any role gate into an ADMIT (that bounce returns `/login`
+  // BEFORE every role gate on `/services`, `/master/*`, `/staff/*`,
+  // `/salon/*`, `/schedule`, `/client/*` and the client branches). Hardening
+  // would be strictly fail-CLOSED; it is declined on UX grounds alone.
+  //
+  // [resolvedAuth] is the STRICT one, gated on the concrete `AsyncData`
+  // subtype exactly like `app_router.dart`'s `resolvedSession()`. It backs the
+  // one arm below that is fail-OPEN — the "authenticated user sitting on an
+  // unauth-only route → send them to their role home" forward. That arm ACTS
+  // on the role rather than merely fencing it, so a stale role there is a
+  // wrong destination rather than a harmless extra fence: under
+  // `AsyncError(previous: Authenticated A)` a visitor on `/login` would be
+  // forwarded into account A's role home. The producer enumeration above says
+  // that state is not constructible on `/login` today, so this strictness is
+  // defence in depth against a future post-auth error producer, not a fix for
+  // a live bug. Unresolved means "no forward", which leaves the user on
+  // `/login` — where the next settled emission decides properly.
   final isAuthenticated = session.value is Authenticated;
+  final Authenticated? resolvedAuth =
+      session is AsyncData<AuthSession> && session.value is Authenticated
+      ? session.value as Authenticated
+      : null;
 
   final isAtSplash = location == RouteNames.splash;
 
@@ -194,9 +268,13 @@ String? authRedirectForLocation(
   // and the post-login `context.go` in login_screen.dart resolve the landing
   // path through the shared [roleHomePath] helper, so the dispatch can never
   // drift between the two sites.
-  if (isAuthenticated && (isAtUnauthOnlyRoute || isAtSplash)) {
-    final auth = session.value as Authenticated;
-    return roleHomePath(auth.user.role);
+  //
+  // Gated on [resolvedAuth], NOT [isAuthenticated] — this arm FORWARDS on the
+  // role instead of fencing on it, so it is the one place a stale role is a
+  // wrong destination rather than a conservative bounce. See the two reads'
+  // note above.
+  if (resolvedAuth != null && (isAtUnauthOnlyRoute || isAtSplash)) {
+    return roleHomePath(resolvedAuth.user.role);
   }
 
   // Role gate: /services/* is only accessible to INDEPENDENT_MASTER.
@@ -226,6 +304,24 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate: /staff/* is only accessible to SALON_MASTER.
+  //
+  // The symmetric counterpart of the /master/* gate immediately above: the
+  // invited SALON_MASTER's own read-only personal-profile surface
+  // (`/staff/profile`, `/staff/settings`, `/staff/edit/personal`) — the fix
+  // for the "blank home" landing bug (see `role_home.dart`). Deliberately a
+  // SEPARATE subtree from `/master/*` rather than a widened admission there:
+  // INDEPENDENT_MASTER's bookings/schedule/services surfaces under
+  // `/master/*` must stay fenced off from SALON_MASTER, which this scope
+  // explicitly does not grant. Any other authenticated role that navigates
+  // to a /staff/* path is redirected to its own landing.
+  if (isAuthenticated && location.startsWith('/staff/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.salonMaster) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
   // Role gate (Phase 250): /salon/* is only accessible to SALON_OWNER /
   // SALON_ADMIN.
   //
@@ -248,19 +344,24 @@ String? authRedirectForLocation(
   }
 
   // Role gate (Phase 15.6 — OQ-2 hardening): the schedule EDIT surfaces are
-  // INDEPENDENT_MASTER-only in MVP. `/schedule` (MasterScheduleScreen) already
-  // gates every edit affordance on `scheduleEditableProvider` and is a safe
-  // read-only landing for any future viewer; but the deep edit destinations —
+  // INDEPENDENT_MASTER-only, PERMANENTLY — this is not an interim MVP state.
+  // `/schedule` (MasterScheduleScreen) already gates every edit affordance on
+  // `scheduleEditableProvider`; but the deep edit destinations —
   // `/schedule/weekly` (WeeklyTemplateEditorScreen), `/schedule/day`,
-  // `/schedule/copy` — are full edit surfaces that do NOT self-check the
-  // capability. A read-only role (SALON_MASTER) deep-linking/pushing straight
-  // to one of those would otherwise reach editable controls. Redirect every
-  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to the
-  // home "coming soon" shell, mirroring the `/master/*` and `/services` gates
-  // above. When salon staff gain a (read-only/editable-per-membership) schedule
-  // surface in a later phase, this gate widens to admit those roles and the
-  // editor screens add their own `scheduleEditableProvider` check — but for MVP
-  // the single-point router gate keeps the edit surfaces fully enclosed.
+  // `/schedule/copy` — are full edit surfaces. Redirect every
+  // non-INDEPENDENT_MASTER role away from the entire `/schedule` subtree to
+  // the home "coming soon" shell, mirroring the `/master/*` and `/services`
+  // gates above.
+  //
+  // Phase 309 (CLOSED, D1/D3): salon staff do NOT get this gate widened.
+  // `SALON_MASTER` reads the SAME `MasterScheduleScreen` at the SEPARATE
+  // `/staff/schedule` route instead — the `/staff/*` gate above is what
+  // admits them there, not this one. `/schedule` and its subtree stay
+  // INDEPENDENT_MASTER-only whether or not `/staff/schedule` exists. Phase
+  // 311 (CLOSED) then made `WeeklyTemplateEditorScreen`, `DayHoursSheet` and
+  // `ApplyScheduleSheet` self-check `scheduleEditableProvider` too, so the
+  // edit surfaces are enclosed by two independent mechanisms — this router
+  // gate is not made redundant by that; both stay in force.
   if (isAuthenticated && location.startsWith('/schedule')) {
     final Authenticated auth = session.value! as Authenticated;
     if (auth.user.role != UserRole.independentMaster) {

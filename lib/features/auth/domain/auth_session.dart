@@ -42,8 +42,17 @@ sealed class AuthSession with _$AuthSession {
   ///
   /// [user] contains the profile data loaded from `GET /auth/me` during the
   /// login or cold-start refresh flow.
+  ///
+  /// [refreshTokenPersisted] is `true` unless the SecureStorage write of the
+  /// refresh token failed (tolerated — see `AuthNotifier
+  /// ._persistRefreshTokenTolerant`, invite-accept post-success design,
+  /// 2026-09-01). The session stays [Authenticated] in-memory either way; a
+  /// `false` value only means the app will land on `/login` instead of
+  /// silently restoring on the next cold start. Additive and defaulted so
+  /// none of the ~200 existing construction sites need updating.
   const factory AuthSession.authenticated({
     required User user,
     required String accessToken,
+    @Default(true) bool refreshTokenPersisted,
   }) = Authenticated;
 }

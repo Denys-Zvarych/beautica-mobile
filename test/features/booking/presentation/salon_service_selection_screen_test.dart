@@ -6,12 +6,33 @@
 //   3. Multi-select toggling updates the pinned summary + total.
 //   4. "Далі" disabled with 0 selected, enabled ≥1, navigates to
 //      /booking/salon/masters with the correct extra.
+//   5. The per-row favourite heart (mobile-qa regression, 2026-09-12) — see
+//      the "favourite heart" group below.
 //
 // The per-category tri-state "select all" pill this screen used to render
 // has been DELETED (product decision, part of unifying this screen's
 // catalogue accordion with `ServiceSelectorSheet`'s into
 // `widgets/service_catalogue_accordion.dart` — see that screen's file header
 // for the refactor note). There is no replacement affordance to cover here.
+//
+// ## mobile-qa regression, 2026-09-12 — the favourite heart had ZERO coverage
+//
+// `4fe8642a` (2026-08-10) wired `showFavoriteHeart` + `favoriteTargetType` +
+// `favoriteServiceIds` + `onFavoriteError` onto this screen's
+// `CatalogueCategorySection(...)` call site. `92644d2e` (2026-08-23) restored
+// a pre-MO-4 version of `salon_service_selection_screen.dart` and silently
+// dropped all four — the commit message never mentions the heart, it was an
+// unnoticed side effect of the revert. `showFavoriteHeart` defaults to
+// `false`, so the heart simply never rendered: a CLIENT could not favourite a
+// salon-catalogue service at all, for 13 days, undetected.
+//
+// It went undetected because this file — despite
+// `integration_test/salon_service_favourite_flow_test.dart`'s own header
+// claiming otherwise at the time — had NO test mentioning "favourite" or
+// "heart" for this screen. The "favourite heart" group below closes that gap
+// and is mutation-proven against the exact regression: deleting
+// `showFavoriteHeart: true` from the `CatalogueCategorySection(...)` call
+// site turns it RED.
 
 import 'dart:async';
 
@@ -19,6 +40,9 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
+import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -27,7 +51,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_favorite_repository.dart';
 import '../../../helpers/pump_app.dart';
+
+// ---------------------------------------------------------------------------
+// Auth-free favourite toggle — skips the production build()'s
+// ref.watch(authProvider) so the heart renders without an auth graph. Same
+// per-file-copy convention as `service_selector_sheet_test.dart`'s identical
+// private override (each test file that pumps a favourite heart defines its
+// own copy rather than sharing one across features).
+// ---------------------------------------------------------------------------
+class _AuthFreeFavoriteToggleNotifier extends FavoriteToggleNotifier {
+  @override
+  Map<FavoriteTarget, FavoriteEntry> build() =>
+      const <FavoriteTarget, FavoriteEntry>{};
+}
 
 const String _kSalonId = 'salon-1';
 
@@ -499,5 +537,96 @@ void main() {
         expect(captured?.selectedServiceIds, hasLength(2));
       },
     );
+  });
+
+  group('favourite heart (regression: MO-4 wiring silently dropped by '
+      '92644d2e, restored)', () {
+    Finder heartIcon(String serviceId, IconData icon) => find.descendant(
+      of: find.byKey(Key('booking_service_heart_$serviceId')),
+      matching: find.byIcon(icon),
+    );
+
+    testWidgets(
+      'renders an unfilled heart on a non-favourited catalogue service',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _routerFor(),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _stubCatalog),
+            favoriteToggleProvider.overrideWith(
+              _AuthFreeFavoriteToggleNotifier.new,
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // _svcA1 carries isFavorite: false (the @Default on
+        // SalonCatalogService) — the exact fixture shape the dropped wiring
+        // would fail on by never rendering the heart at all. Asserting on
+        // the RENDERED icon (not a constructor field read off the widget) —
+        // a field read cannot distinguish "flag set" from "nothing painted".
+        expect(
+          find.byKey(const Key('booking_service_heart_svc-a1')),
+          findsOneWidget,
+          reason:
+              'the heart must render at all — this is the exact defect: '
+              'commit 92644d2e dropped showFavoriteHeart at this screen\'s '
+              'only CatalogueCategorySection call site, so the heart never '
+              'painted for any client, for 13 days',
+        );
+        expect(
+          heartIcon('svc-a1', Icons.favorite_border_rounded),
+          findsOneWidget,
+        );
+        expect(heartIcon('svc-a1', Icons.favorite_rounded), findsNothing);
+      },
+    );
+
+    testWidgets('tapping the heart toggles a salonService favourite for that '
+        'catalogue service id', (tester) async {
+      final FakeFavoriteRepository repo = FakeFavoriteRepository();
+      await tester.pumpRoutedApp(
+        _routerFor(),
+        overrides: [
+          salonServiceCatalogProvider(
+            _kSalonId,
+          ).overrideWith((ref) async => _stubCatalog),
+          favoriteToggleProvider.overrideWith(
+            _AuthFreeFavoriteToggleNotifier.new,
+          ),
+          favoriteRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('booking_service_heart_svc-a1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        heartIcon('svc-a1', Icons.favorite_rounded),
+        findsOneWidget,
+        reason: 'tap must flip the heart to filled',
+      );
+      expect(
+        repo.addCalls,
+        hasLength(1),
+        reason: 'exactly one favourite POST must fire per tap',
+      );
+      expect(
+        repo.addCalls.single,
+        const FavoriteTarget(
+          type: FavoriteTargetType.salonService,
+          id: 'svc-a1',
+        ),
+        reason:
+            'must toggle FavoriteTargetType.salonService keyed on the '
+            'salon catalogue service_definitions id — NOT '
+            'FavoriteTargetType.service (a master_services id from the '
+            'independent-master flow); the two id spaces are distinct and '
+            'this screen\'s catalogue only ever carries the former',
+      );
+    });
   });
 }

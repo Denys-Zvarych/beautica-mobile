@@ -60,10 +60,8 @@ import '../../../shared/validators/server_field_error_banner.dart';
 import '../../../shared/validators/locality_validator.dart';
 import '../../../shared/validators/location_note_validator.dart';
 import '../../../shared/validators/street_validator.dart';
-import '../../location/domain/city.dart';
 import '../../location/domain/city_district.dart';
-import '../../location/domain/oblast.dart';
-import '../../location/presentation/widgets/locality_cascade.dart';
+import '../../location/presentation/widgets/settlement_locality_field.dart';
 import '../../location/state/location_providers.dart';
 import '../domain/register_result.dart';
 import '../domain/user_role.dart';
@@ -113,11 +111,13 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   final FocusNode _buildingFocusNode = FocusNode();
   final FocusNode _noteFocusNode = FocusNode();
 
-  // Local selection mirror — holds full domain objects so the cascade can
-  // render names and so we can read City.hasDistricts for per-role validation.
-  // Mirrored into the draft on submit.
-  Oblast? _oblast;
-  City? _city;
+  // Local selection mirror, mirrored into the draft on submit.
+  //
+  // Phase 346 — the three cascade objects collapsed to one settlement id. The
+  // settlement's display name is owned by [SettlementLocalityField] itself
+  // (D3), and "does it subdivide" is answered by [districtsOf] rather than by
+  // the `City.hasDistricts` flag the settlement response does not carry.
+  String? _settlementId;
   CityDistrict? _district;
 
   /// True while register + navigate is in flight. Passed as null to
@@ -143,12 +143,16 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
   @override
   void initState() {
     super.initState();
-    // Eagerly warm the oblast cache so the picker sheet opens instantly on the
-    // first tap.  The provider is keepAlive:true — this read kicks off the HTTP
-    // fetch; the result is memoized for the lifetime of the app.  We fire after
-    // the first frame so the widget tree is fully mounted before we touch `ref`.
+    // Eagerly warm the pre-typing major-settlement list (the blank-query key)
+    // so the picker sheet opens with content on the first tap instead of a
+    // spinner. That key is the ONE `settlementSearchProvider` family entry
+    // pinned keepAlive, so this read is memoized for the app's lifetime. Fired
+    // after the first frame so the tree is mounted before `ref` is touched.
+    //
+    // Phase 346 — this replaces the identical warm-up of `oblastListProvider`,
+    // which no longer has a picker to open.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) ref.read(oblastListProvider);
+      if (mounted) ref.read(settlementSearchProvider(''));
     });
   }
 
@@ -163,17 +167,13 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     super.dispose();
   }
 
-  // ── Cascade callbacks ──────────────────────────────────────────────────────
+  // ── Locality callbacks ─────────────────────────────────────────────────────
 
-  void _onOblast(Oblast? o) => setState(() {
-    _oblast = o;
-    _city = null;
-    _district = null;
-    _localityError = null;
-  });
-
-  void _onCity(City? c) => setState(() {
-    _city = c;
+  /// A new settlement always clears the district: a `CityDistrict` belongs to
+  /// exactly one settlement, so carrying one across would submit a district
+  /// that is not a child of the submitted city.
+  void _onSettlement(String id, String _) => setState(() {
+    _settlementId = id;
     _district = null;
     _localityError = null;
   });
@@ -185,8 +185,18 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 
   // ── Submit helpers ─────────────────────────────────────────────────────────
 
-  /// Whether the currently selected city subdivides into districts.
-  bool get _cityHasDistricts => _city?.hasDistricts ?? false;
+  /// Whether the currently selected settlement subdivides into districts.
+  ///
+  /// The SAME [districtsOf] read [SettlementLocalityField] uses to decide
+  /// whether to render the District row, so the form and the row can never
+  /// disagree about whether a district is owed.
+  ///
+  /// Read with `listen: false` — this is only ever consulted from [_submit],
+  /// a callback, never from `build`. [_submit] awaits
+  /// [pendingDistrictLookup] first so an in-flight lookup is never mistaken
+  /// for "no districts".
+  bool get _cityHasDistricts =>
+      districtsOf(ref, _settlementId, listen: false).isNotEmpty;
 
   /// Both CLIENT and provider CTAs use "Далі".
   Future<void> _submit(AppLocalizations l10n, UserRole role) async {
@@ -195,9 +205,23 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
     final bool isProvider = role != UserRole.client;
 
     if (isProvider) {
+      final Future<void>? districtLookup = pendingDistrictLookup(
+        ref,
+        _settlementId,
+      );
+      if (districtLookup != null) {
+        // Busy BEFORE the await (perf N1): the CTA disables and a second tap
+        // hits the `_submitting` guard instead of starting a second submit. Reset
+        // straight after — everything from here to the submit's own
+        // `_submitting = true` is synchronous, so no tap can slip in between, and
+        // every early return below leaves the flag clear.
+        setState(() => _submitting = true);
+        await districtLookup;
+        if (!mounted) return;
+        setState(() => _submitting = false);
+      }
       final LocalityValidationError? localityErr = validateProviderLocality(
-        oblastCode: _oblast?.id,
-        cityId: _city?.id,
+        cityId: _settlementId,
         districtId: _district?.id,
         cityHasDistricts: _cityHasDistricts,
         l10n: l10n,
@@ -262,8 +286,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       draftNotifier.updateStep3();
     } else {
       draftNotifier.updateStep3(
-        oblastCode: _oblast?.id,
-        cityId: _city?.id,
+        cityId: _settlementId,
         districtId: _district?.id,
         street: _streetController.text.trim(),
         buildingNo: _buildingController.text.trim(),
@@ -451,7 +474,7 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
           Center(
             child: Container(
               // Stable discriminator for the hero tile. The hero glyph shares
-              // the locationMarker asset with the LocalityCascade pins, so the
+              // the locationMarker asset with the locality field's pins, so the
               // key (not the size) is what tests anchor on. The glyph itself is
               // centred at size 30 to match the steps 1 & 2 hero tiles.
               key: const Key('register-step3-location-hero'),
@@ -512,17 +535,20 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
             const SizedBox(height: VelvetSpacing.md),
           ],
 
-          // ── Locality cascade ───────────────────────────────────────────────
+          // ── Locality ───────────────────────────────────────────────────────
           _LocalityBlock(
             isClient: isClient,
-            oblast: _oblast,
-            city: _city,
+            settlementId: _settlementId,
             district: _district,
             localityError: _localityError,
-            onOblast: _onOblast,
-            onCity: _onCity,
+            onSettlement: _onSettlement,
             onDistrict: _onDistrict,
             l10n: l10n,
+            // Locked while a submit is in flight — including the await on a
+            // pending district lookup — so the settlement cannot change under
+            // the validation that is about to read its districts (perf LOW-A).
+            // Same guard the other four address screens already pass.
+            enabled: !_submitting,
           ),
 
           // ── Provider-only address fields ───────────────────────────────────
@@ -654,55 +680,52 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
 }
 
 // ---------------------------------------------------------------------------
-// _LocalityBlock — cascade + per-role labels + inline error
+// _LocalityBlock — settlement autocomplete + per-role label suffix + error
 // ---------------------------------------------------------------------------
 
 class _LocalityBlock extends StatelessWidget {
   const _LocalityBlock({
     required this.isClient,
-    required this.oblast,
-    required this.city,
+    required this.settlementId,
     required this.district,
     required this.localityError,
-    required this.onOblast,
-    required this.onCity,
+    required this.onSettlement,
     required this.onDistrict,
     required this.l10n,
+    this.enabled = true,
   });
 
   final bool isClient;
-  final Oblast? oblast;
-  final City? city;
+  final String? settlementId;
   final CityDistrict? district;
   final LocalityValidationError? localityError;
-  final ValueChanged<Oblast?> onOblast;
-  final ValueChanged<City?> onCity;
+  final void Function(String settlementId, String label) onSettlement;
   final ValueChanged<CityDistrict?> onDistrict;
   final AppLocalizations l10n;
+
+  /// Forwarded to [SettlementLocalityField], which applies it to BOTH the
+  /// settlement field and the district row.
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     // Defect 7 — route the single first-unsatisfied message to the FAILING
-    // row only, so e.g. "Оберіть місто" renders under the City row instead of
-    // once below the whole cascade.
+    // row only, so e.g. «Оберіть населений пункт» renders under the settlement
+    // field instead of once below the whole block.
     final LocalityValidationError? err = localityError;
-    return LocalityCascade(
+    return SettlementLocalityField(
       key: const Key('locality-cascade'),
-      selectedOblast: oblast,
-      selectedCity: city,
+      settlementId: settlementId,
       selectedDistrict: district,
-      onOblast: onOblast,
-      onCity: onCity,
+      onSettlement: onSettlement,
       onDistrict: onDistrict,
-      districtRequired: !isClient,
-      oblastError: err?.level == LocalityLevel.oblast ? err!.message : null,
-      cityError: err?.level == LocalityLevel.city ? err!.message : null,
+      settlementError: err?.level == LocalityLevel.city ? err!.message : null,
       districtError: err?.level == LocalityLevel.district ? err!.message : null,
-      // Defect 5 — explanatory helper caption on the disabled District row for
-      // leaf cities so users understand why the field is disabled.
-      showDistrictNoneHelper: true,
-      // HTML: Oblast label carries CLIENT optional tag + "?" tip-icon.
-      oblastLabelSuffix: _OblastLabelSuffix(isClient: isClient, l10n: l10n),
+      // The CLIENT optional tag + "?" tip-icon used to ride on the Область
+      // label; with that row gone it moves to the settlement label, which is
+      // now the first (and only) locality control the caption can explain.
+      labelSuffix: _OblastLabelSuffix(isClient: isClient, l10n: l10n),
+      enabled: enabled,
     );
   }
 }

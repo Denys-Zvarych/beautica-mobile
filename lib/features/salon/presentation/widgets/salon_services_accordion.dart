@@ -29,12 +29,20 @@ import '../../domain/salon_service_catalog.dart';
 
 /// The categories + services accordion.
 ///
-/// A plain [StatelessWidget] over a [ListView.builder] of [_SalonCategoryGroup]
-/// rows (mobile-perf MEDIUM fix, Phase 13.6 audit): each category owns its own
+/// A plain [StatelessWidget] over a list of [_SalonCategoryGroup] rows
+/// (mobile-perf MEDIUM fix, Phase 13.6 audit): each category owns its own
 /// `_expanded` bool in its own [State], so toggling one category's disclosure
 /// only rebuilds THAT category's subtree instead of every category group in
 /// the accordion (the previous top-level `setState` regenerated the whole
 /// widget list on every toggle).
+///
+/// 2026-09-13 audit (M9) — the doc above used to claim a `ListView.builder`.
+/// The body was, and in the default box form still is, a plain [Column]: this
+/// widget is mounted inside somebody else's scrollable, so it cannot own a
+/// `ListView` without nesting two scroll views. Use [SalonServicesAccordion
+/// .sliver] from a [CustomScrollView] to get genuine laziness; the per-group
+/// body is lazy in BOTH forms since the same audit (see
+/// [_SalonCategoryGroupState.build]).
 ///
 /// When [onServiceTap] is supplied the service rows become tappable — tapping
 /// one picks it as the "filter the masters grid by this service" selection
@@ -48,9 +56,28 @@ class SalonServicesAccordion extends StatelessWidget {
     required this.categories,
     this.selectedServiceId,
     this.onServiceTap,
-  });
+  }) : _asSliver = false;
+
+  /// 2026-09-13 audit (M9) — the LAZY form, for a [CustomScrollView] host.
+  ///
+  /// Renders the identical groups with the identical horizontal padding, but
+  /// contributes a [SliverList.builder] instead of a [Column], so off-screen
+  /// category groups are never built. Additive and opt-in: the default
+  /// constructor above, and therefore every pre-existing call site, is
+  /// untouched — `public_salon_profile_screen.dart` mounts this inside a box
+  /// [Column] and MUST keep the box form.
+  const SalonServicesAccordion.sliver({
+    super.key,
+    required this.categories,
+    this.selectedServiceId,
+    this.onServiceTap,
+  }) : _asSliver = true;
 
   final List<SalonServiceCategoryEntry> categories;
+
+  /// Which of the two forms this instance is. Private: the choice is made by
+  /// picking a constructor, never by passing a flag.
+  final bool _asSliver;
 
   /// The catalog id of the currently-selected service, or null when no service
   /// filter is active.
@@ -59,28 +86,44 @@ class SalonServicesAccordion extends StatelessWidget {
   /// Called with the tapped service. Null makes the rows inert.
   final ValueChanged<SalonCatalogService>? onServiceTap;
 
+  /// One group plus the inter-group gap, shared verbatim by both forms so the
+  /// sliver and the box render identically.
+  Widget _group(int i) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: i < categories.length - 1 ? VelvetSpacing.md : 0,
+      ),
+      child: _SalonCategoryGroup(
+        category: categories[i],
+        selectedServiceId: selectedServiceId,
+        onServiceTap: onServiceTap,
+        // Seeds the first category open on load; the rest start
+        // collapsed. Each group's own State owns this after the
+        // first build, so re-builds of THIS StatelessWidget (e.g. a
+        // sibling category toggling) never reset an already-toggled
+        // group back to its initial value.
+        initiallyExpanded: i == 0,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_asSliver) {
+      return SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+        sliver: SliverList.builder(
+          itemCount: categories.length,
+          itemBuilder: (BuildContext context, int i) => _group(i),
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          for (int i = 0; i < categories.length; i++) ...<Widget>[
-            _SalonCategoryGroup(
-              category: categories[i],
-              selectedServiceId: selectedServiceId,
-              onServiceTap: onServiceTap,
-              // Seeds the first category open on load; the rest start
-              // collapsed. Each group's own State owns this after the
-              // first build, so re-builds of THIS StatelessWidget (e.g. a
-              // sibling category toggling) never reset an already-toggled
-              // group back to its initial value.
-              initiallyExpanded: i == 0,
-            ),
-            if (i < categories.length - 1)
-              const SizedBox(height: VelvetSpacing.md),
-          ],
+          for (int i = 0; i < categories.length; i++) _group(i),
         ],
       ),
     );
@@ -112,11 +155,12 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
 
   void _toggleExpand() => setState(() => _expanded = !_expanded);
 
-  @override
-  Widget build(BuildContext context) {
-    final SalonServiceCategoryEntry cat = widget.category;
-
-    final Widget rows = Column(
+  /// The expanded body. 2026-09-13 audit (M9) — called ONLY from the
+  /// `_expanded` arm below. It used to be a `final Widget rows = ...` built at
+  /// the top of `build`, i.e. every service row of every category was
+  /// allocated on every build and then thrown away by the collapse gate.
+  Widget _rows(SalonServiceCategoryEntry cat) {
+    return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
@@ -133,6 +177,11 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
           ),
       ],
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final SalonServiceCategoryEntry cat = widget.category;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -159,7 +208,7 @@ class _SalonCategoryGroupState extends State<_SalonCategoryGroup> {
           curve: Curves.easeOutCubic,
           alignment: Alignment.topCenter,
           child: _expanded
-              ? rows
+              ? _rows(cat)
               : const SizedBox(width: double.infinity, height: 0),
         ),
       ],
@@ -439,7 +488,20 @@ class _SalonServiceRow extends StatelessWidget {
     // read-only behaviour. Otherwise the whole tile is a selectable filter
     // control with a button/selected semantics node.
     if (onTap == null) {
-      return Semantics(label: '$name, $duration, $price', child: tile);
+      return Semantics(
+        // mobile-qa (2026-09-14) — the READ-ONLY arm carries the SAME key as
+        // the tappable arm below. It had none, and that arm is the whole of
+        // the salon-management «Послуги» tab (`_ServicesTab` there passes no
+        // `onServiceTap`), so an owner's own service rows had no
+        // locale-independent handle in ANY tier: a test could assert the
+        // category HEADER rendered and nothing further, and the only way to
+        // reach a row was `find.text(<fixture name>)`, which M2 bans. The key
+        // is identical in both arms and exactly one arm ever renders per
+        // service, so `find.byKey` still resolves to one widget.
+        key: Key('salon-service-row-${service.id}'),
+        label: '$name, $duration, $price',
+        child: tile,
+      );
     }
     return Semantics(
       button: true,

@@ -141,6 +141,9 @@ class AddFavoriteRequestTargetTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON_SERVICE')
   static const AddFavoriteRequestTargetTypeEnum SALON_SERVICE =
       _$addFavoriteRequestTargetTypeEnum_SALON_SERVICE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AddFavoriteRequestTargetTypeEnum unknownDefaultOpenApi =
+      _$addFavoriteRequestTargetTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<AddFavoriteRequestTargetTypeEnum> get serializer =>
       _$addFavoriteRequestTargetTypeEnumSerializer;

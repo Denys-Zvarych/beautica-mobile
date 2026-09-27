@@ -106,10 +106,18 @@ class ServiceSelectorSheet extends ConsumerStatefulWidget {
   /// (e.g. the master deactivated that service between the caller's own data
   /// load and this screen's fetch): the catalogue then simply renders
   /// normally, nothing pre-selected, same as arriving with no pre-selection at
-  /// all. This is deliberately NOT surfaced as an error here — the flow's own
+  /// all. When `autoAdvance` is true (this field), an unresolved id is
+  /// deliberately NOT surfaced as an error here — the flow's own
   /// booking-creation failure (a stale service the client did carry through)
   /// is the meaningful failure to show, and it already renders further down
   /// the flow via the normal [Failure] path.
+  ///
+  /// Phase 350 D6 — when `autoAdvance` is false instead (the booking-detail
+  /// "«Записатись знову»" rebook path, never the wish-list one), that later
+  /// booking-creation attempt doesn't necessarily happen: the client can just
+  /// sit on Step 1. So an unresolved [initialServiceId] DOES get its own
+  /// notice in that case — see [_ServiceSelectorSheetState
+  /// ._maybeWarnUnmatchedInitialService].
   final bool autoAdvance;
 
   @override
@@ -161,6 +169,27 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
   /// Guards [_autoAdvanceTarget] from firing more than once (e.g. a rebuild
   /// after the post-frame push already scheduled).
   bool _autoAdvanceScheduled = false;
+
+  /// Phase 350 D6 / mobile-security cycle-1 LOW: set by [_seedOnce] when
+  /// [widget.initialServiceId] was supplied (non-empty) but did NOT resolve
+  /// to a real service in the freshly loaded catalogue — the master
+  /// deactivated it since the booking this rebook is replaying — AND
+  /// [widget.autoAdvance] is false.
+  ///
+  /// Deliberately gated on `!widget.autoAdvance`: the `autoAdvance == true`
+  /// case (wish-list rebook, Phase 241) is UNCHANGED — see [autoAdvance]'s
+  /// doc for why that path already decided not to surface this as an error
+  /// here (a still-stale service fails loudly later at the real
+  /// booking-creation attempt it drives straight into). This screen has no
+  /// such later failure to lean on when `autoAdvance` is false and the
+  /// client simply lands on Step 1 with nothing checked, so D6 gives it its
+  /// own explicit notice via [_maybeWarnUnmatchedInitialService] instead —
+  /// the SAME `bookingRebookServiceUnavailable` message the D7 (empty
+  /// `serviceId`) fallback in `booking_detail_screen.dart` shows.
+  bool _unmatchedInitialService = false;
+
+  /// Guards [_unmatchedInitialService] from firing more than once.
+  bool _unmatchedInitialServiceWarned = false;
 
   @override
   void initState() {
@@ -225,6 +254,8 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
         if (widget.autoAdvance) {
           _autoAdvanceTarget = match;
         }
+      } else if (!widget.autoAdvance) {
+        _unmatchedInitialService = true;
       }
     }
 
@@ -310,6 +341,24 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
     });
   }
 
+  /// Fires the `bookingRebookServiceUnavailable` warning snack exactly once,
+  /// off the build phase (post-frame) — same deferral pattern as
+  /// [_maybeAutoAdvance] and the one-shot `clear()` in [initState]; showing a
+  /// snack during `build()` is unsafe for the same reason a provider write
+  /// or a `context.push` is. A no-op when [_unmatchedInitialService] is
+  /// false (the ordinary case — no `initialServiceId`, or it matched).
+  void _maybeWarnUnmatchedInitialService() {
+    if (!_unmatchedInitialService || _unmatchedInitialServiceWarned) return;
+    _unmatchedInitialServiceWarned = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showWarningSnack(
+        context,
+        AppLocalizations.of(context).bookingRebookServiceUnavailable,
+      );
+    });
+  }
+
   void _goNext(Master master, List<MasterService> selected) {
     context.push(
       RouteNames.bookingSlots,
@@ -385,6 +434,7 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
                   final (Master master, List<MasterService> services) = data;
                   _seedOnce(services);
                   _maybeAutoAdvance(master);
+                  _maybeWarnUnmatchedInitialService();
                   if (services.isEmpty) {
                     return _EmptyCatalogue(masterName: master.firstName);
                   }

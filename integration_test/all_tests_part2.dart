@@ -33,24 +33,45 @@ import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
 import 'master_profile_address_block_flow_test.dart'
     as master_profile_address_block;
-import 'master_received_reviews_flow_test.dart' as master_received_reviews;
+import 'master_own_profile_bio_flow_test.dart' as master_own_profile_bio;
+import 'master_own_profile_reviews_tab_flow_test.dart'
+    as master_own_profile_reviews_tab;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
 import 'register_flow_test.dart' as register;
 import 'register_locality_persistence_flow_test.dart'
     as register_locality_persistence;
+import 'salon_archive_flow_test.dart' as salon_archive;
+import 'salon_booking_coverage_retry_flow_test.dart'
+    as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
+import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
 import 'salon_service_filter_flow_test.dart' as salon_service_filter;
 import 'schedule_edit_flow_test.dart' as schedule_edit;
 import 'schedule_first_create_flow_test.dart' as schedule_first_create;
 import 'schedule_override_conflict_flow_test.dart'
     as schedule_override_conflict;
+import 'salon_master_bookings_nav_flow_test.dart' as salon_master_bookings_nav;
+import 'salon_owner_bookings_board_flow_test.dart'
+    as salon_owner_bookings_board;
+import 'salon_master_client_review_flow_test.dart'
+    as salon_master_client_review;
+import 'salon_master_own_profile_tabs_flow_test.dart'
+    as salon_master_own_profile_tabs;
+import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
+import 'salon_master_services_read_only_flow_test.dart'
+    as salon_master_services_read_only;
+import 'salon_owner_set_master_services_flow_test.dart'
+    as salon_owner_set_master_services;
+import 'salon_admin_set_master_services_flow_test.dart'
+    as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
 import 'service_crud_flow_test.dart' as service_crud;
+import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
 import 'service_edit_category_type_test.dart' as service_edit_category_type;
 import 'service_preselection_flow_test.dart' as service_preselection;
@@ -58,6 +79,7 @@ import 'harness_retry_policy_flow_test.dart' as harness_retry_policy;
 import 'service_setup_field_error_flow_test.dart' as service_setup_field_error;
 import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
+import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -162,7 +184,14 @@ void main() {
   // location note, driven against a real GET /masters/me response (Step 2.7
   // Rule 3b).
   group('master_profile_address_block_flow', master_profile_address_block.main);
-  group('master_received_reviews_flow', master_received_reviews.main);
+  group(
+    'master_own_profile_reviews_tab_flow',
+    master_own_profile_reviews_tab.main,
+  );
+  // Phase 351 gap-fix (mobile-qa, 2026-09-25) — the AddLink -> real editor ->
+  // save -> bio-shown round trip (acceptance #10), registered beside the
+  // sibling own-profile flow above.
+  group('master_own_profile_bio_flow', master_own_profile_bio.main);
   group('passport_flow', passport.main);
   // Phase 239 — the wish list's own journey: the nested /passport/wishlist
   // push, the shared-notifier removal across both surfaces, and the LAST
@@ -194,12 +223,31 @@ void main() {
     register_locality_persistence.main,
   );
   group('salon_booking_flow', salon_booking.main);
+  // Phase 266 (mobile-qa, Step 2.7 Rule 3b) — the getBookableMasters
+  // degraded/retry sibling of `salon_booking_flow`: one selected service's
+  // coverage fetch fails, must render the retry row (never the terminal
+  // uncovered row), and a successful retry must recover it.
+  group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment
   // isolation reaching the wire) — registered beside `salon_booking_flow`,
   // whose confirm/success screens and fixtures it shares.
   group('salon_booking_pager_flow', salon_booking_pager.main);
+  // Phase 341 (mobile-qa, Step 2.7 Rule 3b) — the salon multi-service
+  // walk-in wizard, end to end, for BOTH SALON_OWNER and SALON_ADMIN: pick
+  // three services -> the wire request carries all three assignment ids, in
+  // order -> the done step renders all three server items. Proves the
+  // cardinality regression phases 335-340 closed (the deleted
+  // `_primaryService` shim used to send exactly one).
+  group('salon_create_booking_flow', salon_create_booking.main);
+  // Phase 345 — the SALON «Архів» end to end: one
+  // `GET /bookings/salon/{id}?partition=HISTORY`, zero `/bookings/me`, two
+  // masters attributed apart, an elapsed unclosed CONFIRMED row present and an
+  // UPCOMING one absent, «Відгук» following the server flag, real page-1
+  // paging off the salon endpoint, both admitted roles, and SALON_MASTER
+  // bounced while keeping its own `/staff/bookings/archive`.
+  group('salon_archive_flow', salon_archive.main);
   // Phase F — a real heart tap on the salon catalogue POSTs a SALON_SERVICE
   // favorite that the Beauty Passport genuinely reads back as a SALON row.
   // The MASTER-arm sibling of `service_favourite_flow`, registered beside it.
@@ -213,6 +261,41 @@ void main() {
   // DayOffConflictDialog, confirming declines the conflicting booking,
   // backing out persists nothing at all.
   group('schedule_override_conflict_flow', schedule_override_conflict.main);
+  // Phase 309-311 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Графік»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
+  // `/staff/schedule`, landing on the SAME `MasterScheduleScreen` an
+  // INDEPENDENT_MASTER edits their own hours with.
+  group('salon_master_schedule_nav_flow', salon_master_schedule_nav.main);
+  // Phase 330/332 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Записи»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tile-1 tap, the real `auth_redirect.dart` gate
+  // admitting `/staff/bookings`, landing on the SAME `MasterBookingsScreen`
+  // an INDEPENDENT_MASTER runs their day from — with the add (+) button
+  // absent — and on into the SAME `MasterArchiveScreen`. Registered beside
+  // `salon_master_schedule_nav_flow`, the direct sibling this flow mirrors.
+  group('salon_master_bookings_nav_flow', salon_master_bookings_nav.main);
+  // Phase 21.12 — the SALON_OWNER's «Записи» board, the sibling journey to
+  // the SALON_MASTER one above.
+  group('salon_owner_bookings_board_flow', salon_owner_bookings_board.main);
+  group('salon_master_client_review_flow', salon_master_client_review.main);
+  // Phase 321 (Step 2.7 Rule 3b) — the SALON_MASTER's real «Послуги»
+  // journey: real post-login landing dispatch onto `/staff/profile`, a real
+  // `VelvetBottomNavBar` tap, the real `auth_redirect.dart` gate admitting
+  // `/staff/services`, landing on the SAME `ServicesListScreen`
+  // (`writable: false`) an INDEPENDENT_MASTER manages their own menu with.
+  // Registered beside `salon_master_schedule_nav_flow`, the direct sibling
+  // this phase's flow mirrors.
+  group(
+    'salon_master_services_read_only_flow',
+    salon_master_services_read_only.main,
+  );
+  // Phase 351 — the SALON_MASTER's own profile cards → tabs (D15), the
+  // sibling journey to `master_own_profile_reviews_tab_flow` above.
+  group(
+    'salon_master_own_profile_tabs_flow',
+    salon_master_own_profile_tabs.main,
+  );
   // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
   // selection sheet is a REAL POST /favorites; the wish list read-back is the
   // "origin story" the phase exists for.
@@ -221,7 +304,27 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
+  // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
+  // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited
+  // backlog row 802 MEDIUM), plus the INDEPENDENT_MASTER control arm.
+  group(
+    'salon_owner_set_master_services_flow',
+    salon_owner_set_master_services.main,
+  );
+  // Phase 322 (Step 2.7 Rule 3b) — the SALON_ADMIN mirror of the flow
+  // immediately above: the identical real roster-tap -> salon-scoped
+  // ServicesListScreen -> FAB bulk-add -> unassign journey against the
+  // admin's OWN salon (`salon-admin-1`/`master-admin-target`), plus the D4
+  // negative arm — an admin of a DIFFERENT salon deep-linking the same
+  // route is bounced. Registered beside `salon_owner_set_master_services_
+  // flow`, the direct sibling this phase's flow mirrors.
+  group(
+    'salon_admin_set_master_services_flow',
+    salon_admin_set_master_services.main,
+  );
   group('service_crud_flow', service_crud.main);
+  group('service_delete_flow', service_delete.main);
   // Service-create 409 DUPLICATE_SERVICE → inline service-type error, form stays
   // open, never errServer (Step 2.7 Rule 3b — the catalogue duplicate fix E2E).
   group('service_duplicate_flow', service_duplicate.main);
@@ -235,6 +338,10 @@ void main() {
   // Beautica OTP task Phase B6 — settings change-password → OTP → forced logout.
   group('settings_change_password_flow', settings_change_password.main);
   group('support_contact_flow', support_contact.main);
+  // Swipe-to-delete on «Мої салони» (mobile-qa CRITICAL fix, 2026-09-03) —
+  // owner swipes -> confirms -> a real DELETE /api/v1/salons/{salonId}
+  // round trip -> lands back on the hub with the remaining salon.
+  group('swipe_to_delete_salon_flow', swipe_to_delete_salon.main);
   // VelvetSnack AS A FEATURE (mobile-qa, Step 2.7 Rule 3b) — a real
   // failure-path error snack raised + auto-retired, a success snack
   // surviving the context.pop() that follows it, and single-slot

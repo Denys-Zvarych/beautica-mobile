@@ -47,7 +47,6 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
-import '../../../shared/formatters/server_field_message.dart';
 import '../../../shared/validators/email_validator.dart';
 import 'auth_notifier.dart';
 import 'widgets/auth_scaffold.dart';
@@ -134,27 +133,21 @@ class _ForgotPasswordRequestScreenState
     } catch (e) {
       if (!mounted) return;
       final l10n2 = AppLocalizations.of(context);
-      final String message;
-      if (e is ValidationFailure) {
-        // Prefer the per-field email error — it renders directly on the
-        // email input's own errorText below, so it is the one server string
-        // this screen is allowed to show verbatim (single-field form, the
-        // offending field IS the one on screen), GUARDED through
-        // `serverFieldMessageOr` like every other per-field surface in the
-        // codebase (service_form.dart, the suggestion dialogs) — an
-        // oversized or control/bidi-laden backend value falls back instead
-        // of rendering raw (mobile-security, 2026-08). When the backend
-        // attributes nothing to `email` specifically (or the value fails the
-        // guard), fall back to the localized errValidation copy — NOT the
-        // top-level serverMessage, which can be untranslated/technical and
-        // was previously shown raw here.
-        message = serverFieldMessageOr(
-          e.fieldErrors['email'],
-          e.userMessage(context),
-        );
-      } else {
-        message = e is Failure ? e.userMessage(context) : l10n2.errUnknown;
-      }
+      // Every failure renders LOCALIZED copy — including ValidationFailure.
+      //
+      // This screen used to prefer the backend's per-field `errors.email`
+      // string, on the reasoning that a single-field form may echo the
+      // offending field verbatim. In practice that string is Spring's own
+      // English ("Email must be a valid address") and it reached Ukrainian
+      // users untranslated. Nor is it reachable in any useful case:
+      // `validateEmail` (`shared/validators/email_validator.dart`) is
+      // strictly tighter than Spring's `@Email`, so anything the backend
+      // would reject was already rejected inline above and never posted.
+      // `ValidationFailure.userMessage` gives the localized errValidation
+      // copy, which is what the remaining (contract-drift) case deserves.
+      final String message = e is Failure
+          ? e.userMessage(context)
+          : l10n2.errUnknown;
       setState(() {
         _submitting = false;
         _inlineError = message;

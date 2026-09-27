@@ -47,9 +47,11 @@ import 'dart:async';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../auth/presentation/auth_notifier.dart';
 import '../../favorites/application/favorite_toggle_notifier.dart';
 import '../../favorites/data/favorite_repository_provider.dart';
 import '../../favorites/domain/favorite_target.dart';
@@ -82,6 +84,19 @@ WishlistRepository wishlistRepository(Ref ref) =>
 class Wishlist extends _$Wishlist {
   @override
   Future<List<WishlistService>> build() async {
+    // SESSION BOUNDARY (mobile-security MEDIUM, 2026-09-17) — same bug class,
+    // same fix, same reasoning as `passportProvider`'s watch (read its
+    // comment for the full argument): `keepAlive` + 5-minute TTL, a chain
+    // (`wishlistRepositoryProvider` → `favoriteApiProvider` → `dioProvider`)
+    // with no auth watch at any hop, and — because this provider is KEYLESS —
+    // ONE member shared by every account that signs in on the device. The
+    // next sign-in within the TTL was served the outgoing client's favourited
+    // services from memory.
+    //
+    // Narrowed through [authUserIdOrNull] so a silent token refresh does not
+    // discard a live cache entry; nothing here reads the token or the role.
+    ref.watch(authProvider.select(authUserIdOrNull));
+
     // Keep the result cached after all listeners drop, but only for the TTL —
     // then release the link so the next read re-fetches.
     final link = ref.keepAlive();

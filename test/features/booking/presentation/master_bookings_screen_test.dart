@@ -35,6 +35,10 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -48,6 +52,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/master_boo
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -184,6 +189,43 @@ PageResponse<Booking> _page(
   totalElements: totalElements ?? items.length,
 );
 
+/// Phase 329 — the signed-in identity every test in this file assumes: an
+/// `INDEPENDENT_MASTER` looking at their own «Мої записи».
+///
+/// `MasterBookingsScreen` now reads `bookingCreationEnabledProvider`, which
+/// derives the (+) add-booking affordance from the SESSION through the STRICT
+/// settled selector. Without an authenticated session that provider correctly
+/// fails closed and the button is ABSENT — so the ONE harness whose test taps
+/// «+» ([_pumpWithNavRoutes]) seeds a real session, rather than overriding the
+/// capability provider itself (an override there would bypass the very role
+/// mapping the screen now depends on — the `approvedCategoriesProvider`
+/// footgun the backlog records).
+///
+/// DELIBERATELY NOT applied to [_pump]. `AuthNotifier.build` is `async`, so
+/// any stub of it passes through one `AsyncLoading` frame before settling —
+/// and `bookings_day_notifier.dart:493-500` watches the authenticated USER ID,
+/// so that null → id transition legitimately re-fetches the day. In
+/// production the router's auth guard has already settled the session before
+/// this screen ever mounts, so no such second fetch exists there; inside a
+/// fetch-COUNTING test it would be pure stub artifact. [_pump]'s tests never
+/// touch the (+) button (it is the only affordance the capability gates), so
+/// they keep their unauthenticated harness and their exact call counts.
+const User _stubIndependentMaster = User(
+  id: 'master-bookings-test-1',
+  email: 'master@beautica.ua',
+  role: UserRole.independentMaster,
+  firstName: 'Олена',
+  lastName: 'Майстер',
+);
+
+class _IndependentMasterAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: _stubIndependentMaster,
+    accessToken: 'tok',
+  );
+}
+
 /// Pumps the screen with [repo] backing both the timeline and the booked-days
 /// dot set.
 ///
@@ -280,6 +322,8 @@ Future<GoRouter> _pumpWithNavRoutes(
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
+      // Phase 329 — see [_IndependentMasterAuthNotifier].
+      authProvider.overrideWith(_IndependentMasterAuthNotifier.new),
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
       bookedDaysProvider.overrideWith((ref) async => bookedDays),
@@ -694,6 +738,85 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // The teammate filter section is NOT offered here
+  // -------------------------------------------------------------------------
+
+  group('teammate filter section — absent on a master\'s OWN list', () {
+    // 2026-09-18 (mobile-qa LOW) — `bookings_discovery_view_reuse_test.dart`
+    // already pins `BookingsDiscoveryView`'s own behaviour under BOTH values of
+    // `showMasterFilter`, and `bookings_filter_sheet_test.dart` pins the
+    // sheet's empty-roster rule. What nothing pinned was THIS SCREEN's half of
+    // the contract: that `master_bookings_screen.dart` keeps the teammate
+    // section switched off (`showMasterFilter: false`, no roster) — a single
+    // master's own list has no teammates to filter by.
+    //
+    // Asserted on the RENDERED sheet rather than by reading
+    // `BookingsDiscoveryView.showMasterFilter` off the element. A widget-field
+    // read only restates the source line it is meant to guard, and would stay
+    // green for a regression that reached the section by some OTHER route
+    // (a roster handed straight to `BookingsFilterSheet.show`, say) — whereas
+    // the section's own `Key` is downstream of every path that can produce it.
+    //
+    // Located by KEY, never by the section's Cyrillic label:
+    // `scripts/forbid_cyrillic_finder.sh` bans a Cyrillic literal inside a
+    // `find.text(...)` argument across `test/**`.
+    testWidgets(
+      'opening the filter sheet renders the status section but NO teammate '
+      'section',
+      (tester) async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            sort: any(named: 'sort'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+          ),
+        ).thenAnswer((_) async => _page(<Booking>[_booking(id: 'b1')]));
+
+        await _pump(tester, repo);
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('master-bookings-filter-button')),
+        );
+        await tester.pumpAndSettle();
+
+        // POSITIVE CONTROL — the sheet genuinely opened and built its other
+        // sections. Without these two, a regression that failed to open the
+        // sheet at all would satisfy the absence assertion below vacuously,
+        // which is exactly the failure mode this test exists to rule out.
+        expect(
+          find.byKey(const Key('master-bookings-filter-sheet')),
+          findsOne,
+          reason: 'the sheet is genuinely mounted',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-status')),
+          findsOne,
+          reason:
+              'the sheet rendered its sections — so an absent teammate '
+              'section below means ABSENT, not "never built"',
+        );
+
+        expect(
+          find.byKey(const Key('master-bookings-filter-section-master')),
+          findsNothing,
+          reason:
+              'a single master filtering their own day has no teammates; '
+              'this fails the moment `master_bookings_screen.dart` starts '
+              'passing `showMasterFilter: true` WITH a roster, or hands the '
+              'sheet a roster by any other route',
+        );
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------------
   // Day rail behaviour
   // -------------------------------------------------------------------------
 
@@ -883,7 +1006,20 @@ void main() {
           ),
         ).thenAnswer((_) async => _page(<Booking>[]));
 
-        await _pump(tester, repo);
+        // Pinned to a MONTH-BOUNDARY-STRADDLING week on purpose, not to an
+        // arbitrary date. 2026-09-01 is a Tuesday, so its ISO week starts
+        // Mon 2026-08-31 — in the PREVIOUS month; the month step this test
+        // then takes lands on Thu 2026-10-01, whose week likewise starts
+        // Mon 2026-09-28. Both legs therefore exercise the collapsed label's
+        // week-start-vs-selection handoff
+        // (`bookings_discovery_view.dart`'s `_onRailVisibleWeekChanged`),
+        // which is the defect this test was left un-pinned to catch by
+        // accident on 2026-08-31 when the wall clock rolled into one. A
+        // NON-straddling pin (e.g. 2026-09-10) turns this test green while
+        // leaving the defect live, so it would be strictly worse than no pin
+        // at all — verified, not assumed.
+        // future-date-ok: the straddling week is a STRUCTURAL calendar property that no now-relative helper can express, and the instant reaches the widget only through the injected `clock:` seam (never a wall-clock read), so this fixture is deterministic on every run and reads no `isPast`-shaped predicate.
+        await _pump(tester, repo, clock: () => DateTime.utc(2026, 9, 1, 9));
         await tester.pumpAndSettle();
 
         String label() => tester
@@ -2047,7 +2183,10 @@ class _NoScheduleFake extends EffectiveScheduleNotifier {
   final DateTime _date;
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => <EffectiveDay>[
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => <EffectiveDay>[
     EffectiveDay(
       date: _date,
       source: EffectiveSource.noSchedule,

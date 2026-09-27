@@ -21,22 +21,25 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/errors/failures.dart';
 import '../data/schedule_repository_provider.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import '../domain/weekly_schedule.dart';
 import 'effective_schedule_notifier.dart';
 import 'schedule_range.dart';
 
 part 'weekly_schedule_notifier.g.dart';
 
-/// Loads and caches the authenticated master's weekly templates.
+/// Loads and caches the weekly templates for [scope].
 ///
-/// Generated provider name: `weeklyScheduleProvider`.
+/// Generated provider name: `weeklyScheduleProvider` (a family — call
+/// `weeklyScheduleProvider(scope)`; Phase 312 added [ScheduleScope] as the
+/// parameter — was param-less, implicitly "me").
 @Riverpod(keepAlive: true)
 class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
   static const _tag = 'feature.schedule.weekly';
 
   @override
-  Future<List<WeeklySchedule>> build() {
-    return ref.watch(scheduleRepositoryProvider).listWeeklySchedules();
+  Future<List<WeeklySchedule>> build(ScheduleScope scope) {
+    return ref.watch(scheduleRepositoryProvider(scope)).listWeeklySchedules();
   }
 
   /// Persists [schedule] (create when [scheduleId] is null, update otherwise),
@@ -63,7 +66,7 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
       // catches it. INTERVAL days are NOT newly gated here (their validation
       // stays in the editor / DayHours model, unchanged).
       _assertExplicitTimesDaysValid(schedule);
-      final repo = ref.read(scheduleRepositoryProvider);
+      final repo = ref.read(scheduleRepositoryProvider(scope));
       await repo.upsertWeeklySchedule(schedule, scheduleId: scheduleId);
       // Re-read the authoritative list so the cache reflects exactly what the
       // server now holds (a create may have closed a prior open-ended window).
@@ -86,7 +89,7 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
     }
     state = const AsyncLoading<List<WeeklySchedule>>();
     final result = await AsyncValue.guard(() async {
-      final repo = ref.read(scheduleRepositoryProvider);
+      final repo = ref.read(scheduleRepositoryProvider(scope));
       await repo.deleteWeeklySchedule(scheduleId);
       return repo.listWeeklySchedules();
     });
@@ -120,20 +123,34 @@ class WeeklyScheduleNotifier extends _$WeeklyScheduleNotifier {
   /// set to gate-and-eager-read over, the exact same idiom
   /// `booking_calendar_invalidation.dart` uses.
   ///
-  /// Every candidate range costs a `ref.exists` check regardless; only a
-  /// range that WAS pinned pays for the eager `ref.read` — a range this
-  /// session never visited (and so was never remembered by the tracker) is
-  /// never even a candidate.
+  /// Every candidate key costs a `ref.exists` check regardless; only a key
+  /// that WAS pinned pays for the eager `ref.read` — a key this session
+  /// never visited (and so was never remembered by the tracker) is never
+  /// even a candidate.
+  ///
+  /// Phase 312 — SCOPE-FILTERED: the tracker now enumerates keys across every
+  /// [ScheduleScope] this session has ever viewed a calendar for (an
+  /// owner/admin can view several different masters' schedules in one
+  /// session), so a template edit for THIS notifier's own `scope` must only
+  /// ever touch that same master's pinned windows — never eager-read a
+  /// DIFFERENT viewed master's calendar just because it happens to share a
+  /// [ScheduleRange].
   void _invalidateEffectiveScheduleWindows() {
     final EffectiveScheduleRangeTracker tracker = ref.read(
       effectiveScheduleRangeTrackerProvider,
     );
-    for (final ScheduleRange range in tracker.liveRanges) {
-      final bool wasPinned = ref.exists(effectiveScheduleProvider(range));
+    for (final (ScheduleScope, ScheduleRange) key in tracker.liveKeys) {
+      if (key.$1 != scope) continue;
+      final bool wasPinned = ref.exists(
+        effectiveScheduleProvider(key.$1, key.$2),
+      );
       // cycle-safe: effectiveScheduleProvider watches overridesProvider + scheduleRepositoryProvider, NOT weeklyScheduleProvider — no back-edge into this notifier, no cycle.
-      ref.invalidate(effectiveScheduleProvider(range));
+      // Scope-filtered above (phase 312) — only THIS notifier's own `scope`'s
+      // pinned windows are ever reached here.
+      // keepalive-safe: _invalidateEffectiveScheduleWindows — FIX D (ITEM 4), wasPinned-gated via WidgetRef.exists + EffectiveScheduleRangeTracker enumeration
+      ref.invalidate(effectiveScheduleProvider(key.$1, key.$2));
       if (wasPinned) {
-        ref.read(effectiveScheduleProvider(range));
+        ref.read(effectiveScheduleProvider(key.$1, key.$2));
       }
     }
   }

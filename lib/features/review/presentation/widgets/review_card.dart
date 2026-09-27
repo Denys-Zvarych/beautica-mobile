@@ -28,14 +28,23 @@ import 'package:beautica_mobile/shared/formatters/relative_date.dart';
 /// master maps `MasterReviewItem` → [ReviewCardData] (also with [serviceName],
 /// backend `92280c3` — `null` only when the backend couldn't resolve a
 /// service, in which case the service-name sub-line doesn't render).
+///
+/// Phase 334 adds a THIRD consumer: «Деталі запису»'s provider branch maps
+/// [Booking.reviewByClient] here to show the provider the review their client
+/// left about them. That payload (`ClientAuthoredReviewResponse`) is
+/// `{rating, comment}` and nothing more — no review id, no author name, no
+/// timestamp — so [id] is seeded from the BOOKING id, [clientDisplayName]
+/// from the booking's own client name, and [createdAt]/[comment] are both
+/// passed `null` where the wire has nothing. Those two fields were widened to
+/// nullable for it; see each one's doc for why no existing caller moved.
 @immutable
 final class ReviewCardData {
   const ReviewCardData({
     required this.id,
     required this.clientDisplayName,
     required this.rating,
-    required this.comment,
-    required this.createdAt,
+    this.comment,
+    this.createdAt,
     this.serviceName,
   });
 
@@ -49,11 +58,29 @@ final class ReviewCardData {
   /// This review's 1–5 star score.
   final int rating;
 
-  /// The review body.
-  final String comment;
+  /// The review body, or `null` when the payload carries no comment at all —
+  /// the booking-detail «Відгук клієнта» block (phase 334) reads
+  /// `ClientAuthoredReviewResponse.comment`, which is null when the client
+  /// rated without writing anything. The body line is then omitted entirely;
+  /// the ★ row IS the review.
+  ///
+  /// ADDITIVE WIDENING, not a new param: `null` is the only value that
+  /// suppresses the line. An EMPTY string still renders the same empty [Text]
+  /// (and its leading gap) it always has, so the salon and master reviews
+  /// tabs — which pass a non-nullable `String` straight off their domain
+  /// items — are byte-for-byte unaffected.
+  final String? comment;
 
-  /// When the review was authored — rendered as a relative date.
-  final DateTime createdAt;
+  /// When the review was authored — rendered as a relative date in the header
+  /// row. `null` when the payload carries no timestamp: the booking-detail
+  /// block (phase 334) reads `ClientAuthoredReviewResponse`, which is
+  /// `{rating, comment}` and nothing else. The relative-date [Text] is then
+  /// omitted and the name takes the full header width.
+  ///
+  /// ADDITIVE WIDENING — the salon and master reviews tabs both pass a
+  /// non-null `createdAt` off their domain items, so their header rows are
+  /// unchanged.
+  final DateTime? createdAt;
 
   /// Optional booked-service name (salon and master reviews). `null` when the
   /// backend couldn't resolve one for this review.
@@ -88,7 +115,11 @@ class ReviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final String relativeDate = formatRelativeDate(l10n, data.createdAt);
+    final DateTime? createdAt = data.createdAt;
+    final String? relativeDate = createdAt == null
+        ? null
+        : formatRelativeDate(l10n, createdAt);
+    final String? comment = data.comment;
     final String? service = serviceName;
     return NeumorphicCard(
       key: Key('$keyPrefix-${data.id}'),
@@ -110,14 +141,21 @@ class ReviewCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              const SizedBox(width: VelvetSpacing.sm),
-              Text(relativeDate, style: VelvetText.feedbackMutedSm),
+              if (relativeDate != null) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.sm),
+                Text(relativeDate, style: VelvetText.feedbackMutedSm),
+              ],
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
           ReviewStarRow(rating: data.rating, size: 16, gap: 2),
-          const SizedBox(height: VelvetSpacing.sm + 2),
-          Text(data.comment, style: VelvetText.bodyStrong()),
+          // `null` (no comment on the payload at all) drops the body line and
+          // its leading gap; an EMPTY string keeps both, exactly as before the
+          // nullable widening — see [ReviewCardData.comment].
+          if (comment != null) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.sm + 2),
+            Text(comment, style: VelvetText.bodyStrong()),
+          ],
           if (service != null && service.isNotEmpty) ...<Widget>[
             const SizedBox(height: VelvetSpacing.sm + 2),
             Row(

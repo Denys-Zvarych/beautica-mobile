@@ -173,4 +173,135 @@ void main() {
       );
     });
   });
+
+  // ── Phase 284 — kyivDaysBetween, the sanctioned token subtraction ─────────
+  //
+  // Subtracting two date tokens is LEGAL (both sides are the same kind of
+  // value) but only through this function. The hand-written
+  // `later.difference(earlier).inDays` shipped twice — most recently in
+  // `shared/formatters/relative_date.dart` — and is wrong by exactly one day
+  // whenever the HOST zone crosses a spring-forward between the two
+  // host-local midnights.
+  //
+  // The transition cases carry the same `skip:` reasoning as
+  // `relative_date_test.dart`'s: under a host with no transition in the
+  // window (always `TZ=UTC`) they cannot discriminate, and a vacuous green is
+  // worse than an honest skip. Reconcile PASSED + SKIPPED.
+  group('kyivDaysBetween counts CALENDAR days between two date tokens', () {
+    test('zero when both tokens name the same day', () {
+      final DateTime day = kyivDayOf(DateTime.utc(2026, 6, 15, 9));
+
+      expect(kyivDaysBetween(day, day), 0);
+    });
+
+    test('one for consecutive days, in the earlier → later direction', () {
+      final DateTime jun14 = kyivDayOf(DateTime.utc(2026, 6, 14, 9));
+      final DateTime jun15 = kyivDayOf(DateTime.utc(2026, 6, 15, 9));
+
+      expect(kyivDaysBetween(jun14, jun15), 1);
+    });
+
+    test('NEGATIVE when [later] precedes [earlier] — a future-dated value is '
+        'never clamped here; clamping is the caller\'s policy', () {
+      final DateTime jun10 = kyivDayOf(DateTime.utc(2026, 6, 10, 9));
+      final DateTime jun15 = kyivDayOf(DateTime.utc(2026, 6, 15, 9));
+
+      expect(kyivDaysBetween(jun15, jun10), -5);
+      expect(
+        kyivDaysBetween(jun15, jun10),
+        -kyivDaysBetween(jun10, jun15),
+        reason: 'antisymmetric — swapping the operands negates the count',
+      );
+    });
+
+    test('exactly 1 across the Europe/Kyiv SPRING FORWARD (2026-03-29), where '
+        'the hand-written difference() measures 23 h and truncates to 0', () {
+      final DateTime mar29 = kyivDayOf(DateTime.utc(2026, 3, 29, 12));
+      final DateTime mar30 = kyivDayOf(DateTime.utc(2026, 3, 30, 12));
+
+      expect(kyivDaysBetween(mar29, mar30), 1);
+      // The mutation this pins, spelled out: the banned form on this very
+      // fixture returns 0 on a Europe/Kyiv host.
+      expect(
+        mar30.difference(mar29).inDays,
+        0,
+        reason:
+            'DEMONSTRATION, not an endorsement — this is the ILLEGAL '
+            'hand-written form returning the wrong answer on the exact input '
+            'kyivDaysBetween gets right. If this expectation ever fails, the '
+            'host stopped observing a March transition and the case above '
+            'should have skipped.',
+      );
+    }, skip: _skipUnlessHostShifts(2026, 3, 29, 2026, 3, 30));
+
+    test('exactly 1 across the Europe/Kyiv FALL BACK (2026-10-25), the 25 h '
+        'day the old arithmetic happened to survive', () {
+      final DateTime oct25 = kyivDayOf(DateTime.utc(2026, 10, 25, 12));
+      final DateTime oct26 = kyivDayOf(DateTime.utc(2026, 10, 26, 12));
+
+      expect(kyivDaysBetween(oct25, oct26), 1);
+    }, skip: _skipUnlessHostShifts(2026, 10, 25, 2026, 10, 26));
+
+    test('an interval SPANNING a spring forward counts every calendar day — '
+        'NEVER SKIPPED, so `TZ=UTC` still holds the contract', () {
+      final DateTime mar24 = kyivDayOf(DateTime.utc(2026, 3, 24, 12));
+      final DateTime mar31 = kyivDayOf(DateTime.utc(2026, 3, 31, 12));
+
+      expect(kyivDaysBetween(mar24, mar31), 7);
+    });
+
+    test('a 180-day span crossing both yearly transitions is exact — the '
+        'magnitude `bookings_day_rail.dart` documented as 4319:00:00', () {
+      final DateTime jan20 = kyivDayOf(DateTime.utc(2026, 1, 20, 12));
+      final DateTime jul19 = kyivDayOf(DateTime.utc(2026, 7, 19, 12));
+
+      expect(kyivDaysBetween(jan20, jul19), 180);
+    });
+  });
+
+  // 2026-09-24 — `OverridesNotifier.putSpan` stepped with `+Duration(days: 1)`
+  // then truncated; on the Kyiv fall-back day that lands on 23:00 of the SAME
+  // day and the loop never advanced. [kyivAddDays] is the sanctioned step.
+  group('kyivAddDays steps date tokens by CALENDAR day', () {
+    test('forward across the FALL BACK (2026-10-25) lands on the NEXT day, '
+        'at midnight — the 25 h day `+24h` got stuck on', () {
+      final DateTime next = kyivAddDays(DateTime(2026, 10, 25), 1);
+
+      expect(next, DateTime(2026, 10, 26));
+      expect(next.hour, 0);
+    });
+
+    test('backward across the SPRING FORWARD (2026-03-29) lands on the Monday '
+        'a week earlier, never the Sunday `-168h` truncates to', () {
+      expect(kyivAddDays(DateTime(2026, 3, 30), -7), DateTime(2026, 3, 23));
+    });
+
+    test(
+      'forward a week from the fall-back week\'s Monday is the next Monday',
+      () {
+        expect(kyivAddDays(DateTime(2026, 10, 19), 7), DateTime(2026, 10, 26));
+      },
+    );
+
+    test('normalises month / year roll-over and zero', () {
+      expect(kyivAddDays(DateTime(2026, 12, 31), 1), DateTime(2027, 1, 1));
+      expect(kyivAddDays(DateTime(2026, 3, 1), -1), DateTime(2026, 2, 28));
+      expect(kyivAddDays(DateTime(2026, 6, 15), 0), DateTime(2026, 6, 15));
+    });
+  });
+}
+
+/// `null` (run the test) when the HOST process zone's UTC offset differs
+/// between host-local midnight on the two named days; a skip REASON otherwise.
+/// See `test/shared/formatters/relative_date_test.dart` for the full rationale
+/// — UTC has no DST, so a `TZ=UTC` run cannot discriminate this defect and
+/// should say so rather than bank a vacuous pass.
+String? _skipUnlessHostShifts(int y1, int m1, int d1, int y2, int m2, int d2) {
+  if (DateTime(y1, m1, d1).timeZoneOffset !=
+      DateTime(y2, m2, d2).timeZoneOffset) {
+    return null;
+  }
+  return 'non-discriminating on this host: it holds one offset '
+      '(${DateTime(y1, m1, d1).timeZoneName}) across $y1-$m1-$d1 → '
+      '$y2-$m2-$d2. Run under TZ=Europe/Kyiv.';
 }

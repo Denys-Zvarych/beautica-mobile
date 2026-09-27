@@ -110,6 +110,22 @@ class _FakeBookingRepository implements BookingRepository {
     CreateMasterBookingRequest request,
   ) => throw UnimplementedError();
 
+  /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
+  /// screen; present only because [BookingRepository] gained the method.
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
@@ -125,6 +141,14 @@ class _FakeBookingRepository implements BookingRepository {
 
   @override
   Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
@@ -562,6 +586,52 @@ void main() {
         );
       },
     );
+
+    // QA LOW (2026-09-24) — the confirm card now uses the SAME short
+    // settlement label as every salon address line (prefix, no oblast), so a
+    // village salon reads «…, с. Іванівка», not a bare «Іванівка».
+    testWidgets('a village salon renders the prefixed settlement, no oblast', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      final _FakeBookingRepository repo = _FakeBookingRepository();
+      final GoRouter router = _router();
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          publicSalonProfileProvider(_kSalonId).overrideWith(
+            (ref) => (
+              _kSalon.copyWith(
+                city: 'Іванівка',
+                region: 'Полтавська',
+                cityHromadaName: 'Шишацька',
+                citySettlementType: 'VILLAGE',
+              ),
+              const <SalonMasterSummary>[],
+            ),
+          ),
+        ],
+      );
+      unawaited(router.push(RouteNames.salonBookingConfirm, extra: _args()));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonBookingConfirmScreen)),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('salon-confirm-address-card')),
+          // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+          // AppLocalizations; the Cyrillic left is fixture data.
+          matching: find.text(
+            'вул. Хрещатик, 22, ${l10n.settlementVillagePrefix} Іванівка',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
 
     testWidgets('falls back to l10n.bookingAddressUnknown WHILE '
         'publicSalonProfileProvider is still loading, and the appointment '

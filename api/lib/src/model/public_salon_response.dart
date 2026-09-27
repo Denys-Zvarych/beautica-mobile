@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -17,16 +18,20 @@ part 'public_salon_response.g.dart';
 /// * [city]
 /// * [region]
 /// * [address]
-/// * [cityId]
+/// * [cityId] - Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
+/// * [oblastId] - Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
 /// * [districtId]
 /// * [street]
 /// * [buildingNo]
 /// * [locationNote]
+/// * [phone] - Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
 /// * [instagramUrl]
 /// * [avatarUrl]
 /// * [coverImageUrl]
 /// * [avgRating]
 /// * [reviewCount]
+/// * [citySettlementType] - Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+/// * [cityHromadaNameUk] - Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`.
 @BuiltValue()
 abstract class PublicSalonResponse
     implements Built<PublicSalonResponse, PublicSalonResponseBuilder> {
@@ -48,8 +53,13 @@ abstract class PublicSalonResponse
   @BuiltValueField(wireName: r'address')
   String? get address;
 
+  /// Taxonomy city. Every salon has one — salons.city_id is DB-level NOT NULL (V150/V151) and application-enforced from Phase 10.6 (LocalityWriteValidator). Never null on the wire.
   @BuiltValueField(wireName: r'cityId')
-  String? get cityId;
+  String get cityId;
+
+  /// Parent oblast of cityId, resolved at read time (see #from). cities.oblast_id is itself DB-level NOT NULL with a FK to oblasts, and cityId is guaranteed non-null and FK-valid, so resolution always succeeds. Never null on the wire.
+  @BuiltValueField(wireName: r'oblastId')
+  String get oblastId;
 
   @BuiltValueField(wireName: r'districtId')
   String? get districtId;
@@ -62,6 +72,10 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'locationNote')
   String? get locationNote;
+
+  /// Salon's public business contact number. Intentionally exposed on this permitAll path: it is the contact clients are meant to call, the same value already returned by GET /salons/mine and rendered in the app's «Контакти» block alongside instagramUrl. Not personal data of a natural person, so §I does not apply. Optional — a salon may have none.
+  @BuiltValueField(wireName: r'phone')
+  String? get phone;
 
   @BuiltValueField(wireName: r'instagramUrl')
   String? get instagramUrl;
@@ -77,6 +91,15 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'reviewCount')
   int? get reviewCount;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueField(wireName: r'citySettlementType')
+  PublicSalonResponseCitySettlementTypeEnum? get citySettlementType;
+  // enum citySettlementTypeEnum {  CITY,  TOWN,  VILLAGE,  SETTLEMENT,  };
+
+  /// Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`.
+  @BuiltValueField(wireName: r'cityHromadaNameUk')
+  String? get cityHromadaNameUk;
 
   PublicSalonResponse._();
 
@@ -149,13 +172,16 @@ class _$PublicSalonResponseSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.cityId != null) {
-      yield r'cityId';
-      yield serializers.serialize(
-        object.cityId,
-        specifiedType: const FullType(String),
-      );
-    }
+    yield r'cityId';
+    yield serializers.serialize(
+      object.cityId,
+      specifiedType: const FullType(String),
+    );
+    yield r'oblastId';
+    yield serializers.serialize(
+      object.oblastId,
+      specifiedType: const FullType(String),
+    );
     if (object.districtId != null) {
       yield r'districtId';
       yield serializers.serialize(
@@ -181,6 +207,13 @@ class _$PublicSalonResponseSerializer
       yield r'locationNote';
       yield serializers.serialize(
         object.locationNote,
+        specifiedType: const FullType(String),
+      );
+    }
+    if (object.phone != null) {
+      yield r'phone';
+      yield serializers.serialize(
+        object.phone,
         specifiedType: const FullType(String),
       );
     }
@@ -217,6 +250,21 @@ class _$PublicSalonResponseSerializer
       yield serializers.serialize(
         object.reviewCount,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.citySettlementType != null) {
+      yield r'citySettlementType';
+      yield serializers.serialize(
+        object.citySettlementType,
+        specifiedType:
+            const FullType.nullable(PublicSalonResponseCitySettlementTypeEnum),
+      );
+    }
+    if (object.cityHromadaNameUk != null) {
+      yield r'cityHromadaNameUk';
+      yield serializers.serialize(
+        object.cityHromadaNameUk,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -293,6 +341,13 @@ class _$PublicSalonResponseSerializer
           ) as String;
           result.cityId = valueDes;
           break;
+        case r'oblastId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.oblastId = valueDes;
+          break;
         case r'districtId':
           final valueDes = serializers.deserialize(
             value,
@@ -320,6 +375,13 @@ class _$PublicSalonResponseSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.locationNote = valueDes;
+          break;
+        case r'phone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.phone = valueDes;
           break;
         case r'instagramUrl':
           final valueDes = serializers.deserialize(
@@ -356,6 +418,23 @@ class _$PublicSalonResponseSerializer
           ) as int;
           result.reviewCount = valueDes;
           break;
+        case r'citySettlementType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                PublicSalonResponseCitySettlementTypeEnum),
+          ) as PublicSalonResponseCitySettlementTypeEnum?;
+          if (valueDes == null) continue;
+          result.citySettlementType = valueDes;
+          break;
+        case r'cityHromadaNameUk':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.cityHromadaNameUk = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -383,4 +462,41 @@ class _$PublicSalonResponseSerializer
     );
     return result.build();
   }
+}
+
+class PublicSalonResponseCitySettlementTypeEnum extends EnumClass {
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'CITY')
+  static const PublicSalonResponseCitySettlementTypeEnum CITY =
+      _$publicSalonResponseCitySettlementTypeEnum_CITY;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'TOWN')
+  static const PublicSalonResponseCitySettlementTypeEnum TOWN =
+      _$publicSalonResponseCitySettlementTypeEnum_TOWN;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'VILLAGE')
+  static const PublicSalonResponseCitySettlementTypeEnum VILLAGE =
+      _$publicSalonResponseCitySettlementTypeEnum_VILLAGE;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'SETTLEMENT')
+  static const PublicSalonResponseCitySettlementTypeEnum SETTLEMENT =
+      _$publicSalonResponseCitySettlementTypeEnum_SETTLEMENT;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const PublicSalonResponseCitySettlementTypeEnum unknownDefaultOpenApi =
+      _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+
+  static Serializer<PublicSalonResponseCitySettlementTypeEnum> get serializer =>
+      _$publicSalonResponseCitySettlementTypeEnumSerializer;
+
+  const PublicSalonResponseCitySettlementTypeEnum._(String name) : super(name);
+
+  static BuiltSet<PublicSalonResponseCitySettlementTypeEnum> get values =>
+      _$publicSalonResponseCitySettlementTypeEnumValues;
+  static PublicSalonResponseCitySettlementTypeEnum valueOf(String name) =>
+      _$publicSalonResponseCitySettlementTypeEnumValueOf(name);
 }

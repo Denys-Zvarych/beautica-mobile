@@ -61,6 +61,15 @@ void main() {
 
     // Select the NAILS category → its service-chip drawer reveals, then pick
     // the CLASSIC_MANICURE chip so the applied filter carries that slug.
+    //
+    // `-d flutter-tester`'s 800×600 viewport pushes `_CategorySection` below
+    // the fold on this screen (see [AppHarness.scrollFilterFieldIntoView]'s
+    // doc comment) — the rail tile is never inflated without scrolling to it
+    // first, so an un-scrolled tap here finds 0 elements.
+    await AppHarness.scrollFilterFieldIntoView(
+      tester,
+      const Key('search_service_type_NAILS'),
+    );
     await tester.tap(find.byKey(const Key('search_service_type_NAILS')));
     await AppHarness.settle(tester);
     await tester.tap(

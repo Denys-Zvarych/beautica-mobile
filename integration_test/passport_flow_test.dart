@@ -56,6 +56,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
+import 'package:beautica_mobile/features/home/presentation/widgets/passport_preview_card.dart';
 import 'package:beautica_mobile/features/passport/presentation/passport_screen.dart';
 import 'package:beautica_mobile/features/passport/presentation/widgets/passport_derived_block.dart';
 import 'package:beautica_mobile/features/passport/presentation/widgets/passport_identity_strip.dart';
@@ -232,6 +233,49 @@ List<Map<String, dynamic>> _favouriteRows() => <Map<String, dynamic>>[
   ),
 ];
 
+/// The two sessions' passports. Every asserted field differs, and neither
+/// year is derivable from any clock — so a page that leaked the first
+/// session's member prints values this flow can name exactly.
+const int _kSessionAYear = 2019;
+const int _kSessionAReviews = 7;
+const int _kSessionBYear = 2024;
+const int _kSessionBReviews = 1;
+
+/// Pull-to-refresh fixtures (Qase defect #9 step 6). Deliberately distinct
+/// from every other year/count constant above and from each other, so a
+/// pull-to-refresh assertion cannot pass by coincidentally matching an
+/// unrelated fixture.
+const int _kPreRefreshReviews = 5;
+const int _kPreRefreshYear = 2022;
+const int _kPostRefreshReviews = 9;
+const int _kPostRefreshYear = 2023;
+
+/// The two sessions' own two-sided ratings, rendered by [MyRatingStatCard] as
+/// `toStringAsFixed(1)` on the CLIENT home hub.
+const double _kSessionARating = 4.9;
+const double _kSessionBRating = 4.1;
+
+/// A FULL `GET /clients/me/passport` body parameterised on the two fields the
+/// session-boundary flow asserts. Deliberately populated rather than empty:
+/// an empty payload renders the no-history state, where "the wrong account's
+/// passport" and "no passport" would look the same.
+Map<String, dynamic> _sessionPassportBody({
+  required int memberSinceYear,
+  required int reviewsWritten,
+}) => <String, dynamic>{
+  'favoriteDistricts': _wireDistricts,
+  'favoriteCities': _wireCities,
+  'budget': <String, dynamic>{
+    'avg': _wireBudgetAvg,
+    'min': 400,
+    'max': _wireBudgetMax,
+    'currency': 'UAH',
+  },
+  'bookingsConsidered': 7,
+  'reviewsWritten': reviewsWritten,
+  'memberSinceYear': memberSinceYear,
+};
+
 Future<AppLocalizations> _uk() =>
     AppLocalizations.delegate.load(const Locale('uk'));
 
@@ -273,6 +317,43 @@ Future<void> _openPassportTab(
 Future<void> _scrollToWishList(WidgetTester tester) async {
   await tester.drag(find.byType(Scrollable).last, const Offset(0, -600));
   await tester.pumpAndSettle();
+}
+
+/// Drags the passport body's `ListView` DOWN to trigger `AppRefreshIndicator`
+/// and waits for `GET /clients/me/passport` to be re-issued.
+///
+/// Mirrors `client_favorites_flow_test.dart`'s own pull-to-refresh recipe
+/// (`tester.drag` + `pumpAndSettle` + a bounded poll on the call counter) —
+/// NOT `passport_screen_test.dart`'s widget-tier fling+fixed-pump M6 recipe.
+/// That recipe exists only because the widget test pumps `PassportScreen`
+/// bare, with no `MaterialApp`/real viewport ancestor, where a `fling` is the
+/// only gesture `RefreshIndicator` reliably registers. Here the REAL app is
+/// booted (`AppHarness.boot`), so a plain downward drag past the touch slop
+/// is enough — `RefreshIndicator` only needs the list at scroll offset 0,
+/// which it already is right after `_openPassportTab`.
+///
+/// `AppHarness.pumpUntilCondition` (a bounded plain-`pump` poll, NOT
+/// `pumpAndSettle`) is what actually proves the refetch landed — a caller
+/// that stopped at `tester.pumpAndSettle()` alone could observe "settled"
+/// in the lull between the drag-reveal animation finishing and the async
+/// `onRefresh` future resolving, and read stale UI
+/// (`project_pumpandsettle_misses_debounce_timer`).
+Future<void> _pullToRefresh(
+  WidgetTester tester,
+  int Function() getPassportCalls,
+) async {
+  final int before = getPassportCalls();
+  await tester.drag(
+    find.byType(ListView).first,
+    const Offset(0, 320),
+    touchSlopY: 0,
+  );
+  await tester.pumpAndSettle();
+  await AppHarness.pumpUntilCondition(
+    tester,
+    () => getPassportCalls() > before,
+    description: 're-issue of GET /clients/me/passport after a pull',
+  );
 }
 
 void main() {
@@ -459,6 +540,20 @@ void main() {
           find.descendant(of: find.byKey(_kIdentityStrip), matching: f);
 
       expect(inStrip(find.text(l10n.passportReviewsLeft(0))), findsOneWidget);
+      // Qase defect #9 step 2 — LITERAL wording pin. `l10n.passportReviewsLeft
+      // (0)` alone cannot catch a regression back to the earlier ungrammatical
+      // «Жодного відгуку залишено» (missing «не»): if the `=0` ARB branch ever
+      // reverts, this call site regenerates to the OLD string too and the
+      // assertion above would still pass. Spelling the expected string out
+      // here is what actually fails on that regression.
+      expect(
+        // i18n-finder-ok: literal wording pin (Phase 349), not a copy lookup.
+        inStrip(find.text('Відгуків немає')),
+        findsOneWidget,
+        reason:
+            'Qase defect #9 step 2 — the =0 branch must read «Відгуків '
+            'немає», not the old ungrammatical «Жодного відгуку залишено»',
+      );
       expect(
         inStrip(find.text(l10n.passportMemberSince('2021'))),
         findsOneWidget,
@@ -528,6 +623,323 @@ void main() {
         find.byType(ClientShell),
         findsOneWidget,
         reason: 'the CTA hop stays inside the client shell (goBranch)',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // SESSION BOUNDARY — the KEYLESS per-user cache (mobile-qa, Step 2.7
+  // Rule 3b, 2026-09-18).
+  //
+  // `passportProvider` is `keepAlive` with a 5-minute TTL and takes NO family
+  // key: there is exactly ONE member for every account that ever signs in on
+  // the device. Nothing in its chain (`passportRepositoryProvider` →
+  // `clientApiProvider` → `dioProvider`) watches anything auth-shaped, so
+  // before the fix nothing rebuilt it and nothing evicted it across a logout
+  // — client B opened «BEAUTY PASSPORT» and read client A's visit history,
+  // budget band and join year.
+  //
+  // WHY IT IS NOT ENOUGH THAT `passport_session_boundary_test.dart` PINS IT.
+  // That test drives `AuthNotifier.logout()` on a hand-built container with a
+  // mocked repository. It cannot see the thing that actually has to happen on
+  // a device: the REAL «Вийти» row → the REAL confirm dialog → `runLogoutFlow`
+  // → the REAL secure-storage wipe → the REAL `/login` redirect → a REAL
+  // second login, and only THEN the tab hop that re-reads the provider. The
+  // fix under test is a `ref.watch(authProvider.select(authUserIdOrNull))`
+  // inside `passport(Ref ref)`, and whether that select actually re-emits
+  // depends on the real auth state machine passing through
+  // `Unauthenticated` — which is exactly the hop only this tier runs.
+  //
+  // ANTI-VACUITY. The assertion is not "the page rendered". Both sessions
+  // serve a FULL passport, and every asserted value differs between them:
+  // session A joined 2019 with 7 reviews, session B joined 2024 with 1. The
+  // leak renders a perfectly healthy page carrying the WRONG year, so the
+  // absence assertion (A's year is gone) is the load-bearing half and the
+  // refetch count is the corroboration, never the proof.
+  //
+  // NO PATROL FLOW: logout is an in-app dialog and a router redirect. No OS
+  // permission prompt, no deep link, no notification, no WebView, no
+  // biometric. `integration_test/patrol/` does not apply here either.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'a SECOND client session on the same device reads its OWN passport, never '
+    'the first session\'s cached one',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..passportBody = _sessionPassportBody(
+          memberSinceYear: _kSessionAYear,
+          reviewsWritten: _kSessionAReviews,
+        )
+        // `wishlistProvider` is the SECOND keyless keepAlive member on this
+        // page, and it leaked the same way. Session A owns two favourites;
+        // session B owns none, so a stale member renders A's cards to B.
+        ..favoriteServiceRows = _favouriteRows()
+        // …and `myRatingProvider` is the THIRD, on the CLIENT HOME hub this
+        // journey passes through twice. Two ratings that render as two
+        // different strings.
+        ..myRatingAvgRating = _kSessionARating
+        ..myRatingReviewCount = 11;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      final AppLocalizations l10n = await _uk();
+
+      Finder inStrip(Finder f) =>
+          find.descendant(of: find.byKey(_kIdentityStrip), matching: f);
+
+      // ── SESSION A ──────────────────────────────────────────────────────
+      await _openPassportTab(tester, fb, router);
+      expect(
+        fb.getPassportCalls,
+        1,
+        reason: 'the first session fetches its passport exactly once',
+      );
+      expect(
+        inStrip(find.text(l10n.passportMemberSince('$_kSessionAYear'))),
+        findsOneWidget,
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kSessionAReviews))),
+        findsOneWidget,
+      );
+      await _scrollToWishList(tester);
+      expect(
+        find.byType(WishlistCompactCard),
+        findsNWidgets(2),
+        reason: 'session A owns two favourites',
+      );
+      expect(fb.listServiceFavoritesCalls, 1);
+
+      // ── THE REAL LOGOUT ────────────────────────────────────────────────
+      // Driven through the shipped UI, not through the notifier: the whole
+      // point of this tier is that the eviction happens on the journey the
+      // user actually takes.
+      await tester.tap(find.byKey(const Key('client-nav-tile-0')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingStatCard),
+          matching: find.text(_kSessionARating.toStringAsFixed(1)),
+        ),
+        findsOneWidget,
+        reason: 'the home hub pill shows session A\'s own rating',
+      );
+      await tester.tap(find.byKey(const Key('btn-menu-client')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, RouteNames.clientMenu);
+
+      final Finder logoutRow = find.byKey(const Key('row-logout'));
+      expect(logoutRow, findsOneWidget);
+      await tester.ensureVisible(logoutRow);
+      await tester.pumpAndSettle();
+      await tester.tap(logoutRow);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-logout-confirm')));
+      await tester.pumpAndSettle(const Duration(seconds: 3));
+      AppHarness.expectLocation(router, RouteNames.login);
+
+      // ── SESSION B, a DIFFERENT passport on the same endpoint ───────────
+      fb.passportBody = _sessionPassportBody(
+        memberSinceYear: _kSessionBYear,
+        reviewsWritten: _kSessionBReviews,
+      );
+      fb.favoriteServiceRows = <Map<String, dynamic>>[];
+      fb.myRatingAvgRating = _kSessionBRating;
+      fb.myRatingReviewCount = 3;
+      await _openPassportTab(tester, fb, router);
+
+      // THE LOAD-BEARING PAIR. The leaked page renders fine — it just shows
+      // the outgoing account's numbers — so "B's year is present" alone is
+      // not enough; "A's year is gone" is what a stale member fails.
+      expect(
+        inStrip(find.text(l10n.passportMemberSince('$_kSessionBYear'))),
+        findsOneWidget,
+      );
+      expect(
+        inStrip(find.text(l10n.passportMemberSince('$_kSessionAYear'))),
+        findsNothing,
+        reason:
+            'the outgoing session\'s join year is PII and must not survive '
+            'the session boundary in a keyless keepAlive member',
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kSessionBReviews))),
+        findsOneWidget,
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kSessionAReviews))),
+        findsNothing,
+      );
+      expect(
+        fb.getPassportCalls,
+        2,
+        reason:
+            'the second session must go back to the wire — a served cache '
+            'leaves this at 1, which is the shipped bug',
+      );
+
+      // ── AND THE SECOND KEYLESS MEMBER ON THE SAME PAGE ─────────────────
+      await _scrollToWishList(tester);
+      expect(
+        find.byType(WishlistCompactCard),
+        findsNothing,
+        reason:
+            'session B owns no favourites — a leaked wishlistProvider member '
+            'renders session A\'s two cards here',
+      );
+      expect(find.byKey(_kWishlistEmpty), findsOneWidget);
+      expect(
+        fb.listServiceFavoritesCalls,
+        2,
+        reason: 'the wish list must go back to the wire for session B too',
+      );
+
+      // ── AND THE THIRD, ON THE HOME HUB ─────────────────────────────────
+      await tester.tap(find.byKey(const Key('client-nav-tile-0')));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingStatCard),
+          matching: find.text(_kSessionBRating.toStringAsFixed(1)),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MyRatingStatCard),
+          matching: find.text(_kSessionARating.toStringAsFixed(1)),
+        ),
+        findsNothing,
+        reason:
+            'the outgoing client\'s own two-sided rating must not survive '
+            'into the incoming session\'s home hub',
+      );
+      expect(
+        fb.getMyRatingCalls,
+        2,
+        reason: 'the rating pill must go back to the wire for session B too',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PULL-TO-REFRESH — Qase defect #9 step 6 (Phase 349).
+  //
+  // "Увімкнути режим польоту і перезавантажити екран": before this phase the
+  // passport body was a bare `ListView` with no way to reload, so the tester
+  // could never reach an error state at all. `AppRefreshIndicator` now wraps
+  // the body (`passport_screen.dart:196-224`); this flow drives the REAL
+  // gesture end-to-end against the fake backend, distinct from
+  // `passport_screen_test.dart`'s widget-tier group, which mocks the
+  // providers directly and cannot prove the real `GET /clients/me/passport`
+  // round-trip or `AppHarness.boot`'s real router/shell wiring.
+  //
+  // ANTI-VACUITY: every asserted figure differs pre/post-refresh
+  // (`_kPreRefreshReviews` vs `_kPostRefreshReviews`), so "the page still
+  // shows SOMETHING" cannot satisfy the update assertion — it must show the
+  // POST-refresh figure specifically, and the PRE-refresh one must be GONE.
+  // The failure assertion checks the identity strip is ABSENT under the error
+  // card (an error must never silently keep the last-good render on screen —
+  // `_PassportSection`'s explicit `isLoading → hasError → value` branch order
+  // means a completed failed refetch replaces the content wholesale), and the
+  // recovery assertion checks the SAME post-refresh figure reappears once the
+  // failure is cleared, proving the page is driven by the live provider and
+  // not stuck on whatever it last rendered.
+  //
+  // `forcePassportFailure(400)`, not a 5xx: `beauticaProviderRetry`
+  // classifies any 5xx / `NetworkFailure` as transient and silently retries
+  // once behind the pull gesture (`failure_retry_policy.dart`); a 400 is
+  // deterministic, so the error card appears on the FIRST failed attempt this
+  // flow can observe rather than racing an in-flight retry.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'pull-to-refresh on the passport refetches fresh data, shows the error '
+    'card when the endpoint fails, and recovers once the failure clears '
+    '(Qase defect #9 step 6)',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..passportBody = _sessionPassportBody(
+          memberSinceYear: _kPreRefreshYear,
+          reviewsWritten: _kPreRefreshReviews,
+        );
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      final AppLocalizations l10n = await _uk();
+
+      Finder inStrip(Finder f) =>
+          find.descendant(of: find.byKey(_kIdentityStrip), matching: f);
+
+      await _openPassportTab(tester, fb, router);
+      expect(fb.getPassportCalls, 1);
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPreRefreshReviews))),
+        findsOneWidget,
+      );
+
+      // ── (a) PULL WITH NEW DATA — the page updates ────────────────────
+      fb.passportBody = _sessionPassportBody(
+        memberSinceYear: _kPostRefreshYear,
+        reviewsWritten: _kPostRefreshReviews,
+      );
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(
+        fb.getPassportCalls,
+        2,
+        reason: 'the pull must re-issue GET /clients/me/passport',
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPostRefreshReviews))),
+        findsOneWidget,
+        reason: 'the pull must render the POST-refresh figure off the wire',
+      );
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPreRefreshReviews))),
+        findsNothing,
+        reason:
+            'the PRE-refresh figure must not survive — this is what '
+            'separates "refetched" from "call count incremented but the '
+            'screen never rebuilt"',
+      );
+
+      // ── (b) PULL WHILE THE ENDPOINT FAILS — the error card ────────────
+      fb.forcePassportFailure(400);
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(fb.getPassportCalls, 3);
+      expect(
+        find.byKey(_kPassportError),
+        findsOneWidget,
+        reason:
+            'Qase defect #9 step 6 — a failed pull-to-refresh must show the '
+            'error card, exactly what "airplane mode + pull" could never '
+            'reach before this phase (the body had no refresh at all)',
+      );
+      expect(find.text(l10n.passportErrorTitle), findsOneWidget);
+      expect(find.text(l10n.passportErrorBody), findsOneWidget);
+      expect(
+        find.byKey(_kIdentityStrip),
+        findsNothing,
+        reason:
+            'the error card REPLACES the strip, it does not draw alongside '
+            'silently-stale data — a screen that kept showing the last-good '
+            'figures under a failed refetch would pass the update assertion '
+            'above for the wrong reason',
+      );
+
+      // ── clear the failure — pulling again restores the page ───────────
+      fb.forcePassportFailure(null);
+      await _pullToRefresh(tester, () => fb.getPassportCalls);
+
+      expect(fb.getPassportCalls, 4);
+      expect(find.byKey(_kPassportError), findsNothing);
+      expect(
+        inStrip(find.text(l10n.passportReviewsLeft(_kPostRefreshReviews))),
+        findsOneWidget,
+        reason:
+            'clearing the failure and pulling again must restore the page '
+            'to the live provider state, not leave the error card stuck',
       );
     },
     timeout: const Timeout(Duration(seconds: 60)),

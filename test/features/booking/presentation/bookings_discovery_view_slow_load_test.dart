@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -80,7 +81,10 @@ class _CountingSchedule extends EffectiveScheduleNotifier {
   static int builds = 0;
 
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async {
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async {
     builds++;
     return <EffectiveDay>[
       EffectiveDay(

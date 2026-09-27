@@ -21,6 +21,9 @@ const StatusUpdateRequestCancellationReasonEnum
 const StatusUpdateRequestCancellationReasonEnum
     _$statusUpdateRequestCancellationReasonEnum_OTHER =
     const StatusUpdateRequestCancellationReasonEnum._('OTHER');
+const StatusUpdateRequestCancellationReasonEnum
+    _$statusUpdateRequestCancellationReasonEnum_unknownDefaultOpenApi =
+    const StatusUpdateRequestCancellationReasonEnum._('unknownDefaultOpenApi');
 
 StatusUpdateRequestCancellationReasonEnum
     _$statusUpdateRequestCancellationReasonEnumValueOf(String name) {
@@ -35,8 +38,10 @@ StatusUpdateRequestCancellationReasonEnum
       return _$statusUpdateRequestCancellationReasonEnum_DUPLICATE;
     case 'OTHER':
       return _$statusUpdateRequestCancellationReasonEnum_OTHER;
+    case 'unknownDefaultOpenApi':
+      return _$statusUpdateRequestCancellationReasonEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$statusUpdateRequestCancellationReasonEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -48,6 +53,7 @@ final BuiltSet<StatusUpdateRequestCancellationReasonEnum>
   _$statusUpdateRequestCancellationReasonEnum_PROVIDER_UNAVAILABLE,
   _$statusUpdateRequestCancellationReasonEnum_DUPLICATE,
   _$statusUpdateRequestCancellationReasonEnum_OTHER,
+  _$statusUpdateRequestCancellationReasonEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<StatusUpdateRequestCancellationReasonEnum>
@@ -62,6 +68,7 @@ class _$StatusUpdateRequestCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT_NO_SHOW': 'CLIENT_NO_SHOW',
@@ -69,6 +76,7 @@ class _$StatusUpdateRequestCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

@@ -158,4 +158,23 @@ void main() {
       );
     }
   }
+
+  // Phase 320 (D3) — ONE read-only EDIT baseline, separate from the
+  // {320,360,414} × {1x,1.3x} CREATE/EDIT matrix above. Proves: no submit
+  // CTA, and the category/duration/price wells stay visible but
+  // non-interactive. Does not touch (and never needs to regenerate) a
+  // single writable baseline.
+  goldenTest(
+    'service_form EDIT READ-ONLY 414dp text-1x',
+    fileName: 'service_form_edit_readonly_414_1x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(overrides: _overrides(), width: 414),
+    builder: () => ServiceForm(
+      initial: _editSeed,
+      submitLabel: 'Зберегти зміни',
+      readOnly: true,
+      onSubmit: (_) async {},
+    ),
+  );
 }

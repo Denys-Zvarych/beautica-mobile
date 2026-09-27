@@ -13,7 +13,6 @@ part 'work_interval_dto.g.dart';
 /// Properties:
 /// * [startTime]
 /// * [endTime]
-/// * [ordered]
 @BuiltValue()
 abstract class WorkIntervalDto
     implements Built<WorkIntervalDto, WorkIntervalDtoBuilder> {
@@ -22,9 +21,6 @@ abstract class WorkIntervalDto
 
   @BuiltValueField(wireName: r'endTime')
   String get endTime;
-
-  @BuiltValueField(wireName: r'ordered')
-  bool? get ordered;
 
   WorkIntervalDto._();
 
@@ -62,13 +58,6 @@ class _$WorkIntervalDtoSerializer
       object.endTime,
       specifiedType: const FullType(String),
     );
-    if (object.ordered != null) {
-      yield r'ordered';
-      yield serializers.serialize(
-        object.ordered,
-        specifiedType: const FullType(bool),
-      );
-    }
   }
 
   @override
@@ -107,13 +96,6 @@ class _$WorkIntervalDtoSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.endTime = valueDes;
-          break;
-        case r'ordered':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.ordered = valueDes;
           break;
         default:
           unhandled.add(key);

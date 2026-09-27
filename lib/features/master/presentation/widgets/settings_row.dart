@@ -19,6 +19,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/pressable_surface.dart';
 
 /// A tappable raised settings row — the building block of the hub menu and the
 /// account page.
@@ -33,6 +34,7 @@ class SettingsRow extends StatefulWidget {
     this.showChevron = true,
     this.destructive = false,
     this.loading = false,
+    this.enabled = true,
   });
 
   final IconData icon;
@@ -63,13 +65,27 @@ class SettingsRow extends StatefulWidget {
   /// every other [SettingsRow] usage is unaffected.
   final bool loading;
 
+  /// Phase 21.6 — `false` renders the row as PRESENT BUT NOT YET AVAILABLE:
+  /// the same dim as [loading], taps absorbed, and `Semantics(enabled:
+  /// false)` so a screen reader announces it as unavailable rather than
+  /// letting a tap fall silently on the floor. Geometry is untouched — the
+  /// row occupies exactly the same box it does when enabled, so a disabled
+  /// row never shifts its neighbours.
+  ///
+  /// It exists for «Перевести в майстри» on [StaffSettingsScreen], which the
+  /// design places on the screen but which has NO backend endpoint (role
+  /// conversion is unscoped) — the row must be visibly inert, never a fake
+  /// success. Pair it with `value:` copy naming why (e.g. «незабаром»).
+  ///
+  /// Defaults to `true`, so every pre-existing [SettingsRow] call site
+  /// renders and behaves EXACTLY as before this parameter existed.
+  final bool enabled;
+
   @override
   State<SettingsRow> createState() => _SettingsRowState();
 }
 
 class _SettingsRowState extends State<SettingsRow> {
-  bool _pressed = false;
-
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(VelvetRadii.field),
   );
@@ -80,6 +96,11 @@ class _SettingsRowState extends State<SettingsRow> {
   @override
   Widget build(BuildContext context) {
     final bool loading = widget.loading;
+    // A row is "inert" while an action is in flight (loading) OR while the
+    // action it names does not exist yet (`enabled: false`). Both dim it and
+    // both swallow taps; only `loading` also swaps the chevron for a spinner,
+    // because only `loading` means something is actually happening.
+    final bool inert = loading || !widget.enabled;
     final Color glyph = widget.destructive
         ? BrandColors.error
         : BrandColors.accentDeep;
@@ -88,85 +109,48 @@ class _SettingsRowState extends State<SettingsRow> {
         : BrandColors.text;
     final String? value = widget.value;
 
-    return Semantics(
-      button: true,
-      enabled: !loading,
-      label: widget.label,
-      child: AbsorbPointer(
-        // mobile-perf MEDIUM: while loading, absorb taps so a second tap on a
-        // slow network is visibly ignored (spinner keeps spinning) rather than
-        // silently swallowed by the `_requestingChangePasswordOtp` guard with
-        // zero on-screen feedback.
-        absorbing: loading,
-        child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onTap();
-          },
-          child: AnimatedScale(
-            scale: _pressed ? 0.985 : 1,
-            duration: const Duration(milliseconds: 110),
-            child: AnimatedOpacity(
-              opacity: loading ? 0.6 : 1,
-              duration: const Duration(milliseconds: 150),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                decoration: BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: _radius,
-                  boxShadow: _pressed ? null : VelvetShadows.extrudedSmall,
-                ),
-                padding: _padding,
-                child: Row(
-                  children: <Widget>[
-                    SizedBox(
-                      height: 42,
-                      width: 42,
-                      child: NeumorphicInset(
-                        radius: VelvetRadii.field - 4,
-                        child: Center(
-                          child:
-                              widget.iconWidget ??
-                              Icon(widget.icon, size: 19, color: glyph),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.md),
-                    Expanded(
-                      child: Text(
-                        widget.label,
-                        style: VelvetText.bodyStrong().copyWith(
-                          color: labelColor,
-                        ),
-                      ),
-                    ),
-                    if (value != null) ...<Widget>[
-                      Text(value, style: _valueStyle),
-                      const SizedBox(width: VelvetSpacing.sm),
-                    ],
-                    if (loading)
-                      const SizedBox(
-                        key: ValueKey<String>('settings_row_loading'),
-                        height: 16,
-                        width: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: BrandColors.accentDeep,
-                        ),
-                      )
-                    else if (widget.showChevron)
-                      const Icon(
-                        Icons.chevron_right_rounded,
-                        color: BrandColors.faint,
-                      ),
-                  ],
-                ),
-              ),
+    // 2026-09-14 (defect 6) — the press / dim / absorb shell moved to the
+    // shared [PressableSurface]; its DEFAULTS are this row's pre-existing
+    // constants verbatim (0.985 / 110 ms / 0.6), so nothing here renders
+    // differently. `test/golden/settings_row_states_golden_test.dart`'s four
+    // PNGs are the parity proof and were NOT regenerated.
+    return PressableSurface(
+      semanticsLabel: widget.label,
+      // mobile-perf MEDIUM: while loading, absorb taps so a second tap on a
+      // slow network is visibly ignored (spinner keeps spinning) rather than
+      // silently swallowed by the `_requestingChangePasswordOtp` guard with
+      // zero on-screen feedback. Phase 21.6 — `enabled: false` absorbs for
+      // the same reason: an unbuilt action must be visibly inert, never a
+      // tap that quietly does nothing.
+      inert: inert,
+      onTap: widget.onTap,
+      color: BrandColors.base,
+      borderRadius: _radius,
+      shadow: VelvetShadows.extrudedSmall,
+      padding: _padding,
+      child: Row(
+        children: <Widget>[
+          NeumorphicGlyphWell(
+            size: 42,
+            child:
+                widget.iconWidget ?? Icon(widget.icon, size: 19, color: glyph),
+          ),
+          const SizedBox(width: VelvetSpacing.md),
+          Expanded(
+            child: Text(
+              widget.label,
+              style: VelvetText.bodyStrong().copyWith(color: labelColor),
             ),
           ),
-        ),
+          if (value != null) ...<Widget>[
+            Text(value, style: _valueStyle),
+            const SizedBox(width: VelvetSpacing.sm),
+          ],
+          if (loading)
+            const ActionSpinner(key: ValueKey<String>('settings_row_loading'))
+          else if (widget.showChevron)
+            const Icon(Icons.chevron_right_rounded, color: BrandColors.faint),
+        ],
       ),
     );
   }
@@ -231,21 +215,11 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
           padding: _padding,
           child: Row(
             children: <Widget>[
-              SizedBox(
-                height: 42,
-                width: 42,
-                child: NeumorphicInset(
-                  radius: VelvetRadii.field - 4,
-                  child: Center(
-                    child:
-                        widget.iconWidget ??
-                        Icon(
-                          widget.icon,
-                          size: 19,
-                          color: BrandColors.accentDeep,
-                        ),
-                  ),
-                ),
+              NeumorphicGlyphWell(
+                size: 42,
+                child:
+                    widget.iconWidget ??
+                    Icon(widget.icon, size: 19, color: BrandColors.accentDeep),
               ),
               const SizedBox(width: VelvetSpacing.md),
               Expanded(

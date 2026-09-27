@@ -68,9 +68,13 @@ import 'package:beautica_mobile/features/booking/application/booking_calendar_in
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 
+import '../application/own_schedule_scope.dart';
 import '../domain/schedule_model.dart';
+import '../domain/schedule_scope.dart';
 import 'overrides_notifier.dart';
+import 'schedule_capability.dart';
 import 'schedule_range.dart';
 import 'widgets/day_off_conflict_dialog.dart';
 import 'widgets/discrete_times_editor.dart';
@@ -97,7 +101,15 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     this.initialMode = WeekdayMode.interval,
     this.initialTimes = const <TimeOfDay>[],
     this.clock,
+    this.scope,
   });
+
+  /// Additive (Phase 312) — `null` (every pre-existing call site) resolves
+  /// through `ownScheduleScopeProvider`, unchanged from before this
+  /// parameter existed. A non-null [ScheduleScope.salonMaster] points every
+  /// provider this sheet reads/writes at a chosen salon master instead of
+  /// "me".
+  final ScheduleScope? scope;
 
   /// The single calendar date this override targets (date-only). `start == end`
   /// for the built [ScheduleOverride].
@@ -168,6 +180,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     WeekdayMode initialMode = WeekdayMode.interval,
     List<TimeOfDay> initialTimes = const <TimeOfDay>[],
     DateTime Function()? clock,
+    ScheduleScope? scope,
   }) {
     return showModalBottomSheet<DateTime>(
       context: context,
@@ -186,6 +199,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
         initialMode: initialMode,
         initialTimes: initialTimes,
         clock: clock,
+        scope: scope,
       ),
     );
   }
@@ -211,6 +225,15 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   late List<TimeOfDay> _times;
 
   bool _saving = false;
+
+  /// Resolves [widget.scope], falling back to `ownScheduleScopeProvider`
+  /// ("me") — Phase 312. `ref.read`, for use OUTSIDE `build()` (the save/
+  /// clear handlers below); `build()` itself uses a `ref.watch`d local
+  /// instead, mirroring the codebase's established watch-in-build /
+  /// read-in-handler split (`master_schedule_screen.dart`'s identical
+  /// resolution).
+  ScheduleScope _readScope() =>
+      widget.scope ?? ref.read(ownScheduleScopeProvider);
 
   @override
   void initState() {
@@ -250,6 +273,15 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
 
   // ── Persistence ──────────────────────────────────────────────────────────
   Future<void> _save() async {
+    // Phase 311 D2 — belt-and-braces: the Save button that reaches this
+    // handler is already hidden for a non-editable viewer (see `build`), but
+    // refuse the write here too so a bypass of the hidden control can't
+    // reach `putOverride`.
+    final ScheduleScope scope = _readScope();
+    if (!ref.read(scheduleEditableProvider(scope))) {
+      log('save: blocked — viewer is read-only', name: _tag);
+      return;
+    }
     final AppLocalizations l10n = AppLocalizations.of(context);
 
     // SUBMIT-TIME PAST-DATE GUARD (M6): the sheet opens only for today/future
@@ -326,7 +358,11 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     }
 
     try {
-      final bool persisted = await _saveWithConflictCheck(override, l10n);
+      final bool persisted = await _saveWithConflictCheck(
+        override,
+        l10n,
+        scope,
+      );
       if (!persisted || !mounted) return;
       // Resolve the sheet's future with the edited date so the host moves the
       // selected day onto it and re-reads the now-fresh override (rather than a
@@ -376,9 +412,10 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   Future<bool> _saveWithConflictCheck(
     ScheduleOverride override,
     AppLocalizations l10n,
+    ScheduleScope scope,
   ) async {
     final OverridesNotifier notifier = ref.read(
-      overridesProvider(widget.range).notifier,
+      overridesProvider(scope, widget.range).notifier,
     );
     int attempt = 0;
 
@@ -444,7 +481,7 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
       // so a failed PUT does NOT throw here — it surfaces as an [AsyncError]
       // on the provider state. Read that resulting state and branch on it.
       final AsyncValue<List<ScheduleOverride>> result = ref.read(
-        overridesProvider(widget.range),
+        overridesProvider(scope, widget.range),
       );
       if (mounted) setState(() => _saving = false);
 
@@ -475,6 +512,14 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   /// Clears the existing override → reverts [date] to the weekly template.
   /// Always allowed (OQ-1) — never gated on bookings.
   Future<void> _clear() async {
+    // Phase 311 D2 — same belt-and-braces guard as [_save]: refuse the
+    // `clearOverride` write itself, in addition to the delete action being
+    // hidden for a non-editable viewer.
+    final ScheduleScope scope = _readScope();
+    if (!ref.read(scheduleEditableProvider(scope))) {
+      log('clear: blocked — viewer is read-only', name: _tag);
+      return;
+    }
     final AppLocalizations l10n = AppLocalizations.of(context);
     if (kDebugMode) {
       log(
@@ -486,14 +531,14 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
     setState(() => _saving = true);
     try {
       await ref
-          .read(overridesProvider(widget.range).notifier)
+          .read(overridesProvider(scope, widget.range).notifier)
           .clearOverride(widget.date);
       if (!mounted) return;
       // As in [_save]: `clearOverride` swallows a [Failure] into the provider's
       // [AsyncError] state rather than rethrowing, so inspect the resulting
       // state and only pop + report success on a clean clear.
       final AsyncValue<List<ScheduleOverride>> result = ref.read(
-        overridesProvider(widget.range),
+        overridesProvider(scope, widget.range),
       );
       if (result.hasError) {
         final Object? error = result.error;
@@ -517,6 +562,12 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final double bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    // Phase 311 — safety net under the `/schedule` router gate (see
+    // `weekly_template_editor_screen.dart`'s identical comment for why this
+    // self-check exists alongside, not instead of, that gate).
+    final ScheduleScope scope =
+        widget.scope ?? ref.watch(ownScheduleScopeProvider);
+    final bool editable = ref.watch(scheduleEditableProvider(scope));
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: DecoratedBox(
@@ -544,73 +595,90 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
                 const SizedBox(height: VelvetSpacing.md),
                 _headerRow(l10n),
                 const SizedBox(height: VelvetSpacing.xs),
-                Text(
-                  l10n.scheduleOverrideSheetSubtitle,
-                  style: VelvetText.body13,
-                ),
-                const SizedBox(height: VelvetSpacing.lg),
-                _modeToggle(l10n),
-                const SizedBox(height: VelvetSpacing.lg),
-                if (_dayOff)
-                  _dayOffSection(l10n)
+                if (!editable)
+                  // D1 — normal chrome (grabber, header, close button) stays
+                  // above; the mode toggle, day editors and save/delete
+                  // actions below are omitted entirely for a non-editable
+                  // viewer rather than rendered disabled.
+                  SalonNoticeCard(
+                    key: const Key('day-hours-sheet-read-only-notice'),
+                    icon: Icons.lock_outline,
+                    title: l10n.scheduleViewOnly,
+                    body: l10n.scheduleReadOnlyEditorBody,
+                  )
                 else ...<Widget>[
-                  // ── Work-mode sub-toggle (Інтервал / Окремі години) ──────
-                  Semantics(
-                    label: l10n.discreteTimesModeSemantic,
-                    child: Row(
-                      key: const Key('override-work-mode-toggle'),
-                      children: <Widget>[
-                        Expanded(
-                          child: _modeChip(
-                            valueKey: const Key('override-work-mode-interval'),
-                            label: l10n.discreteTimesSegmentInterval,
-                            icon: Icons.schedule_rounded,
-                            selected: _workMode == WeekdayMode.interval,
-                            onTap: () => _setWorkMode(WeekdayMode.interval),
-                          ),
-                        ),
-                        const SizedBox(width: VelvetSpacing.sm + 2),
-                        Expanded(
-                          child: _modeChip(
-                            valueKey: const Key('override-work-mode-explicit'),
-                            label: l10n.discreteTimesSegmentExplicit,
-                            icon: Icons.more_time_rounded,
-                            selected: _workMode == WeekdayMode.explicitTimes,
-                            onTap: () =>
-                                _setWorkMode(WeekdayMode.explicitTimes),
-                          ),
-                        ),
-                      ],
-                    ),
+                  Text(
+                    l10n.scheduleOverrideSheetSubtitle,
+                    style: VelvetText.body13,
                   ),
                   const SizedBox(height: VelvetSpacing.lg),
-                  // ── Editor body — swaps on work-mode change ───────────────
-                  if (_workMode == WeekdayMode.interval)
-                    IntervalEditor(
-                      day: _day,
-                      onChanged: () => setState(() {}),
-                      strings: _intervalStrings(l10n),
-                      fieldKeyPrefix: 'override',
-                    )
-                  else
-                    DiscreteTimesEditor(
-                      times: _times,
-                      onChanged: () => setState(() {}),
-                      strings: _discreteStrings(l10n),
-                      fieldKeyPrefix: 'override',
+                  _modeToggle(l10n),
+                  const SizedBox(height: VelvetSpacing.lg),
+                  if (_dayOff)
+                    _dayOffSection(l10n)
+                  else ...<Widget>[
+                    // ── Work-mode sub-toggle (Інтервал / Окремі години) ──────
+                    Semantics(
+                      label: l10n.discreteTimesModeSemantic,
+                      child: Row(
+                        key: const Key('override-work-mode-toggle'),
+                        children: <Widget>[
+                          Expanded(
+                            child: _modeChip(
+                              valueKey: const Key(
+                                'override-work-mode-interval',
+                              ),
+                              label: l10n.discreteTimesSegmentInterval,
+                              icon: Icons.schedule_rounded,
+                              selected: _workMode == WeekdayMode.interval,
+                              onTap: () => _setWorkMode(WeekdayMode.interval),
+                            ),
+                          ),
+                          const SizedBox(width: VelvetSpacing.sm + 2),
+                          Expanded(
+                            child: _modeChip(
+                              valueKey: const Key(
+                                'override-work-mode-explicit',
+                              ),
+                              label: l10n.discreteTimesSegmentExplicit,
+                              icon: Icons.more_time_rounded,
+                              selected: _workMode == WeekdayMode.explicitTimes,
+                              onTap: () =>
+                                  _setWorkMode(WeekdayMode.explicitTimes),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                ],
-                const SizedBox(height: VelvetSpacing.xl),
-                NeumorphicButton(
-                  key: const Key('override-save'),
-                  label: l10n.scheduleOverrideSave,
-                  icon: Icons.check_rounded,
-                  loading: _saving,
-                  onPressed: _saving ? null : _save,
-                ),
-                if (widget.hasExistingOverride) ...<Widget>[
-                  const SizedBox(height: VelvetSpacing.sm + 2),
-                  _deleteAction(l10n),
+                    const SizedBox(height: VelvetSpacing.lg),
+                    // ── Editor body — swaps on work-mode change ───────────────
+                    if (_workMode == WeekdayMode.interval)
+                      IntervalEditor(
+                        day: _day,
+                        onChanged: () => setState(() {}),
+                        strings: _intervalStrings(l10n),
+                        fieldKeyPrefix: 'override',
+                      )
+                    else
+                      DiscreteTimesEditor(
+                        times: _times,
+                        onChanged: () => setState(() {}),
+                        strings: _discreteStrings(l10n),
+                        fieldKeyPrefix: 'override',
+                      ),
+                  ],
+                  const SizedBox(height: VelvetSpacing.xl),
+                  NeumorphicButton(
+                    key: const Key('override-save'),
+                    label: l10n.scheduleOverrideSave,
+                    icon: Icons.check_rounded,
+                    loading: _saving,
+                    onPressed: _saving ? null : _save,
+                  ),
+                  if (widget.hasExistingOverride) ...<Widget>[
+                    const SizedBox(height: VelvetSpacing.sm + 2),
+                    _deleteAction(l10n),
+                  ],
                 ],
               ],
             ),

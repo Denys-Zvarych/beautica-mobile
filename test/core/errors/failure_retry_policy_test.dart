@@ -65,9 +65,27 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // it FIRST. The two are asserted separately below — a `true` here does not
   // mean an automatic retry, and the throttle test is what proves it.
   'ServiceRateLimitedFailure': true,
+  // 429 from the salon board's shared 60/min READ budget (backend PR #130).
+  // Same honest answer as the rows above — a limiter clears on its own. Unlike
+  // those two the classification is NOT advisory here: every board route is
+  // read through a provider BUILD, so `beauticaProviderRetry` really is on
+  // this failure's path and `isThrottleFailure` is the only thing stopping an
+  // automatic re-issue into a live limit. Asserted in the throttle group below
+  // and end-to-end in `test/core/network/salon_board_429_contract_test.dart`.
+  'SalonBoardRateLimitedFailure': true,
+  // 429 from the settlement autocomplete's per-IP bucket (phase 346). Read
+  // through a provider BUILD like the board, so `isThrottleFailure` is what
+  // stops the container re-issuing it — asserted in the throttle group.
+  'SettlementSearchRateLimitedFailure': true,
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
+  // Invite-accept post-success design (2026-09-01): the 2xx already
+  // happened server-side, so a retry either resends an already-applied
+  // mutation or, for the invite-accept single-use token specifically,
+  // cannot possibly succeed again.
+  'ResponseUnusableFailure': false,
+  'InviteHandoffFailure': false,
   // A TLS pin miss (Phase 111). Fail-closed, and the rejected chain does not
   // change on its own — an identical retry meets it again. Classified apart
   // from NetworkFailure precisely so it cannot inherit that arm's `true`.
@@ -79,14 +97,30 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'VerificationFailure': false,
   'PasswordResetOtpFailure': false,
   'ResetTokenInvalidFailure': false,
+  // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
+  // The three endpoints have SEPARATE, non-uniform buckets:
+  // /auth/forgot-password 3 per 60 min and /auth/reset-password 10 per 60 min
+  // (Retry-After 3600), /auth/verify-password-reset-otp 10 per 15 min
+  // (Retry-After 900). Same "false to both" treatment as the other throttles:
+  // even the shortest window is 15 minutes, so no backoff this predicate is
+  // willing to sit through could clear it, and every automatic attempt spends
+  // one the user's next deliberate try needs.
+  'PasswordResetRateLimitedFailure': false,
   'EmailAlreadyRegisteredFailure': false,
   'ProviderMissingCityFailure': false,
   'CategoryAlreadyExistsFailure': false,
   'SupportAttachmentTooLargeFailure': false,
   'SupportChannelUnavailableFailure': false,
   'ConflictFailure': false,
+  // DELETE /users/me, 422 — more than 50 upcoming bookings. An identical
+  // retry meets the identical booking count, so it 422s again; recovery is
+  // a deliberate user action (cancel some bookings first).
+  'AccountDeleteBookingLimitFailure': false,
   'DuplicateServiceFailure': false,
   'ServiceDuplicateFailure': false,
+  // 409 on salon-target unassign (phase 316 D2/D4) — backend refuses before
+  // any write when future CONFIRMED bookings exist; deterministic.
+  'ServiceUnassignBlockedFailure': false,
   'ClientBookingConflictFailure': false,
   'BookingAlreadyElapsedFailure': false,
   'ProviderDeclineWindowClosedFailure': false,
@@ -107,8 +141,16 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // not change on its own, so an automatic retry just 409s again.
   'MasterBookingDuplicateFailure': false,
   'ScheduleOverrideRateLimitedFailure': false,
+  // DELETE /users/me, 429 — 3 attempts/hour exhausted. Same "false to both"
+  // treatment as the older throttles (see isThrottleFailure below).
+  'AccountDeleteRateLimitedFailure': false,
   'OverrideSpanPartialFailure': false,
   'UnknownFailure': false,
+  // Raised by a SCREEN, never by a repository — a settled session missing a
+  // field the screen needs. There is no request to re-issue, so the container
+  // must never invent an automatic re-attempt; the only recovery is the
+  // screen's own onRetry calling AuthNotifier.refreshUser.
+  'SessionIncompleteFailure': false,
 };
 
 /// One instance per key in [_expectedTransience].
@@ -121,6 +163,10 @@ Map<String, Failure> _instances() {
     'ServerFailure(599)': const ServerFailure(statusCode: 599),
     'ServerFailure(409)': const ServerFailure(statusCode: 409),
     'ServerFailure(null)': const ServerFailure(),
+    'ResponseUnusableFailure': const ResponseUnusableFailure(),
+    'InviteHandoffFailure': const InviteHandoffFailure(
+      reason: InviteHandoffReason.accountReady,
+    ),
     'CertificateFailure': const CertificateFailure(),
     'NotFoundFailure': const NotFoundFailure(),
     'UnauthorizedFailure': const UnauthorizedFailure(),
@@ -135,6 +181,7 @@ Map<String, Failure> _instances() {
       code: PasswordResetOtpErrorCode.codeExpired,
     ),
     'ResetTokenInvalidFailure': const ResetTokenInvalidFailure(),
+    'PasswordResetRateLimitedFailure': const PasswordResetRateLimitedFailure(),
     'EmailAlreadyRegisteredFailure': const EmailAlreadyRegisteredFailure(),
     'ProviderMissingCityFailure': const ProviderMissingCityFailure(),
     'CategoryAlreadyExistsFailure': const CategoryAlreadyExistsFailure(),
@@ -146,9 +193,18 @@ Map<String, Failure> _instances() {
     'ServiceRateLimitedFailure': const ServiceRateLimitedFailure(
       retryAfterSeconds: 20,
     ),
+    'SalonBoardRateLimitedFailure': const SalonBoardRateLimitedFailure(
+      retryAfterSeconds: 37,
+    ),
+    'SettlementSearchRateLimitedFailure':
+        const SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
     'ConflictFailure': const ConflictFailure(),
+    'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
+      serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
+    ),
     'DuplicateServiceFailure': const DuplicateServiceFailure(),
     'ServiceDuplicateFailure': const ServiceDuplicateFailure(),
+    'ServiceUnassignBlockedFailure': const ServiceUnassignBlockedFailure(),
     'ClientBookingConflictFailure': ClientBookingConflictFailure(
       conflictingBookingId: 'booking-1',
       serviceName: 'Манікюр',
@@ -176,10 +232,12 @@ Map<String, Failure> _instances() {
     'MasterBookingDuplicateFailure': const MasterBookingDuplicateFailure(),
     'ScheduleOverrideRateLimitedFailure':
         const ScheduleOverrideRateLimitedFailure(retryAfterSeconds: 30),
+    'AccountDeleteRateLimitedFailure': const AccountDeleteRateLimitedFailure(),
     'OverrideSpanPartialFailure': OverrideSpanPartialFailure(
       failedDates: <DateTime>[at],
     ),
     'UnknownFailure': const UnknownFailure(),
+    'SessionIncompleteFailure': const SessionIncompleteFailure(),
   };
 }
 
@@ -378,6 +436,13 @@ void main() {
         'ServiceRateLimitedFailure': ServiceRateLimitedFailure(
           retryAfterSeconds: 20,
         ),
+        'SalonBoardRateLimitedFailure': SalonBoardRateLimitedFailure(
+          retryAfterSeconds: 37,
+        ),
+        'SettlementSearchRateLimitedFailure':
+            SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
+        'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
+        'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
       };
       for (final MapEntry<String, Failure> e in throttles.entries) {
         expect(

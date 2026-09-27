@@ -6,6 +6,92 @@ part of 'salon_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnum_CITY =
+    const SalonResponseCitySettlementTypeEnum._('CITY');
+const SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnum_TOWN =
+    const SalonResponseCitySettlementTypeEnum._('TOWN');
+const SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnum_VILLAGE =
+    const SalonResponseCitySettlementTypeEnum._('VILLAGE');
+const SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnum_SETTLEMENT =
+    const SalonResponseCitySettlementTypeEnum._('SETTLEMENT');
+const SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnum_unknownDefaultOpenApi =
+    const SalonResponseCitySettlementTypeEnum._('unknownDefaultOpenApi');
+
+SalonResponseCitySettlementTypeEnum
+    _$salonResponseCitySettlementTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'CITY':
+      return _$salonResponseCitySettlementTypeEnum_CITY;
+    case 'TOWN':
+      return _$salonResponseCitySettlementTypeEnum_TOWN;
+    case 'VILLAGE':
+      return _$salonResponseCitySettlementTypeEnum_VILLAGE;
+    case 'SETTLEMENT':
+      return _$salonResponseCitySettlementTypeEnum_SETTLEMENT;
+    case 'unknownDefaultOpenApi':
+      return _$salonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+    default:
+      return _$salonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<SalonResponseCitySettlementTypeEnum>
+    _$salonResponseCitySettlementTypeEnumValues = BuiltSet<
+        SalonResponseCitySettlementTypeEnum>(const <SalonResponseCitySettlementTypeEnum>[
+  _$salonResponseCitySettlementTypeEnum_CITY,
+  _$salonResponseCitySettlementTypeEnum_TOWN,
+  _$salonResponseCitySettlementTypeEnum_VILLAGE,
+  _$salonResponseCitySettlementTypeEnum_SETTLEMENT,
+  _$salonResponseCitySettlementTypeEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<SalonResponseCitySettlementTypeEnum>
+    _$salonResponseCitySettlementTypeEnumSerializer =
+    _$SalonResponseCitySettlementTypeEnumSerializer();
+
+class _$SalonResponseCitySettlementTypeEnumSerializer
+    implements PrimitiveSerializer<SalonResponseCitySettlementTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    SalonResponseCitySettlementTypeEnum
+  ];
+  @override
+  final String wireName = 'SalonResponseCitySettlementTypeEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, SalonResponseCitySettlementTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  SalonResponseCitySettlementTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      SalonResponseCitySettlementTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$SalonResponse extends SalonResponse {
   @override
   final String? id;
@@ -22,7 +108,9 @@ class _$SalonResponse extends SalonResponse {
   @override
   final String? address;
   @override
-  final String? cityId;
+  final String cityId;
+  @override
+  final String oblastId;
   @override
   final String? districtId;
   @override
@@ -43,6 +131,10 @@ class _$SalonResponse extends SalonResponse {
   final bool? isPrimary;
   @override
   final DateTime? createdAt;
+  @override
+  final SalonResponseCitySettlementTypeEnum? citySettlementType;
+  @override
+  final String? cityHromadaNameUk;
 
   factory _$SalonResponse([void Function(SalonResponseBuilder)? updates]) =>
       (SalonResponseBuilder()..update(updates))._build();
@@ -55,7 +147,8 @@ class _$SalonResponse extends SalonResponse {
       this.city,
       this.region,
       this.address,
-      this.cityId,
+      required this.cityId,
+      required this.oblastId,
       this.districtId,
       this.street,
       this.buildingNo,
@@ -65,7 +158,9 @@ class _$SalonResponse extends SalonResponse {
       this.avatarUrl,
       this.isActive,
       this.isPrimary,
-      this.createdAt})
+      this.createdAt,
+      this.citySettlementType,
+      this.cityHromadaNameUk})
       : super._();
   @override
   SalonResponse rebuild(void Function(SalonResponseBuilder) updates) =>
@@ -86,6 +181,7 @@ class _$SalonResponse extends SalonResponse {
         region == other.region &&
         address == other.address &&
         cityId == other.cityId &&
+        oblastId == other.oblastId &&
         districtId == other.districtId &&
         street == other.street &&
         buildingNo == other.buildingNo &&
@@ -95,7 +191,9 @@ class _$SalonResponse extends SalonResponse {
         avatarUrl == other.avatarUrl &&
         isActive == other.isActive &&
         isPrimary == other.isPrimary &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        citySettlementType == other.citySettlementType &&
+        cityHromadaNameUk == other.cityHromadaNameUk;
   }
 
   @override
@@ -109,6 +207,7 @@ class _$SalonResponse extends SalonResponse {
     _$hash = $jc(_$hash, region.hashCode);
     _$hash = $jc(_$hash, address.hashCode);
     _$hash = $jc(_$hash, cityId.hashCode);
+    _$hash = $jc(_$hash, oblastId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
@@ -119,6 +218,8 @@ class _$SalonResponse extends SalonResponse {
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, isPrimary.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, citySettlementType.hashCode);
+    _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -134,6 +235,7 @@ class _$SalonResponse extends SalonResponse {
           ..add('region', region)
           ..add('address', address)
           ..add('cityId', cityId)
+          ..add('oblastId', oblastId)
           ..add('districtId', districtId)
           ..add('street', street)
           ..add('buildingNo', buildingNo)
@@ -143,7 +245,9 @@ class _$SalonResponse extends SalonResponse {
           ..add('avatarUrl', avatarUrl)
           ..add('isActive', isActive)
           ..add('isPrimary', isPrimary)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('citySettlementType', citySettlementType)
+          ..add('cityHromadaNameUk', cityHromadaNameUk))
         .toString();
   }
 }
@@ -183,6 +287,10 @@ class SalonResponseBuilder
   String? _cityId;
   String? get cityId => _$this._cityId;
   set cityId(String? cityId) => _$this._cityId = cityId;
+
+  String? _oblastId;
+  String? get oblastId => _$this._oblastId;
+  set oblastId(String? oblastId) => _$this._oblastId = oblastId;
 
   String? _districtId;
   String? get districtId => _$this._districtId;
@@ -224,6 +332,18 @@ class SalonResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  SalonResponseCitySettlementTypeEnum? _citySettlementType;
+  SalonResponseCitySettlementTypeEnum? get citySettlementType =>
+      _$this._citySettlementType;
+  set citySettlementType(
+          SalonResponseCitySettlementTypeEnum? citySettlementType) =>
+      _$this._citySettlementType = citySettlementType;
+
+  String? _cityHromadaNameUk;
+  String? get cityHromadaNameUk => _$this._cityHromadaNameUk;
+  set cityHromadaNameUk(String? cityHromadaNameUk) =>
+      _$this._cityHromadaNameUk = cityHromadaNameUk;
+
   SalonResponseBuilder() {
     SalonResponse._defaults(this);
   }
@@ -239,6 +359,7 @@ class SalonResponseBuilder
       _region = $v.region;
       _address = $v.address;
       _cityId = $v.cityId;
+      _oblastId = $v.oblastId;
       _districtId = $v.districtId;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
@@ -249,6 +370,8 @@ class SalonResponseBuilder
       _isActive = $v.isActive;
       _isPrimary = $v.isPrimary;
       _createdAt = $v.createdAt;
+      _citySettlementType = $v.citySettlementType;
+      _cityHromadaNameUk = $v.cityHromadaNameUk;
       _$v = null;
     }
     return this;
@@ -277,7 +400,10 @@ class SalonResponseBuilder
           city: city,
           region: region,
           address: address,
-          cityId: cityId,
+          cityId: BuiltValueNullFieldError.checkNotNull(
+              cityId, r'SalonResponse', 'cityId'),
+          oblastId: BuiltValueNullFieldError.checkNotNull(
+              oblastId, r'SalonResponse', 'oblastId'),
           districtId: districtId,
           street: street,
           buildingNo: buildingNo,
@@ -288,6 +414,8 @@ class SalonResponseBuilder
           isActive: isActive,
           isPrimary: isPrimary,
           createdAt: createdAt,
+          citySettlementType: citySettlementType,
+          cityHromadaNameUk: cityHromadaNameUk,
         );
     replace(_$result);
     return _$result;

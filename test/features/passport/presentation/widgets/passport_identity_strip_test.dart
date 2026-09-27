@@ -302,9 +302,11 @@ void main() {
     testWidgets('a brand-new client (0 reviews) still gets a standing line', (
       tester,
     ) async {
-      // The `=0` plural branch — «Жодного відгуку залишено». This is what makes
-      // the strip meaningful for a client with no history, which is why the
-      // page no longer needs an empty hero.
+      // The `=0` plural branch — «Відгуків немає» (Phase 349; the earlier
+      // «Жодного відгуку залишено» dropped the negating «не» and was
+      // ungrammatical — Qase defect #9 step 2). This is what makes the strip
+      // meaningful for a client with no history, which is why the page no
+      // longer needs an empty hero.
       await _pumpStrip(
         tester,
         width: 320,
@@ -313,10 +315,17 @@ void main() {
       );
 
       final AppLocalizations l10n = await _uk();
+      // `l10n.passportReviewsLeft(0)` alone cannot catch a wording regression
+      // (it would just re-derive whatever the ARB says), so pin the literal
+      // Ukrainian string too.
+      expect(l10n.passportReviewsLeft(0), 'Відгуків немає');
       final Rect strip = tester.getRect(find.byKey(_kStrip));
       _expectOneUnclippedLine(
         tester,
-        find.text(l10n.passportReviewsLeft(0)),
+        // i18n-finder-ok: pins the literal wording because
+        // `l10n.passportReviewsLeft(0)` alone cannot catch a wording
+        // regression (Qase defect #9, Phase 349).
+        find.text('Відгуків немає'),
         hostRect: strip,
         label: 'the zero-reviews standing line',
       );

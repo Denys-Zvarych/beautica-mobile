@@ -62,11 +62,13 @@ import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
@@ -184,10 +186,12 @@ void main() {
       );
       // i18n-finder-ok: master's display name is fixture data, not UI copy
       expect(find.text('Софія Бондар'), findsOneWidget);
+      // Phase 351 — the «Послуги» stat CARD stays (U5) and shows the count
+      // from the real response.
       final Text servicesValue = tester.widget<Text>(
         find.byKey(const Key('public-master-profile-services-value')),
       );
-      // PRECONDITION for the assertion below. The stat tile no longer prints
+      // PRECONDITION for the assertion below. The stat card no longer prints
       // the raw length unconditionally — a ZERO count renders the em-dash
       // empty-state instead (ServicesStatTile). So `'$publicMasterServicesCount'`
       // is only the right expectation while the fixture seeds a NON-EMPTY
@@ -199,7 +203,7 @@ void main() {
         greaterThan(0),
         reason:
             'this flow asserts the numeric count branch of the services stat '
-            'tile; a zero-service fixture would render "—" instead',
+            'card; a zero-service fixture would render "—" instead',
       );
       expect(
         servicesValue.data,
@@ -207,9 +211,12 @@ void main() {
         reason: 'the services-count stat must reflect the seeded list length',
       );
 
-      // ── Service-categories section — read-only summary card grouped from
-      // the SAME real GET /masters/{id}/services response the stat tile above
-      // asserted (fb.getPublicMasterServicesCalls). FakeBackend seeds both
+      // ── Service-categories section — Phase 351: lives under the
+      // «Послуги» TAB; user decision 2026-09-26 made the stat cards
+      // display-only, so the tab bar itself is the only way to reach it — no
+      // route push, in-place tab switch. Read-only summary card grouped from
+      // the SAME real GET /masters/{id}/services response
+      // (fb.getPublicMasterServicesCalls). FakeBackend seeds both
       // `_publicMasterServices` entries under category NAILS, so exactly one
       // card renders with a count matching the seeded list length. This is
       // the ONLY E2E coverage of the section rendering from a REAL backend
@@ -219,6 +226,9 @@ void main() {
       // multi-category / uncategorized fixtures, which would be pure
       // duplication to re-derive here against the single-category fake-
       // backend fixture. ──────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
       final Finder nailsCard = find.byKey(
         const Key('public-master-profile-category-NAILS'),
       );
@@ -625,165 +635,256 @@ void main() {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Flow E — Phase 4.x REGRESSION (E2E): the public-profile «Відгуки» stat
-  // tile used to render with NO GestureDetector at all — tapping it was a
-  // silent no-op (the user-reported bug). The fix wraps it in a
-  // GestureDetector whose onTap calls `context.push(RouteNames.
-  // masterPublicReviews(masterId))`, using the trusted route param
-  // (`widget.masterId`) — never `master.id`, a value round-tripped through
-  // the profile response. This flow drives the REAL tap on the REAL rendered
-  // tile (never `router.go`/`router.push` standing in for the tap) and
-  // proves it lands on `PublicMasterReviewsScreen`, which renders THAT
-  // master's real reviews via the PUBLIC
+  // Flow E — Phase 351 gave the 4 StatTiles down to 3 (no «Досвід») and STAY
+  // (U5); user decision 2026-09-26 then made the stat cards DISPLAY-ONLY —
+  // superseding Phase 351's card → tab mechanism (U6/U7, D15). This flow
+  // drives REAL taps on the REAL rendered rating/reviews/services cards and proves
+  // they are now no-ops (no tab switch, no navigation), then reaches the
+  // «Відгуки» tab the only remaining way — the tab bar — and proves the
+  // reviews render there, via the PUBLIC
   // `GET /masters/master-aaa/reviews[/summary]` endpoints — never the
   // `masterRowId`-keyed AUTHENTICATED-master self routes
   // ([FakeBackend.getMasterReviewSummaryCalls] / [getMasterReviewsCalls]),
   // which a CLIENT session has no business ever touching.
   // ──────────────────────────────────────────────────────────────────────────
-  testWidgets('CLIENT taps the «Відгуки» stat tile on a master public profile → '
-      'PublicMasterReviewsScreen opens and renders THAT master\'s real reviews '
-      '(previously a silent no-op — the reported bug)', (tester) async {
-    final fb = FakeBackend()..currentRole = UserRole.client;
-    final GoRouter router = await AppHarness.boot(tester, fb);
+  testWidgets(
+    'CLIENT taps the rating/reviews/services cards on a master public profile → '
+    'nothing happens; the «Відгуки» tab (tapped directly) renders the real '
+    'reviews INLINE',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    await AppHarness.loginAs(tester, fb, UserRole.client);
-    // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
-    // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    AppHarness.expectLocation(router, '/masters/master-aaa');
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
 
-    // ── Tap the REAL rendered reviews stat tile (the tap the bug report was
-    // about) — NOT a `router.push`/`router.go` stand-in for it. ────────────
-    final Finder reviewsTile = find.byKey(
-      const Key('public-master-profile-reviews-tile'),
-    );
-    expect(reviewsTile, findsOneWidget);
-    await tester.ensureVisible(reviewsTile);
-    await tester.tap(reviewsTile);
-    // fixed-wait-ok: settles the real async route-push + review-provider loads; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+      // ── The stat cards are DISPLAY-ONLY (user decision 2026-09-26) —
+      // tapping the REAL rendered rating/reviews/services cards must do nothing: no
+      // tab switch, no navigation, still on the same route. ────────────────
+      final Finder ratingTile = find.byKey(
+        const Key('public-master-profile-rating-tile'),
+      );
+      expect(ratingTile, findsOneWidget);
+      await tester.ensureVisible(ratingTile);
+      await tester.tap(ratingTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
-    // The bug was a SILENT no-op — the first and most important assertion
-    // is simply that navigation happened at all.
-    AppHarness.expectLocation(router, '/masters/master-aaa/reviews');
-    expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+      final Finder reviewsTile = find.byKey(
+        const Key('public-master-profile-reviews-tile'),
+      );
+      expect(reviewsTile, findsOneWidget);
+      await tester.ensureVisible(reviewsTile);
+      await tester.tap(reviewsTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
-    // ── The real PUBLIC reviews endpoints fired for master-aaa … ──────────
-    expect(
-      fb.getPublicMasterReviewSummaryCalls,
-      greaterThanOrEqualTo(1),
-      reason:
-          'the summary must load from the PUBLIC '
-          'GET /masters/master-aaa/reviews/summary route',
-    );
-    expect(
-      fb.getPublicMasterReviewsCalls,
-      greaterThanOrEqualTo(1),
-      reason:
-          'the list must load from the PUBLIC '
-          'GET /masters/master-aaa/reviews route',
-    );
-    // … and NEVER the `masterRowId`-keyed AUTHENTICATED-master self routes —
-    // a CLIENT viewing another master's public reviews must never resolve
-    // "its own" reviews (there is no session master row to confuse it with
-    // here, but this pins the two surfaces staying on separate routes).
-    expect(
-      fb.getMasterReviewSummaryCalls,
-      0,
-      reason:
-          'must never hit the AUTHENTICATED master\'s own reviews-summary '
-          'route from the public CLIENT journey',
-    );
-    expect(
-      fb.getMasterReviewsCalls,
-      0,
-      reason:
-          'must never hit the AUTHENTICATED master\'s own reviews-list '
-          'route from the public CLIENT journey',
-    );
+      final Finder servicesTile = find.byKey(
+        const Key('public-master-profile-services-tile'),
+      );
+      expect(servicesTile, findsOneWidget);
+      await tester.ensureVisible(servicesTile);
+      await tester.tap(servicesTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump until;
+      // this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
 
-    // ── master-aaa's seeded public reviews render (distinct ids from the
-    // `mr-*` self-fixture, so a wrong-route mixup would show as findsNothing
-    // here rather than silently passing). ─────────────────────────────────
-    expect(find.byKey(const Key('master-review-pub-r1')), findsOneWidget);
-    expect(find.byKey(const Key('master-review-pub-r2')), findsOneWidget);
-    final Text avg = tester.widget<Text>(
-      find.byKey(const Key('master-review-summary-average')),
-    );
-    expect(
-      avg.data,
-      FakeBackend.kPublicMasterAvgRatingBeforeReview.toStringAsFixed(1),
-      reason: 'the summary average must bind from the real response data',
-    );
-  }, timeout: const Timeout(Duration(seconds: 90)));
+      // ── Tap the «Відгуки» TAB directly — the only remaining way to
+      // switch. ─────────────────────────────────────────────────────────
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
+      // fixed-wait-ok: settles the real async review-provider loads triggered by the tab switch; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      // Reviews render INLINE — still the SAME screen/route, never a push.
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+      expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+
+      // ── The real PUBLIC reviews endpoints fired for master-aaa … ──────────
+      expect(
+        fb.getPublicMasterReviewSummaryCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the summary must load from the PUBLIC '
+            'GET /masters/master-aaa/reviews/summary route',
+      );
+      expect(
+        fb.getPublicMasterReviewsCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the list must load from the PUBLIC '
+            'GET /masters/master-aaa/reviews route',
+      );
+      // … and NEVER the `masterRowId`-keyed AUTHENTICATED-master self routes —
+      // a CLIENT viewing another master's public reviews must never resolve
+      // "its own" reviews (there is no session master row to confuse it with
+      // here, but this pins the two surfaces staying on separate routes).
+      expect(
+        fb.getMasterReviewSummaryCalls,
+        0,
+        reason:
+            'must never hit the AUTHENTICATED master\'s own reviews-summary '
+            'route from the public CLIENT journey',
+      );
+      expect(
+        fb.getMasterReviewsCalls,
+        0,
+        reason:
+            'must never hit the AUTHENTICATED master\'s own reviews-list '
+            'route from the public CLIENT journey',
+      );
+
+      // ── master-aaa's seeded public reviews render (distinct ids from the
+      // `mr-*` self-fixture, so a wrong-route mixup would show as findsNothing
+      // here rather than silently passing). ─────────────────────────────────
+      expect(find.byKey(const Key('master-review-pub-r1')), findsOneWidget);
+      expect(find.byKey(const Key('master-review-pub-r2')), findsOneWidget);
+      final Text avg = tester.widget<Text>(
+        find.byKey(const Key('master-review-summary-average')),
+      );
+      expect(
+        avg.data,
+        FakeBackend.kPublicMasterAvgRatingBeforeReview.toStringAsFixed(1),
+        reason: 'the summary average must bind from the real response data',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Flow G — the «Рейтинг» stat tile was made tappable to mirror the
-  // «Відгуки» tile above: it pushes the SAME `RouteNames.masterPublicReviews
-  // (masterId)` destination via the SAME production `context.push(...)` call.
-  //
-  // At the source level both tiles currently share the textually identical
-  // `onTap: () => context.push(RouteNames.masterPublicReviews(masterId))`
-  // closure, so this flow deliberately does NOT re-derive Flow E's full
-  // content assertions (summary average, both seeded review cards, the
-  // public-vs-self endpoint decoupling) — that would be pure duplication of
-  // the same production code path already proven end-to-end above. What THIS
-  // flow adds that Flow E cannot: it drives a REAL tap on the rating tile's
-  // OWN, DISTINCT `GestureDetector` (`public-master-profile-rating-tile`), so
-  // if a future edit ever gives the rating tile its own (buggy) onTap — e.g.
-  // reverting to no handler, or wiring `master.id` instead of the trusted
-  // route param — this flow catches it independently of the reviews tile,
-  // against the real router + real fake-backend endpoints, not a stub.
+  // Flow F — Phase 351 gap-fix (mobile-qa, 2026-09-25): CLIENT view of a
+  // master with NO bio. The «Про майстра» tab's empty-bio branch is read-only
+  // for a client (the "Both rows" locked decision — only the master's OWN
+  // profile gets the `AddLink` «Додати опис» affordance), so end to end it
+  // must show only the muted placeholder text and NEVER the AddLink glyph —
+  // a widget test can stub the provider state directly, but only this flow
+  // proves the WIRE value (`"bio": null` from the real public detail
+  // response) reaches that branch through the real repository + provider.
   // ──────────────────────────────────────────────────────────────────────────
-  testWidgets('CLIENT taps the «Рейтинг» stat tile on a master public profile → '
-      'PublicMasterReviewsScreen opens via the real context.push and the real '
-      'public reviews endpoints fire for that master', (tester) async {
-    final fb = FakeBackend()..currentRole = UserRole.client;
-    final GoRouter router = await AppHarness.boot(tester, fb);
+  testWidgets(
+    'CLIENT opens a master public profile with no bio → the «Про майстра» '
+    'tab shows only the muted empty-bio placeholder, never an AddLink',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..publicMasterBioSuppressed = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    await AppHarness.loginAs(tester, fb, UserRole.client);
-    // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
 
-    unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
-    // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
-    AppHarness.expectLocation(router, '/masters/master-aaa');
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
 
-    // ── Tap the REAL rendered rating stat tile — its OWN GestureDetector,
-    // distinct from the reviews tile Flow E already exercised. ───────────
-    final Finder ratingTile = find.byKey(
-      const Key('public-master-profile-rating-tile'),
-    );
-    expect(ratingTile, findsOneWidget);
-    await tester.ensureVisible(ratingTile);
-    await tester.tap(ratingTile);
-    // fixed-wait-ok: settles the real async route-push + review-provider loads; not a total-wait guess.
-    await tester.pumpAndSettle(const Duration(seconds: 1));
+      final Finder emptyBio = find.byKey(
+        const Key('public-master-profile-about-empty'),
+      );
+      expect(
+        emptyBio,
+        findsOneWidget,
+        reason:
+            'the wire "bio": null must reach the About tab\'s empty '
+            'branch through the real repository + provider',
+      );
+      // i18n-finder-ok: asserting the exact locked empty-bio copy, not
+      // translating UI copy ourselves.
+      expect(find.text('Опис майстра поки не додано'), findsOneWidget);
+      // Scoped to the About tab itself (not the whole screen) — the «+»
+      // glyph legitimately appears elsewhere on this screen (e.g. the
+      // booking shelf), so the assertion must not be screen-wide.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('public-master-profile-about-tab')),
+          matching: find.byIcon(Icons.add_rounded),
+        ),
+        findsNothing,
+        reason:
+            'a CLIENT viewing another master never gets the AddLink '
+            '"Додати опис" affordance in the About tab — that only exists '
+            'on the master\'s OWN profile screens',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 
-    AppHarness.expectLocation(router, '/masters/master-aaa/reviews');
-    expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+  // ──────────────────────────────────────────────────────────────────────────
+  // Flow G — Phase 358 (user report, verbatim: "why u remove the button to
+  // book directly from salon master profile? add it pls"): Phase 351 had
+  // (unasked) narrowed the pinned booking shelf to INDEPENDENT_MASTER only —
+  // this proves the fix end to end against a REAL SALON_MASTER wire response:
+  // the CTA renders, and tapping it opens the SAME booking flow
+  // (ServiceSelectorSheet) for THIS master, resolving THIS master's real
+  // catalogue via `GET /masters/master-aaa/services` — never the salon flow's
+  // own `SalonServiceSelectionScreen` step 1/step 2 (mirrors Phase 350 D4's
+  // rebook proof, but from the profile CTA rather than «Записатись знову»).
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT opens a SALON-master public profile → the booking shelf renders '
+    'and «Записатись» opens the SAME booking flow for THAT master',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..publicMasterTypeSalon = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
 
-    // The real PUBLIC endpoints fired for master-aaa — never the
-    // AUTHENTICATED master's own self-scoped routes.
-    expect(
-      fb.getPublicMasterReviewSummaryCalls,
-      greaterThanOrEqualTo(1),
-      reason:
-          'the summary must load from the PUBLIC '
-          'GET /masters/master-aaa/reviews/summary route',
-    );
-    expect(
-      fb.getPublicMasterReviewsCalls,
-      greaterThanOrEqualTo(1),
-      reason:
-          'the list must load from the PUBLIC '
-          'GET /masters/master-aaa/reviews route',
-    );
-    expect(fb.getMasterReviewSummaryCalls, 0);
-    expect(fb.getMasterReviewsCalls, 0);
-  }, timeout: const Timeout(Duration(seconds: 90)));
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+
+      final Finder cta = find.byKey(const Key('public-master-book-cta'));
+      expect(
+        cta,
+        findsOneWidget,
+        reason:
+            'Phase 358 — the booking shelf must render for a resolved '
+            'SALON_MASTER too, not just INDEPENDENT_MASTER',
+      );
+
+      await tester.tap(cta);
+      // fixed-wait-ok: settles the real async route-push + provider-load step after the tap; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      AppHarness.expectLocation(router, RouteNames.bookingNew);
+      expect(
+        find.byType(ServiceSelectorSheet),
+        findsOneWidget,
+        reason:
+            'the SAME booking flow the independent-master CTA opens — no '
+            'salon-flow detour (mirrors Phase 350 D4 for the rebook CTA)',
+      );
+      expect(find.byType(SalonServiceSelectionScreen), findsNothing);
+
+      // The resolved catalogue is genuinely THIS master's — a real
+      // GET /masters/master-aaa/services round trip carrying its id, not a
+      // salon-scoped fetch.
+      expect(fb.lastGetPublicMasterServicesId, 'master-aaa');
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

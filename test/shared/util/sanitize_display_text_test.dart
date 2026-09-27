@@ -78,4 +78,67 @@ void main() {
       expect(sanitizeDisplayText(note), note);
     });
   });
+
+  // ── mobile-qa gap-closure (2026-09-02) — collapseNewlines opt-in ─────────
+  //
+  // `collapseNewlines` (Phase 21.6(b) audit fix) was absent from this file
+  // entirely — `buildLegacyAddressLine` is the only caller that opts in, and
+  // every OTHER caller depends on the DEFAULT staying `false`. Both
+  // directions matter equally: the opt-in must actually fold newlines, and
+  // the default must NOT — the default is what protects `ExpandableNote` /
+  // `locationNote`, authored through a `maxLines: 3` field that legitimately
+  // needs its line breaks to survive.
+  group('sanitizeDisplayText — collapseNewlines opt-in (Phase 21.6(b))', () {
+    test('collapseNewlines: true folds LF to a single space', () {
+      expect(
+        sanitizeDisplayText('вул. Хрещатик,\n22', collapseNewlines: true),
+        'вул. Хрещатик, 22',
+      );
+    });
+
+    test('collapseNewlines: true folds CRLF to a single space, not two — '
+        'the \\r\\n alternative must win over the bare \\r and \\n arms', () {
+      expect(
+        sanitizeDisplayText('вул. Хрещатик,\r\n22', collapseNewlines: true),
+        'вул. Хрещатик, 22',
+      );
+    });
+
+    test('collapseNewlines: true folds a bare CR to a single space', () {
+      expect(
+        sanitizeDisplayText('вул. Хрещатик,\r22', collapseNewlines: true),
+        'вул. Хрещатик, 22',
+      );
+    });
+
+    test('collapseNewlines: true folds EVERY newline in a multi-line '
+        'string, one space per occurrence (not collapsed together)', () {
+      expect(sanitizeDisplayText('A\n\nB', collapseNewlines: true), 'A  B');
+    });
+
+    test('collapseNewlines: true still strips bidi/zero-width controls in '
+        'the SAME call — the two defect classes are independent', () {
+      final String rlo = String.fromCharCode(0x202E);
+      expect(
+        sanitizeDisplayText('кв. 3$rlo,\n22', collapseNewlines: true),
+        'кв. 3, 22',
+      );
+    });
+
+    test('the DEFAULT (collapseNewlines omitted) PRESERVES newlines — this '
+        'is what keeps a genuinely multi-line locationNote intact through '
+        'ExpandableNote; a flipped default silently breaks that field', () {
+      const String multiline = 'Вхід через двір\nдомофон 42\n3 поверх';
+      expect(sanitizeDisplayText(multiline), multiline);
+    });
+
+    test('collapseNewlines: false (explicit) also preserves newlines — '
+        'same contract as the default, spelled out explicitly', () {
+      const String multiline = 'Вхід через двір\nдомофон 42';
+      expect(
+        sanitizeDisplayText(multiline, collapseNewlines: false),
+        multiline,
+      );
+    });
+  });
 }

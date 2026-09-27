@@ -69,6 +69,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_revision_provider.dart';
@@ -90,6 +91,7 @@ void main() {
     'then is genuinely evicted once the TTL actually lapses',
     (tester) async {
       final repo = _MockScheduleRepository();
+      const scope = ScheduleScope.own(masterId: 'ttl-pin-test-master');
       final range = ScheduleRange(
         from: DateTime(2026, 6, 15),
         to: DateTime(2026, 6, 15),
@@ -121,7 +123,9 @@ void main() {
 
       final container = ProviderContainer(
         retry: beauticaProviderRetry,
-        overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+        ],
       );
       addTearDown(container.dispose);
 
@@ -129,7 +133,7 @@ void main() {
       // has always pinned unconditionally (even before the fix), so this
       // step alone proves nothing about the bug; it just seeds the cache.
       final List<EffectiveDay> first = await container.read(
-        effectiveScheduleProvider(range).future,
+        effectiveScheduleProvider(scope, range).future,
       );
       expect(first.single.source, EffectiveSource.template);
       expect(fetchCount, 1);
@@ -140,7 +144,7 @@ void main() {
       // (see header) to match the established, verified-working order.
       final ProviderSubscription<AsyncValue<List<EffectiveDay>>> sub = container
           .listen<AsyncValue<List<EffectiveDay>>>(
-            effectiveScheduleProvider(range),
+            effectiveScheduleProvider(scope, range),
             (_, _) {},
           );
 
@@ -148,9 +152,11 @@ void main() {
       // EAGER, in-place rebuild on the SAME instance — this is the
       // short-circuit path (no overrides change, no overlap): it must
       // serve the cached page with NO additional network call.
-      container.read(overridesRevisionProvider.notifier).bump(otherRange);
+      container
+          .read(overridesRevisionProvider(scope).notifier)
+          .bump(otherRange);
       final List<EffectiveDay> servedWhileWatched = await container.read(
-        effectiveScheduleProvider(range).future,
+        effectiveScheduleProvider(scope, range).future,
       );
       expect(
         servedWhileWatched.single.source,
@@ -179,7 +185,7 @@ void main() {
       // eviction check ran (zero active pins), silently recreated here
       // with a null cache, and this read issues a SECOND real fetch.
       final List<EffectiveDay> servedAfterNavigatingAway = await container.read(
-        effectiveScheduleProvider(range).future,
+        effectiveScheduleProvider(scope, range).future,
       );
       expect(
         servedAfterNavigatingAway.single.source,
@@ -205,7 +211,7 @@ void main() {
       await tester.pump(const Duration(minutes: 6));
 
       final List<EffectiveDay> afterTtl = await container.read(
-        effectiveScheduleProvider(range).future,
+        effectiveScheduleProvider(scope, range).future,
       );
       expect(afterTtl.single.source, EffectiveSource.template);
       expect(

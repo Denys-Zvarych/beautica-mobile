@@ -45,6 +45,7 @@ import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http_mock_adapter/http_mock_adapter.dart';
@@ -65,6 +66,13 @@ class _MockServiceCatalogControllerApi extends Mock
 const _baseUrl = 'http://localhost:8080';
 const _masterId = 'master-abc';
 const _bulkPath = '/api/v1/independent-masters/me/services/bulk';
+
+// ── Phase 315 D2 — salon-target body-equality fixtures ─────────────────────
+
+const _salonId = 'salon-abc';
+const _salonMasterId = 'master-xyz';
+const _salonBulkPath =
+    '/api/v1/salons/$_salonId/masters/$_salonMasterId/services/bulk';
 
 const _fixedItem = MasterServiceBulkItem(
   serviceTypeId: 'type-fixed',
@@ -121,7 +129,9 @@ Map<String, Object?> _wireServiceJson({
 /// REVERSION PROOF: deleting the `dio.interceptors.add(...)` line below must
 /// turn the fieldErrors tests in this file RED. If they still pass, they pin
 /// nothing and this file has rotted the same way its predecessors did.
-({Dio dio, DioAdapter adapter, HttpServiceRepository repo}) _wire() {
+({Dio dio, DioAdapter adapter, HttpServiceRepository repo}) _wire({
+  ServiceTarget? target,
+}) {
   final dio = Dio(
     BaseOptions(
       baseUrl: _baseUrl,
@@ -138,7 +148,12 @@ Map<String, Object?> _wireServiceJson({
     categoryApi: _MockCategoryRequestControllerApi(),
     catalogApi: _MockServiceCatalogControllerApi(),
     dio: dio,
-    masterId: _masterId,
+    // A salon target legitimately carries an empty masterId (the acting
+    // owner/admin has no master row of their own) — mirrors
+    // `serviceRepositoryProvider`'s production wiring.
+    masterId: target == null ? _masterId : '',
+    target: target,
+    sessionUserId: target == null ? '' : 'user-row-uuid',
   );
   return (dio: dio, adapter: adapter, repo: repo);
 }
@@ -455,5 +470,78 @@ void main() {
       expect(result.first.priceMin, 500.0);
       expect(result[1].name, 'Педикюр');
     });
+  });
+
+  // =========================================================================
+  // Phase 315 D2 — the request BODY is byte-identical between the null-target
+  // and salon-target branches for the same item list. This is what makes
+  // D2's "share the builder verbatim" claim testable rather than
+  // aspirational — mutation check 4 (deleting the salon branch from
+  // bulkCreate) must NOT turn this test red: it compares bodies, not paths,
+  // so both handlers below are registered at BOTH candidate paths — whichever
+  // one the (possibly mutated) dispatch actually hits, the body is still
+  // captured and compared. Only the dedicated salon-URI test in
+  // service_repository_bulk_create_test.dart is meant to catch that mutation.
+  // =========================================================================
+  group('bulkCreate — request body equality across targets (phase 315 D2)', () {
+    test(
+      'the serialised request body is byte-identical between the null-target '
+      'and salon-target branches for the same item list',
+      () async {
+        final items = <MasterServiceBulkItem>[_fixedItem, _rangeItem];
+
+        Object? nullBody;
+        final nullWire = _wire();
+        nullWire.adapter.onPost(
+          _bulkPath,
+          (s) => s.replyCallback(201, (options) {
+            nullBody = options.data;
+            return <String, Object?>{'success': true, 'data': <Object?>[]};
+          }),
+          data: Matchers.any,
+        );
+        await nullWire.repo.bulkCreate(items);
+
+        Object? salonBody;
+        final salonWire = _wire(
+          target: const SalonMasterTarget(
+            salonId: _salonId,
+            masterId: _salonMasterId,
+          ),
+        );
+        dynamic captureAndReply(RequestOptions options) {
+          salonBody = options.data;
+          return <String, Object?>{'success': true, 'data': <Object?>[]};
+        }
+
+        // Registered at BOTH candidate paths on purpose — see the group doc
+        // comment above: this test must observe the BODY regardless of which
+        // path dispatch actually hits, so mutation check 4 (deleting the
+        // salon branch) cannot turn it red for the wrong reason.
+        salonWire.adapter
+          ..onPost(
+            _salonBulkPath,
+            (s) => s.replyCallback(201, captureAndReply),
+            data: Matchers.any,
+          )
+          ..onPost(
+            _bulkPath,
+            (s) => s.replyCallback(201, captureAndReply),
+            data: Matchers.any,
+          );
+        await salonWire.repo.bulkCreate(items);
+
+        expect(nullBody, isNotNull);
+        expect(salonBody, isNotNull);
+        expect(
+          salonBody,
+          equals(nullBody),
+          reason:
+              'BulkCreateServicesRequest is the same DTO on both endpoints; '
+              'the body builder must be shared verbatim regardless of which '
+              'path the request is sent to',
+        );
+      },
+    );
   });
 }

@@ -292,6 +292,18 @@ void main() {
       },
     );
 
+    test('an unknown wire role (the generated enum fallback) surfaces as a '
+        'typed UnknownFailure, never an ArgumentError', () async {
+      when(
+        () => mockAuthApi.login(loginRequest: any(named: 'loginRequest')),
+      ).thenAnswer((_) async => _authResponse(role: 'unknownDefaultOpenApi'));
+
+      await expectLater(
+        repository.login(email: 'master@beautica.test', password: 's3cr3t!'),
+        throwsA(isA<UnknownFailure>()),
+      );
+    });
+
     test('2. 401 plain UnauthorizedFailure (emailNotVerified=false) → remapped '
         'to InvalidCredentialsFailure (wrong-password fix)', () async {
       const failure = UnauthorizedFailure();

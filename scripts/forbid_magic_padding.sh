@@ -110,13 +110,13 @@ EOF
     printf '%s\n' "$out"
     fail=1
   fi
-  if printf '%s' "$out" | grep -q 'good\.dart'; then
+  if grep -q -- 'good\.dart' <<< "$out"; then
     echo "SELF-TEST FAIL: a good.dart line was flagged (false positive):"
     printf '%s\n' "$out" | grep 'good\.dart'
     fail=1
   fi
   for want in 'bad.dart:1' 'bad.dart:2' 'bad.dart:3'; do
-    if ! printf '%s' "$out" | grep -q "$want"; then
+    if ! grep -q -- "$want" <<< "$out"; then
       echo "SELF-TEST FAIL: expected $want to be flagged, it was not."
       fail=1
     fi

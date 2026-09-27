@@ -204,12 +204,54 @@ class NeumorphicInset extends StatelessWidget {
     this.radius = VelvetRadii.field,
     this.focused = false,
     this.hasError = false,
-  });
+    this.boundary = true,
+    this.animatedRing = true,
+  }) : assert(
+         animatedRing || (!focused && !hasError),
+         'NeumorphicInset(animatedRing: false) draws the ring without a '
+         'transition, so it may only be used where `focused` and `hasError` '
+         'are compile-time false for the widget\'s whole lifetime.',
+       );
 
   final Widget child;
   final double radius;
   final bool focused;
   final bool hasError;
+
+  /// Whether this well isolates itself in its own compositing layer.
+  ///
+  /// ADDITIVE and optional: `true` — the value every pre-existing caller
+  /// passes by omission — keeps the [RepaintBoundary] this widget has always
+  /// wrapped itself in, so nothing that ships today changes by a pixel or by
+  /// a layer.
+  ///
+  /// Pass `false` from a caller that is decorative and static: a boundary
+  /// only pays for itself when the subtree repaints independently of its
+  /// parent, and a badge whose pixels never change on their own just adds a
+  /// layer (and a nested one, when the caller already sits inside a
+  /// boundary — backlog row 245's original case). [RoleChip] passes `false`;
+  /// text fields, tappable tiles and anything animating keep the default.
+  final bool boundary;
+
+  /// Whether the focus/error ring CROSS-FADES rather than appearing instantly.
+  ///
+  /// ADDITIVE and optional: `true` — the value every pre-existing caller
+  /// passes by omission — keeps the [AnimatedContainer] and its 180 ms
+  /// transition, so every field, toggle and tile that can gain a ring behaves
+  /// exactly as it always has.
+  ///
+  /// `false` swaps in a plain [DecoratedBox]. The rendered pixels are
+  /// identical for a ringless well (a `width: 0` transparent border
+  /// contributes no padding and paints nothing), but the widget sheds an
+  /// [AnimationController] and its [Ticker] — 200 of each on a full invite
+  /// history, for a ring that chip can never show.
+  ///
+  /// It is a CONSTRUCTION-TIME choice, never a runtime one: flipping this
+  /// between builds would swap the widget type at that position and re-inflate
+  /// the whole subtree (dropping a focused field's `EditableText` state), so
+  /// the constructor asserts the ring inputs are const-false instead of the
+  /// build method deciding for itself.
+  final bool animatedRing;
 
   @override
   Widget build(BuildContext context) {
@@ -219,27 +261,32 @@ class NeumorphicInset extends StatelessWidget {
         ? BrandColors.accent
         : null;
 
-    return RepaintBoundary(
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: BrandColors.base,
-          borderRadius: BorderRadius.circular(radius),
-          border: Border.all(
-            color: ringColor ?? Colors.transparent,
-            width: ringColor == null ? 0 : 2,
-          ),
-        ),
-        child: CustomPaint(
-          // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
-          // Identical pixels to the previous per-build construction; only the
-          // allocation (and the redundant repaint) goes away.
-          painter: _InsetShadowPainter.forRadius(radius),
-          child: child,
-        ),
+    final BoxDecoration decoration = BoxDecoration(
+      color: BrandColors.base,
+      borderRadius: BorderRadius.circular(radius),
+      border: Border.all(
+        color: ringColor ?? Colors.transparent,
+        width: ringColor == null ? 0 : 2,
       ),
     );
+    final Widget painted = CustomPaint(
+      // Shared per-radius instance — see [_InsetShadowPainter.forRadius].
+      // Identical pixels to the previous per-build construction; only the
+      // allocation (and the redundant repaint) goes away.
+      painter: _InsetShadowPainter.forRadius(radius),
+      child: child,
+    );
+
+    final Widget well = animatedRing
+        ? AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            decoration: decoration,
+            child: painted,
+          )
+        : DecoratedBox(decoration: decoration, child: painted);
+
+    return boundary ? RepaintBoundary(child: well) : well;
   }
 }
 
@@ -1066,6 +1113,7 @@ class NeumorphicIconButton extends StatelessWidget {
     this.iconWidget,
     required this.onTap,
     required this.semanticLabel,
+    this.enabled = true,
   }) : assert(
          icon != null || iconWidget != null,
          'NeumorphicIconButton: supply either an `icon` (IconData) or an '
@@ -1083,6 +1131,30 @@ class NeumorphicIconButton extends StatelessWidget {
   final VoidCallback onTap;
   final String semanticLabel;
 
+  /// Phase 21.14 — `false` renders the button as PRESENT BUT NOT YET
+  /// AVAILABLE, the exact convention [SettingsRow]'s own `enabled` parameter
+  /// established (`lib/features/master/presentation/widgets/settings_row.dart`):
+  /// dimmed to 0.6, taps absorbed, and `Semantics(enabled: false)` so a screen
+  /// reader announces it as unavailable rather than letting a tap fall
+  /// silently on the floor. Geometry is untouched — the button occupies
+  /// exactly the same 48×48 box it does when enabled, so a disabled trailing
+  /// action never shifts the top bar's title.
+  ///
+  /// The dim reads as DISABLED and not as PRESSED because a pressed
+  /// neumorphic surface in this design system is signalled by REMOVING the
+  /// shadow pair (see [NeumorphicButton] / [SettingsRow]), not by lowering
+  /// opacity: at 0.6 the raised light/dark shadow pair is still present and
+  /// still offset, so the extrusion survives.
+  ///
+  /// It exists for the `tune_rounded` action on `OwnerOwnProfileScreen`, whose
+  /// destination (the Phase 21.15 Owner Settings Hub) is unbuilt — the control
+  /// must be visibly inert, never a dead tap or a fake route.
+  ///
+  /// Defaults to `true`, and the `true` branch emits the byte-identical widget
+  /// tree this button shipped with before this parameter existed, so every
+  /// pre-existing call site renders and behaves EXACTLY as before.
+  final bool enabled;
+
   /// Fixed square extent of the button (width == height). Exposed so callers
   /// that lay this button out alongside shorter siblings (e.g. the CLIENT top
   /// bar's bell) can pin their own cross-axis height to the burger extent and
@@ -1097,22 +1169,38 @@ class NeumorphicIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget face = Container(
+      height: extent,
+      width: extent,
+      decoration: const BoxDecoration(
+        color: BrandColors.base,
+        borderRadius: _buttonRadius,
+        boxShadow: VelvetShadows.extrudedSmall,
+      ),
+      child:
+          iconWidget ?? Icon(icon, color: BrandColors.textSecondary, size: 22),
+    );
+
+    // The `enabled` branch is deliberately additive-by-omission: when enabled
+    // (the default) NO extra wrapper is inserted, so the tree is identical to
+    // what every existing call site — and every existing golden — already
+    // renders. Only the disabled branch adds the dim/absorb layers.
+    if (enabled) {
+      return Semantics(
+        button: true,
+        label: semanticLabel,
+        child: GestureDetector(onTap: onTap, child: face),
+      );
+    }
+
     return Semantics(
       button: true,
+      enabled: false,
       label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          height: extent,
-          width: extent,
-          decoration: const BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: _buttonRadius,
-            boxShadow: VelvetShadows.extrudedSmall,
-          ),
-          child:
-              iconWidget ??
-              Icon(icon, color: BrandColors.textSecondary, size: 22),
+      child: AbsorbPointer(
+        child: Opacity(
+          opacity: 0.6,
+          child: GestureDetector(onTap: onTap, child: face),
         ),
       ),
     );

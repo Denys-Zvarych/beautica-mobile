@@ -27,6 +27,7 @@ import 'package:beautica_mobile/features/booking/domain/create_master_booking_re
 import 'package:beautica_mobile/features/booking/domain/working_day.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/month_calendar.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';

@@ -72,5 +72,46 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     /// byte-identically.
     String? rescheduleClientName,
     String? rescheduleClientPhone,
+
+    /// `true` when the person who reached this screen is a PROVIDER (salon
+    /// owner / salon admin / master) acting on someone else's booking, rather
+    /// than a client acting on their own. Forwarded unchanged from
+    /// [BookingConfirmArgs.hideMasterIdentity] by `BookingConfirmScreen
+    /// ._submit` — the SAME session-derived `bookingViewerRoleProvider
+    /// .isProvider` fact `reschedule_navigation.dart` already seeds, never a
+    /// second read.
+    ///
+    /// The done screen suppresses «Додати в календар» on this path: a master
+    /// or salon admin who just moved a CLIENT's booking has no use for that
+    /// visit in their OWN OS calendar (their own calendar surface is «Мої
+    /// записи»). Deliberately NOT gated on [isReschedule] — a CLIENT
+    /// rescheduling their own booking KEEPS the button (locked product
+    /// decision, 2026-09-18). Defaults to `false`, so every CREATE call site
+    /// and every client-side path renders byte-identically.
+    @Default(false) bool isProviderViewer,
+
+    /// VENUE ADDRESS OVERRIDE (2026-09-18) — the address of the place the
+    /// visit actually happens, when the caller already knows it.
+    ///
+    /// The recap otherwise composes the address from [master]`.street /
+    /// .buildingNo / .city`, which the backend DELIBERATELY nulls for a
+    /// `SALON_MASTER` / `SALON_OWNER` (`MasterDetailResponse.java:104-127` —
+    /// "a salon master's precise address is the salon's business address"),
+    /// so a salon booking rendered «Адресу не вказано». The reschedule flow
+    /// already fetches the full `Booking`, whose `street`/`buildingNo`/
+    /// `cityLabel`/`locationNote` the backend resolved salon-vs-independent
+    /// server-side (`BookingDetailResponse.java:580-648`) — these fields
+    /// simply thread that address through
+    /// `BookingSlotPickerArgs` → `BookingConfirmArgs` → here.
+    ///
+    /// ALL default to `null`; the screen PREFERS them and falls back to
+    /// [master] when the composed venue line is `null`, so every CREATE call
+    /// site (which passes none of them) renders byte-identically. Deliberately
+    /// NOT modelled by widening `Master`/`MasterMapper` with salon-address
+    /// fields — that would change every master surface in the app.
+    String? venueStreet,
+    String? venueBuildingNo,
+    String? venueCity,
+    String? venueLocationNote,
   }) = _BookingSuccessArgs;
 }

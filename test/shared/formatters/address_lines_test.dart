@@ -440,4 +440,177 @@ void main() {
       }
     });
   });
+
+  // mobile-qa gap-closure (2026-08-29) — `buildFullAddressLine` shipped
+  // (Phase 21.14) with zero unit coverage in this file: the salon
+  // management/hub widget tests exercise it only THROUGH a full provider +
+  // widget pump, which cannot cheaply enumerate the city × district ×
+  // street × buildingNo presence matrix the way a pure-Dart unit test can.
+  //
+  // 2026-08-29 (oblast removal) — the function dropped its `oblastName`
+  // parameter (product decision: a salon's oblast never renders to the
+  // client, even though `resolvedLocalityProvider` still resolves it for
+  // the picker cascade). This group was re-cut from the five-segment
+  // oblast-first matrix down to four segments, same coverage shape.
+  group('buildFullAddressLine', () {
+    test('all four segments present — hierarchy order: city, district, '
+        'street, building', () {
+      expect(
+        buildFullAddressLine(
+          cityName: 'Львів',
+          districtName: 'Галицький',
+          street: 'вул. Личаківська',
+          buildingNo: '20',
+        ),
+        'Львів, Галицький, вул. Личаківська, 20',
+      );
+    });
+
+    test('district omitted — the remaining segments stay in order with no '
+        'dangling comma', () {
+      final String? result = buildFullAddressLine(
+        cityName: 'Львів',
+        street: 'вул. Личаківська',
+        buildingNo: '20',
+      );
+      expect(result, 'Львів, вул. Личаківська, 20');
+      _expectNoDanglingComma(result);
+    });
+
+    test('city only, no street/building/district', () {
+      expect(buildFullAddressLine(cityName: 'Львів'), 'Львів');
+    });
+
+    test('street + buildingNo only, no city/district — the promotion '
+        'path a pre-taxonomy salon\'s fallback relies on', () {
+      expect(
+        buildFullAddressLine(street: 'вул. Личаківська', buildingNo: '20'),
+        'вул. Личаківська, 20',
+      );
+    });
+
+    test('buildingNo with NO street is dropped — never dangles alone or '
+        'beside city', () {
+      final String? result = buildFullAddressLine(
+        cityName: 'Львів',
+        buildingNo: '20',
+      );
+      expect(result, 'Львів');
+      _expectNoDanglingComma(result);
+    });
+
+    test('nothing set at all — null, so the caller can fall back to the '
+        'legacy salon.address', () {
+      expect(buildFullAddressLine(), isNull);
+    });
+
+    test('every field blank/whitespace-only — null, exactly like every '
+        'field being absent', () {
+      expect(
+        buildFullAddressLine(
+          cityName: '',
+          districtName: '   ',
+          street: '',
+          buildingNo: '   ',
+        ),
+        isNull,
+      );
+    });
+
+    test('a zero-width-only district is treated as absent — no doubled '
+        'comma between city and street', () {
+      final String? result = buildFullAddressLine(
+        cityName: 'Львів',
+        districtName: '​',
+        street: 'вул. Личаківська',
+      );
+      expect(result, 'Львів, вул. Личаківська');
+      _expectNoDanglingComma(result);
+    });
+
+    test('routed through sanitizeDisplayText like the other three builders '
+        '— surrounding whitespace is trimmed on every segment', () {
+      expect(
+        buildFullAddressLine(
+          cityName: '  Львів  ',
+          street: '  вул. Личаківська  ',
+        ),
+        'Львів, вул. Личаківська',
+      );
+    });
+  });
+
+  // ── mobile-qa gap-closure (2026-09-02) — buildLegacyAddressLine ──────────
+  //
+  // `grep -a -rln "buildLegacyAddressLine" test/` returned NOTHING before
+  // this group: the Phase 21.6(b) security fix (`SalonHubCard`'s legacy
+  // `salon.address` fallback, and the identical bypass closed on
+  // `salon_management_profile_screen.dart:656`) rests ENTIRELY on this one
+  // function, and it had zero direct coverage. Unlike the other three
+  // builders, [buildLegacyAddressLine] is the ONLY caller that opts into
+  // `_visibleOrNull`'s `collapseNewlines: true` — every case below exercises
+  // that opt-in specifically, not just the shared bidi/zero-width stripping
+  // the other builders already prove.
+  group('buildLegacyAddressLine (Phase 21.6(b) security fix)', () {
+    test('a clean address is returned unchanged', () {
+      const String address = 'м. Одеса, вул. Дерибасівська, 1';
+      expect(buildLegacyAddressLine(address), address);
+    });
+
+    test('strips a bidi override (RLO, U+202E) without corrupting the '
+        'surrounding address text', () {
+      final String rlo = String.fromCharCode(0x202E);
+      final String raw = 'м. Одеса$rlo, вул. Дерибасівська, 1';
+
+      expect(buildLegacyAddressLine(raw), 'м. Одеса, вул. Дерибасівська, 1');
+    });
+
+    test('an address made ENTIRELY of zero-width characters (U+200B) '
+        'reduces to null, not a blank line — the sanitize-then-test '
+        'ordering [_visibleOrNull] documents', () {
+      final String zwsp = String.fromCharCode(0x200B);
+      expect(buildLegacyAddressLine('$zwsp$zwsp$zwsp'), isNull);
+    });
+
+    test('an embedded LF (\\n) is collapsed to a single space — the opt-in '
+        'this builder alone exercises', () {
+      expect(
+        buildLegacyAddressLine('м. Одеса,\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+
+    test('an embedded CRLF (\\r\\n) is collapsed to a single space — not '
+        'two (the \\r\\n alternative must win over the bare \\n arm)', () {
+      expect(
+        buildLegacyAddressLine('м. Одеса,\r\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+
+    test('an address of ONLY newlines (\\r\\n repeated) collapses to '
+        'nothing and returns null, NOT a blank line that still occupies a '
+        'row — this is the point of sanitizing BEFORE testing for '
+        'emptiness', () {
+      expect(buildLegacyAddressLine('\r\n\r\n\r\n'), isNull);
+    });
+
+    test('null input returns null', () {
+      expect(buildLegacyAddressLine(null), isNull);
+    });
+
+    test('whitespace-only input returns null', () {
+      expect(buildLegacyAddressLine('   '), isNull);
+    });
+
+    test('a bidi override AND an embedded newline in the SAME address are '
+        'both neutralised — the two defect classes this builder closes '
+        'are not mutually exclusive', () {
+      final String rlo = String.fromCharCode(0x202E);
+      expect(
+        buildLegacyAddressLine('м. Одеса$rlo,\nвул. Дерибасівська, 1'),
+        'м. Одеса, вул. Дерибасівська, 1',
+      );
+    });
+  });
 }

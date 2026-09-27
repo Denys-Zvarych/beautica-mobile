@@ -177,7 +177,11 @@ bool isThrottleFailure(Failure failure) =>
     failure is CategoryRequestThrottledFailure ||
     failure is BookingRateLimitedFailure ||
     failure is ScheduleOverrideRateLimitedFailure ||
-    failure is ServiceRateLimitedFailure;
+    failure is ServiceRateLimitedFailure ||
+    failure is AccountDeleteRateLimitedFailure ||
+    failure is SalonBoardRateLimitedFailure ||
+    failure is SettlementSearchRateLimitedFailure ||
+    failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
 ///
@@ -207,6 +211,35 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // service-catalogue write runs through a notifier mutation, never a provider
   // build, so `beauticaProviderRetry` is not on this failure's path at all.)
   ServiceRateLimitedFailure() => true,
+  // 429 from the salon board's shared 60/min read budget (backend PR #130).
+  // Same honest answer as the two arms above: a limiter clears on its own, so
+  // an identical later attempt genuinely can succeed. What must NOT happen is
+  // the CONTAINER picking when that attempt is — and unlike the two advisory
+  // classifications above, this one really is on `beauticaProviderRetry`'s
+  // path: every board route is read through a provider BUILD
+  // (`bookingsDayProvider`, `salonBookedDaysProvider`,
+  // `salonEffectiveScheduleProvider`, `masterArchiveProvider`). So
+  // [isThrottleFailure] is the only thing standing between a rate limit and
+  // an automatic re-issue into it, and it is checked FIRST. Flipping this arm
+  // to `false` would hide that dependence rather than remove it; the guard is
+  // asserted directly in `failure_retry_policy_test.dart` and end-to-end in
+  // `salon_board_429_contract_test.dart`.
+  SalonBoardRateLimitedFailure() => true,
+  // 429 from the settlement autocomplete's per-IP 240/min bucket (phase 346).
+  // Same honest answer — a limiter clears on its own — and, like the board,
+  // really on `beauticaProviderRetry`'s path (`settlementSearchProvider` is a
+  // provider BUILD), so [isThrottleFailure] is what stops the re-issue.
+  SettlementSearchRateLimitedFailure() => true,
+
+  // ---- deterministic: invite-accept post-success hand-off (2026-09-01) ---
+  // The 2xx already happened server-side; a retry would resend a mutation
+  // request that the server may have already applied (or, for the single-use
+  // invite-accept token specifically, cannot possibly succeed again). Neither
+  // reaches [beauticaProviderRetry] in practice — both are thrown from a
+  // notifier mutation (acceptInvite/verifyEmail), never a provider build —
+  // but the classification must still be a real answer, not a default.
+  ResponseUnusableFailure() => false,
+  InviteHandoffFailure() => false,
 
   // ---- deterministic: HTTP 4xx and typed 4xx envelopes -------------------
   // A pin miss. Fail-closed and NOT transient in the useful sense: the chain
@@ -226,6 +259,11 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   CategoryAlreadyExistsFailure() => false,
   SupportAttachmentTooLargeFailure() => false,
   ConflictFailure() => false,
+  // 422 — the client has more than 50 upcoming bookings. Deterministic: an
+  // identical retry meets the identical booking count, so a retry burns a
+  // spinner and 422s again. The only recovery is a deliberate user action
+  // (cancel some bookings first), never an automatic re-issue.
+  AccountDeleteBookingLimitFailure() => false,
   // 403 — the caller's authorization/scoping over the target master, or the
   // master's existence/active state. Neither can change by re-issuing the
   // identical request (Phase 246).
@@ -239,6 +277,14 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   MasterBookingDuplicateFailure() => false,
   DuplicateServiceFailure() => false,
   ServiceDuplicateFailure() => false,
+  // 409 on salon-target unassign (phase 316 D2/D4) — the backend refuses
+  // BEFORE any write when the master still has future CONFIRMED bookings for
+  // the service; an identical retry meets the identical booking set and 409s
+  // again. Recovery is a deliberate user action (cancel the blocking bookings
+  // first, or wait), never an automatic re-issue. Also effectively advisory
+  // in practice — deactivate() runs through a notifier mutation, never a
+  // provider build.
+  ServiceUnassignBlockedFailure() => false,
   ClientBookingConflictFailure() => false,
   BookingAlreadyElapsedFailure() => false,
   ProviderDeclineWindowClosedFailure() => false,
@@ -255,11 +301,34 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // [beauticaProviderRetry] is not actually on this failure's path.
   OverrideSpanPartialFailure() => false,
 
+  // ---- deterministic: locally-raised, no request to re-issue -------------
+  // Never crosses the wire: raised by a SCREEN that found a settled session
+  // missing a field it needs. `beauticaProviderRetry` re-runs a provider
+  // BUILD, and no provider build produces this failure — the only recovery is
+  // the screen's own `onRetry` calling [AuthNotifier.refreshUser]. Classifying
+  // it `false` keeps the container from ever inventing an automatic re-attempt
+  // of something that was not a request.
+  SessionIncompleteFailure() => false,
+
   // ---- deterministic: throttles (trap 2 in the file header) --------------
   ResendThrottledFailure() => false,
   CategoryRequestThrottledFailure() => false,
   BookingRateLimitedFailure() => false,
   ScheduleOverrideRateLimitedFailure() => false,
+  AccountDeleteRateLimitedFailure() => false,
+  // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
+  // THREE separate buckets, and they are NOT uniform — forgot-password 3 per
+  // 60 min and reset-password 10 per 60 min (Retry-After 3600),
+  // verify-password-reset-otp 10 per 15 min (Retry-After 900). See
+  // `PasswordResetRateLimitedFailure` for the table; do not collapse it to
+  // "3/hour", which is what the ORIGINAL mapper comment said and is why this
+  // branch did not exist for so long. The shortest of those windows is still
+  // 15 minutes, so an automatic re-issue cannot succeed within any backoff
+  // this file is willing to wait — and each attempt it burns is one the
+  // user's next deliberate try no longer has.
+  // [isThrottleFailure] already stops it above; this arm is the honest answer
+  // to the separate transience question.
+  PasswordResetRateLimitedFailure() => false,
 
   // ---- deterministic: server-side configuration --------------------------
   // Nominally a 503, but it means "the support channel is not configured on

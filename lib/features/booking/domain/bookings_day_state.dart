@@ -61,3 +61,58 @@ abstract class BookingsDayState with _$BookingsDayState {
   /// `true` when the day has no bookings at all — the empty-state gate.
   bool get isEmpty => items.isEmpty;
 }
+
+/// Wraps [items] so that [BookingsDayState.items] returns a **stable
+/// instance** on every access, rather than a freshly-allocated wrapper.
+///
+/// ## Why this exists — freezed's collection getter is not identity-stable
+///
+/// `BookingsDayState` is freezed, and freezed generates its list getter as
+/// (`bookings_day_state.freezed.dart`):
+///
+/// ```dart
+/// List<Booking> get items {
+///   if (_items is EqualUnmodifiableListView) return _items;
+///   return EqualUnmodifiableListView(_items);
+/// }
+/// ```
+///
+/// so whenever the STORED list is a plain `List` the getter allocates a
+/// BRAND NEW wrapper on **every single access**. Two reads of `state.items`
+/// then hand back two different objects over the same rows.
+///
+/// That was the shipped state of affairs, on every route: [PageResponse] is
+/// hand-written, not freezed (`core/network/page_response.dart` says so and
+/// why), so `page.items` is a plain `List<Booking>`, and every
+/// `BookingsDayState` the notifier built stored one. It is NOT specific to
+/// `BookingsDayNotifier._narrowSalonDay`'s `sublist` branch — that branch
+/// merely produces another plain list, the same as the unnarrowed one.
+///
+/// Three shipped optimisations key off that identity and were therefore
+/// **inert** — every one of them missed on every rebuild:
+///
+///   1. `_BookingsDiscoveryViewState._visibleBookingsFor`'s memo, which gates
+///      on `identical(_cachedVisibleSource, items)`.
+///   2. `BookingsTimelineGrid.didUpdateWidget`'s
+///      `identical(widget.bookings, oldWidget.bookings)` gate — the one that
+///      decides whether to re-run `assignLanes` (O(N log N)) plus the whole
+///      per-card layout.
+///   3. `bookingsInsideScheduleWindow`'s "return the input instance when
+///      nothing was excluded" contract, whose entire point is to preserve (2)
+///      — preserving the identity of a list that had no stable identity to
+///      begin with bought nothing.
+///
+/// and `_Loaded.build`'s debug `assert(identical(visible, items))` fired on
+/// wrapper identity instead of on the window it exists to police, red-screening
+/// the salon board in every asserts-enabled build (mobile-qa HIGH, 2026-09-17).
+///
+/// Passing the result of this function to the constructor makes freezed's
+/// `_items is EqualUnmodifiableListView` test hit, so the getter returns the
+/// SAME instance forever after and all three gates work as documented.
+///
+/// **No behavioural change.** `BookingsDayState.items` already handed out an
+/// unmodifiable view — this only stops it allocating a new one per read.
+List<Booking> stableBookingList(List<Booking> items) =>
+    items is EqualUnmodifiableListView<Booking>
+    ? items
+    : EqualUnmodifiableListView<Booking>(items);

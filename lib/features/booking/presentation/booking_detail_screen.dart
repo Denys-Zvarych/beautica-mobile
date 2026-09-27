@@ -88,10 +88,13 @@ import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
 import '../application/booking_viewer_role.dart';
+import '../application/bookings_capability.dart';
 import '../data/booking_providers.dart';
 import '../domain/booking.dart';
 import '../domain/booking_display_x.dart';
+import '../domain/booking_entry_args.dart';
 import '../domain/booking_status.dart';
+import '../domain/client_authored_review.dart';
 import 'widgets/booking_counterparty_header.dart';
 import 'widgets/booking_notes.dart';
 import 'widgets/booking_recap.dart';
@@ -100,13 +103,57 @@ import 'widgets/booking_status_medallion.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/cancel_booking_dialog.dart';
+import 'widgets/client_review_section.dart';
 import 'widgets/complete_booking_dialog.dart';
 import 'booking_cancel_navigation.dart';
 import 'reschedule_navigation.dart';
 
 /// «Деталі запису» for the booking identified by [bookingId].
 class BookingDetailScreen extends ConsumerStatefulWidget {
-  const BookingDetailScreen({super.key, required this.bookingId});
+  const BookingDetailScreen({
+    super.key,
+    required this.bookingId,
+    this.clientReviewRouteBuilder,
+    this.salonId,
+  });
+
+  /// 2026-09-19 (mobile-perf MEDIUM) — the SALON this detail screen was
+  /// drilled into FROM, when it was drilled into from a salon «Записи» board.
+  ///
+  /// The board reads its rail dots from `salonBookedDaysProvider(salonId)`
+  /// (`bookings_discovery_view.dart`'s `SalonDayQuery` arm), a thirty-minute
+  /// `keepAlive` family member that NOTHING on this screen used to drop — so
+  /// a decline / complete / reschedule performed here left the board's dot
+  /// lit (or unlit) for up to half an hour after the booking that justified
+  /// it was gone or moved. It is threaded as a ROUTE parameter rather than
+  /// read off the booking because `BookingDetailResponse` carries `masterId`
+  /// but NO `salonId` (see [_BookingDetailScreenState._onRebook]'s own note):
+  /// a salon booking's venue is not independently addressable from a booking
+  /// record, so the only honest source is the screen the viewer came from.
+  ///
+  /// ADDITIVE and NULLABLE — the same shape (and the same "a route parameter,
+  /// not a role" reasoning) as [clientReviewRouteBuilder] above. `null` — the
+  /// CLIENT `/bookings/:id` mount, the `/master/bookings/:id` mount, the
+  /// `/staff/bookings/:id` mount and every existing test — invalidates
+  /// exactly what it always did. It is NEVER a capability signal: the viewer
+  /// side is still resolved from the session (`bookingViewerRoleProvider`,
+  /// locked decision D5).
+  final String? salonId;
+
+  /// Phase 330 — builds the leave-client-feedback path for the COMPLETED
+  /// provider footer's «Залишити відгук про клієнта» CTA. `null` (the CLIENT
+  /// `/bookings/:id` mount, the `/master/bookings/:id` mount and every
+  /// existing test) means [RouteNames.clientReview]; the `/staff/bookings/:id`
+  /// mount passes [RouteNames.salonMasterClientReview] so a `SALON_MASTER`'s
+  /// CTA does not push a `/master/*` path their own gate bounces.
+  ///
+  /// ADDITIVE and NULLABLE — a ROUTE parameter, not a role or a capability.
+  /// Locked decision D5 (`booking_viewer_role.dart`) forbids a constructor
+  /// flag that asserts WHO is looking; this one only says where THIS mount's
+  /// push lands, which has always been the host's concern (`onBookingTap`,
+  /// `onOpenArchive`). The CTA's own gate is unchanged: the server-computed
+  /// `Booking.providerCanReviewClient`.
+  final String Function(String bookingId)? clientReviewRouteBuilder;
 
   final String bookingId;
 
@@ -217,6 +264,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ref,
       booking.id,
       affectedDate: kyivDayOf(booking.startAt),
+      // `null` on every non-salon mount — see `widget.salonId`'s doc.
+      salonId: widget.salonId,
     );
   }
 
@@ -278,6 +327,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       ref,
       booking.id,
       affectedDate: kyivDayOf(booking.startAt),
+      // `null` on every non-salon mount — see `widget.salonId`'s doc.
+      salonId: widget.salonId,
     );
   }
 
@@ -300,7 +351,14 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // rescheduleBookingId, and further swaps to the per-item endpoint when
     // the freshly-fetched booking's `appointmentId` is also non-null).
     unawaited(
-      startBookingReschedule(context: context, ref: ref, bookingId: booking.id),
+      startBookingReschedule(
+        context: context,
+        ref: ref,
+        bookingId: booking.id,
+        // Rides the whole picker → confirm chain so the SUBMIT can drop this
+        // board's dot set too; `null` on every non-salon mount.
+        salonId: widget.salonId,
+      ),
     );
   }
 
@@ -347,12 +405,60 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     );
   }
 
+  /// Phase 350 — «Записатись знову» opens booking Step 1
+  /// (`ServiceSelectorSheet`) for the SAME master with this booking's service
+  /// already checked, but still editable: the client can add more services
+  /// or uncheck it and pick another before advancing (`autoAdvance: false`;
+  /// see `booking_entry_args.dart`'s doc). Replaces the earlier "push the
+  /// master's public profile and make the client re-pick everything" target.
+  ///
+  /// SALON bookings take the SAME `bookingNew` path, not the salon booking
+  /// flow — deliberately (phase 350 doc D4, user-decided "allow direct
+  /// rebook"). The case asks for the SAME master, which a past booking
+  /// already names; the salon flow's own step 1 accepts no preselection and
+  /// its step 2 makes the client pick a master again, contradicting "same
+  /// master". `bookingNew` works end to end for a salon master too: its
+  /// catalogue loads through the same public `GET /masters/{id}/services`
+  /// (`publicMasterProfileProvider`, no INDEPENDENT_MASTER/SALON_MASTER
+  /// branch) and `POST /appointments` gates only on `MasterBookability
+  /// .isBookable`, not on `salonId` — which `CreateAppointmentRequest` never
+  /// even carries. (The old "no `salonId`" comment this replaces was stale:
+  /// `BookingDetailResponse` has carried `salonId` since, and `Booking
+  /// .salonId` is mapped — it just was never the reason this pushed the
+  /// profile instead.)
+  ///
+  /// A booking whose service was removed from this record (`serviceId`
+  /// empty — `Booking.serviceId` defaults to `''` when the DTO's
+  /// `masterServiceId` is absent) falls back to the bare-`String` extra
+  /// shape `ServiceSelectorSheet` already accepts for "pick inside the
+  /// screen" — the same shape `RouteNames.bookingNew`'s OTHER caller (the
+  /// public master profile's own «Записатись» CTA) has always used. The CTA
+  /// itself is disabled whenever `masterId` is empty (see the footer builder
+  /// below), so this fallback only ever fires with a valid master.
+  ///
+  /// mobile-security cycle-1 LOW: this fallback drops the "same service"
+  /// intent with no explanation (Step 1 just opens with nothing checked).
+  /// A `showWarningSnack` names why, mirroring `reschedule_navigation.dart`'s
+  /// `bookingRescheduleUnavailable` for the same "this flow can't do what you
+  /// expected, here's a plain reason" shape. Fired before the push (both are
+  /// synchronous; no `mounted` gap) so it is visible under the fresh screen.
   void _onRebook(Booking booking) {
-    // `BookingDetailResponse` carries `masterId` but no `salonId` — a salon
-    // booking's own venue is not independently addressable from a booking
-    // record. The master's own public profile is reachable either way and
-    // is the only rebook target the data supports.
-    context.push(RouteNames.masterPublicProfile(booking.masterId));
+    if (booking.serviceId.isEmpty) {
+      showWarningSnack(
+        context,
+        AppLocalizations.of(context).bookingRebookServiceUnavailable,
+      );
+      context.push(RouteNames.bookingNew, extra: booking.masterId);
+      return;
+    }
+    context.push(
+      RouteNames.bookingNew,
+      extra: BookingEntryArgs(
+        masterId: booking.masterId,
+        preselectedServiceId: booking.serviceId,
+        autoAdvance: false,
+      ),
+    );
   }
 
   /// «Залишити відгук про майстра» — pushes the Phase 14.6 leave-review screen
@@ -368,7 +474,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `booking.providerCanReviewClient` is `true` — see
   /// `_DetailBody._providerActions`'s doc.
   void _onLeaveClientFeedback(Booking booking) {
-    context.push(RouteNames.clientReview(booking.id));
+    context.push(
+      (widget.clientReviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
+    );
   }
 
   @override
@@ -385,6 +493,19 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // `booking_viewer_role.dart` for why a widget parameter would be unsafe.
     final BookingViewerRole viewer = ref.watch(bookingViewerRoleProvider);
 
+    // Phase 331 — WHICH provider actions the provider footer is allowed to
+    // offer. `bookingViewerRole.dart:71-76` already maps `SALON_MASTER` onto
+    // `BookingViewerRole.provider`, so the provider footer renders for that
+    // role the instant they can reach this screen — and an invited
+    // `SALON_MASTER` is READ-ONLY. This capability is the gate that keeps
+    // «Завершити» / «Скасувати» / «Перенести» off their footer while leaving
+    // the server-driven review CTA alone. `watch`, not `read`: the footer
+    // must re-render the moment the role settles. See
+    // `bookingTransitionsEnabledProvider`'s doc for the strict session read.
+    final bool transitionsEnabled = ref.watch(
+      bookingTransitionsEnabledProvider,
+    );
+
     return async.when(
       loading: () => const _DetailLoading(),
       error: (Object e, StackTrace _) => _DetailError(
@@ -394,6 +515,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       data: (Booking booking) => _DetailBody(
         booking: booking,
         viewer: viewer,
+        transitionsEnabled: transitionsEnabled,
         // Injected clock seam — the PROVIDER footer's start-time gate reads
         // this instead of the device clock so tests can pin it. `watch` (not
         // `read`): a future ticking override must be able to rebuild the
@@ -419,6 +541,7 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
     required this.viewer,
+    required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
     required this.onReschedule,
@@ -433,6 +556,23 @@ class _DetailBody extends StatelessWidget {
 
   final Booking booking;
   final BookingViewerRole viewer;
+
+  /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
+  /// (complete / decline / reschedule / not-complete). Sourced from
+  /// `bookingTransitionsEnabledProvider` by the owning [ConsumerState]; never
+  /// re-derived here.
+  ///
+  /// REQUIRED, not defaulted: [_DetailBody] is private with exactly one call
+  /// site, so a default would buy no caller compatibility and would instead
+  /// let a future call site silently inherit the PERMISSIVE value. The
+  /// additive-default rule is for widely-used PUBLIC widgets (see
+  /// `BookingsDiscoveryView.canCreateBooking`, which does default).
+  ///
+  /// Gates only the transitions. The review CTA below it is server-driven
+  /// (`booking.providerCanReviewClient`) and stays reachable for a read-only
+  /// viewer — leaving feedback about a client is not a booking mutation. See
+  /// [_providerActions].
+  final bool transitionsEnabled;
 
   /// The current instant, sourced from `clockProvider` by the owning
   /// [ConsumerState] — NEVER read off the device here. Feeds
@@ -461,14 +601,31 @@ class _DetailBody extends StatelessWidget {
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
 
-    // The big status TITLE still shows for COMPLETED and NOT_COMPLETED — the
-    // finished outcome deserves a header label. CONFIRMED drops it (a confirmed
-    // booking needs no ceremony — the subline suffices); CANCELLED and DECLINED
-    // drop it too (product decision 2026-07-15: no big «Скасовано» title — the
-    // neutral state reads through the subline alone).
+    // Phase 334 — the client's review of the master, PROVIDER branch only.
+    // Resolved here (rather than inline in `recapCards`) so the render site
+    // reads a promoted non-nullable local instead of a `!` assertion. Both
+    // gates collapse into this one null: a client viewer gets `null` whatever
+    // the server sent, and a provider gets `null` unless a review really
+    // exists. See the call site below for why each gate is drawn where it is.
+    final ClientAuthoredReview? reviewByClient = viewer.isProvider
+        ? booking.reviewByClient
+        : null;
+
+    // The big status TITLE shows for COMPLETED, NOT_COMPLETED, CANCELLED and
+    // DECLINED — the finished/closed outcome deserves a header label.
+    // CONFIRMED alone drops it (a confirmed booking needs no ceremony — the
+    // subline suffices).
+    //
+    // The 2026-07-15 product decision to suppress the title for
+    // CANCELLED/DECLINED ("neutral state reads through the subline alone")
+    // was REVERSED by explicit user decision on 2026-09-07 — the big
+    // «Скасовано» title is back for both. Do not restore the old
+    // subline-only behaviour.
     final bool showStatusTitle =
         booking.status == BookingStatus.completed ||
-        booking.status == BookingStatus.notCompleted;
+        booking.status == BookingStatus.notCompleted ||
+        booking.status == BookingStatus.cancelled ||
+        booking.status == BookingStatus.declined;
 
     // The top status MEDALLION (hero icon) is now dropped for COMPLETED too
     // (product decision 2026-07-16) — a finished booking needs no ceremonial
@@ -564,6 +721,43 @@ class _DetailBody extends StatelessWidget {
         // section; this is a framing fix, NOT a visibility one.
         if (BookingNotes.has(booking, l10n, viewer: viewer))
           BookingNotes(booking: booking, viewer: viewer),
+
+        // ── Phase 334 — «Відгук клієнта»: the review the CLIENT left about
+        //    the master, read-only.
+        //
+        // PROVIDER-ONLY, and not for a privacy reason — the text is already
+        // world-readable through the permitAll `GET /masters/{id}/reviews`
+        // listing (backend phase 317 decision D2). It is a RELEVANCE gate:
+        // a client reading their own booking wrote this review themselves
+        // and has «Мої відгуки» for it, so echoing it back here would be
+        // noise on the one screen that exists to tell them about the VISIT.
+        //
+        // LAST in the recap, after the notes, on purpose: the notes were
+        // written DURING the booking's life (the brief at creation, the
+        // reason at closure) and the review comes AFTER closure, so the
+        // column reads chronologically top to bottom. It is also reference
+        // material rather than an action — nothing here is tappable, and
+        // nothing above it should be pushed down for it.
+        //
+        // The null check is the WHOLE gate — `reviewByClient` is non-null
+        // only when the server actually sent a review, which it does only
+        // on `GET /bookings/{id}` (this screen's own fetch). Deliberately
+        // NOT cross-checked against `status`: a review that exists exists.
+        // And deliberately no empty state — a booking with no review shows
+        // nothing at all, because on every LISTING surface a null means
+        // "this surface does not answer that question", so an «Відгуку
+        // немає» placeholder built on that null would be a claim the app
+        // cannot support. See `Booking.reviewByClient`'s doc.
+        if (reviewByClient != null)
+          ClientReviewSection(
+            review: reviewByClient,
+            bookingId: booking.id,
+            // The SAME name+«Гість» resolution the counterparty header at the
+            // top of this screen uses, so the review is attributed to exactly
+            // the person named above it.
+            clientDisplayName:
+                booking.clientName ?? l10n.bookingDetailGuestClient,
+          ),
       ],
     );
   }
@@ -595,6 +789,14 @@ class _DetailBody extends StatelessWidget {
       case BookingStatus.notCompleted:
         return l10n.bookingDetailSublineNotCompleted(b.providerGenitive);
       case BookingStatus.cancelled:
+        // CANCELLED is client-initiated by domain rule (see CLAUDE.md's
+        // Booking flow) — no ambiguity about who acted, but the wording still
+        // must be viewer-relative: the CLIENT reads "you cancelled"; the
+        // PROVIDER must read "the client cancelled", and gets no rebooking
+        // affordance ("Записатись знову" is a client-only capability).
+        if (viewer.isProvider) {
+          return l10n.bookingDetailSublineCancelledProvider;
+        }
         return l10n.bookingDetailSublineCancelled;
       case BookingStatus.declined:
         return l10n.bookingDetailSublineDeclined;
@@ -744,6 +946,20 @@ class _DetailBody extends StatelessWidget {
   ///     клієнта» (track 7.x Wave B). PRIVATE feedback about the booking's
   ///     client; the client only ever sees their aggregate rating number
   ///     move, never this screen's words.
+  ///
+  ///     AUDIENCE (Phase 320): the PERFORMING MASTER of this booking, and
+  ///     nobody else. The flag is server-computed by
+  ///     `BookingService#computeProviderCanReviewClient` (backend `a0df4cf`),
+  ///     whose provider-authority leg is the single term
+  ///     `isPerformingMasterOfBooking(...)` — the former
+  ///     `|| hasProviderAuthorityOverBooking(...)` disjunct, which admitted a
+  ///     salon's owner and its assigned admin regardless of who performed the
+  ///     service, is gone. A `SALON_OWNER`/`SALON_ADMIN` who did not perform
+  ///     the booking may still COMPLETE it but gets `false` here, so this arm
+  ///     returns an empty footer for them with no Dart-side role check. An
+  ///     owner who DID perform it (owner-as-master) is a performing master
+  ///     and keeps the CTA — that is the case
+  ///     [BookingDetailScreen.clientReviewRouteBuilder] exists to aim.
   ///   * COMPLETED, but `!booking.providerCanReviewClient` (client already
   ///     reviewed, or not eligible) — no CTA, footer is empty.
   ///   * Every other terminal status (CANCELLED / DECLINED / NOT_COMPLETED /
@@ -785,6 +1001,21 @@ class _DetailBody extends StatelessWidget {
           onPressed: onLeaveClientFeedback,
         ),
       ];
+    }
+    // Phase 331 — the READ-ONLY gate, placed BELOW the COMPLETED arm above
+    // on purpose: everything from here down is a status TRANSITION
+    // («Завершити», «Скасувати», «Перенести»), while the arm above is the
+    // server-gated «Залишити відгук про клієнта» CTA, which a read-only
+    // viewer keeps. An invited `SALON_MASTER` reaches this method because
+    // `booking_viewer_role.dart:71-76` maps their role onto
+    // `BookingViewerRole.provider` — that mapping is correct (they DO see the
+    // client as counterparty), so the footer's CONTENTS are the right place
+    // to draw the read-only line, not the viewer-role resolution.
+    //
+    // An empty list renders NO footer at all (`_actions`' own doc), which is
+    // the intended read-only outcome: absent, never disabled.
+    if (!transitionsEnabled) {
+      return const <Widget>[];
     }
     if (booking.status != BookingStatus.confirmed) {
       return const <Widget>[];
@@ -854,10 +1085,10 @@ class _DetailBody extends StatelessWidget {
       icon: Icons.refresh_rounded,
       // Same guard as the counterparty strip's: `booking_mapper.dart:119`
       // maps `masterId: dto.masterId ?? ''`, and `_onRebook` pushes
-      // `/masters/<id>`. An empty id makes `/masters/` — which cannot match
-      // `/masters/:masterId` (go_router compiles the param to `[^/]+`) — and
-      // `app_router.dart` declares no `errorBuilder`, so the tap would dump
-      // the client on go_router's default "page not found". Disabled is the
+      // `RouteNames.bookingNew` seeded with THIS masterId (Phase 350). Both
+      // its `extra` shapes — the bare-`String` fallback and
+      // [BookingEntryArgs] — carry `masterId` as a required, non-nullable
+      // field, so an empty id has nowhere valid to go. Disabled is the
       // honest affordance: we don't know which master to rebook with.
       onPressed: booking.masterId.isEmpty ? null : onRebook,
     ),

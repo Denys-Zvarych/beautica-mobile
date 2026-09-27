@@ -163,6 +163,34 @@ void main() {
   });
 
   group('booking success — «Додати в календар» (single visit)', () {
+    // QA LOW (2026-09-24) — the master's venue line (on screen AND the
+    // calendar event's location) uses the SAME short settlement label as every
+    // address line: prefix, no oblast.
+    testWidgets('a typed master city is prefixed on the recap and in the '
+        'calendar location, with no oblast', (tester) async {
+      await _pumpSuccess(
+        tester,
+        args: BookingSuccessArgs(
+          master: _kMaster.copyWith(
+            region: 'Львівська',
+            citySettlementType: 'CITY',
+          ),
+          services: const <MasterService>[_kFirstService, _kSecondService],
+          startAt: _kStart,
+        ),
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      final String expected = formatStreetCityLine(
+        street: _kMaster.street,
+        buildingNo: _kMaster.buildingNo,
+        city: '${l10n.settlementCityPrefix} ${_kMaster.city}',
+      )!;
+
+      expect(find.text(expected), findsOneWidget);
+      await _tap(tester, _kCalendarKey);
+      expect(_argsOf(calls)['location'], expected);
+    });
+
     testWidgets('renders ONE visit-level calendar button', (tester) async {
       await _pumpSuccess(tester);
 

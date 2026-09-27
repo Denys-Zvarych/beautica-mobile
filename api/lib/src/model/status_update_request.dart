@@ -153,6 +153,9 @@ class StatusUpdateRequestCancellationReasonEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'OTHER')
   static const StatusUpdateRequestCancellationReasonEnum OTHER =
       _$statusUpdateRequestCancellationReasonEnum_OTHER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const StatusUpdateRequestCancellationReasonEnum unknownDefaultOpenApi =
+      _$statusUpdateRequestCancellationReasonEnum_unknownDefaultOpenApi;
 
   static Serializer<StatusUpdateRequestCancellationReasonEnum> get serializer =>
       _$statusUpdateRequestCancellationReasonEnumSerializer;

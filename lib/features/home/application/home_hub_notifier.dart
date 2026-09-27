@@ -75,13 +75,25 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
   final DateTime Function() clock = ref.watch(clockProvider);
 
   final user = await ref.watch(clientEditProfileProvider.future);
+  final ({String city, String? district}) locality = await _resolveLocality(
+    ref,
+    user,
+  );
   return ClientProfileSummary(
     firstName: user.firstName ?? '',
     lastName: user.lastName ?? '',
     // phone comes from the same fresh /users/me profile; nullable because CLIENT
     // location is optional — fall back to the empty string so the profile card
     // renders its placeholder.
-    city: await _resolveLocalityLabel(ref, user),
+    city: locality.district == null
+        ? locality.city
+        : '${locality.city}, ${locality.district}',
+    // Phase-330 — the widget composes «м. Львів, Львівська обл.» from this
+    // (it has the localisations); [city] above stays the bare fallback.
+    // A name resolved from the taxonomy (empty `cityName`) composes to null,
+    // so the card falls back to [city].
+    settlement: user.savedSettlement,
+    districtName: locality.district,
     phone: user.phoneNumber ?? '',
     // TODO(backend): GET /clients/me/rating (two-sided client rating, excludes comments)
     clientRating: null,
@@ -101,12 +113,12 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
   );
 }
 
-/// Resolves the human-readable locality label for the profile card.
+/// Resolves the human-readable locality parts for the profile card.
 ///
-/// Produces `"<city>, <district>"` when the client has a district set (e.g.
-/// "Львів, Сихівський район"), or just `"<city>"` when no district is set.
-/// Returns the empty string when no city is resolvable (placeholder is then
-/// correct).
+/// `city` is the bare city name (`''` when none is resolvable — the
+/// placeholder is then correct); `district` is the district name, or `null`
+/// when the client has none or it cannot be resolved. [clientProfile] joins
+/// them into `«city, district»` (e.g. "Львів, Сихівський район").
 ///
 /// City and district both derive solely from fields already on [User]
 /// ([User.cityId]/[User.oblastId] for the city, [User.cityId]/[User.districtId]
@@ -118,7 +130,10 @@ Future<ClientProfileSummary> clientProfile(Ref ref) async {
 ///
 /// A missing/failed district lookup degrades gracefully to the bare city — it
 /// never throws and never blocks the card.
-Future<String> _resolveLocalityLabel(Ref ref, User user) async {
+Future<({String city, String? district})> _resolveLocality(
+  Ref ref,
+  User user,
+) async {
   final cityFuture = _resolveCityName(ref, user);
   final districtFuture = user.districtId == null
       ? null
@@ -126,14 +141,14 @@ Future<String> _resolveLocalityLabel(Ref ref, User user) async {
 
   final city = await cityFuture;
   if (city.isEmpty || districtFuture == null) {
-    return city;
+    return (city: city, district: null);
   }
 
   final district = await districtFuture;
   if (district == null || district.isEmpty) {
-    return city;
+    return (city: city, district: null);
   }
-  return '$city, $district';
+  return (city: city, district: district);
 }
 
 /// Resolves the human-readable city name for the profile card.

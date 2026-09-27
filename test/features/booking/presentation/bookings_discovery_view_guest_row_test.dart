@@ -51,6 +51,7 @@ import 'package:beautica_mobile/features/booking/presentation/bookings_discovery
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -145,7 +146,10 @@ class _DataSchedule extends EffectiveScheduleNotifier {
   _DataSchedule(this._days);
   final List<EffectiveDay> _days;
   @override
-  Future<List<EffectiveDay>> build(ScheduleRange range) async => _days;
+  Future<List<EffectiveDay>> build(
+    ScheduleScope scope,
+    ScheduleRange range,
+  ) async => _days;
 }
 
 /// 09:00–18:00 on [_day] — the guest row below starts at 11:00, comfortably

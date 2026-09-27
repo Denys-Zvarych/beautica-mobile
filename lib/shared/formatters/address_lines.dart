@@ -68,9 +68,12 @@ import '../util/sanitize_display_text.dart';
 /// Trimming also normalises `'  Київ  '` to `'Київ'`, which matters because
 /// these strings are comma-joined: untrimmed padding would surface as
 /// `"Київ , вул. X"`.
-String? _visibleOrNull(String? value) {
+String? _visibleOrNull(String? value, {bool collapseNewlines = false}) {
   if (value == null) return null;
-  final String sanitized = sanitizeDisplayText(value).trim();
+  final String sanitized = sanitizeDisplayText(
+    value,
+    collapseNewlines: collapseNewlines,
+  ).trim();
   return sanitized.isEmpty ? null : sanitized;
 }
 
@@ -143,3 +146,75 @@ String? buildCombinedAddressLine(
   if (parts.isEmpty) return null;
   return parts.join(', ');
 }
+
+/// Phase 21.14 — the FULL address, hierarchy-ordered: city -> district ->
+/// street + building. An intentional extension of [buildCombinedAddressLine]
+/// (which only ever had city/street/buildingNo to work with) for callers
+/// that have resolved city/district DISPLAY NAMES available — see
+/// `features/location/state/resolved_locality_provider.dart`, which resolves
+/// those names from the `cityId`/`districtId` UUIDs a [Salon]/[Master]
+/// actually carries. The oblast (region) is deliberately NOT included in
+/// this line — product decision 2026-08-29: a salon's oblast never renders
+/// to the client, even though `resolvedLocalityProvider` still resolves it
+/// (the cascade needs `oblastId` to fetch the city list, and the address
+/// edit screen pre-populates its picker from it).
+///
+/// Every parameter is a plain display-name string, deliberately NOT the
+/// legacy free-text `city`/`region` fields on those domain entities — both
+/// are frozen (no longer written by the backend since Phase 10.6, see
+/// `Salon.city`/`Salon.region`'s own doc) and must never be mixed in here;
+/// pass the resolved [City.name]/[CityDistrict.name] instead.
+///
+/// Same composition contract as [buildCombinedAddressLine] and
+/// [buildStreetLine] — each shares [_visibleOrNull], so all four builders
+/// agree on what counts as "no visible content" (null, blank, whitespace-
+/// only, or reducible to nothing by `sanitizeDisplayText`) and a segment
+/// with none is omitted with no dangling separator:
+///   - [buildingNo] rides on [street] or not at all (same rule as the other
+///     two builders — a building number with no street to attach to is
+///     dropped entirely);
+///   - every other segment is independently optional;
+///   - nothing visible anywhere returns `null`, so the caller can fall back
+///     to a legacy pre-taxonomy `address` string or hide the line entirely.
+///
+/// The `", "` separator is punctuation, not copy — no ARB entry, nothing
+/// here is translated.
+String? buildFullAddressLine({
+  String? cityName,
+  String? districtName,
+  String? street,
+  String? buildingNo,
+}) {
+  final String? locality = _visibleOrNull(cityName);
+  final String? district = _visibleOrNull(districtName);
+  final String? road = _visibleOrNull(street);
+  // A building number rides on the street or not at all.
+  final String? building = road == null ? null : _visibleOrNull(buildingNo);
+
+  final List<String> parts = <String>[?locality, ?district, ?road, ?building];
+  if (parts.isEmpty) return null;
+  return parts.join(', ');
+}
+
+/// The frozen, pre-composed legacy address — the single line a
+/// pre-taxonomy [Salon]/[Master] falls back to when it has neither a
+/// resolved city/district nor a `street` (see `Salon.address`'s own doc:
+/// "Legacy free-text address — same backward-compat caveat as `city`").
+///
+/// Phase 21.6(b) audit fix (mobile-security MEDIUM) — every other segment on
+/// an address card is routed through [_visibleOrNull] (via
+/// [buildFullAddressLine] / [buildStreetLine]); this legacy field used to be
+/// assigned RAW at its one call site (`SalonHubCard`), reaching both the
+/// visible `Text` and the `Semantics.label` fallback unsanitized. Delegating
+/// here closes that gap the same way the other three builders already are
+/// closed, and inherits the sanitize-then-test ordering [_visibleOrNull]
+/// documents above (an address made entirely of stripped characters becomes
+/// `null`, not a blank line).
+///
+/// Opts into [_visibleOrNull]'s `collapseNewlines` — unlike the other three
+/// builders, this field is rendered as a SINGLE line (never through
+/// `ExpandableNote`, which is where a genuinely multi-line field like
+/// `locationNote` belongs), so an embedded `\n`/`\r` is folded to a space
+/// rather than surviving into a one-line `Text`/`Semantics.label`.
+String? buildLegacyAddressLine(String? address) =>
+    _visibleOrNull(address, collapseNewlines: true);

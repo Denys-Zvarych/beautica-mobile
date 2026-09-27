@@ -160,12 +160,12 @@ if [ "${1:-}" = "--self-test" ]; then
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q ':1:'; then
+  if ! grep -q -- ':1:' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the raw unannotated pump (line 1) to be flagged"
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q ':16:'; then
+  if ! grep -q -- ':16:' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the pump separated from its annotation by real code (line 16) to be flagged"
     printf '%s\n' "$out"
     exit 1

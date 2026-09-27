@@ -17,6 +17,7 @@
 //      configuration consulted on every deserialize.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:beautica_mobile/core/network/unknown_enum_tolerance_plugin.dart';
 import 'package:built_value/serializer.dart';
 import 'package:built_value/standard_json_plugin.dart';
@@ -149,11 +150,17 @@ void main() {
       );
       expect(
         kBeauticaToleratedEnums[BookingDetailResponse]?['status'],
-        BookingDetailResponseStatusEnum.values.map((v) => v.name).toSet(),
+        BookingDetailResponseStatusEnum.values
+            .where((v) => v.name != kOpenApiUnknownEnumName)
+            .map((v) => v.name)
+            .toSet(),
       );
       expect(
         kBeauticaToleratedEnums[AppointmentItemResponse]?['status'],
-        AppointmentItemResponseStatusEnum.values.map((v) => v.name).toSet(),
+        AppointmentItemResponseStatusEnum.values
+            .where((v) => v.name != kOpenApiUnknownEnumName)
+            .map((v) => v.name)
+            .toSet(),
       );
     });
   });

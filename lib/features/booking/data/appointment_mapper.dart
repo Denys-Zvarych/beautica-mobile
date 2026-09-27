@@ -33,6 +33,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/appointment.dart';
@@ -105,7 +106,7 @@ abstract final class AppointmentMapper {
       masterLastName: dto.masterLastName ?? '',
       masterProfessionalTitle: dto.masterProfessionalTitle,
       masterAvatarUrl: dto.masterAvatarUrl,
-      masterType: dto.masterType?.name ?? '',
+      masterType: knownEnumName(dto.masterType) ?? '',
       salonName: dto.salonName,
       startAt: startsAt,
       endAt: endsAt,

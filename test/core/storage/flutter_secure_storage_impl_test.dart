@@ -148,6 +148,56 @@ void main() {
     });
   });
 
+  group('FlutterSecureStorageImpl lastSalon (Phase 286)', () {
+    test('readLastSalon reads StorageKeys.lastSalon', () async {
+      store[StorageKeys.lastSalon] = '{"userId":"u1","salonId":"s1"}';
+      final storage = FlutterSecureStorageImpl();
+
+      final value = await storage.readLastSalon();
+
+      expect(value, '{"userId":"u1","salonId":"s1"}');
+      expect(argsOf('read')['key'], StorageKeys.lastSalon);
+    });
+
+    test('writeLastSalon writes value under StorageKeys.lastSalon', () async {
+      final storage = FlutterSecureStorageImpl();
+
+      await storage.writeLastSalon('{"userId":"u1","salonId":"s2"}');
+
+      final args = argsOf('write');
+      expect(args['key'], StorageKeys.lastSalon);
+      expect(args['value'], '{"userId":"u1","salonId":"s2"}');
+      expect(store[StorageKeys.lastSalon], '{"userId":"u1","salonId":"s2"}');
+    });
+
+    test('deleteLastSalon deletes StorageKeys.lastSalon', () async {
+      store[StorageKeys.lastSalon] = '{"userId":"u1","salonId":"s1"}';
+      final storage = FlutterSecureStorageImpl();
+
+      await storage.deleteLastSalon();
+
+      expect(argsOf('delete')['key'], StorageKeys.lastSalon);
+      expect(store.containsKey(StorageKeys.lastSalon), isFalse);
+    });
+
+    test('deleteAll wipes lastSalon alongside the other keys', () async {
+      store[StorageKeys.refreshToken] = 'rt';
+      store[StorageKeys.lastSalon] = '{"userId":"u1","salonId":"s1"}';
+      final storage = FlutterSecureStorageImpl();
+
+      await storage.deleteAll();
+
+      expect(calls.where((c) => c.method == 'deleteAll'), hasLength(1));
+      expect(store, isEmpty);
+    });
+
+    test('read returns null for lastSalon when key is absent', () async {
+      final storage = FlutterSecureStorageImpl();
+
+      expect(await storage.readLastSalon(), isNull);
+    });
+  });
+
   group('FlutterSecureStorageImpl iOS accessibility option', () {
     // The iOS accessibility option only surfaces in the channel `options` map
     // when the active target platform is iOS, so force it for this group.

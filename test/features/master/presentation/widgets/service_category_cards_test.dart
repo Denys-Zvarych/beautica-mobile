@@ -405,6 +405,139 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
+  // onCategoryTap override (Phase 357) — mobile-qa audit-fix cycle 2. The
+  // widget-level pin for the mechanism `salon_staff_profile_screen.dart`'s
+  // «Послуги» tab relies on: a non-null [ServiceCategoryCardList.onCategoryTap]
+  // / [ServiceCategoryCard.onCategoryTap] must intercept the tap BEFORE the
+  // card's own default `context.push(RouteNames.services...)` runs — see
+  // `_ServiceCategoryCardState.build()`'s `onTapUp` (`onCategoryTap != null`
+  // returns early). The `onCategoryTap == null` fallback path is already
+  // pinned by the "interactive: true (owner) — navigates" group above; these
+  // two only add the NEW branch.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('onCategoryTap override (Phase 357) — non-null replaces the default '
+      'push', () {
+    testWidgets(
+      'tapping a categorised card invokes onCategoryTap with its own slug, '
+      'and never pushes /services',
+      (tester) async {
+        final List<String> pushedLocations = <String>[];
+        final List<String?> capturedSlugs = <String?>[];
+        final GoRouter router = GoRouter(
+          initialLocation: '/host',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/host',
+              builder: (context, _) => Scaffold(
+                body: ServiceCategoryCardList(
+                  services: _twoCategoryServices,
+                  keyPrefix: 'test-category',
+                  interactive: true,
+                  onCategoryTap: (BuildContext _, String? slug) {
+                    capturedSlugs.add(slug);
+                  },
+                ),
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.services,
+              builder: (context, state) {
+                pushedLocations.add(state.uri.toString());
+                return const Scaffold(body: Text('services-page'));
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _overrides());
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(const Key('test-category-MANICURE'));
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(
+          capturedSlugs,
+          <String?>['MANICURE'],
+          reason: 'onCategoryTap must receive the tapped card\'s own slug',
+        );
+        expect(
+          find.text('services-page'),
+          findsNothing,
+          reason:
+              'a non-null onCategoryTap must intercept the tap — the '
+              "card's own default RouteNames.services push must never fire",
+        );
+        expect(
+          pushedLocations,
+          isEmpty,
+          reason:
+              'the default push is the AUTHENTICATED viewer\'s own '
+              'RouteNames.services — firing it alongside (or instead of) '
+              'onCategoryTap would silently deep-link into the wrong '
+              "person's catalogue (this is exactly the bug "
+              '`salon_staff_profile_screen.dart`\'s onCategoryTap override '
+              'exists to prevent)',
+        );
+      },
+    );
+
+    testWidgets(
+      'tapping the uncategorized (_none) card invokes onCategoryTap with a '
+      'null slug, and never pushes /services',
+      (tester) async {
+        final List<String> pushedLocations = <String>[];
+        final List<String?> capturedSlugs = <String?>[];
+        final GoRouter router = GoRouter(
+          initialLocation: '/host',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/host',
+              builder: (context, _) => Scaffold(
+                body: ServiceCategoryCardList(
+                  services: _uncategorizedServices,
+                  keyPrefix: 'test-category',
+                  interactive: true,
+                  onCategoryTap: (BuildContext _, String? slug) {
+                    capturedSlugs.add(slug);
+                  },
+                ),
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.services,
+              builder: (context, state) {
+                pushedLocations.add(state.uri.toString());
+                return const Scaffold(body: Text('services-page'));
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(router, overrides: _overrides());
+        await tester.pumpAndSettle();
+
+        final Finder card = find.byKey(const Key('test-category-_none'));
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(
+          capturedSlugs,
+          <String?>[null],
+          reason:
+              'the uncategorized bucket\'s slug is null — onCategoryTap must '
+              'still fire, receiving null rather than being skipped',
+        );
+        expect(pushedLocations, isEmpty);
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
   // interactive: false (CLIENT public profile) — SECURITY REGRESSION GUARD.
   //
   // mobile-security LOW (closed): `interactive` used to default to `true`

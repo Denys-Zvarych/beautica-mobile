@@ -57,6 +57,21 @@
 // below are actually exercising `overridesChanged`/`revisionOverlapsRange`,
 // not incidental disposal.
 //
+// Phase 312 ADDENDUM — `effectiveScheduleProvider`/`overridesProvider` gained
+// a `ScheduleScope` FAMILY PARAMETER, resolved via `ownScheduleScopeProvider`
+// (which still reactively watches `masterProfileProvider`/`authProvider`,
+// unchanged) rather than being read reactively FROM INSIDE the notifier. That
+// means master A's and master B's reads below now key DIFFERENT family
+// instances (different `scope.masterId`) rather than the SAME instance
+// re-resolving a swapped `scheduleRepositoryProvider` — session isolation is
+// now ALSO structurally guaranteed by the family key, on top of the
+// hand-rolled cache-field behaviour this test originally probed alone. The
+// test is kept (mechanically adapted, `scope` re-read via
+// `ownScheduleScopeProvider` after each auth transition) as an end-to-end
+// regression pin over the REAL auth→masterProfile→scope chain plus per-master
+// data correctness — not because the original single-instance leak is still
+// reachable the same way.
+//
 // Mutation-verified (see the QA report for the transcript): dropping the
 // `!overridesChanged` requirement from `EffectiveScheduleNotifier.build`'s
 // short-circuit condition (line ~190) turns this RED — master B observes
@@ -81,6 +96,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
@@ -143,6 +159,13 @@ const Master _masterBProfile = Master(
   reviewCount: 0,
   type: MasterType.independentMaster,
 );
+
+/// Phase 312 — what `ownScheduleScopeProvider` resolves to for each master,
+/// once `masterProfileProvider` settles. The test re-reads the CURRENT
+/// scope after each auth transition rather than caching one value, exactly
+/// like `ownScheduleScopeProvider` itself does.
+const ScheduleScope _scopeA = ScheduleScope.own(masterId: 'master-a-id');
+const ScheduleScope _scopeB = ScheduleScope.own(masterId: 'master-b-id');
 
 Response<ApiResponseListEffectiveDayResponse> _effectiveScheduleEnvelope({
   required String masterId,
@@ -300,14 +323,14 @@ void main() {
     // hand-rolled `_lastDays`/`_lastOverridesSeen` fields — not incidental
     // disposal — the thing under test.
     final ProviderSubscription<AsyncValue<List<EffectiveDay>>> liveSub =
-        container.listen(effectiveScheduleProvider(range), (_, _) {});
+        container.listen(effectiveScheduleProvider(_scopeA, range), (_, _) {});
     addTearDown(liveSub.close);
 
     // ── 1. Master A resolves the range — one real fetch, keepAlive-pinned.
     await container.read(authProvider.future);
     await container.read(masterProfileProvider.future);
     final List<EffectiveDay> firstPage = await container.read(
-      effectiveScheduleProvider(range).future,
+      effectiveScheduleProvider(_scopeA, range).future,
     );
 
     expect(firstPage.single.source, EffectiveSource.template);
@@ -318,9 +341,11 @@ void main() {
     // short-circuit reachable (see header comment) and proves it behaves
     // correctly in the ordinary same-session case: still master A, still
     // exactly ONE fetch.
-    container.read(overridesRevisionProvider.notifier).bump(otherRange);
+    container
+        .read(overridesRevisionProvider(_scopeA).notifier)
+        .bump(otherRange);
     final List<EffectiveDay> cachedPage = await container.read(
-      effectiveScheduleProvider(range).future,
+      effectiveScheduleProvider(_scopeA, range).future,
     );
 
     expect(
@@ -348,10 +373,10 @@ void main() {
     // ── 4. Master B's read of the SAME range must be master B's OWN
     // data, fetched fresh — never master A's cached page.
     final List<ScheduleOverride> overridesForB = await container.read(
-      overridesProvider(range).future,
+      overridesProvider(_scopeB, range).future,
     );
     final List<EffectiveDay> pageForB = await container.read(
-      effectiveScheduleProvider(range).future,
+      effectiveScheduleProvider(_scopeB, range).future,
     );
 
     expect(

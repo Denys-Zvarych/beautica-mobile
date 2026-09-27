@@ -162,6 +162,9 @@ class InviteRequestRoleEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INDEPENDENT_MASTER')
   static const InviteRequestRoleEnum INDEPENDENT_MASTER =
       _$inviteRequestRoleEnum_INDEPENDENT_MASTER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const InviteRequestRoleEnum unknownDefaultOpenApi =
+      _$inviteRequestRoleEnum_unknownDefaultOpenApi;
 
   static Serializer<InviteRequestRoleEnum> get serializer =>
       _$inviteRequestRoleEnumSerializer;

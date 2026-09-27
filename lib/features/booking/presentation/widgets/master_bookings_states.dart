@@ -44,14 +44,42 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Shown when the master has no bookings whatsoever — no filter is active and
 /// there is nothing to reset.
+///
+/// Phase 21.12 — also the salon board's "this salon has no masters" state, via
+/// the four optional overrides below. They are ADDITIVE and every one defaults
+/// to exactly what this widget rendered before they existed, so
+/// `const MasterBookingsEmptyState()` — the spelling at both master call sites
+/// — is unchanged down to the `Key`. Promoting one composition beats a second
+/// icon-over-two-lines widget that would drift from this one the first time
+/// the illustration moves.
 class MasterBookingsEmptyState extends StatelessWidget {
-  const MasterBookingsEmptyState({super.key});
+  const MasterBookingsEmptyState({
+    super.key,
+    this.icon,
+    this.title,
+    this.body,
+    this.centerKey,
+  });
+
+  /// `null` keeps the master list's own calendar glyph.
+  final IconData? icon;
+
+  /// `null` keeps `l10n.masterBookingsEmptyTitle`.
+  final String? title;
+
+  /// `null` keeps `l10n.masterBookingsEmptyBody`.
+  final String? body;
+
+  /// The `Key` on the outer [Center] — the handle this state's own tests find
+  /// it by. `null` keeps `master-bookings-empty`, so every existing finder is
+  /// untouched; a variant passes its own so a test can tell the two apart.
+  final Key? centerKey;
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     return Center(
-      key: const Key('master-bookings-empty'),
+      key: centerKey ?? const Key('master-bookings-empty'),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 320),
         child: Padding(
@@ -59,20 +87,20 @@ class MasterBookingsEmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const Icon(
-                Icons.event_note_outlined,
+              Icon(
+                icon ?? Icons.event_note_outlined,
                 size: 48,
                 color: BrandColors.accent,
               ),
               const SizedBox(height: VelvetSpacing.md),
               Text(
-                l10n.masterBookingsEmptyTitle,
+                title ?? l10n.masterBookingsEmptyTitle,
                 textAlign: TextAlign.center,
                 style: VelvetText.subheading(),
               ),
               const SizedBox(height: VelvetSpacing.xs),
               Text(
-                l10n.masterBookingsEmptyBody,
+                body ?? l10n.masterBookingsEmptyBody,
                 textAlign: TextAlign.center,
                 style: VelvetText.body(),
               ),
@@ -153,7 +181,8 @@ class MasterBookingsNoResultsState extends StatelessWidget {
 /// "no schedule published" reading. Both share the same helper body and the
 /// same «Додати робочі години» CTA, which routes to the schedule screen with
 /// this date pre-selected — see `bookings_discovery_view.dart`'s
-/// `onAddWorkingHours`.
+/// `onAddWorkingHours`. That CTA is omitted entirely when [onAddHours] is
+/// `null` (phase 330's read-only mount); the two copy variants are unchanged.
 class MasterBookingsNoWorkingHoursState extends StatelessWidget {
   const MasterBookingsNoWorkingHoursState({
     super.key,
@@ -166,7 +195,16 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
   /// intervals/times defensively resolved empty).
   final bool dayOff;
 
-  final VoidCallback onAddHours;
+  /// The «Додати робочі години» CTA's handler. `null` (phase 330) renders the
+  /// state WITHOUT the button at all — absent, never disabled — for a viewer
+  /// who may not publish working hours (the invited, read-only
+  /// `SALON_MASTER`; see `BookingsDiscoveryView.canAddWorkingHours`). The
+  /// title and helper copy still render, so the reader is told why the
+  /// timeline is missing.
+  ///
+  /// ADDITIVE: every pre-existing caller passes a non-null callback and is
+  /// byte-identical to before this became nullable.
+  final VoidCallback? onAddHours;
 
   @override
   Widget build(BuildContext context) {
@@ -195,20 +233,38 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
               ),
               const SizedBox(height: VelvetSpacing.xs),
               Text(
-                l10n.scheduleNoScheduleHelper,
+                // Qase defects #37/#45. `scheduleNoScheduleHelper` is imperative
+                // — "YOU add working hours" — and was rendered to everyone,
+                // including the read-only SALON_MASTER whose CTA is correctly
+                // absent right below. That told an invited master to do the one
+                // thing the screen gives them no way to do; their hours are set
+                // by the salon owner/admin (Phase 312).
+                //
+                // `onAddHours == null` is already the "may not publish hours"
+                // signal this widget acts on for the button, so it selects the
+                // copy too — one condition, not two that can disagree. The
+                // read-only variant is REUSED, not written: it already exists
+                // and `master_schedule_screen.dart` (1238, 1452) already picks
+                // between the pair. Each string's own ARB doc forbids merging
+                // them — they address different people.
+                onAddHours == null
+                    ? l10n.scheduleNoScheduleHelperReadOnly
+                    : l10n.scheduleNoScheduleHelper,
                 textAlign: TextAlign.center,
                 style: VelvetText.body(),
               ),
-              const SizedBox(height: VelvetSpacing.lg),
-              SizedBox(
-                width: double.infinity,
-                child: NeumorphicButton(
-                  key: const Key('master-bookings-no-schedule-cta'),
-                  label: l10n.scheduleAddHoursCta,
-                  icon: Icons.event_available_rounded,
-                  onPressed: onAddHours,
+              if (onAddHours case final VoidCallback onAdd) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.lg),
+                SizedBox(
+                  width: double.infinity,
+                  child: NeumorphicButton(
+                    key: const Key('master-bookings-no-schedule-cta'),
+                    label: l10n.scheduleAddHoursCta,
+                    icon: Icons.event_available_rounded,
+                    onPressed: onAdd,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

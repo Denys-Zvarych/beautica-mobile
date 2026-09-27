@@ -13,9 +13,9 @@
 //
 // This test reproduces the exact cross-range shape on the REAL provider
 // graph (no widget tree needed — this is a provider-level bug):
-//   1. resolve `effectiveScheduleProvider(dayRange)` to a stale NO_SCHEDULE
+//   1. resolve `effectiveScheduleProvider(scope, dayRange)` to a stale NO_SCHEDULE
 //      verdict, and keep it WATCHED (mirrors «Мої записи» staying open);
-//   2. `putOverride(...)` on `overridesProvider(monthRange)` against a fake
+//   2. `putOverride(...)` on `overridesProvider(scope, monthRange)` against a fake
 //      repo that now serves `effectiveSchedule` as OVERRIDE_CUSTOM /
 //      times:[11:00] (mirrors the server having genuinely persisted the
 //      write);
@@ -32,6 +32,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
@@ -57,6 +58,7 @@ void main() {
       'instance recompute — no manual invalidate needed', () async {
     final repo = _MockScheduleRepository();
     final monthRange = ScheduleRange.month(DateTime(2026, 6, 15));
+    const scope = ScheduleScope.own(masterId: 'cross-range-revision-master');
     final dayRange = ScheduleRange(
       from: DateTime(2026, 6, 20),
       to: DateTime(2026, 6, 20),
@@ -100,20 +102,22 @@ void main() {
 
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
-      overrides: [scheduleRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
+      ],
     );
     addTearDown(container.dispose);
 
     // ── 1. Resolve the DAY range to the stale NO_SCHEDULE verdict, and
     // keep it WATCHED — mirrors «Мої записи» staying open on that day.
     final List<EffectiveDay> initial = await container.read(
-      effectiveScheduleProvider(dayRange).future,
+      effectiveScheduleProvider(scope, dayRange).future,
     );
     expect(initial.single.source, EffectiveSource.noSchedule);
 
     final ProviderSubscription<AsyncValue<List<EffectiveDay>>> dayListener =
         container.listen<AsyncValue<List<EffectiveDay>>>(
-          effectiveScheduleProvider(dayRange),
+          effectiveScheduleProvider(scope, dayRange),
           (_, _) {},
         );
     addTearDown(dayListener.close);
@@ -122,7 +126,7 @@ void main() {
     // through the editor's MONTH-range notifier.
     written = true;
     await container
-        .read(overridesProvider(monthRange).notifier)
+        .read(overridesProvider(scope, monthRange).notifier)
         .putOverride(
           ScheduleOverride.explicitTimes(
             start: dayRange.from,
@@ -134,7 +138,7 @@ void main() {
     // ── 3. The DAY range must reflect the new data — no invalidate/refresh
     // call from this test.
     final List<EffectiveDay> after = await container.read(
-      effectiveScheduleProvider(dayRange).future,
+      effectiveScheduleProvider(scope, dayRange).future,
     );
     expect(
       after.single.source,

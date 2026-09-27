@@ -1359,4 +1359,24 @@ void main() {
       ]);
     });
   });
+
+  // 2026-09-24 — `dayCount` used `end.difference(start).inDays + 1`, which
+  // reads one day LOW when the span crosses the Kyiv spring-forward (23 h day).
+  group('ScheduleOverride.dayCount — calendar days, DST-safe', () {
+    test('a span across the spring forward (2026-03-28..30) counts 3', () {
+      final o = ScheduleOverride.dayOff(
+        start: DateTime(2026, 3, 28),
+        end: DateTime(2026, 3, 30),
+      );
+      expect(o.dayCount, 3);
+    });
+
+    test('a span across the fall back (2026-10-24..26) counts 3', () {
+      final o = ScheduleOverride.dayOff(
+        start: DateTime(2026, 10, 24),
+        end: DateTime(2026, 10, 26),
+      );
+      expect(o.dayCount, 3);
+    });
+  });
 }

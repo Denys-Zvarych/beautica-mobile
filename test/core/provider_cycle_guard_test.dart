@@ -69,6 +69,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -82,13 +84,23 @@ import 'package:beautica_mobile/features/favorites/data/favorite_repository_prov
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/register_salon_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository_provider.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/overrides_notifier.dart';
+import 'package:beautica_mobile/features/schedule/presentation/salon_effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
+import 'package:beautica_mobile/features/schedule/presentation/weekly_schedule_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
@@ -113,6 +125,13 @@ final ScheduleRange _cycleGuardDayRange = ScheduleRange(
   to: DateTime(2026, 6, 20),
 );
 
+/// Phase 312 — [ScheduleScope] is now the first family-key arg for every
+/// schedule provider below; this row is not about scope identity, so one
+/// fixed "own" scope is reused everywhere.
+const ScheduleScope _cycleGuardScope = ScheduleScope.own(
+  masterId: 'cycle-guard-master',
+);
+
 /// A [ScheduleRepository] leaf stub for the cycle-guard row — no
 /// intermediate provider is overridden (see [_TeardownEntrypoint
 /// .extraOverrides]'s doc), only this leaf data dependency. The exact
@@ -127,6 +146,10 @@ final ScheduleRange _cycleGuardDayRange = ScheduleRange(
 /// custom type like [ScheduleOverride]. A plain [Fake] needs no matcher
 /// registration at all.
 class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
+  @override
+  Future<List<WeeklySchedule>> listWeeklySchedules() async =>
+      const <WeeklySchedule>[];
+
   @override
   Future<List<ScheduleOverride>> listOverrides(
     DateTime from,
@@ -148,6 +171,72 @@ class _CycleGuardScheduleRepository extends Fake implements ScheduleRepository {
 
 ScheduleRepository _buildCycleGuardScheduleRepo() =>
     _CycleGuardScheduleRepository();
+
+/// Phase 335 — the leaf behind `salonEffectiveScheduleProvider`, the THIRD
+/// family `logout()`'s session-boundary sweep invalidates. A hand-written
+/// [Fake] for the same pre-`setUpAll` reason as
+/// [_CycleGuardScheduleRepository] above.
+class _CycleGuardSalonRosterScheduleRepository extends Fake
+    implements SalonRosterScheduleRepository {
+  @override
+  Future<Map<String, List<EffectiveDay>>> salonRosterEffectiveSchedule(
+    String salonId,
+    DateTime from,
+    DateTime to,
+  ) async => const <String, List<EffectiveDay>>{};
+}
+
+/// The salon id the `SalonManagementProfile.save()` / `.deleteSalon()`
+/// entrypoints below operate on.
+const String _cycleGuardSalonId = 'cycle-guard-salon-1';
+
+const _cycleGuardSalon = Salon(
+  id: _cycleGuardSalonId,
+  name: 'Cycle Guard Salon',
+  street: 'вул. Тестова',
+  buildingNo: '1',
+);
+
+/// A hand-written [Fake] (same reasoning as [_CycleGuardScheduleRepository]
+/// above — the `_entrypoints` list runs before `setUpAll`, too early for
+/// mocktail's `registerFallbackValue`) implementing only the
+/// [SalonRepository] members `SalonManagementProfile.build()` / `.save()` /
+/// `.deleteSalon()` actually call.
+class _CycleGuardSalonRepository extends Fake implements SalonRepository {
+  @override
+  Future<Salon> getSalonById(String salonId) async => _cycleGuardSalon;
+
+  @override
+  Future<List<SalonMasterSummary>> getSalonMasters(String salonId) async =>
+      const <SalonMasterSummary>[];
+
+  // Phase 21.5 — `SalonManagementProfile.build()` now reads the staff
+  // roster via `getSalonStaff`, not `getSalonMasters` above (still real, but
+  // no longer on this notifier's own build() path — kept for interface
+  // completeness / other callers).
+  @override
+  Future<List<SalonStaffMember>> getSalonStaff(String salonId) async =>
+      const <SalonStaffMember>[];
+
+  @override
+  Future<Salon> updateSalon(String salonId, UpdateSalonRequest request) async =>
+      _cycleGuardSalon.copyWith(
+        name: request.name ?? _cycleGuardSalon.name,
+        // Phase 21.10 — additive: the `saveAddress()` entrypoint below also
+        // needs `street` applied so its `settle` can assert a real change.
+        street: request.street.isNotEmpty
+            ? request.street
+            : _cycleGuardSalon.street,
+      );
+
+  @override
+  Future<void> deleteSalon(String salonId) async {}
+
+  @override
+  Future<void> create({required SalonCreateDto dto}) async {}
+}
+
+SalonRepository _buildCycleGuardSalonRepo() => _CycleGuardSalonRepository();
 
 const _testUser = User(
   id: 'u1',
@@ -289,6 +378,142 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
   ),
 
   // -------------------------------------------------------------------------
+  // authProvider.notifier.logout() — mobile-perf P2-1 (2026-09-07)
+  // session-boundary schedule-cache sweep.
+  //
+  // logout() now ALSO `ref.invalidate(weeklyScheduleProvider)` (bare family)
+  // and `invalidateAllEffectiveScheduleWindows(ref)` (a wasPinned-gated,
+  // per-key `ref.invalidate(effectiveScheduleProvider(scope, range))` loop —
+  // see `effective_schedule_notifier.dart`'s doc). Neither
+  // `weeklyScheduleProvider` nor `effectiveScheduleProvider` watches
+  // `authProvider` (traced through `scheduleRepositoryProvider` →
+  // `masterApiProvider` → `dioProvider`, none of which watch it either), so
+  // there is no back-edge and no cycle — this entrypoint proves that on the
+  // REAL graph: subscribing to both families registers them as live
+  // listeners (populating `EffectiveScheduleRangeTracker` for the
+  // `effectiveScheduleProvider` sweep to enumerate), then `logout()` must
+  // complete without `CircularDependencyError`.
+  //
+  // PHASE 335 — EXTENDED ADDITIVELY (mobile-security MEDIUM, 2026-09-17) with
+  // a THIRD family: `logout()` also bare-invalidates
+  // `salonEffectiveScheduleProvider` (the salon board's roster-hours cache),
+  // whose chain is `salonRosterScheduleRepositoryProvider` ->
+  // `scheduleSalonApiProvider` -> `dioProvider` — none of which watch
+  // `authProvider` either. A NEW row was deliberately NOT appended: the
+  // entrypoint under test is the SAME `logout()` call, and the cycle risk is
+  // a property of the call, not of each family it touches.
+  //
+  // WHAT THIS ROW ACTUALLY DOES — and what it does NOT (correction,
+  // 2026-09-17; an earlier version of this comment claimed it "proves all
+  // three back-edge claims in one real graph", which is false). It builds all
+  // three families on a REAL container, then drives the real `logout()`: a
+  // genuine `CircularDependencyError` — the kind a `ref.watch` back-edge
+  // raises while a provider is BUILDING — would be caught. It does NOT
+  // discriminate an `authProvider` back-edge in any of the three families.
+  // mobile-build-verifier injected a live `ref.watch(authProvider)` into
+  // `SalonEffectiveScheduleNotifier.build()` and this guard stayed green,
+  // 8/8; the same mutation on `weeklyScheduleProvider` is also green, so the
+  // blind spot is PRE-EXISTING, not introduced by the phase-335 extension.
+  // The MECHANISM is narrower than an earlier version of this comment claimed
+  // (correction #2, 2026-09-17: that version said the assert "simply never
+  // raises" for a notifier-METHOD `ref.invalidate` of an auth-watching
+  // dependent — mobile-security falsified that by mutation). Riverpod's
+  // `_debugAssertCanDependOn` IS reached for a CONCRETE provider and for a
+  // PER-MEMBER family invalidate; it is bypassed ONLY by a BARE-FAMILY
+  // `ref.invalidate(familyProvider)`. Of the three sweeps in `logout()`, the
+  // per-key one (`effectiveScheduleProvider`, `auth_notifier.dart:1312`) is
+  // therefore fully covered: injecting `ref.watch(authProvider)` into
+  // `EffectiveScheduleNotifier.build()` turns THIS row RED with
+  // `CircularDependencyError ... Ref.exists ...
+  // effective_schedule_notifier.dart:201`. The blind spot is exactly the two
+  // BARE-FAMILY sweeps — `weeklyScheduleProvider` (`auth_notifier.dart:1310`)
+  // and `salonEffectiveScheduleProvider` (`:1337`). So for those two the
+  // `cycle-safe:` annotations in `auth_notifier.dart` are upheld by the grep
+  // gate plus code review, and this row adds real-graph EXERCISE, not a
+  // discriminating assertion. Do not cite it as proof of their no-back-edge
+  // claim.
+  //
+  // RISK ASSESSMENT (mobile-security, 2026-09-17), so the next reader inherits
+  // it. While those two sweeps stay BARE-FAMILY, an added auth watch raises
+  // nothing at RUNTIME either — the failure mode the annotation denies CANNOT
+  // FIRE, so the untested claim costs nothing today. It becomes a REAL gap the
+  // moment the boxed `onDayChanged` follow-up lands, because that mandates a
+  // PER-KEY LRU swept from `logout()` — exactly the shape the existing oracle
+  // already catches, so the coverage arrives for free at that point. The
+  // wanted detector is (a), the `ProviderObserver` probe: it asserts the claim
+  // directly, is shape-independent, catches transitive watches, and closes the
+  // two bare-family gaps as well. (b), a static prose-parsing gate over the
+  // `cycle-safe:` annotations, is REJECTED — brittle and blind to unnamed
+  // transitive hops. (a) rides with the `onDayChanged` follow-up, not now.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'authProvider.notifier.logout() -> weeklyScheduleProvider + '
+        'effectiveScheduleProvider + salonEffectiveScheduleProvider '
+        'session-boundary invalidate',
+    extraOverrides: <Object>[
+      scheduleRepositoryProvider.overrideWith(
+        (ref, scope) => _buildCycleGuardScheduleRepo(),
+      ),
+      salonRosterScheduleRepositoryProvider.overrideWithValue(
+        _CycleGuardSalonRosterScheduleRepository(),
+      ),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        weeklyScheduleProvider(_cycleGuardScope),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+      container.listen<Object?>(
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardMonthRange),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+      container.listen<Object?>(
+        salonEffectiveScheduleProvider(
+          _cycleGuardSalonId,
+          _cycleGuardMonthRange,
+        ),
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      // Let both watched families resolve their first build BEFORE logging
+      // out — an un-built element has nothing for `ref.invalidate` to
+      // touch, which would make this entrypoint pass trivially without ever
+      // exercising the back-edge check (mirrors the `overridesProvider`
+      // entrypoint's identical reasoning above).
+      await container.read(weeklyScheduleProvider(_cycleGuardScope).future);
+      await container.read(
+        effectiveScheduleProvider(
+          _cycleGuardScope,
+          _cycleGuardMonthRange,
+        ).future,
+      );
+      await container.read(
+        salonEffectiveScheduleProvider(
+          _cycleGuardSalonId,
+          _cycleGuardMonthRange,
+        ).future,
+      );
+      await container.read(authProvider.notifier).logout();
+    },
+    settle: (container) {
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+        reason:
+            'logout() must settle the session to Unauthenticated via the '
+            'auth-watch cascade AND complete the new schedule-cache sweep — '
+            'no cycle.',
+      );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
   // favoriteToggleProvider.notifier.toggle() — Phase 240 fix.
   //
   // A successful SERVICE *add* now `ref.invalidate(wishlistProvider)`s (see
@@ -364,18 +589,18 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
         'effectiveScheduleProvider(monthRange) AND '
         'effectiveScheduleProvider(dayRange) are both subscribed',
     extraOverrides: <Object>[
-      scheduleRepositoryProvider.overrideWithValue(
-        _buildCycleGuardScheduleRepo(),
+      scheduleRepositoryProvider.overrideWith(
+        (ref, scope) => _buildCycleGuardScheduleRepo(),
       ),
     ],
     subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
       container.listen<Object?>(
-        effectiveScheduleProvider(_cycleGuardMonthRange),
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardMonthRange),
         (_, _) {},
         fireImmediately: true,
       ),
       container.listen<Object?>(
-        effectiveScheduleProvider(_cycleGuardDayRange),
+        effectiveScheduleProvider(_cycleGuardScope, _cycleGuardDayRange),
         (_, _) {},
         fireImmediately: true,
       ),
@@ -383,7 +608,9 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
     run: (container) async {
       await container.read(authProvider.future);
       await container
-          .read(overridesProvider(_cycleGuardMonthRange).notifier)
+          .read(
+            overridesProvider(_cycleGuardScope, _cycleGuardMonthRange).notifier,
+          )
           .putOverride(
             ScheduleOverride.explicitTimes(
               start: _cycleGuardDayRange.from,
@@ -394,20 +621,207 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
     },
     settle: (container) {
       expect(
-        container.read(overridesProvider(_cycleGuardMonthRange)).hasError,
+        container
+            .read(overridesProvider(_cycleGuardScope, _cycleGuardMonthRange))
+            .hasError,
         isFalse,
         reason: 'the write itself must succeed against the fake repo',
       );
       expect(
         container
-            .read(effectiveScheduleProvider(_cycleGuardMonthRange))
+            .read(
+              effectiveScheduleProvider(
+                _cycleGuardScope,
+                _cycleGuardMonthRange,
+              ),
+            )
             .hasError,
         isFalse,
       );
       expect(
-        container.read(effectiveScheduleProvider(_cycleGuardDayRange)).hasError,
+        container
+            .read(
+              effectiveScheduleProvider(_cycleGuardScope, _cycleGuardDayRange),
+            )
+            .hasError,
         isFalse,
       );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.save() — mobile-perf
+  // MEDIUM follow-up (2026-08-28, `salon_management_profile_notifier.dart`).
+  //
+  // A successful edit now `ref.invalidate(mySalonsProvider)`s so the «Мої
+  // салони» hub refetches instead of rendering the pre-edit cached list.
+  // `mySalonsProvider` (`my_salons_notifier.dart`) only watches
+  // `authProvider` — NOT `salonManagementProfileProvider` — so there is no
+  // back-edge and no cycle. This entrypoint proves that on the REAL graph:
+  // subscribing to `mySalonsProvider` registers it as a live listener, then
+  // `save()` must complete without `CircularDependencyError`.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.save() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .save(
+            name: 'Оновлена назва',
+            description: '',
+            phone: '',
+            instagramUrl: '',
+          );
+    },
+    settle: (container) {
+      final state = container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId),
+      );
+      expect(state.hasError, isFalse);
+      expect(state.value?.$1.name, 'Оновлена назва');
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.deleteSalon() — same
+  // mobile-perf MEDIUM follow-up as the `save()` row above.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.deleteSalon() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      final Failure? failure = await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .deleteSalon();
+      expect(failure, isNull);
+    },
+    settle: (container) {
+      // No further graph assertion needed — the entrypoint's own `run`
+      // already asserted a null Failure; `settle` exists to mirror every
+      // other row's shape and to leave a hook for a future stronger check.
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // salonManagementProfileProvider(salonId).notifier.saveAddress() — Phase
+  // 21.10 (SalonAddressEditScreen). ADDITIVE sibling of the `save()` row
+  // above: same `ref.invalidate(mySalonsProvider)` on success, same
+  // no-back-edge / no-cycle graph shape (`mySalonsProvider` only watches
+  // `authProvider`), so this proves the identical guarantee for the new
+  // method.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'salonManagementProfileProvider(salonId).notifier.saveAddress() -> '
+        'mySalonsProvider invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId).future,
+      );
+      await container
+          .read(salonManagementProfileProvider(_cycleGuardSalonId).notifier)
+          .saveAddress(
+            // cityId is `required` (Finding, 2026-08-29 — see
+            // `salon_management_profile_notifier.dart`'s header doc): the
+            // screen always sends its selected city, never a diff against
+            // the loaded snapshot. This harness's `_cycleGuardSalon` has no
+            // cityId of its own; any non-null id exercises the same
+            // cycle-guard path the street-only edit did before.
+            cityId: 'city-cycle-guard-1',
+            street: 'вул. Оновлена',
+            buildingNo: '2',
+            locationNote: '',
+          );
+    },
+    settle: (container) {
+      final state = container.read(
+        salonManagementProfileProvider(_cycleGuardSalonId),
+      );
+      expect(state.hasError, isFalse);
+      expect(state.value?.$1.street, 'вул. Оновлена');
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // registerSalonProvider.notifier.submit() — Phase 21.3 (RegisterSalonScreen,
+  // «+ Додати салон»). Same `ref.invalidate(mySalonsProvider)`-on-success
+  // shape as the three `salonManagementProfileProvider` rows above, mirrored
+  // for the CREATE path rather than an edit: `mySalonsProvider` only watches
+  // `authProvider` — never `registerSalonProvider` — so there is no back-edge
+  // and no cycle here either.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'registerSalonProvider.notifier.submit() -> mySalonsProvider '
+        'invalidate',
+    extraOverrides: <Object>[
+      salonRepositoryProvider.overrideWith((_) => _buildCycleGuardSalonRepo()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        mySalonsProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      final Failure? failure = await container
+          .read(registerSalonProvider.notifier)
+          .submit(
+            name: 'Новий салон',
+            cityId: 'city-1',
+            street: 'вул. Нова',
+            buildingNo: '1',
+          );
+      expect(failure, isNull);
+    },
+    settle: (container) {
+      // No further graph assertion needed — the entrypoint's own `run`
+      // already asserted a null Failure; `settle` exists to mirror every
+      // other row's shape and to leave a hook for a future stronger check.
     },
   ),
 ];

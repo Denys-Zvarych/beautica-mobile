@@ -58,6 +58,7 @@ import 'package:beautica_api/beautica_api.dart'
     show CreateBookingRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/beautica_serializers.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:built_value/serializer.dart';
@@ -237,6 +238,83 @@ abstract interface class BookingRepository {
     CancelToken? cancelToken,
   });
 
+  /// Fetches ONE page of a salon's bookings — the owner/admin salon-wide
+  /// «Записи» board (Phase 21.12; backend Phase 23.4).
+  ///
+  /// Wraps `GET /api/v1/bookings/salon/{salonId}`, gated server-side by
+  /// `hasAnyRole('SALON_OWNER','SALON_ADMIN') and @authz.canManageSalon` — an
+  /// owner of a DIFFERENT salon, or an admin assigned elsewhere, gets 403.
+  ///
+  /// ## THE FILTER SURFACE — CORRECTED BY BACKEND PHASES 319 AND 322
+  ///
+  /// This doc used to say the endpoint took exactly ONE optional `status` and
+  /// NO service predicate. That was true of backend Phase 23.4 and is now
+  /// **stale**: backend Phase 319 widened `status` to a repeatable list
+  /// (`@Size(max = 5)`) and added a repeatable `serviceId`, and backend Phase
+  /// 322 added `partition`. Verified against the regenerated OpenAPI snapshot
+  /// (`tool/openapi/api-spec.json`, operation `getSalonBookings`), not assumed
+  /// by symmetry with `GET /bookings/me`.
+  ///
+  /// [statuses] is therefore sent as REPEATED bare `status=` params, exactly
+  /// like [getMyBookings]', and omitted entirely when null/empty.
+  /// [BookingStatus.unknown] is a decode-only member with no wire
+  /// representation and is stripped rather than sent.
+  ///
+  /// `serviceId` is **deliberately not surfaced here** (YAGNI): the salon
+  /// board narrows by service client-side and the salon archive has its
+  /// service facet switched off, so no caller wants it. It stays purely
+  /// additive for whenever one does.
+  ///
+  /// [masterId] IS a real wire param and narrows to one of the salon's
+  /// masters server-side.
+  ///
+  /// [partition] (backend Phase 322) is the same time-based partition
+  /// [getMyBookings] takes, sent as its [BookingPartition.wireValue] and
+  /// omitted entirely when null. Backend Phase 322's D2 contract: when
+  /// `partition` is present, `status` is IGNORED server-side — **not** a 400
+  /// — which is the additive-rollout safety valve, and omitting it is
+  /// byte-identical pre-322 behaviour. The salon «Архів» passes
+  /// [BookingPartition.history]; carries the SAME hard-sequencing hazard
+  /// [getMyBookings] documents for that value (an unrecognised VALUE on a
+  /// backend older than the partition work IS a 400, unlike an unrecognised
+  /// param NAME).
+  ///
+  /// [from]/[to] are each independently optional (phase 342). The board
+  /// passes both — it always has a day. The archive passes NEITHER: it wants
+  /// the salon's whole history, and the backend has always accepted
+  /// open-ended bounds on this route. Each is omitted from the query string
+  /// when null, applying no predicate — the same shape [getMyBookings] has
+  /// always had.
+  ///
+  /// ## Why this bypasses the generated client
+  ///
+  /// Same reason [getMyBookings] does: the generated
+  /// `BookingControllerApi.getSalonBookings` takes a typed `Pageable`, whose
+  /// `encodeQueryParameter` JSON-encodes the whole object into a single
+  /// `pageable=` value, while Spring's `PageableHandlerMethodArgumentResolver`
+  /// expects FLAT `page`/`size`/`sort` keys. The generated operation DOES
+  /// exist (`api/lib/src/api/booking_controller_api.dart`) — it is unusable,
+  /// not missing. The raw GET below deserializes with the SAME
+  /// [beauticaSerializers] the generated client is built on, so an
+  /// unrecognised booking status degrades identically here and on the detail
+  /// path.
+  ///
+  /// [sort] is sent as the flat `sort=` param the same resolver reads.
+  /// `BookingsDayNotifier` fixes it at [BookingSort.oldest] because
+  /// `assignLanes` requires ascending `startsAt` — see that file's header.
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  });
+
   /// The set of local days on which the authenticated caller has at least one
   /// booking, across the inclusive `[from, to]` local-day range.
   ///
@@ -258,6 +336,33 @@ abstract interface class BookingRepository {
   /// Disposing the Riverpod element stops the RESULT from landing but does
   /// not, by itself, abort the underlying Dio request.
   Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  });
+
+  /// [getMyBookedDays]' salon-wide twin — the set of local days on which
+  /// [salonId] has at least one booking, across the inclusive `[from, to]`
+  /// local-day range.
+  ///
+  /// Wraps `GET /bookings/salon/{salonId}/booked-days` (backend Phase 319).
+  /// Same wire shape (bare `yyyy-MM-dd` strings), same 366-day cap, same
+  /// both-bounds-required contract, same per-day tolerance — the two share one
+  /// implementation (`HttpBookingRepository._fetchBookedDays`).
+  ///
+  /// This exists because `/me/booked-days` is the CALLER's days: for a
+  /// `SALON_OWNER` it aggregates every salon they own (never one board's), and
+  /// for a `SALON_ADMIN` the backend rejects it outright. Only this endpoint
+  /// answers "which days does THIS salon have bookings on".
+  ///
+  /// **Filter-independent by design**, exactly like [getMyBookedDays]: the
+  /// endpoint takes no `status`/`serviceId`/`masterId` param, so the dots mark
+  /// where bookings ARE while the filter narrows the list below them. Note the
+  /// deliberate asymmetry the backend documents: the salon rail's day set
+  /// carries NO status predicate at all, so it agrees row-for-row with an
+  /// unfiltered `GET /bookings/salon/{salonId}`.
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
@@ -604,19 +709,169 @@ final class HttpBookingRepository implements BookingRepository {
   }
 
   @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) async {
+    // Canonicalised ONCE here at the serialisation boundary, byte-for-byte the
+    // same way [getMyBookings] does it (sorted by enum `index`, not by wire
+    // string, so the emitted URL is a pure function of the filter's VALUE and
+    // not of the order the caller happened to build the set in).
+    //
+    // `unknown` is stripped: it is a DECODE-only member with no wire
+    // representation, and `status=UNKNOWN` would be a 400 (the backend's
+    // `@Size(max = 5)` cap is sized to `BookingStatus.filterable` exactly).
+    final List<String>? statusParams = statuses == null
+        ? null
+        : (statuses
+                  .where((BookingStatus s) => s != BookingStatus.unknown)
+                  .toList(growable: false)
+                ..sort(
+                  (BookingStatus a, BookingStatus b) =>
+                      a.index.compareTo(b.index),
+                ))
+              .map((BookingStatus s) => s.wireValue)
+              .toList(growable: false);
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        // Hardened via the promoted `encodePathSegment`
+        // (`core/network/path_segment.dart`) rather than a raw interpolation:
+        // this path bypasses the generated client's automatic encoding, and a
+        // path-significant id would retarget the request on the authenticated
+        // [_dio] that carries the bearer token. Defence-in-depth — today
+        // `salonId` is an exact match against one of the caller's own salons —
+        // and the SAME helper `service_repository.dart` already used, so a `.`
+        // or `..` Dio's `normalizePath()` would collapse is REJECTED, not just
+        // percent-encoded. See that helper's doc for the measured collapse.
+        '/api/v1/bookings/salon/${encodePathSegment(salonId, 'salonId', logTag: _tag)}',
+        queryParameters: <String, dynamic>{
+          'page': page,
+          'size': size,
+          if (sort != null) 'sort': sort.wireValue,
+          // REPEATED bare `status=` params under Dio's default
+          // `ListFormat.multi`, identical to [getMyBookings]' — backend Phase
+          // 319 widened this route to bind an `EnumSet<BookingStatus>`. The
+          // pre-319 "SINGLE-valued, a List would bind only the first" note
+          // that stood here is obsolete; see this method's doc.
+          //
+          // ⚠ Do NOT switch this Dio instance to `ListFormat.multiCompatible`:
+          // that emits `status[]=CONFIRMED`, which Spring binds to a param
+          // literally NAMED `status[]`, so the filter silently does nothing
+          // and the endpoint returns unfiltered 200s.
+          if (statusParams != null && statusParams.isNotEmpty)
+            'status': statusParams,
+          'masterId': ?masterId,
+          // `yyyy-MM-dd` off the LOCAL calendar fields — never
+          // `toIso8601String()`/`.toUtc()`, which would shift the day for any
+          // device east of UTC. The backend reads both as `LocalDate` in
+          // `Europe/Kyiv`. See `shared/formatters/api_date.dart`.
+          //
+          // Each bound is INDEPENDENTLY optional (phase 342) and omitted
+          // entirely when null rather than sent empty: `from` alone is an
+          // open-ended future window, `to` alone an open-ended past window,
+          // and neither is the salon archive's whole history.
+          if (from != null) 'from': toApiDate(from),
+          if (to != null) 'to': toApiDate(to),
+          // Backend Phase 322. Serialised through [BookingPartition.wireValue]
+          // — the sole hand-written string this method emits for it — and
+          // dropped entirely when null by the null-aware map element, never
+          // sent as `partition=null`/`''`. When present the backend IGNORES
+          // `status` above; both still travel, exactly as on
+          // [getMyBookings], so a caller picks its filtering mode by which
+          // params it populates.
+          'partition': ?partition?.wireValue,
+        },
+        cancelToken: cancelToken,
+      );
+      return _decodeBookingsPage(response.data, requestedPage: page);
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'getSalonBookings failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
   Future<List<DateTime>> getMyBookedDays({
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) => _fetchBookedDays(
+    path: '/api/v1/bookings/me/booked-days',
+    label: 'getMyBookedDays',
+    from: from,
+    to: to,
+    cancelToken: cancelToken,
+  );
+
+  @override
+  Future<List<DateTime>> getSalonBookedDays({
+    required String salonId,
+    required DateTime from,
+    required DateTime to,
+    CancelToken? cancelToken,
+  }) async {
+    // Hardened via `encodePathSegment` for the same reason
+    // [getSalonBookings] does it — see that method's comment. This path
+    // bypasses the generated client's automatic encoding, and a
+    // path-significant id would retarget the request on the authenticated
+    // [_dio] that carries the bearer token. Throws [UnknownFailure] (a
+    // [Failure], so the interface contract holds) on a rejected segment.
+    final String segment = encodePathSegment(salonId, 'salonId', logTag: _tag);
+    return _fetchBookedDays(
+      path: '/api/v1/bookings/salon/$segment/booked-days',
+      label: 'getSalonBookedDays',
+      from: from,
+      to: to,
+      cancelToken: cancelToken,
+    );
+  }
+
+  /// The ONE implementation behind [getMyBookedDays] and
+  /// [getSalonBookedDays] — the two endpoints differ only in their path.
+  ///
+  /// Raw Dio rather than the generated client. `listMyBookedDays` /
+  /// `listSalonBookedDays` are both generated with FLAT `from`/`to` params
+  /// (neither takes a `Pageable`, so neither hits the JSON-blob defect that
+  /// forces [getMyBookings]/[getSalonBookings] off the generated client) —
+  /// but their `ApiResponseListLocalDate` return type deserializes the day
+  /// list as a WHOLE through built_value, so one malformed `yyyy-MM-dd`
+  /// string would throw and blank the entire rail. The dots are a hint, not a
+  /// correctness gate, so the per-day tolerance below is the contract, and it
+  /// is only expressible by walking the payload ourselves.
+  ///
+  /// [label] names the caller in the debug logs so the two are still
+  /// distinguishable in a trace.
+  Future<List<DateTime>> _fetchBookedDays({
+    required String path,
+    required String label,
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
   }) async {
     try {
-      // Raw Dio rather than the generated client, for the same reason
-      // `getMyBookings` bypasses it (see the file header): this response is a
-      // bare `ApiResponse<List<LocalDate>>` of plain strings, which the
-      // built_value serializers have no registered type for.
       final response = await _dio.get<Map<String, dynamic>>(
-        '/api/v1/bookings/me/booked-days',
+        path,
         queryParameters: <String, dynamic>{
+          // `yyyy-MM-dd` off the LOCAL calendar fields — never
+          // `toIso8601String()`/`.toUtc()`. Both endpoints read these as
+          // `LocalDate` in `Europe/Kyiv`.
           'from': toApiDate(from),
           'to': toApiDate(to),
         },
@@ -627,7 +882,7 @@ final class HttpBookingRepository implements BookingRepository {
       if (payload is! List) {
         if (kDebugMode) {
           log(
-            'getMyBookedDays: expected a List, got ${payload.runtimeType}',
+            '$label: expected a List, got ${payload.runtimeType}',
             name: _tag,
             level: 1000,
           );
@@ -645,7 +900,7 @@ final class HttpBookingRepository implements BookingRepository {
           // hint, not a correctness gate. Skip it and keep the rest.
           if (kDebugMode) {
             log(
-              'getMyBookedDays: skipping unparseable day "$raw"',
+              '$label: skipping unparseable day "$raw"',
               name: _tag,
               level: 900,
             );
@@ -658,7 +913,7 @@ final class HttpBookingRepository implements BookingRepository {
     } on DioException catch (e, st) {
       if (kDebugMode) {
         log(
-          'getMyBookedDays failed: ${e.type} ${e.response?.statusCode}',
+          '$label failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

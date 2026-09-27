@@ -25,8 +25,10 @@
 //      — the navigation itself must not reveal account existence).
 //   6. Loading indicator visible mid-submit; navigates after completer
 //      resolves.
-//   7. ValidationFailure keyed by email → that message shown inline, no
-//      navigation, repo email error preferred over generic copy.
+//   7. ValidationFailure keyed by email → the LOCALIZED errValidation copy,
+//      never the raw English backend string; no navigation.
+//   7b. A 429 from the per-IP rate-limit filter → the wait-an-hour copy, not
+//      the errUnknown the user actually saw; no navigation.
 //   8. ValidationFailure with empty fieldErrors shows the localized
 //      errValidation copy, never the raw backend serverMessage
 //      (mobile-security, 2026-08).
@@ -278,17 +280,27 @@ void main() {
       },
     );
 
-    // ── 7. ValidationFailure with an email field error → inline email error ──
+    // ── 7. ValidationFailure keyed by email → LOCALIZED, never the raw value ─
     //
-    // The screen prefers fieldErrors['email'] (rendered on the email field's
-    // own errorText, so verbatim server text is acceptable here — see the
-    // screen's doc comment) over the generic errValidation copy. Guards the
-    // inline-mapping extension.
+    // REVERSED 2026-09-15. This test used to assert the opposite — that
+    // `fieldErrors['email']` was preferred over the generic copy, on the
+    // reasoning that a single-field form may echo the offending field
+    // verbatim. In production that value is Spring's own English
+    // ("Email must be a valid address") and it reached Ukrainian users
+    // untranslated, which is the bug. The old fixture hid it: it supplied a
+    // ready-translated Ukrainian string the backend never actually sends, so
+    // the assertion could not tell "localized" from "raw server text". The
+    // fixture below is the REAL English string, so the expectation moves if
+    // the screen ever goes back to echoing the server.
+    //
+    // Tests 8 and 9 assert the same localized outcome for the empty-map and
+    // oversized-value shapes; this row completes the set — every
+    // ValidationFailure shape now renders app copy.
     testWidgets(
-      '7. ValidationFailure keyed by email → that message shown inline, no '
-      'navigation, repo email error preferred over generic copy',
+      '7. ValidationFailure keyed by email shows the localized errValidation '
+      'copy, never the raw English backend string, and does not navigate',
       (WidgetTester tester) async {
-        const emailMsg = 'Невірна адреса електронної пошти';
+        const emailMsg = 'Email must be a valid address';
         final FakeAuthRepository repo = FakeAuthRepository()
           ..requestPasswordResetResult = const ValidationFailure(
             fieldErrors: <String, String>{'email': emailMsg},
@@ -310,14 +322,56 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(repo.requestPasswordResetCalls.length, 1);
-        // The email field error wins over the generic errValidation copy.
-        expect(find.text(emailMsg), findsOneWidget);
-        expect(find.text(l10n.errValidation), findsNothing);
+        // The untranslated backend string must never render.
+        expect(find.text(emailMsg), findsNothing);
+        expect(find.text(l10n.errValidation), findsOneWidget);
         // Stayed on the request form (no navigation).
         expect(
           find.byKey(const ValueKey<String>('forgot_email')),
           findsOneWidget,
         );
+        expect(find.textContaining('otp:'), findsNothing);
+      },
+    );
+
+    // ── 7b. 429 from the per-IP AuthRateLimitFilter → wait-an-hour copy ──────
+    //
+    // The live bug (2026-09-15): `POST /auth/forgot-password` is capped at 3
+    // requests/hour per IP by a servlet FILTER that runs before the
+    // controller, so the controller's anti-enumeration generic-200 contract
+    // does not apply — the filter answers 429 with `Retry-After: 3600` and a
+    // bare `{"error":"Too many requests"}` body. With no mapper branch that
+    // fell through to UnknownFailure and the user was told «Спробуйте ще
+    // раз», which at this budget is the one action that cannot work.
+    //
+    // Asserted against errUnknown explicitly: that is the exact string the
+    // user reported, so its absence is what proves the branch is doing work.
+    testWidgets(
+      '7b. PasswordResetRateLimitedFailure shows the wait-an-hour copy, not '
+      'errUnknown, and does not navigate',
+      (WidgetTester tester) async {
+        final FakeAuthRepository repo = FakeAuthRepository()
+          ..requestPasswordResetResult =
+              const PasswordResetRateLimitedFailure();
+        await _pump(tester, repo);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const ValueKey<String>('forgot_email'))),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('forgot_email')),
+          'anya@example.com',
+        );
+        await tester.pump();
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('forgot_submit')),
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('forgot_submit')));
+        await tester.pumpAndSettle();
+
+        expect(repo.requestPasswordResetCalls.length, 1);
+        expect(find.text(l10n.authResetErrRateLimited), findsOneWidget);
+        expect(find.text(l10n.errUnknown), findsNothing);
         expect(find.textContaining('otp:'), findsNothing);
       },
     );
