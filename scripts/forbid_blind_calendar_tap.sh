@@ -212,9 +212,9 @@ scan_helpers() {
     # Strip comments so a doc comment describing the pattern never trips this.
     local code
     code="$(grep -vE '^[[:space:]]*//' "$f" || true)"
-    printf '%s' "$code" | grep -q "$cell_key" || continue
-    printf '%s' "$code" | grep -qE '(^|[^A-Za-z0-9_.])tap\(|\.tap\(' || continue
-    printf '%s' "$code" | grep -q 'tapCalendarDay' && continue
+    grep -q -- "$cell_key" <<< "$code" || continue
+    grep -qE -- '(^|[^A-Za-z0-9_.])tap\(|\.tap\(' <<< "$code" || continue
+    grep -q -- 'tapCalendarDay' <<< "$code" && continue
     echo "$f: taps a booking-calendar-day-* cell without routing through tapCalendarDay"
   done < <(find "$dir" -type f -name '*.dart' 2>/dev/null | sort)
 }

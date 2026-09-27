@@ -197,7 +197,11 @@ if [[ "${CHECK_MODE}" == "true" ]]; then
     echo "ERROR: api/ is out of date with the committed spec."
     echo "  Run ./scripts/regenerate_api.sh and commit the result."
     echo ""
-    echo "${DIFF_OUTPUT}" | head -40
+    # here-string, not `echo ... | head -40`: under pipefail a long
+    # DIFF_OUTPUT can SIGPIPE echo when head stops early, reporting this
+    # diagnostic print itself as a failure and swapping our `exit 1` below
+    # for whatever status the SIGPIPE left behind.
+    head -40 <<< "${DIFF_OUTPUT}"
     exit 1
   fi
 

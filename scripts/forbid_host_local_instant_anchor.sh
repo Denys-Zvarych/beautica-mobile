@@ -2743,8 +2743,14 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
+  # Below: `grep -q ... <<< "$out"` (here-string), never `printf ... | grep -q`.
+  # Under `set -euo pipefail`, `grep -q` exits as soon as it sees a match,
+  # SIGPIPEing the still-writing `printf` when $out exceeds the pipe buffer
+  # (~64KB) — pipefail then reports the whole pipeline as failed even though
+  # grep DID find the match, turning a real offender into a false "none
+  # found". A here-string has no producer to SIGPIPE.
   for ln in "${identifier_offender_clock_lines[@]}" "${identifier_offender_decl_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R2:$tmp/$identifier_probe:$ln:"; then
+    if ! grep -q -- "^R2:$tmp/$identifier_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-2 identifier-resolution offender"
       echo "                at $identifier_probe:$ln, none found."
       printf '%s\n' "$out"
@@ -2752,7 +2758,7 @@ EOF
     fi
   done
   for ln in "${identifier_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R2:$tmp/$identifier_probe:$ln:"; then
+    if grep -q -- "^R2:$tmp/$identifier_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $identifier_probe should NOT be"
       echo "                flagged (qualified instant / call-with-argument /"
       echo "                reassignment-not-redeclaration / no local"
@@ -2761,7 +2767,7 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -q "^R1:$tmp/$identifier_probe:"; then
+  if grep -q -- "^R1:$tmp/$identifier_probe:" <<< "$out"; then
     echo "SELF-TEST FAIL: $identifier_probe was flagged by Rule 1 — this probe"
     echo "                carries no zone-critical marker, so Stage 1 must"
     echo "                exclude it from Rule 1 entirely:"
@@ -2770,7 +2776,7 @@ EOF
   fi
   for probe in "${probe_paths[@]}"; do
     for ln in "${offender_lines[@]}"; do
-      if ! printf '%s\n' "$out" | grep -q "^R1:$tmp/$probe:$ln:"; then
+      if ! grep -q -- "^R1:$tmp/$probe:$ln:" <<< "$out"; then
         echo "SELF-TEST FAIL: expected a Rule-1 offender at $probe:$ln, none found."
         echo "                Is '$(dirname "$(dirname "$probe")")' listed in"
         echo "                scan_dirs AND actually walked by run_scan?"
@@ -2779,7 +2785,7 @@ EOF
       fi
     done
   done
-  if printf '%s\n' "$out" | grep -q "$noncritical_path"; then
+  if grep -q -- "$noncritical_path" <<< "$out"; then
     echo "SELF-TEST FAIL: the non-zone-critical Rule-1 probe was flagged —"
     echo "                Stage 1 classification is not gating Rule 1 at all:"
     printf '%s\n' "$out"
@@ -2788,7 +2794,7 @@ EOF
 
   for probe in "${clock_probe_paths[@]}"; do
     for ln in "${clock_offender_lines[@]}"; do
-      if ! printf '%s\n' "$out" | grep -q "^R2:$tmp/$probe:$ln:"; then
+      if ! grep -q -- "^R2:$tmp/$probe:$ln:" <<< "$out"; then
         echo "SELF-TEST FAIL: expected a Rule-2 offender at $probe:$ln, none found."
         echo "                This probe carries NO zone-critical marker — if"
         echo "                Rule 2 is (re-)gated behind Stage 1 classification,"
@@ -2804,7 +2810,7 @@ EOF
     # (whole-line comment, can't match anyway — asserted for documentation),
     # 40 (derived first arg).
     for ln in 22 30 33 36 40; do
-      if printf '%s\n' "$out" | grep -q "^R2:$tmp/$probe:$ln:"; then
+      if grep -q -- "^R2:$tmp/$probe:$ln:" <<< "$out"; then
         echo "SELF-TEST FAIL: line $ln of $probe should NOT be flagged by Rule 2"
         echo "                (qualified constructor / undeclared indirection /"
         echo "                annotated / whole-line comment / derived first arg), but was:"
@@ -2815,7 +2821,7 @@ EOF
     # This probe must ALSO never be flagged by Rule 1 — it carries no
     # zone-critical marker, so Rule 1's Stage 1 filter must exclude it
     # entirely regardless of what Rule 2 finds.
-    if printf '%s\n' "$out" | grep -q "^R1:$tmp/$probe:"; then
+    if grep -q -- "^R1:$tmp/$probe:" <<< "$out"; then
       echo "SELF-TEST FAIL: $probe was flagged by Rule 1 — this probe carries"
       echo "                no zone-critical marker, so Stage 1 must exclude"
       echo "                it from Rule 1 entirely:"
@@ -2826,7 +2832,7 @@ EOF
 
   # The dedicated device-zone-constructor probe (deliberately zone-critical)
   # must contribute ZERO offenders to either rule.
-  if printf '%s\n' "$out" | grep -q "$tzdatetime_probe"; then
+  if grep -q -- "$tzdatetime_probe" <<< "$out"; then
     echo "SELF-TEST FAIL: $tzdatetime_probe was flagged — RULE 2's"
     echo "                qualified-constructor exclusion does not handle the"
     echo "                real tz.TZDateTime(...) form:"
@@ -2836,7 +2842,7 @@ EOF
 
   # ---- RULE 3 assertions -----------------------------------------------
   for ln in "${now_offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R3:$tmp/$now_probe:$ln:"; then
+    if ! grep -q -- "^R3:$tmp/$now_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-3 offender at $now_probe:$ln,"
       echo "                none found. Is '$now_scan_dir' still walked with"
       echo "                do_rule3=1 by run_scan? (line 40 in particular"
@@ -2846,7 +2852,7 @@ EOF
     fi
   done
   for ln in "${now_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R3:$tmp/$now_probe:$ln:"; then
+    if grep -q -- "^R3:$tmp/$now_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $now_probe should NOT be flagged by"
       echo "                Rule 3 (instant-ok annotated same-line or above /"
       echo "                whole-line comment / string literal / trailing"
@@ -2856,13 +2862,13 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -q "^R1:$tmp/$now_probe:"; then
+  if grep -q -- "^R1:$tmp/$now_probe:" <<< "$out"; then
     echo "SELF-TEST FAIL: $now_probe was flagged by Rule 1 — it contains no"
     echo "                bare DateTime(<digit>, ...) call at all:"
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "$now_control_path"; then
+  if grep -q -- "$now_control_path" <<< "$out"; then
     echo "SELF-TEST FAIL: the test/-side Rule-3 scan-root control was flagged"
     echo "                — Rule 3 is not restricted to $now_scan_dir/ at all:"
     printf '%s\n' "$out"
@@ -2871,7 +2877,7 @@ EOF
 
   # ---- RULE 4 assertions -----------------------------------------------
   for ln in "${mix_offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R4:$tmp/$mix_probe:$ln:"; then
+    if ! grep -q -- "^R4:$tmp/$mix_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-4 offender at $mix_probe:$ln,"
       echo "                none found. Is '$mix_scan_dir' still walked with"
       echo "                scan_file_rule4 by run_scan? Lines 13/14 pin the"
@@ -2883,7 +2889,7 @@ EOF
     fi
   done
   for ln in "${mix_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R4:$tmp/$mix_probe:$ln:"; then
+    if grep -q -- "^R4:$tmp/$mix_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $mix_probe should NOT be flagged by"
       echo "                Rule 4 (unpinned host read / instant-ok annotated /"
       echo "                clock: null is not a pin / longer identifier /"
@@ -2894,7 +2900,7 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -qE "^R[1235]:$tmp/$mix_probe:"; then
+  if grep -qE -- "^R[1235]:$tmp/$mix_probe:" <<< "$out"; then
     echo "SELF-TEST FAIL: $mix_probe was flagged by Rule 1, 2, 3 or 5 — it"
     echo "                contains only .utc instants, clock: sites resolving"
     echo "                to a .utc declaration, host reads written in RULE"
@@ -2906,7 +2912,7 @@ EOF
 
   # ---- RULE 5 assertions -----------------------------------------------
   for ln in "${read_offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_probe:$ln:"; then
+    if ! grep -q -- "^R5:$tmp/$read_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-5 offender at $read_probe:$ln,"
       echo "                none found. Is '$mix_scan_dir' still walked with"
       echo "                do_rule5=1 by run_scan? Lines 39/43 in particular"
@@ -2919,7 +2925,7 @@ EOF
     fi
   done
   for ln in "${read_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_probe:$ln:"; then
+    if grep -q -- "^R5:$tmp/$read_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $read_probe should NOT be flagged by"
       echo "                Rule 5 (canonical seam tear-off / instant-only"
       echo "                consumption / instant-ok annotated / whole-line"
@@ -2931,7 +2937,7 @@ EOF
     fi
   done
   for ln in "${read_control_r3_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R3:$tmp/$read_control_path:$ln:"; then
+    if ! grep -q -- "^R3:$tmp/$read_control_path:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: $read_control_path:$ln should still be reported by"
       echo "                RULE 3 — restricting Rule 5 to $mix_scan_dir/ is"
       echo "                only sound because the E2E tier is covered by a"
@@ -2941,7 +2947,7 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -q "^R5:$tmp/$read_control_path:"; then
+  if grep -q -- "^R5:$tmp/$read_control_path:" <<< "$out"; then
     echo "SELF-TEST FAIL: the integration_test/-side Rule-5 scan-root control"
     echo "                was flagged by Rule 5 — Rule 5 is not restricted to"
     echo "                $mix_scan_dir/ at all, and every hit there is now"
@@ -2952,7 +2958,7 @@ EOF
 
   # ---- RULE 6 assertions -----------------------------------------------
   for ln in "${token_offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R6:$tmp/$token_probe:$ln:"; then
+    if ! grep -q -- "^R6:$tmp/$token_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-6 offender at $token_probe:$ln,"
       echo "                none found. This probe lives under lib/ — is"
       echo "                'lib' still in token_scan_dirs AND actually walked"
@@ -2964,7 +2970,7 @@ EOF
     fi
   done
   for ln in "${token_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R6:$tmp/$token_probe:$ln:"; then
+    if grep -q -- "^R6:$tmp/$token_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $token_probe should NOT be flagged by"
       echo "                Rule 6 (.toUtc on a genuine instant / a LEGAL token"
       echo "                operation / calendar-field read / undeclared name /"
@@ -2977,7 +2983,7 @@ EOF
 
   # ---- RULE 7 assertions -----------------------------------------------
   for ln in "${seam_offender_lines[@]}"; do
-    if ! printf '%s\n' "$out" | grep -q "^R7:$tmp/$seam_probe:$ln:"; then
+    if ! grep -q -- "^R7:$tmp/$seam_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a Rule-7 offender at $seam_probe:$ln,"
       echo "                none found. This probe lives under lib/ — is 'lib'"
       echo "                still in token_scan_dirs AND actually walked by"
@@ -2993,7 +2999,7 @@ EOF
     fi
   done
   for ln in "${seam_clean_lines[@]}"; do
-    if printf '%s\n' "$out" | grep -q "^R7:$tmp/$seam_probe:$ln:"; then
+    if grep -q -- "^R7:$tmp/$seam_probe:$ln:" <<< "$out"; then
       echo "SELF-TEST FAIL: line $ln of $seam_probe should NOT be flagged by"
       echo "                Rule 7 (qualified constructor / TZDateTime /"
       echo "                arity 4 = an instant / literal-year token,"
@@ -3008,7 +3014,7 @@ EOF
       exit 1
     fi
   done
-  if printf '%s\n' "$out" | grep -qE "^R[123456]:$tmp/$seam_probe:"; then
+  if grep -qE -- "^R[123456]:$tmp/$seam_probe:" <<< "$out"; then
     echo "SELF-TEST FAIL: $seam_probe was flagged by Rules 1-6. It contains no"
     echo "                clock read and no .toUtc()/.toLocal(), sits outside"
     echo "                the test tiers Rules 1-5 scan, and its only arity>=4"
@@ -3018,7 +3024,7 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "^R7:$tmp/$token_probe:"; then
+  if grep -q -- "^R7:$tmp/$token_probe:" <<< "$out"; then
     echo "SELF-TEST FAIL: the RULE 6 probe was flagged by Rule 7 — it contains"
     echo "                no .difference( at all, so Rule 7's matching is"
     echo "                firing on something other than the subtraction:"

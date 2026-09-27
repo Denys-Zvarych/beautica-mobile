@@ -210,12 +210,12 @@ EOF
 
   ok=1
   [ "$flagged" -eq 4 ] || ok=0
-  printf '%s' "$out" | grep -q 'violating_flow_test.dart:1' || ok=0
-  printf '%s' "$out" | grep -q 'violating_flow_test.dart:2' || ok=0
-  printf '%s' "$out" | grep -q 'violating_flow_test.dart:3' || ok=0
-  printf '%s' "$out" | grep -q 'renamed_flow_test.dart:1'   || ok=0
-  printf '%s' "$out" | grep -q 'compliant_test.dart'        && ok=0
-  printf '%s' "$out" | grep -q 'exempt_test.dart'           && ok=0
+  grep -q -- 'violating_flow_test.dart:1' <<< "$out" || ok=0
+  grep -q -- 'violating_flow_test.dart:2' <<< "$out" || ok=0
+  grep -q -- 'violating_flow_test.dart:3' <<< "$out" || ok=0
+  grep -q -- 'renamed_flow_test.dart:1' <<< "$out"   || ok=0
+  grep -q -- 'compliant_test.dart' <<< "$out"        && ok=0
+  grep -q -- 'exempt_test.dart' <<< "$out"           && ok=0
 
   if [ "$ok" -ne 1 ]; then
     echo "SELF-TEST FAIL: expected exactly the 3 violating + 1 renamed sites"

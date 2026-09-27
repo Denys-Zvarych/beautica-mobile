@@ -549,50 +549,50 @@ EOF
   fi
 
   # --- the original eight assertions, unchanged in meaning ----------------
-  printf '%s\n' "$out" | grep -q "probe_a.dart:6:UNDECLARED:masterServiceCatalogProvider" ||
+  grep -q -- "probe_a.dart:6:UNDECLARED:masterServiceCatalogProvider" <<< "$out" ||
     fail "the UNDECLARED single-line reader (probe_a.dart:6,
                 probeUndeclared) was not flagged:"
-  printf '%s\n' "$out" | grep -q "probe_b.dart:1:UNDECLARED:servicesListProvider" ||
+  grep -q -- "probe_b.dart:1:UNDECLARED:servicesListProvider" <<< "$out" ||
     fail "the UNDECLARED MULTILINE reader (probe_b.dart:1,
                 probeMultilineWatch) was not flagged — a
                 'ref.watch(\n  fooProvider.future,\n)' shape is exactly what
                 a single-line grep misses:"
-  ! printf '%s\n' "$out" | grep -q "probe_a.dart:1:" ||
+  ! grep -q -- "probe_a.dart:1:" <<< "$out" ||
     fail "the DECLARED provider (probe_a.dart:1) was flagged:"
-  ! printf '%s\n' "$out" | grep -q "probe_b.dart:9:" ||
+  ! grep -q -- "probe_b.dart:9:" <<< "$out" ||
     fail "a MULTILINE 'dependencies:' annotation was not collapsed before
                 testing, so a correctly-declared provider was flagged:"
-  ! printf '%s\n' "$out" | grep -q "probe_b.dart:18:" ||
+  ! grep -q -- "probe_b.dart:18:" <<< "$out" ||
     fail "a provider naming a scoped provider only in a COMMENT and a STRING
                 was flagged — comments and string literals must be stripped
                 before matching:"
-  ! printf '%s\n' "$out" | grep -q "probe_widget.dart" ||
+  ! grep -q -- "probe_widget.dart" <<< "$out" ||
     fail "a WIDGET reader was flagged. A ConsumerWidget resolves against its
                 own ProviderScope ancestor and needs no 'dependencies:' —
                 every real reader outside the chain is one of these:"
-  ! printf '%s\n' "$out" | grep -q "probe_mixed.dart" ||
+  ! grep -q -- "probe_mixed.dart" <<< "$out" ||
     fail "a widget declared AFTER an annotated provider in the same file was
                 attributed to that provider — the declaration body must end at
                 its own closing brace:"
 
   # --- audit cycle 2: the three planted evasions -------------------------
-  printf '%s\n' "$out" | grep -q "probe_evasions.dart:1:UNRELATED:serviceRepositoryProvider" ||
+  grep -q -- "probe_evasions.dart:1:UNRELATED:serviceRepositoryProvider" <<< "$out" ||
     fail "EVASION 1 — a 'dependencies:' list that is PRESENT but never reaches
                 the scoped chain was not flagged. Riverpod treats it exactly
                 like no declaration at all:"
-  printf '%s\n' "$out" | grep -q "probe_evasions.dart:7:DRIFT:probeUnenrolledProvider" ||
+  grep -q -- "probe_evasions.dart:7:DRIFT:probeUnenrolledProvider" <<< "$out" ||
     fail "EVASION 3 — a declaration that JOINS the cascade without enrolling
                 in SCOPED_PROVIDERS was not flagged. Without this the list
                 rots and the NEXT provider to read it goes unchecked:"
-  ! printf '%s\n' "$out" | grep -q "probe_evasions.dart:7:UNRELATED\|probe_evasions.dart:7:UNDECLARED" ||
+  ! grep -q -- "probe_evasions.dart:7:UNRELATED\|probe_evasions.dart:7:UNDECLARED" <<< "$out" ||
     fail "the DRIFT probe declares [serviceRepository], so it must NOT also be
                 reported as UNRELATED/UNDECLARED — an intersecting list is a
                 valid declaration:"
-  printf '%s\n' "$out" | grep -q "probe_handrolled.dart:1:HANDWRITTEN:serviceRepositoryProvider" ||
+  grep -q -- "probe_handrolled.dart:1:HANDWRITTEN:serviceRepositoryProvider" <<< "$out" ||
     fail "EVASION 2 — a hand-rolled, non-codegen provider reading a scoped
                 provider was not flagged. It carries no annotation, so nothing
                 else in this gate looks at it:"
-  ! printf '%s\n' "$out" | grep -q "probe_handrolled.dart:6\|probe_handrolled.dart:7\|probe_handrolled.dart:8" ||
+  ! grep -q -- "probe_handrolled.dart:6\|probe_handrolled.dart:7\|probe_handrolled.dart:8" <<< "$out" ||
     fail "a FAMILY READ ('cityListProvider(id)') or a 'ProviderScope(' was
                 mistaken for a hand-rolled provider CONSTRUCTION — the
                 constructor set must be closed and word-anchored:"
@@ -600,7 +600,7 @@ EOF
   # [serviceRepository, ServicesList] and IS enrolled, so it must be silent on
   # both the UNRELATED and the DRIFT axis. Without this a gate that flagged
   # every declaration would satisfy the two positives above.
-  ! printf '%s\n' "$out" | grep -q "probe_b.dart:9:DRIFT\|probe_b.dart:9:UNRELATED" ||
+  ! grep -q -- "probe_b.dart:9:DRIFT\|probe_b.dart:9:UNRELATED" <<< "$out" ||
     fail "an ENROLLED provider with a RELATED 'dependencies:' list was flagged
                 — the UNRELATED/DRIFT checks must be silent on the real chain:"
 

@@ -303,7 +303,16 @@ pass2_scan() {
 owning_file_for() {
   local tree_root="$1" fam="$2"
   local gdart partof
-  gdart="$(grep -rl "name: r'${fam}'" "$tree_root/lib" --include='*.g.dart' 2>/dev/null | head -1)"
+  # `grep -rl ... | head -1` (pipe form) — not used here: under `set -o
+  # pipefail`, if grep matches more than one file, `head -1` closes the pipe
+  # after its first line and SIGPIPEs the still-writing grep, so the
+  # pipeline's reported exit status is grep's SIGPIPE (141), not head's 0 —
+  # which trips `set -e` and aborts the whole script even though `head`
+  # already captured the right value. Capture the full match list first
+  # (bounded read, no early-exiting downstream consumer), then take its
+  # first line via parameter expansion — no pipe left to SIGPIPE.
+  gdart="$(grep -rl "name: r'${fam}'" "$tree_root/lib" --include='*.g.dart' 2>/dev/null || true)"
+  gdart="${gdart%%$'\n'*}"
   [ -z "$gdart" ] && return 0
   partof="$(grep -m1 "^part of '" "$gdart" 2>/dev/null | sed -E "s/^part of '([^']+)';/\1/")"
   [ -z "$partof" ] && return 0
@@ -333,10 +342,14 @@ owning_file_for() {
 #   the gate's real signal.
 # ---------------------------------------------------------------------------
 is_keepalive_owner() {
-  local owner="$1"
+  local owner="$1" filtered
   [ -z "$owner" ] && return 1
   [ -f "$owner" ] || return 1
-  grep -Ev '^[[:space:]]*//' "$owner" 2>/dev/null | grep -q 'ref[.]keepAlive[(]'
+  # Same SIGPIPE-under-pipefail hazard as owning_file_for() above: capture
+  # the comment-stripped file first, then test it with a here-string so a
+  # genuine match can't be reported as pipeline failure.
+  filtered="$(grep -Ev '^[[:space:]]*//' "$owner" 2>/dev/null || true)"
+  grep -q 'ref[.]keepAlive[(]' <<< "$filtered"
 }
 
 # ---------------------------------------------------------------------------
@@ -564,13 +577,13 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q "probe_writer.dart:3:"; then
+  if ! grep -q -- "probe_writer.dart:3:" <<< "$out"; then
     echo "SELF-TEST FAIL: the KEYED cross-file invalidate (probe_writer.dart"
     echo "                line 3, unsafe()) was not flagged:"
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q "probe_writer.dart:7:"; then
+  if ! grep -q -- "probe_writer.dart:7:" <<< "$out"; then
     echo "SELF-TEST FAIL: the BARE-FAMILY cross-file invalidate"
     echo "                (probe_writer.dart line 7, bareUnsafe()) was not"
     echo "                flagged — a bare family invalidate is the ORIGINAL"
@@ -578,13 +591,13 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "probe_writer.dart:12:"; then
+  if grep -q -- "probe_writer.dart:12:" <<< "$out"; then
     echo "SELF-TEST FAIL: the // keepalive-safe: annotated line was flagged"
     echo "                anyway:"
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "probePlainProvider\|probe_writer.dart:17:"; then
+  if grep -q -- "probePlainProvider\|probe_writer.dart:17:" <<< "$out"; then
     echo "SELF-TEST FAIL: the PLAIN-autoDispose family's bare invalidate"
     echo "                (probe_writer.dart:17, plainFamilyBareInvalidate)"
     echo "                was flagged — is_keepalive_owner must exclude a"
@@ -596,13 +609,13 @@ EOF
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "probe_legacy_writer.dart"; then
+  if grep -q -- "probe_legacy_writer.dart" <<< "$out"; then
     echo "SELF-TEST FAIL: the path:line-allow-listed legacy writer was"
     echo "                flagged anyway:"
     printf '%s\n' "$out"
     exit 1
   fi
-  if printf '%s\n' "$out" | grep -q "probe_thing_notifier.dart"; then
+  if grep -q -- "probe_thing_notifier.dart" <<< "$out"; then
     echo "SELF-TEST FAIL: the OWNING file was flagged — self-invalidation"
     echo "                from the defining file must be excluded (that shape"
     echo "                belongs to forbid_provider_self_invalidation.sh):"
@@ -619,13 +632,13 @@ EOF
     find "$tmp/lib" -type f -name '*.dart' ! -name '*.g.dart' | sort
   )
   p1_out="$(pass1_scan "${p1_files[@]}")"
-  if ! printf '%s\n' "$p1_out" | grep -q "probe_screen.dart:5:probeThingProvider"; then
+  if ! grep -q -- "probe_screen.dart:5:probeThingProvider" <<< "$p1_out"; then
     echo "SELF-TEST FAIL: pass 1 did not discover the SINGLE-LINE local-var"
     echo "                watch (probe_screen.dart:5, buildOne):"
     printf '%s\n' "$p1_out"
     exit 1
   fi
-  if ! printf '%s\n' "$p1_out" | grep -q "probe_screen.dart:15:probeThingProvider"; then
+  if ! grep -q -- "probe_screen.dart:15:probeThingProvider" <<< "$p1_out"; then
     echo "SELF-TEST FAIL: pass 1 did not discover the MULTILINE local-var"
     echo "                watch (probe_screen.dart:15, buildThree) — this is"
     echo "                the confirmed bug's exact"
@@ -635,7 +648,7 @@ EOF
     printf '%s\n' "$p1_out"
     exit 1
   fi
-  if printf '%s\n' "$p1_out" | grep -q "otherThingProvider"; then
+  if grep -q -- "otherThingProvider" <<< "$p1_out"; then
     echo "SELF-TEST FAIL: pass 1 discovered the widget.key-keyed watch"
     echo "                (buildTwo) — that reads the immutable widget"
     echo "                config, not local mutable State, and must NOT be"

@@ -125,7 +125,7 @@ EOF
   flagged=""
   for snip in bad_value_of bad_prefixed bad_literal good_other_enum doc_only \
       unblocked api_enum_names; do
-    if printf '%s\n' "$out" | grep -q "/$snip.dart:"; then
+    if grep -q -- "/$snip.dart:" <<< "$out"; then
       flagged="$flagged $snip"
     fi
   done
