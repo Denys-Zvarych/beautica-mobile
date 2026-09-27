@@ -1917,9 +1917,13 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Phase 351 — booking shelf presence gated by master type, on EVERY tab.
+  // Phase 358 (was Phase 351) — booking shelf presence is NOT gated by master
+  // type; it shows on EVERY tab for EVERY resolved master. Phase 351 had
+  // narrowed this to INDEPENDENT_MASTER only, unasked — a regression the user
+  // reported ("why u remove the button to book directly from salon master
+  // profile? add it pls") and Phase 358 reverted.
   // ──────────────────────────────────────────────────────────────────────────
-  group('booking shelf tab gating (Phase 351)', () {
+  group('booking shelf tab gating (Phase 358)', () {
     Future<void> pumpFor(WidgetTester tester, MasterType type) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
@@ -1950,7 +1954,7 @@ void main() {
       }
     });
 
-    testWidgets('salon master — shelf absent on all 3 tabs', (tester) async {
+    testWidgets('salon master — shelf present on all 3 tabs', (tester) async {
       await pumpFor(tester, MasterType.salonMaster);
 
       for (final int i in const <int>[0, 1, 2]) {
@@ -1958,10 +1962,125 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('public-master-book-cta')),
-          findsNothing,
-          reason: 'tab $i must never show the booking shelf for a salon master',
+          findsOneWidget,
+          reason:
+              'tab $i must show the booking shelf for a salon master too '
+              '(Phase 358)',
         );
       }
     });
+
+    testWidgets('salonOwner — shelf present on all 3 tabs', (tester) async {
+      await pumpFor(tester, MasterType.salonOwner);
+
+      for (final int i in const <int>[0, 1, 2]) {
+        await tester.tap(find.byKey(Key('public-master-profile-tab-$i')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason:
+              'tab $i must show the booking shelf for a salon owner too '
+              '(Phase 358)',
+        );
+      }
+    });
+
+    testWidgets(
+      'salon master — shelf present AND Instagram/portfolio still hidden, '
+      'on the SAME resolved profile (Phase 358 must not have widened the '
+      'independent-only gates it left alone)',
+      (tester) async {
+        await pumpFor(tester, MasterType.salonMaster);
+        // Default tab (0, «Про майстра») is where Instagram + portfolio
+        // would render if the independent-only gate had regressed.
+
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason: 'the Phase 358 fix — shelf present for a salon master',
+        );
+        expect(
+          find.byKey(const Key('public-master-contact-instagram')),
+          findsNothing,
+          reason:
+              'Instagram stays independent-only — Phase 358 must not have '
+              'touched this pre-existing gate',
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsNothing,
+          reason:
+              'portfolio stays independent-only — Phase 358 must not have '
+              'touched this pre-existing gate',
+        );
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 358 — the CTA opens the real booking flow for a SALON master too,
+  // carrying the correct masterId. `RouteNames.bookingNew` never branches on
+  // `MasterType` (Phase 350 D4): services load via the public, type-agnostic
+  // `GET /masters/{id}/services`, and `CreateAppointmentRequest` needs only
+  // `masterId` + `masterServiceIds`.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('booking navigation — salon master (Phase 358)', () {
+    testWidgets(
+      'tapping «Записатись» on a salon master profile pushes bookingNew '
+      'with THAT master id',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        Object? capturedExtra;
+        final Master salonMaster = _stubMaster.copyWith(
+          type: MasterType.salonMaster,
+        );
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.bookingNew,
+              builder: (_, state) {
+                capturedExtra = state.extra;
+                return const Scaffold(body: Text('booking-stub'));
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((ref) => (salonMaster, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final cta = find.byKey(const Key('public-master-book-cta'));
+        expect(cta, findsOneWidget);
+
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        expect(find.text('booking-stub'), findsOneWidget);
+        expect(
+          capturedExtra,
+          _kMasterId,
+          reason:
+              'the salon master booking CTA must carry the SAME masterId '
+              'as the profile being viewed, as a bare String — the '
+              'existing ServiceSelectorSheet(masterId:) contract, no '
+              'salonId needed (Phase 350 D4).',
+        );
+      },
+    );
   });
 }

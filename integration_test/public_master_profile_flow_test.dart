@@ -62,6 +62,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
@@ -822,6 +823,67 @@ void main() {
             '"Додати опис" affordance in the About tab — that only exists '
             'on the master\'s OWN profile screens',
       );
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Flow G — Phase 358 (user report, verbatim: "why u remove the button to
+  // book directly from salon master profile? add it pls"): Phase 351 had
+  // (unasked) narrowed the pinned booking shelf to INDEPENDENT_MASTER only —
+  // this proves the fix end to end against a REAL SALON_MASTER wire response:
+  // the CTA renders, and tapping it opens the SAME booking flow
+  // (ServiceSelectorSheet) for THIS master, resolving THIS master's real
+  // catalogue via `GET /masters/master-aaa/services` — never the salon flow's
+  // own `SalonServiceSelectionScreen` step 1/step 2 (mirrors Phase 350 D4's
+  // rebook proof, but from the profile CTA rather than «Записатись знову»).
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT opens a SALON-master public profile → the booking shelf renders '
+    'and «Записатись» opens the SAME booking flow for THAT master',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..publicMasterTypeSalon = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      // fixed-wait-ok: settles the real async login/route-transition step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      // fixed-wait-ok: settles the real async route-push + provider-load step; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+
+      final Finder cta = find.byKey(const Key('public-master-book-cta'));
+      expect(
+        cta,
+        findsOneWidget,
+        reason:
+            'Phase 358 — the booking shelf must render for a resolved '
+            'SALON_MASTER too, not just INDEPENDENT_MASTER',
+      );
+
+      await tester.tap(cta);
+      // fixed-wait-ok: settles the real async route-push + provider-load step after the tap; not a total-wait guess.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      AppHarness.expectLocation(router, RouteNames.bookingNew);
+      expect(
+        find.byType(ServiceSelectorSheet),
+        findsOneWidget,
+        reason:
+            'the SAME booking flow the independent-master CTA opens — no '
+            'salon-flow detour (mirrors Phase 350 D4 for the rebook CTA)',
+      );
+      expect(find.byType(SalonServiceSelectionScreen), findsNothing);
+
+      // The resolved catalogue is genuinely THIS master's — a real
+      // GET /masters/master-aaa/services round trip carrying its id, not a
+      // salon-scoped fetch.
+      expect(fb.lastGetPublicMasterServicesId, 'master-aaa');
+      expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );

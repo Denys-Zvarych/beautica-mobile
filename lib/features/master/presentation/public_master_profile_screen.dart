@@ -6,7 +6,8 @@
 //   • NO edit button — the top-right action is a favourite (heart) toggle;
 //   • contacts = Instagram only (no phone/dialer tile);
 //   • a pinned camel-wash booking shelf holding a single «Записатись до
-//     майстра» CTA (no section label) — INDEPENDENT_MASTER only.
+//     майстра» CTA (no section label) — shown for EVERY resolved master,
+//     independent or salon-affiliated (Phase 358 restored this; see below).
 //
 // Phase 351 (Qase defect #21, "option D") — this screen now applies to BOTH
 // independent and salon masters (one screen, `master.type` still gates every
@@ -33,6 +34,20 @@
 // ProfileScaffold / ProfileAvatar / RoleChip / ContactTile widgets, plus (Phase
 // 351) the salon profile's [ProfileTabBar] and the shared
 // [ProfileTabSelection] card-to-tab mixin.
+//
+// Phase 358 (user report, verbatim: "why u remove the button to book directly
+// from salon master profile? add it pls") — Phase 351's scope table narrowed
+// `_BookingShelf` to INDEPENDENT_MASTER only, without being asked to; that was
+// a regression against the pre-351 screen, which showed the shelf for EVERY
+// resolved master (`data: (_) => _BookingShelf(...)`). Restored: the shelf now
+// renders for a salon-affiliated master too. The CTA already worked end to
+// end for a salon master before this fix — `RouteNames.bookingNew` /
+// `ServiceSelectorSheet` never branch on `MasterType` (Phase 350 D4 proved
+// this for the rebook CTA: services load via the public, type-agnostic
+// `GET /masters/{id}/services`, and `CreateAppointmentRequest` needs only
+// `masterId` + `masterServiceIds`) — only the visibility gate on THIS screen
+// was wrong. Instagram/portfolio stay independent-only — unchanged, see
+// `_AboutTab`.
 
 import 'dart:developer';
 
@@ -197,14 +212,12 @@ class _PublicMasterProfileScreenState
       title: l10n.publicMasterProfileTitle,
       trailing: _FavoriteToggleButton(masterId: widget.masterId),
       // The booking shelf is only meaningful once the master has resolved —
-      // and (Phase 351 scope table) ONLY for an INDEPENDENT_MASTER; a
-      // salon-affiliated master shows no shelf on any tab, mirroring the
-      // salon profile's own booking flow entry points.
+      // shown for EVERY resolved master, independent or salon-affiliated
+      // (Phase 358 — restores the pre-351 behaviour; `RouteNames.bookingNew`
+      // works end to end for a salon master, see the file header's Phase 358
+      // note).
       bottomNavBar: async.maybeWhen(
-        data: (PublicMasterProfileData data) =>
-            data.$1.type == MasterType.independentMaster
-            ? _BookingShelf(masterId: widget.masterId)
-            : null,
+        data: (_) => _BookingShelf(masterId: widget.masterId),
         orElse: () => null,
       ),
       child: async.when(

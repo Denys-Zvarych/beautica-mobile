@@ -11,6 +11,14 @@
 //   • independent × Reviews (tab 2 — MasterReviewsBody inline)
 //   • salon master × About with bio (no portfolio/Instagram — gated off)
 //   • salon master × About empty (muted publicMasterAboutEmpty text)
+//
+// Phase 358 — Phase 351 had (unasked) narrowed the pinned «Записатись до
+// майстра» booking shelf to INDEPENDENT_MASTER only; the user reported the
+// regression and it was reverted, so the shelf is back in EVERY frame,
+// including both salon-master scenarios above. Only the 12 salon-master
+// PNGs (`*_salon_about_{bio,empty}_*`) moved; the three independent
+// scenarios were unaffected (the shelf already rendered for them) and were
+// NOT regenerated.
 
 import 'package:alchemist/alchemist.dart' show PumpWidget;
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';

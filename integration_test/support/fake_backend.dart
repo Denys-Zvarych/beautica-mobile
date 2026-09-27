@@ -3003,6 +3003,18 @@ final class FakeBackend {
   /// untouched.
   bool publicMasterBioSuppressed = false;
 
+  /// Phase 358 — when `true`, `master-aaa`'s public detail wires
+  /// `masterType: 'SALON_MASTER'` instead of the default `INDEPENDENT_MASTER`,
+  /// so a CLIENT-facing flow can drive the public-profile «Записатись до
+  /// майстра» CTA for a salon-affiliated master end to end (the shelf used to
+  /// be independent-only; Phase 358 restored it for every master type — see
+  /// `public_master_profile_screen.dart`'s file header). Defaults to `false`;
+  /// every pre-existing flow that expects an INDEPENDENT_MASTER is untouched.
+  /// Address fields stay wired regardless (unlike the real backend, which
+  /// nulls them for a salon master — see [publicMasterAddressSuppressed] for
+  /// that seam) because no flow using this flag asserts on the address.
+  bool publicMasterTypeSalon = false;
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
@@ -3025,7 +3037,7 @@ final class FakeBackend {
     'reviewCount': publicMasterReviewLanded
         ? kPublicMasterReviewCountAfterReview
         : kPublicMasterReviewCountBeforeReview,
-    'masterType': 'INDEPENDENT_MASTER',
+    'masterType': publicMasterTypeSalon ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
   });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
