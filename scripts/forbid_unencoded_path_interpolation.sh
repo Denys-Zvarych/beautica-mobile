@@ -478,13 +478,13 @@ DART
 
   fails=0
   assert_hit() {
-    if ! printf '%s\n' "$out" | grep -q "$1"; then
+    if ! grep -q -- "$1" <<< "$out"; then
       echo "SELF-TEST FAIL: expected a hit matching '$1'" >&2
       fails=1
     fi
   }
   assert_miss() {
-    if printf '%s\n' "$out" | grep -q "$1"; then
+    if grep -q -- "$1" <<< "$out"; then
       echo "SELF-TEST FAIL: unexpected hit matching '$1'" >&2
       fails=1
     fi

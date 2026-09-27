@@ -78,6 +78,13 @@ jobs:
         # AppConfig.baseUrl never carries an /api/v1 prefix and the generated
         # client paths resolve to a SINGLE /api/v1/ segment (no double-prefix).
         # Run locally with:  ./scripts/regenerate_api.sh --check
+        #
+        # timeout-minutes (2026-09-27, PR #73): the `validate` job carries no
+        # job-level timeout (GitHub default 6h), and this step's first-run
+        # openapi_generator_cli JAR download can stall — job 108694409797's
+        # PR-event run sat here >27min while the push run on the SAME commit
+        # finished it in 63s. Fail fast instead of burning the 6h default.
+        timeout-minutes: 10
         run: ./scripts/regenerate_api.sh --check
 
       - name: Format check

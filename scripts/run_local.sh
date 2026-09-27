@@ -48,7 +48,12 @@ BASE_URL="${BEAUTICA_BASE_URL:-http://localhost:8080}"
 # Without this, the app boots, fails to reach the backend, and shows a silent
 # "No internet connection" — the exact regression this guards against.
 # ------------------------------------------------
-if ! adb devices | grep -qE "\sdevice$"; then
+# Capture first (not `adb devices | grep -qE ...`): under `set -o pipefail`,
+# `grep -q` can SIGPIPE `adb` before it finishes and get the pipeline's exit
+# status wrongly reported as the SIGPIPE, not the match — see
+# forbid_host_local_instant_anchor.sh for the full mechanism.
+adb_devices_out="$(adb devices)"
+if ! grep -qE -- "\sdevice$" <<< "$adb_devices_out"; then
   echo "ERROR: No online ADB device found." >&2
   echo "" >&2
   echo "Fix this before launching:" >&2

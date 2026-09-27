@@ -147,10 +147,10 @@ EOF
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
 
   if [ "$flagged" -ne 4 ] ||
-    ! printf '%s' "$out" | grep -q 'leaky_test.dart:1' ||
-    ! printf '%s' "$out" | grep -q 'leaky_e2e_test.dart:1' ||
-    ! printf '%s' "$out" | grep -q 'leaky_board.dart:1' ||
-    ! printf '%s' "$out" | grep -q 'leaky_salon_e2e_test.dart:1'; then
+    ! grep -q -- 'leaky_test.dart:1' <<< "$out" ||
+    ! grep -q -- 'leaky_e2e_test.dart:1' <<< "$out" ||
+    ! grep -q -- 'leaky_board.dart:1' <<< "$out" ||
+    ! grep -q -- 'leaky_salon_e2e_test.dart:1' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the .masterOwn( offenders (leaky_test.dart,"
     echo "                leaky_e2e_test.dart) AND the .salon( offenders"
     echo "                (leaky_board.dart, leaky_salon_e2e_test.dart) flagged"
@@ -179,9 +179,9 @@ if [ -n "$offenders" ]; then
   # Both are derived from what was really matched.
   hit_master=0
   hit_salon=0
-  printf '%s\n' "$offenders" | grep -q 'BookingsDayQuery\.masterOwn(' &&
+  grep -q -- 'BookingsDayQuery\.masterOwn(' <<< "$offenders" &&
     hit_master=1
-  printf '%s\n' "$offenders" | grep -q 'BookingsDayQuery\.salon(' && hit_salon=1
+  grep -q -- 'BookingsDayQuery\.salon(' <<< "$offenders" && hit_salon=1
 
   if [ "$hit_master" -eq 1 ] && [ "$hit_salon" -eq 1 ]; then
     named='BookingsDayQuery.masterOwn( and BookingsDayQuery.salon('

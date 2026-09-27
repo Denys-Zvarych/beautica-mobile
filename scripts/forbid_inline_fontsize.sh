@@ -93,7 +93,7 @@ EOF
   out="$(run_scan "$tmp/lib/features" "$tmp/allow")"
   flagged="$(printf '%s\n' "$out" | grep -c . || true)"
 
-  if [ "$flagged" -ne 1 ] || ! printf '%s' "$out" | grep -q 'good.dart:2'; then
+  if [ "$flagged" -ne 1 ] || ! grep -q -- 'good.dart:2' <<< "$out"; then
     echo "SELF-TEST FAIL: expected exactly line 2 flagged, got:"
     printf '%s\n' "$out"
     exit 1

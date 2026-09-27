@@ -144,17 +144,17 @@ if [ "${1:-}" = "--self-test" ]; then
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q ':1:'; then
+  if ! grep -q -- ':1:' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the raw unannotated finder (line 1) to be flagged"
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q ':11:'; then
+  if ! grep -q -- ':11:' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the finder separated from its annotation by real code (line 11) to be flagged"
     printf '%s\n' "$out"
     exit 1
   fi
-  if ! printf '%s\n' "$out" | grep -q ':14:'; then
+  if ! grep -q -- ':14:' <<< "$out"; then
     echo "SELF-TEST FAIL: expected the SECOND finder in an annotated group (line 14), not covered by the annotation above the first, to be flagged"
     printf '%s\n' "$out"
     exit 1

@@ -191,7 +191,7 @@ abstract final class VelvetText {
 }
 EOF
   out_a="$(scan "$tmp" "$tmp_allow")"
-  if ! printf '%s\n' "$out_a" | grep -qF "RULE-A"; then
+  if ! grep -qF -- "RULE-A" <<< "$out_a"; then
     echo "SELF-TEST FAIL: expected a RULE-A offender for the reintroduced masterBookingsTitle token"
     fail=1
   fi
@@ -210,7 +210,7 @@ title: Text(title, style: VelvetText.heading()),
 Text(label, style: VelvetText.subheading()),
 EOF
   out_b="$(scan "$tmp" "$tmp_allow")"
-  if ! printf '%s\n' "$out_b" | grep -qF "RULE-B (title call site not on VelvetText.pageTitle — found VelvetText.heading): lib/features/services/presentation/services_list_screen.dart"; then
+  if ! grep -qF -- "RULE-B (title call site not on VelvetText.pageTitle — found VelvetText.heading): lib/features/services/presentation/services_list_screen.dart" <<< "$out_b"; then
     echo "SELF-TEST FAIL: expected a RULE-B offender for services_list_screen.dart repointed at heading()"
     echo "--- got ---"
     printf '%s\n' "$out_b"
@@ -218,7 +218,7 @@ EOF
   fi
   # The sibling subheading() line (a legitimate OTHER use) must NOT be
   # flagged by Rule B — proves the anchor is scoped to the `title,` site.
-  if printf '%s\n' "$out_b" | grep -qF "VelvetText.subheading"; then
+  if grep -qF -- "VelvetText.subheading" <<< "$out_b"; then
     echo "SELF-TEST FAIL: Rule B flagged an unrelated VelvetText.subheading() call — anchor is too broad"
     fail=1
   fi
