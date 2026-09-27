@@ -3,7 +3,7 @@
 // Owns every field collected across the four-pill registration wizard:
 //   • Step 1 (Account)       — email + password + confirmPassword
 //   • Step 2 (Profile)       — firstName + lastName + phone + salonName
-//   • Step 3 (Address)       — oblastCode + cityId + districtId + street/...
+//   • Step 3 (Address)       — cityId + districtId + street/...
 //
 // One [RegisterDraft] is created when the user picks a role on the
 // role-selection screen and cleared on /done arrival or on logout. Persists
@@ -38,10 +38,14 @@ sealed class RegisterDraft with _$RegisterDraft {
     // Step 3 — Address.
     // Locality IDs are backend UUIDs (String), NOT ints — they mirror the
     // location domain models (Oblast/City/CityDistrict all use String ids).
-    // [oblastCode] holds the chosen oblast's UUID id (used to fetch cities and
-    // re-hydrate the picker on "← Назад"); [cityId] / [districtId] hold the
-    // chosen city / district UUIDs submitted to the profile/salon endpoints.
-    String? oblastCode,
+    // Phase 346 — `oblastCode` is GONE. It only ever existed to fetch the
+    // cascade's city list and re-hydrate its oblast picker on "← Назад". It
+    // was never submitted to any endpoint.
+    // [cityId] / [districtId] hold the chosen settlement / district UUIDs.
+    // Step 3 WRITES them on submit, and `_persistPendingLocality` READS them to
+    // build the durable `PendingLocality` blob submitted after OTP. Step 3 does
+    // NOT read them back: re-entering the screen starts with an empty
+    // settlement field (the draft holds no display label to seed it with).
     String? cityId,
     String? districtId,
     @Default('') String street,

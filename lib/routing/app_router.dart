@@ -75,7 +75,6 @@ import '../features/master/domain/master.dart';
 import '../features/master/presentation/contacts_edit_screen.dart';
 import '../features/master/presentation/location_edit_screen.dart';
 import '../features/master/presentation/master_profile_screen.dart';
-import '../features/master/presentation/master_received_reviews_screen.dart';
 import '../features/master/presentation/personal_info_edit_screen.dart';
 import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
@@ -934,12 +933,15 @@ GoRouter appRouter(Ref ref) {
           masterId: state.pathParameters['masterId'] ?? '',
         ),
       ),
-      // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Pushed
-      // from the public master profile's «Відгуки» stat tile. Same
-      // lifecycle/guard as `/masters/:masterId` above — CLIENT-guarded,
-      // in-app-push-only. Deliberately NOT `RouteNames.masterReceivedReviews`
-      // (param-less, always resolves the AUTHENTICATED master's own
-      // reviews) — this route carries the target masterId as a path param so
+      // Phase 4.x — Public master reviews (CLIENT-facing, read-only). Kept
+      // (D7) for its OTHER consumers (`booking_counterparty_header.dart`,
+      // `leave_review_screen.dart`, `booking_confirm_screen.dart`) — the
+      // public master profile itself no longer pushes it (Phase 351: reviews
+      // render inline in its own «Відгуки» tab). Same lifecycle/guard as
+      // `/masters/:masterId` above — CLIENT-guarded, in-app-push-only. This
+      // route carries the target masterId as a path param — distinct from
+      // the deleted param-less own-master reviews route (D11), which always
+      // resolved the AUTHENTICATED master's own reviews — so
       // `PublicMasterReviewsScreen` queries the correct master's reviews.
       GoRoute(
         path: '/masters/:masterId/reviews',
@@ -1081,6 +1083,54 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.adminOwnProfile,
         redirect: salonAdminOnlyGuard,
         builder: (context, state) => const AdminOwnProfileScreen(),
+      ),
+      // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN own-profile settings
+      // hub. REUSE-FIRST: the SAME [SettingsHubScreen] widget
+      // `RouteNames.masterMenu`/`RouteNames.salonMasterSettings` render, via
+      // its additive `showLocation`/`fallbackHomeRoute` params — see that
+      // widget's own class doc. «Акаунт» still pushes [RouteNames.settings]
+      // unchanged, where «Видалити акаунт» stays at the bottom exactly as
+      // before this fix.
+      //
+      // Phase 356 — «Особисті дані» / «Контакти» are now LIVE: routed to
+      // the two admin edit leaves below via `personalInfoRoute`/
+      // `contactsRoute` (the additive `contactsEnabled` param stays at its
+      // `true` default — `personalInfoEnabled` no longer exists at all,
+      // removed audit-fix cycle 1, 2026-09-26, once no caller ever passed it
+      // `false`; the «Особисті дані» row is now unconditionally live).
+      GoRoute(
+        path: RouteNames.adminSettings,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) => const SettingsHubScreen(
+          showLocation: false,
+          personalInfoRoute: RouteNames.adminEditPersonal,
+          contactsRoute: RouteNames.adminEditContacts,
+          fallbackHomeRoute: RouteNames.adminOwnProfile,
+        ),
+      ),
+      // Phase 356 — «Особисті дані» edit for a SALON_ADMIN. REUSES
+      // [ClientPersonalInfoEditScreen] VERBATIM via its additive `doneRoute`
+      // param (`RouteNames.adminSettings` — saving returns to the admin hub,
+      // not the CLIENT default). See `RouteNames.adminEditPersonal`'s own
+      // doc for why this is a new top-level sibling rather than a reuse of
+      // `RouteNames.clientEditPersonal` (the `/client/*` role gate in
+      // `auth_redirect.dart` would bounce a SALON_ADMIN off it).
+      GoRoute(
+        path: RouteNames.adminEditPersonal,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) => const ClientPersonalInfoEditScreen(
+          doneRoute: RouteNames.adminSettings,
+        ),
+      ),
+      // Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. REUSES
+      // [ClientContactsEditScreen] VERBATIM (Instagram already removed from
+      // that screen) via the same additive `doneRoute` param. See
+      // `RouteNames.adminEditContacts`'s own doc.
+      GoRoute(
+        path: RouteNames.adminEditContacts,
+        redirect: salonAdminOnlyGuard,
+        builder: (context, state) =>
+            const ClientContactsEditScreen(doneRoute: RouteNames.adminSettings),
       ),
       GoRoute(
         path: '/salons/:salonId',
@@ -1474,6 +1524,13 @@ GoRouter appRouter(Ref ref) {
       // every existing call site keeps working verbatim — this is the "add a
       // pre-selection argument rather than forking the flow" seam, not a
       // second route.
+      //
+      // Phase 350 — [BookingEntryArgs.autoAdvance] forwards straight through
+      // to `ServiceSelectorSheet.autoAdvance` (additive field, default
+      // `true`). The wish-list caller never sets it (stays `true`, skips Step
+      // 1 exactly as before); the past-booking «Записатись знову» CTA
+      // (`booking_detail_screen.dart`'s `_onRebook`) sets it `false`, landing
+      // on Step 1 with the service pre-checked but editable.
       GoRoute(
         path: RouteNames.bookingNew,
         redirect: (context, state) {
@@ -1494,7 +1551,7 @@ GoRouter appRouter(Ref ref) {
             return ServiceSelectorSheet(
               masterId: extra.masterId,
               initialServiceId: extra.preselectedServiceId,
-              autoAdvance: true,
+              autoAdvance: extra.autoAdvance,
             );
           }
           return ServiceSelectorSheet(masterId: extra! as String);
@@ -2158,13 +2215,31 @@ GoRouter appRouter(Ref ref) {
         path: RouteNames.masterEditLocation,
         builder: (context, state) => const LocationEditScreen(),
       ),
-      // Phase 4.6 — Master received-reviews («Мої відгуки»). Pushed from the
-      // profile "Відгуки" stat tile. MaterialPage (builder:) so the theme's
-      // CupertinoPageTransitionsBuilder installs the left-edge swipe-back
-      // gesture, matching the sibling /master/* sub-routes above.
+      // mobile-security LOW (Phase 351 audit-fix cycle 1) — the deleted
+      // `/master/received-reviews` route («Мої відгуки», the old
+      // `RouteNames.masterReceivedReviews` / `MasterReceivedReviewsScreen`,
+      // D11) used to fall through to go_router's generic not-found page for
+      // any stale bookmark / deep link / push notification carrying the old
+      // path. Redirect the exact legacy literal to
+      // [RouteNames.masterProfile] — the SAME screen the deleted route's
+      // content now lives on inline (its «Відгуки» tab, D15). No new
+      // deep-link scheme is invented: there is no existing `?tab=`
+      // mechanism to pre-select a tab (`ProfileTabSelection` always opens on
+      // «Про майстра»), so this lands on the profile itself, not a specific
+      // tab.
+      //
+      // A `redirect:`-only `GoRoute` (no `builder:`) is valid — go_router's
+      // own assertion only requires ONE of `redirect`/`builder`/`pageBuilder`
+      // (see `GoRoute`'s constructor asserts). Returning a new location
+      // re-enters the FULL router redirect chain, including the top-level
+      // `authRedirect` at the top of this function — so an unauthenticated
+      // session still lands on `/login`, and any role OTHER than
+      // INDEPENDENT_MASTER still lands on its OWN role home, exactly as it
+      // already does for every other `/master/*` path. This grants no access
+      // the `/master/*` prefix didn't already grant.
       GoRoute(
-        path: RouteNames.masterReceivedReviews,
-        builder: (context, state) => const MasterReceivedReviewsScreen(),
+        path: '/master/received-reviews',
+        redirect: (context, state) => RouteNames.masterProfile,
       ),
       // SALON_MASTER's own personal-profile surface — fixes the "blank home"
       // landing bug (see `role_home.dart`). `builder:` (MaterialPage), not

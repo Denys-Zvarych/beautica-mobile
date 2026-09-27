@@ -21,8 +21,9 @@ import 'uk_calendar.dart';
 String weeklyScheduleSummary(
   List<WeeklySchedule> schedules,
   DateTime today,
-  String notSetLabel,
-) {
+  String notSetLabel, {
+  String? variedHoursLabel,
+}) {
   final WeeklySchedule? active = _activeTemplate(schedules, today);
   if (active == null) return notSetLabel;
 
@@ -31,7 +32,51 @@ String weeklyScheduleSummary(
       .toList(growable: false);
   if (working.isEmpty) return notSetLabel;
 
-  return '${_dayRangeLabel(working)} · ${_hoursLabel(working)}';
+  // Qase defect #36 (case 88) — [_hoursLabel] reduces the whole week to ONE
+  // min-max span, so Mon 09:00-14:00 + Tue 15:00-20:00 rendered as
+  // «Пн-Вт · 09:00-20:00»: hours the owner never set, on days they never set
+  // them. When the working days do not agree, say so instead of inventing a
+  // span that is wrong for every one of them.
+  //
+  // ADDITIVE (CLAUDE.md): [variedHoursLabel] is optional and a caller that
+  // omits it keeps the legacy min-max span byte-for-byte, so no existing
+  // call site changes behaviour by upgrading past this commit.
+  final String hours = (variedHoursLabel != null && _hoursVary(working))
+      ? variedHoursLabel
+      : _hoursLabel(working);
+
+  return '${_dayRangeLabel(working)} · $hours';
+}
+
+/// Whether [working] disagrees about its hours — the guard behind
+/// [weeklyScheduleSummary]'s `variedHoursLabel`.
+///
+/// Compares each day's canonical hours SIGNATURE rather than its min-max
+/// span: two days can share a span and still differ (09:00-12:00 + 14:00-18:00
+/// against one flat 09:00-18:00), and a day carrying discrete times never
+/// agrees with one carrying intervals. A single working day can never vary.
+bool _hoursVary(List<TemplateDay> working) {
+  if (working.length < 2) return false;
+  final String first = _hoursSignature(working.first);
+  return working.any((TemplateDay d) => _hoursSignature(d) != first);
+}
+
+/// A day's hours as a comparable string. INTERVAL days are keyed on their
+/// interval list, EXPLICIT_TIMES days on their discrete times — the same
+/// precedence [_hoursLabel] applies, so the two functions can never disagree
+/// about which half of a day they are reading.
+String _hoursSignature(TemplateDay day) {
+  if (day.intervals.isNotEmpty) {
+    final List<String> parts = <String>[
+      for (final WorkInterval i in day.intervals)
+        '${formatTime(i.start)}-${formatTime(i.end)}',
+    ]..sort();
+    return 'i:${parts.join(',')}';
+  }
+  final List<String> times = <String>[
+    for (final TimeOfDay t in day.times) formatTime(t),
+  ]..sort();
+  return 't:${times.join(',')}';
 }
 
 /// The template whose `[validFrom, validTo]` window covers [today], or —

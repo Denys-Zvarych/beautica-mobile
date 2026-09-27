@@ -217,6 +217,9 @@ class RegisterRequestRoleEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON_OWNER')
   static const RegisterRequestRoleEnum SALON_OWNER =
       _$registerRequestRoleEnum_SALON_OWNER;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const RegisterRequestRoleEnum unknownDefaultOpenApi =
+      _$registerRequestRoleEnum_unknownDefaultOpenApi;
 
   static Serializer<RegisterRequestRoleEnum> get serializer =>
       _$registerRequestRoleEnumSerializer;

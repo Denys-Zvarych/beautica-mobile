@@ -50,6 +50,7 @@ class ManagementActionCard extends StatelessWidget {
     this.enabled = true,
     this.emphasis = false,
     this.loading = false,
+    this.valueColor,
   });
 
   final IconData icon;
@@ -75,6 +76,13 @@ class ManagementActionCard extends StatelessWidget {
   /// treatment — every caller that omits it renders exactly per the
   /// approved design.
   final bool loading;
+
+  /// Additive, defaults `null` — every existing caller keeps
+  /// [VelvetText.managementCardValue]'s own colour. Set this to flag a
+  /// genuinely-empty value (e.g. «Не задано» / «Ще немає») in
+  /// [BrandColors.error] rather than forking a red variant of this card —
+  /// the label line is never recoloured, only the value.
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
@@ -163,7 +171,9 @@ class ManagementActionCard extends StatelessWidget {
           Text(
             value,
             key: kManagementActionCardValueKey,
-            style: VelvetText.managementCardValue,
+            style: valueColor == null
+                ? VelvetText.managementCardValue
+                : VelvetText.managementCardValue.copyWith(color: valueColor),
             // Three is HEADROOM, not a line the shipped copy uses: MEASURED
             // (probe, 2026-09-14) at the shipped 12 sp, the longest realistic
             // summary («Пн, Ср, Пт · 10:00–19:00») advances 182.0 dp into the

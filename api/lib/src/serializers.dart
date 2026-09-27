@@ -43,6 +43,8 @@ import 'package:beautica_api/src/model/api_response_list_salon_master_effective_
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/api_response_list_schedule_override_response.dart';
+import 'package:beautica_api/src/model/api_response_list_search_suggestion_response.dart';
+import 'package:beautica_api/src/model/api_response_list_settlement_search_response.dart';
 import 'package:beautica_api/src/model/api_response_list_sibling_salon_option.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
@@ -211,8 +213,11 @@ import 'package:beautica_api/src/model/salon_service_category_group.dart';
 import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
+import 'package:beautica_api/src/model/search_suggestion_request.dart';
+import 'package:beautica_api/src/model/search_suggestion_response.dart';
 import 'package:beautica_api/src/model/service_definition_response.dart';
 import 'package:beautica_api/src/model/service_summary_dto.dart';
+import 'package:beautica_api/src/model/settlement_search_response.dart';
 import 'package:beautica_api/src/model/sibling_salon_option.dart';
 import 'package:beautica_api/src/model/sort_object.dart';
 import 'package:beautica_api/src/model/status_update_request.dart';
@@ -271,6 +276,8 @@ part 'serializers.g.dart';
   ApiResponseListSalonResponse,
   ApiResponseListSalonStaffMemberResponse,
   ApiResponseListScheduleOverrideResponse,
+  ApiResponseListSearchSuggestionResponse,
+  ApiResponseListSettlementSearchResponse,
   ApiResponseListSiblingSalonOption,
   ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
@@ -439,8 +446,11 @@ part 'serializers.g.dart';
   SalonStaffMemberResponse,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,
+  SearchSuggestionRequest,
+  SearchSuggestionResponse,
   ServiceDefinitionResponse,
   ServiceSummaryDto,
+  SettlementSearchResponse,
   SiblingSalonOption,
   SortObject,
   StatusUpdateRequest,

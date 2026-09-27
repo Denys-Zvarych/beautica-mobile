@@ -423,6 +423,31 @@ class StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget card = NeumorphicCard(
+      padding: const EdgeInsets.symmetric(
+        vertical: VelvetSpacing.xs,
+        horizontal: VelvetSpacing.xs,
+      ),
+      radius: VelvetRadii.field + 2,
+      shadows: VelvetShadows.extrudedSmall,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            iconWidget ?? Icon(icon, size: 18, color: iconColor),
+            const SizedBox(height: VelvetSpacing.xs),
+            Text(value, key: valueKey, style: VelvetText.statValue()),
+            const SizedBox(height: 1),
+            Text(
+              caption,
+              style: VelvetText.statCaption(),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+
     return Semantics(
       label: _semanticsLabel(context),
       // The value/caption [Text]s below otherwise MERGE into this node and get
@@ -432,30 +457,7 @@ class StatTile extends StatelessWidget {
       // Excluding the descendants leaves exactly the composed label. Affects
       // the semantics tree ONLY — the rendered widget subtree is untouched.
       excludeSemantics: true,
-      child: NeumorphicCard(
-        padding: const EdgeInsets.symmetric(
-          vertical: VelvetSpacing.xs,
-          horizontal: VelvetSpacing.xs,
-        ),
-        radius: VelvetRadii.field + 2,
-        shadows: VelvetShadows.extrudedSmall,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              iconWidget ?? Icon(icon, size: 18, color: iconColor),
-              const SizedBox(height: VelvetSpacing.xs),
-              Text(value, key: valueKey, style: VelvetText.statValue()),
-              const SizedBox(height: 1),
-              Text(
-                caption,
-                style: VelvetText.statCaption(),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
+      child: card,
     );
   }
 }

@@ -34,6 +34,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -54,11 +55,13 @@ import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -276,6 +279,16 @@ class _FakeLocationRepository implements LocationRepository {
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
       const <CityDistrict>[_heroDistrict];
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// Always throws on `fetchOblasts` — proves a resolution FAILURE (caught
@@ -291,6 +304,16 @@ class _ThrowingLocationRepository implements LocationRepository {
   @override
   Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
       const <CityDistrict>[];
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 class _StubAuthNotifier extends AuthNotifier {
@@ -1487,6 +1510,33 @@ void main() {
       );
     });
 
+    // Audit 2026-09-24 (MEDIUM) — the taxonomy lookup resolves CITY-type
+    // settlements only, so a village salon's hero address had NO locality.
+    testWidgets('a village salon renders its prefixed name (no oblast) ahead '
+        'of the street', (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      final repo = FakeSalonRepository(
+        salon: _stubSalonTaxonomyOnly.copyWith(
+          cityId: 'v-ivanivka',
+          city: 'Іванівка',
+          region: 'Полтавська',
+          citySettlementType: 'VILLAGE',
+          street: 'вул. Шевченка',
+          buildingNo: '7',
+        ),
+      );
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _overridesWithLocation(repo, _FakeLocationRepository()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('salon-manage-address'))).data,
+        '${uk.settlementVillagePrefix} Іванівка, вул. Шевченка, 7',
+      );
+    });
+
     testWidgets(
       'a salon with locationNote renders the note row beneath the address',
       (tester) async {
@@ -1834,6 +1884,25 @@ void main() {
           findsOneWidget,
         );
         expect(find.text(l10nOf(tester).salonAboutEmpty), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'empty description, OWNER — the add-link node is the PROMOTED shared '
+      '`AddLink` (not a coincidentally-identical private widget)',
+      (tester) async {
+        // Phase 351 gap-fix (mobile-qa, 2026-09-25) — mirrors the resolved-TYPE
+        // pin already written for `addInstagram` (-> `ContactTile`) above. A
+        // bare `find.byKey(...)` cannot distinguish `AddLink` from any other
+        // widget carrying the same key, which is exactly the gap that let a
+        // private-widget swap pass unnoticed before. `AddLink` was PROMOTED
+        // verbatim from this screen's own private `_AddLink` (Phase 351,
+        // `lib/shared/widgets/add_link.dart`'s doc comment) — this pins the
+        // TYPE now shared with the master-profile «Додати опис» call sites so
+        // a future edit to one cannot silently diverge from the other without
+        // this test noticing.
+        await pumpAs(tester, _stubSalon.copyWith(description: null));
+        expect(tester.widget(addDescription), isA<AddLink>());
       },
     );
 

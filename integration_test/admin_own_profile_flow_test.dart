@@ -62,12 +62,17 @@
 // 21.14 F3 follow-up both name. `instagram` is still deliberately absent.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/home/presentation/client_contacts_edit_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -75,6 +80,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 /// `_adminUserJson.salonId` — the ONLY salon a SALON_ADMIN can ever resolve to
@@ -232,14 +238,18 @@ void main() {
               'salonManagementProfileProvider — this is what proves an admin '
               'may actually call GET /salons/{id} for their own salon.',
         );
+        final AppLocalizations uk = await AppLocalizations.delegate.load(
+          const Locale('uk'),
+        );
         expect(
           _textOf(tester, 'salon-affiliation-card-locality'),
-          _kAdminSalonCity,
+          '${uk.settlementCityPrefix} $_kAdminSalonCity',
           reason:
-              'the address line is three chained wire reads deep '
-              '(/salons/{id} -> /locations/oblasts -> .../cities). Every '
-              'widget-tier fixture blanks cityId and short-circuits the whole '
-              'cascade, so this is its ONLY end-to-end assertion.',
+              'Phase 348 — the address line is the SHORT settlement label '
+              '(«м. Київ», no oblast) composed from /salons/{id} '
+              'citySettlementType (backend Phase 330). Every widget-tier '
+              'fixture blanks cityId, so this is its ONLY end-to-end '
+              'assertion.',
         );
 
         // ── «Контакти» — phone ONLY, and no Instagram tile ────────────────
@@ -368,6 +378,316 @@ void main() {
           AppHarness.location(router),
           isNot(RouteNames.adminOwnProfile),
           reason: 'the guard must REDIRECT, not merely render something else',
+        );
+      });
+    },
+  );
+
+  // DEBUG-chain fix (2026-09-26) — the user-reported bug: the tune button
+  // used to push «Акаунт» directly, so an admin had NO sign-out affordance
+  // anywhere on this path and «Видалити акаунт» read as the terminal action.
+  // This proves the REAL fix end to end: tune -> the admin settings hub ->
+  // «Вийти» -> confirm -> the REAL AuthNotifier.logout() round trip ->
+  // /login, mirroring the coverage `logout_flow_test.dart` already has for
+  // the other roles' hubs.
+  testWidgets('SALON_ADMIN signs out from the settings hub: tune -> the admin '
+      'settings hub -> «Вийти» -> confirm -> the REAL logout() fires and the '
+      'admin lands on /login', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+      final GoRouter router = await _enterShellAs(
+        tester,
+        fb,
+        UserRole.salonAdmin,
+        _kAdminSalonId,
+      );
+
+      await _tapNav(tester, _navProfile);
+      expect(find.byType(AdminOwnProfileScreen), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('btn-admin-own-profile-settings')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        AppHarness.location(router),
+        equals(RouteNames.adminSettings),
+        reason: 'the tune button must open the admin settings hub',
+      );
+      expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+      final int logoutCallsBefore = fb.logoutCalls;
+
+      await AppHarness.tapVisible(tester, find.byKey(const Key('row-logout')));
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('btn-logout-confirm')),
+        findsOneWidget,
+        reason: 'the terminal row must raise the confirm dialog',
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('btn-logout-confirm')),
+      );
+      // fixed-wait-ok: integration test, real async (logout + teardown +
+      // redirect); bounded pumpAndSettle is the recommended real-async
+      // settle.
+      await tester.pumpAndSettle(const Duration(seconds: 2));
+
+      expect(
+        AppHarness.location(router),
+        equals(RouteNames.login),
+        reason: 'a successful sign-out must land the admin on /login',
+      );
+      expect(find.byKey(const ValueKey<String>('login_email')), findsOneWidget);
+      expect(
+        fb.logoutCalls,
+        equals(logoutCallsBefore + 1),
+        reason: 'confirming must invoke the REAL logout() exactly once',
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Phase 356 — the admin hub's «Особисті дані» / «Контакти» rows are no
+  // longer «незабаром»: they reuse the CLIENT editor screens and PATCH the
+  // REAL `/users/me` endpoint. Proves the round trip end to end, including
+  // the two surfaces D6 names: the own-profile card (already covered by the
+  // pre-existing `clientEditProfileProvider` invalidation) and the salon
+  // «Команда» roster (the NEW `salonManagementProfileProvider` invalidation
+  // this phase adds — see `client_edit_profile_notifier.dart`'s
+  // `invalidateOwnIdentity` doc).
+  // ---------------------------------------------------------------------
+  testWidgets(
+    'SALON_ADMIN edits «Особисті дані» from the settings hub: the new name '
+    'reflects on the own-profile card AND on salon «Команда» without a '
+    'restart',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await _enterShellAs(
+          tester,
+          fb,
+          UserRole.salonAdmin,
+          _kAdminSalonId,
+        );
+
+        await _tapNav(tester, _navProfile);
+        expect(find.byType(AdminOwnProfileScreen), findsOneWidget);
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-admin-own-profile-settings')),
+        );
+        await AppHarness.settle(tester);
+        expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+        await tester.tap(find.byKey(const Key('row-personal')));
+        await AppHarness.settle(tester);
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.adminEditPersonal),
+          reason: 'Phase 356 — «Особисті дані» must be a LIVE row now',
+        );
+        expect(find.byType(ClientPersonalInfoEditScreen), findsOneWidget);
+
+        final Finder firstNameField = find.descendant(
+          of: find.byKey(const Key('field-firstName')),
+          matching: find.byType(TextField),
+        );
+        final Finder lastNameField = find.descendant(
+          of: find.byKey(const Key('field-lastName')),
+          matching: find.byType(TextField),
+        );
+        expect(
+          tester.widget<TextField>(firstNameField).controller?.text,
+          'Ірина',
+          reason: 'the field must pre-populate from the REAL /users/me read',
+        );
+
+        await tester.tap(firstNameField);
+        await AppHarness.settle(tester);
+        await tester.enterText(firstNameField, 'Оксана');
+        await tester.pump();
+        await tester.tap(lastNameField);
+        await AppHarness.settle(tester);
+        await tester.enterText(lastNameField, 'Керівник');
+        await tester.pump();
+
+        final int patchesBefore = fb.patchMeCalls;
+
+        await tester.tap(find.byKey(const Key('btn-save-personal')));
+        await AppHarness.settle(tester);
+
+        expect(
+          fb.patchMeCalls,
+          equals(patchesBefore + 1),
+          reason: 'Save must issue exactly one PATCH /users/me',
+        );
+        expect(
+          fb.adminFirstName,
+          'Оксана',
+          reason: 'the PATCH must persist onto the mutable admin identity',
+        );
+        expect(fb.adminLastName, 'Керівник');
+
+        // `doneRoute: RouteNames.adminSettings` is `context.go`, which
+        // REPLACES the whole nav stack — the shell this journey started
+        // from is gone from history, so the save lands on the admin hub,
+        // not on a popped profile screen.
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.adminSettings),
+          reason: 'doneRoute must route the save back to the admin hub',
+        );
+        expect(find.byType(SettingsHubScreen), findsOneWidget);
+
+        // Drain the "saved" VelvetSnack's dwell Timer. It is a ROOT-overlay
+        // entry (never a descendant of the routed screen — see
+        // `velvet_snack_matchers.dart`'s header), so it survives the
+        // `context.go` above and, left undrained, still bottom-anchors over
+        // whatever mounts next — including the shell's bottom nav this test
+        // re-enters further down, which is exactly what it silently blocked
+        // before this call was added.
+        await pumpPastVelvetSnack(tester);
+
+        // Close the hub — with no history left (go() discarded it above),
+        // this resolves to the fallbackHomeRoute: the STAND-ALONE admin
+        // profile ([RouteNames.adminOwnProfile]).
+        await tester.tap(find.byKey(const Key('btn-close-hub')));
+        await AppHarness.settle(tester);
+
+        expect(AppHarness.location(router), equals(RouteNames.adminOwnProfile));
+        expect(
+          _textOf(tester, 'admin-own-profile-name'),
+          'Оксана Керівник',
+          reason:
+              'the own-profile card must show the NEW name without a '
+              'restart — clientEditProfileProvider was invalidated on save '
+              '(this half was already covered before this phase; see D6)',
+        );
+
+        // Re-enter the shell — discarded from history by the `go()` above,
+        // exactly like every pre-existing `doneRoute: null` CLIENT save —
+        // and open «Команда»: the admin's own roster row must show the new
+        // firstName too. THIS is the NEW half of D6: before this phase's
+        // `invalidateOwnIdentity` fix, `salonManagementProfileProvider`
+        // stayed warm with the pre-save name.
+        router.go(RouteNames.salonShell(_kAdminSalonId));
+        await AppHarness.settle(tester);
+        await _tapNav(tester, kSalonTeamNavTab);
+
+        final Finder ownCard = find.byKey(
+          const Key('salon-manage-staff-card-user-admin-1'),
+        );
+        await AppHarness.revealRosterCard(tester, ownCard);
+        expect(
+          // i18n-finder-ok: a person's own firstName is locale-invariant
+          // fixture DATA (`fb.adminFirstName`), not localized UI copy.
+          find.descendant(of: ownCard, matching: find.text('Оксана')),
+          findsOneWidget,
+          reason:
+              '«Команда» is UNFILTERED and renders the viewer\'s own row — '
+              'it must reflect the new name, not the pre-save one',
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'SALON_ADMIN edits «Контакти» from the settings hub: the new phone '
+    'reflects on the own-profile contact tile without a restart',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await _enterShellAs(
+          tester,
+          fb,
+          UserRole.salonAdmin,
+          _kAdminSalonId,
+        );
+
+        await _tapNav(tester, _navProfile);
+        expect(find.byType(AdminOwnProfileScreen), findsOneWidget);
+
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('btn-admin-own-profile-settings')),
+        );
+        await AppHarness.settle(tester);
+
+        await tester.tap(find.byKey(const Key('row-contacts')));
+        await AppHarness.settle(tester);
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.adminEditContacts),
+          reason: 'Phase 356 — «Контакти» must be a LIVE row now',
+        );
+        expect(find.byType(ClientContactsEditScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('field-instagram')),
+          findsNothing,
+          reason:
+              'the admin profile deliberately has no Instagram tile — the '
+              'reused screen must stay phone-only for this caller too',
+        );
+
+        final Finder phoneField = find.descendant(
+          of: find.byKey(const Key('field-phone')),
+          matching: find.byType(TextField),
+        );
+        expect(
+          tester.widget<TextField>(phoneField).controller?.text,
+          _kAdminPhone,
+          reason: 'the field must pre-populate from the REAL /users/me read',
+        );
+
+        final int patchesBefore = fb.patchMeCalls;
+
+        await tester.enterText(phoneField, '+380 67 111 22 33');
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.byKey(const Key('btn-save-contacts')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('btn-save-contacts')));
+        await AppHarness.settle(tester);
+
+        expect(fb.patchMeCalls, equals(patchesBefore + 1));
+        expect(
+          fb.adminPhone,
+          contains('67 111 22 33'),
+          reason: 'the PATCH must persist onto the mutable admin identity',
+        );
+        expect(
+          fb.lastPatchMeBody?.containsKey('instagram'),
+          isFalse,
+          reason: 'ClientContactsEditScreen must NEVER send instagram',
+        );
+
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.adminSettings),
+          reason: 'doneRoute must route the save back to the admin hub',
+        );
+
+        // Drain the "saved" VelvetSnack — see the identical comment on the
+        // personal-info test above.
+        await pumpPastVelvetSnack(tester);
+
+        // Same history-discard mechanics as the personal-info test above.
+        await tester.tap(find.byKey(const Key('btn-close-hub')));
+        await AppHarness.settle(tester);
+
+        expect(
+          find.descendant(
+            of: find.byKey(const Key('admin-own-profile-contact-phone')),
+            matching: find.text('+380 67 111 22 33'),
+          ),
+          findsOneWidget,
+          reason:
+              'the own-profile phone tile must show the NEW number without '
+              'a restart',
         );
       });
     },

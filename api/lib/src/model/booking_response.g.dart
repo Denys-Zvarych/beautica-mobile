@@ -16,6 +16,9 @@ const BookingResponseStatusEnum _$bookingResponseStatusEnum_NOT_COMPLETED =
     const BookingResponseStatusEnum._('NOT_COMPLETED');
 const BookingResponseStatusEnum _$bookingResponseStatusEnum_CANCELLED =
     const BookingResponseStatusEnum._('CANCELLED');
+const BookingResponseStatusEnum
+    _$bookingResponseStatusEnum_unknownDefaultOpenApi =
+    const BookingResponseStatusEnum._('unknownDefaultOpenApi');
 
 BookingResponseStatusEnum _$bookingResponseStatusEnumValueOf(String name) {
   switch (name) {
@@ -29,8 +32,10 @@ BookingResponseStatusEnum _$bookingResponseStatusEnumValueOf(String name) {
       return _$bookingResponseStatusEnum_NOT_COMPLETED;
     case 'CANCELLED':
       return _$bookingResponseStatusEnum_CANCELLED;
+    case 'unknownDefaultOpenApi':
+      return _$bookingResponseStatusEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$bookingResponseStatusEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -41,6 +46,7 @@ final BuiltSet<BookingResponseStatusEnum> _$bookingResponseStatusEnumValues =
   _$bookingResponseStatusEnum_COMPLETED,
   _$bookingResponseStatusEnum_NOT_COMPLETED,
   _$bookingResponseStatusEnum_CANCELLED,
+  _$bookingResponseStatusEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<BookingResponseStatusEnum> _$bookingResponseStatusEnumSerializer =
@@ -54,6 +60,7 @@ class _$BookingResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CONFIRMED': 'CONFIRMED',
@@ -61,6 +68,7 @@ class _$BookingResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

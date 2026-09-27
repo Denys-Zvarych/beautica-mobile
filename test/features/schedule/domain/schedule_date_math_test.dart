@@ -223,6 +223,12 @@ void main() {
   });
 
   group('ScheduleRangeDates value semantics', () {
+    test('inclusiveDays counts a range across the Kyiv spring forward '
+        '(2026-03-01..2026-04-01) as 32 — `difference().inDays` read 31', () {
+      final r = ScheduleRangeDates(DateTime(2026, 3, 1), DateTime(2026, 4, 1));
+      expect(r.inclusiveDays, 32);
+    });
+
     test('inclusiveDays is 1 for a single-day range', () {
       final r = ScheduleRangeDates(
         DateTime(2024, 5, 22),

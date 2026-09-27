@@ -118,11 +118,15 @@ abstract final class RouteNames {
   static String masterPublicProfile(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}';
 
-  /// Phase 4.x — public master reviews, opened from the public master
-  /// profile's «Відгуки» stat tile. CLIENT-guarded like [masterPublicProfile]
-  /// (same `clientOnlyGuard` in `app_router.dart`). Distinct from
-  /// [masterReceivedReviews] below, which is param-less and always resolves
-  /// to the AUTHENTICATED master's own reviews.
+  /// Phase 4.x — public master reviews. CLIENT-guarded like
+  /// [masterPublicProfile] (same `clientOnlyGuard` in `app_router.dart`).
+  /// Kept (D7, Phase 351) for its other consumers
+  /// (`booking_counterparty_header.dart`, `leave_review_screen.dart`,
+  /// `booking_confirm_screen.dart`) — the public master profile itself no
+  /// longer pushes it (its own «Відгуки» tab renders inline instead). The
+  /// param-less own-master equivalent («Мої відгуки») was deleted in the
+  /// same phase — its content now lives inline in the master's own profile
+  /// tabs (`MasterProfileScreen` / `SalonMasterProfileScreen`).
   static String masterPublicReviews(String masterId) =>
       '/masters/${Uri.encodeComponent(masterId)}/reviews';
 
@@ -512,6 +516,65 @@ abstract final class RouteNames {
   /// SALON_ADMIN (`salonManageGuard` admits both salon roles and binds them to
   /// a `:salonId` path param this route does not have).
   static const String adminOwnProfile = '/profile/admin';
+
+  /// DEBUG-chain fix (2026-09-26) — the `SALON_ADMIN`'s own settings hub,
+  /// reached from [adminOwnProfile]'s trailing `tune_rounded` action. Renders
+  /// the SAME [SettingsHubScreen] widget [masterMenu] and
+  /// [salonMasterSettings] do, via its additive `showLocation` (`false` — no
+  /// personal location) and `fallbackHomeRoute` ([adminOwnProfile]) params —
+  /// see `settings_hub_screen.dart`'s class doc.
+  ///
+  /// Before this route existed, [adminOwnProfile]'s tune button pushed
+  /// [settings] directly — the shared «Акаунт» sub-screen — so a SALON_ADMIN
+  /// had NO sign-out affordance anywhere on that path and «Видалити акаунт»,
+  /// at the bottom of [settings], read as the terminal action (the reported
+  /// bug). This hub's own `row-account` still pushes [settings] unchanged,
+  /// so «Видалити акаунт» stays exactly where it already was; «Вийти» is now
+  /// the hub's terminal row, exactly as it already is for CLIENT and both
+  /// master roles. Phase 21.17's originally-planned dedicated Admin Personal
+  /// Settings screen remains unbuilt — this reuses the shared hub instead of
+  /// waiting on it.
+  ///
+  /// Phase 356 — «Особисті дані» and «Контакти» are now LIVE rows: the hub
+  /// is wired with `personalInfoRoute: adminEditPersonal` and
+  /// `contactsRoute: adminEditContacts` (both below), replacing the
+  /// `contactsEnabled: false` this route used to pass for «Контакти» while
+  /// neither destination existed. «Особисті дані» used a matching
+  /// `personalInfoEnabled: false` switch at the time; that param was removed
+  /// entirely (audit-fix cycle 1, 2026-09-26) once no caller anywhere passed
+  /// it `false` — the row is now unconditionally live, see
+  /// `settings_hub_screen.dart`'s class doc.
+  ///
+  /// Gated by `salonAdminOnlyGuard`, reused VERBATIM — see
+  /// [adminOwnProfile]'s own doc for why no other shipped guard expresses
+  /// "SALON_ADMIN only".
+  static const String adminSettings = '/profile/admin/settings';
+
+  /// Phase 356 — «Особисті дані» edit for a SALON_ADMIN. An admin is a
+  /// `User`, not a `Master`: this reuses [ClientPersonalInfoEditScreen]
+  /// VERBATIM (firstName + lastName through `PATCH /users/me`) rather than
+  /// the master `PersonalInfoEditScreen`, which calls a Master-only endpoint
+  /// (`PATCH /independent-masters/me/profile` / `PATCH /masters/me/profile`)
+  /// an admin session 403s on and which edits Master-only fields (bio).
+  ///
+  /// A NEW top-level sibling rather than a reuse of [clientEditPersonal]:
+  /// `auth_redirect.dart`'s `/client/*` role gate sends every non-CLIENT
+  /// user away from that path, so the existing CLIENT route cannot be
+  /// reused as-is. Registered the SAME way [adminSettings] is — a top-level
+  /// literal, not nested — gated by `salonAdminOnlyGuard`.
+  ///
+  /// [ClientPersonalInfoEditScreen]'s additive `doneRoute` param is passed
+  /// as [adminSettings] here, so saving returns to the admin hub instead of
+  /// the CLIENT default ([clientHome]).
+  static const String adminEditPersonal = '/profile/admin/settings/personal';
+
+  /// Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. Reuses
+  /// [ClientContactsEditScreen] VERBATIM (Instagram is already removed from
+  /// that screen, matching the admin profile, which deliberately has no
+  /// Instagram tile either). See [adminEditPersonal]'s doc for why this is a
+  /// new top-level sibling rather than a reuse of [clientEditContacts], and
+  /// why `doneRoute: adminSettings` is passed.
+  static const String adminEditContacts = '/profile/admin/settings/contacts';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
@@ -1030,12 +1093,6 @@ abstract final class RouteNames {
   /// the archive entry path).
   static String salonMasterClientReview(String bookingId) =>
       '${salonMasterBookingDetail(bookingId)}/review';
-
-  // Phase 4.6 — Master received-reviews screen («Мої відгуки»). Pushed from the
-  // master profile's "Відгуки" stat tile. Param-less: the screen reads its own
-  // masterId from the session (authProvider), so the reviews are always the
-  // authenticated master's own.
-  static const String masterReceivedReviews = '/master/received-reviews';
 
   // Phase 5.2 — Service catalogue (INDEPENDENT_MASTER).
   static const String services = '/services';

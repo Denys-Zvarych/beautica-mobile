@@ -20,6 +20,7 @@ import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter_test/flutter_test.dart';
 
 const String _notSet = 'Графік не вказано';
+const String _varied = 'різні години';
 
 /// An INTERVAL working day — `mode` defaults to [WeekdayMode.interval], so a
 /// non-empty [intervals] list is what makes [TemplateDay.isDayOff] `false`.
@@ -297,6 +298,105 @@ void main() {
             'first and only falls back to times when that combined list '
             'is empty; Wednesday\'s 22:00 explicit time must not leak in',
       );
+    });
+  });
+
+  group('days with DIFFERING hours (Qase defect #36)', () {
+    test('Mon 09:00–14:00 + Tue 15:00–20:00 must NOT render as one '
+        '09:00–20:00 span across both days', () {
+      final WeeklySchedule schedule = WeeklySchedule(
+        validFrom: DateTime(2026, 1, 1),
+        validTo: null,
+        days: _week(<TemplateDay>[
+          _intervalDay(1, startH: 9, startM: 0, endH: 14, endM: 0),
+          _intervalDay(2, startH: 15, startM: 0, endH: 20, endM: 0),
+        ]),
+      );
+
+      final String result = weeklyScheduleSummary(
+        <WeeklySchedule>[schedule],
+        DateTime(2026, 3, 10),
+        _notSet,
+        variedHoursLabel: _varied,
+      );
+
+      expect(
+        result,
+        'Пн–Вт · $_varied',
+        reason:
+            'the min-max span «Пн–Вт · 09:00–20:00» asserts that BOTH days '
+            'run 09:00–20:00, when Monday ends at 14:00 and Tuesday does '
+            'not start until 15:00 — an owner reads it as hours they never '
+            'set. This is Qase defect #36 (case 88).',
+      );
+    });
+
+    test('days that genuinely SHARE hours still render the real span', () {
+      final WeeklySchedule schedule = WeeklySchedule(
+        validFrom: DateTime(2026, 1, 1),
+        validTo: null,
+        days: _week(<TemplateDay>[
+          _intervalDay(1, startH: 9, startM: 0, endH: 18, endM: 0),
+          _intervalDay(2, startH: 9, startM: 0, endH: 18, endM: 0),
+        ]),
+      );
+
+      final String result = weeklyScheduleSummary(
+        <WeeklySchedule>[schedule],
+        DateTime(2026, 3, 10),
+        _notSet,
+        variedHoursLabel: _varied,
+      );
+
+      expect(
+        result,
+        'Пн–Вт · 09:00–18:00',
+        reason:
+            'the varied-hours guard must not fire on a uniform week — that '
+            'would trade a wrong span for a useless one',
+      );
+    });
+
+    test(
+      'a single working day can never be "varied" — it renders its span',
+      () {
+        final WeeklySchedule schedule = WeeklySchedule(
+          validFrom: DateTime(2026, 1, 1),
+          validTo: null,
+          days: _week(<TemplateDay>[
+            _intervalDay(4, startH: 14, startM: 0, endH: 20, endM: 0),
+          ]),
+        );
+
+        final String result = weeklyScheduleSummary(
+          <WeeklySchedule>[schedule],
+          DateTime(2026, 3, 10),
+          _notSet,
+          variedHoursLabel: _varied,
+        );
+
+        expect(result, 'Чт · 14:00–20:00');
+      },
+    );
+
+    test('omitting variedHoursLabel preserves the legacy min-max span '
+        '(additive-only: no existing caller changes behaviour)', () {
+      final WeeklySchedule schedule = WeeklySchedule(
+        validFrom: DateTime(2026, 1, 1),
+        validTo: null,
+        days: _week(<TemplateDay>[
+          _intervalDay(1, startH: 9, startM: 0, endH: 14, endM: 0),
+          _intervalDay(2, startH: 15, startM: 0, endH: 20, endM: 0),
+        ]),
+      );
+
+      final String result = weeklyScheduleSummary(
+        <WeeklySchedule>[schedule],
+        DateTime(2026, 3, 10),
+        _notSet,
+      );
+
+      expect(result, 'Пн–Вт · 09:00–20:00');
     });
   });
 }

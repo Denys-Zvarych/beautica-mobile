@@ -312,6 +312,95 @@ Map<String, dynamic> _authResponse(Map<String, dynamic> user) =>
 // FakeBackend
 // ---------------------------------------------------------------------------
 
+/// The bare («not composed with an oblast/hromada suffix) display name for
+/// every settlement id seeded by `GET /api/v1/settlements` below — the exact
+/// shape `/users/me`'s denormalised `cityName` carries on the real wire.
+///
+/// Kept in agreement BY HAND with the `nameUk` values on the
+/// `GET /api/v1/settlements` rows below — a PATCH-driven `cityId` change (the
+/// Location edit screens) must echo the SAME name those rows would compose
+/// bare (no oblast/hromada suffix). See the `PATCH /api/v1/users/me`
+/// handler's own doc for why this now matters post-phase-346.
+const Map<String, String> kSeededSettlementNames = <String, String>{
+  'city-kyiv': 'Київ',
+  'city-lviv': 'Львів',
+  'city-with-districts': 'Дніпро',
+  'village-ivanivka': 'Іванівка',
+};
+
+/// The oblast name (`oblastNameUk`) of every settlement id seeded by
+/// `GET /api/v1/settlements` below — kept in agreement BY HAND with those
+/// rows, exactly like [kSeededSettlementNames].
+///
+/// Backend Phase 328 (`f3720365`): `SalonResponse`/`PublicSalonResponse`
+/// `city`/`region` are DERIVED from the salon's `cityId` (the settlement's
+/// name and its oblast); the request-side `city`/`region`/`address` are
+/// ignored. Every salon payload this fake serves goes through
+/// [withSeededSalonLocality] so it carries that same derived pair.
+const Map<String, String> kSeededSettlementOblastNames = <String, String>{
+  'city-kyiv': 'Київ',
+  'city-lviv': 'Львівська',
+  'city-with-districts': 'Дніпропетровська',
+  'village-ivanivka': 'Полтавська',
+};
+
+/// The wire `settlementType` of every settlement id seeded by
+/// `GET /api/v1/settlements` below — kept in agreement BY HAND with those
+/// rows, exactly like [kSeededSettlementNames].
+///
+/// Backend Phase 330 (`a9992eba`): every SAVED-locality read (`/users/me`,
+/// `/salons/mine`, `/salons/{id}`, `/masters/me`, the public salon/master
+/// reads) carries the settlement's `citySettlementType` so the client prefixes
+/// the saved label («м.» / «с.») exactly as it prefixes a picked row.
+const Map<String, String> kSeededSettlementTypes = <String, String>{
+  'city-kyiv': 'CITY',
+  'city-lviv': 'CITY',
+  'city-with-districts': 'CITY',
+  'village-ivanivka': 'VILLAGE',
+};
+
+/// The `hromadaNameUk` of the seeded settlements whose name is AMBIGUOUS in
+/// their oblast — the only ones the server populates it for (phase-327 D3).
+/// Absent id = null hromada, as on the wire.
+const Map<String, String> kSeededSettlementHromadaNames = <String, String>{
+  'village-ivanivka': 'Шишацька',
+};
+
+/// Backend Phase 330's saved-settlement label parts for [cityId]:
+/// `citySettlementType` plus, ONLY for an ambiguous name,
+/// `cityHromadaNameUk`. Empty for a missing or unseeded id (the server's
+/// "does not resolve" null), so a caller spreads it unconditionally.
+Map<String, dynamic> seededSettlementLabelParts(String? cityId) {
+  final String? type = cityId == null ? null : kSeededSettlementTypes[cityId];
+  if (type == null) return const <String, dynamic>{};
+  return <String, dynamic>{
+    'citySettlementType': type,
+    if (kSeededSettlementHromadaNames[cityId] != null)
+      'cityHromadaNameUk': kSeededSettlementHromadaNames[cityId],
+  };
+}
+
+/// Returns [salon] with `city`/`region` derived from its `cityId` against the
+/// seeded settlement fixtures, as the real backend does since Phase 328 —
+/// plus Phase 330's `citySettlementType` / `cityHromadaNameUk`
+/// ([seededSettlementLabelParts]).
+///
+/// A payload whose `cityId` is missing or not a seeded settlement is returned
+/// UNCHANGED — e.g. `salon_shell_landing_flow_test.dart`'s deliberately
+/// malformed (no-`cityId`) row must stay malformed.
+Map<String, dynamic> withSeededSalonLocality(Map<String, dynamic> salon) {
+  final Object? cityId = salon['cityId'];
+  if (cityId is! String) return salon;
+  final String? city = kSeededSettlementNames[cityId];
+  if (city == null) return salon;
+  return <String, dynamic>{
+    ...salon,
+    'city': city,
+    'region': kSeededSettlementOblastNames[cityId],
+    ...seededSettlementLabelParts(cityId),
+  };
+}
+
 /// Stateful in-memory "backend" wired to a real [Dio] via [DioAdapter].
 ///
 /// Each test creates a fresh instance so state never leaks between tests.
@@ -408,6 +497,21 @@ final class FakeBackend {
   /// exercising Phase 219/220/221 (the split address lines + tap-to-expand
   /// note) sets these BEFORE login/boot.
   String? masterCity;
+
+  /// Phase 346 QA — the taxonomy locality ids on `GET /masters/me`. Null by
+  /// default and then OMITTED from the envelope, so every pre-existing flow's
+  /// body is byte-identical. Written by `PATCH /independent-masters/me`.
+  String? masterCityId;
+  String? masterDistrictId;
+
+  /// `PATCH /api/v1/independent-masters/me` (the master Location screen's
+  /// `updateLocality`) call count + last body.
+  int patchMasterLocalityCalls = 0;
+  Map<String, dynamic>? lastPatchMasterLocalityBody;
+
+  /// Every `query` the settlement autocomplete sent to `GET /settlements`,
+  /// in order (the blank pre-typing request is recorded as '').
+  final List<String> settlementQueries = <String>[];
   String? masterStreet;
   String? masterBuildingNo;
   String? masterLocationNote;
@@ -472,6 +576,33 @@ final class FakeBackend {
   String? clientStreet;
   String? clientBuildingNo;
   String? clientLocationNote;
+
+  /// Phase 346 follow-up (Phase 348 QA) — when non-null, the CLIENT
+  /// `GET /users/me` serves THIS raw `citySettlementType` instead of the one
+  /// derived from [clientCityId] ([seededSettlementLabelParts]). Exists so a
+  /// flow can put a value THIS build predates (e.g. `HAMLET`) on the wire and
+  /// prove the generated enum's unknown-value fallback keeps the session
+  /// alive. `null` (the default) keeps the derived, real-backend shape.
+  String? clientCitySettlementTypeOverride;
+
+  // ── Mutable SALON_ADMIN identity state (PATCH /users/me round-trip,
+  // Phase 356) ─────────────────────────────────────────────────────────────
+  //
+  // `client_personal_info_edit_screen.dart` / `client_contacts_edit_screen
+  // .dart` are REUSED VERBATIM by the admin's own settings hub
+  // (`RouteNames.adminEditPersonal`/`adminEditContacts`), and both PATCH the
+  // SAME `/users/me` endpoint the CLIENT editors do. Before this state
+  // existed, `GET /users/me` for a non-CLIENT role always served the STATIC
+  // `_adminUserJson` — a save would round-trip through `PATCH /users/me` and
+  // the screen would optimistically look saved, but the very next
+  // `refreshUser()`/`clientEditProfileProvider` re-fetch would silently
+  // revert to the pre-save name, which no widget-tier fixture (a
+  // Dart-constructed `User`) can catch. Defaults match `_adminUserJson`
+  // exactly, so every flow that never PATCHes these fields sees the exact
+  // fixture it always has.
+  String adminFirstName = 'Ірина';
+  String adminLastName = 'Адміністратор';
+  String? adminPhone = '+380663334455';
 
   // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
   //
@@ -1018,6 +1149,27 @@ final class FakeBackend {
     'memberSinceYear': 2021,
   };
 
+  /// Status code `GET /api/v1/clients/me/passport` fails with, or null for the
+  /// default 200. Set via [forcePassportFailure] — never assign directly:
+  /// `DioAdapter.onRoute` bakes the reply's status code in at REGISTRATION
+  /// time (`RequestHandler.replyCallback`'s `statusCode` param is captured the
+  /// instant the route is registered, not read fresh per request), so the
+  /// route has to be RE-REGISTERED for a status change to take effect — same
+  /// device as [forceListMasterFavoritesFailure] / [forceRemoveFavoriteFailure].
+  int? _passportFailureStatusCode;
+
+  /// Makes the NEXT (and every subsequent) `GET /api/v1/clients/me/passport`
+  /// fail with [statusCode] (a non-5xx, e.g. 400, so `beauticaProviderRetry`
+  /// treats it as deterministic and does not silently retry behind the pull
+  /// gesture — see `failure_retry_policy.dart`), driving `_PassportSection`'s
+  /// `_PassportError` card (Qase defect #9 step 6, "airplane mode" pull).
+  /// Call again with `null` to restore the default 200 — the flow that clears
+  /// the failure and pulls again to prove the page recovers.
+  void forcePassportFailure(int? statusCode) {
+    _passportFailureStatusCode = statusCode;
+    _wirePassport();
+  }
+
   /// `GET /api/v1/clients/me/timeline` call counter (Phase 110 / mobile-qa
   /// gap-closure — this route did not exist at all until this pass; see
   /// [timelineRows]'s doc for the defect that absence caused).
@@ -1179,6 +1331,49 @@ final class FakeBackend {
   /// so a multi-service booking threads N ids and the scalar view silently
   /// keeps only the first.
   List<String>? lastMasterAaaWorkingDaysServiceIds;
+
+  /// Phase 350 — the FULL, ordered `serviceId` list the most recent
+  /// `master-aaa/slots` request carried (`null` when the param was absent).
+  /// Mirrors [lastMasterAaaWorkingDaysServiceIds] one step later in the
+  /// flow — the rebook E2E advances past the date step into the TIME step
+  /// and asserts availability was requested for the exact multi-service
+  /// selection there too, not just at the calendar gate.
+  List<String>? lastMasterAaaSlotsServiceIds;
+
+  /// Phase 350 — when true, `GET /masters/master-aaa/services` omits
+  /// `pub-assign-1` from its response, as if the client's booked service had
+  /// been deactivated since. Models the D6 stale-service rebook scenario
+  /// (`client_rebook_from_past_flow_test.dart`) without touching the seeded
+  /// `booking-1`'s own `masterServiceId` (which stays `pub-assign-1` — the
+  /// booking record itself never changes, only the live catalogue it is
+  /// re-checked against). Off by default, so every pre-existing flow keeps
+  /// seeing both services.
+  bool publicMasterServiceRemoved = false;
+
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — when true,
+  /// `GET /api/v1/masters/master-aaa/services` returns an empty list
+  /// instead of [_publicMasterServicesEffective]. This is the SAME endpoint
+  /// `SalonStaffProfileScreen`'s notifier reads (`getMasterServices`, via
+  /// `publicServiceRepositoryProvider` — see `salon_staff_member_notifier
+  /// .dart`), so it drives BOTH the owner/admin management-card «Ще немає»
+  /// value AND the «Послуги» tab body for master-aaa, not merely the public
+  /// client-facing profile the pre-existing [publicMasterServiceRemoved]
+  /// flag models. A SEPARATE flag (not a reuse of that one) because that one
+  /// removes exactly one seeded row to model a single stale booking, not a
+  /// wholly empty catalogue. Off by default, so every pre-existing flow
+  /// (public profile included) keeps seeing the seeded catalogue.
+  bool masterAaaServicesEmpty = false;
+
+  /// [_publicMasterServices], filtered per [publicMasterServiceRemoved] /
+  /// [masterAaaServicesEmpty].
+  List<Map<String, dynamic>> get _publicMasterServicesEffective =>
+      masterAaaServicesEmpty
+      ? const <Map<String, dynamic>>[]
+      : publicMasterServiceRemoved
+      ? _publicMasterServices
+            .where((Map<String, dynamic> row) => row['id'] != 'pub-assign-1')
+            .toList(growable: false)
+      : _publicMasterServices;
 
   /// Phase 264 — the FULL, ordered `serviceId` list the most recent
   /// `/masters/$masterRowId/slots` request carried (the routed walk-in
@@ -1846,7 +2041,12 @@ final class FakeBackend {
   /// mirroring the "untouched field round-trips unchanged" contract the
   /// other `_salonManage*` fields already follow. `districtId` stays
   /// nullable — `city-kyiv` has none.
-  String _salonManageCityId = 'city-kyiv';
+  ///
+  /// Public + shared with the `GET /salons/salon-xyz` read (Phase 348 QA), so
+  /// a flow can seat `salon-xyz` in a VILLAGE before login and a saved
+  /// address edit is what the NEXT read returns — the real backend has one
+  /// `salons.city_id`, not a PATCH echo that the GET ignores.
+  String salonManageCityId = 'city-kyiv';
   final String _salonManageOblastId = 'oblast-kyiv';
   String? _salonManageDistrictId;
 
@@ -1902,6 +2102,29 @@ final class FakeBackend {
   int getSalonMasterServicesCalls = 0;
   String? lastSalonMasterServicesPath;
 
+  /// When true, `GET /masters/master-removable/services` — the PUBLIC
+  /// per-master read `SalonMasterOwnProfileNotifier` actually calls (see
+  /// that file's header: `publicServiceRepositoryProvider.getMasterServices`,
+  /// NOT the salon-scoped endpoint [_wireSalonMasterServices] wires) —
+  /// returns an empty list instead of [_salonMasterServices]. Models a
+  /// SALON_MASTER whose owner/admin has not assigned them any services yet,
+  /// for `salon_master_own_profile_tabs_flow_test.dart`'s empty-catalogue
+  /// «Послуги» tab case. Off by default, so every pre-existing flow keeps
+  /// seeing the seeded catalogue. Status stays 200 either way (only the body
+  /// varies), so this flag can be read directly inside the existing
+  /// `replyCallback` — no re-registration setter needed (see the RULE
+  /// comment above [_wireSalonMasterServices]; that rule is about
+  /// STATUS-dependent routes).
+  ///
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — ALSO read by
+  /// [_wireSalonMasterServices]'s own GET handler (the salon-scoped `GET
+  /// /salons/salon-xyz/masters/master-removable/services` the read-only
+  /// `/staff/services` route — [ServicesListScreen] with `writable: false`
+  /// — actually resolves through). Both endpoints describe the SAME
+  /// underlying fact ("this master has no assigned services"), so one flag
+  /// covers both rather than adding a near-duplicate second one.
+  bool salonMasterOwnServicesEmpty = false;
+
   /// Phase 324 (mobile-qa D3) — the cross-role-bleed control counterpart to
   /// [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
   /// /api/v1/salons/salon-xyz/masters/master-aaa/services`. SAME salon
@@ -1916,6 +2139,17 @@ final class FakeBackend {
   /// "a counter moved".
   int getSalonMasterAaaServicesCalls = 0;
   String? lastSalonMasterAaaServicesPath;
+
+  /// mobile-qa (2026-09-26, Phase 355 gap-closure) — when true,
+  /// `GET /api/v1/salons/salon-xyz/masters/master-aaa/services`
+  /// ([_wireSalonMasterAaaServices]) returns an empty list instead of
+  /// [_salonMasterAaaServices]. Models master-aaa having NO assigned
+  /// services, for the "owner opens a master with neither a schedule nor
+  /// services — both management-card values render red" E2E. Pair with
+  /// [seedNoWeeklySchedule] (the schedule half of that same scenario). Off
+  /// by default, so every pre-existing master-aaa flow keeps seeing the
+  /// seeded two-item catalogue.
+  bool salonMasterAaaServicesEmpty = false;
 
   /// Phase 322 (mobile-qa) — the SALON_ADMIN persona's own-salon counterpart
   /// to [getSalonMasterServicesCalls]/[lastSalonMasterServicesPath]: `GET
@@ -2454,6 +2688,17 @@ final class FakeBackend {
   /// to prove the SAME set of facets travelled together on this endpoint too.
   Map<String, dynamic>? lastSearchSalonsQueryMap;
 
+  // ── Search suggestions telemetry (Phase 352) ──────────────────────────────
+  /// `GET /api/v1/search/suggestions` call count — proves the debounced
+  /// provider issues exactly one request per settled `(term, place)` key.
+  int searchSuggestionsCalls = 0;
+
+  /// The last `q`, `location.cityId` and `location.districtId` carried on a
+  /// `/search/suggestions` request. Null until the first call.
+  String? lastSearchSuggestionsQuery;
+  String? lastSearchSuggestionsCityId;
+  String? lastSearchSuggestionsDistrictId;
+
   // ── Favorites telemetry (Phase 13.4) ──────────────────────────────────────
   /// `POST /api/v1/favorites` (add) call count + the most recent body.
   int addFavoriteCalls = 0;
@@ -2531,14 +2776,38 @@ final class FakeBackend {
     'lastName': clientLastName,
     'phoneNumber': clientPhone,
     'oblastId': clientOblastId,
-    'oblastName': clientOblastName,
+    // Backend Phase 330: `oblastName` follows the RESOLVED settlement (the
+    // oblast half of the saved label), so a seeded `cityId` wins over the
+    // hand-set [clientOblastName]; an unseeded/absent city keeps it.
+    'oblastName':
+        kSeededSettlementOblastNames[clientCityId] ?? clientOblastName,
     'cityId': clientCityId,
     'cityName': clientCityName,
+    ...seededSettlementLabelParts(clientCityId),
+    if (clientCitySettlementTypeOverride != null)
+      'citySettlementType': clientCitySettlementTypeOverride,
     'districtId': clientDistrictId,
     'districtName': clientDistrictName,
     'street': clientStreet,
     'buildingNo': clientBuildingNo,
     'locationNote': clientLocationNote,
+  };
+
+  /// The SALON_ADMIN `GET /users/me` body (Phase 356), built from the
+  /// mutable [adminFirstName]/[adminLastName]/[adminPhone] state so a PATCH
+  /// made through the reused CLIENT Personal/Contacts edit screens
+  /// round-trips on the next read — the exact same role [_clientProfileBody]
+  /// plays for the CLIENT editors. `professionalTitle`/`salonId` are OUT OF
+  /// SCOPE for this phase (D7) and stay the static `_adminUserJson` values.
+  Map<String, dynamic> _adminProfileBody() => <String, dynamic>{
+    'id': 'user-admin-1',
+    'email': 'admin@beautica.ua',
+    'role': 'SALON_ADMIN',
+    'firstName': adminFirstName,
+    'lastName': adminLastName,
+    'phoneNumber': adminPhone,
+    'professionalTitle': 'Старший адміністратор',
+    'salonId': 'salon-admin-1',
   };
 
   // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
@@ -2660,6 +2929,14 @@ final class FakeBackend {
     // professionalTitle above, so flows that never set these keep seeing the
     // pre-existing location-less seed (no location row on MasterProfileScreen).
     if (masterCity != null) 'city': masterCity,
+    if (masterCityId != null) 'cityId': masterCityId,
+    // Backend Phase 330 — `region` (from the resolved settlement) and the
+    // saved-label parts, derived from [masterCityId] like a salon read. An
+    // unseeded/absent id adds nothing, so location-less flows are unchanged.
+    if (kSeededSettlementOblastNames[masterCityId] != null)
+      'region': kSeededSettlementOblastNames[masterCityId],
+    ...seededSettlementLabelParts(masterCityId),
+    if (masterDistrictId != null) 'districtId': masterDistrictId,
     if (masterStreet != null) 'street': masterStreet,
     if (masterBuildingNo != null) 'buildingNo': masterBuildingNo,
     if (masterLocationNote != null) 'locationNote': masterLocationNote,
@@ -2672,12 +2949,12 @@ final class FakeBackend {
     // be present for the envelope to deserialize at all — placeholder values,
     // never read by `MasterMapper.fromDto` (only `.salon.id` is).
     if (masterSalonId != null)
-      'salon': <String, dynamic>{
+      'salon': withSeededSalonLocality(<String, dynamic>{
         'id': masterSalonId,
         'name': 'Салон',
         'cityId': 'city-kyiv',
         'oblastId': 'oblast-kyiv',
-      },
+      }),
   });
 
   /// PUBLIC master-detail envelope for the Phase 13.5 client-facing profile.
@@ -2718,6 +2995,26 @@ final class FakeBackend {
   /// Defaults to `false`; every pre-existing flow is untouched.
   bool publicMasterAddressSuppressed = false;
 
+  /// Phase 351 gap-fix (mobile-qa, 2026-09-25) — when `true`, `master-aaa`'s
+  /// public detail omits `bio` (wire `null`) instead of the seeded sentence,
+  /// so a CLIENT-facing flow can drive the «Про майстра» tab's EMPTY-bio
+  /// branch (`public-master-profile-about-empty`) end to end. Defaults to
+  /// `false`; every pre-existing flow that expects the seeded bio is
+  /// untouched.
+  bool publicMasterBioSuppressed = false;
+
+  /// Phase 358 — when `true`, `master-aaa`'s public detail wires
+  /// `masterType: 'SALON_MASTER'` instead of the default `INDEPENDENT_MASTER`,
+  /// so a CLIENT-facing flow can drive the public-profile «Записатись до
+  /// майстра» CTA for a salon-affiliated master end to end (the shelf used to
+  /// be independent-only; Phase 358 restored it for every master type — see
+  /// `public_master_profile_screen.dart`'s file header). Defaults to `false`;
+  /// every pre-existing flow that expects an INDEPENDENT_MASTER is untouched.
+  /// Address fields stay wired regardless (unlike the real backend, which
+  /// nulls them for a salon master — see [publicMasterAddressSuppressed] for
+  /// that seam) because no flow using this flag asserts on the address.
+  bool publicMasterTypeSalon = false;
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
@@ -2730,7 +3027,9 @@ final class FakeBackend {
       'buildingNo': kPublicMasterBuildingNo,
       'locationNote': kPublicMasterLocationNote,
     },
-    'bio': 'Майстриня манікюру з 6-річним досвідом.',
+    'bio': publicMasterBioSuppressed
+        ? null
+        : 'Майстриня манікюру з 6-річним досвідом.',
     'instagram': '@sofia_nails',
     'avgRating': publicMasterReviewLanded
         ? kPublicMasterAvgRatingAfterReview
@@ -2738,7 +3037,7 @@ final class FakeBackend {
     'reviewCount': publicMasterReviewLanded
         ? kPublicMasterReviewCountAfterReview
         : kPublicMasterReviewCountBeforeReview,
-    'masterType': 'INDEPENDENT_MASTER',
+    'masterType': publicMasterTypeSalon ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
   });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
@@ -3035,17 +3334,17 @@ final class FakeBackend {
   /// oblastId/districtId/street/buildingNo/locationNote/instagramUrl/
   /// avatarUrl/coverImageUrl/avgRating/reviewCount).
   ///
-  /// Deliberately carries ONLY the Phase 10.6+ taxonomy locality fields
+  /// Carries the Phase 10.6+ taxonomy locality fields
   /// (`cityId`/`oblastId`/`street`/`buildingNo`/`locationNote`) and leaves
-  /// the legacy `city`/`address` pair null — this is the real shape of every
-  /// salon created/edited since Phase 10.6, and is the exact fixture shape
-  /// the "public salon profile shows no location" regression needed: a
-  /// fixture with the legacy pair populated would pass through the OLD
-  /// (broken) `SalonMapper.fromDto`, which silently dropped the taxonomy
-  /// fields, just as easily as the fixed one. See `salon_mapper_test.dart`
-  /// for the mapper-level unit-test counterpart and
-  /// `public_salon_profile_flow_test.dart` for the assertion that reads the
-  /// rendered address text.
+  /// the legacy free-text `address` null — the real shape of every salon
+  /// created/edited since Phase 10.6 (backend Phase 328 nulls `address` once
+  /// a salon has a `street`). `city`/`region` are NOT free text any more:
+  /// [withSeededSalonLocality] derives them from `cityId`, exactly as the
+  /// backend does since Phase 328 (`f3720365`). Their earlier ABSENCE here is
+  /// why no flow caught the empty settlement prefill on the salon address
+  /// edit screen. See `salon_mapper_test.dart` for the mapper-level
+  /// counterpart and `public_salon_profile_flow_test.dart` for the assertion
+  /// that reads the rendered address text.
   ///
   /// RESUME §4 step D (mobile half, 2026-08-30) — `oblastId` used to be
   /// OMITTED here on purpose (see the now-stale "Finding 5" comment this
@@ -3070,37 +3369,38 @@ final class FakeBackend {
   /// gap-fix untestable end to end — every "the phone renders on first load"
   /// assertion would have been satisfiable only by the very PATCH round-trip
   /// the fix exists to make unnecessary. See those fields' own doc.
-  Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(<String, dynamic>{
-    'id': 'salon-xyz',
-    'name': 'Студія Краси «Камелія»',
-    'description': salonDescription,
-    'phone': salonPhone,
-    'region': 'Київська',
-    // 'city-kyiv' is a real seeded id (see the `GET /locations/oblasts/
-    // oblast-kyiv/cities` handler below) — deliberately still a
-    // hasDistricts:false city so no existing flow that assumes a leaf
-    // (no-district) cascade for salon-xyz changes behaviour.
-    'cityId': 'city-kyiv',
-    'oblastId': 'oblast-kyiv',
-    'street': 'вул. Хрещатик',
-    'buildingNo': '12',
-    'locationNote': salonLocationNote,
-    'instagramUrl': salonInstagramUrl,
-    'avatarUrl': null,
-    'coverImageUrl': null,
-    // ONE reconciled number per field, shared with the review-summary envelope
-    // below and derivable from the rows [_salonReviewsFor] actually returns.
-    // This used to read `reviewCount: 3` against the summary's `4` — the exact
-    // shape of defanging that made the master-side flow toothless (detail said
-    // 24, summary said 2), so no assertion could tell a stale cache from a
-    // refetch. See [kSalonAvgRatingBeforeReview].
-    'avgRating': salonReviewLanded
-        ? kSalonAvgRatingAfterReview
-        : kSalonAvgRatingBeforeReview,
-    'reviewCount': salonReviewLanded
-        ? kSalonReviewCountAfterReview
-        : kSalonReviewCountBeforeReview,
-  });
+  Map<String, dynamic> _publicSalonDetailEnvelope() => _ok(
+    withSeededSalonLocality(<String, dynamic>{
+      'id': 'salon-xyz',
+      'name': 'Студія Краси «Камелія»',
+      'description': salonDescription,
+      'phone': salonPhone,
+      // 'city-kyiv' is a real seeded id (see the `GET /locations/oblasts/
+      // oblast-kyiv/cities` handler below) — deliberately still a
+      // hasDistricts:false city so no existing flow that assumes a leaf
+      // (no-district) cascade for salon-xyz changes behaviour.
+      'cityId': salonManageCityId,
+      'oblastId': 'oblast-kyiv',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'locationNote': salonLocationNote,
+      'instagramUrl': salonInstagramUrl,
+      'avatarUrl': null,
+      'coverImageUrl': null,
+      // ONE reconciled number per field, shared with the review-summary envelope
+      // below and derivable from the rows [_salonReviewsFor] actually returns.
+      // This used to read `reviewCount: 3` against the summary's `4` — the exact
+      // shape of defanging that made the master-side flow toothless (detail said
+      // 24, summary said 2), so no assertion could tell a stale cache from a
+      // refetch. See [kSalonAvgRatingBeforeReview].
+      'avgRating': salonReviewLanded
+          ? kSalonAvgRatingAfterReview
+          : kSalonAvgRatingBeforeReview,
+      'reviewCount': salonReviewLanded
+          ? kSalonReviewCountAfterReview
+          : kSalonReviewCountBeforeReview,
+    }),
+  );
 
   /// PUBLIC masters rail for `salon-xyz` — EIGHT masters, deliberately over
   /// [kSalonMastersInitialCount] (6, see `public_salon_profile_screen.dart`),
@@ -4986,9 +5286,11 @@ final class FakeBackend {
         getSalonMasterServicesCalls++;
         lastSalonMasterServicesPath = base;
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterOwnServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -5265,9 +5567,11 @@ final class FakeBackend {
         getSalonMasterAaaServicesCalls++;
         lastSalonMasterAaaServicesPath = base;
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterAaaServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterAaaServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterAaaServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -5832,9 +6136,11 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-removable';
         return _okList(
-          List<Map<String, dynamic>>.from(
-            _salonMasterServices.map(Map<String, dynamic>.from),
-          ),
+          salonMasterOwnServicesEmpty
+              ? <Map<String, dynamic>>[]
+              : List<Map<String, dynamic>>.from(
+                  _salonMasterServices.map(Map<String, dynamic>.from),
+                ),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -5864,6 +6170,34 @@ final class FakeBackend {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-admin-target';
         return _okList(const <Map<String, dynamic>>[]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// (Re-)registers `GET /api/v1/clients/me/passport` — CLIENT's derived
+  /// BEAUTY PASSPORT (backend 19.5). Without this route the mock router 404s
+  /// and the passport tab renders its ERROR state instead of the empty
+  /// variant the flow asserts.
+  ///
+  /// Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
+  /// budget) — the state a freshly-seeded fake client is in. Mutate
+  /// [passportBody] from a flow to serve a populated passport instead.
+  /// See [forcePassportFailure] for the error-card path.
+  void _wirePassport() {
+    final int? failStatus = _passportFailureStatusCode;
+    _adapter.onRoute(
+      '/api/v1/clients/me/passport',
+      (server) => server.replyCallback(failStatus ?? 200, (_) {
+        getPassportCalls++;
+        if (failStatus != null) {
+          return <String, dynamic>{
+            'success': false,
+            'data': null,
+            'message': 'Failed to load passport',
+          };
+        }
+        return _ok(passportBody);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6249,21 +6583,28 @@ final class FakeBackend {
     // GET /api/v1/users/me
     // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
     // round-trips on the next read (the edit screens invalidate
-    // clientEditProfileProvider → re-fetch). Other roles keep the static fixture.
+    // clientEditProfileProvider → re-fetch). Phase 356 — SALON_ADMIN gets the
+    // SAME treatment via [_adminProfileBody] (its own admin editors reuse the
+    // CLIENT ones and PATCH the identical endpoint). Every other role keeps
+    // the static fixture.
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
-        return currentRole == UserRole.client
-            ? _ok(_clientProfileBody())
-            // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
-            // it, so the default body is byte-identical to the pre-21.14 one
-            // and `null` stays a genuine "key absent", not a serialized null.
-            : _ok(<String, dynamic>{
-                ...userJsonForRole(currentRole),
-                if (hasMasterProfile != null)
-                  'hasMasterProfile': hasMasterProfile,
-              });
+        return switch (currentRole) {
+          UserRole.client => _ok(_clientProfileBody()),
+          UserRole.salonAdmin => _ok(<String, dynamic>{
+            ..._adminProfileBody(),
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+          }),
+          // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
+          // it, so the default body is byte-identical to the pre-21.14 one
+          // and `null` stays a genuine "key absent", not a serialized null.
+          _ => _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+          }),
+        };
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6275,7 +6616,7 @@ final class FakeBackend {
       '/api/v1/salons/mine',
       (server) => server.replyCallback(200, (_) {
         getMySalonsCalls++;
-        return _okList(mySalons);
+        return _okList(mySalons.map(withSeededSalonLocality).toList());
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6305,29 +6646,32 @@ final class FakeBackend {
               };
             }
             final String newId = 'salon-created-$createSalonCalls';
-            mySalons.add(<String, dynamic>{
-              'id': newId,
-              'ownerId': 'user-owner-1',
-              'name': body['name'] as String? ?? '',
-              'city': 'Київ',
-              // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
-              // `.oblastId` are non-null on the wire. `register_salon_
-              // notifier.dart` always sends a real `cityId` on `POST
-              // /salons`, so echo it back rather than a hard-coded value;
-              // every seeded city (`city-kyiv`/`city-lviv`/
-              // `city-with-districts`) resolves to the SAME seeded
-              // `oblast-kyiv`, so that half is always correct regardless of
-              // which city was picked.
-              'cityId': (body['cityId'] as String?) ?? 'city-kyiv',
-              'oblastId': 'oblast-kyiv',
-              'street': body['street'] as String? ?? '',
-              'buildingNo': body['buildingNo'] as String? ?? '',
-              'isActive': true,
-              'isPrimary': false,
-              if (body['phone'] != null) 'phone': body['phone'],
-              if (body['instagramUrl'] != null)
-                'instagramUrl': body['instagramUrl'],
-            });
+            mySalons.add(
+              withSeededSalonLocality(<String, dynamic>{
+                'id': newId,
+                'ownerId': 'user-owner-1',
+                'name': body['name'] as String? ?? '',
+                // RESUME §4 step D (mobile half) — `SalonResponse.cityId`/
+                // `.oblastId` are non-null on the wire. `register_salon_
+                // notifier.dart` always sends a real `cityId` on `POST
+                // /salons`, so echo it back rather than a hard-coded value;
+                // every seeded city (`city-kyiv`/`city-lviv`/
+                // `city-with-districts`) resolves to the SAME seeded
+                // `oblast-kyiv`, so that half is always correct regardless of
+                // which city was picked.
+                'cityId': (body['cityId'] as String?) ?? 'city-kyiv',
+                'oblastId': 'oblast-kyiv',
+                'street': body['street'] as String? ?? '',
+                'buildingNo': body['buildingNo'] as String? ?? '',
+                'isActive': true,
+                'isPrimary': false,
+                if (body['phone'] != null) 'phone': body['phone'],
+                if (body['instagramUrl'] != null)
+                  'instagramUrl': body['instagramUrl'],
+                // `city`/`region` are re-derived from the SENT `cityId` by
+                // [withSeededSalonLocality] (backend Phase 328).
+              }),
+            );
             return _ok(<String, dynamic>{'id': newId, 'name': body['name']});
           }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -6354,21 +6698,8 @@ final class FakeBackend {
     );
 
     // GET /api/v1/clients/me/passport — CLIENT's derived BEAUTY PASSPORT
-    // (backend 19.5). Wired now that HttpPassportRepository calls the real
-    // endpoint: without this route the mock router 404s and the passport tab
-    // renders its ERROR state instead of the empty variant the flow asserts.
-    //
-    // Defaults to the EMPTY passport (bookingsConsidered 0, no lists, no
-    // budget) — the state a freshly-seeded fake client is in. Mutate
-    // [passportBody] from a flow to serve a populated passport instead.
-    _adapter.onRoute(
-      '/api/v1/clients/me/passport',
-      (server) => server.replyCallback(200, (_) {
-        getPassportCalls++;
-        return _ok(passportBody);
-      }),
-      request: const Request(method: RequestMethods.get),
-    );
+    // (backend 19.5). See [_wirePassport].
+    _wirePassport();
 
     // GET /api/v1/clients/me/timeline — CLIENT's BEAUTY TIMELINE
     // (completed-procedure history, backend 19.5). Wired now that
@@ -6396,23 +6727,57 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
-    // PATCH /api/v1/users/me — CLIENT profile partial update (the shared,
-    // CLIENT-callable profile endpoint the client edit screens hit via
-    // UserControllerApi.updateMe). Merge-onto-cache: each key present in the body
-    // overlays the in-memory state; keys absent from the body are preserved.
+    // PATCH /api/v1/users/me — profile partial update (the shared,
+    // no-role-restriction endpoint every `*_edit_screen.dart` in the app
+    // hits via UserControllerApi.updateMe). Merge-onto-cache: each key
+    // present in the body overlays the in-memory state; keys absent from
+    // the body are preserved.
     //
-    // CONTRACT NOTES the flow asserts against:
-    //   • `instagram` is NEVER sent by ClientProfileRepository — if it ever
-    //     appears in the body this would surface it (lastPatchMeBody captured).
-    //   • a null `cityId` in the body is a VALID save (CLIENT location optional)
-    //     and clears the city; the body still carries cityId (built_value emits
-    //     it when the location slice is touched).
+    // Phase 356 — SALON_ADMIN branch. The admin's own settings hub reuses
+    // `client_personal_info_edit_screen.dart`/`client_contacts_edit_screen
+    // .dart` VERBATIM, so it PATCHes this exact endpoint too, but must never
+    // fall into the CLIENT mutation branch below (touching `clientFirstName`
+    // et al. would be silently harmless today — nothing reads those for an
+    // admin session — but would leave [adminFirstName] et al. stale, which
+    // IS observed: `GET /users/me` for SALON_ADMIN now serves
+    // [_adminProfileBody]). Also keeps the admin's OWN row inside
+    // [salonAdminOneStaff] in lock-step (D6 — «Команда» is UNFILTERED and
+    // renders the viewer's own row, so a stale name there is directly
+    // observable without a second endpoint).
     _adapter.onRoute(
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (req) {
         patchMeCalls++;
         final body = _decodeBody(req.data);
         lastPatchMeBody = body;
+
+        if (currentRole == UserRole.salonAdmin) {
+          if (body.containsKey('firstName')) {
+            adminFirstName = body['firstName'] as String? ?? adminFirstName;
+          }
+          if (body.containsKey('lastName')) {
+            adminLastName = body['lastName'] as String? ?? adminLastName;
+          }
+          if (body.containsKey('phoneNumber')) {
+            adminPhone = body['phoneNumber'] as String?;
+          }
+          for (final Map<String, dynamic> row in salonAdminOneStaff) {
+            if (row['userId'] != 'user-admin-1') continue;
+            if (body.containsKey('firstName')) {
+              row['firstName'] = adminFirstName;
+            }
+            if (body.containsKey('lastName')) row['lastName'] = adminLastName;
+          }
+          return _ok(_adminProfileBody());
+        }
+
+        // CONTRACT NOTES the CLIENT flow asserts against:
+        //   • `instagram` is NEVER sent by ClientProfileRepository — if it
+        //     ever appears in the body this would surface it
+        //     (lastPatchMeBody captured).
+        //   • a null `cityId` in the body is a VALID save (CLIENT location
+        //     optional) and clears the city; the body still carries cityId
+        //     (built_value emits it when the location slice is touched).
         if (body.containsKey('firstName')) {
           clientFirstName = body['firstName'] as String? ?? clientFirstName;
         }
@@ -6425,9 +6790,24 @@ final class FakeBackend {
         // The location slice is sent only when the Location screen owns it; when
         // present, cityId/districtId/street/buildingNo/locationNote are applied
         // exactly as carried (including a null cityId — clears the city).
+        //
+        // Phase 346 mobile-qa fix — `clientCityName` used to just carry the
+        // PREVIOUS name forward on a cityId change (harmless while the search
+        // prefill resolved city NAMES through a live oblast/city taxonomy
+        // lookup by id, never off this denormalised field). Now that
+        // `SearchFiltersController.prefillFromProfileIfNeeded` reads
+        // `user.cityName` directly off `/users/me` with no taxonomy round
+        // trip at all (search_filters_controller.dart:388-393), a stale name
+        // here would leak into Search on the very next open after a real
+        // Location-edit save — exactly the regression
+        // `client_search_flow_test.dart`'s mid-session-city-change flow
+        // exists to catch. Derived from [kSeededSettlementNames] so it always
+        // agrees with the `GET /api/v1/settlements` rows below.
         if (body.containsKey('cityId')) {
           clientCityId = body['cityId'] as String?;
-          clientCityName = clientCityId == null ? null : clientCityName;
+          clientCityName = clientCityId == null
+              ? null
+              : (kSeededSettlementNames[clientCityId] ?? clientCityName);
         }
         if (body.containsKey('districtId')) {
           clientDistrictId = body['districtId'] as String?;
@@ -6628,7 +7008,7 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getPublicMasterServicesCalls++;
         lastGetPublicMasterServicesId = 'master-aaa';
-        return _okList(_publicMasterServices);
+        return _okList(_publicMasterServicesEffective);
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -6750,8 +7130,14 @@ final class FakeBackend {
     // booking-flow E2E requests.
     _adapter.onRoute(
       '/api/v1/masters/master-aaa/slots',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         getMasterSlotsCalls++;
+        // Phase 350 — records the FULL multi-service selection, mirroring
+        // the working-days registration above.
+        lastMasterAaaSlotsServiceIds = _multiQueryParam(
+          req.queryParameters,
+          'serviceId',
+        );
         return _availableSlotsEnvelope();
       }),
       request: const Request(method: RequestMethods.get),
@@ -7153,23 +7539,24 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (_) {
         getSalonByIdCalls++;
         lastGetSalonId = 'salon-admin-1';
-        return _ok(<String, dynamic>{
-          'id': 'salon-admin-1',
-          'name': 'Салон Адміністратора',
-          'description': null,
-          'region': 'Київська',
-          'cityId': 'city-kyiv',
-          'oblastId': 'oblast-kyiv',
-          'street': 'вул. Січових Стрільців',
-          'buildingNo': '7',
-          'locationNote': null,
-          'phone': null,
-          'instagramUrl': null,
-          'avatarUrl': null,
-          'coverImageUrl': null,
-          'avgRating': null,
-          'reviewCount': 0,
-        });
+        return _ok(
+          withSeededSalonLocality(<String, dynamic>{
+            'id': 'salon-admin-1',
+            'name': 'Салон Адміністратора',
+            'description': null,
+            'cityId': 'city-kyiv',
+            'oblastId': 'oblast-kyiv',
+            'street': 'вул. Січових Стрільців',
+            'buildingNo': '7',
+            'locationNote': null,
+            'phone': null,
+            'instagramUrl': null,
+            'avatarUrl': null,
+            'coverImageUrl': null,
+            'avgRating': null,
+            'reviewCount': 0,
+          }),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -7264,23 +7651,27 @@ final class FakeBackend {
             // mutable value so an untouched-locality PATCH (e.g. Test 4,
             // editing only `street`) still echoes a valid, non-null pair.
             if (body['cityId'] is String) {
-              _salonManageCityId = body['cityId'] as String;
+              salonManageCityId = body['cityId'] as String;
             }
             if (body.containsKey('districtId')) {
               _salonManageDistrictId = body['districtId'] as String?;
             }
-            return _ok(<String, dynamic>{
-              'id': 'salon-xyz',
-              'name': _salonManageName,
-              'description': salonDescription,
-              'cityId': _salonManageCityId,
-              'oblastId': _salonManageOblastId,
-              'districtId': _salonManageDistrictId,
-              'street': (body['street'] as String?) ?? 'вул. Хрещатик',
-              'buildingNo': (body['buildingNo'] as String?) ?? '12',
-              'phone': salonPhone,
-              'instagramUrl': salonInstagramUrl,
-            });
+            // `city`/`region` re-derived from the (possibly just-PATCHed)
+            // `cityId` — backend Phase 328.
+            return _ok(
+              withSeededSalonLocality(<String, dynamic>{
+                'id': 'salon-xyz',
+                'name': _salonManageName,
+                'description': salonDescription,
+                'cityId': salonManageCityId,
+                'oblastId': _salonManageOblastId,
+                'districtId': _salonManageDistrictId,
+                'street': (body['street'] as String?) ?? 'вул. Хрещатик',
+                'buildingNo': (body['buildingNo'] as String?) ?? '12',
+                'phone': salonPhone,
+                'instagramUrl': salonInstagramUrl,
+              }),
+            );
           }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
@@ -7337,6 +7728,33 @@ final class FakeBackend {
     // GET /salons/salon-xyz/sibling-salons,
     // DELETE/PATCH /salons/salon-xyz/admins/{userId}[/salon] — Phase 21.6.
     _wireAdminManagement();
+
+    // PATCH /api/v1/independent-masters/me — Phase 346 QA. The master
+    // Location screen's `updateLocality`. Applied the way the real backend
+    // applies it: `cityId` is written and `city` is its DENORMALISED mirror
+    // (`MasterDetailResponse.city` — "a denormalised mirror of
+    // cities.name_uk, written beside cityId"), resolved from
+    // [kSeededSettlementNames] so it agrees with the `/settlements` rows. The
+    // locality is a UNIT, so an omitted `districtId` clears it.
+    _adapter.onRoute(
+      '/api/v1/independent-masters/me',
+      (server) => server.replyCallback(200, (req) {
+        patchMasterLocalityCalls++;
+        final body = _decodeBody(req.data);
+        lastPatchMasterLocalityBody = body;
+        final String? cityId = body['cityId'] as String?;
+        masterCityId = cityId;
+        masterCity = cityId == null ? null : kSeededSettlementNames[cityId];
+        masterDistrictId = body['districtId'] as String?;
+        if (body['street'] is String) masterStreet = body['street'] as String;
+        if (body['buildingNo'] is String) {
+          masterBuildingNo = body['buildingNo'] as String;
+        }
+        masterLocationNote = body['locationNote'] as String?;
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
 
     // PATCH /api/v1/independent-masters/me/profile
     _adapter.onRoute(
@@ -7791,6 +8209,89 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/settlements?query=… — Phase 346. The «Населений пункт»
+    // autocomplete that REPLACED the Область → Місто cascade above. Shape:
+    // SettlementSearchResponse { settlementId, nameUk, settlementType,
+    // oblastNameUk, hromadaNameUk }.
+    //
+    // The ids deliberately MIRROR the cascade cities seeded above
+    // (`city-kyiv`, `city-lviv`, `city-with-districts`), because the settlement
+    // id IS the `cityId` every profile/salon write submits and the key the
+    // `/locations/cities/{id}/districts` route below is registered under. A
+    // flow that picks «Дніпро» here must therefore reach the SAME district
+    // handler the cascade reached — that is what keeps the district half of
+    // these flows honest after the swap.
+    //
+    // DioAdapter matches on the PATH only, so this one registration answers
+    // every `query` value, including the blank pre-typing one. That is fine
+    // for the flows: they pick by row key, and the row keys are stable ids.
+    // `hromadaNameUk` is non-null on exactly one row so a flow can prove the
+    // three-part disambiguating label renders, which is the only thing the
+    // settlement rows do that the cascade rows could not.
+    _adapter.onRoute(
+      '/api/v1/settlements',
+      (server) => server.replyCallback(200, (req) {
+        // Phase 346 QA — records the `query` of every settlement search, so
+        // a flow can pin that the TYPED term (and only the debounced one)
+        // reached the wire. Recording only: the answer is unchanged.
+        settlementQueries.add(
+          _scalarQueryParam(req.queryParameters, 'query') ?? '',
+        );
+        return _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'settlementId': 'city-kyiv',
+            'nameUk': 'Київ',
+            'settlementType': 'CITY',
+            'oblastNameUk': 'Київ',
+            'hromadaNameUk': null,
+          },
+          <String, dynamic>{
+            'settlementId': 'city-lviv',
+            'nameUk': 'Львів',
+            'settlementType': 'CITY',
+            'oblastNameUk': 'Львівська',
+            'hromadaNameUk': null,
+          },
+          <String, dynamic>{
+            'settlementId': 'city-with-districts',
+            'nameUk': 'Дніпро',
+            'settlementType': 'CITY',
+            'oblastNameUk': 'Дніпропетровська',
+            'hromadaNameUk': null,
+          },
+          // The ambiguous class: a village whose name+oblast pair collides, so
+          // the server populates the hromada and the client renders the
+          // three-part label. No cascade row could express this at all.
+          <String, dynamic>{
+            'settlementId': 'village-ivanivka',
+            'nameUk': 'Іванівка',
+            'settlementType': 'VILLAGE',
+            'oblastNameUk': 'Полтавська',
+            'hromadaNameUk': 'Шишацька',
+          },
+        ]);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/locations/cities/{cityId}/districts — Phase 346. EVERY
+    // settlement is asked this question now (the settlement search response
+    // carries no `hasDistricts` flag), so the three that have no districts
+    // need an explicit empty answer. Without it an unrouted GET would surface
+    // as a failure instead of the "this settlement is a leaf" signal the
+    // district row gates on.
+    for (final String leafId in <String>[
+      'city-kyiv',
+      'city-lviv',
+      'village-ivanivka',
+    ]) {
+      _adapter.onRoute(
+        '/api/v1/locations/cities/$leafId/districts',
+        (server) => server.reply(200, _okList(const <dynamic>[])),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+
     // GET /api/v1/locations/cities/city-with-districts/districts — Phase
     // 21.10 QA follow-up. One seeded district so a flow can drive the REAL
     // district picker sheet. Shape: CityDistrictResponse { id, cityId,
@@ -7977,6 +8478,64 @@ final class FakeBackend {
           totalPages: 1,
           totalElements: 1,
         );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/search/suggestions?q=&limit=[&location.cityId=][&location
+    // .districtId=] — Phase 352. Locality-aware: «Нарощення нігтів» (SERVICE,
+    // category NAILS, slug `nail-extension`) is offered in settlement
+    // `city-kyiv` and nationally (no place chosen); ABSENT for `city-lviv` —
+    // this is what the integration flow's refetch-on-place-change step
+    // proves. Keyed on `q` case/apostrophe-insensitively containing «нар»
+    // (word-start), mirroring the real backend's D4 rules closely enough for
+    // the flow; every other term returns an empty list.
+    //
+    // Additive (QA cycle, 2026-09-26): `q` containing «бров» echoes a
+    // CATEGORY row (BROWS, «Брови») unconditionally (every place, including
+    // national) — the same category the LOCAL matcher already renders
+    // instantly from `/service-categories/approved`'s BROWS entry. Server and
+    // local agreeing on this term is deliberate: it lets a CATEGORY-tap E2E
+    // flow assert the row regardless of exactly when the debounce lands,
+    // instead of racing a local row against a server answer that would
+    // otherwise wipe it. Disjoint from the «нар» branch below — no term used
+    // by any flow contains both substrings.
+    _adapter.onRoute(
+      '/api/v1/search/suggestions',
+      (server) => server.replyCallback(200, (req) {
+        searchSuggestionsCalls++;
+        final Map<String, dynamic> reqJson = _decodeRequest(
+          req.queryParameters,
+        );
+        final String q = (reqJson['q'] as String? ?? '').toLowerCase();
+        final String? cityId = reqJson['location.cityId'] as String?;
+        lastSearchSuggestionsQuery = reqJson['q'] as String?;
+        lastSearchSuggestionsCityId = cityId;
+        lastSearchSuggestionsDistrictId =
+            reqJson['location.districtId'] as String?;
+
+        if (q.contains('бров')) {
+          return _okList(<Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'CATEGORY',
+              'label': 'Брови',
+              'categoryKey': 'BROWS',
+            },
+          ]);
+        }
+
+        if (!q.contains('нар')) return _okList(const <dynamic>[]);
+
+        // Available in `city-kyiv` and nationally; absent in `city-lviv`.
+        if (cityId == 'city-lviv') return _okList(const <dynamic>[]);
+        return _okList(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'type': 'SERVICE',
+            'label': 'Нарощення нігтів',
+            'categoryKey': 'NAILS',
+            'serviceTypeSlug': 'nail-extension',
+          },
+        ]);
       }),
       request: const Request(method: RequestMethods.get),
     );

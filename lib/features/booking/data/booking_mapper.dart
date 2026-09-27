@@ -41,6 +41,7 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:flutter/foundation.dart';
 
 import '../domain/booking.dart';
@@ -121,7 +122,7 @@ abstract final class BookingMapper {
       masterFirstName: dto.masterFirstName ?? '',
       masterLastName: dto.masterLastName ?? '',
       masterAvatarUrl: dto.masterAvatarUrl,
-      masterType: dto.masterType?.name ?? '',
+      masterType: knownEnumName(dto.masterType) ?? '',
       salonName: dto.salonName,
       // Phase 232. Deliberately NOT in the required-field set above: a null
       // `salonId` is a legitimate INDEPENDENT_MASTER booking, never a broken

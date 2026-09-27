@@ -1197,4 +1197,151 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 90)),
   );
+
+  // ---------------------------------------------------------------------
+  // Phase 357 (user request 2026-09-26) — the «Послуги» TAB's category cards
+  // are now a SECOND real tap path into the SAME real salon-scoped
+  // `ServicesListScreen` the management row above already reaches. Reuses
+  // the file's own `master-removable` / `_kSalonServicesUri` fixture pair
+  // and mirrors case 1's read-reaches-the-right-wire assertions, but drives
+  // the journey through `salon-staff-profile-tab-1` ->
+  // `staff-profile-category-NAILS` instead of
+  // `salon-staff-profile-services-row`.
+  // ---------------------------------------------------------------------
+  testWidgets(
+    'SALON_OWNER: roster -> «Послуги» TAB -> a category card -> the real '
+    'salon-scoped list for THIS master',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        fb.mySalons.add(<String, dynamic>{
+          'id': _kSalonId,
+          'ownerId': 'user-owner-1',
+          'name': 'Студія Краси «Камелія»',
+          'city': 'Київ',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Хрещатик',
+          'buildingNo': '12',
+          'isActive': true,
+          'isPrimary': false,
+        });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── «Персонал» tab -> the real roster grid ──────────────────────
+        await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-$_kMemberUserId'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        await tapWhenReady(tester, masterCard);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // ── «Послуги» TAB -> a category card -> the real salon-scoped list ──
+        final Finder servicesTab = find.byKey(
+          const Key('salon-staff-profile-tab-1'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesTab,
+          timeout: const Duration(seconds: 20),
+        );
+        // Drain the six staggered RevealTransitions off this screen's one
+        // 950ms AnimationController — see file header TIMING note.
+        await lockstepPump(tester);
+        await tapWhenReady(tester, servicesTab);
+        await lockstepPump(tester);
+
+        final Finder categoryCard = find.byKey(
+          const Key('staff-profile-category-NAILS'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          categoryCard,
+          timeout: const Duration(seconds: 20),
+        );
+        await tapWhenReady(tester, categoryCard);
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(ServicesListScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final int ownCallsBefore = fb.getServicesCalls;
+        expect(
+          fb.getSalonMasterServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason:
+              'the category-card tap must reach the scoped salon-target '
+              'read, not merely render an empty/loading screen',
+        );
+        expect(
+          fb.lastSalonMasterServicesPath,
+          _kSalonServicesUri,
+          reason:
+              'the master ROW id must be on the wire, never the roster '
+              'userId — same wiring the management row\'s own «Послуги» '
+              'card already proves (case 1 above), now proven for the tab\'s '
+              'own tap path too',
+        );
+        expect(
+          fb.getServicesCalls,
+          ownCallsBefore,
+          reason:
+              'GET /independent-masters/me/services would be the silent '
+              'release-mode failure mode — the category card must never '
+              'fall back to ServiceCategoryCard\'s own default '
+              '`RouteNames.services` (the AUTHENTICATED viewer\'s own '
+              'catalogue), only to `RouteNames.salonManageStaffServices`',
+        );
+
+        final Finder nails = find.byKey(const Key('category_section_NAILS'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          nails,
+          timeout: const Duration(seconds: 20),
+        );
+        final Finder card1 = find.byKey(
+          const Key('service_card_salon-assign-1'),
+        );
+        // The category accordion may start collapsed — same guard case 1
+        // above uses.
+        if (card1.evaluate().isEmpty) {
+          await tapWhenReady(tester, nails);
+        }
+        await AppHarness.pumpUntilFound(
+          tester,
+          card1,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(card1, findsOneWidget);
+        expect(
+          find.byKey(const Key('service_card_salon-assign-2')),
+          findsOneWidget,
+        );
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }

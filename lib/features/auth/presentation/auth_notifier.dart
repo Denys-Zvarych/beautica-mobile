@@ -35,6 +35,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import '../../../core/errors/auth_rejection.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/media/beautica_image.dart';
 import '../../../core/security/screen_protection.dart';
@@ -51,6 +52,23 @@ import '../../../shared/util/mask_email.dart';
 // `authProvider` back, so it cannot reopen the CircularDependencyError the
 // NOTE further down in [logout] warns about.
 import '../../booking/application/bookings_day_notifier.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (phase 347 audit, security LOW) — same shape as the two above:
+// `settlementSearchCacheProvider` is a `keepAlive` cache of typed search terms
+// that watches nothing (so it cannot self-clear via the auth cascade, and
+// cannot watch `authProvider` back). A plain `clear()` call in [logout].
+import '../../location/state/location_providers.dart';
+// Deliberate, narrow exception to "auth never imports another feature"
+// (mobile-perf HIGH + mobile-security MEDIUM, 2026-09-26) — same shape as the
+// `settlementSearchCacheProvider` import above: `searchSuggestionCacheProvider`
+// is a `keepAlive` cache of typed search terms + chosen place that watches
+// nothing (so it cannot self-clear via the auth cascade, and cannot watch
+// `authProvider` back). A plain `clear()` call in [logout]. Imported from its
+// own small file (NOT `search_suggestions_provider.dart`, which transitively
+// imports THIS file via `search_filters_controller.dart` — a genuine import
+// cycle; see that file's header) so this stays a one-way dependency, same as
+// `location_providers.dart` above.
+import '../../discovery/data/search_suggestion_cache_provider.dart';
 // Deliberate, narrow exception to "auth never imports another feature"
 // (mobile-perf P2-1, 2026-09-07) — same shape as the `bookings_day_notifier
 // .dart` import above: `weeklyScheduleProvider`/`effectiveScheduleProvider`
@@ -379,7 +397,10 @@ class AuthNotifier extends _$AuthNotifier {
     //   Phase 2 (network, ~200–2000 ms): exchange the stored token for a new
     //     token pair (repo.refresh) and load the user profile (repo.me).
     //     On success → return Authenticated.
-    //     On any failure → wipe storage, return Unauthenticated.
+    //     On a credential REJECTION (401/403, or /auth/refresh rejecting the
+    //     token) → wipe storage, return Unauthenticated. On any other failure
+    //     → keep storage (the next cold start retries), return
+    //     Unauthenticated.
     //
     // HIGH-1: before calling repo.me(), write the fresh access token to
     // [coldStartAccessToken] so AuthInterceptor injects it as the Bearer
@@ -421,6 +442,10 @@ class AuthNotifier extends _$AuthNotifier {
       return const AuthSession.unauthenticated();
     }
 
+    // Which call failed decides what counts as a rejection: only the refresh
+    // endpoint may reject with a 400 (a malformed token) — see
+    // [isAuthRejection].
+    bool inRefresh = true;
     try {
       final repo = ref.read(authRepositoryProvider);
 
@@ -428,6 +453,7 @@ class AuthNotifier extends _$AuthNotifier {
       // X-No-Retry: true so RefreshInterceptor cannot re-intercept a 401
       // from /auth/refresh and loop with the already-expired token.
       final tokens = await repo.refresh(rt);
+      inRefresh = false;
       await storage.writeRefreshToken(tokens.refreshToken);
 
       // HIGH-1: write the fresh access token to the sentinel field so
@@ -452,33 +478,35 @@ class AuthNotifier extends _$AuthNotifier {
         user: user,
         accessToken: tokens.accessToken,
       );
-    } on Failure catch (f) {
-      if (kDebugMode) {
-        log(
-          'Cold start refresh failed — clearing storage and going unauthenticated',
-          name: 'auth',
-          level: 1000,
-          error:
-              '${f.runtimeType}${f is ServerFailure ? " (status: ${f.statusCode})" : ""}',
-        );
-      }
-      await storage.deleteAll();
-      _lastKnownAccessToken = null;
-      return const AuthSession.unauthenticated();
     } catch (e, st) {
       // Catch-all — must not surface as AsyncError; the router handles
       // Unauthenticated states but has no handler for AsyncError on startup.
+      //
+      // Audit (2026-09-24, security LOW): storage is wiped ONLY when the
+      // server REJECTED the credentials (401/403, or the refresh endpoint
+      // rejecting the token). A 200 the client could not parse, a 5xx, no
+      // network or any non-Failure error says nothing about the credentials:
+      // the stored refresh token — already the ROTATED one when the failure
+      // came from `repo.me()` — is KEPT, so the next cold start retries and
+      // restores the session instead of logging the user out for good. The
+      // in-memory state is still Unauthenticated (there is no user to route
+      // with), which lands on the login screen; signing in there simply
+      // replaces the kept token.
+      final bool rejected = isAuthRejection(e, includeValidation: inRefresh);
       if (kDebugMode) {
         log(
-          'Cold start refresh failed with non-Failure exception — '
-          'clearing storage and going unauthenticated',
+          rejected
+              ? 'Cold start: credentials rejected — clearing storage'
+              : 'Cold start failed without a credential rejection — keeping '
+                    'the stored session for the next attempt',
           name: 'auth',
           level: 1000,
-          error: e,
+          error:
+              '${e.runtimeType}${e is ServerFailure ? " (status: ${e.statusCode})" : ""}',
           stackTrace: st,
         );
       }
-      await storage.deleteAll();
+      if (rejected) await storage.deleteAll();
       _lastKnownAccessToken = null;
       return const AuthSession.unauthenticated();
     } finally {
@@ -1302,6 +1330,31 @@ class AuthNotifier extends _$AuthNotifier {
       // `bookings_day_notifier.dart`'s file header ("Session-boundary PII") for
       // the full reasoning, including the Riverpod internals this depends on.
       ref.read(dayKeepAliveLruProvider).clear();
+      // Security (phase 347 audit, LOW) — the settlement autocomplete's
+      // keepAlive result cache is keyed by what the user TYPED. Swept here so
+      // the next account on this device cannot read the previous one's search
+      // terms back out of it (e.g. through instant provisional rows).
+      ref.read(settlementSearchCacheProvider).clear();
+      // Security (mobile-perf HIGH + mobile-security MEDIUM, 2026-09-26) —
+      // same reasoning, same shape, for the «Пошук» suggestion list's OWN
+      // keepAlive LRU (`search_suggestion_repository.dart` /
+      // `search_suggestions_provider.dart`, Phase 352 D3): keyed by what the
+      // user TYPED plus the chosen place, and — like the settlement cache
+      // above — watches nothing, so nothing in the auth cascade reaches it.
+      // Swept here so the next account on a shared device cannot read the
+      // previous one's typed terms/place back out of it.
+      //
+      // `searchSuggestionsProvider` itself (the debounced notifier that
+      // reads/writes this cache) needs no separate sweep: its `build()`
+      // watches `searchQueryDraftControllerProvider` and
+      // `searchFiltersControllerProvider` (both auth-watched, self-clearing
+      // above via the ordinary cascade — see those notifiers' own `build()`
+      // doc comments), and an empty draft short-circuits `_resolve` to
+      // cancel any pending debounce/request and return no rows — so its
+      // in-flight state clears as a side effect of THAT cascade, same as
+      // every other per-session UI notifier in this file that isn't listed
+      // in the belt-and-braces NOTE below.
+      ref.read(searchSuggestionCacheProvider).clear();
       // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
       // sweep, for the same reason the day-timeline one above is needed:
       // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on

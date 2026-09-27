@@ -37,6 +37,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListSalonResponse.serializer)
       ..add(ApiResponseListSalonStaffMemberResponse.serializer)
       ..add(ApiResponseListScheduleOverrideResponse.serializer)
+      ..add(ApiResponseListSearchSuggestionResponse.serializer)
+      ..add(ApiResponseListSettlementSearchResponse.serializer)
       ..add(ApiResponseListSiblingSalonOption.serializer)
       ..add(ApiResponseListWeeklyScheduleResponse.serializer)
       ..add(ApiResponseListWorkingHoursResponse.serializer)
@@ -156,6 +158,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(LocationFilter.serializer)
       ..add(LoginRequest.serializer)
       ..add(MasterDetailResponse.serializer)
+      ..add(MasterDetailResponseCitySettlementTypeEnum.serializer)
       ..add(MasterDetailResponseMasterTypeEnum.serializer)
       ..add(MasterProfileUpdateRequest.serializer)
       ..add(MasterPublicProfileResponse.serializer)
@@ -200,6 +203,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(PlatformCategoryUsageResponse.serializer)
       ..add(PlatformServiceTypeResponse.serializer)
       ..add(PublicSalonResponse.serializer)
+      ..add(PublicSalonResponseCitySettlementTypeEnum.serializer)
       ..add(RatingBucket.serializer)
       ..add(RefreshRequest.serializer)
       ..add(RegisterDeviceTokenRequest.serializer)
@@ -223,6 +227,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonInviteResponse.serializer)
       ..add(SalonMasterEffectiveScheduleResponse.serializer)
       ..add(SalonResponse.serializer)
+      ..add(SalonResponseCitySettlementTypeEnum.serializer)
       ..add(SalonReviewResponse.serializer)
       ..add(SalonReviewSummaryResponse.serializer)
       ..add(SalonSearchRequest.serializer)
@@ -238,9 +243,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ScheduleOverrideResponse.serializer)
       ..add(ScheduleOverrideResponseKindEnum.serializer)
       ..add(ScheduleOverrideResponseModeEnum.serializer)
+      ..add(SearchSuggestionRequest.serializer)
+      ..add(SearchSuggestionResponse.serializer)
+      ..add(SearchSuggestionResponseTypeEnum.serializer)
       ..add(ServiceDefinitionResponse.serializer)
       ..add(ServiceDefinitionResponsePriceTypeEnum.serializer)
       ..add(ServiceSummaryDto.serializer)
+      ..add(SettlementSearchResponse.serializer)
+      ..add(SettlementSearchResponseSettlementTypeEnum.serializer)
       ..add(SiblingSalonOption.serializer)
       ..add(SortObject.serializer)
       ..add(StatusUpdateRequest.serializer)
@@ -258,6 +268,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(UpdateServicePhotoRequest.serializer)
       ..add(UploadPortfolioPhotoRequest.serializer)
       ..add(UserProfileResponse.serializer)
+      ..add(UserProfileResponseCitySettlementTypeEnum.serializer)
       ..add(UserRatingResponse.serializer)
       ..add(VerifyEmailRequest.serializer)
       ..add(VerifyPasswordResetOtpRequest.serializer)
@@ -494,11 +505,27 @@ Serializers _$serializers = (Serializers().toBuilder()
           () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
+              BuiltList, const [const FullType(SearchSuggestionResponse)]),
+          () => ListBuilder<SearchSuggestionResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
+      ..addBuilderFactory(
+          const FullType(
               BuiltList, const [const FullType(ServiceDefinitionResponse)]),
           () => ListBuilder<ServiceDefinitionResponse>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ServiceSummaryDto)]),
           () => ListBuilder<ServiceSummaryDto>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SettlementSearchResponse)]),
+          () => ListBuilder<SettlementSearchResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(SiblingSalonOption)]),
           () => ListBuilder<SiblingSalonOption>())

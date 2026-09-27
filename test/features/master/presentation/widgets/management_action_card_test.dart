@@ -24,6 +24,8 @@
 //     !widget.enabled` → `final bool inert = false` → same RED (this is the
 //     same code path as above; recorded together).
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +37,7 @@ Widget _card({
   bool enabled = true,
   bool loading = false,
   bool emphasis = false,
+  Color? valueColor,
 }) => Material(
   child: Align(
     alignment: Alignment.topLeft,
@@ -52,6 +55,7 @@ Widget _card({
         enabled: enabled,
         loading: loading,
         emphasis: emphasis,
+        valueColor: valueColor,
         onTap: onTap,
       ),
     ),
@@ -144,5 +148,39 @@ void main() {
 
     expect(find.text('Probe Label'), findsOneWidget);
     expect(find.text('Probe Value'), findsOneWidget);
+  });
+
+  // 2026-09-26 (owner/admin master-card polish) — `valueColor` is additive:
+  // every caller above omits it and keeps
+  // [VelvetText.managementCardValue]'s own colour untouched; only a caller
+  // that explicitly opts in gets a recoloured value line, and the LABEL
+  // line is never touched either way.
+  group('valueColor (additive, 2026-09-26)', () {
+    testWidgets('omitted (default null) — value text keeps '
+        "VelvetText.managementCardValue's own colour", (tester) async {
+      await tester.pumpApp(_card(onTap: () {}));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.text('Probe Value')).style?.color,
+        VelvetText.managementCardValue.color,
+      );
+    });
+
+    testWidgets('set — value text recolours to it, label text does not', (
+      tester,
+    ) async {
+      await tester.pumpApp(_card(onTap: () {}, valueColor: BrandColors.error));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.text('Probe Value')).style?.color,
+        BrandColors.error,
+      );
+      expect(
+        tester.widget<Text>(find.text('Probe Label')).style?.color,
+        isNot(BrandColors.error),
+      );
+    });
   });
 }

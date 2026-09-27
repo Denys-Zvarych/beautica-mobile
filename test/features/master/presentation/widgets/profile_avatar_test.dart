@@ -225,5 +225,54 @@ void main() {
       // Semantics widget must be present in the tree.
       expect(find.byType(Semantics), findsWidgets);
     });
+
+    // ── User decision 2026-09-26 — the stat cards are display-only ──────────
+    // `StatTile` no longer has an `onTap` param at all (Phase 351's additive
+    // `onTap` was removed with no remaining caller). This pins the tile is
+    // unconditionally non-interactive: no `InkWell`, no button semantics, and
+    // a tap on it is a no-op.
+    group('display-only (user decision 2026-09-26)', () {
+      testWidgets('no InkWell, no button semantics', (tester) async {
+        // Disposed explicitly at the END of the body, not via addTearDown:
+        // `_verifySemanticsHandlesWereDisposed` runs BEFORE tear-downs.
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await tester.pumpApp(
+          const StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(InkWell), findsNothing);
+        expect(
+          tester.getSemantics(find.byType(StatTile)),
+          isNot(isSemantics(isButton: true)),
+        );
+
+        handle.dispose();
+      });
+
+      testWidgets('a tap on the tile does nothing observable', (tester) async {
+        await tester.pumpApp(
+          const StatTile(
+            icon: Icons.star_rounded,
+            value: '4.8',
+            caption: 'Рейтинг',
+          ),
+        );
+        await tester.pump();
+
+        // No InkWell / GestureDetector to hit — warnIfMissed would flag a
+        // real interactive target the tap failed to land on.
+        await tester.tap(find.byType(StatTile), warnIfMissed: false);
+        await tester.pump();
+
+        expect(find.byType(StatTile), findsOneWidget);
+        expect(find.text('4.8'), findsOneWidget);
+      });
+    });
   });
 }

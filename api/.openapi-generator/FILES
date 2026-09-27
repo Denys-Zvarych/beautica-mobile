@@ -30,6 +30,8 @@ doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md
 doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListSalonStaffMemberResponse.md
 doc/ApiResponseListScheduleOverrideResponse.md
+doc/ApiResponseListSearchSuggestionResponse.md
+doc/ApiResponseListSettlementSearchResponse.md
 doc/ApiResponseListSiblingSalonOption.md
 doc/ApiResponseListWeeklyScheduleResponse.md
 doc/ApiResponseListWorkingHoursResponse.md
@@ -218,10 +220,15 @@ doc/SalonStaffMemberResponse.md
 doc/ScheduleOverrideRequest.md
 doc/ScheduleOverrideResponse.md
 doc/SearchControllerApi.md
+doc/SearchSuggestionControllerApi.md
+doc/SearchSuggestionRequest.md
+doc/SearchSuggestionResponse.md
 doc/ServiceCatalogControllerApi.md
 doc/ServiceControllerApi.md
 doc/ServiceDefinitionResponse.md
 doc/ServiceSummaryDto.md
+doc/SettlementSearchControllerApi.md
+doc/SettlementSearchResponse.md
 doc/SiblingSalonOption.md
 doc/SortObject.md
 doc/StaffBookingsApi.md
@@ -272,8 +279,10 @@ lib/src/api/review_controller_api.dart
 lib/src/api/salon_controller_api.dart
 lib/src/api/salon_master_controller_api.dart
 lib/src/api/search_controller_api.dart
+lib/src/api/search_suggestion_controller_api.dart
 lib/src/api/service_catalog_controller_api.dart
 lib/src/api/service_controller_api.dart
+lib/src/api/settlement_search_controller_api.dart
 lib/src/api/staff_bookings_api.dart
 lib/src/api/support_controller_api.dart
 lib/src/api/user_controller_api.dart
@@ -313,6 +322,8 @@ lib/src/model/api_response_list_salon_master_effective_schedule_response.dart
 lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_salon_staff_member_response.dart
 lib/src/model/api_response_list_schedule_override_response.dart
+lib/src/model/api_response_list_search_suggestion_response.dart
+lib/src/model/api_response_list_settlement_search_response.dart
 lib/src/model/api_response_list_sibling_salon_option.dart
 lib/src/model/api_response_list_weekly_schedule_response.dart
 lib/src/model/api_response_list_working_hours_response.dart
@@ -482,8 +493,11 @@ lib/src/model/salon_service_category_group.dart
 lib/src/model/salon_staff_member_response.dart
 lib/src/model/schedule_override_request.dart
 lib/src/model/schedule_override_response.dart
+lib/src/model/search_suggestion_request.dart
+lib/src/model/search_suggestion_response.dart
 lib/src/model/service_definition_response.dart
 lib/src/model/service_summary_dto.dart
+lib/src/model/settlement_search_response.dart
 lib/src/model/sibling_salon_option.dart
 lib/src/model/sort_object.dart
 lib/src/model/status_update_request.dart
@@ -511,3 +525,7 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_list_search_suggestion_response_test.dart
+test/search_suggestion_controller_api_test.dart
+test/search_suggestion_request_test.dart
+test/search_suggestion_response_test.dart

@@ -12,22 +12,37 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../location/domain/settlement.dart';
+
 part 'salon.freezed.dart';
 
 /// A Beautica salon — the canonical domain entity returned by the public
 /// salon-read path (`GET /salons/{salonId}`).
 @freezed
 abstract class Salon with _$Salon {
+  const Salon._();
+
   const factory Salon({
     required String id,
     required String name,
     String? description,
 
-    /// Legacy free-text city name — kept for backward compat, but no longer
-    /// written by the backend since Phase 10.6 (taxonomy fields took over).
-    /// Null for any salon created/edited after that.
+    /// Settlement name. Legacy free text before Phase 10.6; since backend
+    /// `f3720365` (V177/V178 backfill) it is written from [cityId]'s
+    /// settlement whenever [cityId] is written.
     String? city,
+
+    /// Oblast name of [city]'s settlement — the oblast half of the saved
+    /// label (phase-330). Same provenance as [city].
     String? region,
+
+    /// Raw wire `citySettlementType` of the settlement behind [cityId]
+    /// (phase-330); null when the read predates it. Feeds [savedSettlement].
+    String? citySettlementType,
+
+    /// Bare hromada adjective, populated by the server ONLY when the
+    /// settlement's name is ambiguous in its oblast; never derived here.
+    String? cityHromadaName,
 
     /// Legacy free-text address — same backward-compat caveat as [city].
     String? address,
@@ -146,4 +161,15 @@ abstract class Salon with _$Salon {
     /// share it and no longer does.
     bool? isPrimary,
   }) = _Salon;
+
+  /// The salon's settlement as a [Settlement], for
+  /// [composeSavedSettlementLabel]; `null` when [city] is unset. The oblast
+  /// half is [region] (phase-330 contract).
+  Settlement? get savedSettlement => Settlement.fromSaved(
+    id: cityId,
+    name: city,
+    settlementType: citySettlementType,
+    hromadaName: cityHromadaName,
+    oblastName: region,
+  );
 }

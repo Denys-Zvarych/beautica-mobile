@@ -529,6 +529,14 @@ void main() {
               masterType: null,
             ),
             (
+              // `enumUnknownDefaultCase` — a role this build predates decodes
+              // to the fallback member instead of throwing.
+              label: 'the unknown-value fallback',
+              wire: SalonStaffMemberResponseRoleEnum.unknownDefaultOpenApi,
+              role: SalonStaffRole.master,
+              masterType: null,
+            ),
+            (
               label: 'a null/absent wire role',
               wire: null,
               role: SalonStaffRole.master,
@@ -553,11 +561,12 @@ void main() {
           'means a new row is owed here, not a silent (master, null)', () {
         expect(
           SalonStaffMemberResponseRoleEnum.values.length,
-          5,
+          6,
           reason:
               'CARDINALITY LEDGER: the role→(role, masterType) table in this '
               'group enumerates CLIENT, SALON_OWNER, SALON_ADMIN, '
-              'SALON_MASTER and INDEPENDENT_MASTER. Neither mapper function '
+              'SALON_MASTER, INDEPENDENT_MASTER and the generated '
+              'unknownDefaultOpenApi fallback. Neither mapper function '
               'is a switch (built_value EnumClass — no exhaustiveness), so a '
               'new backend role would otherwise map to (master, null) with '
               'nothing failing. Add the row, then bump this count.',
@@ -565,4 +574,52 @@ void main() {
       });
     },
   );
+
+  // Phase-330 — both salon read paths carry the saved-settlement label parts;
+  // the oblast half is `region`.
+  group('SalonMapper — saved-settlement label parts', () {
+    test('fromDto carries citySettlementType + cityHromadaNameUk', () {
+      final salon = SalonMapper.fromDto(
+        _taxonomyOnlyDto().rebuild(
+          (b) => b
+            ..city = 'Іванівка'
+            ..region = 'Полтавська'
+            ..citySettlementType =
+                PublicSalonResponseCitySettlementTypeEnum.VILLAGE
+            ..cityHromadaNameUk = 'Шишацька',
+        ),
+      );
+
+      expect(salon.citySettlementType, 'VILLAGE');
+      expect(salon.cityHromadaName, 'Шишацька');
+      expect(salon.savedSettlement?.name, 'Іванівка');
+      expect(salon.savedSettlement?.oblastName, 'Полтавська');
+      expect(salon.savedSettlement?.settlementType, 'VILLAGE');
+    });
+
+    test('fromUpdateDto carries citySettlementType + cityHromadaNameUk', () {
+      final salon = SalonMapper.fromUpdateDto(
+        SalonResponse(
+          (b) => b
+            ..id = 'salon-330'
+            ..name = 'Салон'
+            ..cityId = 'city-uuid-330'
+            ..oblastId = 'oblast-uuid-330'
+            ..city = 'Львів'
+            ..region = 'Львівська'
+            ..citySettlementType = SalonResponseCitySettlementTypeEnum.CITY,
+        ),
+      );
+
+      expect(salon.citySettlementType, 'CITY');
+      expect(salon.cityHromadaName, isNull);
+      expect(salon.savedSettlement?.oblastName, 'Львівська');
+    });
+
+    test('both are null when the read predates phase-330', () {
+      final salon = SalonMapper.fromDto(_taxonomyOnlyDto());
+      expect(salon.citySettlementType, isNull);
+      expect(salon.cityHromadaName, isNull);
+    });
+  });
 }

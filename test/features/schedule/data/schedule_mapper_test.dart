@@ -9,6 +9,7 @@
 // Pure Dart: builds generated built_value DTOs directly, no network.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_mapper.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -352,6 +353,43 @@ void main() {
       expect(override.intervals, isEmpty);
       expect(override.start, DateTime(2026, 7, 1));
       expect(override.end, DateTime(2026, 7, 1));
+    });
+  });
+
+  // INFO-2 (Phase 348 re-audit) — `enumUnknownDefaultCase=true` decodes a
+  // `kind` this build predates to `unknownDefaultOpenApi` instead of failing
+  // the whole response. `overrideFromResponse` tests ONLY for DAY_OFF, so the
+  // fallback takes the CUSTOM_HOURS branch. Pinned as CURRENT behaviour: a
+  // change to it must be a deliberate decision, never a silent drift.
+  group('overrideFromResponse — unknown wire kind', () {
+    test('an unknown kind ("PARTIAL_DAY") decodes to the fallback and takes '
+        'the default CUSTOM_HOURS branch — never DAY_OFF', () {
+      final dto =
+          beauticaSerializers.deserializeWith(
+                ScheduleOverrideResponse.serializer,
+                <String, Object?>{
+                  'date': '2026-06-10',
+                  'kind': 'PARTIAL_DAY',
+                  'intervals': <Map<String, String>>[
+                    <String, String>{
+                      'startTime': '10:00:00',
+                      'endTime': '14:00:00',
+                    },
+                  ],
+                },
+              )
+              as ScheduleOverrideResponse;
+      expect(dto.kind, ScheduleOverrideResponseKindEnum.unknownDefaultOpenApi);
+
+      final override = ScheduleMapper.overrideFromResponse(dto);
+
+      expect(override.kind, OverrideKind.custom);
+      expect(override.intervals, hasLength(1));
+      expect(
+        override.intervals.single.start,
+        const TimeOfDay(hour: 10, minute: 0),
+      );
+      expect(override.start, DateTime(2026, 6, 10));
     });
   });
 

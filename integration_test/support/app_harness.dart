@@ -97,6 +97,7 @@
 //   });
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -424,6 +425,49 @@ abstract final class AppHarness {
     await settle(tester);
     await pumpUntilFound(tester, finder.hitTestable(), timeout: timeout);
     await tester.tap(finder);
+  }
+
+  /// Picks a settlement in the shared «Населений пункт» autocomplete
+  /// (`SettlementSelectField`), Phase 346's replacement for the Область →
+  /// Місто cascade.
+  ///
+  /// REUSE-FIRST — six E2E flows drive this control. Hand-copying the sequence
+  /// into each is exactly how the four `_selectRailDay` helpers drifted, so
+  /// this is the single copy.
+  ///
+  /// [fieldKey] defaults to the field's own key; the discovery filters screen
+  /// keys its instance `search_city_value` (deliberately the retired city
+  /// row's key, so existing finders still resolve to the locality control).
+  ///
+  /// ⚠ THE DEBOUNCE PUMP IS LOAD-BEARING. `settle` fires no `Timer`, so
+  /// typing and settling measures the PRE-KEYSTROKE state — the sheet still
+  /// shows the blank-query major list and a row tap "succeeds" against the
+  /// wrong data. The explicit `tester.pump(kSettlementSearchDebounce)` below
+  /// is what commits the query.
+  ///
+  /// Leaving [query] empty skips typing entirely and picks straight off the
+  /// pre-typing major-settlement list, which is the cheaper path whenever the
+  /// target settlement is in it.
+  static Future<void> pickSettlement(
+    WidgetTester tester,
+    String settlementId, {
+    String query = '',
+    Key fieldKey = const Key('settlement_select_field'),
+  }) async {
+    await tapVisible(tester, find.byKey(fieldKey));
+    await settle(tester);
+    if (query.isNotEmpty) {
+      await tester.enterText(
+        find.byKey(const Key('select-menu-search')),
+        query,
+      );
+      await tester.pump(kSettlementSearchDebounce);
+      await settle(tester);
+    }
+    final Finder row = find.byKey(Key('settlement_option_$settlementId'));
+    await pumpUntilFound(tester, row);
+    await tester.tap(row);
+    await settle(tester);
   }
 
   /// Scrolls the OUTER (vertical) [Scrollable] on `search_filters_screen.dart`

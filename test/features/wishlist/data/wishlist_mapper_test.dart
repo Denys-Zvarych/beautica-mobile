@@ -23,6 +23,7 @@ import 'dart:io';
 
 import 'package:beautica_api/beautica_api.dart' as api;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/features/wishlist/data/wishlist_mapper.dart';
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -499,6 +500,35 @@ void main() {
         _salonDto(salonName: null),
       );
       expect(s.salonName, isNull);
+    });
+
+    // INFO-2 (Phase 348 re-audit) — `enumUnknownDefaultCase=true` decodes a
+    // `sourceType` this build predates to `unknownDefaultOpenApi`; the
+    // mapper tests ONLY for SALON, so the fallback takes the MASTER default
+    // arm. Pinned as CURRENT behaviour.
+    test('an unknown sourceType ("PARTNER") decodes to the fallback and takes '
+        'the default MASTER arm, never SALON', () {
+      final dto =
+          beauticaSerializers.deserializeWith(
+                api.FavoriteServiceResponse.serializer,
+                <String, Object?>{
+                  'masterServiceId': 'ms-1',
+                  'masterId': 'm-1',
+                  'serviceName': 'Манікюр',
+                  'sourceType': 'PARTNER',
+                },
+              )
+              as api.FavoriteServiceResponse;
+      expect(
+        dto.sourceType,
+        api.FavoriteServiceResponseSourceTypeEnum.unknownDefaultOpenApi,
+      );
+
+      final WishlistService s = WishlistMapper.fromDto(dto);
+
+      expect(s.sourceType, WishlistSourceType.master);
+      expect(s.masterServiceId, 'ms-1');
+      expect(s.masterId, 'm-1');
     });
 
     test('an absent sourceType is read as MASTER, never SALON', () {

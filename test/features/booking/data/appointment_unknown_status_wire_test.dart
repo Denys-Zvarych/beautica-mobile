@@ -27,6 +27,7 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_mapper.dart';
 import 'package:beautica_mobile/features/booking/domain/appointment.dart';
@@ -177,64 +178,52 @@ void main() {
   });
 
   group('the tolerance is scoped, not blanket', () {
-    test('the UNTOLERATED generated serializers still throw for BOTH '
-        'appointment DTOs — proving the tolerance comes from the plugin and '
-        'not from built_value', () {
-      expect(
-        () => standardSerializers.deserialize(
-          _visitJson(status: 'RESCHEDULED'),
-          specifiedType: const FullType(AppointmentDetailResponse),
-        ),
-        throwsA(
-          isA<DeserializationError>().having(
-            (DeserializationError e) => e.toString(),
-            'toString()',
-            allOf(
-              contains('RESCHEDULED'),
-              contains('AppointmentDetailResponseStatusEnum'),
-            ),
-          ),
-        ),
-      );
+    test('the UNTOLERATED generated serializers decode an unknown status '
+        'to the generated fallback (no throw since enumUnknownDefaultCase) '
+        '— the null the mapper reads is still the plugin\'s doing', () {
+      final AppointmentDetailResponse raw =
+          standardSerializers.deserialize(
+                _visitJson(
+                  status: 'RESCHEDULED',
+                  items: <Map<String, dynamic>>[
+                    _itemJson(
+                      bookingId: 'booking-1',
+                      status: 'PARTIALLY_REFUNDED',
+                    ),
+                  ],
+                ),
+                specifiedType: const FullType(AppointmentDetailResponse),
+              )
+              as AppointmentDetailResponse;
+      expect(isOpenApiUnknownDefault(raw.status!), isTrue);
+      expect(isOpenApiUnknownDefault(raw.items!.first.status!), isTrue);
 
-      expect(
-        () => standardSerializers.deserialize(
-          _visitJson(
-            status: 'CONFIRMED',
-            items: <Map<String, dynamic>>[
-              _itemJson(bookingId: 'booking-1', status: 'PARTIALLY_REFUNDED'),
-            ],
-          ),
-          specifiedType: const FullType(AppointmentDetailResponse),
-        ),
-        throwsA(
-          isA<DeserializationError>().having(
-            (DeserializationError e) => e.toString(),
-            'toString()',
-            allOf(
-              contains('PARTIALLY_REFUNDED'),
-              contains('AppointmentItemResponseStatusEnum'),
-            ),
-          ),
-        ),
-      );
+      final AppointmentDetailResponse tolerated =
+          beauticaSerializers.deserialize(
+                _visitJson(status: 'RESCHEDULED'),
+                specifiedType: const FullType(AppointmentDetailResponse),
+              )
+              as AppointmentDetailResponse;
+      expect(tolerated.status, isNull);
     });
 
-    test('a field NOT in the tolerance table still throws — masterType is '
-        'deliberately untolerated, so this pins the table down as the whole '
-        'contract rather than an approximation of it', () {
+    test('a field NOT in the tolerance table is not stripped — an unknown '
+        'masterType decodes to the generated fallback, which the mapper '
+        'reads as "no type" (never the literal fallback name)', () {
       // If someone widens the plugin to strip any unrecognised enum anywhere,
-      // this test goes red — which is the point. Widening is a decision, not
-      // an implementation detail.
+      // the first expectation goes red — widening is a decision, not an
+      // implementation detail.
       final Map<String, dynamic> json = _visitJson(status: 'CONFIRMED');
       json['masterType'] = 'FRANCHISE_MASTER';
-      expect(
-        () => beauticaSerializers.deserialize(
-          json,
-          specifiedType: const FullType(AppointmentDetailResponse),
-        ),
-        throwsA(isA<DeserializationError>()),
-      );
+      final AppointmentDetailResponse dto =
+          beauticaSerializers.deserialize(
+                json,
+                specifiedType: const FullType(AppointmentDetailResponse),
+              )
+              as AppointmentDetailResponse;
+      expect(dto.masterType, isNotNull);
+      expect(isOpenApiUnknownDefault(dto.masterType!), isTrue);
+      expect(AppointmentMapper.fromDto(dto).masterType, '');
     });
   });
 

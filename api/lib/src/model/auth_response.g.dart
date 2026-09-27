@@ -16,6 +16,8 @@ const AuthResponseRoleEnum _$authResponseRoleEnum_SALON_MASTER =
     const AuthResponseRoleEnum._('SALON_MASTER');
 const AuthResponseRoleEnum _$authResponseRoleEnum_INDEPENDENT_MASTER =
     const AuthResponseRoleEnum._('INDEPENDENT_MASTER');
+const AuthResponseRoleEnum _$authResponseRoleEnum_unknownDefaultOpenApi =
+    const AuthResponseRoleEnum._('unknownDefaultOpenApi');
 
 AuthResponseRoleEnum _$authResponseRoleEnumValueOf(String name) {
   switch (name) {
@@ -29,8 +31,10 @@ AuthResponseRoleEnum _$authResponseRoleEnumValueOf(String name) {
       return _$authResponseRoleEnum_SALON_MASTER;
     case 'INDEPENDENT_MASTER':
       return _$authResponseRoleEnum_INDEPENDENT_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$authResponseRoleEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$authResponseRoleEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -41,6 +45,7 @@ final BuiltSet<AuthResponseRoleEnum> _$authResponseRoleEnumValues =
   _$authResponseRoleEnum_SALON_ADMIN,
   _$authResponseRoleEnum_SALON_MASTER,
   _$authResponseRoleEnum_INDEPENDENT_MASTER,
+  _$authResponseRoleEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<AuthResponseRoleEnum> _$authResponseRoleEnumSerializer =
@@ -54,6 +59,7 @@ class _$AuthResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
@@ -61,6 +67,7 @@ class _$AuthResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

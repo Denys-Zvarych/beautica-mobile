@@ -26,10 +26,11 @@
 //     `lib/features/master/presentation/location_edit_screen.dart`'s
 //     `_validateLocation()` for exactly this: a city that HAS districts must
 //     also have a district picked before Save proceeds, and a missing city
-//     is refused outright (`l10n.errRequired` on the city row) rather than
-//     ever reaching `saveAddress()`. `LocalityCascade`'s own
-//     `districtRequired`/`districtError` pair (reserved "for the consuming
-//     screen's validation" per its own doc) is wired here for that.
+//     is refused outright (`l10n.errRequired` on the settlement field) rather
+//     than ever reaching `saveAddress()`. Phase 346 moved this off
+//     `City.hasDistricts` onto `districtsOf(ref, settlementId)` — the shared
+//     `SettlementLocalityField`'s own `settlementError`/`districtError` pair
+//     is wired here for that.
 //
 //     CORRECTION (2026-08-29) — an earlier revision of this file described
 //     `saveAddress` as diffing cityId/districtId INDEPENDENTLY against the
@@ -85,6 +86,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_address_edit_s
 import 'package:beautica_mobile/features/salon/presentation/salon_contacts_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -223,36 +225,28 @@ void main() {
     expect(find.byType(SalonAddressEditScreen), findsOneWidget);
 
     // RESUME §4 step D (mobile half, 2026-08-30) — `salon-xyz`'s real GET
-    // response now carries a real `cityId`/`oblastId` pair (`city-kyiv`/
-    // `oblast-kyiv` — `PublicSalonResponse.oblastId` is non-null on the wire
-    // as of backend `ec22d91`), so `_prePopulateLocality` DOES resolve the
-    // cascade to `oblast-kyiv` / `city-kyiv` on open. Re-tapping
-    // `oblast-kyiv` below is a no-op re-selection of the already-resolved
-    // value; the city tap then switches AWAY from the pre-populated leaf
-    // city to the one city that requires a district, which is the actual
-    // point of this test.
-    await tester.tap(find.byKey(const Key('locality_row_oblast')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-    );
-    await tester.pumpAndSettle();
-
-    // Pick the ONLY seeded hasDistricts:true city — this is the fixture the
-    // widget-tier suite cannot reach (its own city fixture is
+    // response now carries a real `cityId` (`city-kyiv`), so
+    // `_prePopulateLocality` DOES resolve the settlement field to `city-kyiv`
+    // on open. Picking `city-with-districts` below switches AWAY from that
+    // pre-populated leaf settlement to the one settlement that requires a
+    // district, which is the actual point of this test.
+    //
+    // Pick the ONLY seeded hasDistricts:true settlement — this is the
+    // fixture the widget-tier suite cannot reach (its own city fixture is
     // hasDistricts:false, so it never exercises this branch at all).
-    await tester.tap(find.byKey(const Key('locality_row_city')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(
-        const ValueKey<String>('locality_picker_tile_city-with-districts'),
-      ),
-    );
-    await tester.pumpAndSettle();
+    await AppHarness.pickSettlement(tester, 'city-with-districts');
 
     // Deliberately do NOT touch the district row — this is the untouched
     // "unchanged-per-field" state the notifier's diff cannot tell apart
     // from "genuinely still null".
+    //
+    // The row appears only once the async districts lookup for the picked
+    // settlement lands — wait for it rather than asserting on the next frame
+    // (flaked once on 2026-09-24 under load: 0 widgets at this line).
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('locality_row_district')),
+    );
     expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('save_salon_address')));
@@ -276,13 +270,13 @@ void main() {
       fb.updateSalonCalls,
       0,
       reason:
-          'a city with hasDistricts:true and NO district selected must be '
+          'a settlement with districts and NO district selected must be '
           'blocked client-side, exactly like LocationEditScreen — '
-          'SalonAddressEditScreen wires LocalityCascade.districtRequired/'
-          'districtError and _validateLocality() checks '
-          '_selectedCity?.hasDistricts before calling saveAddress(), so '
-          'this must never reach the wire with cityId=city-with-districts '
-          'and districtId omitted (an invalid pair).',
+          'SalonAddressEditScreen._validateLocality() checks '
+          'districtsOf(ref, _settlementId).isNotEmpty before calling '
+          'saveAddress(), so this must never reach the wire with '
+          'cityId=city-with-districts and districtId omitted (an invalid '
+          'pair).',
     );
   });
 
@@ -308,21 +302,7 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 1));
       expect(find.byType(SalonAddressEditScreen), findsOneWidget);
 
-      await tester.tap(find.byKey(const Key('locality_row_oblast')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.byKey(const Key('locality_row_city')));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('locality_picker_tile_city-with-districts'),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await AppHarness.pickSettlement(tester, 'city-with-districts');
 
       // This time DO pick the district — the valid, complete pair.
       await tester.tap(find.byKey(const Key('locality_row_district')));
@@ -384,20 +364,20 @@ void main() {
     // `ec22d91`) and `_publicSalonDetailEnvelope` now carries a real
     // `oblast-kyiv`, so the screen DOES pre-populate `city-kyiv` on open.
     //
-    // The tap sequence below is kept as-is rather than deleted: re-picking
-    // the already-resolved `oblast-kyiv` → `city-kyiv` pair through the real
-    // picker sheets is a harmless no-op re-selection, and the test still
-    // proves what it always meant to — that editing ONLY the street field
-    // afterwards (never re-opening the city/oblast rows again) still sends
-    // `cityId` on the real wire body. This exercises the exact notifier code
-    // path the shipped bug broke (`saveAddress`'s unconditional, never-diffed
-    // `cityId` parameter) through the REAL OpenAPI JSON serializer and the
-    // real `FakeBackend` PATCH handler, which the widget tier (a hand-rolled
-    // `FakeSalonRepository` that never serializes anything) cannot exercise.
-    // A tighter version of this test could now drop the manual city pick
-    // entirely and rely on pre-population directly — left as-is here since
-    // reworking an integration-test assertion is mobile-qa's call, not this
-    // fixture fix's.
+    // Phase 346 — the tap sequence below now goes through the settlement
+    // autocomplete rather than the retired oblast/city cascade. Re-picking
+    // the already-resolved `city-kyiv` settlement is a harmless no-op
+    // re-selection, and the test still proves what it always meant to — that
+    // editing ONLY the street field afterwards (never re-opening the
+    // settlement row again) still sends `cityId` on the real wire body. This
+    // exercises the exact notifier code path the shipped bug broke
+    // (`saveAddress`'s unconditional, never-diffed `cityId` parameter)
+    // through the REAL OpenAPI JSON serializer and the real `FakeBackend`
+    // PATCH handler, which the widget tier (a hand-rolled `FakeSalonRepository`
+    // that never serializes anything) cannot exercise. A tighter version of
+    // this test could now drop the manual settlement pick entirely and rely
+    // on pre-population directly — left as-is here since reworking an
+    // integration-test assertion is mobile-qa's call, not this fixture fix's.
     final fb = _salonOwnerBackend();
     final GoRouter router = await AppHarness.boot(tester, fb);
 
@@ -413,19 +393,8 @@ void main() {
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byType(SalonAddressEditScreen), findsOneWidget);
 
-    // Pick Oblast → City ONCE (leaf city, no district row to worry about).
-    await tester.tap(find.byKey(const Key('locality_row_oblast')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_oblast-kyiv')),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('locality_row_city')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey<String>('locality_picker_tile_city-kyiv')),
-    );
-    await tester.pumpAndSettle();
+    // Pick the settlement ONCE (leaf city, no district row to worry about).
+    await AppHarness.pickSettlement(tester, 'city-kyiv');
 
     // From here on, ONLY the street field is touched — the city row is
     // never opened again, mirroring a viewer who edits an unrelated field
@@ -567,22 +536,36 @@ void main() {
     );
 
     // The resulting notifier state also carries the unchanged cityId forward
-    // (merged from the PATCH response) — re-opening the address-edit screen
-    // afterwards would show the SAME city was never blanked.
+    // (merged from the PATCH response) — the wire-level assertions above
+    // (`body['cityId'] == 'city-kyiv'`, both non-null and unchanged) are the
+    // load-bearing pin for that.
+    //
+    // FORMER KNOWN GAP (phase 346), CLOSED by backend Phase 328
+    // (`f3720365`). Phase 346 seeds the settlement field from
+    // `SalonAddressEditScreen._settlementLabel = salon.city` — and the backend
+    // used to leave `Salon.city` null for every post-Phase-10.6 salon, so the
+    // field opened BLANK. `SalonResponse`/`PublicSalonResponse.city` is now
+    // derived from `cityId` server-side, and the fake mirrors that via
+    // `withSeededSalonLocality`. Re-opening the address screen after a
+    // description-only save must therefore show the salon's REAL city again.
     unawaited(router.push(RouteNames.salonAddressEdit(_kSalonId)));
     // fixed-wait-ok: settles the real async route-push step.
     await tester.pumpAndSettle(const Duration(seconds: 1));
     expect(find.byType(SalonAddressEditScreen), findsOneWidget);
+    // Phase 348 — seeded with the composed saved label («м. Київ»), built
+    // from the phase-330 `citySettlementType` on the salon read.
+    final AppLocalizations uk = await AppLocalizations.delegate.load(
+      const Locale('uk'),
+    );
     expect(
-      // i18n-finder-ok: locale-invariant fixture-seeded locality data
-      // (city-kyiv/oblast-kyiv), asserted here to prove the oblast/city was
-      // never blanked by the description-only save — not UI copy.
-      find.text('Київ'),
+      // i18n-finder-ok: 'Київ' here is fixture settlement DATA (the salon's
+      // city, derived from `cityId`), not UI copy — locale-invariant.
+      find.text('${uk.settlementCityPrefix} Київ'),
       findsWidgets,
       reason:
-          'the oblast pre-populates from the SAME (unchanged) cityId/'
-          'oblastId this test just proved were never blanked by the '
-          'description-only save.',
+          'the settlement field must be pre-populated with the salon\'s real '
+          'city (derived from cityId by the backend since Phase 328) — a '
+          'blank field here is the phase-346 prefill regression.',
     );
   });
 }

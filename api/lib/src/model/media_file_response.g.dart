@@ -12,6 +12,9 @@ const MediaFileResponseEntityTypeEnum _$mediaFileResponseEntityTypeEnum_SALON =
     const MediaFileResponseEntityTypeEnum._('SALON');
 const MediaFileResponseEntityTypeEnum _$mediaFileResponseEntityTypeEnum_MASTER =
     const MediaFileResponseEntityTypeEnum._('MASTER');
+const MediaFileResponseEntityTypeEnum
+    _$mediaFileResponseEntityTypeEnum_unknownDefaultOpenApi =
+    const MediaFileResponseEntityTypeEnum._('unknownDefaultOpenApi');
 
 MediaFileResponseEntityTypeEnum _$mediaFileResponseEntityTypeEnumValueOf(
     String name) {
@@ -22,8 +25,10 @@ MediaFileResponseEntityTypeEnum _$mediaFileResponseEntityTypeEnumValueOf(
       return _$mediaFileResponseEntityTypeEnum_SALON;
     case 'MASTER':
       return _$mediaFileResponseEntityTypeEnum_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$mediaFileResponseEntityTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$mediaFileResponseEntityTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -33,6 +38,7 @@ final BuiltSet<MediaFileResponseEntityTypeEnum>
   _$mediaFileResponseEntityTypeEnum_USER,
   _$mediaFileResponseEntityTypeEnum_SALON,
   _$mediaFileResponseEntityTypeEnum_MASTER,
+  _$mediaFileResponseEntityTypeEnum_unknownDefaultOpenApi,
 ]);
 
 const MediaFileResponseMediaTypeEnum _$mediaFileResponseMediaTypeEnum_AVATAR =
@@ -40,6 +46,9 @@ const MediaFileResponseMediaTypeEnum _$mediaFileResponseMediaTypeEnum_AVATAR =
 const MediaFileResponseMediaTypeEnum
     _$mediaFileResponseMediaTypeEnum_PORTFOLIO =
     const MediaFileResponseMediaTypeEnum._('PORTFOLIO');
+const MediaFileResponseMediaTypeEnum
+    _$mediaFileResponseMediaTypeEnum_unknownDefaultOpenApi =
+    const MediaFileResponseMediaTypeEnum._('unknownDefaultOpenApi');
 
 MediaFileResponseMediaTypeEnum _$mediaFileResponseMediaTypeEnumValueOf(
     String name) {
@@ -48,8 +57,10 @@ MediaFileResponseMediaTypeEnum _$mediaFileResponseMediaTypeEnumValueOf(
       return _$mediaFileResponseMediaTypeEnum_AVATAR;
     case 'PORTFOLIO':
       return _$mediaFileResponseMediaTypeEnum_PORTFOLIO;
+    case 'unknownDefaultOpenApi':
+      return _$mediaFileResponseMediaTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$mediaFileResponseMediaTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -58,6 +69,7 @@ final BuiltSet<MediaFileResponseMediaTypeEnum>
         MediaFileResponseMediaTypeEnum>(const <MediaFileResponseMediaTypeEnum>[
   _$mediaFileResponseMediaTypeEnum_AVATAR,
   _$mediaFileResponseMediaTypeEnum_PORTFOLIO,
+  _$mediaFileResponseMediaTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<MediaFileResponseEntityTypeEnum>
@@ -73,11 +85,13 @@ class _$MediaFileResponseEntityTypeEnumSerializer
     'USER': 'USER',
     'SALON': 'SALON',
     'MASTER': 'MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'USER': 'USER',
     'SALON': 'SALON',
     'MASTER': 'MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -104,10 +118,12 @@ class _$MediaFileResponseMediaTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'AVATAR': 'AVATAR',
     'PORTFOLIO': 'PORTFOLIO',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'AVATAR': 'AVATAR',
     'PORTFOLIO': 'PORTFOLIO',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

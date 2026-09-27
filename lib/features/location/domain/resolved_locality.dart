@@ -6,11 +6,12 @@
 // endpoints return a denormalised oblast/city/district NAME alongside those
 // ids — only [Oblast]/[City]/[CityDistrict] objects fetched from the
 // `/locations/*` cascade (`oblastListProvider` -> `cityListProvider` ->
-// `districtListProvider`, all `keepAlive: true` and memoized for the app
-// lifetime) carry `.name`. This record is the resolved trio, produced by
-// `resolvedLocalityProvider` (`state/resolved_locality_provider.dart`) —
-// each field independently nullable because resolution can partially fail
-// (see that provider's doc) or the salon/master simply never set a district.
+// `districtListProvider`; the first two `keepAlive: true`, the district
+// family autoDispose and pinned only on a successful fetch) carry `.name`.
+// This record is the resolved trio, produced by `resolvedLocalityProvider`
+// (`state/resolved_locality_provider.dart`) — each field independently
+// nullable because resolution can partially fail (see that provider's doc)
+// or the salon/master simply never set a district.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 

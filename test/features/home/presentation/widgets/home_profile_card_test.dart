@@ -21,8 +21,10 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/home_profile_card.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
@@ -241,6 +243,170 @@ void main() {
             'at the larger text scale the long name still uses both allowed '
             'lines (ellipsis is only the last resort beyond two lines).',
       );
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Locality wrapping — guards the maxLines: 1 → 2 fix on `home_profile_city`
+  // (2026-09-26, user-reported). The locality line used to render
+  // `overflow: TextOverflow.ellipsis` with no explicit `maxLines`, which
+  // Flutter silently collapses to ONE line instead of wrapping — so a long
+  // composed saved-settlement label («с. Іванівка, Шишацька громада,
+  // Полтавська обл.») was cut mid-word. Both `HomeProfileCard`'s locality row
+  // and `PassportScreen`'s now route through the promoted `ProfileMetaLine`
+  // (see the identical guard in passport_screen_test.dart).
+  // -------------------------------------------------------------------------
+  group('HomeProfileCard locality wrapping (320dp long-label regression)', () {
+    RenderParagraph cityParagraph(WidgetTester tester) =>
+        tester.renderObject<RenderParagraph>(
+          find.byKey(const Key('home_profile_city')),
+        );
+
+    testWidgets(
+      'a SHORT city still renders on one line at 320dp x1.0 (unchanged '
+      'rendering)',
+      (tester) async {
+        await _pumpCard(
+          tester,
+          profile: _profileWithCity,
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+
+        expect(_lineCount(cityParagraph(tester)), 1);
+        expect(cityParagraph(tester).didExceedMaxLines, isFalse);
+      },
+    );
+
+    testWidgets(
+      'the exact user-reported village+hromada+oblast label wraps to two '
+      'lines at 320dp x1.0, FULLY shown — under the pre-fix maxLines: 1 (no '
+      'explicit budget) this was silently collapsed to one ellipsised line',
+      (tester) async {
+        final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+        await _pumpCard(
+          tester,
+          profile: const ClientProfileSummary(
+            firstName: 'Олена',
+            lastName: 'Коваль',
+            city: 'Іванівка',
+            phone: '+380671234567',
+            clientRating: null,
+            memberSinceYear: 2024,
+            settlement: Settlement(
+              id: 'v-ivanivka',
+              name: 'Іванівка',
+              oblastName: 'Полтавська',
+              hromadaName: 'Шишацька',
+              settlementType: kSettlementTypeVillage,
+            ),
+          ),
+          width: 320,
+          textScaleFactor: 1.0,
+        );
+
+        expect(
+          tester.widget<Text>(find.byKey(const Key('home_profile_city'))).data,
+          '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
+        );
+
+        final RenderParagraph paragraph = cityParagraph(tester);
+        expect(
+          _lineCount(paragraph),
+          2,
+          reason:
+              'the long composed locality label wraps onto a SECOND line — '
+              'under a reverted maxLines: 1 it would be capped to one line.',
+        );
+        expect(
+          paragraph.didExceedMaxLines,
+          isFalse,
+          reason: 'the full label must render without ellipsis truncation.',
+        );
+      },
+    );
+  });
+
+  // Phase-330 (user-reported) — the personal profile showed a saved locality as
+  // a bare «Львів» while the «Населений пункт» picker shows «м. Львів,
+  // Львівська обл.». The card now composes the SAME label.
+  group('HomeProfileCard saved-settlement label', () {
+    String cityText(WidgetTester tester) =>
+        tester.widget<Text>(find.byKey(const Key('home_profile_city'))).data ??
+        '';
+
+    testWidgets('a typed saved CITY renders the picker label', (tester) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Львів',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'city-lviv',
+            name: 'Львів',
+            oblastName: 'Львівська',
+            settlementType: kSettlementTypeCity,
+          ),
+        ),
+      );
+      expect(
+        cityText(tester),
+        '${uk.settlementCityPrefix} Львів, Львівська ${uk.settlementOblastAbbrev}',
+      );
+    });
+
+    testWidgets('an ambiguous VILLAGE keeps its hromada, then the district', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Іванівка, Центральний',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'v-ivanivka',
+            name: 'Іванівка',
+            oblastName: 'Полтавська',
+            hromadaName: 'Шишацька',
+            settlementType: kSettlementTypeVillage,
+          ),
+          districtName: 'Центральний',
+        ),
+      );
+      expect(
+        cityText(tester),
+        '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}, Центральний',
+      );
+    });
+
+    testWidgets('no settlement type → today\'s bare city line', (tester) async {
+      await _pumpCard(
+        tester,
+        profile: const ClientProfileSummary(
+          firstName: 'Олена',
+          lastName: 'Коваль',
+          city: 'Львів',
+          phone: '+380671234567',
+          clientRating: null,
+          memberSinceYear: 2024,
+          settlement: Settlement(
+            id: 'city-lviv',
+            name: 'Львів',
+            oblastName: 'Львівська',
+          ),
+        ),
+      );
+      expect(cityText(tester), 'Львів');
     });
   });
 }

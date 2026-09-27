@@ -54,9 +54,12 @@ import 'package:beautica_mobile/features/salon/presentation/salon_profile_edit_s
 import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -852,9 +855,15 @@ void main() {
           find.byKey(const Key('salon-staff-profile-contact-phone')),
           findsOneWidget,
         );
-        // The read-only ServiceCategoryCardList section renders from the
-        // REAL `GET /masters/master-aaa/services` fetch — the fixture's
+        // Phase 354 — the read-only ServiceCategoryCardList section now sits
+        // behind the «Послуги» tab; it renders from the REAL
+        // `GET /masters/master-aaa/services` fetch — the fixture's
         // master-aaa carries two active NAILS-category services.
+        await tester.ensureVisible(
+          find.byKey(const Key('salon-staff-profile-tab-1')),
+        );
+        await tester.tap(find.byKey(const Key('salon-staff-profile-tab-1')));
+        await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('salon-staff-profile-service-categories')),
           findsOneWidget,
@@ -1426,6 +1435,209 @@ void main() {
           reason:
               'the fetched summary must reach SalonReviewsSection\'s '
               'RatingSummaryCard, now mounted in a bare SliverToBoxAdapter',
+        );
+      });
+    },
+  );
+
+  // ── 2026-09-26 (mobile-qa, Phase 355 gap-closure) ───────────────────────
+  //
+  // `salon_staff_profile_screen_test.dart` proves the management pair is a
+  // SIBLING of `ProfileTabSection`, never a child (group "tabs (Phase
+  // 354)"), against a stubbed provider that never actually switches through
+  // real navigation more than once. What NO existing test drives: a REAL
+  // owner session opening a REAL master profile, cycling through every real
+  // tab via real taps, and the management pair's REAL routes (schedule +
+  // services editors) still resolving afterward — proving the placement
+  // decision (bottom of page, sibling of the tabs) holds up under the REAL
+  // `ProfileTabSelection` state object surviving a push/pop round trip, not
+  // merely under a directly-set `ValueNotifier`.
+  testWidgets(
+    'SALON_OWNER opens master-aaa from «Команда», cycles through all three '
+    'Phase 354 tabs, and the management pair stays mounted and opens its '
+    'REAL editors from a non-default tab; a stat-tile tap never switches '
+    'the active tab',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        _seedSalonXyzIntoMySalons(fb);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        // fixed-wait-ok: settles the real async login/route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        router.go(RouteNames.salonManage(_kSalonId));
+        // fixed-wait-ok: settles the real async route-transition step.
+        await tester.pumpAndSettle(const Duration(seconds: 1));
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        await tester.tap(find.text(l10n.salonManageTabStaff));
+        await tester.pumpAndSettle();
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-master-aaa'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        await tester.ensureVisible(masterCard);
+        await tester.pumpAndSettle();
+        await tester.tap(masterCard);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+
+        final Finder scheduleRow = find.byKey(
+          const Key('salon-staff-profile-schedule-row'),
+        );
+        final Finder servicesRow = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          scheduleRow,
+          timeout: const Duration(seconds: 20),
+        );
+        // Drain the staggered RevealTransitions off this screen's one 950ms
+        // AnimationController.
+        // fixed-wait-ok: see `salon_owner_edit_master_schedule_flow_test
+        // .dart`'s identical lockstep pumps and their TIMING header note —
+        // same screen, same rationale: `pumpAndSettle`/`AppHarness.settle`
+        // were found during authoring to stall reproducibly on this
+        // journey, so this is a deliberate bounded pump advancing in step
+        // with the transition's known 950ms duration, not an arbitrary
+        // sleep.
+        await tester.pump(const Duration(milliseconds: 300));
+        // fixed-wait-ok: second of three lockstep pumps — see the
+        // annotation immediately above.
+        await tester.pump(const Duration(milliseconds: 300));
+        // fixed-wait-ok: third of three lockstep pumps — see the
+        // annotation two above.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        // ── a stat-tile tap is a no-op — never switches the active tab ──
+        final Finder servicesStat = find.byKey(
+          const Key('salon-staff-profile-services-value'),
+        );
+        try {
+          await tester.ensureVisible(servicesStat);
+        } catch (_) {}
+        await tester.tap(servicesStat);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected,
+          0,
+          reason:
+              'a stat-tile tap must never switch the active tab — only '
+              'ProfileTabBar itself may',
+        );
+
+        // ── the management pair stays mounted across every tab ──────────
+        for (final int tabIndex in <int>[1, 2, 0]) {
+          final Finder tab = find.byKey(
+            Key('salon-staff-profile-tab-$tabIndex'),
+          );
+          try {
+            await tester.ensureVisible(tab);
+          } catch (_) {}
+          await tester.tap(tab);
+          await tester.pumpAndSettle();
+
+          try {
+            await tester.ensureVisible(scheduleRow);
+          } catch (_) {}
+          try {
+            await tester.ensureVisible(servicesRow);
+          } catch (_) {}
+          expect(
+            scheduleRow,
+            findsOneWidget,
+            reason:
+                'tab $tabIndex: the schedule card is a SIBLING of '
+                'ProfileTabSection, not a child — it must stay mounted '
+                'regardless of which tab is active',
+          );
+          expect(
+            servicesRow,
+            findsOneWidget,
+            reason: 'tab $tabIndex: the services card must stay mounted too',
+          );
+        }
+
+        // The loop above ends on tab 0 by construction ([1, 2, 0]). Move to
+        // tab 2 («Відгуки») — the FARTHEST non-default tab — before opening
+        // an editor, so reachability is not an artifact of tab 0 still
+        // being active underneath.
+        final Finder tab2 = find.byKey(const Key('salon-staff-profile-tab-2'));
+        try {
+          await tester.ensureVisible(tab2);
+        } catch (_) {}
+        await tester.tap(tab2);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected,
+          2,
+        );
+
+        // -- open the REAL schedule editor with tab 2 active --
+        try {
+          await tester.ensureVisible(scheduleRow);
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          scheduleRow.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(scheduleRow);
+        await tester.pump();
+        for (var i = 0; i < 100; i++) {
+          // fixed-wait-ok: bounded settle loop standing in for
+          // `pumpAndSettle`, which this screen pair's sibling files record
+          // as unreliable on this journey. See their TIMING header notes.
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(find.byType(MasterScheduleScreen), findsOneWidget);
+        expect(fb.getScheduleCalls, greaterThanOrEqualTo(1));
+
+        router.pop();
+        for (var i = 0; i < 60; i++) {
+          // fixed-wait-ok: bounded pop-settle loop, same rationale.
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected,
+          2,
+          reason:
+              'the SAME ProfileTabSelection State object survives the '
+              'push/pop round trip — it is never rebuilt, so tab 2 stays '
+              'active on return',
+        );
+
+        // -- open the REAL services editor, still with tab 2 active --
+        final Finder servicesRowAfterPop = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        try {
+          await tester.ensureVisible(servicesRowAfterPop);
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesRowAfterPop.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(servicesRowAfterPop);
+        await tester.pump();
+        for (var i = 0; i < 100; i++) {
+          // fixed-wait-ok: same bounded-settle rationale as above.
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(find.byType(ServicesListScreen), findsOneWidget);
+        expect(
+          fb.getSalonMasterAaaServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason:
+              'the services editor reached from tab 2 must still resolve '
+              'against the REAL salon-scoped master-aaa catalogue',
         );
       });
     },

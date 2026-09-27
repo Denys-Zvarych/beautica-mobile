@@ -142,3 +142,26 @@ int kyivDaysBetween(DateTime earlier, DateTime later) {
   final DateTime laterUtc = DateTime.utc(later.year, later.month, later.day);
   return laterUtc.difference(earlierUtc).inDays;
 }
+
+/// The **date token** [days] calendar days after [token] (before it when
+/// [days] is negative) — THE ONLY SANCTIONED WAY TO STEP A DATE TOKEN.
+///
+/// `token.add(Duration(days: n))` / `subtract(Duration(days: n))` is the bug
+/// this function exists to remove. [DateTime.add] adds absolute 24-hour
+/// blocks, so crossing a HOST DST transition lands on 23:00 (fall back) or
+/// 01:00 (spring forward) instead of midnight — and truncating that back to a
+/// date can yield the SAME day again. On a Europe/Kyiv host the fall-back day
+/// (last Sunday of October) makes `DateTime(2026, 10, 25).add(1 day)` return
+/// `2026-10-25 23:00`, so a "step one day, then truncate" loop never advances
+/// and spins forever (`OverridesNotifier.putSpan`, fixed 2026-09-24).
+///
+/// `DateTime(y, m, d + n)` normalises the out-of-range day component against
+/// the CALENDAR and always lands on host-local midnight, whatever transitions
+/// lie between. Reads only `.year`/`.month`/`.day`, so it is legal on a date
+/// token per the file header.
+///
+/// Promoted from `features/booking/presentation/widgets/bookings_day_rail.dart`
+/// (`railDayAt`, which now delegates here) so `features/schedule/` can reach
+/// the same arithmetic without importing another feature's `presentation/`.
+DateTime kyivAddDays(DateTime token, int days) =>
+    DateTime(token.year, token.month, token.day + days);

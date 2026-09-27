@@ -10,6 +10,8 @@ const RegisterRequestRoleEnum _$registerRequestRoleEnum_CLIENT =
     const RegisterRequestRoleEnum._('CLIENT');
 const RegisterRequestRoleEnum _$registerRequestRoleEnum_SALON_OWNER =
     const RegisterRequestRoleEnum._('SALON_OWNER');
+const RegisterRequestRoleEnum _$registerRequestRoleEnum_unknownDefaultOpenApi =
+    const RegisterRequestRoleEnum._('unknownDefaultOpenApi');
 
 RegisterRequestRoleEnum _$registerRequestRoleEnumValueOf(String name) {
   switch (name) {
@@ -17,8 +19,10 @@ RegisterRequestRoleEnum _$registerRequestRoleEnumValueOf(String name) {
       return _$registerRequestRoleEnum_CLIENT;
     case 'SALON_OWNER':
       return _$registerRequestRoleEnum_SALON_OWNER;
+    case 'unknownDefaultOpenApi':
+      return _$registerRequestRoleEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$registerRequestRoleEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -26,6 +30,7 @@ final BuiltSet<RegisterRequestRoleEnum> _$registerRequestRoleEnumValues =
     BuiltSet<RegisterRequestRoleEnum>(const <RegisterRequestRoleEnum>[
   _$registerRequestRoleEnum_CLIENT,
   _$registerRequestRoleEnum_SALON_OWNER,
+  _$registerRequestRoleEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<RegisterRequestRoleEnum> _$registerRequestRoleEnumSerializer =
@@ -36,10 +41,12 @@ class _$RegisterRequestRoleEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'CLIENT': 'CLIENT',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

@@ -22,8 +22,8 @@ part 'schedule_override_request.g.dart';
 /// * [cancelOverlapping]
 /// * [windowStart]
 /// * [windowEnd]
-/// * [windowConsistent]
 /// * [kindConsistent]
+/// * [windowConsistent]
 @BuiltValue()
 abstract class ScheduleOverrideRequest
     implements Built<ScheduleOverrideRequest, ScheduleOverrideRequestBuilder> {
@@ -53,11 +53,11 @@ abstract class ScheduleOverrideRequest
   @BuiltValueField(wireName: r'windowEnd')
   String? get windowEnd;
 
-  @BuiltValueField(wireName: r'windowConsistent')
-  bool? get windowConsistent;
-
   @BuiltValueField(wireName: r'kindConsistent')
   bool? get kindConsistent;
+
+  @BuiltValueField(wireName: r'windowConsistent')
+  bool? get windowConsistent;
 
   ScheduleOverrideRequest._();
 
@@ -141,17 +141,17 @@ class _$ScheduleOverrideRequestSerializer
         specifiedType: const FullType(String),
       );
     }
-    if (object.windowConsistent != null) {
-      yield r'windowConsistent';
-      yield serializers.serialize(
-        object.windowConsistent,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.kindConsistent != null) {
       yield r'kindConsistent';
       yield serializers.serialize(
         object.kindConsistent,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.windowConsistent != null) {
+      yield r'windowConsistent';
+      yield serializers.serialize(
+        object.windowConsistent,
         specifiedType: const FullType(bool),
       );
     }
@@ -237,19 +237,19 @@ class _$ScheduleOverrideRequestSerializer
           ) as String;
           result.windowEnd = valueDes;
           break;
-        case r'windowConsistent':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.windowConsistent = valueDes;
-          break;
         case r'kindConsistent':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(bool),
           ) as bool;
           result.kindConsistent = valueDes;
+          break;
+        case r'windowConsistent':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.windowConsistent = valueDes;
           break;
         default:
           unhandled.add(key);
@@ -287,6 +287,9 @@ class ScheduleOverrideRequestKindEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'CUSTOM_HOURS')
   static const ScheduleOverrideRequestKindEnum CUSTOM_HOURS =
       _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const ScheduleOverrideRequestKindEnum unknownDefaultOpenApi =
+      _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi;
 
   static Serializer<ScheduleOverrideRequestKindEnum> get serializer =>
       _$scheduleOverrideRequestKindEnumSerializer;
@@ -306,6 +309,9 @@ class ScheduleOverrideRequestModeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
   static const ScheduleOverrideRequestModeEnum EXPLICIT_TIMES =
       _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const ScheduleOverrideRequestModeEnum unknownDefaultOpenApi =
+      _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi;
 
   static Serializer<ScheduleOverrideRequestModeEnum> get serializer =>
       _$scheduleOverrideRequestModeEnumSerializer;

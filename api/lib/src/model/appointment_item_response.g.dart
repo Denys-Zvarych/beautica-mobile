@@ -21,6 +21,9 @@ const AppointmentItemResponseStatusEnum
 const AppointmentItemResponseStatusEnum
     _$appointmentItemResponseStatusEnum_CANCELLED =
     const AppointmentItemResponseStatusEnum._('CANCELLED');
+const AppointmentItemResponseStatusEnum
+    _$appointmentItemResponseStatusEnum_unknownDefaultOpenApi =
+    const AppointmentItemResponseStatusEnum._('unknownDefaultOpenApi');
 
 AppointmentItemResponseStatusEnum _$appointmentItemResponseStatusEnumValueOf(
     String name) {
@@ -35,8 +38,10 @@ AppointmentItemResponseStatusEnum _$appointmentItemResponseStatusEnumValueOf(
       return _$appointmentItemResponseStatusEnum_NOT_COMPLETED;
     case 'CANCELLED':
       return _$appointmentItemResponseStatusEnum_CANCELLED;
+    case 'unknownDefaultOpenApi':
+      return _$appointmentItemResponseStatusEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$appointmentItemResponseStatusEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -48,6 +53,7 @@ final BuiltSet<AppointmentItemResponseStatusEnum>
   _$appointmentItemResponseStatusEnum_COMPLETED,
   _$appointmentItemResponseStatusEnum_NOT_COMPLETED,
   _$appointmentItemResponseStatusEnum_CANCELLED,
+  _$appointmentItemResponseStatusEnum_unknownDefaultOpenApi,
 ]);
 
 const AppointmentItemResponseCancellationReasonEnum
@@ -66,6 +72,10 @@ const AppointmentItemResponseCancellationReasonEnum
 const AppointmentItemResponseCancellationReasonEnum
     _$appointmentItemResponseCancellationReasonEnum_OTHER =
     const AppointmentItemResponseCancellationReasonEnum._('OTHER');
+const AppointmentItemResponseCancellationReasonEnum
+    _$appointmentItemResponseCancellationReasonEnum_unknownDefaultOpenApi =
+    const AppointmentItemResponseCancellationReasonEnum._(
+        'unknownDefaultOpenApi');
 
 AppointmentItemResponseCancellationReasonEnum
     _$appointmentItemResponseCancellationReasonEnumValueOf(String name) {
@@ -80,8 +90,10 @@ AppointmentItemResponseCancellationReasonEnum
       return _$appointmentItemResponseCancellationReasonEnum_DUPLICATE;
     case 'OTHER':
       return _$appointmentItemResponseCancellationReasonEnum_OTHER;
+    case 'unknownDefaultOpenApi':
+      return _$appointmentItemResponseCancellationReasonEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$appointmentItemResponseCancellationReasonEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -93,6 +105,7 @@ final BuiltSet<AppointmentItemResponseCancellationReasonEnum>
   _$appointmentItemResponseCancellationReasonEnum_PROVIDER_UNAVAILABLE,
   _$appointmentItemResponseCancellationReasonEnum_DUPLICATE,
   _$appointmentItemResponseCancellationReasonEnum_OTHER,
+  _$appointmentItemResponseCancellationReasonEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<AppointmentItemResponseStatusEnum>
@@ -110,6 +123,7 @@ class _$AppointmentItemResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CONFIRMED': 'CONFIRMED',
@@ -117,6 +131,7 @@ class _$AppointmentItemResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -147,6 +162,7 @@ class _$AppointmentItemResponseCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT_NO_SHOW': 'CLIENT_NO_SHOW',
@@ -154,6 +170,7 @@ class _$AppointmentItemResponseCancellationReasonEnumSerializer
     'PROVIDER_UNAVAILABLE': 'PROVIDER_UNAVAILABLE',
     'DUPLICATE': 'DUPLICATE',
     'OTHER': 'OTHER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

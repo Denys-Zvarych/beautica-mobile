@@ -9,6 +9,8 @@
 // Pure Dart: no Flutter imports.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -42,7 +44,7 @@ abstract final class UserMapper {
   static User fromAuthResponse(AuthResponse dto) => User(
     id: dto.userId!,
     email: dto.email!,
-    role: UserRole.fromWire(dto.role!.name),
+    role: _roleOf(knownEnumName(dto.role)),
     salonId: dto.salonId,
   );
 
@@ -54,7 +56,7 @@ abstract final class UserMapper {
   static User fromProfileDto(UserProfileResponse dto) => User(
     id: dto.id!,
     email: dto.email!,
-    role: UserRole.fromWire(dto.role!),
+    role: _roleOf(dto.role),
     firstName: dto.firstName,
     lastName: dto.lastName,
     phoneNumber: dto.phoneNumber,
@@ -63,6 +65,10 @@ abstract final class UserMapper {
     oblastId: dto.oblastId,
     cityName: dto.cityName,
     oblastName: dto.oblastName,
+    // Phase-330 label parts. The enum's `name` IS the wire value.
+    // The unknown-value fallback maps to null (no prefix), never its name.
+    citySettlementType: knownEnumName(dto.citySettlementType),
+    cityHromadaName: dto.cityHromadaNameUk,
     districtName: dto.districtName,
     street: dto.street,
     buildingNo: dto.buildingNo,
@@ -78,4 +84,21 @@ abstract final class UserMapper {
     // [User.hasMasterProfile] for why an absent field is not a proven "no".
     hasMasterProfile: dto.hasMasterProfile,
   );
+
+  /// Parses the wire role, turning an absent or unrecognised one — including
+  /// the generated enum's unknown-value fallback, which [knownEnumName] reads
+  /// as `null` — into a typed [UnknownFailure] rather than an
+  /// `ArgumentError`/`TypeError` escaping the repository's `DioException`
+  /// catch. A role this build does not know cannot be routed, so the session
+  /// fails like any other unusable response; it is never guessed.
+  static UserRole _roleOf(String? wire) {
+    if (wire == null) {
+      throw const UnknownFailure(cause: 'user role absent or unrecognised');
+    }
+    try {
+      return UserRole.fromWire(wire);
+    } on ArgumentError {
+      throw const UnknownFailure(cause: 'user role unrecognised');
+    }
+  }
 }

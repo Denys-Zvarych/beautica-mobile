@@ -180,6 +180,7 @@ bool isThrottleFailure(Failure failure) =>
     failure is ServiceRateLimitedFailure ||
     failure is AccountDeleteRateLimitedFailure ||
     failure is SalonBoardRateLimitedFailure ||
+    failure is SettlementSearchRateLimitedFailure ||
     failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
@@ -224,6 +225,11 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // asserted directly in `failure_retry_policy_test.dart` and end-to-end in
   // `salon_board_429_contract_test.dart`.
   SalonBoardRateLimitedFailure() => true,
+  // 429 from the settlement autocomplete's per-IP 240/min bucket (phase 346).
+  // Same honest answer — a limiter clears on its own — and, like the board,
+  // really on `beauticaProviderRetry`'s path (`settlementSearchProvider` is a
+  // provider BUILD), so [isThrottleFailure] is what stops the re-issue.
+  SettlementSearchRateLimitedFailure() => true,
 
   // ---- deterministic: invite-accept post-success hand-off (2026-09-01) ---
   // The 2xx already happened server-side; a retry would resend a mutation

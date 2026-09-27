@@ -180,6 +180,7 @@ Class | Method | HTTP request | Description
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**removeMaster**](doc/SalonMasterControllerApi.md#removemaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId} | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
+[*SearchSuggestionControllerApi*](doc/SearchSuggestionControllerApi.md) | [**suggest**](doc/SearchSuggestionControllerApi.md#suggest) | **GET** /api/v1/search/suggestions | Autocomplete suggestions for the search box
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getCategories**](doc/ServiceCatalogControllerApi.md#getcategories) | **GET** /api/v1/service-categories | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**getServiceTypesByPlatformCategory**](doc/ServiceCatalogControllerApi.md#getservicetypesbyplatformcategory) | **GET** /api/v1/service-types | 
 [*ServiceCatalogControllerApi*](doc/ServiceCatalogControllerApi.md) | [**suggestServiceType**](doc/ServiceCatalogControllerApi.md#suggestservicetype) | **POST** /api/v1/service-types/suggest | 
@@ -197,6 +198,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateMasterServiceBand**](doc/ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
+[*SettlementSearchControllerApi*](doc/SettlementSearchControllerApi.md) | [**searchSettlements**](doc/SettlementSearchControllerApi.md#searchsettlements) | **GET** /api/v1/settlements | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
 [*UserControllerApi*](doc/UserControllerApi.md) | [**deleteMyAccount**](doc/UserControllerApi.md#deletemyaccount) | **DELETE** /api/v1/users/me | 
@@ -237,6 +239,8 @@ Class | Method | HTTP request | Description
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
  - [ApiResponseListScheduleOverrideResponse](doc/ApiResponseListScheduleOverrideResponse.md)
+ - [ApiResponseListSearchSuggestionResponse](doc/ApiResponseListSearchSuggestionResponse.md)
+ - [ApiResponseListSettlementSearchResponse](doc/ApiResponseListSettlementSearchResponse.md)
  - [ApiResponseListSiblingSalonOption](doc/ApiResponseListSiblingSalonOption.md)
  - [ApiResponseListWeeklyScheduleResponse](doc/ApiResponseListWeeklyScheduleResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
@@ -405,8 +409,11 @@ Class | Method | HTTP request | Description
  - [SalonStaffMemberResponse](doc/SalonStaffMemberResponse.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)
+ - [SearchSuggestionRequest](doc/SearchSuggestionRequest.md)
+ - [SearchSuggestionResponse](doc/SearchSuggestionResponse.md)
  - [ServiceDefinitionResponse](doc/ServiceDefinitionResponse.md)
  - [ServiceSummaryDto](doc/ServiceSummaryDto.md)
+ - [SettlementSearchResponse](doc/SettlementSearchResponse.md)
  - [SiblingSalonOption](doc/SiblingSalonOption.md)
  - [SortObject](doc/SortObject.md)
  - [StatusUpdateRequest](doc/StatusUpdateRequest.md)

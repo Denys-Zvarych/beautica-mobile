@@ -39,6 +39,7 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
+import '../../../shared/widgets/prompt_link_text.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
 import '../state/login_notice_notifier.dart';
@@ -384,29 +385,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
           const SizedBox(height: VelvetSpacing.lg),
 
-          // ── Sign-up link row
-          // Wrapped in Wrap so the two text spans reflow onto a second line at
-          // narrow viewports (320 dp) with large text scale (1.3×) instead of
-          // overflowing the Row. At normal sizes (360 dp / 1.0×) they always
-          // fit on one line and Wrap renders identically to a Row.
-          Wrap(
-            alignment: WrapAlignment.center,
-            children: <Widget>[
-              Text(l10n.loginNoAccount, style: VelvetText.body()),
-              GestureDetector(
-                key: const ValueKey<String>('login_signup'),
-                onTap: isLoading
-                    ? null
-                    : () => context.push(RouteNames.registerRole),
-                child: Padding(
-                  padding: const EdgeInsets.only(left: VelvetSpacing.xs),
-                  child: Text(
-                    l10n.loginCreateAccount,
-                    style: VelvetText.link(),
-                  ),
-                ),
-              ),
-            ],
+          // ── Sign-up link row — baseline-aligned, wraps at 320 dp / 1.3×.
+          PromptLinkText(
+            prompt: l10n.loginNoAccount,
+            linkLabel: l10n.loginCreateAccount,
+            linkKey: const ValueKey<String>('login_signup'),
+            onTap: isLoading
+                ? null
+                : () => context.push(RouteNames.registerRole),
           ),
         ],
       ),

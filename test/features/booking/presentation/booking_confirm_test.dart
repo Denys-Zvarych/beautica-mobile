@@ -778,6 +778,46 @@ void main() {
       return router;
     }
 
+    // QA LOW (2026-09-24) — the master's venue line uses the SAME short
+    // settlement label as every address line (prefix, no oblast).
+    testWidgets('a village master renders the prefixed settlement, no oblast', (
+      tester,
+    ) async {
+      final Master village = _kMaster.copyWith(
+        city: 'Іванівка',
+        region: 'Полтавська',
+        citySettlementType: 'VILLAGE',
+      );
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith(
+            (_) => _FakeAppointmentRepository(
+              appointmentToReturn: _appointmentFixture(),
+            ),
+          ),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (village, const <MasterService>[_kService])),
+        ],
+      );
+      unawaited(router.push(RouteNames.bookingConfirm, extra: _confirmArgs()));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingConfirmScreen)),
+      );
+      // i18n-finder-ok: the only UI word (the «с.» prefix) comes from
+      // AppLocalizations; the Cyrillic left is fixture data.
+      expect(
+        find.text(
+          'вул. Хрещатик, 22, ${l10n.settlementVillagePrefix} Іванівка',
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('renders the master + service summary once data resolves', (
       tester,
     ) async {

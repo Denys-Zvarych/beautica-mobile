@@ -15,6 +15,9 @@ const MasterDetailResponseMasterTypeEnum
 const MasterDetailResponseMasterTypeEnum
     _$masterDetailResponseMasterTypeEnum_SALON_OWNER =
     const MasterDetailResponseMasterTypeEnum._('SALON_OWNER');
+const MasterDetailResponseMasterTypeEnum
+    _$masterDetailResponseMasterTypeEnum_unknownDefaultOpenApi =
+    const MasterDetailResponseMasterTypeEnum._('unknownDefaultOpenApi');
 
 MasterDetailResponseMasterTypeEnum _$masterDetailResponseMasterTypeEnumValueOf(
     String name) {
@@ -25,8 +28,10 @@ MasterDetailResponseMasterTypeEnum _$masterDetailResponseMasterTypeEnumValueOf(
       return _$masterDetailResponseMasterTypeEnum_INDEPENDENT_MASTER;
     case 'SALON_OWNER':
       return _$masterDetailResponseMasterTypeEnum_SALON_OWNER;
+    case 'unknownDefaultOpenApi':
+      return _$masterDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$masterDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -36,11 +41,59 @@ final BuiltSet<MasterDetailResponseMasterTypeEnum>
   _$masterDetailResponseMasterTypeEnum_SALON_MASTER,
   _$masterDetailResponseMasterTypeEnum_INDEPENDENT_MASTER,
   _$masterDetailResponseMasterTypeEnum_SALON_OWNER,
+  _$masterDetailResponseMasterTypeEnum_unknownDefaultOpenApi,
+]);
+
+const MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnum_CITY =
+    const MasterDetailResponseCitySettlementTypeEnum._('CITY');
+const MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnum_TOWN =
+    const MasterDetailResponseCitySettlementTypeEnum._('TOWN');
+const MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnum_VILLAGE =
+    const MasterDetailResponseCitySettlementTypeEnum._('VILLAGE');
+const MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnum_SETTLEMENT =
+    const MasterDetailResponseCitySettlementTypeEnum._('SETTLEMENT');
+const MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnum_unknownDefaultOpenApi =
+    const MasterDetailResponseCitySettlementTypeEnum._('unknownDefaultOpenApi');
+
+MasterDetailResponseCitySettlementTypeEnum
+    _$masterDetailResponseCitySettlementTypeEnumValueOf(String name) {
+  switch (name) {
+    case 'CITY':
+      return _$masterDetailResponseCitySettlementTypeEnum_CITY;
+    case 'TOWN':
+      return _$masterDetailResponseCitySettlementTypeEnum_TOWN;
+    case 'VILLAGE':
+      return _$masterDetailResponseCitySettlementTypeEnum_VILLAGE;
+    case 'SETTLEMENT':
+      return _$masterDetailResponseCitySettlementTypeEnum_SETTLEMENT;
+    case 'unknownDefaultOpenApi':
+      return _$masterDetailResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+    default:
+      return _$masterDetailResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<MasterDetailResponseCitySettlementTypeEnum>
+    _$masterDetailResponseCitySettlementTypeEnumValues = BuiltSet<
+        MasterDetailResponseCitySettlementTypeEnum>(const <MasterDetailResponseCitySettlementTypeEnum>[
+  _$masterDetailResponseCitySettlementTypeEnum_CITY,
+  _$masterDetailResponseCitySettlementTypeEnum_TOWN,
+  _$masterDetailResponseCitySettlementTypeEnum_VILLAGE,
+  _$masterDetailResponseCitySettlementTypeEnum_SETTLEMENT,
+  _$masterDetailResponseCitySettlementTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<MasterDetailResponseMasterTypeEnum>
     _$masterDetailResponseMasterTypeEnumSerializer =
     _$MasterDetailResponseMasterTypeEnumSerializer();
+Serializer<MasterDetailResponseCitySettlementTypeEnum>
+    _$masterDetailResponseCitySettlementTypeEnumSerializer =
+    _$MasterDetailResponseCitySettlementTypeEnumSerializer();
 
 class _$MasterDetailResponseMasterTypeEnumSerializer
     implements PrimitiveSerializer<MasterDetailResponseMasterTypeEnum> {
@@ -48,11 +101,13 @@ class _$MasterDetailResponseMasterTypeEnumSerializer
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -71,6 +126,44 @@ class _$MasterDetailResponseMasterTypeEnumSerializer
           Serializers serializers, Object serialized,
           {FullType specifiedType = FullType.unspecified}) =>
       MasterDetailResponseMasterTypeEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
+class _$MasterDetailResponseCitySettlementTypeEnumSerializer
+    implements PrimitiveSerializer<MasterDetailResponseCitySettlementTypeEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'CITY': 'CITY',
+    'TOWN': 'TOWN',
+    'VILLAGE': 'VILLAGE',
+    'SETTLEMENT': 'SETTLEMENT',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[
+    MasterDetailResponseCitySettlementTypeEnum
+  ];
+  @override
+  final String wireName = 'MasterDetailResponseCitySettlementTypeEnum';
+
+  @override
+  Object serialize(Serializers serializers,
+          MasterDetailResponseCitySettlementTypeEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  MasterDetailResponseCitySettlementTypeEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      MasterDetailResponseCitySettlementTypeEnum.valueOf(
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
@@ -115,6 +208,14 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final String? oblastId;
   @override
   final String? districtId;
+  @override
+  final int? bookingsThisMonth;
+  @override
+  final String? region;
+  @override
+  final MasterDetailResponseCitySettlementTypeEnum? citySettlementType;
+  @override
+  final String? cityHromadaNameUk;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -140,7 +241,11 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.workingHours,
       this.cityId,
       this.oblastId,
-      this.districtId})
+      this.districtId,
+      this.bookingsThisMonth,
+      this.region,
+      this.citySettlementType,
+      this.cityHromadaNameUk})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -174,7 +279,11 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         workingHours == other.workingHours &&
         cityId == other.cityId &&
         oblastId == other.oblastId &&
-        districtId == other.districtId;
+        districtId == other.districtId &&
+        bookingsThisMonth == other.bookingsThisMonth &&
+        region == other.region &&
+        citySettlementType == other.citySettlementType &&
+        cityHromadaNameUk == other.cityHromadaNameUk;
   }
 
   @override
@@ -200,6 +309,10 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, cityId.hashCode);
     _$hash = $jc(_$hash, oblastId.hashCode);
     _$hash = $jc(_$hash, districtId.hashCode);
+    _$hash = $jc(_$hash, bookingsThisMonth.hashCode);
+    _$hash = $jc(_$hash, region.hashCode);
+    _$hash = $jc(_$hash, citySettlementType.hashCode);
+    _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -226,7 +339,11 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('workingHours', workingHours)
           ..add('cityId', cityId)
           ..add('oblastId', oblastId)
-          ..add('districtId', districtId))
+          ..add('districtId', districtId)
+          ..add('bookingsThisMonth', bookingsThisMonth)
+          ..add('region', region)
+          ..add('citySettlementType', citySettlementType)
+          ..add('cityHromadaNameUk', cityHromadaNameUk))
         .toString();
   }
 }
@@ -320,6 +437,27 @@ class MasterDetailResponseBuilder
   String? get districtId => _$this._districtId;
   set districtId(String? districtId) => _$this._districtId = districtId;
 
+  int? _bookingsThisMonth;
+  int? get bookingsThisMonth => _$this._bookingsThisMonth;
+  set bookingsThisMonth(int? bookingsThisMonth) =>
+      _$this._bookingsThisMonth = bookingsThisMonth;
+
+  String? _region;
+  String? get region => _$this._region;
+  set region(String? region) => _$this._region = region;
+
+  MasterDetailResponseCitySettlementTypeEnum? _citySettlementType;
+  MasterDetailResponseCitySettlementTypeEnum? get citySettlementType =>
+      _$this._citySettlementType;
+  set citySettlementType(
+          MasterDetailResponseCitySettlementTypeEnum? citySettlementType) =>
+      _$this._citySettlementType = citySettlementType;
+
+  String? _cityHromadaNameUk;
+  String? get cityHromadaNameUk => _$this._cityHromadaNameUk;
+  set cityHromadaNameUk(String? cityHromadaNameUk) =>
+      _$this._cityHromadaNameUk = cityHromadaNameUk;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -347,6 +485,10 @@ class MasterDetailResponseBuilder
       _cityId = $v.cityId;
       _oblastId = $v.oblastId;
       _districtId = $v.districtId;
+      _bookingsThisMonth = $v.bookingsThisMonth;
+      _region = $v.region;
+      _citySettlementType = $v.citySettlementType;
+      _cityHromadaNameUk = $v.cityHromadaNameUk;
       _$v = null;
     }
     return this;
@@ -390,6 +532,10 @@ class MasterDetailResponseBuilder
             cityId: cityId,
             oblastId: oblastId,
             districtId: districtId,
+            bookingsThisMonth: bookingsThisMonth,
+            region: region,
+            citySettlementType: citySettlementType,
+            cityHromadaNameUk: cityHromadaNameUk,
           );
     } catch (_) {
       late String _$failedField;

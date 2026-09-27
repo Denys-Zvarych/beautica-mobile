@@ -13,9 +13,9 @@ part 'create_salon_request.g.dart';
 /// Properties:
 /// * [name]
 /// * [description]
-/// * [city]
-/// * [region]
-/// * [address]
+/// * [city] - Ignored — derived from cityId
+/// * [region] - Ignored — derived from cityId
+/// * [address] - Ignored — use street/buildingNo/locationNote
 /// * [phone]
 /// * [instagramUrl]
 /// * [cityId]
@@ -32,12 +32,18 @@ abstract class CreateSalonRequest
   @BuiltValueField(wireName: r'description')
   String? get description;
 
+  /// Ignored — derived from cityId
+  @Deprecated('city has been deprecated')
   @BuiltValueField(wireName: r'city')
   String? get city;
 
+  /// Ignored — derived from cityId
+  @Deprecated('region has been deprecated')
   @BuiltValueField(wireName: r'region')
   String? get region;
 
+  /// Ignored — use street/buildingNo/locationNote
+  @Deprecated('address has been deprecated')
   @BuiltValueField(wireName: r'address')
   String? get address;
 

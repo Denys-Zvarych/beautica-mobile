@@ -46,6 +46,7 @@ import 'package:beautica_mobile/features/booking/application/salon_master_covera
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -55,6 +56,8 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
@@ -430,7 +433,7 @@ class _LoadedBody extends StatelessWidget {
           slide: slide1,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: SalonTabBar(
+            child: ProfileTabBar(
               tabs: tabs,
               selected: tab,
               onSelect: onTabSelected,
@@ -659,14 +662,13 @@ class _SalonHeroCard extends StatelessWidget {
     final String? monogram = salon.name.trim().isEmpty
         ? null
         : salon.name.trim()[0].toUpperCase();
-    final String ratingLabel = salon.avgRating?.toStringAsFixed(1) ?? '—';
     // Phase 223 (b) — locality + street/building, each its own line, one
     // `Text` per helper, both `maxLines: 1`. `locationNote` is never
     // concatenated onto either of these lines — it renders as its own
     // [ExpandableNote] below (Phase 224) — so a note up to 1000 chars long
     // can never push the address itself out of its budget the way a single
     // combined line did pre-223.
-    final String? localityLine = _localityLine(salon);
+    final String? localityLine = _localityLine(salon, l10n);
     final String? streetLine = _streetLine(salon);
     // Phase 224 — `locationNote` moved back onto the hero card (it briefly
     // lived on the About tab under Phase 223 (b) — see the `_AboutTab` and
@@ -734,36 +736,16 @@ class _SalonHeroCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 5),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const Icon(
-                                Icons.star_rounded,
-                                size: 16,
-                                color: BrandColors.accentDeep,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                ratingLabel,
-                                key: const Key('salon-profile-rating'),
-                                style: _ratingInlineStyle,
-                              ),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                child: Text(
-                                  '·  ${l10n.salonReviewCountLabel(salon.reviewCount)}',
-                                  // Keyed so the review-invalidation regression
-                                  // can pin the hero's COUNT half of the
-                                  // aggregate by widget rather than by a
-                                  // localised string (M2) — `avgRating` alone
-                                  // moving is not proof the whole snapshot
-                                  // refreshed.
-                                  key: const Key('salon-profile-review-count'),
-                                  style: VelvetText.feedbackMuted13,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                          // Keyed so the review-invalidation regression can
+                          // pin the hero's COUNT half of the aggregate by
+                          // widget rather than by a localised string (M2) —
+                          // `avgRating` alone moving is not proof the whole
+                          // snapshot refreshed.
+                          RatingSummaryLine(
+                            rating: salon.avgRating,
+                            reviewCount: salon.reviewCount,
+                            ratingKey: const Key('salon-profile-rating'),
+                            countKey: const Key('salon-profile-review-count'),
                           ),
                         ],
                       ),
@@ -810,17 +792,32 @@ class _SalonHeroCard extends StatelessWidget {
                             // here when there is no locality (mirrors the
                             // master identity card's promotion convention
                             // in `shared/formatters/address_lines.dart`).
-                            // `maxLines: 1` (not 2, as the pre-223 combined
-                            // line allowed) is what makes the budget FIXED
-                            // rather than variable — this row can occupy at
-                            // most 2 lines total, ever.
+                            //
+                            // 2026-09-26 (user-reported) — `maxLines: 1` here
+                            // silently collapsed a long composed
+                            // saved-settlement label (village + hromada +
+                            // oblast) instead of wrapping it. Raised to `2` —
+                            // the hero card has no fixed height (`_CoverAndHero
+                            // ._cardCoverOverlap` is a FIXED pixel overlap,
+                            // independent of the card's content height — see
+                            // that class doc), so it simply grows taller, the
+                            // same way it already absorbs a long
+                            // `ExpandableNote`. The pre-223 "at most 2 lines
+                            // total, ever" budget was about keeping this row's
+                            // OWN two lines (locality + street) from growing
+                            // further by re-concatenating the note onto it —
+                            // that constraint is untouched; this only lets
+                            // line 1 itself wrap, which can now make the row 3
+                            // lines tall in the (rare) legacy-address case
+                            // where BOTH a long locality and a street line
+                            // render.
                             Text(
                               localityLine ?? streetLine!,
                               key: localityLine != null
                                   ? const Key('salon-profile-locality-text')
                                   : const Key('salon-profile-address-text'),
                               style: VelvetText.bookFeedbackSec13,
-                              maxLines: 1,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                             // Line 2: street + building — only when a
@@ -879,8 +876,6 @@ class _SalonHeroCard extends StatelessWidget {
     );
   }
 
-  static final TextStyle _ratingInlineStyle = VelvetText.bodyStrong14;
-
   /// The hero card's locality (city) line, or `null` when unavailable.
   ///
   /// Unlike [Master]'s identity card, this never resolves `cityId` to a
@@ -895,9 +890,15 @@ class _SalonHeroCard extends StatelessWidget {
   /// fresh `street` would be a STALE value the mapper never clears (mirrors
   /// the pre-Phase-223 `_buildLocationLine`'s taxonomy branch, which never
   /// rendered `city` once `street` was present).
-  static String? _localityLine(Salon salon) {
+  ///
+  /// Composed as the «Населений пункт» picker composes it («м. Львів,
+  /// Львівська обл.»); the bare [Salon.city] when the read carries no
+  /// settlement type.
+  static String? _localityLine(Salon salon, AppLocalizations l10n) {
     if (_hasTaxonomyStreet(salon)) return null;
-    return buildLocalityLine(salon.city);
+    return buildLocalityLine(
+      savedSettlementLabel(l10n, salon.savedSettlement) ?? salon.city,
+    );
   }
 
   /// Whether the salon has a taxonomy `street` with VISIBLE content.

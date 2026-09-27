@@ -38,6 +38,7 @@ import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 import 'package:beautica_mobile/shared/formatters/service_price_display.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../domain/booking_success_args.dart';
 import 'widgets/booking_recap.dart';
@@ -111,7 +112,15 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
       formatStreetCityLine(
         street: widget.args.master.street,
         buildingNo: widget.args.master.buildingNo,
-        city: widget.args.master.city,
+        // Same short settlement label as the salon address lines; the bare
+        // city without a type. The `venueCity` line above stays bare: it is
+        // the booking's `cityLabel`, which carries no settlement type.
+        city:
+            savedSettlementShortLabel(
+              AppLocalizations.of(context),
+              widget.args.master.savedSettlement,
+            ) ??
+            widget.args.master.city,
       );
 
   /// The arrival hint, same venue-first precedence as [_addressLine]. Never

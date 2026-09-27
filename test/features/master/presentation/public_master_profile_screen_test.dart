@@ -30,16 +30,16 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_reviews_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/service_category_cards.dart';
-import 'package:beautica_mobile/features/master/presentation/widgets/services_stat_tile.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
-import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -228,18 +228,10 @@ void main() {
       expect(find.byKey(const Key('btn-menu-master')), findsNothing);
     });
 
-    testWidgets('shows the services count in the stats row', (tester) async {
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => _stubData),
-      );
-      await tester.pumpAndSettle();
-
-      final Text servicesValue = tester.widget<Text>(
-        find.byKey(const Key('public-master-profile-services-value')),
-      );
-      expect(servicesValue.data, '${_stubServices.length}');
-    });
+    // Phase 351 — the «Досвід» stat tile is gone; «Рейтинг» / «Послуги» /
+    // «Відгуки» STAY as cards, now switching tabs instead of pushing a
+    // route. See the "stat cards (Phase 351)" and "card → tab switching
+    // (Phase 351)" groups below.
   });
 
   // ── Location lines (Phase 219/220 A + C) ──────────────────────────────────
@@ -294,6 +286,40 @@ void main() {
     // surface. 400dp clears it by ~35 % while staying a realistic modern-phone
     // width, so the collapse is proven where it has to work.
     const double collapsingWidth = 400;
+
+    // Phase-330 — the settlement reads as the «Населений пункт» picker
+    // labels it, in the collapsed line as well as the split one.
+    testWidgets('a typed saved settlement renders the PICKER label', (
+      tester,
+    ) async {
+      final AppLocalizations uk = lookupAppLocalizations(const Locale('uk'));
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides(
+          (ref) => (
+            masterWithFullAddress.copyWith(
+              city: 'Бориспіль',
+              region: 'Київська',
+              citySettlementType: 'CITY',
+            ),
+            _stubServices,
+          ),
+        ),
+        width: 800,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(
+                const Key('public-master-profile-address-combined-text'),
+              ),
+            )
+            .data,
+        '${uk.settlementCityPrefix} Бориспіль, Київська ${uk.settlementOblastAbbrev}, вул. Хрещатик, 22',
+      );
+    });
 
     testWidgets(
       'collapses city + street + building onto ONE line when it fits, and '
@@ -770,370 +796,15 @@ void main() {
   });
 
   // ──────────────────────────────────────────────────────────────────────────
-  // REGRESSION — the reviews stat tile used to render with NO GestureDetector
-  // at all: tapping it was a silent no-op (the user-reported bug). The fix
-  // wraps the tile in a GestureDetector whose onTap calls
-  // `context.push(RouteNames.masterPublicReviews(masterId))`.
-  //
-  // NAV-DETECTION TRAP (do not "simplify"): this MUST drive the real
-  // `context.push` code path by tapping the actual rendered
-  // GestureDetector — a test that instead called `router.go(...)` directly
-  // would pass even if the shipped tile still had no tap handler at all,
-  // because it would never exercise the widget under test's onTap callback.
-  // Tapping the real key is what makes this a genuine regression guard.
-  //
-  // TRUST-BOUNDARY PIN (mobile-security LOW, public_master_profile_screen.dart
-  // ~410) — the fixture deliberately makes `master.id` (a value round-tripped
-  // through the `GET /masters/{masterId}` response and mapped by
-  // [MasterMapper]) DIFFERENT from `_kMasterId` (the trusted route param /
-  // `widget.masterId`), mirroring what a future mapper bug or a backend
-  // response that doesn't echo the requested id would look like. The tile
-  // must push using `widget.masterId`, never `master.id`. Only the
-  // `_kMasterId`-keyed review providers are overridden — if the tile ever
-  // regresses to navigating via the echoed `master.id`, the pushed screen
-  // looks up providers keyed by that (unoverridden) id and the assertions
-  // below go red instead of silently passing either way.
-  // ──────────────────────────────────────────────────────────────────────────
-  group('reviews tile navigation (regression — was a silent no-op)', () {
-    testWidgets(
-      'tapping the «Відгуки» stat tile pushes /masters/:masterId/reviews '
-      'using the ROUTE masterId, not the master.id echoed back by the '
-      'profile response, and PublicMasterReviewsScreen renders this '
-      "masterId's reviews",
-      (tester) async {
-        tester.view.physicalSize = const Size(800, 2400);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-
-        // Deliberately mismatched: the network-echoed `master.id` must never
-        // be the value navigation keys off of.
-        final Master mismatchedMaster = _stubMaster.copyWith(
-          id: 'server-echoed-mismatched-id',
-        );
-        final PublicMasterProfileData mismatchedData = (
-          mismatchedMaster,
-          _stubServices,
-        );
-
-        final router = GoRouter(
-          initialLocation: '/masters/$_kMasterId',
-          routes: <RouteBase>[
-            GoRoute(
-              path: '/masters/:masterId',
-              builder: (context, state) => PublicMasterProfileScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-            GoRoute(
-              path: '/masters/:masterId/reviews',
-              builder: (context, state) => PublicMasterReviewsScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-          ],
-        );
-
-        const MasterReviewSummary summary = MasterReviewSummary(
-          avgRating: 4.8,
-          reviewCount: 1,
-          distribution: <int>[1, 0, 0, 0, 0],
-        );
-        final MasterReviewItem review = MasterReviewItem(
-          id: 'rev-1',
-          clientDisplayName: 'Client A',
-          rating: 5,
-          comment: 'Great!',
-          createdAt: DateTime.utc(2026, 6, 1),
-        );
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            ..._overrides((ref) => mismatchedData),
-            // Keyed by the TRUSTED route id (_kMasterId), NOT by
-            // `mismatchedMaster.id`. A push that (wrongly) used `master.id`
-            // would land on an unoverridden provider instance for that id.
-            masterReviewSummaryProvider(
-              _kMasterId,
-            ).overrideWith((ref) => summary),
-            masterReviewsProvider(
-              _kMasterId,
-              MasterReviewSort.newest,
-            ).overrideWith((ref) => <MasterReviewItem>[review]),
-          ],
-        );
-        await tester.pumpAndSettle();
-
-        final Finder tile = find.byKey(
-          const Key('public-master-profile-reviews-tile'),
-        );
-        expect(tile, findsOneWidget);
-
-        // The real tap drives the widget's own onTap → context.push.
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
-
-        expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
-
-        final PublicMasterReviewsScreen pushedScreen = tester.widget(
-          find.byType(PublicMasterReviewsScreen),
-        );
-        expect(
-          pushedScreen.masterId,
-          _kMasterId,
-          reason:
-              'navigation must carry the ROUTE masterId (widget.masterId), '
-              'never the master.id echoed back in the profile response',
-        );
-
-        expect(
-          find.byKey(const Key('master-review-rev-1')),
-          findsOneWidget,
-          reason:
-              'the pushed screen must render THIS masterId\'s review, proving '
-              'the id travelled through the push, not just that SOME screen '
-              'mounted',
-        );
-      },
-    );
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // RATING tile navigation — the rating stat tile was made tappable to mirror
-  // the reviews tile above: same destination, same trusted-route-param
-  // requirement. Mirrors the reviews-tile regression group 1:1 (including the
-  // mismatched-`master.id` trust-boundary fixture) so a future edit to the
-  // rating tile's onTap can regress independently of the reviews tile.
-  //
-  // TRUST-BOUNDARY PIN (mirrors the reviews-tile fix, mobile-security LOW
-  // pattern) — the fixture deliberately makes `master.id` DIFFERENT from
-  // `_kMasterId` (the trusted route param / `widget.masterId`). The tile must
-  // push using `widget.masterId`, never `master.id`. Only the `_kMasterId`-
-  // keyed review providers are overridden — if the tile ever regresses to
-  // navigating via the echoed `master.id`, the pushed screen looks up
-  // providers keyed by that (unoverridden) id and the assertions below go red
-  // instead of silently passing either way.
-  // ──────────────────────────────────────────────────────────────────────────
-  group('rating tile navigation', () {
-    testWidgets(
-      'tapping the «Рейтинг» stat tile pushes /masters/:masterId/reviews '
-      'using the ROUTE masterId, not the master.id echoed back by the '
-      'profile response, and PublicMasterReviewsScreen renders this '
-      "masterId's reviews",
-      (tester) async {
-        tester.view.physicalSize = const Size(800, 2400);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-
-        // Deliberately mismatched: the network-echoed `master.id` must never
-        // be the value navigation keys off of.
-        final Master mismatchedMaster = _stubMaster.copyWith(
-          id: 'server-echoed-mismatched-id',
-        );
-        final PublicMasterProfileData mismatchedData = (
-          mismatchedMaster,
-          _stubServices,
-        );
-
-        final router = GoRouter(
-          initialLocation: '/masters/$_kMasterId',
-          routes: <RouteBase>[
-            GoRoute(
-              path: '/masters/:masterId',
-              builder: (context, state) => PublicMasterProfileScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-            GoRoute(
-              path: '/masters/:masterId/reviews',
-              builder: (context, state) => PublicMasterReviewsScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-          ],
-        );
-
-        const MasterReviewSummary summary = MasterReviewSummary(
-          avgRating: 4.8,
-          reviewCount: 1,
-          distribution: <int>[1, 0, 0, 0, 0],
-        );
-        final MasterReviewItem review = MasterReviewItem(
-          id: 'rev-1',
-          clientDisplayName: 'Client A',
-          rating: 5,
-          comment: 'Great!',
-          createdAt: DateTime.utc(2026, 6, 1),
-        );
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            ..._overrides((ref) => mismatchedData),
-            // Keyed by the TRUSTED route id (_kMasterId), NOT by
-            // `mismatchedMaster.id`. A push that (wrongly) used `master.id`
-            // would land on an unoverridden provider instance for that id.
-            masterReviewSummaryProvider(
-              _kMasterId,
-            ).overrideWith((ref) => summary),
-            masterReviewsProvider(
-              _kMasterId,
-              MasterReviewSort.newest,
-            ).overrideWith((ref) => <MasterReviewItem>[review]),
-          ],
-        );
-        await tester.pumpAndSettle();
-
-        final Finder tile = find.byKey(
-          const Key('public-master-profile-rating-tile'),
-        );
-        expect(tile, findsOneWidget);
-
-        // The real tap drives the widget's own onTap → context.push — never
-        // a router.go/push stand-in.
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
-
-        expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
-
-        final PublicMasterReviewsScreen pushedScreen = tester.widget(
-          find.byType(PublicMasterReviewsScreen),
-        );
-        expect(
-          pushedScreen.masterId,
-          _kMasterId,
-          reason:
-              'navigation must carry the ROUTE masterId (widget.masterId), '
-              'never the master.id echoed back in the profile response',
-        );
-
-        expect(
-          find.byKey(const Key('master-review-rev-1')),
-          findsOneWidget,
-          reason:
-              'the pushed screen must render THIS masterId\'s review, proving '
-              'the id travelled through the push, not just that SOME screen '
-              'mounted',
-        );
-      },
-    );
-
-    testWidgets(
-      'the rating tile still navigates when reviewCount is 0 (tapping is not '
-      'gated on having reviews, matching the reviews tile)',
-      (tester) async {
-        tester.view.physicalSize = const Size(800, 2400);
-        tester.view.devicePixelRatio = 1.0;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-
-        final Master zeroReviewMaster = _stubMaster.copyWith(reviewCount: 0);
-
-        final router = GoRouter(
-          initialLocation: '/masters/$_kMasterId',
-          routes: <RouteBase>[
-            GoRoute(
-              path: '/masters/:masterId',
-              builder: (context, state) => PublicMasterProfileScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-            GoRoute(
-              path: '/masters/:masterId/reviews',
-              builder: (context, state) => PublicMasterReviewsScreen(
-                masterId: state.pathParameters['masterId']!,
-              ),
-            ),
-          ],
-        );
-
-        await tester.pumpRoutedApp(
-          router,
-          overrides: <Object>[
-            ..._overrides((ref) => (zeroReviewMaster, _stubServices)),
-            masterReviewSummaryProvider(_kMasterId).overrideWith(
-              (ref) => const MasterReviewSummary(
-                avgRating: 0,
-                reviewCount: 0,
-                distribution: <int>[0, 0, 0, 0, 0],
-              ),
-            ),
-            masterReviewsProvider(
-              _kMasterId,
-              MasterReviewSort.newest,
-            ).overrideWith((ref) => <MasterReviewItem>[]),
-          ],
-        );
-        await tester.pumpAndSettle();
-
-        // Displayed value is the dash placeholder for zero reviews …
-        expect(
-          tester
-              .widget<Text>(
-                find.byKey(const Key('public-master-profile-rating-value')),
-              )
-              .data,
-          '—',
-        );
-
-        // … but the tile is still tappable and still navigates.
-        final Finder tile = find.byKey(
-          const Key('public-master-profile-rating-tile'),
-        );
-        expect(tile, findsOneWidget);
-
-        await tester.tap(tile);
-        await tester.pumpAndSettle();
-
-        expect(
-          find.byType(PublicMasterReviewsScreen),
-          findsOneWidget,
-          reason:
-              'the rating tile must navigate unconditionally regardless of '
-              'reviewCount, matching the reviews tile\'s behaviour',
-        );
-      },
-    );
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Stats-row order — Rating → Services → Reviews → Experience. Pinned so a
-  // future refactor can't silently reshuffle it back.
-  // ──────────────────────────────────────────────────────────────────────────
-  group('stats row order', () {
-    testWidgets('renders Rating, Services, Reviews, Experience in that order', (
-      tester,
-    ) async {
-      await tester.pumpApp(
-        const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => _stubData),
-      );
-      await tester.pumpAndSettle();
-
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
-      final List<StatTile> tiles = tester
-          .widgetList<StatTile>(find.byType(StatTile))
-          .toList();
-
-      expect(tiles, hasLength(4));
-      expect(tiles[0].caption, l10n.masterRatingLabel);
-      expect(tiles[1].caption, l10n.masterServicesLabel);
-      expect(tiles[2].caption, l10n.masterStatsReviewsLabel);
-      expect(tiles[3].caption, l10n.publicMasterExperienceLabel);
-    });
-  });
-
-  // ──────────────────────────────────────────────────────────────────────────
-  // Identity-card inline rating REMOVED — the stats-row rating StatTile
-  // (`public-master-profile-rating-value`) is the ONLY rating affordance on
-  // the screen; the identity card itself must carry no RatingStar/rating row.
+  // Phase 351 — identity-card inline rating stays absent (unchanged from
+  // before). The rating value now renders once, on the «Рейтинг» stat CARD
+  // (U5) below the identity card, not inside it and not on a
+  // `RatingSummaryLine`.
   // ──────────────────────────────────────────────────────────────────────────
   group('identity-card inline rating removed', () {
     testWidgets(
-      'the identity card has no RatingStar descendant; the stats-row rating '
-      'value remains the single RatingStar on the screen',
+      'the identity card has no rating row of its own — the rating value '
+      'renders once, on the stat card below it',
       (tester) async {
         await tester.pumpApp(
           const PublicMasterProfileScreen(masterId: _kMasterId),
@@ -1147,24 +818,387 @@ void main() {
         );
         expect(identityCard, findsOneWidget);
         expect(
-          find.descendant(of: identityCard, matching: find.byType(RatingStar)),
+          find.descendant(
+            of: identityCard,
+            matching: find.byKey(
+              const Key('public-master-profile-rating-value'),
+            ),
+          ),
           findsNothing,
           reason: 'the identity card must not render its own inline rating',
         );
-
-        // The stats-row rating value tile is still present — the rating
-        // affordance moved, it was not deleted outright.
         expect(
           find.byKey(const Key('public-master-profile-rating-value')),
           findsOneWidget,
         );
-        expect(
-          find.byType(RatingStar),
-          findsOneWidget,
-          reason: 'exactly one RatingStar — the stats-row tile\'s',
-        );
       },
     );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 351 — stat cards: «Рейтинг» / «Послуги» / «Відгуки» (D9 — no
+  // «Досвід»). Value keys unchanged from the pre-351 StatTile row, so
+  // pre-existing finders survive.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('stat cards (Phase 351)', () {
+    testWidgets('null rating + 0 reviews renders «—» / «—» / «0»', (
+      tester,
+    ) async {
+      final Master noRatingMaster = _stubMaster.copyWith(
+        avgRating: null,
+        reviewCount: 0,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (noRatingMaster, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('public-master-profile-rating-value')),
+            )
+            .data,
+        '—',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('public-master-profile-reviews-value')),
+            )
+            .data,
+        '—',
+      );
+    });
+
+    testWidgets('a real rating + review count renders «4.8» / «12»', (
+      tester,
+    ) async {
+      final Master ratedMaster = _stubMaster.copyWith(
+        avgRating: 4.8,
+        reviewCount: 12,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (ratedMaster, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('public-master-profile-rating-value')),
+            )
+            .data,
+        '4.8',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('public-master-profile-reviews-value')),
+            )
+            .data,
+        '12',
+      );
+    });
+
+    testWidgets('the services card shows the seeded services count', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('public-master-profile-services-value')),
+            )
+            .data,
+        '${_stubServices.length}',
+      );
+    });
+
+    testWidgets('no «Досвід» card renders anywhere on the screen (D9)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(PublicMasterProfileScreen)),
+      );
+      expect(find.text(l10n.publicMasterExperienceLabel), findsNothing);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // User decision 2026-09-26 — the stat cards are DISPLAY-ONLY. Superseded
+  // Phase 351's card → tab mechanism (U6/U7, D15): a card tap must leave the
+  // selected tab and route unchanged, and expose no button semantics. The
+  // «Про майстра» / «Послуги» / «Відгуки» tabs are the only way to switch.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('stat cards are display-only (user decision 2026-09-26)', () {
+    List<Object> overridesWithReviews() => <Object>[
+      ..._overrides((ref) => _stubData),
+      masterReviewSummaryProvider(_kMasterId).overrideWith(
+        (ref) async => const MasterReviewSummary(
+          avgRating: 4.8,
+          reviewCount: 47,
+          distribution: <int>[0, 0, 0, 0, 0],
+        ),
+      ),
+      masterReviewsProvider(
+        _kMasterId,
+        MasterReviewSort.newest,
+      ).overrideWith((ref) async => const <MasterReviewItem>[]),
+    ];
+
+    for (final String cardKey in <String>[
+      'public-master-profile-rating-tile',
+      'public-master-profile-reviews-tile',
+      'public-master-profile-services-tile',
+    ]) {
+      testWidgets(
+        'tapping $cardKey leaves the «Про майстра» tab and route unchanged',
+        (tester) async {
+          tester.view.physicalSize = const Size(800, 2400);
+          tester.view.devicePixelRatio = 1.0;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+
+          await tester.pumpApp(
+            const PublicMasterProfileScreen(masterId: _kMasterId),
+            overrides: overridesWithReviews(),
+          );
+          await tester.pumpAndSettle();
+
+          // Default tab «Про майстра» is showing — neither tab body is
+          // mounted yet.
+          expect(
+            find.byKey(const Key('public-master-profile-about-tab')),
+            findsOneWidget,
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(ServiceCategoryCardList), findsNothing);
+
+          // No InkWell/GestureDetector on the card — warnIfMissed would flag
+          // a real interactive target the tap failed to land on.
+          await tester.tap(find.byKey(Key(cardKey)), warnIfMissed: false);
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('public-master-profile-about-tab')),
+            findsOneWidget,
+            reason: 'a card tap must never switch the screen\'s own tab',
+          );
+          expect(find.byType(MasterReviewsBody), findsNothing);
+          expect(find.byType(ServiceCategoryCardList), findsNothing);
+          expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+          expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+        },
+      );
+
+      testWidgets('$cardKey exposes no button semantics', (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final SemanticsHandle handle = tester.ensureSemantics();
+
+        await tester.pumpApp(
+          const PublicMasterProfileScreen(masterId: _kMasterId),
+          overrides: overridesWithReviews(),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.getSemantics(find.byKey(Key(cardKey))),
+          isNot(isSemantics(isButton: true)),
+        );
+
+        handle.dispose();
+      });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 351 — tab switching. Default tab is «Про майстра» (index 0). No
+  // `IndexedStack`/`TabController` — the salon's own `switch (tab)` +
+  // `KeyedSubtree` mechanism, reused verbatim via `ProfileTabBar`.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('tab switching (Phase 351)', () {
+    testWidgets('default tab is «Про майстра» — bio + portfolio visible, no '
+        'category cards, no MasterReviewsBody', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-about-tab')),
+        findsOneWidget,
+      );
+      expect(find.byType(ServiceCategoryCardList), findsNothing);
+      expect(find.byType(MasterReviewsBody), findsNothing);
+    });
+
+    testWidgets('tapping «Послуги» shows the category cards, hides the About '
+        'tab body', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-category-MANICURE')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('public-master-profile-about-tab')),
+        findsNothing,
+      );
+      expect(find.byType(MasterReviewsBody), findsNothing);
+    });
+
+    testWidgets('tapping «Відгуки» renders MasterReviewsBody inline and '
+        'pushes NOTHING (no masterPublicReviews navigation)', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final router = GoRouter(
+        initialLocation: '/masters/$_kMasterId',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/masters/:masterId',
+            builder: (context, state) => PublicMasterProfileScreen(
+              masterId: state.pathParameters['masterId']!,
+            ),
+          ),
+          GoRoute(
+            path: '/masters/:masterId/reviews',
+            builder: (context, state) => PublicMasterReviewsScreen(
+              masterId: state.pathParameters['masterId']!,
+            ),
+          ),
+        ],
+      );
+
+      const MasterReviewSummary summary = MasterReviewSummary(
+        avgRating: 4.8,
+        reviewCount: 1,
+        distribution: <int>[1, 0, 0, 0, 0],
+      );
+      final MasterReviewItem review = MasterReviewItem(
+        id: 'rev-1',
+        clientDisplayName: 'Client A',
+        rating: 5,
+        comment: 'Great!',
+        createdAt: DateTime.utc(2026, 6, 1),
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((ref) => _stubData),
+          masterReviewSummaryProvider(
+            _kMasterId,
+          ).overrideWith((ref) => summary),
+          masterReviewsProvider(
+            _kMasterId,
+            MasterReviewSort.newest,
+          ).overrideWith((ref) => <MasterReviewItem>[review]),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MasterReviewsBody), findsOneWidget);
+      expect(
+        find.byKey(const Key('master-review-rev-1')),
+        findsOneWidget,
+        reason: 'the review renders INLINE, in the tab, not on a pushed screen',
+      );
+      // No navigation happened — still the same screen instance, no
+      // PublicMasterReviewsScreen anywhere in the tree.
+      expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+    });
+
+    testWidgets('tab selection survives an in-screen push/pop (booking → '
+        'back stays on the selected tab)', (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final router = GoRouter(
+        initialLocation: '/masters/$_kMasterId',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/masters/:masterId',
+            builder: (context, state) => PublicMasterProfileScreen(
+              masterId: state.pathParameters['masterId']!,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.bookingNew,
+            builder: (_, _) => const Scaffold(body: Text('booking-stub')),
+          ),
+        ],
+      );
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('public-master-profile-category-MANICURE')),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('public-master-book-cta')));
+      await tester.pumpAndSettle();
+      expect(find.text('booking-stub'), findsOneWidget);
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('public-master-profile-category-MANICURE')),
+        findsOneWidget,
+        reason: 'still on «Послуги» after back — the State was kept',
+      );
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -1657,12 +1691,20 @@ void main() {
   // an explicit `false` to `true` by mistake, so this group keeps testing
   // against the REAL screen.
   //
+  // Phase 351 — the section now lives under the «Послуги» TAB (index 1), not
+  // stacked below the stats row — every test here taps that tab first.
+  //
   // service_category_cards_test.dart pins the SAME contract at the shared-
   // widget level (in isolation); THIS group pins it at the actual production
   // call site, which is what would actually go red if someone deleted
   // `interactive: false` from public_master_profile_screen.dart.
   // ──────────────────────────────────────────────────────────────────────────
   group('service categories section (read-only)', () {
+    Future<void> tapServicesTab(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
+      await tester.pumpAndSettle();
+    }
+
     testWidgets(
       'renders one card per category grouped from the services list, with '
       'the correct counts',
@@ -1677,11 +1719,7 @@ void main() {
           overrides: _overrides((ref) => (_stubMaster, _multiCategoryServices)),
         );
         await tester.pumpAndSettle();
-
-        expect(
-          find.byKey(const Key('public-master-profile-service-categories')),
-          findsOneWidget,
-        );
+        await tapServicesTab(tester);
 
         final Finder manicureCard = find.byKey(
           const Key('public-master-profile-category-MANICURE'),
@@ -1721,6 +1759,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tapServicesTab(tester);
 
       final Finder noneCard = find.byKey(
         const Key('public-master-profile-category-_none'),
@@ -1731,8 +1770,8 @@ void main() {
     });
 
     testWidgets(
-      'a master with zero active services renders NO service-categories '
-      'section at all',
+      'a master with zero active services renders an empty «Послуги» tab '
+      '(ServiceCategoryCardList self-renders nothing)',
       (tester) async {
         await tester.pumpApp(
           const PublicMasterProfileScreen(masterId: _kMasterId),
@@ -1741,47 +1780,17 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        await tapServicesTab(tester);
 
-        expect(
-          find.byKey(const Key('public-master-profile-service-categories')),
-          findsNothing,
-          reason:
-              'the section must be omitted entirely for zero services — '
-              'matching how Bio/Contacts are omitted when empty',
-        );
         expect(find.byType(ServiceCategoryCard), findsNothing);
-
-        // The services stat tile still renders, showing the em-dash empty
-        // state (not a bare '0', not a hidden/blank value) — matching the
-        // sibling rating/reviews tiles on the same row.
-        final Text servicesValue = tester.widget<Text>(
-          find.byKey(const Key('public-master-profile-services-value')),
-        );
-        expect(servicesValue.data, '—');
-
-        // CONSOLIDATION GUARD — this value must come from the SHARED
-        // [ServicesStatTile], the twin of the assertion in
-        // master_profile_screen_test.dart ('F.'). The two profiles used to
-        // hand-roll this tile independently; that is exactly how their empty
-        // states drifted apart in the first place. Pinning the widget TYPE at
-        // both call sites turns a re-divergence — someone inlining a bare
-        // StatTile again to tweak one screen — into a failing test rather
-        // than two silently different empty states.
-        final Finder tile = find.byType(ServicesStatTile);
+        // The tab bar + rating line stay visible — only the category list is
+        // empty, not the whole screen.
         expect(
-          tile,
+          find.byKey(const Key('public-master-profile-rating-value')),
           findsOneWidget,
-          reason:
-              'the public profile must build the shared tile so the empty/'
-              'error rule stays single-sourced with the own profile',
         );
         expect(
-          find.descendant(
-            of: tile,
-            matching: find.byKey(
-              const Key('public-master-profile-services-value'),
-            ),
-          ),
+          find.byKey(const Key('public-master-profile-tab-1')),
           findsOneWidget,
         );
       },
@@ -1831,6 +1840,7 @@ void main() {
           overrides: _overrides((ref) => (_stubMaster, _multiCategoryServices)),
         );
         await tester.pumpAndSettle();
+        await tapServicesTab(tester);
 
         final Finder card = find.byKey(
           const Key('public-master-profile-category-MANICURE'),
@@ -1872,6 +1882,203 @@ void main() {
           findsOneWidget,
           reason:
               'the screen must still be the public profile — no navigation happened',
+        );
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 351 — About tab empty state. Client is always read-only on this
+  // screen — an empty bio shows the muted placeholder, never the master's own
+  // `AddLink`.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('About tab empty state (Phase 351)', () {
+    testWidgets('empty bio shows the muted publicMasterAboutEmpty text', (
+      tester,
+    ) async {
+      final Master noBioMaster = _stubMaster.copyWith(bio: null);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (noBioMaster, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(PublicMasterProfileScreen)),
+      );
+      expect(
+        find.byKey(const Key('public-master-profile-about-empty')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.publicMasterAboutEmpty), findsOneWidget);
+      // Never the master's own «Додати опис» affordance on THIS screen.
+      expect(find.byType(AddLink), findsNothing);
+    });
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 358 (was Phase 351) — booking shelf presence is NOT gated by master
+  // type; it shows on EVERY tab for EVERY resolved master. Phase 351 had
+  // narrowed this to INDEPENDENT_MASTER only, unasked — a regression the user
+  // reported ("why u remove the button to book directly from salon master
+  // profile? add it pls") and Phase 358 reverted.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('booking shelf tab gating (Phase 358)', () {
+    Future<void> pumpFor(WidgetTester tester, MasterType type) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final Master master = _stubMaster.copyWith(type: type);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (master, _stubServices)),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('independent master — shelf present on all 3 tabs', (
+      tester,
+    ) async {
+      await pumpFor(tester, MasterType.independentMaster);
+
+      for (final int i in const <int>[0, 1, 2]) {
+        await tester.tap(find.byKey(Key('public-master-profile-tab-$i')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason: 'tab $i must still show the booking shelf',
+        );
+      }
+    });
+
+    testWidgets('salon master — shelf present on all 3 tabs', (tester) async {
+      await pumpFor(tester, MasterType.salonMaster);
+
+      for (final int i in const <int>[0, 1, 2]) {
+        await tester.tap(find.byKey(Key('public-master-profile-tab-$i')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason:
+              'tab $i must show the booking shelf for a salon master too '
+              '(Phase 358)',
+        );
+      }
+    });
+
+    testWidgets('salonOwner — shelf present on all 3 tabs', (tester) async {
+      await pumpFor(tester, MasterType.salonOwner);
+
+      for (final int i in const <int>[0, 1, 2]) {
+        await tester.tap(find.byKey(Key('public-master-profile-tab-$i')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason:
+              'tab $i must show the booking shelf for a salon owner too '
+              '(Phase 358)',
+        );
+      }
+    });
+
+    testWidgets(
+      'salon master — shelf present AND Instagram/portfolio still hidden, '
+      'on the SAME resolved profile (Phase 358 must not have widened the '
+      'independent-only gates it left alone)',
+      (tester) async {
+        await pumpFor(tester, MasterType.salonMaster);
+        // Default tab (0, «Про майстра») is where Instagram + portfolio
+        // would render if the independent-only gate had regressed.
+
+        expect(
+          find.byKey(const Key('public-master-book-cta')),
+          findsOneWidget,
+          reason: 'the Phase 358 fix — shelf present for a salon master',
+        );
+        expect(
+          find.byKey(const Key('public-master-contact-instagram')),
+          findsNothing,
+          reason:
+              'Instagram stays independent-only — Phase 358 must not have '
+              'touched this pre-existing gate',
+        );
+        expect(
+          find.byKey(const Key('public-master-profile-portfolio')),
+          findsNothing,
+          reason:
+              'portfolio stays independent-only — Phase 358 must not have '
+              'touched this pre-existing gate',
+        );
+      },
+    );
+  });
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Phase 358 — the CTA opens the real booking flow for a SALON master too,
+  // carrying the correct masterId. `RouteNames.bookingNew` never branches on
+  // `MasterType` (Phase 350 D4): services load via the public, type-agnostic
+  // `GET /masters/{id}/services`, and `CreateAppointmentRequest` needs only
+  // `masterId` + `masterServiceIds`.
+  // ──────────────────────────────────────────────────────────────────────────
+  group('booking navigation — salon master (Phase 358)', () {
+    testWidgets(
+      'tapping «Записатись» on a salon master profile pushes bookingNew '
+      'with THAT master id',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2400);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        Object? capturedExtra;
+        final Master salonMaster = _stubMaster.copyWith(
+          type: MasterType.salonMaster,
+        );
+        final router = GoRouter(
+          initialLocation: '/masters/$_kMasterId',
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/masters/:masterId',
+              builder: (context, state) => PublicMasterProfileScreen(
+                masterId: state.pathParameters['masterId']!,
+              ),
+            ),
+            GoRoute(
+              path: RouteNames.bookingNew,
+              builder: (_, state) {
+                capturedExtra = state.extra;
+                return const Scaffold(body: Text('booking-stub'));
+              },
+            ),
+          ],
+        );
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides((ref) => (salonMaster, _stubServices)),
+        );
+        await tester.pumpAndSettle();
+
+        final cta = find.byKey(const Key('public-master-book-cta'));
+        expect(cta, findsOneWidget);
+
+        await tester.tap(cta);
+        await tester.pumpAndSettle();
+
+        expect(find.text('booking-stub'), findsOneWidget);
+        expect(
+          capturedExtra,
+          _kMasterId,
+          reason:
+              'the salon master booking CTA must carry the SAME masterId '
+              'as the profile being viewed, as a bare String — the '
+              'existing ServiceSelectorSheet(masterId:) contract, no '
+              'salonId needed (Phase 350 D4).',
         );
       },
     );

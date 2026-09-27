@@ -21,6 +21,9 @@ const AppointmentDetailResponseStatusEnum
 const AppointmentDetailResponseStatusEnum
     _$appointmentDetailResponseStatusEnum_CANCELLED =
     const AppointmentDetailResponseStatusEnum._('CANCELLED');
+const AppointmentDetailResponseStatusEnum
+    _$appointmentDetailResponseStatusEnum_unknownDefaultOpenApi =
+    const AppointmentDetailResponseStatusEnum._('unknownDefaultOpenApi');
 
 AppointmentDetailResponseStatusEnum
     _$appointmentDetailResponseStatusEnumValueOf(String name) {
@@ -35,8 +38,10 @@ AppointmentDetailResponseStatusEnum
       return _$appointmentDetailResponseStatusEnum_NOT_COMPLETED;
     case 'CANCELLED':
       return _$appointmentDetailResponseStatusEnum_CANCELLED;
+    case 'unknownDefaultOpenApi':
+      return _$appointmentDetailResponseStatusEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$appointmentDetailResponseStatusEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -48,6 +53,7 @@ final BuiltSet<AppointmentDetailResponseStatusEnum>
   _$appointmentDetailResponseStatusEnum_COMPLETED,
   _$appointmentDetailResponseStatusEnum_NOT_COMPLETED,
   _$appointmentDetailResponseStatusEnum_CANCELLED,
+  _$appointmentDetailResponseStatusEnum_unknownDefaultOpenApi,
 ]);
 
 const AppointmentDetailResponseMasterTypeEnum
@@ -65,6 +71,9 @@ const AppointmentDetailResponseMasterTypeEnum
 const AppointmentDetailResponseMasterTypeEnum
     _$appointmentDetailResponseMasterTypeEnum_INDEPENDENT_MASTER =
     const AppointmentDetailResponseMasterTypeEnum._('INDEPENDENT_MASTER');
+const AppointmentDetailResponseMasterTypeEnum
+    _$appointmentDetailResponseMasterTypeEnum_unknownDefaultOpenApi =
+    const AppointmentDetailResponseMasterTypeEnum._('unknownDefaultOpenApi');
 
 AppointmentDetailResponseMasterTypeEnum
     _$appointmentDetailResponseMasterTypeEnumValueOf(String name) {
@@ -79,8 +88,10 @@ AppointmentDetailResponseMasterTypeEnum
       return _$appointmentDetailResponseMasterTypeEnum_SALON_MASTER;
     case 'INDEPENDENT_MASTER':
       return _$appointmentDetailResponseMasterTypeEnum_INDEPENDENT_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$appointmentDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$appointmentDetailResponseMasterTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -92,6 +103,7 @@ final BuiltSet<AppointmentDetailResponseMasterTypeEnum>
   _$appointmentDetailResponseMasterTypeEnum_SALON_ADMIN,
   _$appointmentDetailResponseMasterTypeEnum_SALON_MASTER,
   _$appointmentDetailResponseMasterTypeEnum_INDEPENDENT_MASTER,
+  _$appointmentDetailResponseMasterTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<AppointmentDetailResponseStatusEnum>
@@ -109,6 +121,7 @@ class _$AppointmentDetailResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CONFIRMED': 'CONFIRMED',
@@ -116,6 +129,7 @@ class _$AppointmentDetailResponseStatusEnumSerializer
     'COMPLETED': 'COMPLETED',
     'NOT_COMPLETED': 'NOT_COMPLETED',
     'CANCELLED': 'CANCELLED',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -147,6 +161,7 @@ class _$AppointmentDetailResponseMasterTypeEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
@@ -154,6 +169,7 @@ class _$AppointmentDetailResponseMasterTypeEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

@@ -3,8 +3,7 @@
 // The CLIENT-facing reviews list for the master identified by [masterId],
 // reached by tapping the «Відгуки» stat tile on [PublicMasterProfileScreen].
 //
-// Deliberately NOT [MasterReceivedReviewsScreen]: that screen is param-less
-// and resolves its master strictly from the AUTHENTICATED session
+// Deliberately not keyed off the AUTHENTICATED session
 // (`masterProfileProvider` → `GET /masters/me`) — pointing a CLIENT there
 // would 403, and pointing a different master's viewer there would silently
 // show the VIEWER's own reviews. This screen instead receives [masterId]
@@ -12,8 +11,10 @@
 // [MasterReviewsBody] — no profile-loading step, no session dependency.
 //
 // Shares [MasterReviewsBody] (rating-summary card + sortable review list)
-// with [MasterReceivedReviewsScreen] so the two surfaces stay visually
-// identical — no new styling introduced here.
+// with the «Відгуки» tab on every master's OWN profile
+// (`MasterProfileScreen` / `SalonMasterProfileScreen`, Phase 351) so all
+// three reviews surfaces stay visually identical — no new styling
+// introduced here.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -48,8 +49,8 @@ class _PublicMasterReviewsScreenState
     super.initState();
     // SEC: this screen renders another master's review comments (PII) —
     // guard against screenshots / app-switcher snapshots while it is mounted,
-    // mirroring [PublicMasterProfileScreen] and [MasterReceivedReviewsScreen].
-    // The manager is ref-counted and !kDebugMode-guarded internally.
+    // mirroring [PublicMasterProfileScreen]. The manager is ref-counted and
+    // !kDebugMode-guarded internally.
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
   }
 

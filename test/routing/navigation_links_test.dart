@@ -414,6 +414,13 @@ void main() {
       // shell's «Профіль» tab via an `IndexedStack` slot rather than a nested
       // route, so this constant is the only registration.
       'adminOwnProfile': RouteNames.adminOwnProfile,
+      // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN's own settings hub,
+      // reached from `adminOwnProfile`'s trailing tune action.
+      'adminSettings': RouteNames.adminSettings,
+      // Phase 356 — the admin hub's «Особисті дані» / «Контакти» edit leaves,
+      // reusing the CLIENT editor screens via `doneRoute`.
+      'adminEditPersonal': RouteNames.adminEditPersonal,
+      'adminEditContacts': RouteNames.adminEditContacts,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,
@@ -442,7 +449,6 @@ void main() {
       'masterEditPersonal': RouteNames.masterEditPersonal,
       'masterEditContacts': RouteNames.masterEditContacts,
       'masterEditLocation': RouteNames.masterEditLocation,
-      'masterReceivedReviews': RouteNames.masterReceivedReviews,
       // SALON_MASTER's own personal-profile surface — fixes the "blank
       // home" landing bug (see `role_home.dart`). Standalone top-level
       // routes, same rationale as `masterProfile`/`masterMenu`/

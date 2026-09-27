@@ -58,6 +58,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
@@ -263,7 +264,8 @@ class _PerWeekdayRangeSchedule extends EffectiveScheduleNotifier {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -307,7 +309,8 @@ class _PendingNewRangeSchedule extends EffectiveScheduleNotifier {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -410,7 +413,8 @@ class _StatefulFakeScheduleRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_effective[cursor] ?? _noSchedule(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -513,7 +517,8 @@ class _CountingRangeScheduleRepository implements ScheduleRepository {
       } else {
         out.add(_noSchedule(cursor));
       }
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -628,7 +633,8 @@ class _CompleterScheduleRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_dayFor(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -1137,7 +1143,8 @@ class _MutableDiscreteRepository implements ScheduleRepository {
     final DateTime end = _dateOnly(to);
     while (!cursor.isAfter(end)) {
       out.add(_dayFor(cursor));
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }
@@ -4644,6 +4651,66 @@ void main() {
         expect(_selectedStripDayNumber(tester), _today.day);
       },
     );
+  });
+
+  // 2026-09-24 — `_stepWeek` moved `_weekStart` by `+Duration(days: 7 * n)`
+  // then truncated. Across a Europe/Kyiv DST transition that lands an hour off
+  // midnight and the truncation re-anchored the strip onto a SUNDAY: forward
+  // from Mon 19 Oct 2026 → Sun 25 Oct 23:00 → week «25..31»; back from Mon 30
+  // Mar 2026 → Sun 22 Mar 23:00 → week «22..28». Every later week stayed
+  // mis-aligned. Only discriminating under `TZ=Europe/Kyiv`; holds under UTC.
+  group('MasterScheduleScreen — week stepping across DST', () {
+    Future<void> pumpOn(WidgetTester tester, DateTime day) async {
+      await tester.pumpApp(
+        MasterScheduleScreen(
+          initialDate: day,
+          clock: () => asClockInstant(day),
+        ),
+        overrides: <Object>[
+          authProvider.overrideWith(
+            () => _FixedAuth(UserRole.independentMaster),
+          ),
+          ownScheduleScopeProvider.overrideWithValue(
+            const ScheduleScope.own(masterId: 'msst-test-master'),
+          ),
+          effectiveScheduleProvider.overrideWith(
+            () => _DataSchedule(const <EffectiveDay>[]),
+          ),
+          weeklyScheduleProvider.overrideWith(
+            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          ),
+          _fakeWorkingHours(),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    List<int> stripDays(WidgetTester tester) => tester
+        .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+        .map((WeekStripDay c) => c.day)
+        .toList();
+
+    testWidgets('next week from the fall-back week (Mon 19 Oct 2026) is '
+        'Mon 26 Oct .. Sun 1 Nov, not Sun 25 .. Sat 31', (tester) async {
+      await pumpOn(tester, DateTime(2026, 10, 20));
+      expect(stripDays(tester), <int>[19, 20, 21, 22, 23, 24, 25]);
+
+      await tester.tap(find.byKey(const Key('schedule-week-next')));
+      await tester.pumpAndSettle();
+
+      expect(stripDays(tester), <int>[26, 27, 28, 29, 30, 31, 1]);
+    });
+
+    testWidgets('previous week from Mon 30 Mar 2026 (after the spring forward) '
+        'is Mon 23 .. Sun 29 Mar, not Sun 22 .. Sat 28', (tester) async {
+      await pumpOn(tester, DateTime(2026, 3, 31));
+      expect(stripDays(tester), <int>[30, 31, 1, 2, 3, 4, 5]);
+
+      await tester.tap(find.byKey(const Key('schedule-week-prev')));
+      await tester.pumpAndSettle();
+
+      expect(stripDays(tester), <int>[23, 24, 25, 26, 27, 28, 29]);
+    });
   });
 }
 

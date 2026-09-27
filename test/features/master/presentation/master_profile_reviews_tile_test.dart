@@ -1,17 +1,12 @@
-// Phase 4.6 — Entry-point test: the master profile's «Відгуки» stat tile
-// (`Key('master-profile-reviews-tile')`) is present and tapping it PUSHES the
-// received-reviews route (`/master/received-reviews`).
+// Phase 4.6, rewritten Phase 351, rewritten user decision 2026-09-26 —
+// Entry-point test: the master profile's «Відгуки» stat tile
+// (`Key('master-profile-reviews-tile')`) renders, and tapping it does
+// NOTHING — no tab switch, no navigation, no button semantics. The stat
+// cards are display-only; the «Про майстра» / «Послуги» / «Відгуки» tabs
+// are the only way to switch tabs.
 //
-// The tap uses the production `context.push(...)` inside the profile screen —
-// this test deliberately does NOT drive navigation via `router.go`, which would
-// yield a declarative match and false-pass the app's pushed-leaf nav detection
-// (see MEMORY: "go_router push excludes fullPath"). We assert the pushed
-// destination actually mounts on top of the profile.
-//
-// Strategy mirrors profile_to_services_navigation_test.dart: stub the auth +
-// master-profile providers, mock the repositories, and host both routes on a
-// real GoRouter whose received-reviews route renders a keyed sentinel (the real
-// reviews screen is exercised end-to-end by the widget + integration tests).
+// No second route is registered on the test router — see
+// `master_profile_rating_tile_test.dart`'s header for why.
 
 import 'dart:async';
 
@@ -19,10 +14,14 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -81,13 +80,6 @@ GoRouter _buildRouter() => GoRouter(
       builder: (BuildContext context, GoRouterState state) =>
           const MasterProfileScreen(),
     ),
-    GoRoute(
-      path: RouteNames.masterReceivedReviews,
-      builder: (BuildContext context, GoRouterState state) => const Scaffold(
-        key: Key('reviews-destination'),
-        body: SizedBox.shrink(),
-      ),
-    ),
   ],
 );
 
@@ -106,6 +98,17 @@ ProviderScope _buildApp({
       approvedCategoriesProvider.overrideWith(
         (ref) async => const <ServiceCategoryOption>[],
       ),
+      masterReviewSummaryProvider(_stubMaster.id).overrideWith(
+        (ref) async => MasterReviewSummary(
+          avgRating: _stubMaster.avgRating,
+          reviewCount: _stubMaster.reviewCount,
+          distribution: const <int>[0, 0, 0, 0, 0],
+        ),
+      ),
+      masterReviewsProvider(
+        _stubMaster.id,
+        MasterReviewSort.newest,
+      ).overrideWith((ref) async => const <MasterReviewItem>[]),
     ],
     child: MaterialApp.router(
       routerConfig: router,
@@ -128,12 +131,58 @@ void main() {
     ).thenAnswer((_) async => const <MasterService>[]);
   });
 
-  testWidgets('the reviews stat tile is present and tapping it pushes '
-      '/master/received-reviews', (tester) async {
+  testWidgets(
+    'the reviews stat tile is present and tapping it leaves the selected '
+    'tab and route unchanged (display-only, user decision 2026-09-26)',
+    (tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = _buildRouter();
+      await tester.pumpWidget(
+        _buildApp(
+          masterRepo: masterRepo,
+          serviceRepo: serviceRepo,
+          router: router,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder tile = find.byKey(const Key('master-profile-reviews-tile'));
+      expect(tile, findsOneWidget, reason: 'the reviews stat tile must render');
+      expect(find.byType(MasterReviewsBody), findsNothing);
+
+      // No InkWell/GestureDetector on the tile — warnIfMissed would flag a
+      // real interactive target the tap failed to land on.
+      await tester.tap(tile, warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(MasterReviewsBody),
+        findsNothing,
+        reason:
+            'the reviews tile is display-only — a tap must never switch '
+            'the screen to the «Відгуки» tab',
+      );
+      expect(find.byType(MasterProfileScreen), findsOneWidget);
+      expect(
+        // router-location-ok: go-only navigation in this test, never a push.
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        RouteNames.masterProfile,
+      );
+    },
+  );
+
+  testWidgets('the reviews stat tile exposes no button semantics', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(800, 2400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    final SemanticsHandle handle = tester.ensureSemantics();
 
     final GoRouter router = _buildRouter();
     await tester.pumpWidget(
@@ -146,20 +195,8 @@ void main() {
     await tester.pumpAndSettle();
 
     final Finder tile = find.byKey(const Key('master-profile-reviews-tile'));
-    expect(tile, findsOneWidget, reason: 'the reviews stat tile must render');
-    // The destination is not yet mounted before the tap.
-    expect(find.byKey(const Key('reviews-destination')), findsNothing);
+    expect(tester.getSemantics(tile), isNot(isSemantics(isButton: true)));
 
-    await tester.tap(tile);
-    await tester.pumpAndSettle();
-
-    // The pushed received-reviews route is now on top of the profile.
-    expect(
-      find.byKey(const Key('reviews-destination')),
-      findsOneWidget,
-      reason:
-          'tapping the reviews tile must context.push the received-reviews '
-          'route onto the stack',
-    );
+    handle.dispose();
   });
 }

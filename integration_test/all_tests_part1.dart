@@ -58,6 +58,7 @@ import 'client_elapsed_booking_readonly_flow_test.dart'
 import 'client_booking_rating_visibility_flow_test.dart'
     as client_booking_rating_visibility;
 import 'client_leave_review_flow_test.dart' as client_leave_review;
+import 'client_rebook_from_past_flow_test.dart' as client_rebook_from_past;
 import 'client_review_refreshes_master_surfaces_flow_test.dart'
     as client_review_refreshes_master_surfaces;
 import 'client_review_refreshes_salon_surfaces_flow_test.dart'
@@ -75,6 +76,7 @@ import 'client_search_query_with_filters_flow_test.dart'
     as client_search_query_with_filters;
 import 'client_search_query_shrink_flow_test.dart'
     as client_search_query_shrink;
+import 'search_suggestions_flow_test.dart' as search_suggestions;
 import 'search_prefill_survives_name_edit_flow_test.dart'
     as search_prefill_survives_name_edit;
 import 'client_shell_flow_test.dart' as client_shell;
@@ -92,6 +94,8 @@ import 'independent_multi_service_booking_flow_test.dart'
 import 'logout_flow_test.dart' as logout;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
+import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
+import 'saved_settlement_label_flow_test.dart' as saved_settlement_label;
 import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
@@ -177,6 +181,14 @@ void main() {
   // → «Залишити відгук» → rate 5 + comment → POST /reviews → success pops back
   // and the invalidated detail hides the entry CTA.
   group('client_leave_review_flow', client_leave_review.main);
+  // CLIENT rebook-from-past journey (Phase 350, Step 2.7 Rule 3b) — Минулі →
+  // a past booking's «Записатись знову» → the REAL Step 1 (ServiceSelector
+  // Sheet) opens for the SAME master with that booking's service already
+  // checked but editable; add-a-second/uncheck-and-pick-another both thread
+  // the exact resulting masterServiceId set into working-days/slots; a
+  // SALON-master booking rebooks directly (D4); a deactivated service
+  // pre-checks nothing (D6).
+  group('client_rebook_from_past_flow', client_rebook_from_past.main);
   // CLIENT review-staleness regression (Step 2.7 Rule 3b, mobile-qa) — the
   // REPORTED bug: a client who viewed a master's public profile, then left a
   // review WITHOUT restarting the app, saw a stale rating / review count and
@@ -244,6 +256,12 @@ void main() {
   // result set is genuinely unreachable (no second GET for the pre-shrink
   // term). Plus the empty-box escape hatch.
   group('client_search_query_shrink_flow', client_search_query_shrink.main);
+  // Phase 352 — the «Пошук» suggestion list, place-scoped end to end: real
+  // debounce, real fake-backend round trip, a SERVICE suggestion tap landing
+  // on real results, and the list refetching when the chosen settlement
+  // changes while the term is still typed. Registered beside the other
+  // client_search_* flows, whose fixtures and harness it shares.
+  group('search_suggestions_flow', search_suggestions.main);
   // Search prefill survives a mid-session name edit (refreshUser) — the
   // `.select(user.id)` narrowing regression (Step 2.7 Rule 3b).
   group(
@@ -285,6 +303,11 @@ void main() {
   // regression pin (cityId/districtId diffed independently can submit an
   // invalid pair — see the file's own header doc).
   group('salon_edit_forms_flow', salon_edit_forms.main);
+  group('settlement_autocomplete_flow', settlement_autocomplete.main);
+  // Phase 348 (Step 2.7 Rule 3b) — saved-settlement labels off the phase-330
+  // wire: client village card + search prefill, village salon hub/hero short
+  // label, and an unknown `citySettlementType` surviving login + cold start.
+  group('saved_settlement_label_flow', saved_settlement_label.main);
   // Phase 21.3 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER registers a new
   // salon end to end: real hub -> real «+ Додати салон» CTA push -> real
   // form fill -> real POST /api/v1/salons -> real pop -> the new salon

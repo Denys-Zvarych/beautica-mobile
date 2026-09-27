@@ -57,6 +57,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_scre
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -235,4 +236,64 @@ void main() {
       });
     },
   );
+
+  // ── 2026-09-26 (mobile-qa, Phase 355 gap-closure) ───────────────────────
+  //
+  // `salon_master_own_profile_tabs_flow_test.dart` already proves the
+  // "ask the owner/admin" empty-state E2E for `SalonMasterProfileScreen`'s
+  // OWN embedded «Послуги» tab. This file's two tests above prove the
+  // `/staff/services` route (`ServicesListScreen(writable: false)`) itself,
+  // but only with a NON-EMPTY catalogue. Neither closes the gap: the
+  // `ServicesEmptyState` promotion (Phase 355) has TWO call sites sharing
+  // one widget, and only one of the two had E2E coverage of its empty
+  // branch. A regression that broke `writable: false`'s empty-state body
+  // ONLY on this route (e.g. a copy-paste that hardcoded
+  // `l10n.servicesEmptyBody` here while leaving the embedded tab correct)
+  // would pass every existing E2E file.
+  testWidgets('SALON_MASTER with an empty salon-scoped catalogue sees the '
+      '"ask the owner/admin" hint on the REAL /staff/services route, not the '
+      'writable "add your first service" copy', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final fb = FakeBackend(
+        masterRowId: _kMasterRowId,
+        masterSalonId: _kSalonId,
+      )..salonMasterOwnServicesEmpty = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+      await AppHarness.settle(tester);
+
+      expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('master-nav-tile-0')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(ServicesListScreen),
+        timeout: const Duration(seconds: 20),
+      );
+
+      expect(find.byType(ServicesListScreen), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.salonMasterServices);
+      expect(
+        fb.getSalonMasterServicesCalls,
+        greaterThanOrEqualTo(1),
+        reason:
+            'the REAL salon-scoped read must have resolved an EMPTY '
+            'catalogue, not merely never have been called',
+      );
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(find.text(l10n.servicesEmpty), findsOneWidget);
+      // i18n-finder-ok: asserting the exact localized copy a real
+      // read-only viewer sees over a real wire round trip.
+      expect(find.text(l10n.salonMasterServicesEmptyHint), findsOneWidget);
+      // i18n-finder-ok: the writable-audience copy must NOT leak here.
+      expect(find.text(l10n.servicesEmptyBody), findsNothing);
+      // No CTA — writable: false hides it entirely (D3).
+      expect(find.byKey(const Key('btn-create-service-empty')), findsNothing);
+      expect(find.byKey(const Key('btn-create-service')), findsNothing);
+    });
+  });
 }

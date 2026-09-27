@@ -16,6 +16,8 @@ const InviteRequestRoleEnum _$inviteRequestRoleEnum_SALON_MASTER =
     const InviteRequestRoleEnum._('SALON_MASTER');
 const InviteRequestRoleEnum _$inviteRequestRoleEnum_INDEPENDENT_MASTER =
     const InviteRequestRoleEnum._('INDEPENDENT_MASTER');
+const InviteRequestRoleEnum _$inviteRequestRoleEnum_unknownDefaultOpenApi =
+    const InviteRequestRoleEnum._('unknownDefaultOpenApi');
 
 InviteRequestRoleEnum _$inviteRequestRoleEnumValueOf(String name) {
   switch (name) {
@@ -29,8 +31,10 @@ InviteRequestRoleEnum _$inviteRequestRoleEnumValueOf(String name) {
       return _$inviteRequestRoleEnum_SALON_MASTER;
     case 'INDEPENDENT_MASTER':
       return _$inviteRequestRoleEnum_INDEPENDENT_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$inviteRequestRoleEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$inviteRequestRoleEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -41,6 +45,7 @@ final BuiltSet<InviteRequestRoleEnum> _$inviteRequestRoleEnumValues =
   _$inviteRequestRoleEnum_SALON_ADMIN,
   _$inviteRequestRoleEnum_SALON_MASTER,
   _$inviteRequestRoleEnum_INDEPENDENT_MASTER,
+  _$inviteRequestRoleEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<InviteRequestRoleEnum> _$inviteRequestRoleEnumSerializer =
@@ -54,6 +59,7 @@ class _$InviteRequestRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
@@ -61,6 +67,7 @@ class _$InviteRequestRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

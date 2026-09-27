@@ -33,7 +33,9 @@ import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
 import 'master_profile_address_block_flow_test.dart'
     as master_profile_address_block;
-import 'master_received_reviews_flow_test.dart' as master_received_reviews;
+import 'master_own_profile_bio_flow_test.dart' as master_own_profile_bio;
+import 'master_own_profile_reviews_tab_flow_test.dart'
+    as master_own_profile_reviews_tab;
 import 'passport_flow_test.dart' as passport;
 import 'public_master_profile_flow_test.dart' as public_master_profile;
 import 'public_salon_profile_flow_test.dart' as public_salon_profile;
@@ -55,6 +57,8 @@ import 'salon_owner_bookings_board_flow_test.dart'
     as salon_owner_bookings_board;
 import 'salon_master_client_review_flow_test.dart'
     as salon_master_client_review;
+import 'salon_master_own_profile_tabs_flow_test.dart'
+    as salon_master_own_profile_tabs;
 import 'salon_master_schedule_nav_flow_test.dart' as salon_master_schedule_nav;
 import 'salon_master_services_read_only_flow_test.dart'
     as salon_master_services_read_only;
@@ -178,7 +182,14 @@ void main() {
   // location note, driven against a real GET /masters/me response (Step 2.7
   // Rule 3b).
   group('master_profile_address_block_flow', master_profile_address_block.main);
-  group('master_received_reviews_flow', master_received_reviews.main);
+  group(
+    'master_own_profile_reviews_tab_flow',
+    master_own_profile_reviews_tab.main,
+  );
+  // Phase 351 gap-fix (mobile-qa, 2026-09-25) — the AddLink -> real editor ->
+  // save -> bio-shown round trip (acceptance #10), registered beside the
+  // sibling own-profile flow above.
+  group('master_own_profile_bio_flow', master_own_profile_bio.main);
   group('passport_flow', passport.main);
   // Phase 239 — the wish list's own journey: the nested /passport/wishlist
   // push, the shared-notifier removal across both surfaces, and the LAST
@@ -271,6 +282,12 @@ void main() {
   group(
     'salon_master_services_read_only_flow',
     salon_master_services_read_only.main,
+  );
+  // Phase 351 — the SALON_MASTER's own profile cards → tabs (D15), the
+  // sibling journey to `master_own_profile_reviews_tab_flow` above.
+  group(
+    'salon_master_own_profile_tabs_flow',
+    salon_master_own_profile_tabs.main,
   );
   // Phase 240 (mobile-qa) — hearting a SERVICE on the booking service-
   // selection sheet is a REAL POST /favorites; the wish list read-back is the

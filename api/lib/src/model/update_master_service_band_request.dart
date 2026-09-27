@@ -291,6 +291,10 @@ class UpdateMasterServiceBandRequestPriceTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'RANGE')
   static const UpdateMasterServiceBandRequestPriceTypeEnum RANGE =
       _$updateMasterServiceBandRequestPriceTypeEnum_RANGE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const UpdateMasterServiceBandRequestPriceTypeEnum
+      unknownDefaultOpenApi =
+      _$updateMasterServiceBandRequestPriceTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<UpdateMasterServiceBandRequestPriceTypeEnum>
       get serializer => _$updateMasterServiceBandRequestPriceTypeEnumSerializer;

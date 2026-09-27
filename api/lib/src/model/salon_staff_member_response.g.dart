@@ -21,6 +21,9 @@ const SalonStaffMemberResponseRoleEnum
 const SalonStaffMemberResponseRoleEnum
     _$salonStaffMemberResponseRoleEnum_INDEPENDENT_MASTER =
     const SalonStaffMemberResponseRoleEnum._('INDEPENDENT_MASTER');
+const SalonStaffMemberResponseRoleEnum
+    _$salonStaffMemberResponseRoleEnum_unknownDefaultOpenApi =
+    const SalonStaffMemberResponseRoleEnum._('unknownDefaultOpenApi');
 
 SalonStaffMemberResponseRoleEnum _$salonStaffMemberResponseRoleEnumValueOf(
     String name) {
@@ -35,8 +38,10 @@ SalonStaffMemberResponseRoleEnum _$salonStaffMemberResponseRoleEnumValueOf(
       return _$salonStaffMemberResponseRoleEnum_SALON_MASTER;
     case 'INDEPENDENT_MASTER':
       return _$salonStaffMemberResponseRoleEnum_INDEPENDENT_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$salonStaffMemberResponseRoleEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$salonStaffMemberResponseRoleEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -48,6 +53,7 @@ final BuiltSet<SalonStaffMemberResponseRoleEnum>
   _$salonStaffMemberResponseRoleEnum_SALON_ADMIN,
   _$salonStaffMemberResponseRoleEnum_SALON_MASTER,
   _$salonStaffMemberResponseRoleEnum_INDEPENDENT_MASTER,
+  _$salonStaffMemberResponseRoleEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<SalonStaffMemberResponseRoleEnum>
@@ -62,6 +68,7 @@ class _$SalonStaffMemberResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
@@ -69,6 +76,7 @@ class _$SalonStaffMemberResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

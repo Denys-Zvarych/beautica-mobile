@@ -1,12 +1,15 @@
 // E2E — Master-home zero-services "Додати послуги" CTA → service-setup.
 //
 // Journey (INDEPENDENT_MASTER with ZERO services):
-//   1. Login → land on /master/profile.
-//   2. The master-home services section renders its zero-services empty state:
+//   1. Login → land on /master/profile (opens on tab 0 «Про майстра»).
+//   2. Select the «Послуги» tab (index 1, Key('master-profile-tab-1')) —
+//      Phase 351 moved the services section (and its CTA) behind this tab;
+//      it no longer renders on the default-open tab.
+//   3. The master-home services section renders its zero-services empty state:
 //      a single primary CTA (Key('btn-master-add-services')) labelled
 //      «Додати послуги» — the old header + «Усі послуги» link + «Послуг ще
 //      немає» text are absent in this branch.
-//   3. Tap the CTA → navigate to RouteNames.serviceSetup ('/services/setup'),
+//   4. Tap the CTA → navigate to RouteNames.serviceSetup ('/services/setup'),
 //      the same first-time bulk service-setup entry point the services-list
 //      empty state uses.
 //
@@ -54,8 +57,16 @@ void main() {
       // Landed on the master home.
       AppHarness.expectLocation(router, RouteNames.masterProfile);
 
+      // Phase 351 moved the add-services CTA behind the «Послуги» tab
+      // (index 1) — the profile opens on tab 0 («Про майстра») by default,
+      // so select the tab before looking for the CTA.
+      final Finder servicesTab = find.byKey(const Key('master-profile-tab-1'));
+      await tester.ensureVisible(servicesTab);
+      await tester.tap(servicesTab);
+      await tester.pumpAndSettle();
+
       // The zero-services empty-state CTA must be present. Scroll it into view
-      // (it sits in section 5, below the fold on a phone viewport).
+      // (it sits below the fold on a phone viewport).
       final Finder cta = find.byKey(const Key('btn-master-add-services'));
       await tester.scrollUntilVisible(
         cta,

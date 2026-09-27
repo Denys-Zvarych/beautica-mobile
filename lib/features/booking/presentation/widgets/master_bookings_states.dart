@@ -233,7 +233,23 @@ class MasterBookingsNoWorkingHoursState extends StatelessWidget {
               ),
               const SizedBox(height: VelvetSpacing.xs),
               Text(
-                l10n.scheduleNoScheduleHelper,
+                // Qase defects #37/#45. `scheduleNoScheduleHelper` is imperative
+                // — "YOU add working hours" — and was rendered to everyone,
+                // including the read-only SALON_MASTER whose CTA is correctly
+                // absent right below. That told an invited master to do the one
+                // thing the screen gives them no way to do; their hours are set
+                // by the salon owner/admin (Phase 312).
+                //
+                // `onAddHours == null` is already the "may not publish hours"
+                // signal this widget acts on for the button, so it selects the
+                // copy too — one condition, not two that can disagree. The
+                // read-only variant is REUSED, not written: it already exists
+                // and `master_schedule_screen.dart` (1238, 1452) already picks
+                // between the pair. Each string's own ARB doc forbids merging
+                // them — they address different people.
+                onAddHours == null
+                    ? l10n.scheduleNoScheduleHelperReadOnly
+                    : l10n.scheduleNoScheduleHelper,
                 textAlign: TextAlign.center,
                 style: VelvetText.body(),
               ),

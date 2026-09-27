@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -33,6 +34,8 @@ part 'user_profile_response.g.dart';
 /// * [emailVerified]
 /// * [salonId]
 /// * [hasMasterProfile]
+/// * [citySettlementType] - Kind of the saved settlement (cityId); null when no cityId is set.
+/// * [cityHromadaNameUk] - Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise.
 @BuiltValue()
 abstract class UserProfileResponse
     implements Built<UserProfileResponse, UserProfileResponseBuilder> {
@@ -101,6 +104,15 @@ abstract class UserProfileResponse
 
   @BuiltValueField(wireName: r'hasMasterProfile')
   bool? get hasMasterProfile;
+
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueField(wireName: r'citySettlementType')
+  UserProfileResponseCitySettlementTypeEnum? get citySettlementType;
+  // enum citySettlementTypeEnum {  CITY,  TOWN,  VILLAGE,  SETTLEMENT,  };
+
+  /// Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise.
+  @BuiltValueField(wireName: r'cityHromadaNameUk')
+  String? get cityHromadaNameUk;
 
   UserProfileResponse._();
 
@@ -285,6 +297,21 @@ class _$UserProfileResponseSerializer
         specifiedType: const FullType(bool),
       );
     }
+    if (object.citySettlementType != null) {
+      yield r'citySettlementType';
+      yield serializers.serialize(
+        object.citySettlementType,
+        specifiedType:
+            const FullType.nullable(UserProfileResponseCitySettlementTypeEnum),
+      );
+    }
+    if (object.cityHromadaNameUk != null) {
+      yield r'cityHromadaNameUk';
+      yield serializers.serialize(
+        object.cityHromadaNameUk,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -464,6 +491,23 @@ class _$UserProfileResponseSerializer
           ) as bool;
           result.hasMasterProfile = valueDes;
           break;
+        case r'citySettlementType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                UserProfileResponseCitySettlementTypeEnum),
+          ) as UserProfileResponseCitySettlementTypeEnum?;
+          if (valueDes == null) continue;
+          result.citySettlementType = valueDes;
+          break;
+        case r'cityHromadaNameUk':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.cityHromadaNameUk = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -491,4 +535,41 @@ class _$UserProfileResponseSerializer
     );
     return result.build();
   }
+}
+
+class UserProfileResponseCitySettlementTypeEnum extends EnumClass {
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueEnumConst(wireName: r'CITY')
+  static const UserProfileResponseCitySettlementTypeEnum CITY =
+      _$userProfileResponseCitySettlementTypeEnum_CITY;
+
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueEnumConst(wireName: r'TOWN')
+  static const UserProfileResponseCitySettlementTypeEnum TOWN =
+      _$userProfileResponseCitySettlementTypeEnum_TOWN;
+
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueEnumConst(wireName: r'VILLAGE')
+  static const UserProfileResponseCitySettlementTypeEnum VILLAGE =
+      _$userProfileResponseCitySettlementTypeEnum_VILLAGE;
+
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueEnumConst(wireName: r'SETTLEMENT')
+  static const UserProfileResponseCitySettlementTypeEnum SETTLEMENT =
+      _$userProfileResponseCitySettlementTypeEnum_SETTLEMENT;
+
+  /// Kind of the saved settlement (cityId); null when no cityId is set.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const UserProfileResponseCitySettlementTypeEnum unknownDefaultOpenApi =
+      _$userProfileResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+
+  static Serializer<UserProfileResponseCitySettlementTypeEnum> get serializer =>
+      _$userProfileResponseCitySettlementTypeEnumSerializer;
+
+  const UserProfileResponseCitySettlementTypeEnum._(String name) : super(name);
+
+  static BuiltSet<UserProfileResponseCitySettlementTypeEnum> get values =>
+      _$userProfileResponseCitySettlementTypeEnumValues;
+  static UserProfileResponseCitySettlementTypeEnum valueOf(String name) =>
+      _$userProfileResponseCitySettlementTypeEnumValueOf(name);
 }

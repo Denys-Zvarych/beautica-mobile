@@ -747,6 +747,39 @@ final class SalonBoardRateLimitedFailure extends Failure {
   }
 }
 
+/// Emitted when the Phase 346 settlement autocomplete
+/// (`GET /api/v1/settlements`) returns HTTP **429** — the per-IP 240/min
+/// `AuthRateLimitFilter` bucket on that unauthenticated endpoint is exhausted.
+///
+/// Before this type a 429 there fell through to the terminal [UnknownFailure]:
+/// the sheet showed a generic error with an immediate Retry, and every 400 ms
+/// keystroke fired another request straight into the closed limiter (security
+/// audit #4).
+///
+/// [retryAfterSeconds] comes from the interceptor's shared header-then-body
+/// resolver with the [kMaxUxCooldownSeconds] ceiling; `null` means absent /
+/// unparsable / over the ceiling, and the sheet then waits
+/// `kSettlementThrottleFallback` instead. The sheet uses it to hold every
+/// request (and hide Retry) until it elapses. After that, text typed meanwhile
+/// is applied once and an unchanged query waits for the user's Retry — hence
+/// the countdown-free «спробуйте ще раз за мить» copy.
+///
+/// **Never auto-retried** — a member of the [isThrottleFailure] family, which
+/// [beauticaProviderRetry] consults before transience.
+final class SettlementSearchRateLimitedFailure extends Failure {
+  const SettlementSearchRateLimitedFailure({
+    this.retryAfterSeconds,
+    super.cause,
+  });
+
+  /// Seconds until the next settlement search is allowed, or `null`.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).settlementSearchErrRateLimited;
+}
+
 /// Emitted when a booking write returns HTTP **409 Conflict** because the
 /// requested slot is no longer available.
 ///

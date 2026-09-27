@@ -31,14 +31,20 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/management_action_card.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
@@ -54,6 +60,7 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_revision.dart';
 import 'package:flutter/material.dart';
@@ -427,7 +434,26 @@ void main() {
               'roster entry\'s own serviceCount field',
         );
 
-        // Bio.
+        // Phase 354 — tab bar present, default tab «Про майстра» (0) active.
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-0')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-2')),
+          findsOneWidget,
+        );
+        expect(
+          tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected,
+          0,
+        );
+
+        // Bio + phone contact — under the default «Про майстра» tab, no tap
+        // needed.
         expect(
           find.byKey(const Key('salon-staff-profile-bio')),
           findsOneWidget,
@@ -438,7 +464,24 @@ void main() {
           findsOneWidget,
         );
 
-        // Service categories — one card per category bucket.
+        final Finder phoneFinder = find.byKey(
+          const Key('salon-staff-profile-contact-phone'),
+        );
+        expect(phoneFinder, findsOneWidget);
+        expect(tester.widget<ContactTile>(phoneFinder).value, '+380671112233');
+
+        // Service categories now sit behind the «Послуги» tab.
+        expect(
+          find.byKey(const Key('salon-staff-profile-service-categories')),
+          findsNothing,
+          reason: 'not visible before the «Послуги» tab is selected',
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('salon-staff-profile-tab-1')),
+        );
+        await tester.tap(find.byKey(const Key('salon-staff-profile-tab-1')));
+        await tester.pumpAndSettle();
+
         expect(
           find.byKey(const Key('salon-staff-profile-service-categories')),
           findsOneWidget,
@@ -451,13 +494,6 @@ void main() {
           find.byKey(const Key('staff-profile-category-BROWS')),
           findsOneWidget,
         );
-
-        // Phone contact.
-        final Finder phoneFinder = find.byKey(
-          const Key('salon-staff-profile-contact-phone'),
-        );
-        expect(phoneFinder, findsOneWidget);
-        expect(tester.widget<ContactTile>(phoneFinder).value, '+380671112233');
       },
     );
 
@@ -569,8 +605,9 @@ void main() {
     });
 
     testWidgets(
-      'omits bio and service-categories sections entirely when the master '
-      'has neither — never renders them empty',
+      'Phase 354 — an empty bio shows the muted empty-about copy (never '
+      'omitted), and an empty catalogue keeps the «Послуги» tab body empty '
+      '(never renders the category-list key)',
       (tester) async {
         await tester.pumpApp(
           const SalonStaffProfileScreen(
@@ -584,11 +621,29 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+        // Bio — Phase 354 (D3): always ONE of two variants, never omitted.
         expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
+        expect(
+          find.byKey(const Key('salon-staff-profile-about-empty')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.publicMasterAboutEmpty), findsOneWidget);
+
+        // Service categories — an empty catalogue still renders NOTHING on
+        // the «Послуги» tab (mirrors `PublicMasterProfileScreen`'s own
+        // services tab, which has no dedicated empty state either).
+        await tester.ensureVisible(
+          find.byKey(const Key('salon-staff-profile-tab-1')),
+        );
+        await tester.tap(find.byKey(const Key('salon-staff-profile-tab-1')));
+        await tester.pumpAndSettle();
         expect(
           find.byKey(const Key('salon-staff-profile-service-categories')),
           findsNothing,
         );
+
         // The services stat tile still renders (part of the stats row) —
         // an empty catalogue shows the em-dash placeholder (matches the
         // rating/reviews tiles' own zero-state), not a literal '0'.
@@ -659,10 +714,31 @@ void main() {
 
         // Bio absent.
         expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
+        expect(
+          find.byKey(const Key('salon-staff-profile-about-empty')),
+          findsNothing,
+        );
 
         // Service categories absent.
         expect(
           find.byKey(const Key('salon-staff-profile-service-categories')),
+          findsNothing,
+        );
+
+        // Phase 354 (D4) — NO tab bar at all for an admin target.
+        expect(find.byType(ProfileTabBar), findsNothing);
+        expect(
+          find.byKey(const Key('salon-staff-profile-tab-0')),
+          findsNothing,
+        );
+
+        // No management-action pair either — an admin has no master row.
+        expect(
+          find.byKey(const Key('salon-staff-profile-schedule-row')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-services-row')),
           findsNothing,
         );
 
@@ -710,8 +786,153 @@ void main() {
         find.byKey(const Key('salon-staff-profile-service-categories')),
         findsNothing,
       );
+      expect(find.byType(ProfileTabBar), findsNothing);
       // i18n-finder-ok: contaminatedAdmin.bio is fixture data, not UI copy.
       expect(find.text('Це не має відображатися.'), findsNothing);
+    });
+  });
+
+  // -------------------------------------------------------------------
+  // Phase 354 — «Про майстра» / «Послуги» / «Відгуки» tabs (MASTER only).
+  // -------------------------------------------------------------------
+  group('tabs (Phase 354)', () {
+    testWidgets('tapping «Відгуки» renders MasterReviewsBody with the resolved '
+        'masterId', (tester) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+          masterReviewSummaryProvider(_masterMember.masterId!).overrideWith(
+            (ref) async => const MasterReviewSummary(
+              avgRating: 4.8,
+              reviewCount: 1,
+              distribution: <int>[1, 0, 0, 0, 0],
+            ),
+          ),
+          masterReviewsProvider(
+            _masterMember.masterId!,
+            MasterReviewSort.newest,
+          ).overrideWith(
+            (ref) async => <MasterReviewItem>[
+              MasterReviewItem(
+                id: 'rev-1',
+                clientDisplayName: 'Клієнтка',
+                rating: 5,
+                comment: 'Чудово!',
+                createdAt: DateTime.utc(2026, 6, 1),
+              ),
+            ],
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const Key('salon-staff-profile-tab-2')),
+      );
+      await tester.tap(find.byKey(const Key('salon-staff-profile-tab-2')));
+      await tester.pumpAndSettle();
+
+      final Finder body = find.byType(MasterReviewsBody);
+      expect(body, findsOneWidget);
+      expect(
+        tester.widget<MasterReviewsBody>(body).masterId,
+        _masterMember.masterId,
+      );
+      expect(find.byType(RatingSummaryCard), findsOneWidget);
+      // i18n-finder-ok: fixture review comment, not UI copy.
+      expect(find.text('Чудово!'), findsOneWidget);
+    });
+
+    // D3 — the Phase 318 data-anomaly case (a resolved MASTER entry with no
+    // `masterId`, same condition that disables the management pair). NEITHER
+    // `masterReviewSummaryProvider` NOR `masterReviewsProvider` is overridden
+    // here — deliberately: if the «Відгуки» tab regressed to fetching with a
+    // guessed/empty id anyway, that un-overridden real provider would never
+    // resolve in this test environment and `pumpAndSettle()` would time out,
+    // failing loudly. Settling cleanly is itself part of the proof that no
+    // fetch happened.
+    testWidgets(
+      'a MASTER entry with no masterId shows the zero-reviews empty state '
+      'on «Відгуки» with no fetch',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: _overrides(
+            _kMasterId,
+            (ref) async => (_masterMemberNoMasterId, _masterServices),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(
+          find.byKey(const Key('salon-staff-profile-tab-2')),
+        );
+        await tester.tap(find.byKey(const Key('salon-staff-profile-tab-2')));
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(
+          tester
+              .widget<MasterReviewsBody>(find.byType(MasterReviewsBody))
+              .masterId,
+          isNull,
+        );
+        expect(find.byKey(const Key('master-reviews-empty')), findsOneWidget);
+        expect(find.text(l10n.masterReviewsEmpty), findsOneWidget);
+        expect(find.byType(RatingSummaryCard), findsOneWidget);
+        expect(find.byType(SkeletonShimmerScope), findsNothing);
+      },
+    );
+
+    testWidgets('stat cards are display-only — tapping the services tile never '
+        'switches tabs (U2)', (tester) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (_masterMember, _masterServices),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('salon-staff-profile-services-value')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected,
+        0,
+        reason:
+            'a stat-tile tap must never switch the active tab — only the '
+            'ProfileTabBar itself may',
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-service-categories')),
+        findsNothing,
+      );
     });
   });
 
@@ -1637,29 +1858,176 @@ void main() {
     );
   });
 
-  // ── Gap ownership regression (follows Phase 312's schedule row) ────────
+  // ── 2026-09-26 (owner/admin master-card polish) — «Не задано» / «Ще
+  // немає» render in [BrandColors.error] so an operator spots an
+  // unconfigured master at a glance. Only the two genuinely-empty states —
+  // never the '' loading sentinel, never the '—' AsyncError sentinel (that
+  // means "couldn't load", not "not set" — see the screen's own comments
+  // above the schedule/services value computation), and never a resolved,
+  // non-empty value. Reads the rendered [Text]'s OWN `style.color` (fully
+  // specified by `ManagementActionCard` — see its `valueColor` doc — never
+  // merged from an ambient `DefaultTextStyle`), not merely the
+  // `ManagementActionCard.valueColor` field, so a build that computed the
+  // right colour but failed to thread it into the actual paint would still
+  // be caught.
+  group('empty schedule/services value colour (2026-09-26)', () {
+    Color? valueColorOf(WidgetTester tester, Key rowKey) {
+      final Finder row = find.byKey(rowKey);
+      final Finder valueText = find.descendant(
+        of: row,
+        matching: find.byKey(kManagementActionCardValueKey),
+      );
+      return tester.widget<Text>(valueText).style?.color;
+    }
+
+    testWidgets(
+      'schedule row: AsyncData empty (no template) → «Не задано» value text '
+      'is BrandColors.error',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            weeklyScheduleProvider(
+              _scheduleRowScope,
+            ).overrideWith(_EmptyWeekly.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          valueColorOf(tester, const Key('salon-staff-profile-schedule-row')),
+          BrandColors.error,
+        );
+      },
+    );
+
+    testWidgets(
+      'services row: a genuinely-resolved EMPTY catalogue → «Ще немає» value '
+      'text is BrandColors.error',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: _overrides(
+            _kMasterId,
+            (ref) async => (_masterMemberNoExtras, const <MasterService>[]),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          valueColorOf(tester, const Key('salon-staff-profile-services-row')),
+          BrandColors.error,
+        );
+      },
+    );
+
+    testWidgets(
+      'populated schedule AND populated services → neither value text is '
+      'BrandColors.error',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            weeklyScheduleProvider(
+              _scheduleRowScope,
+            ).overrideWith(_FixedWeekly.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          valueColorOf(tester, const Key('salon-staff-profile-schedule-row')),
+          isNot(BrandColors.error),
+        );
+        expect(
+          valueColorOf(tester, const Key('salon-staff-profile-services-row')),
+          isNot(BrandColors.error),
+        );
+      },
+    );
+
+    testWidgets(
+      "schedule row: AsyncError → '—' value text is NOT BrandColors.error — "
+      "'—' means \"couldn't load\", not \"not set\"",
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            weeklyScheduleProvider(
+              _scheduleRowScope,
+            ).overrideWith(_ErrorWeekly.new),
+          ],
+          retry: (_, _) => null,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          valueColorOf(tester, const Key('salon-staff-profile-schedule-row')),
+          isNot(BrandColors.error),
+        );
+      },
+    );
+  });
+
+  // ── Gap ownership regression, Phase 354 rewrite ─────────────────────────
   //
-  // Reproduces the doubled-gap bug: when phone is null (contacts section
-  // omitted) but an earlier optional section rendered (here: the stats row,
-  // unconditional for every master), the gap between that section and the
-  // schedule row must be exactly ONE `VelvetSpacing.xl` — not two stacked
-  // (the stats row's own trailing gap plus a stray leading gap the schedule
-  // section used to add) and not zero. Asserts actual rendered geometry
-  // (`getBottomLeft`/`getTopLeft` on keyed widgets), not merely that both
-  // widgets exist — see `project_widget_field_assertion_is_vacuous`.
-  // 2026-09-14 (defect 5) — the management pair MOVED out from the end of
-  // the screen to directly under the stats row, which is where the approved
-  // design puts it (`docs/signup-designs/SalonServicesEntryPath/lib/screens/
-  // staff_profile_screen.dart:174-176`, a leading `VelvetSpacing.lg`). Before
-  // the move this gap was the stats row's trailing `xl` and was only the
-  // stats-to-schedule gap in the one state this group sets up (no bio, no
-  // services, no contacts); now the pair is the stats row's immediate
-  // sibling in EVERY state, so the measured gap is `lg` and is
-  // position-invariant. The assertion below is therefore stronger than it
-  // was, not weaker: a doubled gap, a missing gap, or the pair drifting back
-  // below bio/services/contacts all still fail it.
-  group('gap ownership — stats row to management pair (regression)', () {
-    testWidgets('exactly one VelvetSpacing.lg separates the stats row from the '
+  // Pre-354 this group pinned the management pair as the stats row's
+  // IMMEDIATE sibling (2026-09-14, defect 5). User decision 2026-09-26
+  // ("at the bottom of the page") reverses that placement: the pair is now
+  // the LAST section on the page, a sibling of `ProfileTabSection` (not a
+  // child of it), so it renders identically no matter which tab is active.
+  // These cases pin the NEW invariant the same way the old ones pinned the
+  // old one: actual rendered geometry via `getBottomLeft`/`getTopLeft`
+  // (`project_widget_field_assertion_is_vacuous`), plus an explicit
+  // tab-independence check the old layout never needed (the pair used to sit
+  // OUTSIDE the tab mechanism entirely, so a tab switch was never even a
+  // candidate for moving it).
+  group('gap ownership — tab body to management pair (Phase 354)', () {
+    testWidgets('exactly one VelvetSpacing.xl separates the tab body from the '
         'management pair', (tester) async {
       tester.view.physicalSize = const Size(800, 2600);
       tester.view.devicePixelRatio = 1.0;
@@ -1680,55 +2048,40 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Sanity: contacts really are omitted (null phone) and bio/services
-      // really are omitted too — `_masterMemberNoExtras` carries none of
-      // them — otherwise this would measure the wrong gap entirely.
+      // Sanity — default tab (0, «Про майстра») renders the muted
+      // empty-about copy (no bio) and no phone (`_masterMemberNoExtras`
+      // carries neither), so the tab-body reveal is a small, predictable
+      // block.
+      expect(
+        find.byKey(const Key('salon-staff-profile-about-empty')),
+        findsOneWidget,
+      );
       expect(
         find.byKey(const Key('salon-staff-profile-contact-phone')),
         findsNothing,
       );
-      expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
-      expect(
-        find.byKey(const Key('salon-staff-profile-service-categories')),
-        findsNothing,
-      );
 
-      final double statsRowBottom = tester
-          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-1')))
+      final double tabBodyBottom = tester
+          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-3')))
           .dy;
-      final double scheduleRowTop = tester
-          .getTopLeft(find.byKey(const Key('salon-staff-profile-schedule-row')))
+      final double pairTop = tester
+          .getTopLeft(find.byKey(const Key('salon-staff-profile-reveal-5')))
           .dy;
 
       expect(
-        scheduleRowTop - statsRowBottom,
-        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
+        pairTop - tabBodyBottom,
+        moreOrLessEquals(VelvetSpacing.xl, epsilon: 0.5),
         reason:
-            'a doubled gap (the stats row keeping its trailing xl as well as '
-            'the pair`s leading lg) or a missing gap must fail this '
-            'assertion. NOTE: it does NOT by itself catch the pair sliding '
-            'back below bio/services/contacts — with this deliberately bare '
-            'fixture there is nothing between the two positions. The case '
-            'below is the one that pins POSITION.',
+            'a doubled gap, a missing gap, or the pair drifting back '
+            'ABOVE the tab body must all fail this assertion',
       );
     });
 
-    // 2026-09-14 (mobile-qa) — POSITION invariance, the half the case above
-    // structurally cannot see.
-    //
-    // The case above runs on `_masterMemberNoExtras`: no bio, no services,
-    // no contacts. In that state the management pair is the stats row's
-    // immediate sibling whether it is declared second in the column or LAST,
-    // because every section that would sit between them is omitted. It
-    // therefore pins the GAP TOKEN and nothing about ORDER — the defect-5
-    // move it was re-pinned for is exactly an order change.
-    //
-    // This case uses the FULL fixture (bio + services/categories + phone all
-    // present) so the pair sliding back below any of them moves it by
-    // hundreds of dp and fails immediately. Mutation-verified: relocating
-    // the `salon-staff-profile-reveal-5` block to after the contacts section
-    // leaves the case above GREEN and turns this one RED.
-    testWidgets('the pair remains the stats row`s IMMEDIATE sibling when bio, '
+    // Position invariance under the FULL fixture — proves the pair still
+    // sits directly under the (now much taller) tab body rather than
+    // anywhere else on the page, mirroring the pre-354 case's own
+    // anti-vacuity rationale.
+    testWidgets('the pair remains the tab body`s IMMEDIATE sibling when bio, '
         'categories and contacts are ALL present (position, not just gap)', (
       tester,
     ) async {
@@ -1751,36 +2104,509 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Anti-vacuity: every section that COULD come between the stats row
-      // and the pair really is mounted this time. Without these the case
-      // silently degrades into a duplicate of the one above.
+      // Anti-vacuity: the default tab really does render bio + phone this
+      // time (categories sit behind the «Послуги» tab and are checked by
+      // the tab-independence case below instead).
       expect(find.byKey(const Key('salon-staff-profile-bio')), findsOneWidget);
-      expect(
-        find.byKey(const Key('salon-staff-profile-service-categories')),
-        findsOneWidget,
-      );
       expect(
         find.byKey(const Key('salon-staff-profile-contact-phone')),
         findsOneWidget,
       );
 
-      final double statsRowBottom = tester
-          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-1')))
+      final double tabBodyBottom = tester
+          .getBottomLeft(find.byKey(const Key('salon-staff-profile-reveal-3')))
           .dy;
-      final double scheduleRowTop = tester
-          .getTopLeft(find.byKey(const Key('salon-staff-profile-schedule-row')))
+      final double pairTop = tester
+          .getTopLeft(find.byKey(const Key('salon-staff-profile-reveal-5')))
           .dy;
 
       expect(
-        scheduleRowTop - statsRowBottom,
-        moreOrLessEquals(VelvetSpacing.lg, epsilon: 0.5),
+        pairTop - tabBodyBottom,
+        moreOrLessEquals(VelvetSpacing.xl, epsilon: 0.5),
         reason:
-            'the two primary operator actions must sit directly under the '
-            'stats row on first paint, never behind bio + the category grid '
-            '+ contacts (defect 5). Any section rendered between them puts '
-            'this delta in the hundreds of dp.',
+            'the pair must sit directly under the tab body regardless of '
+            'how much content that body holds',
       );
     });
+
+    testWidgets(
+      'the pair renders identically (present, enabled, same values) no '
+      'matter which tab is active',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        await tester.pumpApp(
+          const SalonStaffProfileScreen(
+            salonId: _kSalonId,
+            memberId: _kMasterId,
+          ),
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            weeklyScheduleProvider(
+              _scheduleRowScope,
+            ).overrideWith(_FixedWeekly.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        final String expectedServicesValue = l10n.staffProfileServicesCount(
+          _masterServices.length,
+        );
+
+        for (final int tab in <int>[1, 2, 0]) {
+          await tester.ensureVisible(
+            find.byKey(Key('salon-staff-profile-tab-$tab')),
+          );
+          await tester.tap(find.byKey(Key('salon-staff-profile-tab-$tab')));
+          await tester.pumpAndSettle();
+
+          final Finder scheduleRow = find.byKey(
+            const Key('salon-staff-profile-schedule-row'),
+          );
+          final Finder servicesRow = find.byKey(
+            const Key('salon-staff-profile-services-row'),
+          );
+          expect(scheduleRow, findsOneWidget, reason: 'tab $tab');
+          expect(servicesRow, findsOneWidget, reason: 'tab $tab');
+          expect(
+            tester.widget<ManagementActionCard>(scheduleRow).enabled,
+            isTrue,
+            reason: 'tab $tab',
+          );
+          expect(
+            tester.widget<ManagementActionCard>(servicesRow).value,
+            expectedServicesValue,
+            reason: 'tab $tab',
+          );
+        }
+      },
+    );
+  });
+
+  // -------------------------------------------------------------------
+  // Phase 357 (user request 2026-09-26) — «Послуги» tab category cards are
+  // tappable for the owner/admin viewer too (mirrors `MasterProfileScreen`'s
+  // own `interactive: true` «Послуги» tab), redirected via
+  // `ServiceCategoryCardList.onCategoryTap` to the SAME destination the
+  // management pair's own «Послуги» card opens
+  // (`RouteNames.salonManageStaffServices`) rather than
+  // `ServiceCategoryCard`'s built-in `RouteNames.services` default — that
+  // route is scoped to the AUTHENTICATED viewer, not the staff member being
+  // viewed. Non-interactive whenever the management row itself would be
+  // disabled (no resolved `masterId`), same gate as the pair below it.
+  // -------------------------------------------------------------------
+  group('«Послуги» tab category cards tappable (Phase 357)', () {
+    GoRouter buildServicesRouter() => GoRouter(
+      initialLocation: RouteNames.salonManageStaffMember(_kSalonId, _kMasterId),
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId',
+          builder: (context, state) => SalonStaffProfileScreen(
+            salonId: state.pathParameters['salonId']!,
+            memberId: state.pathParameters['memberId']!,
+          ),
+        ),
+        GoRoute(
+          path: '/salons/:salonId/manage/staff/:memberId/services',
+          builder: (context, state) => _ServicesRouteMarker(
+            salonId: state.pathParameters['salonId']!,
+            memberId: state.pathParameters['memberId']!,
+          ),
+        ),
+      ],
+    );
+
+    Future<void> openServicesTab(WidgetTester tester) async {
+      await tester.ensureVisible(
+        find.byKey(const Key('salon-staff-profile-tab-1')),
+      );
+      await tester.tap(find.byKey(const Key('salon-staff-profile-tab-1')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'an OWNER viewer tapping a category card lands on the SAME services '
+      'page the management row opens, for THIS master',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-NAILS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(_ServicesRouteMarker),
+          findsOneWidget,
+          reason:
+              'pinned on the RESOLVED PAGE TYPE, not a location string — '
+              'push (unlike go) is excluded from '
+              'currentConfiguration.fullPath',
+        );
+        final _ServicesRouteMarker marker = tester.widget<_ServicesRouteMarker>(
+          find.byType(_ServicesRouteMarker),
+        );
+        expect(marker.salonId, _kSalonId);
+        expect(
+          marker.memberId,
+          _kMasterId,
+          reason:
+              'the SAME route/args the management row\'s own «Послуги» '
+              'card opens — never RouteNames.services (scoped to the '
+              'AUTHENTICATED viewer, not the master being viewed)',
+        );
+      },
+    );
+
+    testWidgets(
+      'an ADMIN viewer tapping a category card lands on the SAME services '
+      'page the management row opens, for THIS master',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kAdminViewer)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-BROWS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+        final _ServicesRouteMarker marker = tester.widget<_ServicesRouteMarker>(
+          find.byType(_ServicesRouteMarker),
+        );
+        expect(marker.salonId, _kSalonId);
+        expect(marker.memberId, _kMasterId);
+      },
+    );
+
+    testWidgets('a MASTER entry with no masterId keeps the category cards '
+        'non-interactive — no chevron, and tapping performs no navigation', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final GoRouter router = buildServicesRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMemberNoMasterId, _masterServices),
+          ),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await openServicesTab(tester);
+
+      final Finder card = find.byKey(const Key('staff-profile-category-NAILS'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.byIcon(Icons.arrow_forward_ios_rounded),
+        ),
+        findsNothing,
+        reason:
+            'a non-interactive card renders NO forward chevron — same '
+            'contract `ServiceCategoryCard` already documents for the '
+            'client-facing public profile',
+      );
+
+      // router-location-ok: no push occurs on this disabled-card branch.
+      final String before = router.routerDelegate.currentConfiguration.uri
+          .toString();
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      // router-location-ok: no push occurs on this disabled-card branch.
+      final String after = router.routerDelegate.currentConfiguration.uri
+          .toString();
+
+      expect(after, before, reason: 'no navigation on a disabled card');
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+    });
+
+    // 2026-09-27 (REUSE-FIRST audit fix M2/M3) — the tab card and the
+    // management row's «Послуги» card now both route through the SAME
+    // `_openStaffServices` helper, so the invalidation contract the
+    // management-row group already proves ("services row (Phase 318, D1/D2/
+    // D3/D4)" — D4's mutation test and its M7 LOOK-doesn't-refetch
+    // companion) must hold for THIS affordance too. Mirrors those two tests
+    // verbatim, substituting the tab category card tap for the row tap.
+    testWidgets('D4 (tab path) — popping the services subtree after a MUTATION '
+        'invalidates the profile and the refetched count renders everywhere', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      int builds = 0;
+      List<MasterService> currentServices = _masterServices;
+
+      final GoRouter router = buildServicesRouter();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith((
+            ref,
+          ) async {
+            builds++;
+            return (_masterMember, currentServices);
+          }),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await openServicesTab(tester);
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(builds, 1, reason: 'precondition — one initial fetch');
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('salon-staff-profile-services-value')),
+            )
+            .data,
+        '2',
+      );
+
+      await tester.tap(find.byKey(const Key('staff-profile-category-NAILS')));
+      await tester.pumpAndSettle();
+      expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+      expect(
+        builds,
+        1,
+        reason: 'PUSHING must not itself refetch — only the RETURN does',
+      );
+
+      // Simulate the subtree adding a service BEFORE the operator
+      // returns, and bump the SAME fan-out counter every create/edit/
+      // delete in that subtree calls.
+      currentServices = _masterServicesPlusOne;
+      ProviderScope.containerOf(
+        tester.element(find.byType(_ServicesRouteMarker)),
+      ).read(serviceCatalogueRevisionProvider.notifier).bump();
+
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+      expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+      expect(
+        builds,
+        2,
+        reason:
+            'D4 (tab path) — the invalidation on return must trigger a '
+            'genuine REFETCH, never merely retain the stale `.value` '
+            '(project_riverpod_seamless_invalidate_gotcha)',
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('salon-staff-profile-services-value')),
+            )
+            .data,
+        '3',
+        reason: 'the stat tile must show the NEW count after the refetch',
+      );
+      expect(
+        find.text(l10n.staffProfileServicesCount(3)),
+        findsOneWidget,
+        reason:
+            "the management row's own value must ALSO reflect it — "
+            'proving the SAME provider was invalidated via the SHARED '
+            'helper, not a tab-local copy of the logic',
+      );
+    });
+
+    // The other half of the gate (mirrors the management-row group's own
+    // "a LOOK ... does NOT refetch" test) — without the revision guard in
+    // `_openStaffServices`, this goes red: a pure look-and-return would
+    // otherwise still cost a second `getMasterServices(masterId)` call.
+    testWidgets(
+      'a LOOK via the TAB category card (push and return, no mutation) does '
+      'NOT refetch the profile',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        int builds = 0;
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonStaffMemberProfileProvider(_kSalonId, _kMasterId).overrideWith(
+              (ref) async {
+                builds++;
+                return (_masterMember, _masterServices);
+              },
+            ),
+            approvedCategoriesProvider.overrideWith(
+              (ref) async => const <ServiceCategoryOption>[],
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        expect(builds, 1, reason: 'precondition — one initial fetch');
+
+        await tester.tap(find.byKey(const Key('staff-profile-category-NAILS')));
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        // NOTHING is bumped here — that is the whole point.
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          builds,
+          1,
+          reason:
+              'M7 (tab path) — an operator who only LOOKED via the tab card '
+              'must not pay for that round trip either; goes red the '
+              "moment `_openStaffServices`'s revision gate is removed.",
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('salon-staff-profile-services-value')),
+              )
+              .data,
+          '2',
+        );
+      },
+    );
+
+    // mobile-qa audit-fix cycle 2 — mirrors master_profile_screen_test.dart's
+    // own "the selected tab survives a push/pop through the category editor"
+    // pin. `ProfileTabSelection.profileTabNotifier` lives on the `State`
+    // (profile_tab_selection.dart: "Survives an in-screen push/pop because
+    // the `State` this mixin is applied to is kept"), so this is the SAME
+    // guarantee, just exercised through THIS screen's own push path (the
+    // category card, Phase 357) instead of MasterProfileScreen's
+    // «Додати послуги» button. Nothing in the D4/M7 tests above actually
+    // reads the tab bar/tab body after popping — they only assert on the
+    // tab-independent management-pair stat value — so this closes that gap.
+    testWidgets(
+      'the «Послуги» tab stays selected after a push/pop through a category '
+      "card's services page",
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 2600);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        final GoRouter router = buildServicesRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._overrides(
+              _kMasterId,
+              (ref) async => (_masterMember, _masterServices),
+            ),
+            authProvider.overrideWith(() => _StubAuthNotifier(_kOwner)),
+          ],
+        );
+        await tester.pumpAndSettle();
+        await openServicesTab(tester);
+
+        final Finder card = find.byKey(
+          const Key('staff-profile-category-NAILS'),
+        );
+        expect(card, findsOneWidget);
+
+        await tester.tap(card);
+        await tester.pumpAndSettle();
+        expect(find.byType(_ServicesRouteMarker), findsOneWidget);
+
+        router.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SalonStaffProfileScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('staff-profile-category-NAILS')),
+          findsOneWidget,
+          reason:
+              'still on «Послуги» after back — ProfileTabSelection keeps '
+              'the State, same guarantee master_profile_screen_test.dart '
+              'pins for MasterProfileScreen; a reset to tab 0 would make '
+              'this card (and the whole «Послуги» tab body) disappear',
+        );
+      },
+    );
   });
 }
 

@@ -95,7 +95,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
-import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivDaysBetween;
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show kyivAddDays, kyivDaysBetween;
 import 'package:beautica_mobile/shared/widgets/calendar_grid.dart'
     show calendarDayIsDeemphasized, isWeekendWeekday, kCalendarDotColor;
 
@@ -154,8 +155,10 @@ const double _kChipIntrinsicWidth = 44;
 /// file header for what breaks otherwise. Exposed (not private) so the screen
 /// and the tests derive rail dates through the exact same function the rail
 /// itself uses.
-DateTime railDayAt(DateTime from, int offset) =>
-    DateTime(from.year, from.month, from.day + offset);
+///
+/// Delegates to `shared/time/kyiv_day.dart`'s [kyivAddDays] (promoted there so
+/// `features/schedule/` can share it) — behaviour is byte-identical.
+DateTime railDayAt(DateTime from, int offset) => kyivAddDays(from, offset);
 
 /// The number of CALENDAR days between date-only [from] and [to] (positive
 /// when [to] is after [from]), independent of any DST transition crossed in

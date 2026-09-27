@@ -193,10 +193,18 @@ class MasterAddressBlock extends StatelessWidget {
       // today's rendering is ALREADY a single row. Phase 220 decision 2
       // ("promotion, not omission") is untouched here — the lone line keeps
       // its own content-scoped key and never becomes `-address-combined-text`.
+      //
+      // The locality-only case gets `maxLines: 2` (2026-09-26, user-reported)
+      // — a long composed saved-settlement label (village + hromada +
+      // oblast) must wrap, not silently collapse to one ellipsised line.
+      // Street-only stays `maxLines: 1` (default): a street/building string
+      // is backend-composed short-form text, not the new long locality label
+      // this fix targets.
       (final String city, null) => _primaryRow(
         text: city,
         textKey: Key('$keyPrefix-locality-text'),
         style: effectiveStyle,
+        maxLines: 2,
       ),
       (null, final String road) => _primaryRow(
         text: road,
@@ -297,10 +305,24 @@ class MasterAddressBlock extends StatelessWidget {
   /// optically offset between them.
   /// [style] is the effective (already merged) style resolved in `build` — the
   /// same object the fit measurement used, so what was measured is what paints.
+  ///
+  /// [maxLines] defaults to `1` — every pre-existing call (the collapsed
+  /// combined line, the street-only promotion, and both rows of the split)
+  /// renders exactly as before. Only the locality-only single-field case
+  /// passes `2` (see that call site).
+  ///
+  /// The icon stays center-aligned regardless of [maxLines] — `maxLines: 2`
+  /// is a budget, not a guarantee the text wraps (most localities are short
+  /// and still render on one line), and an earlier revision that top-aligned
+  /// the icon whenever `maxLines > 1` shifted it by 1px for every existing
+  /// short-locality caller, which the golden suite caught
+  /// (`master_profile_golden_test.dart` / `public_master_profile_golden_test
+  /// .dart`).
   Widget _primaryRow({
     required String text,
     required Key textKey,
     required TextStyle style,
+    int maxLines = 1,
   }) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -312,7 +334,7 @@ class MasterAddressBlock extends StatelessWidget {
             text,
             key: textKey,
             style: style,
-            maxLines: 1,
+            maxLines: maxLines,
             overflow: TextOverflow.ellipsis,
           ),
         ),

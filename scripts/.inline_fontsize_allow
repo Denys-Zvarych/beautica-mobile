@@ -14,12 +14,12 @@
 # --- Widget-constructor params (NOT a TextStyle literal) ---------------------
 # `fontSize:` here is forwarded to the HubAvatar/HubPhoto CONSTRUCTOR; the
 # widget itself builds a cached TextStyle internally (see hub_widgets.dart).
-lib/features/passport/presentation/passport_screen.dart:513          # HubAvatar(fontSize:) ctor arg
-lib/features/home/presentation/widgets/home_profile_card.dart:58     # HubAvatar(fontSize:) ctor arg
+lib/features/passport/presentation/passport_screen.dart:558          # HubAvatar(fontSize:) ctor arg — shifted 557→558 by the ProfileMetaLine promotion (2026-09-26)
+lib/features/home/presentation/widgets/home_profile_card.dart:72     # HubAvatar(fontSize:) ctor arg — shifted 64→72 by the ProfileMetaLine promotion (2026-09-26)
 lib/features/home/presentation/widgets/favorite_masters_card.dart:171 # HubPhoto(fontSize:) ctor arg
 #
 # --- Runtime-computed (cannot be a compile-time VelvetText token) ------------
-lib/features/salon/presentation/widgets/salon_cover_widgets.dart:82  # diameter * 0.44 monogram glyph
+lib/features/salon/presentation/widgets/salon_cover_widgets.dart:81  # diameter * 0.44 monogram glyph — shifted 82→81 by Phase 351 (SalonTabBar promoted out to shared/widgets/profile_tab_bar.dart)
 lib/features/home/presentation/widgets/hub_widgets.dart:106          # HubAvatar EXPLICIT-override path only; the default scale is size-derived
 lib/features/home/presentation/widgets/hub_widgets.dart:193          # fontSize pass-through into cached HubPhoto style
 lib/features/home/presentation/widgets/hub_widgets.dart:625          # size * 0.5 fallback-avatar glyph

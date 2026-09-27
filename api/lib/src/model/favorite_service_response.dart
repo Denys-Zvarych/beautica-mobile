@@ -418,6 +418,11 @@ class FavoriteServiceResponseSourceTypeEnum extends EnumClass {
   static const FavoriteServiceResponseSourceTypeEnum SALON =
       _$favoriteServiceResponseSourceTypeEnum_SALON;
 
+  /// Which favourite arm this row came from — MASTER (a chosen master's assignment) or SALON (a salon-catalogue service, no master chosen yet).
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const FavoriteServiceResponseSourceTypeEnum unknownDefaultOpenApi =
+      _$favoriteServiceResponseSourceTypeEnum_unknownDefaultOpenApi;
+
   static Serializer<FavoriteServiceResponseSourceTypeEnum> get serializer =>
       _$favoriteServiceResponseSourceTypeEnumSerializer;
 
@@ -436,6 +441,9 @@ class FavoriteServiceResponsePriceTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'RANGE')
   static const FavoriteServiceResponsePriceTypeEnum RANGE =
       _$favoriteServiceResponsePriceTypeEnum_RANGE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const FavoriteServiceResponsePriceTypeEnum unknownDefaultOpenApi =
+      _$favoriteServiceResponsePriceTypeEnum_unknownDefaultOpenApi;
 
   static Serializer<FavoriteServiceResponsePriceTypeEnum> get serializer =>
       _$favoriteServiceResponsePriceTypeEnumSerializer;

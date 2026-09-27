@@ -40,7 +40,9 @@ final class ErrorMapperInterceptor extends Interceptor {
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final failure = _mapError(err);
 
-    if (kDebugMode) {
+    // A deliberate cancellation is not worth a WARNING line (security L1) —
+    // see the same skip in `LoggingInterceptor.onError`.
+    if (kDebugMode && err.type != DioExceptionType.cancel) {
       log(
         'Mapped ${err.type} / ${err.response?.statusCode} → ${failure.runtimeType}',
         name: 'network.error',
@@ -229,6 +231,20 @@ final class ErrorMapperInterceptor extends Interceptor {
       // they keep their own typed 429 ([BookingRateLimitedFailure]) mapped by
       // the booking repository, and widening this branch to swallow them would
       // change what a create/cancel surfaces.
+      // Phase 346 — the settlement autocomplete's per-IP 240/min bucket
+      // (`AuthRateLimitFilter`, backend phase 326). Path-scoped like every
+      // other throttle in this chain rather than a blanket 429 mapping: each
+      // backend bucket has its own window and each surface its own copy, so a
+      // catch-all would hand a booking write or a password reset the wrong
+      // message. Exact suffix — the route has no sub-paths and its term
+      // travels as a query parameter, which `requestOptions.path` excludes.
+      if (statusCode == 429 && path.endsWith('/api/v1/settlements')) {
+        return SettlementSearchRateLimitedFailure(
+          retryAfterSeconds: _extractRetryAfterSecondsNullable(err),
+          cause: err,
+        );
+      }
+
       if (statusCode == 429 &&
           (path.contains('/bookings/salon/') ||
               path.contains('/masters/effective-schedule'))) {

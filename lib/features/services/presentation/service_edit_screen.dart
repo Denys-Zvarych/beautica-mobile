@@ -32,6 +32,7 @@ import 'package:beautica_mobile/features/services/domain/master_service_input.da
 import 'package:beautica_mobile/features/services/presentation/service_by_id_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/unsaved_changes_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -368,6 +369,37 @@ class _EditBody extends StatefulWidget {
 
 class _EditBodyState extends State<_EditBody>
     with SingleTickerProviderStateMixin {
+  /// Qase defect #26 — mirrors `ServiceForm`'s own dirty state, fed by its
+  /// `onDirtyChanged` callback. Plain field, not `setState`: nothing in this
+  /// screen's own tree renders from it, so rebuilding on every keystroke would
+  /// be pure waste. It is read only at the moment the master tries to leave.
+  bool _dirty = false;
+
+  /// Confirms discarding a dirty edit. `true` = leave, `false` = stay.
+  ///
+  /// A clean form never prompts. A dismissal (tap outside → `null`) counts as
+  /// STAY: the unsaved edit is the thing at risk, so anything short of an
+  /// explicit «Вийти без збереження» keeps it.
+  Future<bool> _confirmDiscard() async {
+    if (!_dirty) return true;
+    final bool? leave = await showDialog<bool>(
+      context: context,
+      builder: (_) => const UnsavedChangesDialog(),
+    );
+    return leave ?? false;
+  }
+
+  /// The top-bar ✕. `PopScope.canPop` governs SYSTEM-initiated pops only and
+  /// does NOT intercept an imperative `context.pop()`, so this affordance needs
+  /// its own guard — the same residual `register_salon_screen.dart`'s `_onBack`
+  /// documents. Without it the ✕ would still discard a dirty edit silently,
+  /// which is the exact defect being fixed.
+  Future<void> _onCancelTapped() async {
+    if (!await _confirmDiscard()) return;
+    if (!mounted) return;
+    _popServiceEditScreen(context);
+  }
+
   // Staggered entrance animation — mirrors the approved preview app's
   // orchestrated fade-up that builds the form rather than snapping it in flat.
   late final AnimationController _enter;
@@ -438,120 +470,141 @@ class _EditBodyState extends State<_EditBody>
   Widget build(BuildContext context) {
     final l10n = widget.l10n;
 
-    return Scaffold(
-      backgroundColor: BrandColors.base,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            // Top bar: cancel icon (left) + centred title.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                VelvetSpacing.lg,
-                VelvetSpacing.md,
-                VelvetSpacing.lg,
-                VelvetSpacing.sm,
-              ),
-              child: SizedBox(
-                height: 48,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: <Widget>[
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: NeumorphicIconButton(
-                        key: const Key('btn-cancel-service-edit'),
-                        icon: Icons.close_rounded,
-                        semanticLabel: l10n.masterCancelButton,
-                        onTap: () => _popServiceEditScreen(context),
-                      ),
-                    ),
-                    Text(
-                      l10n.servicesEditTitle,
-                      style: VelvetText.subheading(),
-                      textAlign: TextAlign.center,
-                    ),
-                    // Phase 320 (D3): hidden, not disabled, when read-only —
-                    // the backend 403s every write path for this viewer, so a
-                    // greyed delete icon would promise an action it cannot
-                    // perform.
-                    if (widget.writable)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: IconButton(
-                          key: const Key('btn-delete-service'),
-                          icon: const Icon(Icons.delete_outline),
-                          color: Theme.of(context).colorScheme.error,
-                          tooltip: l10n.deleteServiceTitle,
-                          onPressed: () => widget.onDelete(widget.service),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Scrollable form body.
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
+    // Qase defect #26 — `canPop: !_dirty` hands a clean form straight back to
+    // the navigator (no behaviour change) and intercepts the system back
+    // gesture / hardware button on a dirty one. `onPopInvokedWithResult` then
+    // asks, and pops explicitly if the master chose to discard.
+    return PopScope(
+      canPop: !_dirty,
+      onPopInvokedWithResult: (bool didPop, Object? result) async {
+        if (didPop) return;
+        if (!await _confirmDiscard()) return;
+        if (!mounted) return;
+        // `this.context`, NOT `build`'s parameter — the latter shadows the
+        // State's own and makes the `mounted` guard above unrelated to it
+        // (use_build_context_synchronously). Same State, same element; naming
+        // it explicitly is what ties the guard to the context it guards.
+        _popServiceEditScreen(this.context);
+      },
+      child: Scaffold(
+        backgroundColor: BrandColors.base,
+        body: SafeArea(
+          child: Column(
+            children: <Widget>[
+              // Top bar: cancel icon (left) + centred title.
+              Padding(
                 padding: const EdgeInsets.fromLTRB(
                   VelvetSpacing.lg,
                   VelvetSpacing.md,
                   VelvetSpacing.lg,
-                  VelvetSpacing.xl,
+                  VelvetSpacing.sm,
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    // Cover-photo slot (placeholder tap — Phase 9.x wires real upload).
-                    _reveal(
-                      _photoCurve,
-                      _photoSlide,
-                      const ServicePhotoSlot(
-                        key: Key('service-photo-slot'),
-                        // imageUrl: widget.service.photoUrl (Phase 9.x)
-                        // onTap is null → slot shows empty state, not interactive
-                        // until Phase 9.x wires up the real picker.
+                child: SizedBox(
+                  height: 48,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: <Widget>[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: NeumorphicIconButton(
+                          key: const Key('btn-cancel-service-edit'),
+                          icon: Icons.close_rounded,
+                          semanticLabel: l10n.masterCancelButton,
+                          onTap: _onCancelTapped,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: VelvetSpacing.lg),
-
-                    // ServiceForm with pre-populated values + dirty-state badge.
-                    _reveal(
-                      _formCurve,
-                      _formSlide,
-                      ServiceForm(
-                        key: Key('service-edit-form-${widget.service.id}'),
-                        initial: widget.service,
-                        submitLabel: l10n.servicesSaveChanges,
-                        readOnly: !widget.writable,
-                        onSubmit: (MasterServiceCreate input) async {
-                          try {
-                            await widget.onSave(input);
-                          } on ValidationFailure {
-                            // Per-field backend errors are mapped inline by
-                            // ServiceForm. Rethrow so the form can claim them;
-                            // it shows a generic snackbar itself when no field
-                            // matches, so onError is not invoked for 400s.
-                            rethrow;
-                          } on ServiceDuplicateFailure {
-                            // Backend 409 DUPLICATE_SERVICE is mapped inline by
-                            // ServiceForm onto the service-type field. Rethrow
-                            // so it can claim it — routing it to onError would
-                            // show a transient snackbar and leave the offending
-                            // field unflagged, so the user re-hits the same 409.
-                            rethrow;
-                          } catch (e) {
-                            widget.onError(e);
-                          }
-                        },
+                      Text(
+                        l10n.servicesEditTitle,
+                        style: VelvetText.subheading(),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
-                  ],
+                      // Phase 320 (D3): hidden, not disabled, when read-only —
+                      // the backend 403s every write path for this viewer, so a
+                      // greyed delete icon would promise an action it cannot
+                      // perform.
+                      if (widget.writable)
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: IconButton(
+                            key: const Key('btn-delete-service'),
+                            icon: const Icon(Icons.delete_outline),
+                            color: Theme.of(context).colorScheme.error,
+                            tooltip: l10n.deleteServiceTitle,
+                            onPressed: () => widget.onDelete(widget.service),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+
+              // Scrollable form body.
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(
+                    VelvetSpacing.lg,
+                    VelvetSpacing.md,
+                    VelvetSpacing.lg,
+                    VelvetSpacing.xl,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      // Cover-photo slot (placeholder tap — Phase 9.x wires real upload).
+                      _reveal(
+                        _photoCurve,
+                        _photoSlide,
+                        const ServicePhotoSlot(
+                          key: Key('service-photo-slot'),
+                          // imageUrl: widget.service.photoUrl (Phase 9.x)
+                          // onTap is null → slot shows empty state, not interactive
+                          // until Phase 9.x wires up the real picker.
+                        ),
+                      ),
+                      const SizedBox(height: VelvetSpacing.lg),
+
+                      // ServiceForm with pre-populated values + dirty-state badge.
+                      _reveal(
+                        _formCurve,
+                        _formSlide,
+                        ServiceForm(
+                          key: Key('service-edit-form-${widget.service.id}'),
+                          initial: widget.service,
+                          submitLabel: l10n.servicesSaveChanges,
+                          readOnly: !widget.writable,
+                          // Qase defect #26 — the form owns the dirty state; the
+                          // screen owns the exit. This is the only wire between
+                          // them.
+                          onDirtyChanged: (bool isDirty) => _dirty = isDirty,
+                          onSubmit: (MasterServiceCreate input) async {
+                            try {
+                              await widget.onSave(input);
+                            } on ValidationFailure {
+                              // Per-field backend errors are mapped inline by
+                              // ServiceForm. Rethrow so the form can claim them;
+                              // it shows a generic snackbar itself when no field
+                              // matches, so onError is not invoked for 400s.
+                              rethrow;
+                            } on ServiceDuplicateFailure {
+                              // Backend 409 DUPLICATE_SERVICE is mapped inline by
+                              // ServiceForm onto the service-type field. Rethrow
+                              // so it can claim it — routing it to onError would
+                              // show a transient snackbar and leave the offending
+                              // field unflagged, so the user re-hits the same 409.
+                              rethrow;
+                            } catch (e) {
+                              widget.onError(e);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

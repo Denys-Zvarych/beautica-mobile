@@ -843,18 +843,22 @@ void main() {
     });
   });
 
-  // ── Item 4 — oblastId is UI-only; it must NEVER reach the wire ──────────────
+  // ── Item 4 — no oblast key may EVER reach the wire ──────────────────────────
   //
-  // The region (oblast) narrows the city PICKER and labels the applied-filter
-  // chips, but there is no whole-region search: the cascade always resolves to a
-  // flat location.cityId (+ optional location.districtId). The repository sends
+  // There is no whole-region search: a locality always resolves to a flat
+  // location.cityId (+ optional location.districtId). The repository sends
   // those FLAT keys and must NOT emit any `oblastId` / `location.oblastId` key.
   // A future "forward the oblast too" change would surface here as a leaked key
   // the @ModelAttribute binder does not expect.
+  //
+  // Phase 346 dropped `SearchFilters.oblastId` entirely (the cascade that
+  // carried it is gone), so these cases can no longer SET an oblast to prove it
+  // is withheld. They are kept anyway, and deliberately: they now guard the
+  // repository's key set directly, so re-introducing an oblast parameter
+  // without also deciding it is UI-only fails here rather than at the binder.
 
-  group('oblastId is UI-only (never sent to the wire)', () {
+  group('no oblast key ever reaches the wire', () {
     const withOblast = SearchFilters(
-      oblastId: 'oblast-kyiv',
       cityId: 'city-kyiv',
       districtId: 'dist-pechersk',
     );
@@ -900,27 +904,21 @@ void main() {
       },
     );
 
-    test(
-      'a district-optional selection (oblast + city, no district) sends ONLY '
-      'location.cityId',
-      () async {
-        const cityNoDistrict = SearchFilters(
-          oblastId: 'oblast-kyiv',
-          cityId: 'city-kyiv',
-        );
-        stubMasters(_masterResponse([]));
+    test('a district-optional selection (settlement, no district) sends ONLY '
+        'location.cityId', () async {
+      const cityNoDistrict = SearchFilters(cityId: 'city-kyiv');
+      stubMasters(_masterResponse([]));
 
-        await repository.searchMasters(filters: cityNoDistrict, page: 0);
+      await repository.searchMasters(filters: cityNoDistrict, page: 0);
 
-        final q = capturedQuery(_masterPath);
-        expect(q['location.cityId'], 'city-kyiv');
-        expect(q.containsKey('location.districtId'), isFalse);
-        expect(
-          q.keys.where((String k) => k.toLowerCase().contains('oblast')),
-          isEmpty,
-        );
-      },
-    );
+      final q = capturedQuery(_masterPath);
+      expect(q['location.cityId'], 'city-kyiv');
+      expect(q.containsKey('location.districtId'), isFalse);
+      expect(
+        q.keys.where((String k) => k.toLowerCase().contains('oblast')),
+        isEmpty,
+      );
+    });
   });
 
   // ── Mapper-level edge cases ──────────────────────────────────────────────────

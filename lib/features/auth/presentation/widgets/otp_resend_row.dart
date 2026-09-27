@@ -22,8 +22,8 @@ import 'package:flutter/services.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart'
     show kMaxUxCooldownSeconds;
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/shared/widgets/prompt_link_text.dart';
 
 /// Default cooldown (seconds) assumed immediately on a resend tap, before the
 /// server confirms — matches the backend's default resend-cooldown window.
@@ -216,24 +216,16 @@ class OtpResendRowState extends State<OtpResendRow> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: <Widget>[
-        Text(widget.promptText, style: VelvetText.body()),
-        const SizedBox(width: VelvetSpacing.xs),
-        GestureDetector(
-          key: widget.resendKey,
-          onTap: _cooldown > 0 ? null : _handleTap,
-          child: Text(
-            _label(),
-            // Batch-2 A3: use pre-cached styles — no per-tick copyWith allocation.
-            // Active branch reuses the base _linkStyle (already accentDeep).
-            style: _cooldown > 0
-                ? VelvetText.resendCooldown
-                : VelvetText.link(),
-          ),
-        ),
-      ],
+    // PromptLinkText keeps prompt + link on one alphabetic baseline and wraps
+    // instead of overflowing when the countdown label widens the line.
+    return PromptLinkText(
+      prompt: widget.promptText,
+      linkLabel: _label(),
+      linkKey: widget.resendKey,
+      onTap: _cooldown > 0 ? null : _handleTap,
+      // Batch-2 A3: use pre-cached styles — no per-tick copyWith allocation.
+      // Active branch reuses the base _linkStyle (already accentDeep).
+      linkStyle: _cooldown > 0 ? VelvetText.resendCooldown : VelvetText.link(),
     );
   }
 }

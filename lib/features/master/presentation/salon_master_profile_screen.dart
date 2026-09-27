@@ -59,6 +59,13 @@
 // already-shared atoms, the same way every other profile screen in this
 // feature is built (see each shared widget's own file for its own reuse list).
 //
+// Phase 351 (U4′/U5-U7) — restructured around the SAME card→tab mechanism
+// (`ProfileTabSelection`, D15) as the other two master profiles: the 3 stat
+// cards (rating / reviews / services — «Досвід» removed, D9: it always
+// showed «—» with no backing field) STAY under the identity card, then «Про
+// майстра» / «Послуги» / «Відгуки» tabs follow. Tapping a card switches to
+// the matching tab in place — no route push, no `IndexedStack`/`TabController`.
+//
 // Data comes from [salonMasterOwnProfileProvider] — `masterProfileProvider`
 // (`GET /masters/me`, already admits SALON_MASTER) paired with the public
 // `GET /masters/{masterId}/services` read; see that file's header for the full
@@ -92,6 +99,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
 import 'package:beautica_mobile/features/master/application/salon_master_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
@@ -100,12 +108,18 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
+import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/salon_affiliation_line.dart';
+import 'package:beautica_mobile/shared/widgets/services_empty_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import 'widgets/master_address_block.dart';
+import 'widgets/master_profile_tabs.dart';
+import 'widgets/master_reviews_body.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
 import 'widgets/service_category_cards.dart';
@@ -126,23 +140,24 @@ class SalonMasterProfileScreen extends ConsumerStatefulWidget {
 
 class _SalonMasterProfileScreenState
     extends ConsumerState<SalonMasterProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        ProfileTabSelection<SalonMasterProfileScreen> {
   late final AnimationController _controller;
 
   // Pre-built staggered-entrance animations (mobile-perf pattern, mirrors
   // `SalonStaffProfileScreen`/`MasterProfileScreen`) so build() never
-  // allocates a CurvedAnimation/Tween per frame. Five sections: identity /
-  // stats / bio / service categories / contacts.
+  // allocates a CurvedAnimation/Tween per frame. Phase 351 (D14) — FOUR
+  // sections now (identity card / stat-card row / tab bar / tab body), down
+  // from five (bio/categories/contacts stacked separately).
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
   late final CurvedAnimation _anim3;
-  late final CurvedAnimation _anim4;
   late final Animation<Offset> _slide0;
   late final Animation<Offset> _slide1;
   late final Animation<Offset> _slide2;
   late final Animation<Offset> _slide3;
-  late final Animation<Offset> _slide4;
 
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws if `ref` is used post-unmount). PII-bearing self-view screen —
@@ -171,11 +186,7 @@ class _SalonMasterProfileScreenState
     );
     _anim3 = CurvedAnimation(
       parent: _controller,
-      curve: const Interval(0.40, 0.90, curve: Curves.easeOutCubic),
-    );
-    _anim4 = CurvedAnimation(
-      parent: _controller,
-      curve: const Interval(0.50, 1.0, curve: Curves.easeOutCubic),
+      curve: const Interval(0.45, 1.00, curve: Curves.easeOutCubic),
     );
     const Offset slideBegin = Offset(0, 0.04);
     _slide0 = Tween<Offset>(
@@ -194,20 +205,16 @@ class _SalonMasterProfileScreenState
       begin: slideBegin,
       end: Offset.zero,
     ).animate(_anim3);
-    _slide4 = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_anim4);
   }
 
   @override
   void dispose() {
     _screenProtection.release();
+    disposeProfileTabSelection();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
     _anim3.dispose();
-    _anim4.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -272,16 +279,16 @@ class _SalonMasterProfileScreenState
             master: data.$1,
             services: data.$2,
             salon: data.$3,
+            tabNotifier: profileTabNotifier,
+            onSelectTab: selectProfileTab,
             anim0: _anim0,
             anim1: _anim1,
             anim2: _anim2,
             anim3: _anim3,
-            anim4: _anim4,
             slide0: _slide0,
             slide1: _slide1,
             slide2: _slide2,
             slide3: _slide3,
-            slide4: _slide4,
           );
         },
       ),
@@ -298,16 +305,16 @@ class _SalonMasterProfileBody extends StatelessWidget {
     required this.master,
     required this.services,
     required this.salon,
+    required this.tabNotifier,
+    required this.onSelectTab,
     required this.anim0,
     required this.anim1,
     required this.anim2,
     required this.anim3,
-    required this.anim4,
     required this.slide0,
     required this.slide1,
     required this.slide2,
     required this.slide3,
-    required this.slide4,
   });
 
   final Master master;
@@ -322,16 +329,26 @@ class _SalonMasterProfileBody extends StatelessWidget {
   /// this is null (no `salonId`, or the salon read failed).
   final Salon? salon;
 
+  /// [ProfileTabSelection.profileTabNotifier] — the active tab index (0 =
+  /// Про майстра, 1 = Послуги, 2 = Відгуки), as a [ValueNotifier] so only the
+  /// [ProfileTabSection] below rebuilds on a tab switch (mobile-perf LOW,
+  /// Phase 351 audit-fix cycle 1) — the identity card / stat-card row above
+  /// it never watches it.
+  final ValueNotifier<int> tabNotifier;
+
+  /// [ProfileTabSelection.selectProfileTab] — passed to [ProfileTabBar]'s
+  /// `onSelect`, the only way to switch tabs (the stat cards are
+  /// display-only, user decision 2026-09-26).
+  final ValueChanged<int> onSelectTab;
+
   final Animation<double> anim0;
   final Animation<double> anim1;
   final Animation<double> anim2;
   final Animation<double> anim3;
-  final Animation<double> anim4;
   final Animation<Offset> slide0;
   final Animation<Offset> slide1;
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
-  final Animation<Offset> slide4;
 
   @override
   Widget build(BuildContext context) {
@@ -431,7 +448,10 @@ class _SalonMasterProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2 — stats row: rating / reviews / services / experience.
+        // 2 — stat cards: «Рейтинг» / «Відгуки» / «Послуги» (D9 — «Досвід»
+        // removed, it always showed «—» with no backing field). Display-only
+        // (user decision 2026-09-26) — no tap, no ripple, no button
+        // semantics. The tabs below are the only way to switch tabs.
         RevealTransition(
           key: const Key('salon-master-profile-reveal-1'),
           fade: anim1,
@@ -442,6 +462,7 @@ class _SalonMasterProfileBody extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: StatTile(
+                    key: const Key('salon-master-profile-rating-tile'),
                     icon: Icons.star_rounded,
                     iconWidget: RatingStar(
                       rating: hasReviews ? master.displayRating : null,
@@ -458,6 +479,7 @@ class _SalonMasterProfileBody extends StatelessWidget {
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: StatTile(
+                    key: const Key('salon-master-profile-reviews-tile'),
                     icon: Icons.reviews_outlined,
                     value: hasReviews ? master.reviewCount.toString() : '—',
                     caption: l10n.masterStatsReviewsLabel,
@@ -467,19 +489,9 @@ class _SalonMasterProfileBody extends StatelessWidget {
                 const SizedBox(width: VelvetSpacing.sm),
                 Expanded(
                   child: ServicesStatTile(
+                    key: const Key('salon-master-profile-services-tile'),
                     count: services.length,
                     valueKey: const Key('salon-master-profile-services-value'),
-                  ),
-                ),
-                const SizedBox(width: VelvetSpacing.sm),
-                Expanded(
-                  child: StatTile(
-                    icon: Icons.workspace_premium_outlined,
-                    // No tenure field on the domain model yet — mirrors
-                    // every other experience tile in the app.
-                    value: '—',
-                    caption: l10n.publicMasterExperienceLabel,
-                    iconColor: BrandColors.accentDeep,
                   ),
                 ),
               ],
@@ -488,106 +500,163 @@ class _SalonMasterProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 3 — bio («Про себе», first-person; omitted entirely when empty).
-        if (bio != null) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-master-profile-reveal-2'),
-            fade: anim2,
-            slide: slide2,
-            child: Column(
-              key: const Key('salon-master-profile-bio'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterBioLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
+        // 3+4 — Tab bar + tab body, isolated behind ONE `ProfileTabSection`
+        // (mobile-perf LOW, Phase 351 audit-fix cycle 1) — a tab switch now
+        // only rebuilds this region, never sections 1-2 above.
+        ProfileTabSection(
+          notifier: tabNotifier,
+          builder: (BuildContext context, int tab) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              // 3 — Tab bar. The only way to switch tabs — the stat cards
+              // above are display-only (user decision 2026-09-26).
+              RevealTransition(
+                key: const Key('salon-master-profile-reveal-2'),
+                fade: anim2,
+                slide: slide2,
+                child: ProfileTabBar(
+                  tabs: masterProfileTabLabels(l10n),
+                  selected: tab,
+                  onSelect: onSelectTab,
+                  keyPrefix: 'salon-master-profile',
                 ),
-                NeumorphicInset(
-                  radius: VelvetRadii.card,
-                  child: Padding(
-                    padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                    child: Text(bio, style: VelvetText.bodyStrong()),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
 
-        // 4 — «Мої категорії»: services grouped by category, read-only
-        // (`interactive: false` — `/services` is INDEPENDENT_MASTER-only and
-        // has no meaning here; see this file's header). Omitted when the
-        // master has no active services, matching how bio/contacts are
-        // omitted when empty.
-        if (services.isNotEmpty) ...<Widget>[
-          RevealTransition(
-            key: const Key('salon-master-profile-reveal-3'),
-            fade: anim3,
-            slide: slide3,
-            child: Column(
-              key: const Key('salon-master-profile-service-categories'),
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterOwnCategoriesLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
+              // 4 — Tab body: «Про майстра» (bio + phone contact) /
+              // «Послуги» (D12 — read-only, same empty state as the public
+              // tab) / «Відгуки» (own reviews — «the salon master can read
+              // their review texts, which are public anyway», scope table).
+              RevealTransition(
+                key: const Key('salon-master-profile-reveal-3'),
+                fade: anim3,
+                slide: slide3,
+                child: KeyedSubtree(
+                  key: ValueKey<int>(tab),
+                  child: switch (tab) {
+                    0 => _SalonMasterAboutTab(bio: bio, phone: phone),
+                    1 =>
+                      services.isEmpty
+                          // Read-only SALON_MASTER — same audience/fact as
+                          // `/staff/services`'s own empty state (D12): this
+                          // viewer cannot add their own services, so point
+                          // them at the owner/admin rather than showing
+                          // nothing at all.
+                          ? ServicesEmptyState(
+                              key: const Key(
+                                'salon-master-profile-services-empty',
+                              ),
+                              title: l10n.servicesEmpty,
+                              body: l10n.salonMasterServicesEmptyHint,
+                            )
+                          : Column(
+                              key: const Key(
+                                'salon-master-profile-service-categories',
+                              ),
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    left: 4,
+                                    bottom: VelvetSpacing.xs,
+                                  ),
+                                  child: Text(
+                                    l10n.masterOwnCategoriesLabel,
+                                    style: VelvetText.sectionLabel(),
+                                  ),
+                                ),
+                                ServiceCategoryCardList(
+                                  services: services,
+                                  keyPrefix: 'salon-master-profile-category',
+                                  interactive: false,
+                                ),
+                              ],
+                            ),
+                    _ => MasterReviewsBody(masterId: master.id),
+                  },
                 ),
-                ServiceCategoryCardList(
-                  services: services,
-                  keyPrefix: 'salon-master-profile-category',
-                  interactive: false,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
+        ),
+      ],
+    );
+  }
+}
 
-        // 5 — contacts (phone only; the design omits any other contact
-        // method here). Omitted when unset.
-        if (phone != null)
-          RevealTransition(
-            key: const Key('salon-master-profile-reveal-4'),
-            fade: anim4,
-            slide: slide4,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Padding(
-                  padding: const EdgeInsets.only(
-                    left: 4,
-                    bottom: VelvetSpacing.xs,
-                  ),
-                  child: Text(
-                    l10n.masterContactsLabel,
-                    style: VelvetText.sectionLabel(),
-                  ),
+// ---------------------------------------------------------------------------
+// _SalonMasterAboutTab — «Про майстра»: bio (or the AddLink empty-state) +
+// phone contact.
+// ---------------------------------------------------------------------------
+
+class _SalonMasterAboutTab extends StatelessWidget {
+  const _SalonMasterAboutTab({required this.bio, required this.phone});
+
+  final String? bio;
+  final String? phone;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        // Bio («Про себе», first-person). Phase 351 (U-locked "Both rows"
+        // empty-state decision) — an empty bio shows the promoted [AddLink]
+        // «Додати опис» (REUSE-FIRST, promoted from the salon management
+        // screen's `_AddLink`) opening this master's own bio editor via
+        // [RouteNames.salonMasterEditPersonal] (the SAME
+        // `PersonalInfoEditScreen` the independent master's profile uses).
+        Column(
+          key: const Key('salon-master-profile-bio'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+              child: Text(
+                l10n.masterBioLabel,
+                style: VelvetText.sectionLabel(),
+              ),
+            ),
+            if (bio != null)
+              NeumorphicInset(
+                radius: VelvetRadii.card,
+                child: Padding(
+                  padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+                  child: Text(bio!, style: VelvetText.bodyStrong()),
                 ),
-                ContactTile(
-                  key: const Key('salon-master-profile-contact-phone'),
-                  icon: Icons.phone_outlined,
-                  value: phone,
-                  semanticLabel: l10n.phoneLabel,
-                  // Dialing out is not in this phase's scope — mirrors
-                  // `SalonStaffProfileScreen`'s identical phone tile.
-                  onTap: () {},
-                ),
-              ],
+              )
+            else
+              AddLink(
+                key: const Key('salon-master-profile-add-bio'),
+                label: l10n.salonManageAddDescriptionLink,
+                onTap: () => context.push(RouteNames.salonMasterEditPersonal),
+              ),
+          ],
+        ),
+
+        // Contacts (phone only; the design omits any other contact method
+        // here). Omitted when unset.
+        if (phone != null) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.xl),
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+            child: Text(
+              l10n.masterContactsLabel,
+              style: VelvetText.sectionLabel(),
             ),
           ),
+          ContactTile(
+            key: const Key('salon-master-profile-contact-phone'),
+            icon: Icons.phone_outlined,
+            value: phone!,
+            semanticLabel: l10n.phoneLabel,
+            // Dialing out is not in this phase's scope — mirrors
+            // `SalonStaffProfileScreen`'s identical phone tile.
+            onTap: () {},
+          ),
+        ],
       ],
     );
   }
@@ -671,8 +740,17 @@ class _SalonAddressRows extends ConsumerWidget {
     //     line.
     // No new formatter is added: every string below comes from a builder
     // this file already imported.
+    // A phase-330 read's own settlement label wins (the taxonomy lookup
+    // resolves CITY-type settlements only — a village salon rendered no
+    // locality); the lookup stays for the district and a type-less read.
+    final String? salonCityName =
+        savedSettlementShortLabel(
+          AppLocalizations.of(context),
+          affiliatedSalon?.savedSettlement,
+        ) ??
+        resolved?.city?.name;
     final String? salonLocalityLine = buildStreetLine(
-      resolved?.city?.name,
+      salonCityName,
       resolved?.district?.name,
     );
     final String? salonStreetLine = buildStreetLine(
@@ -680,7 +758,7 @@ class _SalonAddressRows extends ConsumerWidget {
       affiliatedSalon?.buildingNo,
     );
     final String? salonCombinedAddressLine = buildFullAddressLine(
-      cityName: resolved?.city?.name,
+      cityName: salonCityName,
       districtName: resolved?.district?.name,
       street: affiliatedSalon?.street,
       buildingNo: affiliatedSalon?.buildingNo,
@@ -756,7 +834,8 @@ class _SalonMasterProfileSkeleton extends StatelessWidget {
             ),
           ),
           SizedBox(height: VelvetSpacing.xl),
-          // Stats row.
+          // Stat cards row — 3 tiles (rating / reviews / services; no
+          // «Досвід»).
           Row(
             children: <Widget>[
               Expanded(
@@ -766,7 +845,7 @@ class _SalonMasterProfileSkeleton extends StatelessWidget {
                   radius: VelvetRadii.field + 2,
                 ),
               ),
-              SizedBox(width: VelvetSpacing.xs),
+              SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: SkeletonBlock(
                   width: double.infinity,
@@ -774,15 +853,7 @@ class _SalonMasterProfileSkeleton extends StatelessWidget {
                   radius: VelvetRadii.field + 2,
                 ),
               ),
-              SizedBox(width: VelvetSpacing.xs),
-              Expanded(
-                child: SkeletonBlock(
-                  width: double.infinity,
-                  height: 96,
-                  radius: VelvetRadii.field + 2,
-                ),
-              ),
-              SizedBox(width: VelvetSpacing.xs),
+              SizedBox(width: VelvetSpacing.sm),
               Expanded(
                 child: SkeletonBlock(
                   width: double.infinity,
@@ -793,14 +864,13 @@ class _SalonMasterProfileSkeleton extends StatelessWidget {
             ],
           ),
           SizedBox(height: VelvetSpacing.xl),
-          // Bio block.
-          Padding(
-            padding: EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: SkeletonBlock(width: 110, height: 13),
-          ),
+          // Tab bar placeholder.
+          SkeletonBlock(width: double.infinity, height: 44),
+          SizedBox(height: VelvetSpacing.lg),
+          // Tab body placeholder.
           SkeletonBlock(
             width: double.infinity,
-            height: 92,
+            height: 160,
             radius: VelvetRadii.card,
           ),
         ],

@@ -91,19 +91,20 @@ void main() {
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
-  /// Opens the reviews screen from the already-mounted public profile by
-  /// tapping the REAL «Відгуки» stat tile, then switches the sort to
-  /// «Найвищий рейтинг» and back is NOT needed — the caller decides.
+  /// Phase 351 gave the public profile a «Відгуки» tab; user decision
+  /// 2026-09-26 made the stat cards display-only, so this now taps the TAB
+  /// itself — the only way to switch — which renders reviews INLINE. No
+  /// navigation happens — still the SAME screen instance, never
+  /// `PublicMasterReviewsScreen`.
   Future<void> openReviews(WidgetTester tester) async {
-    final Finder tile = find.byKey(
-      const Key('public-master-profile-reviews-tile'),
-    );
-    expect(tile, findsOneWidget);
-    await tester.ensureVisible(tile);
-    await tester.tap(tile);
-    // fixed-wait-ok: settles the real async route-push + review-provider loads.
+    final Finder tab = find.byKey(const Key('public-master-profile-tab-2'));
+    expect(tab, findsOneWidget);
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
+    // fixed-wait-ok: settles the real async review-provider loads triggered by the tab switch.
     await tester.pumpAndSettle(const Duration(seconds: 1));
-    expect(find.byType(PublicMasterReviewsScreen), findsOneWidget);
+    expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+    expect(find.byType(PublicMasterReviewsScreen), findsNothing);
   }
 
   /// Switches the reviews list to the HIGHEST sort through the real sort sheet.
@@ -156,6 +157,20 @@ void main() {
       final int profileCallsWarm = fb.getPublicMasterCalls;
       expect(profileCallsWarm, greaterThanOrEqualTo(1));
 
+      // The stat cards are display-only (user decision 2026-09-26) — a tap
+      // on the REAL rendered reviews card must do nothing before we switch
+      // via the tab below.
+      final Finder reviewsTile = find.byKey(
+        const Key('public-master-profile-reviews-tile'),
+      );
+      await tester.ensureVisible(reviewsTile);
+      await tester.tap(reviewsTile, warnIfMissed: false);
+      // fixed-wait-ok: proving a NO-OP — there is no async work to pump
+      // until; this settles any incidental animation frames only.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      expect(find.byType(PublicMasterReviewsScreen), findsNothing);
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+
       // The summary + the NEWEST review bucket …
       await openReviews(tester);
       expect(
@@ -189,9 +204,9 @@ void main() {
         reason: 'NEWEST and HIGHEST are two independent cache entries',
       );
 
-      // ── 2. Leave the profile and go write the review. ────────────────────
-      router.pop(); // reviews → profile
-      await AppHarness.settle(tester);
+      // ── 2. Leave the profile and go write the review. Phase 351 — the
+      //       «Відгуки» tab is a LOCAL state switch, not a push, so only ONE
+      //       pop (profile → /home) is needed now, not two. ────────────────
       router.pop(); // profile → /home
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.clientHome);

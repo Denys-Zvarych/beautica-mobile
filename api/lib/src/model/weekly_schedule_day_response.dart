@@ -218,6 +218,9 @@ class WeeklyScheduleDayResponseModeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'EXPLICIT_TIMES')
   static const WeeklyScheduleDayResponseModeEnum EXPLICIT_TIMES =
       _$weeklyScheduleDayResponseModeEnum_EXPLICIT_TIMES;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const WeeklyScheduleDayResponseModeEnum unknownDefaultOpenApi =
+      _$weeklyScheduleDayResponseModeEnum_unknownDefaultOpenApi;
 
   static Serializer<WeeklyScheduleDayResponseModeEnum> get serializer =>
       _$weeklyScheduleDayResponseModeEnumSerializer;

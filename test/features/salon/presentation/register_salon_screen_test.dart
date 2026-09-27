@@ -19,8 +19,17 @@
 //
 // Strategy mirrors `salon_edit_forms_test.dart`: a real GoRouter (via
 // `pumpRoutedApp`) with `salonRepositoryProvider` overridden by the shared
-// `FakeSalonRepository` fake, `oblastListProvider`/`cityListProvider`/
-// `districtListProvider` stubbed with small fixtures.
+// `FakeSalonRepository` fake, and `locationRepositoryProvider` stubbed with a
+// small fixed fake.
+//
+// Phase 346 — the «Область» → «Місто» → «Район» LocalityCascade is GONE,
+// replaced by [SettlementLocalityField] (one autocomplete + a conditional
+// district row). Settlement selection is driven through the REAL bottom
+// sheet (tap the closed field → type ≥3 chars → let the debounce elapse →
+// tap the row) via `_selectSettlement`, backed by a `locationRepositoryProvider`
+// fake — there is no `locality_row_oblast`/`locality_row_city` to tap any
+// more. See `settlement_select_field_test.dart`'s header for why the
+// explicit `pump(kSettlementSearchDebounce)` is load-bearing.
 
 import 'dart:async';
 
@@ -32,11 +41,13 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
-import 'package:beautica_mobile/features/location/state/location_providers.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_select_field.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -48,6 +59,7 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,27 +84,70 @@ const _stubOwner = User(
   lastName: 'Швець',
 );
 
-const _oblast = Oblast(id: 'oblast-01', name: 'Київська', katotthCode: 'UA1');
-const _city = City(
-  id: 'city-01',
-  oblastId: 'oblast-01',
+/// A leaf settlement — no urban districts, so [SettlementLocalityField]
+/// renders no district row for it.
+const _settlement = Settlement(
+  id: 'settlement-01',
   name: 'Київ',
-  katotthCode: 'UA1-1',
-  hasDistricts: false,
+  oblastName: 'Київ',
 );
-const _cityWithDistricts = City(
-  id: 'city-02-districts',
-  oblastId: 'oblast-01',
+
+/// A settlement that subdivides — used by the district-required and
+/// district-clearing tests.
+const _settlementWithDistricts = Settlement(
+  id: 'settlement-02-districts',
   name: 'Дніпро',
-  katotthCode: 'UA1-2',
-  hasDistricts: true,
+  oblastName: 'Дніпропетровська',
 );
+
 const _district = CityDistrict(
   id: 'district-01',
-  cityId: 'city-02-districts',
+  cityId: 'settlement-02-districts',
   name: 'Соборний',
-  katotthCode: 'UA1-2-1',
+  katotthCode: 'UA12-020-0136',
 );
+
+/// Fixed fake backing `locationRepositoryProvider` — resolves the settlement
+/// search to a small fixed list (ignoring the query text; see
+/// `settlement_select_field_test.dart` for dedicated query-shape coverage)
+/// and resolves districts per settlement id.
+class _FakeLocationRepository implements LocationRepository {
+  const _FakeLocationRepository();
+
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) async => const <Settlement>[_settlement, _settlementWithDistricts];
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async =>
+      cityId == _settlementWithDistricts.id
+      ? const <CityDistrict>[_district]
+      : const <CityDistrict>[];
+
+  @override
+  Future<List<Oblast>> fetchOblasts() => throw UnimplementedError();
+
+  @override
+  Future<List<City>> fetchCities(String oblastId) => throw UnimplementedError();
+}
+
+const _locationRepo = _FakeLocationRepository();
+
+/// [_FakeLocationRepository] whose district lookup holds on [gate] — keeps it
+/// IN FLIGHT so a test can submit against it (perf N1).
+class _GatedLocationRepository extends _FakeLocationRepository {
+  _GatedLocationRepository(this.gate);
+
+  final Completer<void> gate;
+
+  @override
+  Future<List<CityDistrict>> fetchDistricts(String cityId) async {
+    await gate.future;
+    return super.fetchDistricts(cityId);
+  }
+}
 
 /// The owner's existing PRIMARY salon — its phone/Instagram seed
 /// RegisterSalonScreen's own contact fields.
@@ -138,40 +193,43 @@ GoRouter _router() => GoRouter(
 List<Object> _overrides(
   FakeSalonRepository repo, {
   List<Salon> mySalons = const <Salon>[_primarySalon],
+  LocationRepository locationRepo = _locationRepo,
 }) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo),
   mySalonsProvider.overrideWith(() => _StubMySalons(() async => mySalons)),
-  oblastListProvider.overrideWith((ref) async => const <Oblast>[_oblast]),
-  cityListProvider(
-    'oblast-01',
-  ).overrideWith((ref) async => const <City>[_city, _cityWithDistricts]),
-  districtListProvider(
-    _cityWithDistricts.id,
-  ).overrideWith((ref) async => const <CityDistrict>[_district]),
+  locationRepositoryProvider.overrideWithValue(locationRepo),
 ];
 
-/// Fills every REQUIRED field with a valid value (name, oblast → city
-/// leaf-of-no-districts, street, building). Phone/Instagram are left as
-/// whatever the screen already prefilled — callers that need bare/empty
-/// contacts should pass an owner with no salons via [_overrides].
+/// Selects [settlement] through the REAL search sheet: open → type a query
+/// long enough to clear the "type more" hint → let the debounce elapse →
+/// tap the row. There is no `LocalityCascade.onCity`/`onOblast` callback to
+/// invoke directly any more (phase 346).
+Future<void> _selectSettlement(
+  WidgetTester tester,
+  Settlement settlement,
+) async {
+  await tester.tap(find.byKey(const Key('settlement_select_field')));
+  await tester.pumpAndSettle();
+  await tester.enterText(
+    find.byKey(const Key('select-menu-search')),
+    settlement.name,
+  );
+  await tester.pump(kSettlementSearchDebounce);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(Key('settlement_option_${settlement.id}')));
+  await tester.pumpAndSettle();
+}
+
+/// Fills every REQUIRED field with a valid value (name, settlement leaf of no
+/// districts, street, building). Phone/Instagram are left as whatever the
+/// screen already prefilled — callers that need bare/empty contacts should
+/// pass an owner with no salons via [_overrides].
 Future<void> _fillValidForm(WidgetTester tester) async {
   await tester.enterText(find.byKey(const Key('salon_name')), 'Салон Марії');
   await tester.pump();
 
-  await tester.tap(find.byKey(const Key('locality_row_oblast')));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(ValueKey<String>('locality_picker_tile_${_oblast.id}')),
-  );
-  await tester.pumpAndSettle();
-
-  await tester.tap(find.byKey(const Key('locality_row_city')));
-  await tester.pumpAndSettle();
-  await tester.tap(
-    find.byKey(ValueKey<String>('locality_picker_tile_${_city.id}')),
-  );
-  await tester.pumpAndSettle();
+  await _selectSettlement(tester, _settlement);
 
   await tester.enterText(
     find.byKey(const Key('salon_street')),
@@ -183,6 +241,33 @@ Future<void> _fillValidForm(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('N1 — a double tap on create while the district lookup is still '
+      'in flight creates ONE salon', (tester) async {
+    final Completer<void> gate = Completer<void>();
+    final repo = FakeSalonRepository(salon: _primarySalon);
+    final router = _router();
+    addTearDown(router.dispose);
+    await tester.pumpRoutedApp(
+      router,
+      overrides: _overrides(repo, locationRepo: _GatedLocationRepository(gate)),
+    );
+    await tester.pumpAndSettle();
+
+    unawaited(router.push(RouteNames.registerSalon));
+    await tester.pumpAndSettle();
+    await _fillValidForm(tester);
+
+    await tester.tap(find.byKey(const Key('create_salon')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('create_salon')));
+    await tester.pump();
+
+    gate.complete();
+    await tester.pumpAndSettle();
+
+    expect(repo.createRequests, hasLength(1));
+  });
+
   group('field validators', () {
     testWidgets(
       'an empty submit blocks, never reaches create(), and surfaces inline '
@@ -205,22 +290,33 @@ void main() {
 
         expect(repo.createRequests, isEmpty);
 
-        // VelvetField surfaces errors via a dedicated Row, not
-        // InputDecoration.errorText — assert through the visible text.
+        // VelvetField/SearchableSelectField surface errors via a dedicated
+        // Row, not InputDecoration.errorText — assert through the visible
+        // text.
         final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
         expect(find.text(l10n.errSalonNameRequired), findsOneWidget);
         expect(find.text(l10n.errStreetRequired), findsOneWidget);
         expect(find.text(l10n.errBuildingRequired), findsOneWidget);
         expect(find.text(l10n.errPhoneRequired), findsOneWidget);
 
-        final LocalityTapRow oblastRow = tester.widget<LocalityTapRow>(
-          find.byKey(const Key('locality_row_oblast')),
-        );
+        // `errSettlementRequired` and `settlementPlaceholder` are the SAME
+        // Ukrainian string («Оберіть населений пункт») — a plain
+        // `find.text` would match both the closed field's placeholder and
+        // the error row and can't tell them apart, so the widget's own
+        // `errorText` is asserted directly instead (mirrors the pre-346
+        // `LocalityTapRow.errorText` check this replaces).
         expect(
-          oblastRow.errorText,
-          isNotNull,
+          tester
+              .widget<SettlementSelectField>(find.byType(SettlementSelectField))
+              .errorText,
+          l10n.errSettlementRequired,
           reason: 'locality is required from scratch, like register step 3',
         );
+
+        // Phase 346 (Qase case 3 step 5) — the retired «Область»/«Місто»
+        // rows must never reappear on this screen.
+        expect(find.byKey(const Key('locality_row_oblast')), findsNothing);
+        expect(find.byKey(const Key('locality_row_city')), findsNothing);
       },
     );
   });
@@ -306,7 +402,7 @@ void main() {
         expect(repo.createRequests, hasLength(1));
         final SalonCreateDto sent = repo.createRequests.single;
         expect(sent.name, 'Салон Марії');
-        expect(sent.cityId, _city.id);
+        expect(sent.cityId, _settlement.id);
         expect(sent.districtId, isNull);
         expect(sent.street, 'вул. Хрещатик');
         expect(sent.buildingNo, '5');
@@ -337,20 +433,7 @@ void main() {
           find.byKey(const Key('salon_name')),
           'Салон Марії',
         );
-        await tester.tap(find.byKey(const Key('locality_row_oblast')));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(ValueKey<String>('locality_picker_tile_${_oblast.id}')),
-        );
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('locality_row_city')));
-        await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(
-            ValueKey<String>('locality_picker_tile_${_cityWithDistricts.id}'),
-          ),
-        );
-        await tester.pumpAndSettle();
+        await _selectSettlement(tester, _settlementWithDistricts);
         // Deliberately do NOT pick a district.
         await tester.enterText(
           find.byKey(const Key('salon_street')),
@@ -393,6 +476,48 @@ void main() {
     });
   });
 
+  group('district clears on settlement change', () {
+    testWidgets('picking a new settlement always clears a previously selected '
+        'district', (tester) async {
+      final repo = FakeSalonRepository(salon: _primarySalon);
+      final router = _router();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router, overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      unawaited(router.push(RouteNames.registerSalon));
+      await tester.pumpAndSettle();
+
+      // Pick the subdividing settlement — the district row appears.
+      await _selectSettlement(tester, _settlementWithDistricts);
+      expect(find.byKey(const Key('locality_row_district')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('locality_row_district')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(ValueKey<String>('locality_picker_tile_${_district.id}')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<LocalityTapRow>(
+              find.byKey(const Key('locality_row_district')),
+            )
+            .value,
+        _district.name,
+      );
+
+      // Now pick a DIFFERENT, leaf settlement — the district row must
+      // vanish (a `CityDistrict` belongs to exactly one settlement, so
+      // carrying the old selection across would submit a district that is
+      // not a child of the newly-submitted city).
+      await _selectSettlement(tester, _settlement);
+
+      expect(find.byKey(const Key('locality_row_district')), findsNothing);
+    });
+  });
+
   group('mySalonsProvider invalidation', () {
     // Mutable box so a build() call count survives mySalonsProvider being
     // recreated by ref.invalidate — mirrors
@@ -421,7 +546,7 @@ void main() {
           .read(registerSalonProvider.notifier)
           .submit(
             name: 'Салон Марії',
-            cityId: _city.id,
+            cityId: _settlement.id,
             street: 'вул. Хрещатик',
             buildingNo: '5',
           );
@@ -463,7 +588,6 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _StubMySalons(() async => const <Salon>[_primarySalon]),
           ),
-          oblastListProvider.overrideWith((ref) async => const <Oblast>[]),
         ],
       );
       addTearDown(container.dispose);

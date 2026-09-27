@@ -10,7 +10,7 @@
 // branch at all.
 //
 // Strategy: a hand-written `_FakeLocationRepository` (mirrors
-// `locality_cascade_test.dart`'s own fake shape) overriding
+// `locality_picker_sheet_test.dart`'s own fake shape) overriding
 // `locationRepositoryProvider`, driven through a fresh `ProviderContainer`
 // per test. `retry: (_, _) => null` on every container — the failure-path
 // test needs the underlying (keepAlive) `oblastListProvider` to surface its
@@ -20,10 +20,12 @@
 
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
+import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -85,6 +87,16 @@ class _CountingFakeLocationRepository implements LocationRepository {
     fetchDistrictsCalls++;
     return const <CityDistrict>[_district];
   }
+
+  /// Phase 346 — the settlement autocomplete. Unused by this fixture: the
+  /// surfaces under test here render no settlement field, so an unimplemented
+  /// stub asserts that rather than silently returning an empty list a caller
+  /// could mistake for "no matches".
+  @override
+  Future<List<Settlement>> searchSettlements(
+    String query, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
 }
 
 /// A minimal `Exception` — avoids importing the real `Failure` hierarchy just

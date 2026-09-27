@@ -181,8 +181,10 @@ void main() {
 
   /// SALON_ADMIN: /salons/home -> the salon shell's own «Профіль» tab
   /// (embedded `AdminOwnProfileScreen`) -> tap the trailing tune button
-  /// (`btn-admin-own-profile-settings`) -> /settings. THE untested route
-  /// before this change — see this file's header.
+  /// (`btn-admin-own-profile-settings`) -> /profile/admin/settings (the
+  /// shared `SettingsHubScreen`, DEBUG-chain fix 2026-09-26 — before this
+  /// fix the tune button pushed `/settings` directly, leaving an admin with
+  /// no sign-out affordance on this path) -> tap `row-account` -> /settings.
   Future<GoRouter> openAdminAccountPage(
     WidgetTester tester,
     FakeBackend fb,
@@ -211,14 +213,23 @@ void main() {
       find.byKey(const Key('btn-admin-own-profile-settings')),
     );
     await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.adminSettings);
+    expect(
+      find.byType(SettingsHubScreen),
+      findsOneWidget,
+      reason:
+          'the trailing tune button must push the admin settings hub, not '
+          'the «Акаунт» sub-screen directly',
+    );
+
+    await AppHarness.tapVisible(tester, find.byKey(const Key('row-account')));
+    await AppHarness.settle(tester);
     AppHarness.expectLocation(router, RouteNames.settings);
     expect(
       find.byType(SettingsScreen),
       findsOneWidget,
       reason:
-          'the trailing tune button must push the shared «Акаунт» page — '
-          'this route had ZERO test coverage, widget or integration, '
-          'before this change',
+          'the hub\'s «Акаунт» row must still push the shared «Акаунт» page',
     );
     return router;
   }

@@ -87,6 +87,7 @@ class ServiceForm extends StatefulWidget {
     this.submitLabel,
     required this.onSubmit,
     this.readOnly = false,
+    this.onDirtyChanged,
   });
 
   /// Pre-filled service values (edit mode). Null = blank form (create mode).
@@ -103,6 +104,16 @@ class ServiceForm extends StatefulWidget {
   /// Must return a [Future] so the form can show a loading spinner. Throw a
   /// [Failure] or any exception to surface an error at the screen level.
   final Future<void> Function(MasterServiceCreate input) onSubmit;
+
+  /// Notified whenever the form's dirty state flips.
+  ///
+  /// Qase defect #26 — the form has tracked dirtiness since Phase 5.4 to drive
+  /// its inline «Незбережені зміни» caption, but kept it entirely private, so a
+  /// host screen could not warn before discarding an edit on exit.
+  ///
+  /// ADDITIVE (CLAUDE.md): optional and `null` by default, so every existing
+  /// caller — the golden and widget suites included — behaves exactly as before.
+  final void Function(bool isDirty)? onDirtyChanged;
 
   /// Phase 320 (D1/D3) — additive, defaults to `false` so every existing
   /// caller renders exactly as before.
@@ -376,6 +387,11 @@ class _ServiceFormState extends State<ServiceForm> {
   void initState() {
     super.initState();
 
+    // Qase defect #26 — forward dirty flips to the host. Registered as a
+    // LISTENER rather than threaded through the five sites that assign
+    // `_dirtyNotifier.value`, so a future sixth assignment cannot forget it.
+    _dirtyNotifier.addListener(_notifyDirtyChanged);
+
     final MasterService? initial = widget.initial;
 
     _baselineName = initial?.name ?? '';
@@ -630,8 +646,12 @@ class _ServiceFormState extends State<ServiceForm> {
     _dirtyNotifier.value = _wasDirty;
   }
 
+  void _notifyDirtyChanged() =>
+      widget.onDirtyChanged?.call(_dirtyNotifier.value);
+
   @override
   void dispose() {
+    _dirtyNotifier.removeListener(_notifyDirtyChanged);
     _nameCtrl.dispose();
     _durationCtrl.dispose();
     _priceFixedCtrl.dispose();

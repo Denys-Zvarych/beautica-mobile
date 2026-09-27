@@ -150,6 +150,15 @@ final class LoggingInterceptor extends Interceptor {
 
     final elapsed = _stopElapsed(err.requestOptions);
 
+    // A deliberate cancellation (e.g. a settlement query superseded by the
+    // next keystroke — its provider cancels the token on dispose) is not an
+    // error. Logging it as a WARNING `<-- ERROR` line per keystroke buried
+    // real failures in debug logs (security L1).
+    if (err.type == DioExceptionType.cancel) {
+      handler.next(err);
+      return;
+    }
+
     // Redact response body for sensitive endpoints to avoid leaking tokens,
     // credentials, or PII location data in error logs. Uses [isPiiPath] to
     // cover auth paths, authenticated PII endpoints AND dynamic-segment routes.

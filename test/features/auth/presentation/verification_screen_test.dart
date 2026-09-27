@@ -1585,7 +1585,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Хрещатик',
@@ -1775,7 +1774,6 @@ void main() {
           salonName: 'Salon Lumière',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Хрещатик',
@@ -1887,7 +1885,6 @@ void main() {
           salonName: 'Salon Lumière',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           street: 'вул. Хрещатик',
           buildingNo: '12А',
@@ -2260,7 +2257,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Центральна',
@@ -2390,7 +2386,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Центральна',
@@ -2513,7 +2508,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Центральна',
@@ -2623,7 +2617,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Центральна',
@@ -2753,7 +2746,6 @@ void main() {
           phone: '+380501112233',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Центральна',
@@ -3331,7 +3323,6 @@ void main() {
           salonName: 'Salon Lumière',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Хрещатик',
@@ -3469,7 +3460,6 @@ void main() {
           salonName: 'Salon Lumière',
         );
         notifier.updateStep3(
-          oblastCode: 'oblast-1',
           cityId: 'city-1',
           districtId: 'district-1',
           street: 'вул. Хрещатик',

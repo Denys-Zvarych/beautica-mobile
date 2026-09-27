@@ -334,6 +334,11 @@ class AppointmentItemResponseStatusEnum extends EnumClass {
   static const AppointmentItemResponseStatusEnum CANCELLED =
       _$appointmentItemResponseStatusEnum_CANCELLED;
 
+  /// The per-item status. A single service line may be DECLINED independently of its siblings (per-service decline); CONFIRMED means still booked.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AppointmentItemResponseStatusEnum unknownDefaultOpenApi =
+      _$appointmentItemResponseStatusEnum_unknownDefaultOpenApi;
+
   static Serializer<AppointmentItemResponseStatusEnum> get serializer =>
       _$appointmentItemResponseStatusEnumSerializer;
 
@@ -371,6 +376,12 @@ class AppointmentItemResponseCancellationReasonEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'OTHER')
   static const AppointmentItemResponseCancellationReasonEnum OTHER =
       _$appointmentItemResponseCancellationReasonEnum_OTHER;
+
+  /// This service line's own cancellation reason — non-null only when the line is terminal (e.g. PROVIDER_UNAVAILABLE for a per-service decline).
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const AppointmentItemResponseCancellationReasonEnum
+      unknownDefaultOpenApi =
+      _$appointmentItemResponseCancellationReasonEnum_unknownDefaultOpenApi;
 
   static Serializer<AppointmentItemResponseCancellationReasonEnum>
       get serializer =>

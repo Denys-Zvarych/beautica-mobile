@@ -56,6 +56,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Stub auth / profile
@@ -137,7 +138,8 @@ class _CountingFakeScheduleRepository implements ScheduleRepository {
               : const <WorkInterval>[],
         ),
       );
-      cursor = _dateOnly(cursor.add(const Duration(days: 1)));
+      // DST-safe: `+24h` then truncate never advances on a fall-back day.
+      cursor = kyivAddDays(cursor, 1);
     }
     return out;
   }

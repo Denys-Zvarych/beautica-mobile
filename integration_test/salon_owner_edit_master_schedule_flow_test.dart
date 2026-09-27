@@ -36,6 +36,7 @@
 //
 // FINDERS: widget Keys and widget TYPES only — never a Cyrillic UI string.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
@@ -367,6 +368,160 @@ void main() {
         // refusal id) has NO registered handler and would leave this count
         // unchanged.
         expect(fb.putScheduleCalls, putsBefore + 1);
+      });
+    },
+  );
+
+  // ── 2026-09-26 (owner/admin master-card polish, Phase 355) ─────────────
+  //
+  // The widget tier (`salon_staff_profile_screen_test.dart`, group "empty
+  // schedule/services value colour (2026-09-26)") proves each colour
+  // INDEPENDENTLY against a directly-overridden provider. Neither test drives
+  // the REAL `GET /masters/master-aaa/weekly-schedules` +
+  // `GET /masters/master-aaa/services` round trip, and neither proves BOTH
+  // conditions holding TOGETHER on the same real card pair — a plausible
+  // regression (e.g. a shared "is this row empty" helper that only checks
+  // one of the two) would pass both isolated widget tests while still
+  // shipping broken. This is the genuinely new gap Rule 3b owes: a master
+  // who is doubly unconfigured, read entirely over the real (fake) wire.
+  testWidgets(
+    'SALON_OWNER opens master-aaa with NEITHER a schedule NOR any services '
+    '— both management-card values render in BrandColors.error',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..seedNoWeeklySchedule()
+          ..masterAaaServicesEmpty = true;
+        fb.mySalons.add(<String, dynamic>{
+          'id': 'salon-xyz',
+          'ownerId': 'user-owner-1',
+          'name': 'Студія Краси «Камелія»',
+          'city': 'Київ',
+          'cityId': 'city-kyiv',
+          'oblastId': 'oblast-kyiv',
+          'street': 'вул. Хрещатик',
+          'buildingNo': '12',
+          'isActive': true,
+          'isPrimary': false,
+        });
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonShellScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        router.go(RouteNames.salonShell('salon-xyz'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        try {
+          await tester.ensureVisible(find.byKey(const Key('salon-nav-tile-2')));
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('salon-nav-tile-2')).hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+        await tester.pump();
+
+        final Finder masterCard = find.byKey(
+          const Key('salon-manage-staff-card-master-aaa'),
+        );
+        await AppHarness.revealRosterCard(tester, masterCard);
+        try {
+          await tester.ensureVisible(masterCard);
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          masterCard.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(masterCard);
+        await tester.pump();
+
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder scheduleRow = find.byKey(
+          const Key('salon-staff-profile-schedule-row'),
+        );
+        final Finder servicesRow = find.byKey(
+          const Key('salon-staff-profile-services-row'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          scheduleRow,
+          timeout: const Duration(seconds: 20),
+        );
+        // Drain the staggered RevealTransitions off this screen's one 950ms
+        // AnimationController.
+        // fixed-wait-ok: `pumpAndSettle`/`AppHarness.settle` were found during
+        // authoring to stall reproducibly on this journey (this file's own
+        // TIMING header note above) — bisected repeatedly without isolating a
+        // root cause, so this is a deliberate bounded lockstep pump advancing
+        // in step with the transition's known 950ms duration, not an
+        // arbitrary sleep.
+        await tester.pump(const Duration(milliseconds: 300));
+        // fixed-wait-ok: second of three lockstep pumps — see the annotation
+        // immediately above.
+        await tester.pump(const Duration(milliseconds: 300));
+        // fixed-wait-ok: third of three lockstep pumps — see the annotation
+        // two above.
+        await tester.pump(const Duration(milliseconds: 300));
+
+        try {
+          await tester.ensureVisible(scheduleRow);
+        } catch (_) {}
+        try {
+          await tester.ensureVisible(servicesRow);
+        } catch (_) {}
+        await AppHarness.pumpUntilFound(
+          tester,
+          servicesRow,
+          timeout: const Duration(seconds: 20),
+        );
+
+        // Anti-vacuity (M14) — the cards really did resolve the EMPTY state,
+        // not a still-loading '' sentinel that would coincidentally also
+        // fail to match `BrandColors.error`.
+        final ManagementActionCard scheduleCard = tester
+            .widget<ManagementActionCard>(scheduleRow);
+        final ManagementActionCard servicesCard = tester
+            .widget<ManagementActionCard>(servicesRow);
+        expect(scheduleCard.value, isNotEmpty);
+        expect(servicesCard.value, isNotEmpty);
+
+        Color? valueColorOf(Finder rowFinder) {
+          final Finder valueText = find.descendant(
+            of: rowFinder,
+            matching: find.byKey(kManagementActionCardValueKey),
+          );
+          return tester.widget<Text>(valueText).style?.color;
+        }
+
+        expect(
+          valueColorOf(scheduleRow),
+          BrandColors.error,
+          reason:
+              'the REAL GET /masters/master-aaa/weekly-schedules resolved '
+              'to no template — «Не задано» must render red',
+        );
+        expect(
+          valueColorOf(servicesRow),
+          BrandColors.error,
+          reason:
+              'the REAL GET /masters/master-aaa/services resolved to an '
+              'empty catalogue — «Ще немає» must render red',
+        );
       });
     },
   );

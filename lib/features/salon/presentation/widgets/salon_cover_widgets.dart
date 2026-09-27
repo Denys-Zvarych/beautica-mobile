@@ -14,7 +14,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Extent (height == width) of the rounded-square controls that float over
@@ -316,107 +315,7 @@ class _CoverIconButtonState extends State<CoverIconButton> {
   }
 }
 
-/// The salon profile's section switcher — "Про салон" · "Майстри" ·
-/// "Послуги" · "Відгуки". A row of text tabs over a faint hairline, with a
-/// single camel underline that slides under the active tab. Selection is
-/// owned by the parent.
-class SalonTabBar extends StatelessWidget {
-  const SalonTabBar({
-    super.key,
-    required this.tabs,
-    required this.selected,
-    required this.onSelect,
-  });
-
-  final List<String> tabs;
-  final int selected;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: BrandColors.faint, width: 1)),
-      ),
-      child: Row(
-        children: <Widget>[
-          for (int i = 0; i < tabs.length; i++)
-            Expanded(
-              child: _SalonTab(
-                label: tabs[i],
-                active: i == selected,
-                onTap: () => onSelect(i),
-                tabKey: Key('salon-tab-$i'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SalonTab extends StatelessWidget {
-  const _SalonTab({
-    required this.label,
-    required this.active,
-    required this.onTap,
-    required this.tabKey,
-  });
-
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-  final Key tabKey;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      selected: active,
-      label: label,
-      child: GestureDetector(
-        key: tabKey,
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: VelvetSpacing.sm + 2,
-              ),
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: VelvetText.subheading12.copyWith(
-                  // 12 (not the original 14) — "Про салон" at w700 Comfortaa
-                  // is the widest of the 4 labels and, at 14px, its natural
-                  // width (~82px) exceeds a quarter-screen segment on a
-                  // 360dp-wide phone (~78dp after the screen's lg/24dp
-                  // margins), forcing a wrap. 12px keeps every label on one
-                  // line with headroom down to ~360dp; maxLines/overflow
-                  // above are the safety net below that.
-                  color: active ? BrandColors.text : BrandColors.muted,
-                  fontWeight: active ? FontWeight.w700 : FontWeight.w600,
-                ),
-              ),
-            ),
-            // Sliding camel underline — 3px under the active tab only.
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOutCubic,
-              height: 3,
-              width: active ? 44 : 0,
-              decoration: BoxDecoration(
-                color: BrandColors.accent,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+// SalonTabBar — PROMOTED to `lib/shared/widgets/profile_tab_bar.dart` as
+// `ProfileTabBar` (Phase 351, REUSE-FIRST). Import that instead; every call
+// site here keeps its exact `Key('salon-tab-$i')` finders via the widget's
+// default `keyPrefix: 'salon'`.

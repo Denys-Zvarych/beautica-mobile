@@ -48,6 +48,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/shared/time/kyiv_day.dart'
+    show kyivAddDays, kyivDaysBetween;
+
 import '../../../core/errors/failures.dart';
 import '../data/schedule_repository.dart';
 import '../data/schedule_repository_provider.dart';
@@ -186,20 +189,33 @@ class OverridesNotifier extends _$OverridesNotifier {
       // Phase 15.7 — validate the span's discrete shape ONCE up-front (every
       // expanded per-date PUT shares it), before any network call.
       _assertExplicitTimesValid(span);
-      // Build the date-only list, re-truncating each step so a DST boundary
-      // (where `+24h` can land at 23:00 / 01:00 of the wrong day) cannot skip
-      // or duplicate a calendar date.
-      final dates = <DateTime>[];
-      var cursor = DateTime(span.start.year, span.start.month, span.start.day);
-      final end = DateTime(span.end.year, span.end.month, span.end.day);
-      while (!cursor.isAfter(end)) {
-        dates.add(cursor);
-        final next = cursor.add(const Duration(days: 1));
-        cursor = DateTime(next.year, next.month, next.day);
-      }
-
-      if (dates.length > kMaxOverrideSpanDays) {
+      // Build the date-only list by CALENDAR stepping ([kyivAddDays]), never
+      // `+Duration(days: 1)` then truncate: on a DST fall-back day `+24h`
+      // lands at 23:00 of the SAME day (Europe/Kyiv 2026-10-25), truncation
+      // returns that same date, and the loop never advances — an unbounded
+      // spin that grew `dates` until the app froze / ran out of memory.
+      final DateTime start = DateTime(
+        span.start.year,
+        span.start.month,
+        span.start.day,
+      );
+      final DateTime end = DateTime(
+        span.end.year,
+        span.end.month,
+        span.end.day,
+      );
+      // Span cap enforced BEFORE the loop (defence in depth): the loop is then
+      // bounded by construction, whatever its step does.
+      if (kyivDaysBetween(start, end) + 1 > kMaxOverrideSpanDays) {
         throw const ValidationFailure(fieldErrors: <String, String>{});
+      }
+      final dates = <DateTime>[];
+      for (
+        var cursor = start;
+        !cursor.isAfter(end) && dates.length < kMaxOverrideSpanDays;
+        cursor = kyivAddDays(cursor, 1)
+      ) {
+        dates.add(cursor);
       }
 
       ScheduleOverride perDayFor(DateTime date) {

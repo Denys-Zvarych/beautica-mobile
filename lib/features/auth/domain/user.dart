@@ -12,6 +12,7 @@
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../../location/domain/settlement.dart';
 import 'user_role.dart';
 
 part 'user.freezed.dart';
@@ -37,6 +38,8 @@ class _UserRoleConverter implements JsonConverter<UserRole, String> {
 /// to allow offline bootstrap without a round-trip on cold start.
 @freezed
 abstract class User with _$User {
+  const User._();
+
   const factory User({
     /// Backend-assigned UUID for the user.
     required String id,
@@ -74,6 +77,15 @@ abstract class User with _$User {
     /// Resolved display name of the user's oblast/region; null when unset.
     /// Populated by GET /users/me — absent on the login response.
     String? oblastName,
+
+    /// Raw wire `citySettlementType` of the saved settlement (`CITY` / `TOWN` /
+    /// `VILLAGE` / `SETTLEMENT`); null when no city is set or the response
+    /// predates phase-330. Only ever feeds [savedSettlement]'s label prefix.
+    String? citySettlementType,
+
+    /// Bare hromada adjective of the saved settlement — populated by the server
+    /// ONLY when the name is ambiguous in its oblast; never derived here.
+    String? cityHromadaName,
 
     /// Resolved display name of the user's district; null when unset.
     /// Populated by GET /users/me — absent on the login response.
@@ -128,4 +140,14 @@ abstract class User with _$User {
   }) = _User;
 
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);
+
+  /// The saved locality as a [Settlement], for [composeSavedSettlementLabel];
+  /// `null` when no city name is set.
+  Settlement? get savedSettlement => Settlement.fromSaved(
+    id: cityId,
+    name: cityName,
+    settlementType: citySettlementType,
+    hromadaName: cityHromadaName,
+    oblastName: oblastName,
+  );
 }

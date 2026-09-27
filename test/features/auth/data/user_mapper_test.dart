@@ -13,6 +13,7 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/features/auth/data/user_mapper.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -174,6 +175,37 @@ void main() {
       final user = UserMapper.fromAuthResponse(_authResponse());
 
       expect(user.salonId, isNull);
+    });
+  });
+
+  // Phase-330 — the saved-settlement label parts reach the domain, so the
+  // profile / search prefill can compose «с. Іванівка, Шишацька громада,
+  // Полтавська обл.» instead of a bare «Іванівка».
+  group('UserMapper.fromProfileDto — saved-settlement label parts', () {
+    test('carries citySettlementType (as the wire string) and '
+        'cityHromadaNameUk', () {
+      final User user = UserMapper.fromProfileDto(
+        _fullProfileDto().rebuild(
+          (b) => b
+            ..citySettlementType =
+                UserProfileResponseCitySettlementTypeEnum.VILLAGE
+            ..cityHromadaNameUk = 'Шишацька',
+        ),
+      );
+
+      expect(user.citySettlementType, 'VILLAGE');
+      expect(user.cityHromadaName, 'Шишацька');
+      expect(user.savedSettlement?.settlementType, 'VILLAGE');
+      expect(user.savedSettlement?.hromadaName, 'Шишацька');
+      expect(user.savedSettlement?.oblastName, 'Київська область');
+    });
+
+    test('leaves both null when the response predates phase-330', () {
+      final User user = UserMapper.fromProfileDto(_fullProfileDto());
+
+      expect(user.citySettlementType, isNull);
+      expect(user.cityHromadaName, isNull);
+      expect(user.savedSettlement?.settlementType, isNull);
     });
   });
 }

@@ -102,6 +102,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../application/booking_notifier.dart';
 import '../application/my_bookings_notifier.dart';
@@ -319,7 +320,9 @@ class _SalonBookingConfirmScreenState
         : formatStreetCityLine(
             street: salon.street,
             buildingNo: salon.buildingNo,
-            city: salon.city,
+            city:
+                savedSettlementShortLabel(l10n, salon.savedSettlement) ??
+                salon.city,
           );
     final String? addressDetail =
         (salon?.locationNote?.trim().isNotEmpty ?? false)

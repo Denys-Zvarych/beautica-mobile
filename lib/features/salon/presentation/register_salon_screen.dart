@@ -7,8 +7,9 @@
 // district) → street/building/note → phone → Instagram (optional).
 //
 // REUSE-FIRST:
-//   - [LocalityCascade] (Phase 2.18) reused VERBATIM for the cascade — same
-//     widget `RegisterStep3Screen`/`SalonAddressEditScreen` already consume.
+//   - The shared locality block (Phase 346: [SettlementLocalityField], which
+//     replaced the Phase 2.18 cascade) reused VERBATIM — same widget
+//     `RegisterStep3Screen`/`SalonAddressEditScreen` already consume.
 //     Validation follows `RegisterStep3Screen`'s shape (oblast+city required,
 //     district required when the city has one — [validateProviderLocality]),
 //     NOT `SalonAddressEditScreen`'s simpler district-only check: this is a
@@ -65,10 +66,8 @@ import 'package:beautica_mobile/shared/validators/salon_instagram_validator.dart
 import 'package:beautica_mobile/shared/validators/salon_name_validator.dart';
 import 'package:beautica_mobile/shared/validators/salon_phone_validator.dart';
 import 'package:beautica_mobile/shared/validators/street_validator.dart';
-import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
-import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
 
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../application/my_salons_notifier.dart';
@@ -97,8 +96,11 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
   final TextEditingController _phoneCtrl = TextEditingController();
   final TextEditingController _instagramCtrl = TextEditingController();
 
-  Oblast? _selectedOblast;
-  City? _selectedCity;
+  /// Phase 346 — the «Область» + «Місто» cascade collapsed to one settlement
+  /// id; the name is owned by [SettlementLocalityField] itself and never
+  /// submitted.
+  String? _settlementId;
+
   CityDistrict? _selectedDistrict;
 
   bool _contactsPrefilled = false;
@@ -123,7 +125,7 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
     // mobile-perf LOW fix — decouple this form's rebuild rate from
     // `mySalonsProvider`'s lifecycle. `build()` used to `ref.watch(
     // mySalonsProvider)` purely to drive the ONE-TIME contact prefill below,
-    // which meant the WHOLE form (LocalityCascade + all 6 VelvetFields)
+    // which meant the WHOLE form (the locality block + all 6 VelvetFields)
     // rebuilt on every emission of that keepAlive provider, not just the
     // first:
     //   1. `_submit()` invalidates `mySalonsProvider` immediately before
@@ -211,15 +213,11 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
         _phoneCtrl.text.isNotEmpty || _instagramCtrl.text.isNotEmpty;
   }
 
-  void _onOblast(Oblast? o) => setState(() {
-    _selectedOblast = o;
-    _selectedCity = null;
-    _selectedDistrict = null;
-    _localityError = null;
-  });
-
-  void _onCity(City? c) => setState(() {
-    _selectedCity = c;
+  /// A new settlement always clears the district: a `CityDistrict` belongs to
+  /// exactly one settlement, so carrying one across would submit a district
+  /// that is not a child of the submitted city.
+  void _onSettlement(String id, String _) => setState(() {
+    _settlementId = id;
     _selectedDistrict = null;
     _localityError = null;
   });
@@ -231,14 +229,35 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
 
   Future<void> _submit() async {
     if (_submitting) return;
+    final Future<void>? districtLookup = pendingDistrictLookup(
+      ref,
+      _settlementId,
+    );
+    if (districtLookup != null) {
+      // Busy BEFORE the await (perf N1): the CTA disables and a second tap
+      // hits the `_submitting` guard instead of starting a second submit. Reset
+      // straight after — everything from here to the submit's own
+      // `_submitting = true` is synchronous, so no tap can slip in between, and
+      // every early return below leaves the flag clear.
+      setState(() => _submitting = true);
+      await districtLookup;
+      if (!mounted) return;
+      setState(() => _submitting = false);
+    }
     final l10n = AppLocalizations.of(context);
 
     final String? nameErr = validateSalonName(_nameCtrl.text, l10n);
     final LocalityValidationError? localityErr = validateProviderLocality(
-      oblastCode: _selectedOblast?.id,
-      cityId: _selectedCity?.id,
+      cityId: _settlementId,
       districtId: _selectedDistrict?.id,
-      cityHasDistricts: _selectedCity?.hasDistricts ?? false,
+      // The SAME read [SettlementLocalityField] uses to decide whether to
+      // render the District row, so the form and the row cannot disagree.
+      // `listen: false` — a callback, not `build`; the lookup was awaited above.
+      cityHasDistricts: districtsOf(
+        ref,
+        _settlementId,
+        listen: false,
+      ).isNotEmpty,
       l10n: l10n,
     );
     final String? streetErr = validateStreet(_streetCtrl.text, l10n);
@@ -267,15 +286,17 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
       return;
     }
 
-    final City? city = _selectedCity;
-    if (city == null) return; // guarded by validateProviderLocality above
+    final String? settlementId = _settlementId;
+    if (settlementId == null) {
+      return; // guarded by validateProviderLocality above
+    }
 
     setState(() => _submitting = true);
     final Failure? failure = await ref
         .read(registerSalonProvider.notifier)
         .submit(
           name: _nameCtrl.text,
-          cityId: city.id,
+          cityId: settlementId,
           districtId: _selectedDistrict?.id,
           street: _streetCtrl.text,
           buildingNo: _buildingCtrl.text,
@@ -416,19 +437,16 @@ class _RegisterSalonScreenState extends ConsumerState<RegisterSalonScreen> {
               },
             ),
             const SizedBox(height: VelvetSpacing.lg),
-            LocalityCascade(
+            SettlementLocalityField(
               key: const Key('register-salon-locality-cascade'),
-              selectedOblast: _selectedOblast,
-              selectedCity: _selectedCity,
+              settlementId: _settlementId,
               selectedDistrict: _selectedDistrict,
-              districtRequired: true,
-              onOblast: _onOblast,
-              onCity: _onCity,
+              enabled: !_submitting,
+              onSettlement: _onSettlement,
               onDistrict: _onDistrict,
-              oblastError: err?.level == LocalityLevel.oblast
+              settlementError: err?.level == LocalityLevel.city
                   ? err!.message
                   : null,
-              cityError: err?.level == LocalityLevel.city ? err!.message : null,
               districtError: err?.level == LocalityLevel.district
                   ? err!.message
                   : null,

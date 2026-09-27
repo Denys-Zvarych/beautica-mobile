@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -29,6 +30,8 @@ part 'public_salon_response.g.dart';
 /// * [coverImageUrl]
 /// * [avgRating]
 /// * [reviewCount]
+/// * [citySettlementType] - Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+/// * [cityHromadaNameUk] - Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`.
 @BuiltValue()
 abstract class PublicSalonResponse
     implements Built<PublicSalonResponse, PublicSalonResponseBuilder> {
@@ -88,6 +91,15 @@ abstract class PublicSalonResponse
 
   @BuiltValueField(wireName: r'reviewCount')
   int? get reviewCount;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueField(wireName: r'citySettlementType')
+  PublicSalonResponseCitySettlementTypeEnum? get citySettlementType;
+  // enum citySettlementTypeEnum {  CITY,  TOWN,  VILLAGE,  SETTLEMENT,  };
+
+  /// Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`.
+  @BuiltValueField(wireName: r'cityHromadaNameUk')
+  String? get cityHromadaNameUk;
 
   PublicSalonResponse._();
 
@@ -238,6 +250,21 @@ class _$PublicSalonResponseSerializer
       yield serializers.serialize(
         object.reviewCount,
         specifiedType: const FullType(int),
+      );
+    }
+    if (object.citySettlementType != null) {
+      yield r'citySettlementType';
+      yield serializers.serialize(
+        object.citySettlementType,
+        specifiedType:
+            const FullType.nullable(PublicSalonResponseCitySettlementTypeEnum),
+      );
+    }
+    if (object.cityHromadaNameUk != null) {
+      yield r'cityHromadaNameUk';
+      yield serializers.serialize(
+        object.cityHromadaNameUk,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -391,6 +418,23 @@ class _$PublicSalonResponseSerializer
           ) as int;
           result.reviewCount = valueDes;
           break;
+        case r'citySettlementType':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(
+                PublicSalonResponseCitySettlementTypeEnum),
+          ) as PublicSalonResponseCitySettlementTypeEnum?;
+          if (valueDes == null) continue;
+          result.citySettlementType = valueDes;
+          break;
+        case r'cityHromadaNameUk':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.cityHromadaNameUk = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -418,4 +462,41 @@ class _$PublicSalonResponseSerializer
     );
     return result.build();
   }
+}
+
+class PublicSalonResponseCitySettlementTypeEnum extends EnumClass {
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'CITY')
+  static const PublicSalonResponseCitySettlementTypeEnum CITY =
+      _$publicSalonResponseCitySettlementTypeEnum_CITY;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'TOWN')
+  static const PublicSalonResponseCitySettlementTypeEnum TOWN =
+      _$publicSalonResponseCitySettlementTypeEnum_TOWN;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'VILLAGE')
+  static const PublicSalonResponseCitySettlementTypeEnum VILLAGE =
+      _$publicSalonResponseCitySettlementTypeEnum_VILLAGE;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'SETTLEMENT')
+  static const PublicSalonResponseCitySettlementTypeEnum SETTLEMENT =
+      _$publicSalonResponseCitySettlementTypeEnum_SETTLEMENT;
+
+  /// Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const PublicSalonResponseCitySettlementTypeEnum unknownDefaultOpenApi =
+      _$publicSalonResponseCitySettlementTypeEnum_unknownDefaultOpenApi;
+
+  static Serializer<PublicSalonResponseCitySettlementTypeEnum> get serializer =>
+      _$publicSalonResponseCitySettlementTypeEnumSerializer;
+
+  const PublicSalonResponseCitySettlementTypeEnum._(String name) : super(name);
+
+  static BuiltSet<PublicSalonResponseCitySettlementTypeEnum> get values =>
+      _$publicSalonResponseCitySettlementTypeEnumValues;
+  static PublicSalonResponseCitySettlementTypeEnum valueOf(String name) =>
+      _$publicSalonResponseCitySettlementTypeEnumValueOf(name);
 }

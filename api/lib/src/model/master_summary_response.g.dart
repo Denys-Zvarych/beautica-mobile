@@ -15,6 +15,9 @@ const MasterSummaryResponseMasterTypeEnum
 const MasterSummaryResponseMasterTypeEnum
     _$masterSummaryResponseMasterTypeEnum_SALON_OWNER =
     const MasterSummaryResponseMasterTypeEnum._('SALON_OWNER');
+const MasterSummaryResponseMasterTypeEnum
+    _$masterSummaryResponseMasterTypeEnum_unknownDefaultOpenApi =
+    const MasterSummaryResponseMasterTypeEnum._('unknownDefaultOpenApi');
 
 MasterSummaryResponseMasterTypeEnum
     _$masterSummaryResponseMasterTypeEnumValueOf(String name) {
@@ -25,8 +28,10 @@ MasterSummaryResponseMasterTypeEnum
       return _$masterSummaryResponseMasterTypeEnum_INDEPENDENT_MASTER;
     case 'SALON_OWNER':
       return _$masterSummaryResponseMasterTypeEnum_SALON_OWNER;
+    case 'unknownDefaultOpenApi':
+      return _$masterSummaryResponseMasterTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$masterSummaryResponseMasterTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -36,6 +41,7 @@ final BuiltSet<MasterSummaryResponseMasterTypeEnum>
   _$masterSummaryResponseMasterTypeEnum_SALON_MASTER,
   _$masterSummaryResponseMasterTypeEnum_INDEPENDENT_MASTER,
   _$masterSummaryResponseMasterTypeEnum_SALON_OWNER,
+  _$masterSummaryResponseMasterTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<MasterSummaryResponseMasterTypeEnum>
@@ -48,11 +54,13 @@ class _$MasterSummaryResponseMasterTypeEnumSerializer
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
     'SALON_OWNER': 'SALON_OWNER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

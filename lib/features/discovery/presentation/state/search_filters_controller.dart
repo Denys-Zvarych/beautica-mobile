@@ -31,11 +31,11 @@ import '../../../auth/domain/user.dart';
 import '../../../auth/presentation/auth_notifier.dart';
 import '../../../booking/application/pending_service_preselection_provider.dart';
 import '../../../home/application/client_edit_profile_notifier.dart';
-import '../../../location/domain/city.dart';
 import '../../../location/domain/city_district.dart';
-import '../../../location/domain/oblast.dart';
+import '../../../location/domain/settlement.dart';
 import '../../../location/state/location_providers.dart';
 import '../../domain/search_filters.dart';
+import '../../domain/search_suggestion.dart';
 
 part 'search_filters_controller.g.dart';
 
@@ -54,25 +54,41 @@ const int kSearchPriceDivisions = 40;
 @immutable
 class SearchFilterLabels {
   const SearchFilterLabels({
-    this.oblastName,
     this.cityName,
+    this.citySettlement,
     this.cityHasDistricts = false,
     this.districtName,
     this.categoryName,
   });
 
-  /// Display name of the selected oblast / region (e.g. «Львівська область»), or
-  /// null.
-  final String? oblastName;
-
-  /// Display name of the selected city (e.g. «Львів»), or null.
+  /// Display name of the selected settlement, as the picker composed it
+  /// («Львів, Львівська»), or null.
+  ///
+  /// Phase 346 — `oblastName` that used to sit above this is GONE with the
+  /// region step. The oblast has not disappeared from the UI: it is INSIDE this
+  /// label, which is exactly how a user tells two «Іванівка» apart.
   final String? cityName;
 
-  /// Whether the selected city subdivides into districts (mirrors
-  /// `City.hasDistricts`). Drives the District row's enabled/disabled state on
-  /// the filters screen: when false (or no city is chosen) the row is disabled
-  /// and the app never issues a districts request. UI-only — never sent on the
-  /// wire. Defaults to false (no city → no districts).
+  /// The profile's SAVED settlement, set ONLY by the profile prefill
+  /// ([SearchFiltersController.prefillFromProfileIfNeeded]), which runs in a
+  /// notifier with no `AppLocalizations` to compose a label with. The filters
+  /// screen composes it with `savedSettlementLabel` — the same function every
+  /// settlement seed uses — and falls back to [cityName] (the bare name) when
+  /// that yields nothing.
+  ///
+  /// `null` whenever [cityName] came from anywhere else (a pick in Search, a
+  /// profile-location save): those labels are already composed. Every writer
+  /// of [cityName] rewrites this too, so the two can never disagree.
+  final Settlement? citySettlement;
+
+  /// Whether the selected settlement subdivides into districts. Drives the
+  /// District row's enabled/disabled state on the filters screen: when false
+  /// (or nothing is chosen) the row is disabled and the app never issues a
+  /// districts request. UI-only — never sent on the wire.
+  ///
+  /// Phase 346 — no longer mirrors `City.hasDistricts` (the settlement search
+  /// response carries no such flag); the filters screen sets it from the same
+  /// `districtsOf` read the address screens use.
   final bool cityHasDistricts;
 
   /// Display name of the selected district (e.g. «Франківський»), or null when
@@ -83,15 +99,17 @@ class SearchFilterLabels {
   final String? categoryName;
 
   SearchFilterLabels copyWith({
-    String? Function()? oblastName,
     String? Function()? cityName,
+    Settlement? Function()? citySettlement,
     bool? cityHasDistricts,
     String? Function()? districtName,
     String? Function()? categoryName,
   }) {
     return SearchFilterLabels(
-      oblastName: oblastName != null ? oblastName() : this.oblastName,
       cityName: cityName != null ? cityName() : this.cityName,
+      citySettlement: citySettlement != null
+          ? citySettlement()
+          : this.citySettlement,
       cityHasDistricts: cityHasDistricts ?? this.cityHasDistricts,
       districtName: districtName != null ? districtName() : this.districtName,
       categoryName: categoryName != null ? categoryName() : this.categoryName,
@@ -102,16 +120,16 @@ class SearchFilterLabels {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is SearchFilterLabels &&
-          other.oblastName == oblastName &&
           other.cityName == cityName &&
+          other.citySettlement == citySettlement &&
           other.cityHasDistricts == cityHasDistricts &&
           other.districtName == districtName &&
           other.categoryName == categoryName;
 
   @override
   int get hashCode => Object.hash(
-    oblastName,
     cityName,
+    citySettlement,
     cityHasDistricts,
     districtName,
     categoryName,
@@ -142,16 +160,13 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
     return const SearchFilterLabels();
   }
 
-  /// Sets (or clears, when [name] is null) the selected-oblast display label.
-  void setOblastName(String? name) =>
-      state = state.copyWith(oblastName: () => name);
-
   /// Sets (or clears, when [name] is null) the selected-city display label.
   ///
   /// Clearing the city name also resets [SearchFilterLabels.cityHasDistricts] to
   /// false (no city → no districts), so the District row falls back to disabled.
   void setCityName(String? name) => state = state.copyWith(
     cityName: () => name,
+    citySettlement: () => null,
     cityHasDistricts: name == null ? false : state.cityHasDistricts,
   );
 
@@ -168,10 +183,10 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   void setCategoryName(String? name) =>
       state = state.copyWith(categoryName: () => name);
 
-  /// Sets the whole locality slice (oblast, city, `cityHasDistricts`, district)
+  /// Sets the whole locality slice (settlement, `cityHasDistricts`, district)
   /// in a SINGLE `copyWith` — one state emission instead of the up-to-four
-  /// separate emissions from calling [setOblastName]/[setCityName]/
-  /// [setCityHasDistricts]/[setDistrictName] back to back.
+  /// separate emissions from calling [setCityName]/[setCityHasDistricts]/
+  /// [setDistrictName] back to back.
   ///
   /// For call sites that always replace the entire locality atomically —
   /// [SearchFiltersController.prefillFromProfileIfNeeded]'s two branches and
@@ -185,15 +200,18 @@ class SearchFilterLabelsController extends _$SearchFilterLabelsController {
   /// in isolation — e.g. the cascade picker taps in `search_filters_screen
   /// .dart`, which set one level of the locality at a time as the user
   /// interacts with a single dropdown.
+  ///
+  /// [citySettlement] is passed ONLY by the profile prefill — see
+  /// [SearchFilterLabels.citySettlement].
   void setLocality({
-    String? oblastName,
     String? cityName,
+    Settlement? citySettlement,
     bool cityHasDistricts = false,
     String? districtName,
   }) {
     state = state.copyWith(
-      oblastName: () => oblastName,
       cityName: () => cityName,
+      citySettlement: () => citySettlement,
       cityHasDistricts: cityHasDistricts,
       districtName: () => districtName,
     );
@@ -261,8 +279,8 @@ class SearchQueryDraftController extends _$SearchQueryDraftController {
 /// this and the CTA forwards `state` to the results screen.
 @Riverpod(keepAlive: true)
 class SearchFiltersController extends _$SearchFiltersController {
-  /// Set ONLY by the user-driven locality mutators ([selectOblast] /
-  /// [selectCity] / [selectDistrict]) — never by [prefillFromProfileIfNeeded]
+  /// Set ONLY by the user-driven locality mutators ([selectSettlement] /
+  /// [selectDistrict]) — never by [prefillFromProfileIfNeeded]
   /// itself. Once true, the PASSIVE profile-derived seed
   /// ([prefillFromProfileIfNeeded]) is abandoned for the rest of the session:
   /// a genuine manual pick (including a manual *clear*) made through Search's
@@ -294,7 +312,6 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// user edited it on `ClientLocationEditScreen`), so the filter is
   /// re-seeded to match; an identical value is a no-op, avoiding redundant
   /// taxonomy lookups + state churn on every screen re-entry.
-  String? _lastSeededOblastId;
   String? _lastSeededCityId;
   String? _lastSeededDistrictId;
 
@@ -323,7 +340,6 @@ class SearchFiltersController extends _$SearchFiltersController {
     );
     // Re-arm the profile-seed tracking for the (possibly new) session.
     _userTouchedLocality = false;
-    _lastSeededOblastId = null;
     _lastSeededCityId = null;
     _lastSeededDistrictId = null;
     return const SearchFilters();
@@ -331,7 +347,7 @@ class SearchFiltersController extends _$SearchFiltersController {
 
   /// PASSIVE / TRANSIENT-scoped intent: "let me see the locality my profile
   /// already has on file, unless I've already told Search something else this
-  /// session." Pre-fills the locality filter (oblast → city → district) from
+  /// session." Pre-fills the locality filter (settlement + district) from
   /// the signed-in CLIENT's saved profile location — kept in sync with the
   /// profile across the WHOLE session, and NEVER over a manual change.
   ///
@@ -339,7 +355,7 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// screen's own one-shot re-entry path) — see
   /// `lib/features/discovery/presentation/search_filters_screen.dart` (and its
   /// picker taps/clears at lines 134, 167, 196, 206, 216, 226, which drive
-  /// [selectOblast]/[selectCity]/[selectDistrict] and therefore
+  /// [selectSettlement]/[selectDistrict] and therefore
   /// [_userTouchedLocality]).
   ///
   /// This is the "let me browse a different city right now" half of the
@@ -356,11 +372,11 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// Instead the profile is read (off the widget lifecycle) on every call,
   /// behind two guards:
   ///   1. [_userTouchedLocality] — once the user has manually picked (or
-  ///      cleared) a locality via [selectOblast]/[selectCity]/[selectDistrict],
+  ///      cleared) a locality via [selectSettlement]/[selectDistrict],
   ///      the seed is abandoned for the rest of the session (re-checked again
   ///      AFTER each async resolve, in case the user picks while the taxonomy
   ///      is loading);
-  ///   2. [_lastSeededOblastId]/[_lastSeededCityId]/[_lastSeededDistrictId] — if
+  ///   2. [_lastSeededCityId]/[_lastSeededDistrictId] — if
   ///      the profile's current locality is identical to what was last seeded,
   ///      the call is a no-op (nothing changed).
   ///
@@ -383,63 +399,40 @@ class SearchFiltersController extends _$SearchFiltersController {
       // async) profile future was resolving — their choice wins.
       if (_userTouchedLocality) return;
 
-      final String? oblastId = user.oblastId;
       final String? cityId = user.cityId;
       final String? districtId = user.districtId;
 
       // No-op: the profile's locality is identical to what we last seeded
       // (including "both empty" on the very first call).
-      if (oblastId == _lastSeededOblastId &&
-          cityId == _lastSeededCityId &&
-          districtId == _lastSeededDistrictId) {
+      if (cityId == _lastSeededCityId && districtId == _lastSeededDistrictId) {
         return;
       }
 
-      // No saved location (any more) → clear whatever was previously seeded,
+      // No saved location (any more) -> clear whatever was previously seeded,
       // matching the profile.
-      if (oblastId == null || cityId == null) {
-        _lastSeededOblastId = null;
+      if (cityId == null) {
         _lastSeededCityId = null;
         _lastSeededDistrictId = null;
-        state = state.copyWith(oblastId: null, cityId: null, districtId: null);
+        state = state.copyWith(cityId: null, districtId: null);
         ref
             .read(searchFilterLabelsControllerProvider.notifier)
-            .setLocality(oblastName: null, cityName: null, districtName: null);
+            .setLocality(cityName: null, districtName: null);
         return;
       }
 
-      // Resolve the taxonomy objects so the labels + cityHasDistricts are
-      // accurate (a single targeted city fetch for the saved oblast — not a scan
-      // of every oblast). Mirrors _prePopulateLocality.
-      final List<Oblast> oblasts = await ref.read(oblastListProvider.future);
-      if (_userTouchedLocality) return;
-      Oblast? matchedOblast;
-      for (final Oblast o in oblasts) {
-        if (o.id == oblastId) {
-          matchedOblast = o;
-          break;
-        }
-      }
-      if (matchedOblast == null) return;
-
-      final List<City> cities = await ref.read(
-        cityListProvider(oblastId).future,
-      );
-      if (_userTouchedLocality) return;
-      City? matchedCity;
-      for (final City c in cities) {
-        if (c.id == cityId) {
-          matchedCity = c;
-          break;
-        }
-      }
-      if (matchedCity == null) return;
-
+      // Phase 346 — the settlement LABEL needs no taxonomy resolution at all:
+      // `/users/me` already carries it denormalised as `cityName`. That deletes
+      // the eager oblast + cities-for-oblast pair this prefill used to issue on
+      // first open (mobile-backlog LOW, `search_filters_controller.dart:222,231,
+      // 241` — "eagerly fetches up to 4 endpoints"). What is left is the ONE
+      // districts read, and only when the profile actually has a district to
+      // label; a client with no district (the overwhelming majority, since 17
+      // settlements of 25 698 subdivide) now issues NOTHING beyond the profile
+      // read it already needed.
       CityDistrict? matchedDistrict;
-      if (districtId != null && matchedCity.hasDistricts) {
-        final List<CityDistrict> districts = await ref.read(
-          districtListProvider(matchedCity.id).future,
-        );
+      List<CityDistrict> districts = const <CityDistrict>[];
+      if (districtId != null) {
+        districts = await ref.read(districtListProvider(cityId).future);
         if (_userTouchedLocality) return;
         for (final CityDistrict d in districts) {
           if (d.id == districtId) {
@@ -450,31 +443,28 @@ class SearchFiltersController extends _$SearchFiltersController {
       }
 
       // Final re-check of the anti-clobber guard: if the user picked (or
-      // cleared) a locality while the taxonomy was loading, their choice wins
+      // cleared) a locality while the districts were loading, their choice wins
       // — abandon the seed.
       if (_userTouchedLocality) return;
 
       // Record what we are about to seed ...
-      _lastSeededOblastId = matchedOblast.id;
-      _lastSeededCityId = matchedCity.id;
+      _lastSeededCityId = cityId;
       _lastSeededDistrictId = matchedDistrict?.id;
-      // ... and commit the cascade-consistent filter ids ...
-      state = state.copyWith(
-        oblastId: matchedOblast.id,
-        cityId: matchedCity.id,
-        districtId: matchedDistrict?.id,
-      );
-      // ... and the display labels (cityHasDistricts comes from the resolved
-      // City, so the District row gates correctly).
-      final City city = matchedCity;
-      final CityDistrict? district = matchedDistrict;
+      // ... and commit the filter ids ...
+      state = state.copyWith(cityId: cityId, districtId: matchedDistrict?.id);
+      // ... and the display labels. `cityHasDistricts` is true whenever the
+      // districts read returned anything; when it was skipped (no saved
+      // district) the row stays gated until the user picks a settlement, which
+      // is the same state a client with no district has always seen.
       ref
           .read(searchFilterLabelsControllerProvider.notifier)
           .setLocality(
-            oblastName: matchedOblast.name,
-            cityName: city.name,
-            cityHasDistricts: city.hasDistricts,
-            districtName: district?.name,
+            cityName: user.cityName,
+            // Composed on the filters screen («м. Львів, Львівська обл.») —
+            // this notifier has no localisations.
+            citySettlement: user.savedSettlement,
+            cityHasDistricts: districts.isNotEmpty,
+            districtName: matchedDistrict?.name,
           );
     } catch (e, st) {
       // Graceful: a failed resolve leaves the locality filter as-is (nothing
@@ -509,7 +499,7 @@ class SearchFiltersController extends _$SearchFiltersController {
   ///
   ///   - [_userTouchedLocality] originally conflated two different intents: a
   ///     TRANSIENT "let me browse a different city right now" (set by
-  ///     [selectOblast]/[selectCity]/[selectDistrict], driven only from
+  ///     [selectSettlement]/[selectDistrict], driven only from
   ///     Search's own picker) and a DURABLE "I am saving a new home address"
   ///     (an explicit profile edit).
   ///   - Commit `5a0327a0` wired `ClientLocationEditScreen._save` to call
@@ -527,15 +517,20 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// name, not flip a flag on the "passive prefill" one.
   ///
   /// No async taxonomy re-resolution is needed here (unlike
-  /// [prefillFromProfileIfNeeded]): the caller already holds the fully
-  /// resolved [Oblast]/[City]/[CityDistrict] objects the user just picked and
-  /// saved via [LocalityCascade], so this method just writes them straight
-  /// through — both to [state] and to the sibling
+  /// [prefillFromProfileIfNeeded]): the caller already holds everything it just
+  /// saved — the settlement id, the label its own picker composed, and the
+  /// resolved [CityDistrict] — so this method writes them straight through,
+  /// both to [state] and to the sibling
   /// [searchFilterLabelsControllerProvider] display labels.
+  ///
+  /// Phase 346 — the parameters were `Oblast`/`City`/`CityDistrict` objects the
+  /// caller got from the cascade. The cascade is gone and the settlement picker
+  /// emits an id only (D3), so the id and its display label arrive separately.
   void applyProfileLocationSave({
-    required Oblast? oblast,
-    required City? city,
+    required String? cityId,
+    required String? cityName,
     required CityDistrict? district,
+    bool cityHasDistricts = false,
   }) {
     // Guard reset ALWAYS runs first, unconditionally — even when the
     // short-circuit below skips the state/label writes. This clear is the
@@ -543,11 +538,8 @@ class SearchFiltersController extends _$SearchFiltersController {
     // never be reachable-but-skipped by an early return.
     _userTouchedLocality = false;
     final bool unchanged =
-        state.oblastId == oblast?.id &&
-        state.cityId == city?.id &&
-        state.districtId == district?.id;
-    _lastSeededOblastId = oblast?.id;
-    _lastSeededCityId = city?.id;
+        state.cityId == cityId && state.districtId == district?.id;
+    _lastSeededCityId = cityId;
     _lastSeededDistrictId = district?.id;
 
     // Short-circuit: the just-saved locality is identical to what's already
@@ -559,17 +551,12 @@ class SearchFiltersController extends _$SearchFiltersController {
     // already on screen; nothing above this comment is skipped.
     if (unchanged) return;
 
-    state = state.copyWith(
-      oblastId: oblast?.id,
-      cityId: city?.id,
-      districtId: district?.id,
-    );
+    state = state.copyWith(cityId: cityId, districtId: district?.id);
     ref
         .read(searchFilterLabelsControllerProvider.notifier)
         .setLocality(
-          oblastName: oblast?.name,
-          cityName: city?.name,
-          cityHasDistricts: city?.hasDistricts ?? false,
+          cityName: cityName,
+          cityHasDistricts: cityHasDistricts,
           districtName: district?.name,
         );
   }
@@ -682,43 +669,32 @@ class SearchFiltersController extends _$SearchFiltersController {
     state = state.copyWith(sort: sort);
   }
 
-  /// Selects (or clears) the oblast / region — the first cascade level.
+  /// Selects (or clears) the settlement — the ONE locality step since Phase
+  /// 346. Pass `cityId: null` for a nationwide search.
   ///
-  /// Changing or clearing the oblast invalidates everything funnelled through
-  /// it: the city and the district are both cleared, since neither is meaningful
-  /// outside its region. Pass `oblastId: null` to clear the whole locality.
-  ///
-  /// A user-driven mutator: marks [_userTouchedLocality] so
-  /// [prefillFromProfileIfNeeded] never overwrites this choice again this
-  /// session, even a deliberate clear.
-  void selectOblast({required String? oblastId}) {
-    _userTouchedLocality = true;
-    state = state.copyWith(oblastId: oblastId, cityId: null, districtId: null);
-  }
-
-  /// Selects (or clears) the city — the second cascade level. Pass
-  /// `cityId: null` to clear the city scope; that also clears any district,
-  /// since a district is only meaningful alongside its city. The oblast is left
-  /// intact (the user stays within the chosen region).
+  /// The district is ALWAYS cleared, on a set as well as on a clear: a
+  /// `CityDistrict` belongs to exactly one settlement, so carrying one across a
+  /// settlement change would scope the search by a district that is not inside
+  /// the settlement being searched. (The retired [selectCity] cleared it only
+  /// on the null branch, which was safe ONLY because the cascade physically
+  /// could not offer a city outside the chosen oblast; with a flat autocomplete
+  /// the next pick can be anywhere in Ukraine.)
   ///
   /// A user-driven mutator: marks [_userTouchedLocality] so
   /// [prefillFromProfileIfNeeded] never overwrites this choice again this
   /// session, even a deliberate clear.
-  void selectCity({required String? cityId}) {
+  void selectSettlement({required String? cityId}) {
     _userTouchedLocality = true;
-    state = state.copyWith(
-      cityId: cityId,
-      districtId: cityId == null ? null : state.districtId,
-    );
+    state = state.copyWith(cityId: cityId, districtId: null);
   }
 
   /// Selects (or clears) the district — the optional third cascade level. Pass
   /// `districtId: null` to clear / skip it.
   ///
-  /// A district is only meaningful alongside a city: setting a non-null district
-  /// while no city is selected is dropped (the cascade integrity invariant). The
-  /// screen always picks a city first, so this guard only ever matters for a
-  /// stray/out-of-order call.
+  /// A district is only meaningful alongside a settlement: setting a non-null
+  /// district while none is selected is dropped (the locality integrity
+  /// invariant). The screen always picks a settlement first, so this guard only
+  /// ever matters for a stray/out-of-order call.
   ///
   /// A user-driven mutator: marks [_userTouchedLocality] so
   /// [prefillFromProfileIfNeeded] never overwrites this choice again this
@@ -825,7 +801,7 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// Clears every NON-location filter — the free-text query, the category, the
   /// second-level per-service selection, the price band and rating floor, and
   /// the sort — back to its default, while PRESERVING the currently-resolved
-  /// locality (oblast → city → district).
+  /// locality (settlement + district).
   ///
   /// "Clear" here means "reset to the prefilled baseline", NOT "empty
   /// everything": the locality is pre-filled from the signed-in client's saved
@@ -835,16 +811,16 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// after tapping «Скинути фільтри».
   ///
   /// Location is preserved by MUTATING the current state in place: the
-  /// already-resolved `oblastId` / `cityId` / `districtId` are simply omitted
-  /// from the [SearchFilters.copyWith] below, so they carry straight through
-  /// untouched. Nothing here re-reads the profile or re-resolves the taxonomy,
-  /// so NONE of the four location endpoints (`/users/me`, oblasts, cities,
-  /// districts) is re-fetched, and the keepAlive seamless-invalidate footgun is
+  /// already-resolved `cityId` / `districtId` are simply omitted from the
+  /// [SearchFilters.copyWith] below, so they carry straight through untouched.
+  /// Nothing here re-reads the profile or re-resolves the taxonomy, so neither
+  /// location endpoint (`/users/me`, districts) is re-fetched, and the
+  /// keepAlive seamless-invalidate footgun is
   /// side-stepped entirely (the notifier state is written directly — never via
   /// `ref.invalidate`).
   ///
   /// The profile-seed bookkeeping ([_userTouchedLocality] and the
-  /// [_lastSeededOblastId]/[_lastSeededCityId]/[_lastSeededDistrictId] latch) is
+  /// [_lastSeededCityId]/[_lastSeededDistrictId] latch) is
   /// intentionally left untouched: a clear does not change the locality, so that
   /// state stays valid and a later [prefillFromProfileIfNeeded] still behaves
   /// correctly.
@@ -854,29 +830,85 @@ class SearchFiltersController extends _$SearchFiltersController {
   /// and the multi-select service set on
   /// [searchServiceSelectionControllerProvider].
   void clearFilters() {
+    // categoryKey / serviceTypeSlugs + their label/second-level-selection
+    // fallout are cleared through the ONE shared path — see
+    // [_clearCategorySelection] (also used by [applySuggestion], Phase 352
+    // D5/Q2).
+    _clearCategorySelection();
     state = state.copyWith(
       query: null,
-      categoryKey: null,
-      serviceTypeSlugs: const <String>{},
       minRating: null,
       minPrice: null,
       maxPrice: null,
       sort: SearchSort.ratingDesc,
-      // oblastId / cityId / districtId intentionally omitted → preserved.
+      // cityId / districtId intentionally omitted → preserved.
     );
     // The typed term goes with the applied one: «Скинути фільтри» must leave the
     // search box genuinely empty, not sitting on a below-minimum draft that
     // would keep the field's error state and the disabled CTA alive.
     ref.read(searchQueryDraftControllerProvider.notifier).setDraft('');
-    // Clear only the category label; the oblast / city / district labels stay.
-    ref
-        .read(searchFilterLabelsControllerProvider.notifier)
-        .setCategoryName(null);
-    // Drop the second-level per-service selection held in its sibling notifier.
-    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
     // Drop any pending booking pre-selection carried from a prior search — a
     // cleared filter must never leak a stale service pre-check into a booking.
     ref.read(pendingServicePreselectionControllerProvider.notifier).clear();
+  }
+
+  /// Clears the rail category + its service-type chips: `categoryKey` → null,
+  /// `serviceTypeSlugs` → empty, the category display label cleared, and the
+  /// second-level per-service selection dropped.
+  ///
+  /// The ONE clearing path shared by [clearFilters] (the pre-352 baseline)
+  /// and [applySuggestion] (Phase 352 D5 — Q2's "clear the chip, keep the
+  /// rest" applied to a suggestion tap), so the two can never drift apart on
+  /// what "clear the category" means.
+  void _clearCategorySelection() {
+    state = state.copyWith(
+      categoryKey: null,
+      serviceTypeSlugs: const <String>{},
+    );
+    ref
+        .read(searchFilterLabelsControllerProvider.notifier)
+        .setCategoryName(null);
+    ref.read(searchServiceSelectionControllerProvider.notifier).clear();
+  }
+
+  /// Applies a tapped [SearchSuggestion] (Phase 352 D5).
+  ///
+  /// Always starts by clearing the rail category + its chips
+  /// ([_clearCategorySelection]) — Q2's "clear the chip, keep the rest",
+  /// applied to BOTH suggestion types — while settlement, district, price,
+  /// rating and sort are left untouched. Then:
+  ///   - CATEGORY → `query` becomes the suggestion's label (free text
+  ///     resolves a category label to the whole category server-side, so the
+  ///     page is the full category and the word stays visible in the field);
+  ///     the rail stays cleared.
+  ///   - SERVICE (Open Q1, locked) → the box is left EMPTY and the chip shows
+  ///     the service: `query` is cleared, the rail category is selected via
+  ///     the existing toggle setter ([toggleServiceType], called AFTER the
+  ///     clear above since that setter TOGGLES), and the service-type slug is
+  ///     recorded on the sibling per-service selection controller — the same
+  ///     path the chip drawer uses. A type name sent as free text would not
+  ///     reliably match server-side (backend Phase 331 D2), so the filter is
+  ///     required.
+  ///
+  /// The caller (the search screen) unfocuses the field and invokes the
+  /// existing `_onShowMasters()` afterwards — same route, same `extra:
+  /// filters`, so the place the suggestion was scoped to is the place the
+  /// results screen searches.
+  void applySuggestion(SearchSuggestion suggestion) {
+    _clearCategorySelection();
+    switch (suggestion.type) {
+      case SearchSuggestionType.category:
+        setQuery(suggestion.label);
+      case SearchSuggestionType.service:
+        setQuery(null);
+        toggleServiceType(suggestion.categoryKey);
+        final String? slug = suggestion.serviceTypeSlug;
+        if (slug != null) {
+          ref
+              .read(searchServiceSelectionControllerProvider.notifier)
+              .toggle(slug);
+        }
+    }
   }
 }
 

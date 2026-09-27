@@ -12,6 +12,10 @@ const UpdateServiceDefinitionRequestPriceTypeEnum
 const UpdateServiceDefinitionRequestPriceTypeEnum
     _$updateServiceDefinitionRequestPriceTypeEnum_RANGE =
     const UpdateServiceDefinitionRequestPriceTypeEnum._('RANGE');
+const UpdateServiceDefinitionRequestPriceTypeEnum
+    _$updateServiceDefinitionRequestPriceTypeEnum_unknownDefaultOpenApi =
+    const UpdateServiceDefinitionRequestPriceTypeEnum._(
+        'unknownDefaultOpenApi');
 
 UpdateServiceDefinitionRequestPriceTypeEnum
     _$updateServiceDefinitionRequestPriceTypeEnumValueOf(String name) {
@@ -20,8 +24,10 @@ UpdateServiceDefinitionRequestPriceTypeEnum
       return _$updateServiceDefinitionRequestPriceTypeEnum_FIXED;
     case 'RANGE':
       return _$updateServiceDefinitionRequestPriceTypeEnum_RANGE;
+    case 'unknownDefaultOpenApi':
+      return _$updateServiceDefinitionRequestPriceTypeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$updateServiceDefinitionRequestPriceTypeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +36,7 @@ final BuiltSet<UpdateServiceDefinitionRequestPriceTypeEnum>
         UpdateServiceDefinitionRequestPriceTypeEnum>(const <UpdateServiceDefinitionRequestPriceTypeEnum>[
   _$updateServiceDefinitionRequestPriceTypeEnum_FIXED,
   _$updateServiceDefinitionRequestPriceTypeEnum_RANGE,
+  _$updateServiceDefinitionRequestPriceTypeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<UpdateServiceDefinitionRequestPriceTypeEnum>
@@ -42,10 +49,12 @@ class _$UpdateServiceDefinitionRequestPriceTypeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'FIXED': 'FIXED',
     'RANGE': 'RANGE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

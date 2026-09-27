@@ -6,9 +6,10 @@
 // Backend `CityResponse` (camelCase JSON):
 //   { id (UUID), oblastId (UUID), katotthCode, nameUk, nameEn, hasDistricts }
 //
-// IDs are UUIDs → modeled as [String]. [hasDistricts] drives the District
-// row's disabled-with-helper state in [LocalityCascade]: when false the app
-// never issues a districts request and renders the helper line instead.
+// IDs are UUIDs → modeled as [String]. [hasDistricts] is the backend's
+// "this city subdivides" flag. Since phase 346 no address surface reads it —
+// `SettlementLocalityField` answers that question with `districtsOf` because
+// the settlement search response carries no such flag.
 //
 // Pure Dart: no Flutter imports anywhere in this file.
 

@@ -69,7 +69,6 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
 
   /// Merges the Step 3 (Address) slice.
   void updateStep3({
-    String? oblastCode,
     String? cityId,
     String? districtId,
     String street = '',
@@ -79,7 +78,6 @@ class RegisterDraftNotifier extends _$RegisterDraftNotifier {
     final current = state;
     if (current == null) return;
     state = current.copyWith(
-      oblastCode: oblastCode,
       cityId: cityId,
       districtId: districtId,
       street: street,

@@ -1,12 +1,24 @@
 // Phase 21.10 — SalonAddressEditScreen («Локація»).
 //
+// Phase 346 — the «Область» + «Місто» cascade is GONE, replaced by the single
+// shared [SettlementLocalityField]. What changed here: the three-object
+// `Oblast`/`City`/`CityDistrict` selection state collapsed to a `String?`
+// settlement id plus the district, the by-id `resolvedLocalityProvider`
+// pre-population became the denormalised [Salon.city] name handed to the field
+// as its initial label (the settlement search endpoint is query-shaped and the
+// retiring cascade's `/oblasts/{id}/cities` returns `settlement_type = 'CITY'`
+// only, so a village id has no id -> name route), and the district-presence
+// test moved from [City.hasDistricts] — a flag the settlement response does not
+// carry — to [districtsOf].
+//
 // One of the three lightweight edit-form screens reached from the Phase 21.9
 // settings hub (unbuilt — this screen has no in-app entry point yet, per this
 // phase's own scope note). Edits the locality cascade (Область → Місто →
 // Район) plus Вулиця / Будинок / Примітки до адреси.
 //
-// REUSE-FIRST: [LocalityCascade] (Phase 2.18) is reused VERBATIM for the
-// cascade — no second picker implementation. Save goes through the ADDITIVE
+// REUSE-FIRST: the shared locality block (Phase 346: [SettlementLocalityField],
+// which replaced the Phase 2.18 cascade) is reused VERBATIM — no second picker
+// implementation. Save goes through the ADDITIVE
 // [SalonManagementProfile.saveAddress] method (this phase), a sibling of the
 // existing [SalonManagementProfile.save] (Phase 21.2, name/description/
 // phone/Instagram only) rather than a brand-new fetch-and-diff notifier —
@@ -24,7 +36,7 @@
 //
 // Design source: `docs/signup-designs/SalonManagementDesign/lib/screens/
 // salon_address_edit_screen.dart` — ported onto production's
-// `SectionScaffold` + `VelvetField` + `LocalityCascade` (the preview's own
+// `SectionScaffold` + `VelvetField` + the shared locality field (the preview's own
 // static-value `LocalityPickerRow`s were a placeholder — "tapping a row is a
 // placeholder here", per that file's own doc). The preview's optional
 // «Примітки до адреси» field is real production `Salon.locationNote` /
@@ -42,12 +54,10 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
-import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
-import 'package:beautica_mobile/features/location/domain/oblast.dart';
-import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
-import 'package:beautica_mobile/features/location/presentation/widgets/locality_cascade.dart';
-import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
+import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
+import 'package:beautica_mobile/features/location/presentation/widgets/settlement_locality_field.dart';
+import 'package:beautica_mobile/features/location/state/location_providers.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/validators/building_validator.dart';
@@ -80,8 +90,14 @@ class _SalonAddressEditScreenState
   late final TextEditingController _buildingCtrl;
   late final TextEditingController _noteCtrl;
 
-  Oblast? _selectedOblast;
-  City? _selectedCity;
+  /// The chosen settlement UUID — submitted as `cityId` (phase-326 D6).
+  String? _settlementId;
+
+  /// The settlement NAME to show before the user picks anything: the
+  /// denormalised [Salon.city] the salon read already carries. Purely a seed
+  /// for the field's closed state; it is never submitted.
+  String? _settlementLabel;
+
   CityDistrict? _selectedDistrict;
 
   bool _saving = false;
@@ -96,36 +112,48 @@ class _SalonAddressEditScreenState
     _streetCtrl = TextEditingController(text: salon.street ?? '');
     _buildingCtrl = TextEditingController(text: salon.buildingNo ?? '');
     _noteCtrl = TextEditingController(text: salon.locationNote ?? '');
-    Future.microtask(() => _prePopulateLocality(salon));
+    _settlementId = salon.cityId.isEmpty ? null : salon.cityId;
+    // Seeded with the SAME label the picker composes («м. Львів, Львівська
+    // обл.»), never the bare name — see [savedSettlementLabel].
+    _settlementLabel = savedSettlementLabel(
+      AppLocalizations.of(context),
+      salon.savedSettlement,
+    );
+    _selectedDistrict = null;
+    if (_settlementId != null && salon.districtId != null) {
+      Future.microtask(() => _prePopulateDistrict(salon));
+    }
   }
 
-  /// Resolves [Oblast], [City], [CityDistrict] objects from [salon.oblastId]/
-  /// [salon.cityId]/[salon.districtId].
+  /// Re-resolves the saved [Salon.districtId] to its display object.
   ///
-  /// Phase 21.14 — the by-id scan itself (oblast -> city -> district, one
-  /// targeted lookup chain) moved to the shared [resolvedLocalityProvider]
-  /// (REUSE-FIRST — it was hand-copied here AND in
-  /// `LocationEditScreen._prePopulateLocality`; a third near-identical
-  /// private copy is exactly what that promotion prevents). This method is
-  /// now just the one-shot `ref.read(...future)` call plus the `setState`
-  /// that seeds the cascade's mutable local selection — error handling
-  /// (never throws; logs in debug builds only) lives in the provider, so
-  /// this method needs no try/catch of its own any more.
-  Future<void> _prePopulateLocality(Salon salon) async {
-    final ResolvedLocality resolved = await ref.read(
-      resolvedLocalityProvider(
-        oblastId: salon.oblastId,
-        cityId: salon.cityId,
-        districtId: salon.districtId,
-      ).future,
-    );
+  /// The settlement itself no longer needs resolving — its name arrives
+  /// denormalised on the salon read and goes straight onto the field — but the
+  /// district row still renders a `CityDistrict.name`, and `districtId` has no
+  /// denormalised counterpart. This is the SAME
+  /// `GET /locations/cities/{id}/districts` read the field itself issues to
+  /// decide whether to render the row at all, so the provider is already warm
+  /// and this is a cache scan, not a second round trip.
+  Future<void> _prePopulateDistrict(Salon salon) async {
+    final String? settlementId = _settlementId;
+    final String? districtId = salon.districtId;
+    if (settlementId == null || districtId == null) return;
 
+    List<CityDistrict> districts;
+    try {
+      districts = await ref.read(districtListProvider(settlementId).future);
+    } on Object {
+      // A failed lookup leaves the row unlabelled rather than blocking the
+      // form — the same degradation `districtsOf` documents.
+      return;
+    }
     if (!mounted) return;
-    setState(() {
-      _selectedOblast = resolved.oblast;
-      _selectedCity = resolved.city;
-      _selectedDistrict = resolved.district;
-    });
+    for (final CityDistrict d in districts) {
+      if (d.id == districtId) {
+        setState(() => _selectedDistrict = d);
+        return;
+      }
+    }
   }
 
   @override
@@ -138,28 +166,15 @@ class _SalonAddressEditScreenState
     super.dispose();
   }
 
-  void _onOblast(Oblast? o) {
+  /// A new settlement always clears the district: a `CityDistrict` belongs to
+  /// exactly one settlement, so carrying one across would submit a district
+  /// that is not a child of the submitted city.
+  void _onSettlement(String id, String label) {
     setState(() {
-      _selectedOblast = o;
-      _selectedCity = null;
+      _settlementId = id;
+      _settlementLabel = label;
       _selectedDistrict = null;
-      // Finding (2026-08-29) — an oblast change resets the city to null,
-      // which un-does whatever satisfied _errCity a moment ago; a stale
-      // `null` here left Save un-blocked even though no city is selected
-      // any more (the field-level error only re-evaluates in _validateLocality,
-      // which only runs on Save). Clearing both here mirrors
-      // LocationEditScreen's cascade handlers, which never carry a stale
-      // error across a selection reset either.
       _errCity = null;
-      _errDistrict = null;
-    });
-  }
-
-  void _onCity(City? c) {
-    setState(() {
-      _selectedCity = c;
-      _selectedDistrict = null;
-      if (c != null) _errCity = null;
       _errDistrict = null;
     });
   }
@@ -181,13 +196,25 @@ class _SalonAddressEditScreenState
   /// Finding 1 (2026-08-28), otherwise `saveAddress` can PATCH a cityId that
   /// requires a district while districtId is still unset, an invalid
   /// locality pair the backend's `LocalityWriteValidator` rejects.
-  /// `LocalityCascade` exposes `cityError`/`districtError` for exactly this;
-  /// wired here.
+  /// [SettlementLocalityField] exposes `settlementError`/`districtError` for
+  /// exactly this; wired here.
+  ///
+  /// Phase 346 — `cityHasDistricts` no longer comes off [City.hasDistricts]
+  /// (the settlement search response carries no such flag); it is the same
+  /// [districtsOf] read the field itself uses to decide whether to render the
+  /// row, so the form and the row can never disagree about whether a district
+  /// is owed.
   bool _validateLocality() {
     final l10n = AppLocalizations.of(context);
-    final bool citySelected = _selectedCity != null;
-    final bool cityHasDistricts = _selectedCity?.hasDistricts ?? false;
-    final String? errCity = !citySelected ? l10n.errRequired : null;
+    final bool citySelected = _settlementId != null;
+    // `listen: false` — a callback, not `build`; [_save] awaits
+    // [pendingDistrictLookup] before calling this.
+    final bool cityHasDistricts = districtsOf(
+      ref,
+      _settlementId,
+      listen: false,
+    ).isNotEmpty;
+    final String? errCity = !citySelected ? l10n.errSettlementRequired : null;
     final String? errDistrict = (cityHasDistricts && _selectedDistrict == null)
         ? l10n.errRequired
         : null;
@@ -199,6 +226,22 @@ class _SalonAddressEditScreenState
   }
 
   Future<void> _save() async {
+    if (_saving) return;
+    final Future<void>? districtLookup = pendingDistrictLookup(
+      ref,
+      _settlementId,
+    );
+    if (districtLookup != null) {
+      // Busy BEFORE the await (perf N1): the CTA disables and a second tap
+      // hits the `_saving` guard instead of starting a second submit. Reset
+      // straight after — everything from here to the submit's own
+      // `_saving = true` is synchronous, so no tap can slip in between, and
+      // every early return below leaves the flag clear.
+      setState(() => _saving = true);
+      await districtLookup;
+      if (!mounted) return;
+      setState(() => _saving = false);
+    }
     final l10n = AppLocalizations.of(context);
     final String? streetErr = validateStreet(_streetCtrl.text, l10n);
     final String? buildingErr = validateBuilding(_buildingCtrl.text, l10n);
@@ -212,8 +255,8 @@ class _SalonAddressEditScreenState
       return;
     }
 
-    final City? selectedCity = _selectedCity;
-    if (selectedCity == null) {
+    final String? settlementId = _settlementId;
+    if (settlementId == null) {
       // Defensive: unreachable once _validateLocality() returns true, since
       // the city is now unconditionally required (it sets _errCity and
       // returns false when no city is chosen). Mirrors
@@ -226,7 +269,7 @@ class _SalonAddressEditScreenState
     final Failure? failure = await ref
         .read(salonManagementProfileProvider(widget.salonId).notifier)
         .saveAddress(
-          cityId: selectedCity.id,
+          cityId: settlementId,
           districtId: _selectedDistrict?.id,
           street: _streetCtrl.text,
           buildingNo: _buildingCtrl.text,
@@ -286,15 +329,14 @@ class _SalonAddressEditScreenState
               style: VelvetText.body(),
             ),
           ),
-          LocalityCascade(
-            selectedOblast: _selectedOblast,
-            selectedCity: _selectedCity,
+          SettlementLocalityField(
+            settlementId: _settlementId,
+            initialSettlementLabel: _settlementLabel,
             selectedDistrict: _selectedDistrict,
-            districtRequired: true,
-            cityError: _errCity,
+            settlementError: _errCity,
             districtError: _errDistrict,
-            onOblast: _onOblast,
-            onCity: _onCity,
+            enabled: !_saving,
+            onSettlement: _onSettlement,
             onDistrict: _onDistrict,
           ),
           const SizedBox(height: VelvetSpacing.lg),

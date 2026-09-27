@@ -19,6 +19,7 @@
 // suite stays green.
 
 import 'package:beautica_api/beautica_api.dart';
+import 'package:beautica_mobile/core/network/api_enum_names.dart';
 import 'package:beautica_mobile/core/network/beautica_serializers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_mapper.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -152,41 +153,34 @@ void main() {
       ]);
     });
 
-    test('the UNTOLERATED generated serializers still throw — proving the '
-        'tolerance comes from the plugin and not from built_value', () {
-      // Asserted PRECISELY, not `throwsA(anything)`. A bare `anything` cannot
-      // tell "threw because of RESCHEDULED" from "threw for some unrelated
-      // reason", so an incidental mutation to the shared [_rowJson] helper
-      // (say `'startsAt': 'garbage'`) would keep this control GREEN while the
-      // three real tests above went red — the control would silently stop
-      // proving the thing it is named after, at exactly the moment its
-      // evidence mattered.
-      //
-      // built_value wraps the enum serializer's `ArgumentError` in a
-      // `DeserializationError` (`built_json_serializers.dart:142`), whose
-      // `toString()` carries both the target type and the offending value.
-      expect(
-        () => standardSerializers.deserialize(
-          _rowJson(id: 'booking-1', status: 'RESCHEDULED'),
-          specifiedType: const FullType(BookingDetailResponse),
-        ),
-        throwsA(
-          isA<DeserializationError>()
-              .having(
-                (DeserializationError e) => e.toString(),
-                'toString()',
-                contains('RESCHEDULED'),
-              )
-              .having(
-                (DeserializationError e) => e.toString(),
-                'toString()',
-                contains('BookingDetailResponseStatusEnum'),
-              ),
-        ),
-        reason:
-            'if this ever stops throwing, the generated client gained its own '
-            'unknown fallback and this whole plugin can be retired',
-      );
-    });
+    test(
+      'the UNTOLERATED generated serializers no longer throw either — '
+      'since `enumUnknownDefaultCase=true` they decode an unknown status '
+      'to the generated fallback, while the plugin still strips it to null',
+      () {
+        // Audit 2026-09-24: the generated enums gained an unknown-value
+        // fallback. This control used to pin "built_value throws"; it now pins
+        // the two decodes apart, so the null the mapper reads is still provably
+        // the PLUGIN's doing (a fallback member reaching the mapper would decode
+        // through `BookingStatus.fromWire` instead).
+        final BookingDetailResponse raw =
+            standardSerializers.deserialize(
+                  _rowJson(id: 'booking-1', status: 'RESCHEDULED'),
+                  specifiedType: const FullType(BookingDetailResponse),
+                )
+                as BookingDetailResponse;
+        expect(raw.status, isNotNull);
+        expect(isOpenApiUnknownDefault(raw.status!), isTrue);
+
+        final BookingDetailResponse tolerated =
+            beauticaSerializers.deserialize(
+                  _rowJson(id: 'booking-1', status: 'RESCHEDULED'),
+                  specifiedType: const FullType(BookingDetailResponse),
+                )
+                as BookingDetailResponse;
+        expect(tolerated.status, isNull);
+        expect(BookingMapper.fromDto(raw).status, BookingStatus.unknown);
+      },
+    );
   });
 }

@@ -20,6 +20,9 @@ const InvitePreviewResponseRoleEnum
 const InvitePreviewResponseRoleEnum
     _$invitePreviewResponseRoleEnum_INDEPENDENT_MASTER =
     const InvitePreviewResponseRoleEnum._('INDEPENDENT_MASTER');
+const InvitePreviewResponseRoleEnum
+    _$invitePreviewResponseRoleEnum_unknownDefaultOpenApi =
+    const InvitePreviewResponseRoleEnum._('unknownDefaultOpenApi');
 
 InvitePreviewResponseRoleEnum _$invitePreviewResponseRoleEnumValueOf(
     String name) {
@@ -34,8 +37,10 @@ InvitePreviewResponseRoleEnum _$invitePreviewResponseRoleEnumValueOf(
       return _$invitePreviewResponseRoleEnum_SALON_MASTER;
     case 'INDEPENDENT_MASTER':
       return _$invitePreviewResponseRoleEnum_INDEPENDENT_MASTER;
+    case 'unknownDefaultOpenApi':
+      return _$invitePreviewResponseRoleEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$invitePreviewResponseRoleEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -47,6 +52,7 @@ final BuiltSet<InvitePreviewResponseRoleEnum>
   _$invitePreviewResponseRoleEnum_SALON_ADMIN,
   _$invitePreviewResponseRoleEnum_SALON_MASTER,
   _$invitePreviewResponseRoleEnum_INDEPENDENT_MASTER,
+  _$invitePreviewResponseRoleEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<InvitePreviewResponseRoleEnum>
@@ -61,6 +67,7 @@ class _$InvitePreviewResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'CLIENT': 'CLIENT',
@@ -68,6 +75,7 @@ class _$InvitePreviewResponseRoleEnumSerializer
     'SALON_ADMIN': 'SALON_ADMIN',
     'SALON_MASTER': 'SALON_MASTER',
     'INDEPENDENT_MASTER': 'INDEPENDENT_MASTER',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override

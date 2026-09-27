@@ -207,6 +207,28 @@ void main() {
   });
 
   test(
+    'a 63-day range across the Kyiv spring forward (2026-03-01..05-03) is '
+    'still rejected — `difference().inDays` read it as 62 and let it through',
+    () async {
+      await expectLater(
+        repo.salonRosterEffectiveSchedule(
+          _salonId,
+          DateTime(2026, 3, 1),
+          DateTime(2026, 5, 3),
+        ),
+        rejectsBeforeCall,
+      );
+      verifyNever(
+        () => api.getSalonMastersEffectiveSchedule(
+          salonId: any(named: 'salonId'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+        ),
+      );
+    },
+  );
+
+  test(
     'an inverted range throws ValidationFailure before any wire call',
     () async {
       await expectLater(

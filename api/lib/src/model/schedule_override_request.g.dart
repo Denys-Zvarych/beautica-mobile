@@ -12,6 +12,9 @@ const ScheduleOverrideRequestKindEnum
 const ScheduleOverrideRequestKindEnum
     _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS =
     const ScheduleOverrideRequestKindEnum._('CUSTOM_HOURS');
+const ScheduleOverrideRequestKindEnum
+    _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi =
+    const ScheduleOverrideRequestKindEnum._('unknownDefaultOpenApi');
 
 ScheduleOverrideRequestKindEnum _$scheduleOverrideRequestKindEnumValueOf(
     String name) {
@@ -20,8 +23,10 @@ ScheduleOverrideRequestKindEnum _$scheduleOverrideRequestKindEnumValueOf(
       return _$scheduleOverrideRequestKindEnum_DAY_OFF;
     case 'CUSTOM_HOURS':
       return _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS;
+    case 'unknownDefaultOpenApi':
+      return _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -30,6 +35,7 @@ final BuiltSet<ScheduleOverrideRequestKindEnum>
         ScheduleOverrideRequestKindEnum>(const <ScheduleOverrideRequestKindEnum>[
   _$scheduleOverrideRequestKindEnum_DAY_OFF,
   _$scheduleOverrideRequestKindEnum_CUSTOM_HOURS,
+  _$scheduleOverrideRequestKindEnum_unknownDefaultOpenApi,
 ]);
 
 const ScheduleOverrideRequestModeEnum
@@ -38,6 +44,9 @@ const ScheduleOverrideRequestModeEnum
 const ScheduleOverrideRequestModeEnum
     _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES =
     const ScheduleOverrideRequestModeEnum._('EXPLICIT_TIMES');
+const ScheduleOverrideRequestModeEnum
+    _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi =
+    const ScheduleOverrideRequestModeEnum._('unknownDefaultOpenApi');
 
 ScheduleOverrideRequestModeEnum _$scheduleOverrideRequestModeEnumValueOf(
     String name) {
@@ -46,8 +55,10 @@ ScheduleOverrideRequestModeEnum _$scheduleOverrideRequestModeEnumValueOf(
       return _$scheduleOverrideRequestModeEnum_INTERVAL;
     case 'EXPLICIT_TIMES':
       return _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES;
+    case 'unknownDefaultOpenApi':
+      return _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi;
     default:
-      throw ArgumentError(name);
+      return _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi;
   }
 }
 
@@ -56,6 +67,7 @@ final BuiltSet<ScheduleOverrideRequestModeEnum>
         ScheduleOverrideRequestModeEnum>(const <ScheduleOverrideRequestModeEnum>[
   _$scheduleOverrideRequestModeEnum_INTERVAL,
   _$scheduleOverrideRequestModeEnum_EXPLICIT_TIMES,
+  _$scheduleOverrideRequestModeEnum_unknownDefaultOpenApi,
 ]);
 
 Serializer<ScheduleOverrideRequestKindEnum>
@@ -70,10 +82,12 @@ class _$ScheduleOverrideRequestKindEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'DAY_OFF': 'DAY_OFF',
     'CUSTOM_HOURS': 'CUSTOM_HOURS',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -100,10 +114,12 @@ class _$ScheduleOverrideRequestModeEnumSerializer
   static const Map<String, Object> _toWire = const <String, Object>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
     'INTERVAL': 'INTERVAL',
     'EXPLICIT_TIMES': 'EXPLICIT_TIMES',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 
   @override
@@ -143,9 +159,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final String? windowEnd;
   @override
-  final bool? windowConsistent;
-  @override
   final bool? kindConsistent;
+  @override
+  final bool? windowConsistent;
 
   factory _$ScheduleOverrideRequest(
           [void Function(ScheduleOverrideRequestBuilder)? updates]) =>
@@ -160,8 +176,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
       this.cancelOverlapping,
       this.windowStart,
       this.windowEnd,
-      this.windowConsistent,
-      this.kindConsistent})
+      this.kindConsistent,
+      this.windowConsistent})
       : super._();
   @override
   ScheduleOverrideRequest rebuild(
@@ -184,8 +200,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
         cancelOverlapping == other.cancelOverlapping &&
         windowStart == other.windowStart &&
         windowEnd == other.windowEnd &&
-        windowConsistent == other.windowConsistent &&
-        kindConsistent == other.kindConsistent;
+        kindConsistent == other.kindConsistent &&
+        windowConsistent == other.windowConsistent;
   }
 
   @override
@@ -199,8 +215,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     _$hash = $jc(_$hash, cancelOverlapping.hashCode);
     _$hash = $jc(_$hash, windowStart.hashCode);
     _$hash = $jc(_$hash, windowEnd.hashCode);
-    _$hash = $jc(_$hash, windowConsistent.hashCode);
     _$hash = $jc(_$hash, kindConsistent.hashCode);
+    _$hash = $jc(_$hash, windowConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -216,8 +232,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
           ..add('cancelOverlapping', cancelOverlapping)
           ..add('windowStart', windowStart)
           ..add('windowEnd', windowEnd)
-          ..add('windowConsistent', windowConsistent)
-          ..add('kindConsistent', kindConsistent))
+          ..add('kindConsistent', kindConsistent)
+          ..add('windowConsistent', windowConsistent))
         .toString();
   }
 }
@@ -262,15 +278,15 @@ class ScheduleOverrideRequestBuilder
   String? get windowEnd => _$this._windowEnd;
   set windowEnd(String? windowEnd) => _$this._windowEnd = windowEnd;
 
-  bool? _windowConsistent;
-  bool? get windowConsistent => _$this._windowConsistent;
-  set windowConsistent(bool? windowConsistent) =>
-      _$this._windowConsistent = windowConsistent;
-
   bool? _kindConsistent;
   bool? get kindConsistent => _$this._kindConsistent;
   set kindConsistent(bool? kindConsistent) =>
       _$this._kindConsistent = kindConsistent;
+
+  bool? _windowConsistent;
+  bool? get windowConsistent => _$this._windowConsistent;
+  set windowConsistent(bool? windowConsistent) =>
+      _$this._windowConsistent = windowConsistent;
 
   ScheduleOverrideRequestBuilder() {
     ScheduleOverrideRequest._defaults(this);
@@ -287,8 +303,8 @@ class ScheduleOverrideRequestBuilder
       _cancelOverlapping = $v.cancelOverlapping;
       _windowStart = $v.windowStart;
       _windowEnd = $v.windowEnd;
-      _windowConsistent = $v.windowConsistent;
       _kindConsistent = $v.kindConsistent;
+      _windowConsistent = $v.windowConsistent;
       _$v = null;
     }
     return this;
@@ -322,8 +338,8 @@ class ScheduleOverrideRequestBuilder
             cancelOverlapping: cancelOverlapping,
             windowStart: windowStart,
             windowEnd: windowEnd,
-            windowConsistent: windowConsistent,
             kindConsistent: kindConsistent,
+            windowConsistent: windowConsistent,
           );
     } catch (_) {
       late String _$failedField;
