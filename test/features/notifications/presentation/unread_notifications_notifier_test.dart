@@ -71,13 +71,14 @@ const AsyncValue<AuthSession> _loggedOut = AsyncData<AuthSession>(
 );
 
 class _H {
-  _H(this.async, {AsyncValue<AuthSession>? auth}) {
+  _H(this.async, {AsyncValue<AuthSession>? auth, Duration? jitter}) {
     final AsyncValue<AuthSession> initial = auth ?? _session('u1');
     final DateTime start = DateTime.utc(2026, 1, 1);
     container = ProviderContainer(
       overrides: [
         notificationRepositoryProvider.overrideWithValue(repo),
         pollIntervalProvider.overrideWithValue(_interval),
+        if (jitter != null) pollJitterProvider.overrideWithValue(jitter),
         // DateTime.now is not faked by fakeAsync: derive the instant from it.
         clockProvider.overrideWithValue(() => start.add(async.elapsed)),
         authProvider.overrideWith(() => _AuthStub(initial)),
@@ -138,9 +139,13 @@ void _walk(List<AppLifecycleState> states) {
   }
 }
 
-void _run(void Function(_H h) body, {AsyncValue<AuthSession>? auth}) {
+void _run(
+  void Function(_H h) body, {
+  AsyncValue<AuthSession>? auth,
+  Duration? jitter,
+}) {
   fakeAsync((FakeAsync async) {
-    final _H h = _H(async, auth: auth);
+    final _H h = _H(async, auth: auth, jitter: jitter);
     try {
       body(h);
     } finally {
@@ -165,6 +170,29 @@ void main() {
     } else if (current == AppLifecycleState.inactive) {
       _walk(const [AppLifecycleState.resumed]);
     }
+  });
+
+  test('should_addJitterToPollPeriod_when_jitterOverridden', () {
+    const Duration jitter = Duration(seconds: 4);
+    _run(jitter: jitter, (h) {
+      h.repo.handler = () async => 1;
+      h.start();
+      expect(h.repo.calls, 1); // initial fetch
+      // No tick at the bare interval: the period is interval + jitter.
+      h.elapse(_interval);
+      expect(h.repo.calls, 1);
+      h.elapse(jitter);
+      expect(h.repo.calls, 2);
+    });
+  });
+
+  test('should_defaultPollJitterToZero_when_notOverridden', () {
+    // Production (`main.dart`) overrides the jitter with a random value; every
+    // test relies on the un-overridden default being exactly zero so the poll
+    // period is the bare interval and fake-async ticks stay deterministic.
+    final ProviderContainer c = ProviderContainer();
+    addTearDown(c.dispose);
+    expect(c.read(pollJitterProvider), Duration.zero);
   });
 
   test('should_fetchOnResume', () {

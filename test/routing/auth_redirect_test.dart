@@ -1127,6 +1127,46 @@ void main() {
     });
   });
 
+  // Phase 361 audit (security LOW) — `/notifications` is guarded: signed-out
+  // users go to /login, and EVERY role reaches it (the feed is role-agnostic).
+  group('/notifications guard (Phase 361)', () {
+    AsyncValue<AuthSession> sessionFor(UserRole role) => AsyncData<AuthSession>(
+      AuthSession.authenticated(
+        user: User(
+          id: 'u-n-${role.name}',
+          email: '${role.name}@e.com',
+          role: role,
+        ),
+        accessToken: 'token',
+      ),
+    );
+
+    test('unauthenticated at /notifications is redirected to /login', () {
+      expect(
+        authRedirectForLocation(
+          _unauthenticatedSession,
+          RouteNames.notifications,
+        ),
+        equals(RouteNames.login),
+      );
+    });
+
+    for (final UserRole role in const <UserRole>[
+      UserRole.client,
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+      UserRole.salonMaster,
+      UserRole.independentMaster,
+    ]) {
+      test('${role.name} at /notifications is admitted (null)', () {
+        expect(
+          authRedirectForLocation(sessionFor(role), RouteNames.notifications),
+          isNull,
+        );
+      });
+    }
+  });
+
   // Splash duration gate — the animated wordmark (880 ms reveal) must always
   // play to completion. The gate parks the router on /splash until
   // AppStartTime.elapsed() >= AppStartTime.minSplashDuration regardless of

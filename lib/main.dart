@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +13,7 @@ import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
 import 'core/theme/app_theme.dart';
+import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
 import 'shared/time/time_zones.dart';
@@ -135,7 +137,21 @@ Future<void> main() async {
   // the screen in `AsyncLoading` for the whole 38 s instead of rendering its
   // error state. See `core/errors/failure_retry_policy.dart`.
   runApp(
-    const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+    ProviderScope(
+      retry: beauticaProviderRetry,
+      overrides: [
+        // Phase 361 audit — de-sync the 60 s unread poll across clients. The
+        // provider defaults to zero so tests stay exact; the app draws 0..5 s.
+        pollJitterProvider.overrideWithValue(
+          Duration(
+            milliseconds: math.Random().nextInt(
+              kUnreadPollJitterMax.inMilliseconds + 1,
+            ),
+          ),
+        ),
+      ],
+      child: const BeauticaApp(),
+    ),
   );
 
   // Phase 2.15 fix — release the native splash so the first Flutter frame
@@ -163,7 +179,11 @@ Future<void> main() async {
 /// ([BeauticaAssetIcons.notificationPlain]) reused by Головна and the Beauty
 /// Passport top bar (L3). Add further high-traffic SVGs here as needed.
 Future<void> _warmSharedSvgs() async {
-  const List<String> assets = <String>[BeauticaAssetIcons.notificationPlain];
+  const List<String> assets = <String>[
+    BeauticaAssetIcons.notificationPlain,
+    // Phase 361 — the unread bell (baked-in red dot) is the same shared glyph.
+    BeauticaAssetIcons.notificationUnread,
+  ];
   for (final String asset in assets) {
     final SvgAssetLoader loader = SvgAssetLoader(asset);
     await svg.cache.putIfAbsent(

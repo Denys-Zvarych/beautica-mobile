@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// [AuthNotifier] stub that settles immediately to `unauthenticated` — this
@@ -73,7 +74,7 @@ void main() {
       'NOT pageBuilder: _instantPage (CustomTransitionPage) — '
       'CustomTransitionPage bypasses the CupertinoPageTransitionsBuilder that '
       'installs the left-edge swipe-back gesture', (tester) async {
-    final container = ProviderContainer(
+    final container = makeTestContainer(
       retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
@@ -81,7 +82,6 @@ void main() {
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
       ],
     );
-    addTearDown(container.dispose);
 
     final GoRouter router = container.read(appRouterProvider);
     addTearDown(router.dispose);

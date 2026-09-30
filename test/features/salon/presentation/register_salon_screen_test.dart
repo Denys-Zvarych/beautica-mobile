@@ -70,6 +70,7 @@ import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/fakes/fake_service_repository.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/test_container.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
@@ -527,7 +528,10 @@ void main() {
         'refetches on its next read', () async {
       final counter = _CallCounter();
       final repo = FakeSalonRepository(salon: _primarySalon);
-      final container = ProviderContainer(
+      final container = makeTestContainer(
+        // `null` = Riverpod's default retry, exactly what the raw container
+        // this replaced used (this plain `test` has no pending-timer check).
+        retry: null,
         overrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
           secureStorageProvider.overrideWithValue(FakeSecureStorage()),
@@ -536,7 +540,6 @@ void main() {
           mySalonsProvider.overrideWith(() => _CountingMySalons(counter)),
         ],
       );
-      addTearDown(container.dispose);
 
       // A prior hub visit seeds the keepAlive cache BEFORE the create.
       await container.read(mySalonsProvider.future);
@@ -579,7 +582,7 @@ void main() {
     testWidgets('a SALON_OWNER is admitted to /salons/register', (
       tester,
     ) async {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
@@ -590,7 +593,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       final router = container.read(appRouterProvider);
       addTearDown(router.dispose);
 
@@ -623,7 +625,7 @@ void main() {
           firstName: 'Іван',
           lastName: 'Майстров',
         );
-        final container = ProviderContainer(
+        final container = makeTestContainer(
           retry: (_, _) => null,
           overrides: [
             authProvider.overrideWith(() => _FixedRoleAuthNotifier(nonOwner)),
@@ -645,7 +647,6 @@ void main() {
             ),
           ],
         );
-        addTearDown(container.dispose);
         final router = container.read(appRouterProvider);
         addTearDown(router.dispose);
 

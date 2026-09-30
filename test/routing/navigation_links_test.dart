@@ -92,6 +92,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
@@ -139,8 +140,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// Reads the REAL production router with the minimum overrides needed to avoid
 /// network / platform-channel I/O.
 GoRouter _productionRouter() {
-  final container = ProviderContainer(
-    retry: beauticaProviderRetry,
+  final container = makeTestContainer(
     overrides: [
       authProvider.overrideWith(
         () => _FixedAuthNotifier(_authenticatedSession),
@@ -149,7 +149,6 @@ GoRouter _productionRouter() {
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
   );
-  addTearDown(container.dispose);
   return container.read(appRouterProvider);
 }
 
@@ -438,6 +437,9 @@ void main() {
       'clientEditContacts': RouteNames.clientEditContacts,
       'clientEditLocation': RouteNames.clientEditLocation,
       'contactSupport': RouteNames.contactSupport,
+      // Phase 361 — the notification feed, a literal top-level leaf pushed by
+      // the shared bell on every role's header.
+      'notifications': RouteNames.notifications,
       'masterProfile': RouteNames.masterProfile,
       'masterBookings': RouteNames.masterBookings,
       'masterBookingNew': RouteNames.masterBookingNew,
@@ -680,8 +682,7 @@ void main() {
 
         // A container that starts with an unauthenticated session and
         // transitions to Authenticated after acceptInvite() succeeds.
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -690,7 +691,6 @@ void main() {
             ).overrideWith(() => _SyncInviteNotifier(validInvite)),
           ],
         );
-        addTearDown(container.dispose);
 
         // Build a minimal router that wires the REAL authRedirect so the
         // authenticated→unauthOnlyRoute guard is exercised.
@@ -847,8 +847,7 @@ void main() {
           ..acceptInviteResult = const ResponseUnusableFailure();
         final storage = FakeSecureStorage();
 
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -857,7 +856,6 @@ void main() {
             ).overrideWith(() => _SyncInviteNotifier(validInvite)),
           ],
         );
-        addTearDown(container.dispose);
 
         final router = GoRouter(
           initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
@@ -974,8 +972,7 @@ void main() {
             );
           final storage = FakeSecureStorage();
 
-          final container = ProviderContainer(
-            retry: beauticaProviderRetry,
+          final container = makeTestContainer(
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -984,7 +981,6 @@ void main() {
               ).overrideWith(() => _SyncInviteNotifier(validInvite)),
             ],
           );
-          addTearDown(container.dispose);
 
           final router = GoRouter(
             initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
@@ -1077,14 +1073,12 @@ void main() {
       'NL-B01: tapping the AuthScaffold back button on /register/step-2 '
       'navigates to /register (step-1)',
       (tester) async {
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
           ],
         );
-        addTearDown(container.dispose);
 
         container.read(registerDraftProvider.notifier).start(UserRole.client);
 
@@ -1168,14 +1162,12 @@ void main() {
   group('NL-B02: /register/step-3 back button navigates to /register/step-2', () {
     testWidgets('NL-B02: tapping the AuthScaffold back button on /register/step-3 '
         'navigates to /register/step-2', (tester) async {
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         ],
       );
-      addTearDown(container.dispose);
 
       container
           .read(registerDraftProvider.notifier)

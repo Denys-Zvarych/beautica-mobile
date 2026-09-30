@@ -107,6 +107,7 @@ import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/fakes/fake_slot_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -391,7 +392,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         // A CLIENT session resolves through the REAL client shell
         // (`RouteNames.clientHome`) en route to whichever booking location
         // the test navigates to — the shell's `StatefulShellRoute.indexedStack`
@@ -510,7 +511,6 @@ void main() {
           mySalonsProvider.overrideWith(_SettledMySalons.new),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

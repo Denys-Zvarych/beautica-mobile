@@ -2,7 +2,7 @@
 // (the relocated wordmark · bell · burger chrome used by Головна, BEAUTY
 // PASSPORT and Пошук).
 //
-// The BellButton idle/unread asset swap is exhaustively covered in
+// The NotificationBellButton idle/unread asset swap is exhaustively covered in
 // home_hub_screen_test.dart; here we only assert the SHARED bar renders its
 // three parts, honours the caller-supplied keys + callbacks, and forwards
 // hasUnread to the bell asset (so the swap is wired through the shared widget,
@@ -12,6 +12,7 @@ import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -74,7 +75,7 @@ ClientTopBar _bar() => ClientTopBar(
 /// The asset path of the rendered bell [AppIcon].
 String _bellAsset(WidgetTester tester) {
   final AppIcon icon = tester.widget<AppIcon>(
-    find.byKey(BellButton.bellIconKey),
+    find.byKey(NotificationBellButton.bellIconKey),
   );
   return icon.asset;
 }
@@ -123,9 +124,9 @@ void main() {
       ),
     );
 
-    // Bell present (it is a BellButton/AppIcon, NOT a NeumorphicIconButton).
+    // Bell present (it is a NotificationBellButton/AppIcon, NOT a NeumorphicIconButton).
     expect(find.byKey(const Key('search_bell_button')), findsOneWidget);
-    expect(find.byKey(BellButton.bellIconKey), findsOneWidget);
+    expect(find.byKey(NotificationBellButton.bellIconKey), findsOneWidget);
     // No burger: the only NeumorphicIconButton in the bar is the burger, so a
     // zero count proves the burger branch did not render.
     expect(find.byType(NeumorphicIconButton), findsNothing);

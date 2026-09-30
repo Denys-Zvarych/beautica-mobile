@@ -54,6 +54,16 @@ const Duration kUnreadMaxRetryAfter = Duration(seconds: 3600);
 @riverpod
 Duration pollInterval(Ref ref) => kUnreadPollInterval;
 
+/// Upper bound of the per-session poll jitter (production draws 0..this).
+const Duration kUnreadPollJitterMax = Duration(seconds: 5);
+
+/// Extra time added to every poll period so a fleet of clients that resumed
+/// together does not hit `/notifications/unread-count` in lockstep. Defaults
+/// to zero (tests stay exact); `main.dart` overrides it with a random
+/// 0..[kUnreadPollJitterMax] draw for the running app.
+@riverpod
+Duration pollJitter(Ref ref) => Duration.zero;
+
 @Riverpod(keepAlive: true)
 class UnreadNotifications extends _$UnreadNotifications {
   Timer? _pollTimer;
@@ -243,7 +253,10 @@ class UnreadNotifications extends _$UnreadNotifications {
 
   void _startPolling(Duration interval) {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(interval, (_) => unawaited(refresh()));
+    _pollTimer = Timer.periodic(
+      interval + ref.read(pollJitterProvider),
+      (_) => unawaited(refresh()),
+    );
   }
 
   void _teardown() {

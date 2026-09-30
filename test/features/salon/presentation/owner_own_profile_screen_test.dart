@@ -59,6 +59,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/test_container.dart';
 
 const _owner = User(
   id: 'u-1',
@@ -782,7 +783,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeRouterContainer(User user) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(
@@ -805,7 +806,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

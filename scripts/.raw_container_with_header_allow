@@ -1,0 +1,15 @@
+# Allow-list for scripts/forbid_raw_container_with_header.sh — the ONLY raw
+# `ProviderContainer(` sites permitted in a test that imports a header/shell
+# widget (client_shell / client_top_bar / my_salons_screen /
+# salon_management_profile_screen / salon_shell_screen / notification_bell_button)
+# or a lib file that imports one (app_router / move_admin_salon_screen /
+# staff_settings_screen). Matches `ProviderContainer(`, `.test(` and `.new(`.
+#
+# Format: <repo-relative-path>:<line>   # reason
+# Line-level on purpose (see the guard's header). When a listed file is edited
+# and its line shifts, the gate fails loudly and the line is updated here.
+#
+# Seeded EMPTY: every header-importing test was migrated onto
+# `makeTestContainer` (test/helpers/test_container.dart). The live-notifier
+# tests (unread_notifications_notifier_test.dart, unread_notifications_wired_test.dart)
+# own raw containers on purpose but import no header, so they need no entry.

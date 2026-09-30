@@ -126,6 +126,7 @@ import '../features/salon/presentation/salon_settings_screen.dart';
 import '../features/salon/presentation/salon_shell_screen.dart';
 import '../features/salon/presentation/salon_staff_profile_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
+import '../features/notifications/presentation/notifications_screen.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/domain/schedule_scope.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -904,6 +905,12 @@ GoRouter appRouter(Ref ref) {
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
+      // Phase 361 — notification feed (placeholder until phase 363). Literal
+      // top-level leaf, no role gate: the feed is per user.
+      GoRoute(
+        path: RouteNames.notifications,
+        builder: (context, state) => const NotificationsScreen(),
+      ),
       GoRoute(
         path: RouteNames.contactSupport,
         builder: (context, state) => const ContactSupportScreen(),

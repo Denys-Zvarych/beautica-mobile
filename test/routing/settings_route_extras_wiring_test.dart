@@ -63,6 +63,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 
 const String _kSalonId = 'salon-21-13-router';
 
@@ -111,7 +112,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     Future<GoRouter> pumpRouterAsOwner(WidgetTester tester) async {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(_OwnerAuthNotifier.new),
@@ -119,7 +120,6 @@ void main() {
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         ],
       );
-      addTearDown(container.dispose);
       final router = container.read(appRouterProvider);
       addTearDown(router.dispose);
       await tester.pumpWidget(

@@ -35,7 +35,7 @@
 // Layer: Widget (real router + real screens, faked repositories).
 
 import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -143,8 +143,7 @@ class _Harness {
     final FakeWishlistRepository wishlistRepo = FakeWishlistRepository(
       services: _wishlist(),
     );
-    final ProviderContainer container = ProviderContainer(
-      retry: beauticaProviderRetry,
+    final ProviderContainer container = makeTestContainer(
       overrides: <Object>[
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -159,7 +158,7 @@ class _Harness {
         screenProtectionProvider.overrideWithValue(ScreenProtectionManager()),
         wishlistRepositoryProvider.overrideWithValue(wishlistRepo),
         favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
-      ].cast(),
+      ],
     );
 
     final GoRouter router = container.read(appRouterProvider);

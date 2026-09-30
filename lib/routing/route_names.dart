@@ -673,6 +673,11 @@ abstract final class RouteNames {
   /// `POST /api/v1/support/contact`.
   static const String contactSupport = '/support/contact';
 
+  /// Phase 361 — the notification feed («Сповіщення»), pushed from the shared
+  /// bell on EVERY role's header. A literal top-level leaf with no role gate:
+  /// the feed is per user, not per role or salon.
+  static const String notifications = '/notifications';
+
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
 

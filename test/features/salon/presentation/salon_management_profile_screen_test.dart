@@ -38,6 +38,7 @@ import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
@@ -68,6 +69,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_salon_repository.dart';
+import '../../../helpers/test_container.dart';
 import '../../../helpers/overflow_guard.dart';
 import '../../../helpers/pump_app.dart';
 
@@ -359,6 +361,11 @@ GoRouter _router(FakeSalonRepository repo) => GoRouter(
       builder: (context, state) =>
           const Scaffold(key: Key('salon-home-bounce-target')),
     ),
+    GoRoute(
+      path: RouteNames.notifications,
+      builder: (context, state) =>
+          const Scaffold(key: Key('notifications-marker')),
+    ),
     // Phase 21.4 — the «+» staff tile's real destination
     // (`RouteNames.salonInviteStaff`). A trivial marker, same pattern as the
     // salonHome bounce target above: the «Команда» tab group below only
@@ -486,13 +493,13 @@ void main() {
   // salon_profile_screen.dart:369-425`) with zero coverage anywhere: no
   // golden renders this screen's cover, and no widget test asserted the
   // bell's key, its wired asset, its position relative to the settings
-  // gear, or its accessible name's deliberately-plain wording (the control
-  // is inert — `onTap: () {}` — so its label must not claim an unread
-  // state a screen-reader user could not act on or dismiss).
+  // gear, or its accessible name. Phase 361 made the control LIVE (global
+  // unread dot + push to the feed), so the label now reports the unread state
+  // and the tap opens the feed.
   group('notification bell (cover redesign)', () {
     testWidgets(
       'renders before the settings button in the top-right row, wired to '
-      'the notificationUnread asset',
+      'the notificationPlain asset when nothing is unread',
       (tester) async {
         final repo = FakeSalonRepository(salon: _stubSalon);
         await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
@@ -510,10 +517,10 @@ void main() {
         final CoverIconButton bell = tester.widget<CoverIconButton>(bellFinder);
         expect(
           bell.svgIcon,
-          BeauticaAssetIcons.notificationUnread,
+          BeauticaAssetIcons.notificationPlain,
           reason:
-              'the bell must render the baked-in-unread-dot asset per the '
-              'approved design',
+              'with nothing unread the bell renders the dotless asset; the '
+              'dotted asset is covered by the unread test below',
         );
         expect(
           bell.icon,
@@ -543,51 +550,61 @@ void main() {
       },
     );
 
-    testWidgets(
-      'accessible name stays plain — must NOT claim an unread state the '
-      'inert control cannot dismiss',
-      (tester) async {
-        final SemanticsHandle handle = tester.ensureSemantics();
-        final repo = FakeSalonRepository(salon: _stubSalon);
-        await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
-        await tester.pumpAndSettle();
+    testWidgets('idle (no unread) renders the dotless bell with the plain '
+        'accessible name', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: <Object>[
+          ..._overrides(repo),
+          hasUnreadNotificationsProvider.overrideWithValue(false),
+        ],
+      );
+      await tester.pumpAndSettle();
 
-        final String label = tester
-            .getSemantics(find.byKey(const Key('salon-manage-notifications')))
-            .getSemanticsData()
-            .label;
+      final Finder bellFinder = find.byKey(
+        const Key('salon-manage-notifications'),
+      );
+      final CoverIconButton bell = tester.widget<CoverIconButton>(bellFinder);
+      expect(bell.svgIcon, BeauticaAssetIcons.notificationPlain);
 
-        final ukL10n = await AppLocalizations.delegate.load(const Locale('uk'));
-        expect(
-          label,
-          ukL10n.salonManageNotificationsSemanticLabel,
-          reason:
-              'pins the exact accessible name to the ARB key — a future '
-              'edit concatenating an unread claim onto this label must '
-              'fail here',
-        );
-        expect(
-          label.toLowerCase(),
-          isNot(contains('непрочит')),
-          reason:
-              'onTap is a no-op — a screen-reader user must never be told '
-              'about unread notifications they cannot act on or dismiss',
-        );
+      final ukL10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(
+        tester.getSemantics(bellFinder).getSemanticsData().label,
+        ukL10n.notificationBellLabel,
+      );
+      handle.dispose();
+    });
 
-        final enL10n = await AppLocalizations.delegate.load(const Locale('en'));
-        expect(
-          enL10n.salonManageNotificationsSemanticLabel.toLowerCase(),
-          isNot(contains('unread')),
-          reason: 'same contract, English locale — ARB parity',
-        );
+    testWidgets('unread renders the dotted asset and announces the unread '
+        'name', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: <Object>[
+          ..._overrides(repo),
+          hasUnreadNotificationsProvider.overrideWithValue(true),
+        ],
+      );
+      await tester.pumpAndSettle();
 
-        handle.dispose();
-      },
-    );
+      final Finder bellFinder = find.byKey(
+        const Key('salon-manage-notifications'),
+      );
+      final CoverIconButton bell = tester.widget<CoverIconButton>(bellFinder);
+      expect(bell.svgIcon, BeauticaAssetIcons.notificationUnread);
 
-    testWidgets('tapping the bell neither navigates nor throws', (
-      tester,
-    ) async {
+      final ukL10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(
+        tester.getSemantics(bellFinder).getSemanticsData().label,
+        ukL10n.notificationBellUnreadLabel,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('tapping the bell opens the notification feed', (tester) async {
       final repo = FakeSalonRepository(salon: _stubSalon);
       await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
       await tester.pumpAndSettle();
@@ -595,8 +612,7 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-manage-notifications')));
       await tester.pumpAndSettle();
 
-      // Still on the management screen — no crash, no navigation away.
-      expect(find.byKey(const Key('salon-manage-hero-card')), findsOneWidget);
+      expect(find.byKey(const Key('notifications-marker')), findsOneWidget);
     });
   });
 
@@ -1394,13 +1410,12 @@ void main() {
         'mounted salonId is treated as UNRESOLVED -> stays mounted, never '
         'bounced on stale/wrong data', (tester) async {
       final repo = FakeSalonRepository(salon: _stubSalon);
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         overrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
           salonRepositoryProvider.overrideWithValue(repo),
         ],
       );
-      addTearDown(container.dispose);
 
       await tester.pumpWidget(
         UncontrolledProviderScope(

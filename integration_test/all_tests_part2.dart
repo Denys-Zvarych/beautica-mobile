@@ -81,6 +81,7 @@ import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'notification_bell_flow_test.dart' as notification_bell;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
@@ -347,4 +348,6 @@ void main() {
   // surviving the context.pop() that follows it, and single-slot
   // pre-emption against a real (non-same-tick) second trigger.
   group('velvet_snack_flow', velvet_snack.main);
+  // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
+  group('notification_bell_flow', notification_bell.main);
 }

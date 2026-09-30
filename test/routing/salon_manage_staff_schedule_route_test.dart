@@ -25,7 +25,6 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -51,6 +50,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -162,8 +162,7 @@ void main() {
   });
 
   ProviderContainer makeContainer() {
-    final container = ProviderContainer(
-      retry: beauticaProviderRetry,
+    final container = makeTestContainer(
       overrides: [
         authProvider.overrideWith(_FixedAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -172,7 +171,6 @@ void main() {
         salonManagementProfileProvider.overrideWith(_SettledEmptyRoster.new),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

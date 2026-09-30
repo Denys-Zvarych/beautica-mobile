@@ -72,6 +72,7 @@ import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_master_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/fakes/fake_service_repository.dart';
+import '../../../helpers/test_container.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/reveal_boundary.dart';
 
@@ -1075,7 +1076,7 @@ void main() {
     // at the `ProviderContainer` boundary infers the target — the same dodge
     // `test/helpers/pump_app.dart` documents for `ProviderScope.overrides`.
     ProviderContainer makeRouterContainer(Object authOverride) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: <Object>[
           authOverride,
@@ -1134,9 +1135,8 @@ void main() {
             (ref) async => const <TimelineEntry>[],
           ),
           myRatingProvider.overrideWith((ref) async => const ClientRating()),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

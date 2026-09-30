@@ -86,6 +86,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -337,7 +338,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer(User user, {List<Booking> rows = const []}) {
-    final container = ProviderContainer(
+    final container = makeTestContainer(
       // Retry DISABLED (not `beauticaProviderRetry`): this file mounts the
       // real role landing on the way to each route under test, and a provider
       // it reads without an override (e.g. the salon-master own-profile fetch)
@@ -388,7 +389,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

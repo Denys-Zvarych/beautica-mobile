@@ -15,7 +15,7 @@
 //   QA addition:
 //  12. MyRatingStatCard onTap fires and navigates to RouteNames.myRating.
 //  SVG-migration additions (Phase 13.7 icon update):
-//  13. BellButton renders notificationPlain SVG via AppIcon (not Material glyph,
+//  13. NotificationBellButton renders notificationPlain SVG via AppIcon (not Material glyph,
 //      not the dotted notificationOutline/Filled) — double-dot fix.
 //  14. PassportPreviewCard stat pill renders passportFilled SVG via AppIcon.
 //  Bell two-SVG state swap (replaces the old Stack/Positioned overlay dot):
@@ -25,7 +25,7 @@
 //      the baked-in red dot survives the srcIn flatten.
 //  17. Neither state contains any Positioned overlay dot — exactly one AppIcon
 //      bell glyph (the old code-drawn dot + its Key are gone).
-//  18. BellButton announces its semanticLabel (button role) and fires onTap.
+//  18. NotificationBellButton announces its semanticLabel (button role) and fires onTap.
 //
 // NOTE: ScreenProtectionManager is a keepAlive singleton — tests override it
 // with a no-op so the native plugin is never called during tests.
@@ -51,7 +51,7 @@ import 'package:beautica_mobile/features/location/domain/settlement.dart';
 import 'package:beautica_mobile/features/location/domain/city_district.dart';
 import 'package:beautica_mobile/features/location/domain/oblast.dart';
 import 'package:beautica_mobile/features/home/presentation/home_hub_screen.dart';
-import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/beauty_timeline_section.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/favorite_masters_card.dart';
 import 'package:beautica_mobile/features/home/presentation/widgets/hub_widgets.dart';
@@ -1072,7 +1072,7 @@ void main() {
   //
   // These tests lock in the icon sources for the two widgets updated in the
   // Phase 13.7 SVG migration:
-  //   • BellButton (home hub top bar) — was Icons.notifications_none_rounded,
+  //   • NotificationBellButton (home hub top bar) — was Icons.notifications_none_rounded,
   //     then AppIcon(notificationOutline) (dotted), now a two-SVG state swap:
   //     AppIcon(notificationPlain) when idle / AppIcon(notificationUnread) when
   //     hasUnread. The old code-drawn Stack/Positioned overlay dot is gone (it
@@ -1083,13 +1083,16 @@ void main() {
 
   group('SVG icon migration guard — bell button and passport stat pill', () {
     testWidgets(
-      'BellButton renders notificationPlain SVG, not Material glyph or dotted asset',
+      'NotificationBellButton renders notificationPlain SVG, not Material glyph or dotted asset',
       (tester) async {
         // The bell now lives in the shell-owned ClientTopBar, not in
-        // HomeHubScreen, so pump BellButton directly (it is public) in its idle
+        // HomeHubScreen, so pump NotificationBellButton directly (it is public) in its idle
         // (hasUnread: false) state — the production call site is pinned false.
         await tester.pumpApp(
-          const BellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
+          const NotificationBellButton(
+            onTap: _noop,
+            semanticLabel: 'Сповіщення',
+          ),
         );
         await tester.pump();
 
@@ -1105,7 +1108,7 @@ void main() {
         // AppIcon inside the bell button's subtree must be the DOTLESS plain
         // asset — never the dotted notificationOutline/notificationFilled
         // (whose baked-in dot caused the double-dot bug).
-        final Finder bellButton = find.byType(BellButton);
+        final Finder bellButton = find.byType(NotificationBellButton);
         expect(bellButton, findsOneWidget);
 
         final List<AppIcon> appIconsInBell = tester
@@ -1119,7 +1122,7 @@ void main() {
           ),
           isTrue,
           reason:
-              'BellButton must render AppIcon(notificationPlain) inside its '
+              'NotificationBellButton must render AppIcon(notificationPlain) inside its '
               'subtree (home_hub_bell_button key).',
         );
         expect(
@@ -1180,7 +1183,7 @@ void main() {
   // ── Unread state = two-SVG asset swap (double-dot fix) ───────────────────────
   //
   // The dot is now baked into a dedicated unread SVG instead of a code-drawn
-  // Stack/Positioned overlay. BellButton swaps the rendered asset on hasUnread:
+  // Stack/Positioned overlay. NotificationBellButton swaps the rendered asset on hasUnread:
   //   • hasUnread=false ⇒ AppIcon(notificationPlain)  (dotless bell)
   //   • hasUnread=true  ⇒ AppIcon(notificationUnread) (bell + baked red dot)
   // These tests guard against the always-on-dot regression (idle showing the
@@ -1188,14 +1191,14 @@ void main() {
   // asset). They also lock in that the old overlay dot is gone (no Stack with
   // clipBehavior: Clip.none, no Positioned dot) so the double-dot cannot recur.
   //
-  // BellButton is pumped directly (it is @visibleForTesting public) because the
+  // NotificationBellButton is pumped directly (it is @visibleForTesting public) because the
   // production call site is currently pinned to `hasUnread: false` (TODO 14.9),
   // so the `true` branch is only reachable from a test.
 
-  group('BellButton unread/idle asset swap', () {
+  group('NotificationBellButton unread/idle asset swap', () {
     AppIcon bellIcon(WidgetTester tester) => tester.widget<AppIcon>(
       find.descendant(
-        of: find.byType(BellButton),
+        of: find.byType(NotificationBellButton),
         matching: find.byType(AppIcon),
       ),
     );
@@ -1204,7 +1207,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpApp(
-        const BellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
+        const NotificationBellButton(onTap: _noop, semanticLabel: 'Сповіщення'),
       );
       await tester.pump();
 
@@ -1228,7 +1231,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpApp(
-        const BellButton(
+        const NotificationBellButton(
           onTap: _noop,
           semanticLabel: 'Сповіщення',
           hasUnread: true,
@@ -1258,7 +1261,10 @@ void main() {
     ) async {
       var tapped = false;
       await tester.pumpApp(
-        BellButton(onTap: () => tapped = true, semanticLabel: 'Сповіщення'),
+        NotificationBellButton(
+          onTap: () => tapped = true,
+          semanticLabel: 'Сповіщення',
+        ),
       );
       await tester.pump();
 
@@ -1268,17 +1274,18 @@ void main() {
       expect(
         find.bySemanticsLabel('Сповіщення'),
         findsOneWidget,
-        reason: 'BellButton must announce its semanticLabel (button role)',
+        reason:
+            'NotificationBellButton must announce its semanticLabel (button role)',
       );
 
       // Tapping the bell must fire onTap — the wiring that opens the
       // notification centre once Phase 14.9 lands.
-      await tester.tap(find.byType(BellButton));
+      await tester.tap(find.byType(NotificationBellButton));
       await tester.pump();
       expect(
         tapped,
         isTrue,
-        reason: 'tapping BellButton must invoke its onTap callback',
+        reason: 'tapping NotificationBellButton must invoke its onTap callback',
       );
     });
 
@@ -1287,7 +1294,7 @@ void main() {
     ) async {
       for (final unread in <bool>[false, true]) {
         await tester.pumpApp(
-          BellButton(
+          NotificationBellButton(
             onTap: _noop,
             semanticLabel: 'Сповіщення',
             hasUnread: unread,
@@ -1298,7 +1305,7 @@ void main() {
         // Exactly one bell glyph, never a Positioned overlay dot beside it.
         expect(
           find.descendant(
-            of: find.byType(BellButton),
+            of: find.byType(NotificationBellButton),
             matching: find.byType(AppIcon),
           ),
           findsOneWidget,
@@ -1306,7 +1313,7 @@ void main() {
         );
         expect(
           find.descendant(
-            of: find.byType(BellButton),
+            of: find.byType(NotificationBellButton),
             matching: find.byType(Positioned),
           ),
           findsNothing,
