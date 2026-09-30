@@ -23,6 +23,7 @@ import 'package:beautica_api/src/api/internal_category_controller_api.dart';
 import 'package:beautica_api/src/api/location_controller_api.dart';
 import 'package:beautica_api/src/api/master_controller_api.dart';
 import 'package:beautica_api/src/api/media_controller_api.dart';
+import 'package:beautica_api/src/api/notifications_api.dart';
 import 'package:beautica_api/src/api/phone_otp_controller_api.dart';
 import 'package:beautica_api/src/api/public_booking_controller_api.dart';
 import 'package:beautica_api/src/api/review_controller_api.dart';
@@ -187,6 +188,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   MediaControllerApi getMediaControllerApi() {
     return MediaControllerApi(dio, serializers);
+  }
+
+  /// Get NotificationsApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  NotificationsApi getNotificationsApi() {
+    return NotificationsApi(dio, serializers);
   }
 
   /// Get PhoneOtpControllerApi instance, base route and serializer can be overridden by a given but be careful,

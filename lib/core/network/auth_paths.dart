@@ -248,6 +248,10 @@ const List<String> kPiiPathPrefixes = <String>[
   // `LoggingInterceptor.onRequest` wrote the full PATCH body unredacted via
   // `dart:developer.log()` in debug builds.
   '/api/v1/salons/',
+  // Phase 359 — in-app notification feed. Response bodies carry counterpart /
+  // subject names (PII) and salon names; the prefix also covers
+  // `/unread-count`, `/read-all` and `/{id}/read`.
+  '/api/v1/notifications',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

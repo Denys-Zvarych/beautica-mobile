@@ -49,3 +49,11 @@ MasterControllerApi masterApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 ClientControllerApi clientApi(Ref ref) =>
     ClientControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [NotificationsApi] singleton (phase 359) for the
+/// in-app notification feed. The generated enums carry an
+/// `unknown_default_open_api` fallback, so `standardSerializers` already
+/// tolerates a new backend `type` / `kind`.
+@Riverpod(keepAlive: true)
+NotificationsApi notificationsApi(Ref ref) =>
+    NotificationsApi(ref.watch(dioProvider), standardSerializers);

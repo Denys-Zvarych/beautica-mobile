@@ -13,6 +13,8 @@
 //   receiveTimeout    → NetworkFailure(mayHaveReachedServer: true)
 //   HTTP 429 on a salon-board read route
 //                                         → SalonBoardRateLimitedFailure
+//   HTTP 429 on /notifications*
+//                                         → NotificationsRateLimitedFailure
 //   HTTP 401          → UnauthorizedFailure
 //   HTTP 404          → NotFoundFailure
 //   HTTP 409          → ServerFailure(statusCode: 409)
@@ -259,6 +261,17 @@ final class ErrorMapperInterceptor extends Interceptor {
         );
       }
 
+      // Phase 359 — the in-app notification feed's shared per-user 60/min
+      // bucket (backend phase 334) covers all four routes, so ANY 429 under
+      // `/notifications` maps here. CONTAINS (not endsWith): `/{id}/read`
+      // carries a path parameter. Same shared Retry-After resolver as above.
+      if (statusCode == 429 && path.contains('/api/v1/notifications')) {
+        return NotificationsRateLimitedFailure(
+          retryAfterSeconds: notificationsRetryAfterSeconds(err),
+          cause: err,
+        );
+      }
+
       if (statusCode == 401) {
         // MEDIUM-2 (mobile-security 2026-05-24): decode the EMAIL_NOT_VERIFIED
         // sub-code into a typed field so login_screen.dart can branch on
@@ -434,6 +447,16 @@ final class ErrorMapperInterceptor extends Interceptor {
     return null;
   }
 
+  /// [NotificationsRateLimitedFailure.retryAfterSeconds] for a 429: the shared
+  /// resolver's value with its "absent / unparsable" `0` mapped to `null`
+  /// (the failure's contract: `null` = absent), so a poller applies its own
+  /// default backoff and never reads `0` as "retry now". Public so the
+  /// notification repository maps a 429 identically.
+  static int? notificationsRetryAfterSeconds(DioException err) {
+    final seconds = _extractRetryAfterSecondsNullable(err);
+    return seconds == null || seconds <= 0 ? null : seconds;
+  }
+
   /// Extracts the resend-cooldown seconds from the 429 response.
   ///
   /// Resolution order (first non-null result wins):
@@ -454,7 +477,7 @@ final class ErrorMapperInterceptor extends Interceptor {
   ///
   /// Returns `null` when the server value exceeds [kMaxUxCooldownSeconds].
   /// Returns `0` when both sources are absent or malformed.
-  int? _extractRetryAfterSecondsNullable(DioException err) {
+  static int? _extractRetryAfterSecondsNullable(DioException err) {
     const int kMaxCooldown = 1 << 31; // overflow guard (MASVS-PLATFORM)
 
     // 1. Retry-After header (RFC 7231 §7.1.3 — integer seconds form only;

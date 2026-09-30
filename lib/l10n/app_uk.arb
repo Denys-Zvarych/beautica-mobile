@@ -2800,6 +2800,17 @@
   "@boardErrRateLimitedNoWait": {
     "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
   },
+  "notificationsErrRateLimited": "Забагато запитів. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@notificationsErrRateLimited": {
+    "description": "Error shown when an in-app notification-feed call returns 429 with a usable Retry-After header.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "notificationsErrRateLimitedNoWait": "Забагато запитів. Зачекайте трохи й спробуйте ще раз.",
+  "@notificationsErrRateLimitedNoWait": {
+    "description": "Error shown when a notification-feed call returns 429 without a usable Retry-After header. Same message minus the countdown."
+  },
   "boardRetryCooldown": "Спробувати знову через {seconds} с",
   "@boardRetryCooldown": {
     "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",

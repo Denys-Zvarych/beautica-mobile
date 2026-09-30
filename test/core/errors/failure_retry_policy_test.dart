@@ -77,6 +77,8 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // through a provider BUILD like the board, so `isThrottleFailure` is what
   // stops the container re-issuing it — asserted in the throttle group.
   'SettlementSearchRateLimitedFailure': true,
+  // 429 from the notification feed's shared per-user bucket (phase 359).
+  'NotificationsRateLimitedFailure': true,
   // Deterministic.
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
@@ -198,6 +200,9 @@ Map<String, Failure> _instances() {
     ),
     'SettlementSearchRateLimitedFailure':
         const SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
+    'NotificationsRateLimitedFailure': const NotificationsRateLimitedFailure(
+      retryAfterSeconds: 30,
+    ),
     'ConflictFailure': const ConflictFailure(),
     'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
       serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
@@ -443,6 +448,9 @@ void main() {
             SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
         'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
+        'NotificationsRateLimitedFailure': NotificationsRateLimitedFailure(
+          retryAfterSeconds: 30,
+        ),
       };
       for (final MapEntry<String, Failure> e in throttles.entries) {
         expect(

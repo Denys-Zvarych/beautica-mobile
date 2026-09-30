@@ -722,4 +722,22 @@ void main() {
       expect(isPiiPath('/api/v1/masters/master-123'), isFalse);
     });
   });
+
+  group('notification feed paths (phase 359)', () {
+    test(
+      'every /notifications route is a PII route; kPiiPaths count unchanged',
+      () {
+        for (final path in <String>[
+          '/api/v1/notifications',
+          '/api/v1/notifications/unread-count',
+          '/api/v1/notifications/read-all',
+          '/api/v1/notifications/abc-123/read',
+        ]) {
+          expect(isPiiPath(path), isTrue, reason: path);
+        }
+        expect(kPiiPathPrefixes, contains('/api/v1/notifications'));
+        expect(kPiiPaths.length, equals(23));
+      },
+    );
+  });
 }

@@ -146,6 +146,10 @@ Class | Method | HTTP request | Description
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**getSalonPortfolio**](doc/MediaControllerApi.md#getsalonportfolio) | **GET** /api/v1/salons/{salonId}/portfolio | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadAvatar**](doc/MediaControllerApi.md#uploadavatar) | **POST** /api/v1/media/avatar | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadPortfolioPhoto**](doc/MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | 
+[*NotificationsApi*](doc/NotificationsApi.md) | [**listFeed**](doc/NotificationsApi.md#listfeed) | **GET** /api/v1/notifications | The recipient&#39;s own notification feed, newest first
+[*NotificationsApi*](doc/NotificationsApi.md) | [**markAllRead**](doc/NotificationsApi.md#markallread) | **PATCH** /api/v1/notifications/read-all | Marks every still-unread item created at or before the given cutoff (default: now) read
+[*NotificationsApi*](doc/NotificationsApi.md) | [**markRead**](doc/NotificationsApi.md#markread) | **PATCH** /api/v1/notifications/{id}/read | Marks one item read — idempotent; 404 for a missing or foreign id (never 403)
+[*NotificationsApi*](doc/NotificationsApi.md) | [**unreadCount**](doc/NotificationsApi.md#unreadcount) | **GET** /api/v1/notifications/unread-count | The bell red-dot count, capped at 99
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**send**](doc/PhoneOtpControllerApi.md#send) | **POST** /api/v1/book/otp/send | 
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**verify**](doc/PhoneOtpControllerApi.md#verify) | **POST** /api/v1/book/otp/verify | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**availability**](doc/PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
@@ -244,6 +248,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListSiblingSalonOption](doc/ApiResponseListSiblingSalonOption.md)
  - [ApiResponseListWeeklyScheduleResponse](doc/ApiResponseListWeeklyScheduleResponse.md)
  - [ApiResponseListWorkingHoursResponse](doc/ApiResponseListWorkingHoursResponse.md)
+ - [ApiResponseMarkAllReadResponse](doc/ApiResponseMarkAllReadResponse.md)
  - [ApiResponseMasterDetailResponse](doc/ApiResponseMasterDetailResponse.md)
  - [ApiResponseMasterPublicProfileResponse](doc/ApiResponseMasterPublicProfileResponse.md)
  - [ApiResponseMasterReviewSummaryResponse](doc/ApiResponseMasterReviewSummaryResponse.md)
@@ -278,6 +283,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseScheduleOverrideResponse](doc/ApiResponseScheduleOverrideResponse.md)
  - [ApiResponseServiceDefinitionResponse](doc/ApiResponseServiceDefinitionResponse.md)
  - [ApiResponseUnclosedCountResponse](doc/ApiResponseUnclosedCountResponse.md)
+ - [ApiResponseUnreadCountResponse](doc/ApiResponseUnreadCountResponse.md)
  - [ApiResponseUserProfileResponse](doc/ApiResponseUserProfileResponse.md)
  - [ApiResponseUserRatingResponse](doc/ApiResponseUserRatingResponse.md)
  - [ApiResponseVerifyPasswordResetOtpResponse](doc/ApiResponseVerifyPasswordResetOtpResponse.md)
@@ -341,6 +347,8 @@ Class | Method | HTTP request | Description
  - [InviteResponse](doc/InviteResponse.md)
  - [LocationFilter](doc/LocationFilter.md)
  - [LoginRequest](doc/LoginRequest.md)
+ - [MarkAllReadRequest](doc/MarkAllReadRequest.md)
+ - [MarkAllReadResponse](doc/MarkAllReadResponse.md)
  - [MasterDetailResponse](doc/MasterDetailResponse.md)
  - [MasterProfileUpdateRequest](doc/MasterProfileUpdateRequest.md)
  - [MasterPublicProfileResponse](doc/MasterPublicProfileResponse.md)
@@ -352,6 +360,9 @@ Class | Method | HTTP request | Description
  - [MasterWorkingDayResponse](doc/MasterWorkingDayResponse.md)
  - [MediaFileResponse](doc/MediaFileResponse.md)
  - [MyReviewResponse](doc/MyReviewResponse.md)
+ - [NotificationParams](doc/NotificationParams.md)
+ - [NotificationResponse](doc/NotificationResponse.md)
+ - [NotificationTarget](doc/NotificationTarget.md)
  - [OblastResponse](doc/OblastResponse.md)
  - [OverrideConflictPreviewResponse](doc/OverrideConflictPreviewResponse.md)
  - [OverrideConflictQueryRequest](doc/OverrideConflictQueryRequest.md)
@@ -365,6 +376,7 @@ Class | Method | HTTP request | Description
  - [PageResponseMasterSearchResult](doc/PageResponseMasterSearchResult.md)
  - [PageResponseMasterSummaryResponse](doc/PageResponseMasterSummaryResponse.md)
  - [PageResponseMyReviewResponse](doc/PageResponseMyReviewResponse.md)
+ - [PageResponseNotificationResponse](doc/PageResponseNotificationResponse.md)
  - [PageResponseReviewResponse](doc/PageResponseReviewResponse.md)
  - [PageResponseSalonReviewResponse](doc/PageResponseSalonReviewResponse.md)
  - [PageResponseSalonSearchResult](doc/PageResponseSalonSearchResult.md)
@@ -420,6 +432,7 @@ Class | Method | HTTP request | Description
  - [SuggestServiceTypeRequest](doc/SuggestServiceTypeRequest.md)
  - [TimelineItemResponse](doc/TimelineItemResponse.md)
  - [UnclosedCountResponse](doc/UnclosedCountResponse.md)
+ - [UnreadCountResponse](doc/UnreadCountResponse.md)
  - [UnregisterDeviceTokenRequest](doc/UnregisterDeviceTokenRequest.md)
  - [UpdateMasterServiceBandRequest](doc/UpdateMasterServiceBandRequest.md)
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
