@@ -128,7 +128,7 @@ void main() {
       );
     });
 
-    test('should_haveNullRetryAfter_when_headerOverUxCeiling', () async {
+    test('should_clampRetryAfterTo3600_when_headerOverUxCeiling', () async {
       final s = _boot(_throttled(retryAfter: '999999'));
       await expectLater(
         s.repo.unreadCount(),
@@ -136,7 +136,7 @@ void main() {
           isA<NotificationsRateLimitedFailure>().having(
             (f) => f.retryAfterSeconds,
             'retryAfterSeconds',
-            isNull,
+            3600,
           ),
         ),
       );

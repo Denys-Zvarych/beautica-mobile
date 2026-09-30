@@ -1223,7 +1223,7 @@ void main() {
       }
     });
 
-    test('should_yieldNull_when_retryAfterAbsentUnparsableOrAboveCeiling', () {
+    test('should_yieldNullOrClamped_when_retryAfterAbsentUnparsableOrHuge', () {
       int? seconds(String? h) =>
           (_captureRejected(
                     throttled('/api/v1/notifications', retryAfter: h),
@@ -1237,7 +1237,9 @@ void main() {
       expect(seconds('-5'), isNull, reason: 'negative');
       expect(seconds('abc'), isNull, reason: 'non-numeric');
       expect(seconds('0'), isNull, reason: 'zero');
-      expect(seconds('9999'), isNull, reason: 'above ceiling');
+      expect(seconds('9999'), 3600, reason: 'clamped, not dropped');
+      expect(seconds('999999999'), 3600, reason: 'clamped, not dropped');
+      expect(seconds('1'), 1);
       expect(seconds('30'), 30);
     });
   });

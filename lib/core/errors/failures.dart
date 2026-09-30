@@ -24,10 +24,11 @@ import 'package:flutter/material.dart';
 /// ONE threshold, two enforcement points — keep them reading the same constant:
 ///
 ///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network,
-///     now static) and the public
-///     `ErrorMapperInterceptor.notificationsRetryAfterSeconds` (notifications
-///     path) return `null` instead of a server value above this, so a rogue or
-///     merely long `Retry-After` never reaches a widget as a number.
+///     now static) returns `null` instead of a server value above this, so a
+///     rogue or merely long `Retry-After` never reaches a widget as a number.
+///     (`notificationsRetryAfterSeconds` is deliberately exempt — it clamps to
+///     3600 for the poller — and `NotificationsRateLimitedFailure.userMessage`
+///     enforces this ceiling at render time instead.)
 ///   * `OtpResendRow` (auth presentation) renders its non-numeric
 ///     "unavailable" label — and starts NO periodic timer — for a cooldown
 ///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
@@ -771,10 +772,12 @@ final class SalonBoardRateLimitedFailure extends Failure {
 /// `PATCH /notifications/read-all`) returns HTTP **429** — the four routes
 /// share one per-user 60/min bucket (backend phase 334).
 ///
-/// [retryAfterSeconds] comes from the interceptor's shared header-then-body
-/// resolver with the [kMaxUxCooldownSeconds] ceiling (same as
-/// [SalonBoardRateLimitedFailure]); `null` means absent / unparsable / above
-/// the ceiling, and the UI then shows the wait-a-moment variant.
+/// [retryAfterSeconds] comes from
+/// `ErrorMapperInterceptor.notificationsRetryAfterSeconds`: any positive
+/// server value clamped to [1, 3600] (so the poller honours a long wait);
+/// `null` means absent / unparsable / <= 0. [userMessage] renders a countdown
+/// only up to [kMaxUxCooldownSeconds]; beyond it (or `null`) the UI shows the
+/// wait-a-moment variant.
 ///
 /// **Never auto-retried** — listed in `isThrottleFailure`.
 final class NotificationsRateLimitedFailure extends Failure {
@@ -787,7 +790,7 @@ final class NotificationsRateLimitedFailure extends Failure {
   String userMessage(BuildContext ctx) {
     final l10n = AppLocalizations.of(ctx);
     final seconds = retryAfterSeconds;
-    if (seconds == null || seconds <= 0) {
+    if (seconds == null || seconds <= 0 || seconds > kMaxUxCooldownSeconds) {
       return l10n.notificationsErrRateLimitedNoWait;
     }
     return l10n.notificationsErrRateLimited(seconds);

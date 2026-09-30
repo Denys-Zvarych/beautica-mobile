@@ -447,14 +447,33 @@ final class ErrorMapperInterceptor extends Interceptor {
     return null;
   }
 
-  /// [NotificationsRateLimitedFailure.retryAfterSeconds] for a 429: the shared
-  /// resolver's value with its "absent / unparsable" `0` mapped to `null`
-  /// (the failure's contract: `null` = absent), so a poller applies its own
-  /// default backoff and never reads `0` as "retry now". Public so the
-  /// notification repository maps a 429 identically.
+  /// [NotificationsRateLimitedFailure.retryAfterSeconds] for a 429: the
+  /// server's `Retry-After` header (then `data.retryAfterSeconds`) for any
+  /// positive numeric value, clamped to [1, 3600]. `null` = absent,
+  /// unparsable or <= 0 (never `0`, so a poller applies its own default
+  /// backoff). Deliberately NOT capped at [kMaxUxCooldownSeconds]: a poller
+  /// must honour a long server-requested wait rather than retry sooner.
+  /// Public so the notification repository maps a 429 identically.
   static int? notificationsRetryAfterSeconds(DioException err) {
-    final seconds = _extractRetryAfterSecondsNullable(err);
-    return seconds == null || seconds <= 0 ? null : seconds;
+    int? raw;
+    try {
+      final headerRaw = err.response?.headers.value('retry-after');
+      if (headerRaw != null) raw = int.tryParse(headerRaw.trim());
+      if (raw == null) {
+        final body = err.response?.data;
+        if (body is Map<String, dynamic>) {
+          final data = body['data'];
+          if (data is Map<String, dynamic>) {
+            final v = data['retryAfterSeconds'];
+            if (v is num) raw = v.toInt();
+          }
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    if (raw == null || raw <= 0) return null;
+    return raw.clamp(1, 3600);
   }
 
   /// Extracts the resend-cooldown seconds from the 429 response.

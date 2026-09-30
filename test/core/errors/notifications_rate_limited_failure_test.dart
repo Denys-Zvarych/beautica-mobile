@@ -58,5 +58,15 @@ void main() {
         expect(r.message, r.l10n.notificationsErrRateLimitedNoWait);
       }
     });
+
+    testWidgets('should_showNoWaitVariant_when_retryAfterAboveUxCeiling', (
+      tester,
+    ) async {
+      final r = await _resolve(
+        tester,
+        const NotificationsRateLimitedFailure(retryAfterSeconds: 3600),
+      );
+      expect(r.message, r.l10n.notificationsErrRateLimitedNoWait);
+    });
   });
 }
