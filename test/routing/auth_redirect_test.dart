@@ -35,6 +35,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/routing/auth_redirect.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1161,6 +1162,34 @@ void main() {
       test('${role.name} at /notifications is admitted (null)', () {
         expect(
           authRedirectForLocation(sessionFor(role), RouteNames.notifications),
+          isNull,
+        );
+      });
+    }
+
+    // Phase 364 — the feed-scoped CLIENT aliases `/notifications/bookings/**`
+    // are CLIENT-only, like the `/bookings` branch they mirror.
+    for (final String location in <String>[
+      RouteNames.notificationBookingDetail('bk-1'),
+      RouteNames.notificationBookingReview('bk-1'),
+    ]) {
+      for (final UserRole role in const <UserRole>[
+        UserRole.salonOwner,
+        UserRole.salonAdmin,
+        UserRole.salonMaster,
+        UserRole.independentMaster,
+      ]) {
+        test('${role.name} at $location is redirected to its landing', () {
+          expect(
+            authRedirectForLocation(sessionFor(role), location),
+            equals(roleHomePath(role)),
+          );
+        });
+      }
+
+      test('client at $location is admitted (null)', () {
+        expect(
+          authRedirectForLocation(sessionFor(UserRole.client), location),
           isNull,
         );
       });

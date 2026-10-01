@@ -440,6 +440,13 @@ void main() {
       // Phase 361 — the notification feed, a literal top-level leaf pushed by
       // the shared bell on every role's header.
       'notifications': RouteNames.notifications,
+      // Phase 364 — CLIENT feed-scoped aliases of bookingDetail/bookingReview.
+      'notificationBookingDetail()': RouteNames.notificationBookingDetail(
+        kSampleId,
+      ),
+      'notificationBookingReview()': RouteNames.notificationBookingReview(
+        kSampleId,
+      ),
       'masterProfile': RouteNames.masterProfile,
       'masterBookings': RouteNames.masterBookings,
       'masterBookingNew': RouteNames.masterBookingNew,

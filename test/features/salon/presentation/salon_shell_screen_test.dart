@@ -1202,6 +1202,57 @@ void main() {
       expect(decoded['userId'], equals(_stubOwner.id));
     });
 
+    testWidgets('should_applyInitialNavTab_when_sameElementGetsNewSalonAndTab', (
+      tester,
+    ) async {
+      // Phase 364 audit — a `go` between two shells reuses the element; the new
+      // `initialNavTab` must be applied once, not silently dropped.
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+
+      Widget shellApp(String salonId, int? tab) => UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: SalonShellScreen(salonId: salonId, initialNavTab: tab),
+        ),
+      );
+
+      await tester.pumpWidget(shellApp(_kSalonId, null));
+      await tester.pumpAndSettle();
+      final Element before = tester.element(
+        find.byKey(const Key('salon-shell-screen')),
+      );
+      expect(container.read(salonShellProvider(_kSalonId)), 0);
+
+      await tester.pumpWidget(shellApp(_kOtherSalonId, kSalonTeamNavTab));
+      await tester.pumpAndSettle();
+
+      expect(
+        identical(
+          tester.element(find.byKey(const Key('salon-shell-screen'))),
+          before,
+        ),
+        isTrue,
+        reason: 'must exercise didUpdateWidget on the SAME element',
+      );
+      expect(
+        container.read(salonShellProvider(_kOtherSalonId)),
+        kSalonTeamNavTab,
+      );
+
+      // Unchanged rebuild applies nothing again: move off team, re-pump same.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(shellApp(_kOtherSalonId, kSalonTeamNavTab));
+      await tester.pumpAndSettle();
+      expect(container.read(salonShellProvider(_kOtherSalonId)), 0);
+    });
+
     testWidgets('should_notWriteLastSalon_when_salonIdUnchanged', (
       tester,
     ) async {

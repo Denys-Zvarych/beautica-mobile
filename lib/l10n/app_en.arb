@@ -3300,6 +3300,10 @@
   "@notificationsMarkReadFailed": {
     "description": "Phase 363 — snackbar shown after a single mark-read failed and the row was rolled back to unread."
   },
+  "notificationsBookingUnavailable": "This booking is no longer available",
+  "@notificationsBookingUnavailable": {
+    "description": "Phase 364 — snackbar shown when a tapped notification points at a booking the viewer can no longer open (target gone, or the detail answered 403/404)."
+  },
   "notificationsMarkAllReadFailed": "Couldn't mark notifications as read",
   "@notificationsMarkAllReadFailed": {
     "description": "Phase 363 — snackbar shown after mark-all-read failed and every row was rolled back to unread."

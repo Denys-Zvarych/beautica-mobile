@@ -15,6 +15,11 @@ const String _idOk = '00000000-0000-4000-8000-0000000000aa';
 const String _idNoTs = '00000000-0000-4000-8000-0000000000bb';
 const String _idA = '00000000-0000-4000-8000-00000000000a';
 const String _idB = '00000000-0000-4000-8000-00000000000b';
+const String _bk1 = '00000000-0000-4000-8000-0000000000b1';
+const String _ap1 = '00000000-0000-4000-8000-0000000000a1';
+const String _sl1 = '00000000-0000-4000-8000-0000000000c1';
+const String _sl9 = '00000000-0000-4000-8000-0000000000c9';
+const String _bk7 = '00000000-0000-4000-8000-0000000000b7';
 
 Map<String, Object?> _row({
   Object? id = _idDefault,
@@ -64,9 +69,9 @@ void main() {
 
   const bookingTarget = <String, Object?>{
     'kind': 'BOOKING',
-    'bookingId': 'b1',
-    'appointmentId': 'ap1',
-    'salonId': 's1',
+    'bookingId': _bk1,
+    'appointmentId': _ap1,
+    'salonId': _sl1,
   };
 
   group('type x target matrix', () {
@@ -84,32 +89,32 @@ void main() {
         expect(
           n.target,
           const NotificationTarget.booking(
-            bookingId: 'b1',
-            appointmentId: 'ap1',
-            salonId: 's1',
+            bookingId: _bk1,
+            appointmentId: _ap1,
+            salonId: _sl1,
           ),
         );
       });
 
       test('should_mapType_${e.key}_withSalonTeamTarget', () {
         final n = _one(
-          _row(type: e.key, target: {'kind': 'SALON_TEAM', 'salonId': 's9'}),
+          _row(type: e.key, target: {'kind': 'SALON_TEAM', 'salonId': _sl9}),
         );
         expect(n.type, e.value);
-        expect(n.target, const NotificationTarget.salonTeam(salonId: 's9'));
+        expect(n.target, const NotificationTarget.salonTeam(salonId: _sl9));
       });
 
       test('should_mapType_${e.key}_withReviewTarget', () {
         final n = _one(
           _row(
             type: e.key,
-            target: {'kind': 'BOOKING_REVIEW', 'bookingId': 'b7'},
+            target: {'kind': 'BOOKING_REVIEW', 'bookingId': _bk7},
           ),
         );
         expect(n.type, e.value);
         expect(
           n.target,
-          const NotificationTarget.bookingReview(bookingId: 'b7'),
+          const NotificationTarget.bookingReview(bookingId: _bk7),
         );
       });
     }
@@ -129,13 +134,55 @@ void main() {
         _row(
           target: {
             'kind': 'BOOKING',
-            'bookingId': 'b1',
+            'bookingId': _bk1,
             'appointmentId': '  ',
             'salonId': '',
           },
         ),
       );
-      expect(n.target, const NotificationTarget.booking(bookingId: 'b1'));
+      expect(n.target, const NotificationTarget.booking(bookingId: _bk1));
+    });
+
+    group('target id shape', () {
+      for (final String bad in <String>['..', 'a/b', '?x', 'not-a-uuid']) {
+        test('should_yieldNoTarget_when_bookingIdIs_$bad', () {
+          expect(
+            _one(_row(target: {'kind': 'BOOKING', 'bookingId': bad})).target,
+            const NotificationTarget.none(),
+          );
+          expect(
+            _one(
+              _row(target: {'kind': 'BOOKING_REVIEW', 'bookingId': bad}),
+            ).target,
+            const NotificationTarget.none(),
+          );
+        });
+        test('should_yieldNoTarget_when_salonIdIs_$bad', () {
+          expect(
+            _one(_row(target: {'kind': 'SALON_TEAM', 'salonId': bad})).target,
+            const NotificationTarget.none(),
+          );
+          expect(
+            _one(
+              _row(
+                target: {'kind': 'BOOKING', 'bookingId': _bk1, 'salonId': bad},
+              ),
+            ).target,
+            const NotificationTarget.none(),
+          );
+        });
+      }
+
+      test('should_keepTarget_when_idsAreValidUuids', () {
+        expect(
+          _one(_row(target: bookingTarget)).target,
+          const NotificationTarget.booking(
+            bookingId: _bk1,
+            appointmentId: _ap1,
+            salonId: _sl1,
+          ),
+        );
+      });
     });
 
     test('should_yieldNoTarget_when_bookingIdBlank', () {

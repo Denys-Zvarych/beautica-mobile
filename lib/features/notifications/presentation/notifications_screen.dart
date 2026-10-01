@@ -16,9 +16,9 @@
 // SCOPE: per user, global across every salon an owner owns. Nothing here reads
 // an "active salon".
 //
-// A row tap marks the row read (optimistically) and does NOT navigate yet —
-// phase 364 adds the per-role deep links. Opening the screen never auto-marks
-// anything read.
+// A row tap marks the row read (optimistically), then opens the row's
+// destination for the viewer's role (phase 364, `notification_navigation.dart`).
+// Opening the screen never auto-marks anything read.
 //
 // COST OF A ROW FLIP (phase 363 audit): marking one row read replaces the
 // feed's `items` list, which rebuilds this screen. Everything derived from the
@@ -53,6 +53,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -63,6 +64,7 @@ import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import '../domain/app_notification.dart';
 import '../domain/notifications_feed_state.dart';
 import 'notification_copy.dart';
+import 'notification_navigation.dart';
 import 'notifications_feed_notifier.dart';
 import 'unread_notifications_notifier.dart';
 import 'widgets/notification_feed_parts.dart';
@@ -92,6 +94,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
     with WidgetsBindingObserver {
   late DateTime _today;
   Timer? _midnight;
+  bool _opening = false;
   _Layout? _layout;
   final Map<String, _CachedRow> _rows = <String, _CachedRow>{};
 
@@ -137,6 +140,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _midnight?.cancel();
+    _opening = false;
     super.dispose();
   }
 
@@ -193,7 +197,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(RouteNames.home);
+      // Cold entry: the viewer's role home (same fallback as
+      // `notificationUnavailableHandler`), not the generic `/` redirect hop.
+      final UserRole? role = authUserRoleOrNull(ref.read(authProvider));
+      context.go(role == null ? RouteNames.login : roleHomePath(role));
     }
   }
 
@@ -362,7 +369,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         key: Key('notification-tile-${item.id}'),
         item: item,
         isClient: isClient,
-        onOpen: () => _markRead(notifier, item.id),
+        onOpen: () => _open(notifier, item),
         onMarkRead: () => _markRead(notifier, item.id),
       ),
     );
@@ -425,6 +432,45 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
       await notifier.refresh();
     } on Failure catch (f) {
       if (mounted) showErrorSnack(context, f.userMessage(context));
+    }
+  }
+
+  /// THE call site of the deep link (phase 364). Order matters: the optimistic
+  /// mark-read runs FIRST (its state flip is synchronous, so row styling and the
+  /// bell update at once) and is kept whatever the navigation does.
+  ///
+  /// The feed provider needs no extra hold here: every destination is a child
+  /// of (or pushed over) `/notifications`, so this screen — which watches the
+  /// feed — stays mounted underneath and the optimistic flip can confirm or
+  /// roll back.
+  ///
+  /// [_opening] is the re-entrancy guard: a second tap in the same frame (or
+  /// while the destination is still being pushed) is dropped, so exactly one
+  /// destination lands on the stack. The guard is released at the END OF THE
+  /// FRAME in which the push was issued — NOT when the push future completes
+  /// (that future only completes on pop, and never if a `go()` replaces the
+  /// stack, which would leave the guard stuck). Also cleared on dispose.
+  void _open(NotificationsFeed notifier, AppNotification item) {
+    if (_opening) return;
+    _opening = true;
+    try {
+      unawaited(_markRead(notifier, item.id));
+      // `router.push` is issued synchronously inside this call (no await ahead
+      // of it), so the route is already in the pending stack when it returns.
+      unawaited(
+        openNotification(
+          context: context,
+          item: item,
+          role: authUserRoleOrNull(ref.read(authProvider)),
+        ),
+      );
+    } finally {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _opening = false;
+      });
+      // A path that pushes nothing (snack / no route) may schedule no frame.
+      WidgetsBinding.instance.ensureVisualUpdate();
     }
   }
 

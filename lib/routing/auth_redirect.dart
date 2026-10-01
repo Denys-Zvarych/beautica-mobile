@@ -408,6 +408,9 @@ String? authRedirectForLocation(
       RouteNames.clientPassport,
       // Phase 13.7 (revised) — standalone CLIENT quick-link targets (not in shell branches)
       RouteNames.myRating,
+      // Phase 364 — the feed-scoped aliases of the CLIENT's `/bookings/:id`
+      // (+ `review`). `/notifications` itself stays open to every role.
+      '${RouteNames.notifications}/bookings',
     ];
     final isAtClientBranch = clientBranchPrefixes.any(
       (p) => location == p || location.startsWith('$p/'),

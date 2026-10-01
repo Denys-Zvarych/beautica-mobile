@@ -82,6 +82,8 @@ import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'notification_bell_flow_test.dart' as notification_bell;
+import 'notification_tap_to_detail_flow_test.dart'
+    as notification_tap_to_detail;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -353,4 +355,6 @@ void main() {
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
+  group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
 }

@@ -63,7 +63,7 @@ class NotificationTile extends StatefulWidget {
   /// Whether the viewer is a client (decides audience-specific copy).
   final bool isClient;
 
-  /// Row-body tap. Ignored for a row whose target is gone.
+  /// Row-body tap.
   final VoidCallback? onOpen;
 
   /// ✓ tap. The button renders only while the row is unread.
@@ -143,7 +143,9 @@ class _NotificationTileState extends State<NotificationTile> {
     final bool isClient = widget.isClient;
     final VoidCallback? onOpen = widget.onOpen;
     final VoidCallback? onMarkRead = widget.onMarkRead;
-    final bool tappable = item.target is! NoTarget && onOpen != null;
+    // Phase 364: a row whose target is gone is tappable too — the tap marks it
+    // read and says «Запис більше недоступний» (see `openNotification`).
+    final bool tappable = onOpen != null;
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool unread = !item.read;
     final bool gone = item.target is NoTarget;

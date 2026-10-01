@@ -69,8 +69,21 @@ abstract final class NotificationMapper {
     if (dto == null || kind == null || isOpenApiUnknownDefault(kind)) {
       return const NotificationTarget.none();
     }
+    // Both ids are interpolated into route paths: a non-UUID value downgrades
+    // the whole target to [NoTarget]. Only the REASON is logged, never the value.
     final String? bookingId = _nonBlank(dto.bookingId);
     final String? salonId = _nonBlank(dto.salonId);
+    if ((bookingId != null && !_uuid.hasMatch(bookingId)) ||
+        (salonId != null && !_uuid.hasMatch(salonId))) {
+      if (kDebugMode) {
+        log(
+          'dropping notification target with a non-UUID id',
+          name: 'feature.notifications.mapper',
+          level: 900,
+        );
+      }
+      return const NotificationTarget.none();
+    }
     if (kind == api.NotificationTargetKindEnum.BOOKING && bookingId != null) {
       return NotificationTarget.booking(
         bookingId: bookingId,
