@@ -7,6 +7,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Phase 066 — Firebase push is opt-in at build time. google-services.json is
+// git-ignored and injected by scripts/deploy_apk*.sh; CI and fresh clones build
+// without it (push is then unavailable at runtime, see core/push/).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("google-services.json absent: building WITHOUT Firebase push")
+}
+
 android {
     namespace = "com.beautica.beautica_mobile"
     // Phase 0 — locked SDK levels per ARCHITECTURE-mobile.md § 2.

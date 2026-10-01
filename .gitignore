@@ -49,8 +49,8 @@ android/build/
 test/**/failures/
 
 # Beautica — secrets and signing material (never commit).
-**/google-services.json
-**/GoogleService-Info.plist
+**/*google-services*.json
+**/*GoogleService-Info*.plist
 android/key.properties
 android/app/upload-keystore.jks
 android/app/*.jks

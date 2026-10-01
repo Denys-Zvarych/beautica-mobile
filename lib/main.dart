@@ -12,6 +12,7 @@ import 'core/config/app_config.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
+import 'core/push/push_available_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
@@ -136,23 +137,29 @@ Future<void> main() async {
   // and a `Failure` is neither, so a 404 or a decode breakdown used to hold
   // the screen in `AsyncLoading` for the whole 38 s instead of rendering its
   // error state. See `core/errors/failure_retry_policy.dart`.
-  runApp(
-    ProviderScope(
-      retry: beauticaProviderRetry,
-      overrides: [
-        // Phase 361 audit — de-sync the 60 s unread poll across clients. The
-        // provider defaults to zero so tests stay exact; the app draws 0..5 s.
-        pollJitterProvider.overrideWithValue(
-          Duration(
-            milliseconds: math.Random().nextInt(
-              kUnreadPollJitterMax.inMilliseconds + 1,
-            ),
+  final ProviderContainer container = ProviderContainer(
+    retry: beauticaProviderRetry,
+    overrides: [
+      // Phase 361 audit — de-sync the 60 s unread poll across clients. The
+      // provider defaults to zero so tests stay exact; the app draws 0..5 s.
+      pollJitterProvider.overrideWithValue(
+        Duration(
+          milliseconds: math.Random().nextInt(
+            kUnreadPollJitterMax.inMilliseconds + 1,
           ),
         ),
-      ],
-      child: const BeauticaApp(),
-    ),
+      ),
+    ],
   );
+  runApp(
+    UncontrolledProviderScope(container: container, child: const BeauticaApp()),
+  );
+
+  // Phase 066 — initialise Firebase (Android only) AFTER the first frame is
+  // scheduled, off the cold-start critical path. Bounded by `kFirebaseInitTimeout`;
+  // degrades to `false` (push-less) when google-services.json was absent at
+  // build time. 067/068 await `pushAvailableProvider.future`.
+  unawaited(container.read(pushAvailableProvider.future));
 
   // Phase 2.15 fix — release the native splash so the first Flutter frame
   // can render. Must be called after runApp() and synchronously (not in a

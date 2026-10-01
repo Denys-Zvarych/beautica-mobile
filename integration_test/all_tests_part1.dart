@@ -35,6 +35,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'app_boot_without_firebase_flow_test.dart' as app_boot_without_firebase;
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
@@ -114,6 +115,8 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('auth_login_flow', auth_login.main);
+  // Phase 066 — cold start + login with Firebase unavailable.
+  group('app_boot_without_firebase_flow', app_boot_without_firebase.main);
   // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
   // login AND the post-registration done_to_app CTA both land on the My
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.

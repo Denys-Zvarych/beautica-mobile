@@ -198,6 +198,13 @@ jobs:
         shell: bash
         run: ./scripts/forbid_raw_container_with_header.sh
 
+      # Phase 066 — Firebase client config (google-services.json /
+      # GoogleService-Info.plist) is injected at build time and must never be
+      # tracked by git (the repo is public). `git add -f` bypasses .gitignore.
+      - name: Forbid tracked Firebase client config
+        shell: bash
+        run: ./scripts/forbid_google_services_json.sh
+
       # 2026-06-24 fixture-footgun gate — a test that mounts ServiceForm( must
       # also override approvedCategoriesProvider. That provider sources from the
       # REAL Dio (not serviceRepositoryProvider); an un-overridden mount leaks a
