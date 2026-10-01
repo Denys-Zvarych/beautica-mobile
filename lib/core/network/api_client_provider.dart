@@ -57,3 +57,9 @@ ClientControllerApi clientApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 NotificationsApi notificationsApi(Ref ref) =>
     NotificationsApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+/// token registration (`POST` / `DELETE /devices/token`).
+@Riverpod(keepAlive: true)
+DeviceControllerApi deviceApi(Ref ref) =>
+    DeviceControllerApi(ref.watch(dioProvider), standardSerializers);

@@ -53,10 +53,10 @@ import '../../../helpers/pump_app.dart';
 const Key _kRunButtonKey = Key('btn-run-delete-account-flow');
 const Key _kHarnessKey = Key('harness-screen');
 
-/// AuthNotifier tracking `logout()` calls — a call here would be the
-/// regression symptom (session torn down for a caller that already left).
+/// AuthNotifier tracking `logout()` / `logoutForced()` calls.
 class _TrackingAuthNotifier extends AuthNotifier {
   int logoutCalls = 0;
+  int logoutForcedCalls = 0;
 
   @override
   Future<AuthSession> build() async => const AuthSession.unauthenticated();
@@ -64,6 +64,11 @@ class _TrackingAuthNotifier extends AuthNotifier {
   @override
   Future<void> logout() async {
     logoutCalls++;
+  }
+
+  @override
+  Future<void> logoutForced() async {
+    logoutForcedCalls++;
   }
 }
 
@@ -178,8 +183,8 @@ void main() {
   );
 
   testWidgets(
-    'a delete that SUCCEEDS while the caller unmounts mid-await does NOT '
-    'tear auth down for the departed caller',
+    'a delete that SUCCEEDS while the caller unmounts mid-await STILL logs '
+    'the device out locally (logoutForced) but does not navigate',
     (tester) async {
       final fakeRepo = FakeUserRepository()
         ..deleteMyAccountGate = Completer<void>();
@@ -206,6 +211,7 @@ void main() {
 
       expect(fakeRepo.deleteMyAccountCalls, 1, reason: 'the call is in flight');
       expect(auth.logoutCalls, 0);
+      expect(auth.logoutForcedCalls, 0);
 
       // Navigate the CALLER away mid-await — unmounts `_HarnessScreen` (and
       // its BuildContext) exactly as a user leaving mid-delete would.
@@ -226,17 +232,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        auth.logoutCalls,
-        0,
+        auth.logoutForcedCalls,
+        1,
         reason:
-            'the `context.mounted` guard must stop the flow from tearing '
-            'auth down (or navigating) for a caller that already left — a '
-            'call here would mean the guard was skipped',
+            'the account is gone server-side: the local session must end even '
+            'though the screen unmounted (logoutForced runs BEFORE the '
+            'mounted check)',
       );
+      expect(auth.logoutCalls, 0, reason: 'forced, never the plain logout');
       expect(
         find.byKey(const Key('elsewhere-stub')),
         findsOneWidget,
-        reason: 'the caller\'s own navigation must be left untouched',
+        reason:
+            'the departed caller must not be navigated (context.mounted guard)',
       );
     },
   );

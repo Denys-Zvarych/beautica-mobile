@@ -252,6 +252,11 @@ const List<String> kPiiPathPrefixes = <String>[
   // subject names (PII) and salon names; the prefix also covers
   // `/unread-count`, `/read-all` and `/{id}/read`.
   '/api/v1/notifications',
+  // Phase 067 — FCM device-token registration. `POST` / `DELETE
+  // /api/v1/devices/token` bodies carry the raw FCM registration token (a
+  // device-bound credential-class identifier), including in error responses.
+  // A prefix so any future `/devices/*` route is covered too.
+  '/api/v1/devices/',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

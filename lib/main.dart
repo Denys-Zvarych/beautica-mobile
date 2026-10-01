@@ -14,6 +14,7 @@ import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
 import 'core/push/push_available_provider.dart';
 import 'core/theme/app_theme.dart';
+import 'features/notifications/presentation/push_registration_notifier.dart';
 import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
@@ -214,6 +215,8 @@ class BeauticaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
+    // Phase 067 — build the FCM registration notifier at app start (no UI).
+    ref.listen(pushRegistrationProvider, (_, _) {});
     return MaterialApp.router(
       // `MaterialApp.title` is evaluated at app-construction time, BEFORE the
       // `Localizations` widget is in scope, so `AppLocalizations.of(context)`

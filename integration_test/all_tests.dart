@@ -119,6 +119,7 @@ import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'logout_flow_test.dart' as logout;
+import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
@@ -416,6 +417,7 @@ void main() {
   // flow in this file inherits.
   group('harness_retry_policy_flow', harness_retry_policy.main);
   group('logout_flow', logout.main);
+  group('push_token_registration_flow', push_token_registration.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →

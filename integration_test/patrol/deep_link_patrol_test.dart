@@ -188,14 +188,19 @@ void main() {
   );
 
   patrolTest(
-    'POST_NOTIFICATIONS permission prompt is granted on first FCM init '
-    '(SKIPPED: Firebase push deferred — FIREBASE_ENABLED=false; '
-    'enable when Phase 8.x FCM lands)',
+    'POST_NOTIFICATIONS permission prompt is granted on first login '
+    '(SKIPPED: phase 067 shipped the request, but the nightly patrol job '
+    'has no google-services.json so pushAvailable=false and the app never '
+    'asks; needs a Firebase-configured build — real-device run in 067, '
+    'revisit with 069)',
     skip: true,
     ($) async {
-      // TODO(phase-8.x): trigger the Android 13+ POST_NOTIFICATIONS runtime
-      // prompt on FCM init and grant it via the permission-dialog selectors.
-      // Requires firebase_messaging wired.
+      // Phase 067: PushRegistration asks ONCE after the first authenticated
+      // landing (FirebaseMessaging.requestPermission). Un-skip only on a build
+      // with real Firebase config: log in, grant via
+      // $.platform.mobile.grantPermissionWhenInContext(), assert no 2nd dialog
+      // after relaunch. The token POST/DELETE journey is covered fake-backed in
+      // integration_test/push_token_registration_flow_test.dart.
     },
   );
 }

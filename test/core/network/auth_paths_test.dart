@@ -740,4 +740,11 @@ void main() {
       },
     );
   });
+  group('device token paths (phase 067)', () {
+    test('/api/v1/devices/token is a PII route; kPiiPaths count unchanged', () {
+      expect(isPiiPath('/api/v1/devices/token'), isTrue);
+      expect(kPiiPathPrefixes, contains('/api/v1/devices/'));
+      expect(kPiiPaths.length, equals(23));
+    });
+  });
 }

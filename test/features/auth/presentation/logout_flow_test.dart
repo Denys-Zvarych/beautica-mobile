@@ -181,9 +181,11 @@ void main() {
 
       await container.read(authProvider.notifier).logout();
       // Second call on already-unauthenticated state must be safe.
+      // Awaited: the container must not be disposed while the second logout
+      // (push hook + server call + wipe) is still in flight.
       await expectLater(
-        () => container.read(authProvider.notifier).logout(),
-        returnsNormally,
+        container.read(authProvider.notifier).logout(),
+        completes,
       );
 
       expect(

@@ -320,3 +320,58 @@ final class NotificationsApiProvider
 }
 
 String _$notificationsApiHash() => r'38cafd0a0e4b5268675f5e1f3bd94b1ccb3c6362';
+
+/// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+/// token registration (`POST` / `DELETE /devices/token`).
+
+@ProviderFor(deviceApi)
+final deviceApiProvider = DeviceApiProvider._();
+
+/// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+/// token registration (`POST` / `DELETE /devices/token`).
+
+final class DeviceApiProvider
+    extends
+        $FunctionalProvider<
+          DeviceControllerApi,
+          DeviceControllerApi,
+          DeviceControllerApi
+        >
+    with $Provider<DeviceControllerApi> {
+  /// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+  /// token registration (`POST` / `DELETE /devices/token`).
+  DeviceApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'deviceApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$deviceApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<DeviceControllerApi> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  DeviceControllerApi create(Ref ref) {
+    return deviceApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(DeviceControllerApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<DeviceControllerApi>(value),
+    );
+  }
+}
+
+String _$deviceApiHash() => r'3f4cfd4fce4dfc4d8de2c2f70e78186f0e4b367a';

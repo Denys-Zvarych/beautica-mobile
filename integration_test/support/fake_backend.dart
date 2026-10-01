@@ -438,6 +438,7 @@ final class FakeBackend {
     dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
     _wireNotifications();
+    _wireDeviceTokens();
   }
 
   /// The Master-ROW UUID that `GET /masters/me` reports for the authenticated
@@ -10351,6 +10352,50 @@ final class FakeBackend {
         });
       }),
       request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  // ── Phase 067 — FCM device-token registration (`/api/v1/devices/token`) ─────
+  //
+  // POST (register / rebind) and DELETE (unregister), both 204 with the body
+  // `{token, platform?}`. Recorded in arrival order so a flow can assert the
+  // user journey (register -> DELETE on logout -> re-register). The token is
+  // test-fixture data here; production never logs it.
+
+  /// Every device-token call, in order: `POST <token> <platform>` /
+  /// `DELETE <token>`.
+  final List<String> deviceTokenCalls = <String>[];
+
+  /// Tokens POSTed (register), in order.
+  List<String> get registeredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('POST ')) c.split(' ')[1],
+  ];
+
+  /// Tokens DELETEd (unregister), in order.
+  List<String> get unregisteredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('DELETE ')) c.split(' ')[1],
+  ];
+
+  void _wireDeviceTokens() {
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('POST ${body['token']} ${body['platform']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('DELETE ${body['token']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
     );
   }
 

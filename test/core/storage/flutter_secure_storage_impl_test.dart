@@ -140,6 +140,57 @@ void main() {
       expect(store, isEmpty);
     });
 
+    test('deleteAll keeps the per-device push-permission flag', () async {
+      final storage = FlutterSecureStorageImpl();
+      await storage.writePushPermissionAsked();
+      store[StorageKeys.refreshToken] = 'rt';
+
+      await storage.deleteAll();
+
+      expect(store.keys, [StorageKeys.pushPermissionAsked]);
+      expect(await storage.readPushPermissionAsked(), isTrue);
+    });
+
+    test(
+      'deleteAll keeps the push-revoke-pending flag; clear removes it',
+      () async {
+        final storage = FlutterSecureStorageImpl();
+        await storage.writePushRevokePending();
+        store[StorageKeys.refreshToken] = 'rt';
+
+        await storage.deleteAll();
+
+        expect(store.keys, [StorageKeys.pushRevokePending]);
+        expect(await storage.readPushRevokePending(), isTrue);
+
+        await storage.clearPushRevokePending();
+        expect(await storage.readPushRevokePending(), isFalse);
+        expect(store, isEmpty);
+      },
+    );
+
+    test('deleteAll keeps BOTH device-scoped flags together', () async {
+      final storage = FlutterSecureStorageImpl();
+      await storage.writePushPermissionAsked();
+      await storage.writePushRevokePending();
+      store[StorageKeys.userJson] = '{}';
+
+      await storage.deleteAll();
+
+      expect(store.keys.toSet(), {
+        StorageKeys.pushPermissionAsked,
+        StorageKeys.pushRevokePending,
+      });
+    });
+
+    test('deleteAll leaves the flag absent when it was never set', () async {
+      final storage = FlutterSecureStorageImpl();
+      store[StorageKeys.refreshToken] = 'rt';
+      await storage.deleteAll();
+      expect(store, isEmpty);
+      expect(await storage.readPushPermissionAsked(), isFalse);
+    });
+
     test('read returns null when key is absent', () async {
       final storage = FlutterSecureStorageImpl();
 

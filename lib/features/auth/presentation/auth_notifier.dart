@@ -29,6 +29,7 @@
 //     (sentinel user) so AuthInterceptor injects the Bearer token into the
 //     subsequent repo.me() call — preventing a RefreshInterceptor loop on me().
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:developer';
 
@@ -38,8 +39,10 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/errors/auth_rejection.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/media/beautica_image.dart';
+import '../../../core/push/push_session_hooks.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
+import '../../../core/storage/secure_storage.dart';
 import '../../../core/storage/secure_storage_provider.dart';
 import '../../../shared/util/mask_email.dart';
 // Deliberate, narrow exception to "auth never imports another feature"
@@ -85,6 +88,7 @@ import '../../schedule/presentation/overrides_revision_provider.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/salon_schedule_keep_alive_lru.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
+import '../data/auth_repository.dart';
 import '../data/auth_repository_provider.dart';
 import '../domain/auth_session.dart';
 import '../domain/auth_tokens.dart';
@@ -245,6 +249,10 @@ String? authUserSalonIdSettledOrNull(AsyncValue<AuthSession> session) {
       : null;
   return settled is Authenticated ? settled.user.salonId : null;
 }
+
+/// Overall bound on the best-effort server `POST /auth/logout` — the local
+/// wipe must never wait out the Dio connect/receive timeouts on a bad network.
+const Duration kServerLogoutTimeout = Duration(seconds: 5);
 
 /// Manages the user's authentication session for the Beautica app lifetime.
 ///
@@ -439,6 +447,7 @@ class AuthNotifier extends _$AuthNotifier {
         );
       }
       await storage.deleteAll(); // clean up stale token
+      _revokePushLocally();
       return const AuthSession.unauthenticated();
     }
 
@@ -506,7 +515,10 @@ class AuthNotifier extends _$AuthNotifier {
           stackTrace: st,
         );
       }
-      if (rejected) await storage.deleteAll();
+      if (rejected) {
+        await storage.deleteAll();
+        _revokePushLocally();
+      }
       _lastKnownAccessToken = null;
       return const AuthSession.unauthenticated();
     } finally {
@@ -1242,19 +1254,136 @@ class AuthNotifier extends _$AuthNotifier {
   /// the local wipe always proceeds so a logout never leaves tokens on device
   /// (M5 hardening). Sets state to [AsyncData<Unauthenticated>] so the router
   /// guard (Phase 2.9) redirects to the login screen.
-  Future<void> logout() async {
+  Future<void> logout() => _logoutFuture ??= _runLogout().whenComplete(() {
+    _logoutFuture = null;
+    _forcedLogout = false;
+  });
+
+  /// [logout] for a session whose access token is already dead (refresh failed,
+  /// account deleted): push cleanup skips the DELETE (it could only 401) and
+  /// runs just the local `deleteToken()`. Routed through the virtual [logout]
+  /// so every existing override / join semantic is unchanged.
+  Future<void> logoutForced() {
+    _forcedLogout = true;
+    return logout();
+  }
+
+  /// Read (synchronously) by [_runLogout]; reset when the logout completes.
+  bool _forcedLogout = false;
+
+  /// The in-progress [logout], so a concurrent call (e.g. RefreshInterceptor's
+  /// forced logout racing a user tap) joins it instead of running it twice.
+  Future<void>? _logoutFuture;
+
+  /// Phase 067 — a non-logout auth wipe (expired / rejected refresh token at
+  /// cold start) leaves the device holding the previous user's FCM token.
+  /// Revoke it locally via the dependency-free [pushSessionHooksProvider]
+  /// (`PushRegistration` watches `authProvider`; reading it here would be a
+  /// dependency cycle — a debug-only `CircularDependencyError`). Deferred past
+  /// [build]. When the handler is not registered yet, the owed revocation is
+  /// persisted instead so the next start settles it. Never throws.
+  void _revokePushLocally() {
+    unawaited(
+      Future<void>.microtask(() async {
+        try {
+          if (!ref.mounted) return;
+          // Captured before the await: `ref` is unusable once disposed, and the
+          // fallback below must still be able to persist the owed revocation.
+          final SecureStorage storage = ref.read(secureStorageProvider);
+          final Future<void> Function()? revoke = ref
+              .read(pushSessionHooksProvider)
+              .onLocalRevoke;
+          try {
+            if (revoke != null) {
+              await revoke();
+            } else {
+              await storage.writePushRevokePending();
+            }
+          } catch (e) {
+            if (kDebugMode) {
+              log(
+                'Push local revoke failed (tolerated): ${e.runtimeType}',
+                name: 'auth',
+                level: 900,
+              );
+            }
+            // A throwing/stale hook falls back like a missing one: persist the
+            // owed revocation so the next start settles it (best-effort).
+            await _persistPushRevokePending(storage);
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            log(
+              'Push local revoke failed (tolerated): ${e.runtimeType}',
+              name: 'auth',
+              level: 900,
+            );
+          }
+        }
+      }),
+    );
+  }
+
+  /// Best-effort persist of the owed push revocation; never throws.
+  Future<void> _persistPushRevokePending(SecureStorage storage) async {
+    try {
+      await storage.writePushRevokePending();
+    } catch (e) {
+      if (kDebugMode) {
+        log(
+          'Persisting push revoke flag failed (tolerated): ${e.runtimeType}',
+          name: 'auth',
+          level: 900,
+        );
+      }
+    }
+  }
+
+  Future<void> _runLogout() async {
     // Set BEFORE the server call and BEFORE the wipe — see [_logoutInFlight]'s
     // doc comment. The try/finally below resets it if this method exits
     // without reaching the final state flip (see the finally block's comment)
     // — it does not otherwise change this method's existing control flow.
     _logoutInFlight = true;
+    final bool forced = _forcedLogout;
     // Tracks whether `deleteAll()` below actually completed — the `finally`
     // gates the flag reset on THIS, not on `state`. See the `finally`'s
     // comment for why the two are not interchangeable.
     var wipedStorage = false;
     try {
+      // Phase 067 (D4) — deregister this device's FCM token FIRST: the DELETE
+      // needs the still-valid access token (skipped when [forced]).
+      // `unregisterForLogout()` never throws and is bounded (~3 s), but the
+      // guard keeps logout push-proof regardless.
+      // Everything `ref`-derived is captured BEFORE the first await: the
+      // notifier can be disposed mid-logout (container teardown), after which
+      // any `ref.read` throws. The token wipe must still complete.
+      final SecureStorage storage = ref.read(secureStorageProvider);
+      final AuthRepository repository = ref.read(authRepositoryProvider);
       try {
-        await ref.read(authRepositoryProvider).logout();
+        final Future<void> Function({required bool forced})? unregister = ref
+            .read(pushSessionHooksProvider)
+            .onLogout;
+        if (unregister != null) {
+          await unregister(forced: forced);
+        } else {
+          // Push not built yet: persist the owed revocation (survives the
+          // wipe) so the next start's deleteToken() settles it.
+          await storage.writePushRevokePending();
+        }
+      } catch (e) {
+        if (kDebugMode) {
+          log(
+            'Push deregistration on logout failed (tolerated): ${e.runtimeType}',
+            name: 'auth',
+            level: 900,
+          );
+        }
+        // A throwing/stale hook falls back like a missing one (best-effort).
+        await _persistPushRevokePending(storage);
+      }
+      try {
+        await repository.logout().timeout(kServerLogoutTimeout);
       } on Failure catch (f) {
         if (kDebugMode) {
           log(
@@ -1276,8 +1405,11 @@ class AuthNotifier extends _$AuthNotifier {
           );
         }
       }
-      await ref.read(secureStorageProvider).deleteAll();
+      await storage.deleteAll();
       wipedStorage = true;
+      // Disposed while awaiting: the wipe is done; there is no notifier left to
+      // sweep or flip, and any `ref` use would throw.
+      if (!ref.mounted) return;
       // Security (mobile-security MEDIUM-1, 2026-07-24) — purge the shared media
       // disk cache. The loader (core/media/beautica_image.dart) disk-caches
       // remote avatars/photos for 7 days; the client faces this account viewed
@@ -1298,6 +1430,7 @@ class AuthNotifier extends _$AuthNotifier {
           );
         }
       }
+      if (!ref.mounted) return; // disposed during the purge await
       // Security (mobile-security MEDIUM) — force-clear the screen-protection
       // reference count and tear down the iOS app-switcher blur. (No FLAG_SECURE
       // is involved: screenshots are allowed by product decision 2026-08-20 —
@@ -1561,7 +1694,7 @@ class AuthNotifier extends _$AuthNotifier {
       //
       // Behaviour on the happy path is byte-identical: the flip was already
       // the last thing the try block did.
-      if (wipedStorage) {
+      if (wipedStorage && ref.mounted) {
         if (kDebugMode) {
           log('Logout: session cleared', name: 'auth', level: 800);
         }
