@@ -14,8 +14,12 @@
 // are all exercised.
 //
 // Surfaces covered: CLIENT shell (Головна), SALON_OWNER «Мої салони» and the
-// SALON_OWNER salon cover (shell tab 0). The independent-master / salon-master
-// headers carry no bell until the phase 362 design gate — not covered here.
+// SALON_OWNER salon cover (shell tab 0), and (phase 363, approved placement)
+// the INDEPENDENT_MASTER and SALON_MASTER «Мій профіль» headers, where the bell
+// sits left of the burger / tune button.
+//
+// Since phase 363 the landing is the real feed screen; the scripted repository
+// answers an empty first page.
 //
 // KEY POLICY: every tap/find is key-based.
 
@@ -45,9 +49,19 @@ class _FixedUnreadRepo implements NotificationRepository {
   @override
   Future<int> unreadCount() async => count;
 
+  /// An empty feed: phase 363's screen loads page 0 on open, so the landing
+  /// must answer (an empty feed is what a user with no notifications gets).
   @override
-  Future<NotificationPage> fetchPage({required int page, required int size}) =>
-      throw UnimplementedError();
+  Future<NotificationPage> fetchPage({
+    required int page,
+    required int size,
+  }) async => NotificationPage(
+    items: const <AppNotification>[],
+    page: page,
+    size: size,
+    totalElements: 0,
+    totalPages: 0,
+  );
 
   @override
   Future<void> markRead(String id) => throw UnimplementedError();
@@ -145,6 +159,63 @@ void main() {
       router,
       find.byKey(clientBell),
       RouteNames.clientHome,
+    );
+  });
+
+  testWidgets('INDEPENDENT_MASTER sees the global dot on «Мій профіль»; the '
+      'bell opens /notifications and back returns', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: _unread(4),
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.masterProfile);
+
+    const Key masterBell = Key('master_profile_bell_button');
+    expect(find.byKey(masterBell), findsOneWidget);
+    expect(
+      _bellAsset(tester, masterBell),
+      BeauticaAssetIcons.notificationUnread,
+    );
+    // The burger is still there, to the bell's right.
+    expect(find.byKey(const Key('btn-menu-master')), findsOneWidget);
+
+    await _tapBellAndReturn(
+      tester,
+      router,
+      find.byKey(masterBell),
+      RouteNames.masterProfile,
+    );
+  });
+
+  testWidgets('SALON_MASTER sees the global dot on «Мій профіль»; the bell '
+      'opens /notifications and back returns', (tester) async {
+    final fb = FakeBackend(
+      masterRowId: 'master-removable',
+      masterSalonId: 'salon-xyz',
+    );
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: _unread(2),
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
+
+    const Key bell = Key('salon_master_profile_bell_button');
+    expect(find.byKey(bell), findsOneWidget);
+    expect(_bellAsset(tester, bell), BeauticaAssetIcons.notificationUnread);
+    expect(find.byKey(const Key('btn-menu-salon-master')), findsOneWidget);
+
+    await _tapBellAndReturn(
+      tester,
+      router,
+      find.byKey(bell),
+      RouteNames.salonMasterProfile,
     );
   });
 

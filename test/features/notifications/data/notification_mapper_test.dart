@@ -8,8 +8,16 @@ import 'package:beautica_mobile/features/notifications/domain/app_notification.d
 import 'package:built_value/serializer.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+// The mapper drops any row whose id is not a UUID (the id goes into a URL
+// path), so every fixture id is one.
+const String _idDefault = '00000000-0000-4000-8000-000000000001';
+const String _idOk = '00000000-0000-4000-8000-0000000000aa';
+const String _idNoTs = '00000000-0000-4000-8000-0000000000bb';
+const String _idA = '00000000-0000-4000-8000-00000000000a';
+const String _idB = '00000000-0000-4000-8000-00000000000b';
+
 Map<String, Object?> _row({
-  Object? id = 'n1',
+  Object? id = _idDefault,
   Object? type = 'BOOKING_CREATED',
   Object? createdAt = '2026-09-30T13:00:00+03:00',
   Object? read,
@@ -179,16 +187,35 @@ void main() {
   group('row policy', () {
     test('should_dropRow_when_createdAtMissing', () {
       final page = NotificationMapper.pageFromDto(
-        _page([_row(id: 'no-ts', createdAt: null), _row(id: 'ok')]),
+        _page([_row(id: _idNoTs, createdAt: null), _row(id: _idOk)]),
       );
-      expect(page.items.map((e) => e.id), <String>['ok']);
+      expect(page.items.map((e) => e.id), <String>[_idOk]);
     });
 
     test('should_dropRow_when_idMissingOrBlank', () {
       final page = NotificationMapper.pageFromDto(
-        _page([_row(id: null), _row(id: '   '), _row(id: 'ok')]),
+        _page([_row(id: null), _row(id: '   '), _row(id: _idOk)]),
       );
-      expect(page.items.map((e) => e.id), <String>['ok']);
+      expect(page.items.map((e) => e.id), <String>[_idOk]);
+    });
+
+    test('should_dropRow_when_idIsNotAUuid', () {
+      final page = NotificationMapper.pageFromDto(
+        _page([
+          _row(id: 'n1'),
+          _row(id: '../../users/me'),
+          _row(id: '00000000-0000-4000-8000-00000000000g'),
+          _row(id: '${_idOk}0'),
+          _row(id: '%20$_idOk'),
+          _row(id: _idOk),
+        ]),
+      );
+      expect(page.items.map((e) => e.id), <String>[_idOk]);
+    });
+
+    test('should_keepRow_when_uuidIsUpperCase', () {
+      final String upper = _idOk.toUpperCase();
+      expect(_one(_row(id: upper)).id, upper);
     });
 
     test('should_defaultReadToFalse_when_absent', () {
@@ -206,7 +233,7 @@ void main() {
   group('page', () {
     test('should_applyDefaults_when_paginationFieldsAbsent', () {
       final p = NotificationMapper.pageFromDto(
-        _page([_row(id: 'a'), _row(id: 'b')]),
+        _page([_row(id: _idA), _row(id: _idB)]),
       );
       expect(p.page, 0);
       expect(p.size, 2);

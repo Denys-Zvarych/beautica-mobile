@@ -4,7 +4,8 @@
 // `required` list), so this is the one place the domain's shape is decided:
 //   • a row with no `id` or no `createdAt` is DROPPED (returns null): without
 //     an id it cannot be marked read, without a timestamp it cannot be sorted
-//     or grouped. Dropping one row beats failing the page.
+//     or grouped. Dropping one row beats failing the page. So is a row whose
+//     `id` is not a UUID (it is interpolated into a URL path).
 //   • unknown / absent `type`  → [AppNotificationType.unknown] + [NoTarget].
 //   • unknown / absent `kind`, or a kind whose required id is missing
 //                              → [NoTarget].
@@ -114,6 +115,19 @@ abstract final class NotificationMapper {
       }
       return null;
     }
+    // The id is interpolated into `PATCH /notifications/{id}/read`: anything
+    // that is not a UUID is dropped here rather than ever reaching a path.
+    // Only the REASON is logged, never the value.
+    if (!_uuid.hasMatch(id)) {
+      if (kDebugMode) {
+        log(
+          'dropping notification row with a non-UUID id',
+          name: 'feature.notifications.mapper',
+          level: 900,
+        );
+      }
+      return null;
+    }
     final AppNotificationType type = typeFromDto(dto.type);
     return AppNotification(
       id: id,
@@ -148,6 +162,10 @@ abstract final class NotificationMapper {
       totalPages: dto.totalPages ?? 1,
     );
   }
+
+  static final RegExp _uuid = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
+  );
 
   static String? _nonBlank(String? v) {
     final t = v?.trim();

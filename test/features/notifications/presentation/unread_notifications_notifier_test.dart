@@ -426,6 +426,42 @@ void main() {
     });
   });
 
+  test('should_incrementByDelta_andIgnoreNonPositiveOrForeignUser', () {
+    _run((h) {
+      h.repo.handler = () async => 2;
+      h.start();
+      h.notifier.increment(forUserId: 'u1');
+      expect(h.value, 3);
+      h.notifier.increment(forUserId: 'u1', by: 4);
+      expect(h.value, 7);
+      h.notifier.increment(forUserId: 'u1', by: 0);
+      h.notifier.increment(forUserId: 'u1', by: -2);
+      expect(h.value, 7);
+      h.notifier.increment(forUserId: 'someone-else');
+      expect(h.value, 7);
+    });
+  });
+
+  test('should_dropAFetchThatWasInFlightAcrossAnIncrement', () {
+    _run((h) {
+      h.start();
+      final Completer<int> stale = Completer<int>();
+      h.repo.handler = () => stale.future;
+      h.notifier.refresh();
+      h.async.flushMicrotasks();
+
+      // Same `_version` rule as decrement / setCount: the increment makes the
+      // request stale, so its (pre-mutation) answer is dropped.
+      h.notifier.increment(forUserId: 'u1');
+      final int afterIncrement = h.value!;
+      h.repo.handler = () async => afterIncrement;
+      stale.complete(99);
+      h.async.flushMicrotasks();
+
+      expect(h.value, afterIncrement);
+    });
+  });
+
   test('should_exposeHasUnreadBoolean', () {
     _run((h) {
       h.repo.handler = () async => 2;

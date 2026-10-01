@@ -24,6 +24,11 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
@@ -230,6 +235,12 @@ List<Object> _overrides(SalonMasterOwnProfileData data) => <Object>[
     (Ref ref) async => const <ServiceCategoryOption>[],
   ),
 ];
+
+/// Phase 363 — a global unread count of two, so the header bell shows its dot.
+class _TwoUnread extends UnreadNotifications {
+  @override
+  FutureOr<int> build() => 2;
+}
 
 void main() {
   group('AsyncValue states', () {
@@ -995,6 +1006,128 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('stub-staff-settings')), findsOneWidget);
+    });
+  });
+
+  // Phase 363 — the global notification bell, left of the tune button. «Мій
+  // профіль» is this role's landing tab and carries the only bell; nothing else
+  // on the header moves.
+  group('notification bell in the header (phase 363)', () {
+    GoRouter bellRouter() => GoRouter(
+      initialLocation: RouteNames.salonMasterProfile,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.salonMasterProfile,
+          builder: (_, _) => const SalonMasterProfileScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.notifications,
+          builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+      ],
+    );
+
+    Future<void> pumpBell(
+      WidgetTester tester,
+      GoRouter router, {
+      List<Object> extra = const <Object>[],
+    }) async {
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((_master, _services, _salon)),
+          ...extra,
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'should_sitLeftOfTheTuneButton_with12dpGap_andNothingElseMoves',
+      (tester) async {
+        final GoRouter router = bellRouter();
+        addTearDown(router.dispose);
+        await pumpBell(tester, router);
+
+        final Rect bell = tester.getRect(
+          find.byKey(const Key('salon_master_profile_bell_button')),
+        );
+        final Rect tune = tester.getRect(
+          find.byKey(const Key('btn-menu-salon-master')),
+        );
+        final double width = tester.getSize(find.byType(MaterialApp)).width;
+
+        expect(bell.right, lessThan(tune.left));
+        expect(tune.left - bell.right, VelvetSpacing.sm + 4);
+        // The tune button stays pinned to the right gutter, as before.
+        expect(tune.right, width - VelvetSpacing.lg);
+        // The Stack-centred title does not shift for the wider trailing slot.
+        final String title = AppLocalizations.of(
+          tester.element(find.byType(SalonMasterProfileScreen)),
+        ).masterProfileTitle;
+        expect(tester.getCenter(find.text(title)).dx, closeTo(width / 2, 1));
+      },
+    );
+
+    testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(
+        tester,
+        router,
+        extra: <Object>[
+          unreadNotificationsProvider.overrideWith(_TwoUnread.new),
+        ],
+      );
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationUnread,
+      );
+    });
+
+    testWidgets('should_pushTheFeed_andKeepABackStack_whenTheBellIsTapped', (
+      tester,
+    ) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(
+        find.byKey(const Key('salon_master_profile_bell_button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('feed-stub'), findsOneWidget);
+      expect(router.canPop(), isTrue, reason: 'push, never go');
+    });
+
+    testWidgets('should_keepTheTuneButtonNavigating_toSettings', (
+      tester,
+    ) async {
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.salonMasterProfile,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.salonMasterProfile,
+            builder: (_, _) => const SalonMasterProfileScreen(),
+          ),
+          GoRoute(
+            path: RouteNames.salonMasterSettings,
+            builder: (_, _) =>
+                const Scaffold(body: SizedBox(key: Key('stub-settings'))),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('btn-menu-salon-master')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-settings')), findsOneWidget);
     });
   });
 

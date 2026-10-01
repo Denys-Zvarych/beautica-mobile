@@ -41,7 +41,10 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -88,6 +91,12 @@ import '../../../helpers/velvet_snack_matchers.dart';
 final Finder _locationIcon = find.byWidgetPredicate(
   (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
 );
+
+/// Phase 363 — a global unread count of two, so the header bell shows its dot.
+class _TwoUnread extends UnreadNotifications {
+  @override
+  FutureOr<int> build() => 2;
+}
 
 // ---------------------------------------------------------------------------
 // Style matchers
@@ -2977,6 +2986,120 @@ void main() {
             'popping the masterEdit screen must return to masterProfile — '
             'confirms a true back-stack exists after the push',
       );
+    });
+  });
+
+  // ── 13c. Phase 363 — the global notification bell, left of the burger ──────
+  //
+  // «Мій профіль» is this role's landing tab and the ONE master header that
+  // carries the bell. It sits left of the burger with the client top bar's
+  // 12 dp gap, and nothing else on the header moves: the burger stays pinned
+  // right and the Stack-centred title stays centred.
+
+  group('notification bell in the header (phase 363)', () {
+    GoRouter bellRouter() => GoRouter(
+      initialLocation: RouteNames.masterProfile,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterProfile,
+          builder: (_, _) => const MasterProfileScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.notifications,
+          builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+      ],
+    );
+
+    Future<void> pumpBell(
+      WidgetTester tester,
+      GoRouter router, {
+      List<Object> extra = const <Object>[],
+    }) async {
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          ...extra,
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_sitLeftOfTheBurger_with12dpGap_andNothingElseMoves', (
+      tester,
+    ) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      final Rect bell = tester.getRect(
+        find.byKey(const Key('master_profile_bell_button')),
+      );
+      final Rect burger = tester.getRect(
+        find.byKey(const Key('btn-menu-master')),
+      );
+      final double width = tester.getSize(find.byType(MaterialApp)).width;
+
+      expect(bell.right, lessThan(burger.left));
+      expect(burger.left - bell.right, VelvetSpacing.sm + 4);
+      // The burger stays pinned to the right gutter, as it was before.
+      expect(burger.right, width - VelvetSpacing.lg);
+      // The Stack-centred title does not shift for the wider trailing slot.
+      final String title = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      ).masterProfileTitle;
+      expect(tester.getCenter(find.text(title)).dx, closeTo(width / 2, 1));
+    });
+
+    testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(
+        tester,
+        router,
+        extra: <Object>[
+          unreadNotificationsProvider.overrideWith(_TwoUnread.new),
+        ],
+      );
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationUnread,
+      );
+    });
+
+    testWidgets('should_showThePlainBell_whenNothingIsUnread', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationPlain,
+      );
+    });
+
+    testWidgets('should_pushTheFeed_andKeepABackStack_whenTheBellIsTapped', (
+      tester,
+    ) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('master_profile_bell_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('feed-stub'), findsOneWidget);
+      expect(router.canPop(), isTrue, reason: 'push, never go');
     });
   });
 

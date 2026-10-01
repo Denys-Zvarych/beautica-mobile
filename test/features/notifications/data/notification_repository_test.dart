@@ -19,13 +19,25 @@ class _MockApi extends Mock implements api.NotificationsApi {}
 
 RequestOptions _ro() => RequestOptions(path: '/api/v1/notifications');
 
+/// A deterministic UUID for a short readable label (the mapper drops rows whose
+/// id is not a UUID). An empty label stays empty (the "blank id" case).
+String _uid(String label) {
+  if (label.isEmpty) return '';
+  final String hex = label.codeUnits
+      .map((int c) => c.toRadixString(16).padLeft(2, '0'))
+      .join()
+      .padLeft(12, '0');
+  assert(hex.length == 12, 'label too long for the UUID tail');
+  return '00000000-0000-4000-8000-$hex';
+}
+
 Map<String, Object?> _row(
   String id,
   String type, {
   Map<String, Object?>? target,
   Object? params = const <String, Object?>{},
 }) => <String, Object?>{
-  'id': id,
+  'id': _uid(id),
   'type': type,
   'createdAt': '2026-09-30T10:00:00Z',
   'read': false,
@@ -70,7 +82,7 @@ void main() {
       };
       final page = NotificationMapper.pageFromDto(
         _page(<Map<String, Object?>>[
-          for (final k in wire.keys) _row('id-$k', k),
+          for (final (int i, String k) in wire.keys.indexed) _row('t$i', k),
         ]),
       );
       expect(page.items.map((e) => e.type).toList(), wire.values.toList());
@@ -186,7 +198,7 @@ void main() {
       final page = NotificationMapper.pageFromDto(
         _page(<Map<String, Object?>>[bad, _row('ok', 'BOOKING_CREATED')]),
       );
-      expect(page.items.map((e) => e.id), <String>['ok']);
+      expect(page.items.map((e) => e.id), <String>[_uid('ok')]);
     });
   });
 
@@ -206,7 +218,7 @@ void main() {
         ),
       );
       final page = await repo.fetchPage(page: 0, size: 20);
-      expect(page.items.single.id, 'a');
+      expect(page.items.single.id, _uid('a'));
       expect(page.hasNext, isFalse);
     });
 

@@ -30,9 +30,24 @@ const EdgeInsets kMyBookingsListPadding = EdgeInsets.fromLTRB(
 /// is a set of recessed wells in the silhouette of a real card, breathing
 /// slowly; when data lands they're replaced by raised pillows.
 class BookingsSkeleton extends StatefulWidget {
-  const BookingsSkeleton({super.key, this.count = 3});
+  const BookingsSkeleton({
+    super.key,
+    this.count = 3,
+    this.rowBuilder,
+    this.semanticsLabel,
+  });
 
   final int count;
+
+  /// Builds ONE loading row in place of the booking-card silhouette (additive,
+  /// Phase 363: the notification feed's compact row). `null` — every existing
+  /// caller — keeps the booking card silhouette. Receives the row index so a
+  /// caller can vary the ragged line lengths.
+  final Widget Function(BuildContext context, int index)? rowBuilder;
+
+  /// Overrides the screen-reader label (additive, Phase 363). `null` keeps
+  /// `myBookingsLoadingSemantics`.
+  final String? semanticsLabel;
 
   @override
   State<BookingsSkeleton> createState() => _BookingsSkeletonState();
@@ -74,8 +89,9 @@ class _BookingsSkeletonState extends State<BookingsSkeleton>
       curve: Curves.easeInOut,
     );
 
+    final Widget Function(BuildContext, int)? rowBuilder = widget.rowBuilder;
     return Semantics(
-      label: l10n.myBookingsLoadingSemantics,
+      label: widget.semanticsLabel ?? l10n.myBookingsLoadingSemantics,
       liveRegion: true,
       child: AnimatedBuilder(
         animation: curved,
@@ -86,7 +102,10 @@ class _BookingsSkeletonState extends State<BookingsSkeleton>
         child: Column(
           children: <Widget>[
             for (int i = 0; i < widget.count; i++) ...<Widget>[
-              const _SkeletonCard(),
+              if (rowBuilder == null)
+                const _SkeletonCard()
+              else
+                rowBuilder(context, i),
               if (i < widget.count - 1)
                 const SizedBox(height: VelvetSpacing.md),
             ],
@@ -115,7 +134,11 @@ class _SkeletonCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const _Well(width: 62, height: 74, radius: VelvetRadii.field),
+            const BookingsSkeletonWell(
+              width: 62,
+              height: 74,
+              radius: VelvetRadii.field,
+            ),
             const SizedBox(width: VelvetSpacing.md),
             Expanded(
               child: Column(
@@ -123,17 +146,34 @@ class _SkeletonCard extends StatelessWidget {
                 children: <Widget>[
                   Row(
                     children: <Widget>[
-                      const _Well(width: 32, height: 32, radius: 16),
+                      const BookingsSkeletonWell(
+                        width: 32,
+                        height: 32,
+                        radius: 16,
+                      ),
                       const SizedBox(width: VelvetSpacing.sm),
-                      _Well(width: _fraction(context, 0.34), height: 12),
+                      BookingsSkeletonWell(
+                        width: _fraction(context, 0.34),
+                        height: 12,
+                      ),
                     ],
                   ),
                   const SizedBox(height: VelvetSpacing.md),
-                  _Well(width: _fraction(context, 0.52), height: 11),
+                  BookingsSkeletonWell(
+                    width: _fraction(context, 0.52),
+                    height: 11,
+                  ),
                   const SizedBox(height: VelvetSpacing.sm),
-                  _Well(width: _fraction(context, 0.36), height: 10),
+                  BookingsSkeletonWell(
+                    width: _fraction(context, 0.36),
+                    height: 10,
+                  ),
                   const SizedBox(height: VelvetSpacing.md),
-                  const _Well(width: 116, height: 24, radius: 13),
+                  const BookingsSkeletonWell(
+                    width: 116,
+                    height: 24,
+                    radius: 13,
+                  ),
                 ],
               ),
             ),
@@ -153,8 +193,17 @@ class _SkeletonCard extends StatelessWidget {
 /// renders as a circle (the shipped `NeumorphicInset` has no dedicated
 /// `circle` flag — a fully-rounded square reads identically for a square
 /// well).
-class _Well extends StatelessWidget {
-  const _Well({required this.width, required this.height, this.radius = 6});
+///
+/// PROMOTED from a private `_Well` (Phase 363) so the notification feed's
+/// compact-row skeleton draws its silhouette from the SAME wells as the
+/// bookings skeleton instead of copying them.
+class BookingsSkeletonWell extends StatelessWidget {
+  const BookingsSkeletonWell({
+    super.key,
+    required this.width,
+    required this.height,
+    this.radius = 6,
+  });
 
   final double width;
   final double height;
@@ -309,6 +358,12 @@ class MyBookingsErrorState extends StatelessWidget {
   /// no-wait fallback `ServiceRateLimitedFailure` already takes.
   static int cooldownSecondsFor(Object error) => switch (error) {
     SalonBoardRateLimitedFailure(:final int? retryAfterSeconds) =>
+      (retryAfterSeconds != null && retryAfterSeconds > 0)
+          ? retryAfterSeconds
+          : 0,
+    // Phase 363 — the notification feed's 429 (additive arm: no other caller
+    // can receive this failure, so every existing call site is unchanged).
+    NotificationsRateLimitedFailure(:final int? retryAfterSeconds) =>
       (retryAfterSeconds != null && retryAfterSeconds > 0)
           ? retryAfterSeconds
           : 0,
@@ -481,6 +536,71 @@ class MyBookingsLoadMoreSpinner extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The tail slot while a failed `loadMore` is parked behind a rate-limit
+/// cooldown — the footer that SURFACES the cooldown instead of leaving a
+/// spinner turning over a request that will not be re-issued
+/// (mobile-security HIGH, 2026-09-20).
+///
+/// PROMOTED from `master_archive_screen.dart`'s private `_ArchiveRetryCooldown`
+/// (Phase 363) so the notification feed's 429 footer is the SAME widget, not a
+/// copy. Its text [textKey] is the only new knob; the archive passes
+/// `master-archive-retry-cooldown`, so its tests are untouched.
+///
+/// Counts down inside its own [CooldownTicker] subtree, so the 1 Hz rebuild
+/// never reaches the host screen's `State` and never regroups the list; and it
+/// falls back to the ordinary [MyBookingsLoadMoreSpinner] the instant the
+/// window elapses — the same instant the host's `loadMore` is free again, so
+/// the two cannot disagree about whether the tail is live.
+///
+/// Reuses the shared ticker rather than owning a second `Timer`; see
+/// `shared/widgets/cooldown_ticker.dart`'s header for the relationship to
+/// `OtpResendRow`, which owns the original of this mechanism.
+class MyBookingsRetryCooldown extends StatelessWidget {
+  const MyBookingsRetryCooldown({
+    super.key,
+    required this.seconds,
+    this.onElapsed,
+    this.textKey,
+  });
+
+  final int seconds;
+
+  /// Lets the HOST re-evaluate when the window closes. Load-bearing where the
+  /// host decides inside `build` whether to schedule the next `loadMore`:
+  /// without it a lapsed cooldown would leave the tail parked on a spinner with
+  /// nothing in flight and nothing to wake it. The notification feed uses it
+  /// to retry the page itself.
+  final VoidCallback? onElapsed;
+
+  /// Key on the countdown text, for widget tests. Optional.
+  final Key? textKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return CooldownTicker(
+      seconds: seconds,
+      onElapsed: onElapsed,
+      builder: (BuildContext context, int remaining, Widget? _) {
+        if (remaining <= 0) return const MyBookingsLoadMoreSpinner();
+        return Padding(
+          key: textKey,
+          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              AppLocalizations.of(
+                context,
+              ).masterArchiveLoadMorePaused(remaining),
+              textAlign: TextAlign.center,
+              style: VelvetText.body(),
+            ),
+          ),
+        );
+      },
     );
   }
 }

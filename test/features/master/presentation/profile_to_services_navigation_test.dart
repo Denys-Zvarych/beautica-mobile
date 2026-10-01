@@ -40,6 +40,7 @@ import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -48,6 +49,8 @@ import 'package:beautica_mobile/features/services/presentation/services_list_scr
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+
+import '../../../helpers/no_unread_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -157,6 +160,10 @@ ProviderScope _buildApp({
   return ProviderScope(
     retry: beauticaProviderRetry,
     overrides: [
+      // Phase 363 — the profile header now mounts the live notification bell,
+      // whose real notifier would start a 60 s poll timer (see
+      // `helpers/no_unread_notifications.dart`).
+      unreadNotificationsProvider.overrideWith(ZeroUnreadNotifications.new),
       authProvider.overrideWith(() => _StubAuthNotifier()),
       masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
       masterRepositoryProvider.overrideWithValue(masterRepo),

@@ -24,6 +24,18 @@
 // regenerated). `ManagementActionCard` passes its own three constants
 // explicitly.
 //
+// LATER ADDITIONS (Phase 363, additive — every pre-existing caller is
+// untouched and still pixel-identical):
+//   * `border` — an optional hairline edge (default `null` = none), animated
+//     with the box decoration.
+//   * `onTap` is NULLABLE — `null` renders the surface with no gesture
+//     handlers at all (no press scale, no shadow drop, no tap), for an
+//     informational row that still hosts its own interactive children.
+//   * `decorationTweenDuration` — a public constant (150 ms) for the
+//     decoration / inert-opacity tween, so a consumer that times something off
+//     it (the notification tile's read-settle) reads the real value, not a
+//     copy.
+//
 // The widget ORDER is load-bearing and mirrors both originals exactly:
 //   Semantics > AbsorbPointer > GestureDetector > AnimatedScale >
 //   AnimatedOpacity > AnimatedContainer(decoration + padding) > child
@@ -45,9 +57,15 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 /// Owns NO layout of its own beyond [padding] — callers supply whatever child
 /// (a [Row], a [Column]) the surface carries.
 class PressableSurface extends StatefulWidget {
+  /// Duration of the decoration (colour / border / shadow) and inert-opacity
+  /// tweens. Public so a consumer that times something off the tween (the
+  /// notification tile's read-settle) reads the real value, not a copy.
+  static const Duration decorationTweenDuration = Duration(milliseconds: 150);
+
   const PressableSurface({
     super.key,
     required this.onTap,
+    this.border,
     required this.color,
     required this.borderRadius,
     required this.shadow,
@@ -60,7 +78,16 @@ class PressableSurface extends StatefulWidget {
     this.inertOpacity = 0.6,
   });
 
-  final VoidCallback onTap;
+  /// Tap handler. `null` (additive, Phase 363) renders the surface with NO
+  /// gesture handlers at all: no press scale, no shadow drop, no tap — for a
+  /// row that is informational (a notification whose target no longer exists)
+  /// but still hosts its own interactive children. Every existing caller
+  /// passes a non-null handler and is unchanged.
+  final VoidCallback? onTap;
+
+  /// Optional hairline edge (additive, Phase 363; default `null` = none, so
+  /// every existing caller renders exactly as before). Animates with the box.
+  final BoxBorder? border;
 
   /// The box fill at rest and while pressed (the press is expressed by the
   /// shadow dropping, never by a colour change).
@@ -99,7 +126,7 @@ class _PressableSurfaceState extends State<PressableSurface> {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      button: true,
+      button: widget.onTap != null,
       enabled: !widget.inert,
       label: widget.semanticsLabel,
       child: AbsorbPointer(
@@ -110,23 +137,30 @@ class _PressableSurfaceState extends State<PressableSurface> {
         // never a tap that quietly does nothing.
         absorbing: widget.inert,
         child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onTap();
-          },
+          onTapDown: widget.onTap == null
+              ? null
+              : (_) => setState(() => _pressed = true),
+          onTapCancel: widget.onTap == null
+              ? null
+              : () => setState(() => _pressed = false),
+          onTapUp: widget.onTap == null
+              ? null
+              : (_) {
+                  setState(() => _pressed = false);
+                  widget.onTap?.call();
+                },
           child: AnimatedScale(
             scale: _pressed ? widget.pressedScale : 1,
             duration: widget.pressDuration,
             child: AnimatedOpacity(
               opacity: widget.inert ? widget.inertOpacity : 1,
-              duration: const Duration(milliseconds: 150),
+              duration: PressableSurface.decorationTweenDuration,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration: PressableSurface.decorationTweenDuration,
                 decoration: BoxDecoration(
                   color: widget.color,
                   borderRadius: widget.borderRadius,
+                  border: widget.border,
                   boxShadow: _pressed ? null : widget.shadow,
                 ),
                 padding: widget.padding,

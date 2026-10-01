@@ -154,6 +154,16 @@ class UnreadNotifications extends _$UnreadNotifications {
     _emit(_count > 0 ? _count - 1 : 0);
   }
 
+  /// Undoes an optimistic [decrement] / [setCount] by DELTA, never by an
+  /// absolute snapshot: a snapshot taken before two overlapping mutations
+  /// would overwrite the one that succeeded. Guarded exactly like
+  /// [decrement] (user id, `_version` bump).
+  void increment({required String forUserId, int by = 1}) {
+    if (!_signedIn || forUserId != _userId || by <= 0) return;
+    _version++;
+    _emit(_count + by);
+  }
+
   void _emit(int count) {
     _count = count;
     state = AsyncData<int>(count);

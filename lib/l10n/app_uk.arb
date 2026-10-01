@@ -3286,7 +3286,174 @@
   },
   "notificationsScreenTitle": "Сповіщення",
   "@notificationsScreenTitle": {
-    "description": "Title of the notification feed screen (placeholder until the feed ships)."
+    "description": "Title of the notification feed screen."
+  },
+  "notificationsMarkAllRead": "Позначити всі як прочитані",
+  "@notificationsMarkAllRead": {
+    "description": "Phase 363 — action above the notification feed that marks every loaded notification read. Hidden (not disabled) when nothing is unread."
+  },
+  "notificationsMarkOneRead": "Позначити як прочитане",
+  "@notificationsMarkOneRead": {
+    "description": "Phase 363 — semantic label and tooltip of the per-row check button that marks one notification read without opening it."
+  },
+  "notificationsMarkReadFailed": "Не вдалося позначити як прочитане",
+  "@notificationsMarkReadFailed": {
+    "description": "Phase 363 — snackbar shown after a single mark-read failed and the row was rolled back to unread."
+  },
+  "notificationsMarkAllReadFailed": "Не вдалося позначити сповіщення як прочитані",
+  "@notificationsMarkAllReadFailed": {
+    "description": "Phase 363 — snackbar shown after mark-all-read failed and every row was rolled back to unread."
+  },
+  "notificationsUnreadCount": "{count, plural, one{{count} непрочитане} few{{count} непрочитані} many{{count} непрочитаних} other{{count} непрочитаних}}",
+  "@notificationsUnreadCount": {
+    "description": "Phase 363 — unread counter beside the mark-all action.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "notificationsUnreadCountCapped": "99+ непрочитаних",
+  "@notificationsUnreadCountCapped": {
+    "description": "Phase 363 — unread counter when the backend's count is at its cap of 99, so the true number is unknown."
+  },
+  "notificationsUnreadSemantic": "непрочитане",
+  "@notificationsUnreadSemantic": {
+    "description": "Phase 363 — screen-reader word announced on an unread notification row."
+  },
+  "notificationsParamsGone": "Деталі більше недоступні",
+  "@notificationsParamsGone": {
+    "description": "Phase 363 — body of a notification whose display parameters the backend nulled because the recipient lost access to the subject."
+  },
+  "notificationsNoTarget": "Більше недоступно",
+  "@notificationsNoTarget": {
+    "description": "Phase 363 — hint on a notification row that has nothing left to open."
+  },
+  "notificationsEmptyTitle": "Сповіщень поки немає",
+  "@notificationsEmptyTitle": {
+    "description": "Phase 363 — empty-state headline of the notification feed."
+  },
+  "notificationsEmptyBody": "Тут зʼявлятимуться нові записи, скасування, перенесення та відгуки.",
+  "@notificationsEmptyBody": {
+    "description": "Phase 363 — empty-state sub-line of the notification feed; says what WILL arrive, there is no action."
+  },
+  "notificationsLoadingSemantics": "Завантаження сповіщень",
+  "@notificationsLoadingSemantics": {
+    "description": "Phase 363 — screen-reader label of the notification feed's loading skeleton."
+  },
+  "notificationsLoadMoreFailed": "Не вдалося завантажити сповіщення",
+  "@notificationsLoadMoreFailed": {
+    "description": "Phase 363 — footer notice after the next feed page failed for a reason other than a rate limit; a retry action sits beside it."
+  },
+  "notificationTitleBookingCreated": "Новий запис",
+  "@notificationTitleBookingCreated": {
+    "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
+  },
+  "notificationTitleCancelledByClient": "Клієнт скасував запис",
+  "@notificationTitleCancelledByClient": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."
+  },
+  "notificationTitleDeclinedClient": "Ваш запис скасовано",
+  "@notificationTitleDeclinedClient": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
+  },
+  "notificationTitleDeclinedProvider": "Запис у вашому дні скасовано",
+  "@notificationTitleDeclinedProvider": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
+  },
+  "notificationTitleRescheduledClient": "Ваш запис перенесено",
+  "@notificationTitleRescheduledClient": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for the client."
+  },
+  "notificationTitleRescheduledProvider": "Запис перенесено",
+  "@notificationTitleRescheduledProvider": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for a provider."
+  },
+  "notificationTitleInviteAccepted": "Новий учасник команди",
+  "@notificationTitleInviteAccepted": {
+    "description": "Phase 363 — title of an INVITE_ACCEPTED notification (salon owner / admin)."
+  },
+  "notificationTitleNotCompleted": "Візит позначено як непроведений",
+  "@notificationTitleNotCompleted": {
+    "description": "Phase 363 — title of a BOOKING_NOT_COMPLETED notification for the client."
+  },
+  "notificationTitleReviewRequested": "Як пройшов візит? Залиште відгук",
+  "@notificationTitleReviewRequested": {
+    "description": "Phase 363 — title of a REVIEW_REQUESTED notification for the client."
+  },
+  "notificationTitleReviewReceived": "Новий відгук",
+  "@notificationTitleReviewReceived": {
+    "description": "Phase 363 — title of a REVIEW_RECEIVED notification for a provider."
+  },
+  "notificationTitleSalonClosed": "Салон закрито, запис скасовано",
+  "@notificationTitleSalonClosed": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_SALON_CLOSED notification for the client."
+  },
+  "notificationTitleMasterRemoved": "Майстер більше не приймає, запис скасовано",
+  "@notificationTitleMasterRemoved": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_MASTER_REMOVED notification for the client."
+  },
+  "notificationTitleUnknown": "Нове сповіщення",
+  "@notificationTitleUnknown": {
+    "description": "Phase 363 — title of a notification whose type this build does not recognise."
+  },
+  "notificationBodyProvider": "{counterpart} — {service}, {dateTime}",
+  "@notificationBodyProvider": {
+    "description": "Phase 363 — body line for a provider: client first, then service and time.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyClient": "{service}, {dateTime} — {counterpart}",
+  "@notificationBodyClient": {
+    "description": "Phase 363 — body line for a client: service and time first, then who provides it.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduled": "{counterpart} — {service}, новий час: {dateTime}",
+  "@notificationBodyProviderRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a provider.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyClientRescheduled": "{service}, новий час: {dateTime} — {counterpart}",
+  "@notificationBodyClientRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a client.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyInviteAccepted": "{subject} тепер у команді — {role}",
+  "@notificationBodyInviteAccepted": {
+    "description": "Phase 363 — body line of an INVITE_ACCEPTED notification; role is notificationRoleSalonMaster or notificationRoleSalonAdmin.",
+    "placeholders": {
+      "subject": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "notificationRoleSalonMaster": "майстер",
+  "@notificationRoleSalonMaster": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationRoleSalonAdmin": "адміністратор",
+  "@notificationRoleSalonAdmin": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationServiceWithExtra": "{service} +{extraCount}",
+  "@notificationServiceWithExtra": {
+    "description": "Phase 363 — first service of a multi-service visit plus the number of further services.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "extraCount": { "type": "int" }
+    }
   },
   "homeHubMenuLabel": "Меню",
   "@homeHubMenuLabel": {

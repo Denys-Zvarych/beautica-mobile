@@ -19,6 +19,9 @@ import 'package:beautica_mobile/features/notifications/data/notification_reposit
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+/// The mapper drops rows whose id is not a UUID.
+const String _kId = '00000000-0000-4000-8000-000000000001';
+
 typedef _Reply = ({int status, Object? body, Map<String, String> headers});
 
 final class _Adapter implements HttpClientAdapter {
@@ -191,7 +194,7 @@ void main() {
           'success': true,
           'data': <Object?>[
             <String, Object?>{
-              'id': 'n1',
+              'id': _kId,
               'type': 'BOOKING_CREATED',
               'createdAt': '2026-09-30T10:00:00Z',
               'read': false,
@@ -212,7 +215,7 @@ void main() {
       expect(req.path, '/api/v1/notifications');
       expect(req.queryParameters, containsPair('page', 2));
       expect(req.queryParameters, containsPair('size', 5));
-      expect(page.items.single.id, 'n1');
+      expect(page.items.single.id, _kId);
       expect(page.hasNext, isFalse);
     });
 
@@ -246,6 +249,50 @@ void main() {
             jsonDecode(s.adapter.bodies.single) as Map<String, Object?>;
         expect(DateTime.parse(body['upTo']! as String), local.toUtc());
         expect(body['upTo'], endsWith('Z'));
+      },
+    );
+
+    test(
+      'should_keepMicrosecondPrecisionOfUpTo_fromWireCreatedAtToWireBody',
+      () async {
+        // Postgres TIMESTAMPTZ has microsecond precision and the backend
+        // compares `created_at <= :upTo`: a value truncated to milliseconds
+        // (.123 < .123456) would leave the newest row unread. Follow the REAL
+        // generated deserialiser -> mapper -> repository -> serialiser path.
+        final feed = _boot(
+          _ok(<String, Object?>{
+            'success': true,
+            'data': <Object?>[
+              <String, Object?>{
+                'id': _kId,
+                'type': 'BOOKING_CREATED',
+                'createdAt': '2026-09-30T10:00:00.123456Z',
+                'read': false,
+                'target': <String, Object?>{'kind': 'NONE'},
+              },
+            ],
+            'page': 0,
+            'size': 20,
+            'totalElements': 1,
+            'totalPages': 1,
+          }),
+        );
+        final page = await feed.repo.fetchPage(page: 0, size: 20);
+        final created = page.items.single.createdAt;
+        expect(created.microsecond, 456, reason: 'parse must keep micros');
+        expect(created.millisecond, 123);
+
+        final s = _boot(
+          _ok(<String, Object?>{
+            'success': true,
+            'data': <String, Object?>{'updated': 1},
+          }),
+        );
+        await s.repo.markAllRead(upTo: created);
+
+        final body =
+            jsonDecode(s.adapter.bodies.single) as Map<String, Object?>;
+        expect(body['upTo'], '2026-09-30T10:00:00.123456Z');
       },
     );
 

@@ -64,6 +64,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -216,11 +217,23 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       // back chevron whose `onBack` calls `context.pop()` and throws
       // `GoError('There is nothing to pop')`.
       showBack: false,
-      trailing: NeumorphicIconButton(
-        key: const Key('btn-menu-master'),
-        icon: BeauticaIcons.menuBurger,
-        semanticLabel: l10n.settingsHubMenuButton,
-        onTap: () => context.push(RouteNames.masterMenu),
+      // Phase 363 — the global notification bell sits LEFT of the burger, the
+      // same `bell · burger` order and gap as the client top bar. «Мій профіль»
+      // is this role's landing tab, so it is the one header that carries it.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const ConnectedNotificationBell(
+            buttonKey: Key('master_profile_bell_button'),
+          ),
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: const Key('btn-menu-master'),
+            icon: BeauticaIcons.menuBurger,
+            semanticLabel: l10n.settingsHubMenuButton,
+            onTap: () => context.push(RouteNames.masterMenu),
+          ),
+        ],
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       // Pull-to-refresh: invalidate the master profile and the services list
