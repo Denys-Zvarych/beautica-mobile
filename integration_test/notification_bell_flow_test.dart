@@ -36,6 +36,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
@@ -263,4 +264,59 @@ void main() {
       RouteNames.mySalons,
     );
   });
+
+  // Phase 365 addendum — the «Профіль» tab of the salon shell (nav tile 3)
+  // carries the bell for SALON_OWNER and SALON_ADMIN, left of the tune button.
+  for (final ({UserRole role, String salonId, Key bell, Key tune}) c
+      in <({UserRole role, String salonId, Key bell, Key tune})>[
+        (
+          role: UserRole.salonOwner,
+          salonId: 'salon-owner-1',
+          bell: const Key('owner-profile-bell'),
+          tune: const Key('btn-owner-own-profile-settings'),
+        ),
+        (
+          role: UserRole.salonAdmin,
+          salonId: 'salon-admin-1',
+          bell: const Key('admin-profile-bell'),
+          tune: const Key('btn-admin-own-profile-settings'),
+        ),
+      ]) {
+    testWidgets('${c.role.name} sees the global dot on the «Профіль» tab; '
+        'the bell opens /notifications and back returns', (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = c.role;
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: _unread(3),
+        );
+        await AppHarness.loginAs(tester, fb, c.role);
+        await AppHarness.settle(tester);
+        AppHarness.expectLocation(router, RouteNames.salonShell(c.salonId));
+
+        await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+        await AppHarness.settle(tester);
+
+        expect(find.byKey(c.bell), findsOneWidget);
+        expect(
+          _bellAsset(tester, c.bell),
+          BeauticaAssetIcons.notificationUnread,
+        );
+        expect(
+          tester.getRect(find.byKey(c.bell)).right,
+          lessThan(tester.getRect(find.byKey(c.tune)).left),
+          reason: 'the bell sits left of the tune button',
+        );
+
+        await _tapBellAndReturn(
+          tester,
+          router,
+          find.byKey(c.bell),
+          RouteNames.salonShell(c.salonId),
+        );
+        expect(find.byKey(c.bell), findsOneWidget);
+      });
+    });
+  }
 }

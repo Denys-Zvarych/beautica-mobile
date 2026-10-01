@@ -84,7 +84,10 @@ import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'notification_bell_flow_test.dart' as notification_bell;
 import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
+import 'notifications_flow_test.dart' as notifications;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notifications_provider_flow_test.dart' as notifications_provider;
+import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
@@ -357,4 +360,10 @@ void main() {
   group('notifications_mark_read_flow', notifications_mark_read.main);
   // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
   group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
+  // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
+  group('notifications_flow', notifications.main);
+  // Phase 365 — a BOOKING_CREATED / INVITE_ACCEPTED tap for every provider role.
+  group('notifications_provider_flow', notifications_provider.main);
+  // Phase 365 — one owner, two salons, one global feed.
+  group('owner_multi_salon_feed_flow', owner_multi_salon_feed.main);
 }

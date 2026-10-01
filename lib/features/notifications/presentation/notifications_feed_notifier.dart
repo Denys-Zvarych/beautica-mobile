@@ -36,7 +36,7 @@
 import 'dart:async';
 import 'dart:developer';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show kDebugMode, visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -522,6 +522,9 @@ class NotificationsFeed extends _$NotificationsFeed {
     );
   }
 
-  void _log(String message) =>
+  void _log(String message) {
+    if (kDebugMode) {
       log(message, name: 'feature.notifications.feed', level: 900);
+    }
+  }
 }

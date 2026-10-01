@@ -18,6 +18,10 @@
 // bar stays, count 2 -> 1) -> «Позначити всі» (bar + ✓ gone, count 0, repo saw an
 // `upTo`) -> back: the bell has no dot -> reopen, a new item arrives, pull to
 // refresh shows it and the bar returns.
+// Journey (CLIENT, failure): «Позначити всі» fails (the scripted repo throws a
+// `ServerFailure`) -> every row rolls back to unread, the error snack shows, the
+// bar and ✓ come back, the count is restored and the bell keeps its dot
+// (phase 365 — the rollback half of the spec's second run).
 // Journey (SALON_OWNER): rows of two salons in ONE feed, each labelled; the row
 // with no salon carries no label; the count spans both salons.
 //
@@ -30,12 +34,15 @@
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/notifications/data/notification_repository.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
 import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_feed_parts.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:flutter/material.dart';
@@ -45,66 +52,9 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
-
-/// Stateful scripted feed: one page, newest first; mutations are visible to the
-/// next fetch and the next unread count, exactly as the real backend behaves.
-class _StatefulFeedRepo implements NotificationRepository {
-  _StatefulFeedRepo(List<AppNotification> seed)
-    : items = List<AppNotification>.of(seed);
-
-  List<AppNotification> items;
-
-  int fetchCalls = 0;
-  final List<String> markedRead = <String>[];
-  final List<DateTime?> markAllUpTo = <DateTime?>[];
-
-  int get unread => items.where((AppNotification n) => !n.read).length;
-
-  @override
-  Future<int> unreadCount() async => unread;
-
-  @override
-  Future<NotificationPage> fetchPage({
-    required int page,
-    required int size,
-  }) async {
-    fetchCalls++;
-    return NotificationPage(
-      items: List<AppNotification>.of(items),
-      page: page,
-      size: size,
-      totalElements: items.length,
-      totalPages: 1,
-    );
-  }
-
-  @override
-  Future<void> markRead(String id) async {
-    markedRead.add(id);
-    items = <AppNotification>[
-      for (final AppNotification n in items)
-        if (n.id == id) n.copyWith(read: true) else n,
-    ];
-  }
-
-  @override
-  Future<int> markAllRead({DateTime? upTo}) async {
-    markAllUpTo.add(upTo);
-    int updated = 0;
-    items = <AppNotification>[
-      for (final AppNotification n in items)
-        if (!n.read && (upTo == null || !n.createdAt.isAfter(upTo)))
-          () {
-            updated++;
-            return n.copyWith(read: true);
-          }()
-        else
-          n,
-    ];
-    return updated;
-  }
-}
+import 'support/notification_flow_support.dart';
 
 AppNotification _notif(
   String id, {
@@ -125,7 +75,7 @@ AppNotification _notif(
   ),
 );
 
-List<Object> _repo(_StatefulFeedRepo repo) => <Object>[
+List<Object> _repo(ScriptedNotificationRepository repo) => <Object>[
   notificationRepositoryProvider.overrideWithValue(repo),
 ];
 
@@ -173,11 +123,12 @@ void main() {
   testWidgets('CLIENT opens the feed from the bell, marks one row read, marks '
       'all read, the bell loses its dot, and pull-to-refresh brings a new '
       'item back', (tester) async {
-    final _StatefulFeedRepo repo = _StatefulFeedRepo(<AppNotification>[
-      _notif('a', age: const Duration(hours: 1), read: false),
-      _notif('b', age: const Duration(hours: 2), read: false),
-      _notif('c', age: const Duration(hours: 3), read: true),
-    ]);
+    final ScriptedNotificationRepository repo =
+        ScriptedNotificationRepository(<AppNotification>[
+          _notif('a', age: const Duration(hours: 1), read: false),
+          _notif('b', age: const Duration(hours: 2), read: false),
+          _notif('c', age: const Duration(hours: 3), read: true),
+        ]);
     final fb = FakeBackend()..currentRole = UserRole.client;
     final GoRouter router = await AppHarness.boot(
       tester,
@@ -263,25 +214,77 @@ void main() {
     expect(_count(tester), 1);
   });
 
+  testWidgets('CLIENT: a failing «Позначити всі» rolls every row back to '
+      'unread, shows the error snack, and the bell keeps its dot', (
+    tester,
+  ) async {
+    final ScriptedNotificationRepository repo =
+        ScriptedNotificationRepository(<AppNotification>[
+          _notif('a', age: const Duration(hours: 1), read: false),
+          _notif('b', age: const Duration(hours: 2), read: false),
+          _notif('c', age: const Duration(hours: 3), read: true),
+        ])..markAllFailure = const ServerFailure(statusCode: 500);
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      extraOverrides: _repo(repo),
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await AppHarness.settle(tester);
+    await _openFeed(tester, router, clientBell);
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byType(NotificationsScreen)),
+    );
+    expect(_count(tester), 2);
+
+    await tester.tap(_markAll());
+    await AppHarness.settle(tester);
+    await pumpVelvetSnackIn(tester);
+
+    expect(repo.markAllUpTo, hasLength(1), reason: 'the request was issued');
+    expectVelvetSnack(
+      l10n.notificationsMarkAllReadFailed,
+      variant: VelvetSnackVariant.error,
+    );
+    expect(_markRead('a'), findsOneWidget, reason: 'row a rolled back');
+    expect(_markRead('b'), findsOneWidget, reason: 'row b rolled back');
+    expect(_markRead('c'), findsNothing, reason: 'c was read all along');
+    expect(_markAll(), findsOneWidget, reason: 'the bar is offered again');
+    expect(_count(tester), 2, reason: 'the optimistic zero was undone');
+    AppHarness.expectLocation(router, RouteNames.notifications);
+
+    await pumpPastVelvetSnack(tester);
+    await tester.tap(find.byKey(NotificationsScreen.backKey));
+    await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.clientHome);
+    expect(
+      _bellAsset(tester, clientBell),
+      BeauticaAssetIcons.notificationUnread,
+      reason: 'the dot is back: nothing was marked read server-side',
+    );
+  });
+
   testWidgets('SALON_OWNER sees rows of BOTH salons in one feed, each '
       'labelled; the salon-less row has no label; the count spans both', (
     tester,
   ) async {
-    final _StatefulFeedRepo repo = _StatefulFeedRepo(<AppNotification>[
-      _notif(
-        'lotus',
-        age: const Duration(hours: 1),
-        read: false,
-        salon: 'Lotus Studio',
-      ),
-      _notif(
-        'orchid',
-        age: const Duration(hours: 2),
-        read: false,
-        salon: 'Orchid Studio',
-      ),
-      _notif('solo', age: const Duration(hours: 3), read: true),
-    ]);
+    final ScriptedNotificationRepository repo =
+        ScriptedNotificationRepository(<AppNotification>[
+          _notif(
+            'lotus',
+            age: const Duration(hours: 1),
+            read: false,
+            salon: 'Lotus Studio',
+          ),
+          _notif(
+            'orchid',
+            age: const Duration(hours: 2),
+            read: false,
+            salon: 'Orchid Studio',
+          ),
+          _notif('solo', age: const Duration(hours: 3), read: true),
+        ]);
     final fb = FakeBackend()..currentRole = UserRole.salonOwner;
     final GoRouter router = await AppHarness.boot(
       tester,

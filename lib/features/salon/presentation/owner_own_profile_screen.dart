@@ -85,6 +85,7 @@ import 'package:beautica_mobile/features/master/presentation/master_profile_noti
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/shared/widgets/staff_identity_card.dart';
@@ -314,15 +315,25 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
     return ProfileScaffold(
       title: l10n.ownerOwnProfileTitle,
       showBack: !widget.embedded,
-      trailing: NeumorphicIconButton(
-        key: const Key('btn-owner-own-profile-settings'),
-        icon: Icons.tune_rounded,
-        semanticLabel: l10n.ownerOwnProfileSettingsSemanticLabel,
-        // Phase 21.15 is unbuilt — the control is present but inert. See the
-        // file header's THE TRAILING TUNE note for why this is neither a
-        // route stub nor a snackbar.
-        enabled: false,
-        onTap: () {},
+      // Phase 365 addendum — the global notification bell sits LEFT of the
+      // tune button, the same `bell · button` order and gap as the master
+      // «Мій профіль» header.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const ConnectedNotificationBell(buttonKey: Key('owner-profile-bell')),
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: const Key('btn-owner-own-profile-settings'),
+            icon: Icons.tune_rounded,
+            semanticLabel: l10n.ownerOwnProfileSettingsSemanticLabel,
+            // Phase 21.15 is unbuilt — the control is present but inert. See
+            // the file header's THE TRAILING TUNE note for why this is neither
+            // a route stub nor a snackbar.
+            enabled: false,
+            onTap: () {},
+          ),
+        ],
       ),
       // Pull-to-refresh. Invalidating [ownerOwnProfileProvider] alone would
       // NOT refetch anything: both reads it composes are `keepAlive`
