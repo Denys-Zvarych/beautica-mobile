@@ -94,6 +94,7 @@ import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
 import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
+import 'push_tap_flow_test.dart' as push_tap;
 import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
@@ -302,6 +303,9 @@ void main() {
   // Phase 068 — a foreground FCM message refreshes the bell / merges into the
   // open feed after the debounce; a permission-denied user is ignored.
   group('push_foreground_refresh_flow', push_foreground_refresh.main);
+  // Phase 069 — a push TAP (background / cold start) opens its destination,
+  // marks the notification read; a signed-out launch tap is dropped.
+  group('push_tap_flow', push_tap.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.

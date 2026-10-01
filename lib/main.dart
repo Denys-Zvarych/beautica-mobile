@@ -15,6 +15,7 @@ import 'core/network/dio_provider.dart';
 import 'core/push/push_available_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'features/notifications/presentation/push_message_listener.dart';
+import 'features/notifications/presentation/push_tap_dispatcher.dart';
 import 'features/notifications/presentation/push_registration_notifier.dart';
 import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
@@ -220,6 +221,8 @@ class BeauticaApp extends ConsumerWidget {
     ref.listen(pushRegistrationProvider, (_, _) {});
     // Phase 068 — foreground push -> bell / feed refresh (no UI).
     ref.listen(pushMessageListenerProvider, (_, _) {});
+    // Phase 069 — push tap (background / cold start) -> mark read -> open.
+    ref.listen(pushTapDispatcherProvider, (_, _) {});
     return MaterialApp.router(
       // `MaterialApp.title` is evaluated at app-construction time, BEFORE the
       // `Localizations` widget is in scope, so `AppLocalizations.of(context)`

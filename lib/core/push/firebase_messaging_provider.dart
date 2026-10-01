@@ -18,3 +18,12 @@ FirebaseMessaging firebaseMessaging(Ref ref) => FirebaseMessaging.instance;
 @Riverpod(keepAlive: true)
 Stream<RemoteMessage> Function() firebaseForegroundMessages(Ref ref) =>
     () => FirebaseMessaging.onMessage;
+
+/// Phase 069 — taps on a notification while the app is in the BACKGROUND.
+/// `FirebaseMessaging.onMessageOpenedApp` is STATIC, hence its own seam. The
+/// cold-start tap is `firebaseMessaging.getInitialMessage()` (an instance
+/// method, so it goes through [firebaseMessaging]). Call only after push is
+/// known to be available.
+@Riverpod(keepAlive: true)
+Stream<RemoteMessage> Function() firebaseOpenedAppMessages(Ref ref) =>
+    () => FirebaseMessaging.onMessageOpenedApp;

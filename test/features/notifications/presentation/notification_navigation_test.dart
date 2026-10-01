@@ -7,8 +7,11 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_notification_repository.dart';
 
@@ -163,6 +166,136 @@ void main() {
         ),
         isFalse,
       );
+    });
+  });
+
+  group('openNotificationTarget (phase 069)', () {
+    // Unmatched locations render `errorBuilder`, which records `state.uri`:
+    // the pushed LOCATION (path + query) is what is compared, never a widget.
+    Future<List<String>> pumpApp(
+      WidgetTester tester,
+      void Function(BuildContext) onReady,
+    ) async {
+      final List<String> seen = <String>[];
+      bool fired = false;
+      final GoRouter router = GoRouter(
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/',
+            builder: (BuildContext c, GoRouterState s) => Builder(
+              builder: (BuildContext inner) {
+                if (!fired) {
+                  fired = true;
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => onReady(inner),
+                  );
+                }
+                return const SizedBox();
+              },
+            ),
+          ),
+        ],
+        errorBuilder: (BuildContext c, GoRouterState s) {
+          seen.add(s.uri.toString());
+          return const SizedBox();
+        },
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        MaterialApp.router(
+          routerConfig: router,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return seen;
+    }
+
+    for (final UserRole role in UserRole.values) {
+      for (final NotificationTarget target in <NotificationTarget>[
+        _booking,
+        _visit,
+        _review,
+        _team,
+      ]) {
+        testWidgets(
+          'should_pushSameLocationAsOpenNotification_${role.name}_${target.runtimeType}',
+          (WidgetTester tester) async {
+            final List<String> viaItem = await pumpApp(
+              tester,
+              (BuildContext c) => openNotification(
+                context: c,
+                item: notif('n', target: target),
+                role: role,
+              ),
+            );
+            final List<String> viaTarget = await pumpApp(
+              tester,
+              (BuildContext c) => openNotificationTarget(
+                context: c,
+                target: target,
+                role: role,
+              ),
+            );
+            expect(viaTarget, viaItem);
+            expect(viaTarget.length, routeFor(target, role) == null ? 0 : 1);
+          },
+        );
+      }
+    }
+
+    testWidgets('should_pushFallbackRoute_when_noRoute', (tester) async {
+      final List<String> seen = await pumpApp(
+        tester,
+        (BuildContext c) => openNotificationTarget(
+          context: c,
+          target: _none,
+          role: UserRole.client,
+          fallbackRoute: RouteNames.notifications,
+        ),
+      );
+      expect(seen, <String>[RouteNames.notifications]);
+    });
+
+    testWidgets('should_pushFallbackRoute_when_roleIsNull', (tester) async {
+      final List<String> seen = await pumpApp(
+        tester,
+        (BuildContext c) => openNotificationTarget(
+          context: c,
+          target: _booking,
+          role: null,
+          fallbackRoute: RouteNames.notifications,
+        ),
+      );
+      expect(seen, <String>[RouteNames.notifications]);
+    });
+
+    testWidgets('should_notUseFallback_when_routeExists', (tester) async {
+      final List<String> seen = await pumpApp(
+        tester,
+        (BuildContext c) => openNotificationTarget(
+          context: c,
+          target: _booking,
+          role: UserRole.independentMaster,
+          fallbackRoute: RouteNames.notifications,
+        ),
+      );
+      expect(seen.length, 1);
+      expect(seen.single, contains(RouteNames.masterBookingDetail(_bk)));
+    });
+
+    testWidgets('should_stayPut_when_noRouteAndNoFallback', (tester) async {
+      final List<String> seen = await pumpApp(
+        tester,
+        (BuildContext c) => openNotificationTarget(
+          context: c,
+          target: _none,
+          role: UserRole.client,
+        ),
+      );
+      expect(seen, isEmpty);
     });
   });
 }

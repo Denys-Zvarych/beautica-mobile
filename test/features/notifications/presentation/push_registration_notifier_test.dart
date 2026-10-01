@@ -4,6 +4,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/push/firebase_messaging_provider.dart';
+import 'package:beautica_mobile/core/push/notification_tray_provider.dart';
 import 'package:beautica_mobile/core/push/push_available_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -142,6 +143,7 @@ class _H {
     this.initGate,
     AuthorizationStatus requestResult = AuthorizationStatus.authorized,
     FakeSecureStorage? storage,
+    this.trayThrows = false,
   }) : storage = storage ?? FakeSecureStorage() {
     when(() => messaging.getToken()).thenAnswer((_) async => 'tok-1');
     when(() => messaging.deleteToken()).thenAnswer((_) async {
@@ -163,6 +165,10 @@ class _H {
         firebaseMessagingProvider.overrideWithValue(messaging),
         deviceTokenRepositoryProvider.overrideWithValue(repo),
         secureStorageProvider.overrideWithValue(this.storage),
+        notificationTrayClearerProvider.overrideWithValue(() async {
+          trayClears++;
+          if (trayThrows) throw StateError('tray');
+        }),
       ],
     );
     addTearDown(container.dispose);
@@ -172,6 +178,8 @@ class _H {
   final _MockMessaging messaging = _MockMessaging();
   late final _FakeRepo repo = _FakeRepo(order);
   final FakeSecureStorage storage;
+  final bool trayThrows;
+  int trayClears = 0;
 
   /// When set, Firebase init (pushAvailable) blocks until completed.
   final Completer<bool>? initGate;
@@ -392,6 +400,44 @@ void main() {
         .unregisterForLogout();
     await _settle();
     expect(h.repo.cancelledRegisters, 1);
+  });
+
+  test('logout clears the notification tray once', () async {
+    final h = _H();
+    await h.start();
+    await h.container
+        .read(pushRegistrationProvider.notifier)
+        .unregisterForLogout();
+    expect(h.trayClears, 1);
+  });
+
+  test('forced logout clears the notification tray', () async {
+    final h = _H();
+    await h.start();
+    await h.container
+        .read(pushRegistrationProvider.notifier)
+        .unregisterForLogout(forced: true);
+    expect(h.trayClears, 1);
+  });
+
+  test('logout still completes when the tray clear throws', () async {
+    final h = _H(trayThrows: true);
+    await h.start();
+    await h.container
+        .read(pushRegistrationProvider.notifier)
+        .unregisterForLogout();
+    expect(h.trayClears, 1);
+    verify(() => h.messaging.deleteToken()).called(1);
+    expect(h.state, const PushRegistrationState.idle());
+  });
+
+  test('revokeLocal clears the notification tray', () async {
+    final h = _H();
+    await h.start();
+    h.auth.set(const AuthSession.unauthenticated());
+    await _settle();
+    await h.container.read(pushRegistrationProvider.notifier).revokeLocal();
+    expect(h.trayClears, 1);
   });
 
   test('forced logout: NO DELETE, only the local deleteToken', () async {

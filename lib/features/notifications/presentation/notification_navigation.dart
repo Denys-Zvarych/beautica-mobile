@@ -116,17 +116,55 @@ Future<void> openNotification({
     showWarningSnack(context, l10n.notificationsBookingUnavailable);
     return;
   }
-  final String? route = routeFor(item.target, role);
-  if (route == null) return;
-  await _push(context, item.target, route, l10n);
+  await openNotificationTarget(
+    context: context,
+    target: item.target,
+    role: role,
+  );
+}
+
+/// The target-only half of [openNotification] (phase 069): opens [target]'s
+/// destination for [role]. Shared by the feed row tap and the push tap, so both
+/// reach the same screens through the same code.
+///
+/// When [routeFor] yields no route (a [NoTarget], a type the audience never
+/// receives, no role): silent by default (a feed row), but a non-null
+/// [fallbackRoute] is pushed instead (the push tap sends the user to the feed).
+/// The same fallback applies when pushing the destination throws.
+Future<void> openNotificationTarget({
+  required BuildContext context,
+  required NotificationTarget target,
+  required UserRole? role,
+  String? fallbackRoute,
+}) async {
+  final AppLocalizations l10n = AppLocalizations.of(context);
+  final String? route = routeFor(target, role);
+  if (route == null) {
+    if (fallbackRoute != null) await _pushFallback(context, fallbackRoute);
+    return;
+  }
+  await _push(context, target, route, l10n, fallbackRoute: fallbackRoute);
+}
+
+Future<void> _pushFallback(BuildContext context, String fallbackRoute) async {
+  try {
+    await GoRouter.of(context).push<Object?>(fallbackRoute);
+  } catch (e) {
+    log(
+      'fallback navigation failed: ${e.runtimeType}',
+      name: _logName,
+      level: 1000,
+    );
+  }
 }
 
 Future<void> _push(
   BuildContext context,
   NotificationTarget target,
   String route,
-  AppLocalizations l10n,
-) async {
+  AppLocalizations l10n, {
+  String? fallbackRoute,
+}) async {
   String location = route;
   Object? extra;
   switch (target) {
@@ -154,6 +192,10 @@ Future<void> _push(
     await router.push<Object?>(location, extra: extra);
   } catch (e) {
     log('navigation failed: ${e.runtimeType}', name: _logName, level: 1000);
+    if (fallbackRoute != null) {
+      if (context.mounted) await _pushFallback(context, fallbackRoute);
+      return;
+    }
     if (context.mounted) {
       showWarningSnack(context, l10n.notificationsBookingUnavailable);
     }

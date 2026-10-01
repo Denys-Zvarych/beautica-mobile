@@ -120,6 +120,7 @@ import 'independent_multi_service_booking_flow_test.dart'
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'logout_flow_test.dart' as logout;
 import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
+import 'push_tap_flow_test.dart' as push_tap;
 import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
@@ -422,6 +423,9 @@ void main() {
   // Phase 068 — a foreground FCM message refreshes the bell / merges into the
   // open feed after the debounce; a permission-denied user is ignored.
   group('push_foreground_refresh_flow', push_foreground_refresh.main);
+  // Phase 069 — a push TAP (background / cold start) opens its destination,
+  // marks the notification read; a signed-out launch tap is dropped.
+  group('push_tap_flow', push_tap.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →

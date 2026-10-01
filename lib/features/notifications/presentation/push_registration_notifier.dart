@@ -34,6 +34,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/push/firebase_messaging_provider.dart';
+import '../../../core/push/notification_tray_provider.dart';
 import '../../../core/push/push_available_provider.dart';
 import '../../../core/push/push_session_hooks.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -331,6 +332,8 @@ class PushRegistration extends _$PushRegistration {
         authUserIdOrNull(ref.read(authProvider)) != null;
     try {
       if (stale()) return;
+      // Audit L1: clear the previous user's tray entries (never throws).
+      unawaited(_clearTray());
       // FIRST await: persist the owed revocation before anything that can stall
       // (availability resolves slowly at cold start). Harmless when push turns
       // out to be unavailable: every retry path gates on availability itself.
@@ -374,6 +377,9 @@ class PushRegistration extends _$PushRegistration {
     _generation++; // cancels a running _start / refresh listener
     final int epoch = _sessionEpoch;
     final String? sessionUser = authUserIdOrNull(ref.read(authProvider));
+    // Audit L1: the previous user's tray entries must not outlive the session.
+    // Fire-and-forget (the clearer never throws), so it adds nothing to the budget.
+    unawaited(_clearTray());
     _cancelRegisters(); // never await an in-flight register POST
     if (token != null) _unregisteredByLogout = token;
     if (ref.mounted) state = const PushRegistrationState.idle();
@@ -450,6 +456,15 @@ class PushRegistration extends _$PushRegistration {
       await _deleteLocalToken();
     } on Object catch (e) {
       _logFailure('logoutCleanup', e);
+    }
+  }
+
+  /// Best-effort tray clear (audit L1); never throws, whatever the seam does.
+  Future<void> _clearTray() async {
+    try {
+      await ref.read(notificationTrayClearerProvider)();
+    } on Object catch (e) {
+      _logFailure('clearTray', e);
     }
   }
 

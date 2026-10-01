@@ -173,17 +173,20 @@ void main() {
 
   // patrolTest's `skip` is a bool (no reason string, unlike test()), so the
   // deferral reason is carried in the test description + this comment:
-  //   SKIP REASON: Firebase push deferred — FIREBASE_ENABLED=false; enable when
-  //   Phase 8.x FCM lands.
+  //   SKIP REASON: no Firebase config in CI (no google-services.json) — a real
+  //   tray tap needs a Firebase-configured build; real-device run pending.
   patrolTest(
     'FCM notification tap opens the booking deep link '
-    '(SKIPPED: Firebase push deferred — FIREBASE_ENABLED=false; '
-    'enable when Phase 8.x FCM lands)',
+    '(SKIPPED: phase 069 — a real tray tap needs a Firebase-configured '
+    'build; CI has no google-services.json so pushAvailable is false; the '
+    'tap-to-destination logic is covered fake-backed in the push tap flow '
+    'test; real-device run pending)',
     skip: true,
     ($) async {
-      // TODO(phase-8.x): post a notification via $.platform.mobile.* and tap
-      // it, then assert the booking-detail screen renders. Requires
-      // firebase_messaging wired + FIREBASE_ENABLED=true.
+      // Un-skip only on a build with real Firebase config: send a push, tap
+      // it in the tray via $.platform.mobile.*, assert the booking detail
+      // renders and the bell drops. Fake-backed coverage:
+      // integration_test/push_tap_flow_test.dart.
     },
   );
 
