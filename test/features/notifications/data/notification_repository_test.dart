@@ -96,20 +96,26 @@ void main() {
             'BOOKING_CREATED',
             target: {
               'kind': 'BOOKING',
-              'bookingId': 'b1',
-              'appointmentId': 'ap1',
-              'salonId': 's1',
+              'bookingId': '00000000-0000-4000-8000-0000000000b1',
+              'appointmentId': '00000000-0000-4000-8000-000000000a01',
+              'salonId': '00000000-0000-4000-8000-0000000000e1',
             },
           ),
           _row(
             'b',
             'REVIEW_REQUESTED',
-            target: {'kind': 'BOOKING_REVIEW', 'bookingId': 'b2'},
+            target: {
+              'kind': 'BOOKING_REVIEW',
+              'bookingId': '00000000-0000-4000-8000-0000000000b2',
+            },
           ),
           _row(
             'c',
             'INVITE_ACCEPTED',
-            target: {'kind': 'SALON_TEAM', 'salonId': 's2'},
+            target: {
+              'kind': 'SALON_TEAM',
+              'salonId': '00000000-0000-4000-8000-0000000000e2',
+            },
           ),
           _row('d', 'BOOKING_DECLINED', target: {'kind': 'NONE'}),
         ]),
@@ -117,18 +123,22 @@ void main() {
       expect(
         page.items[0].target,
         const NotificationTarget.booking(
-          bookingId: 'b1',
-          appointmentId: 'ap1',
-          salonId: 's1',
+          bookingId: '00000000-0000-4000-8000-0000000000b1',
+          appointmentId: '00000000-0000-4000-8000-000000000a01',
+          salonId: '00000000-0000-4000-8000-0000000000e1',
         ),
       );
       expect(
         page.items[1].target,
-        const NotificationTarget.bookingReview(bookingId: 'b2'),
+        const NotificationTarget.bookingReview(
+          bookingId: '00000000-0000-4000-8000-0000000000b2',
+        ),
       );
       expect(
         page.items[2].target,
-        const NotificationTarget.salonTeam(salonId: 's2'),
+        const NotificationTarget.salonTeam(
+          salonId: '00000000-0000-4000-8000-0000000000e2',
+        ),
       );
       expect(page.items[3].target, const NotificationTarget.none());
     });
@@ -141,7 +151,10 @@ void main() {
             _row(
               'x',
               'SOMETHING_NEW',
-              target: {'kind': 'BOOKING', 'bookingId': 'b1'},
+              target: {
+                'kind': 'BOOKING',
+                'bookingId': '00000000-0000-4000-8000-0000000000b1',
+              },
             ),
           ]),
         ),

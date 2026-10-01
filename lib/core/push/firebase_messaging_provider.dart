@@ -11,3 +11,10 @@ part 'firebase_messaging_provider.g.dart';
 /// and read this only when it resolved `true`.
 @Riverpod(keepAlive: true)
 FirebaseMessaging firebaseMessaging(Ref ref) => FirebaseMessaging.instance;
+
+/// Phase 068 — the foreground-message stream. `FirebaseMessaging.onMessage` is
+/// STATIC (not on the instance), so it gets its own seam for tests. Like
+/// [firebaseMessaging], call it only after push is known to be available.
+@Riverpod(keepAlive: true)
+Stream<RemoteMessage> Function() firebaseForegroundMessages(Ref ref) =>
+    () => FirebaseMessaging.onMessage;

@@ -93,6 +93,7 @@ import 'forgot_password_rate_limited_flow_test.dart'
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
 import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
@@ -298,6 +299,9 @@ void main() {
   group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
   group('logout_flow', logout.main);
   group('push_token_registration_flow', push_token_registration.main);
+  // Phase 068 — a foreground FCM message refreshes the bell / merges into the
+  // open feed after the debounce; a permission-denied user is ignored.
+  group('push_foreground_refresh_flow', push_foreground_refresh.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.

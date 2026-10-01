@@ -21,6 +21,7 @@ import 'package:freezed_annotation/freezed_annotation.dart'
 
 import '../../../core/network/api_enum_names.dart';
 import '../domain/app_notification.dart';
+import '../domain/push_tap.dart';
 
 abstract final class NotificationMapper {
   static AppNotificationType typeFromDto(
@@ -85,9 +86,23 @@ abstract final class NotificationMapper {
       return const NotificationTarget.none();
     }
     if (kind == api.NotificationTargetKindEnum.BOOKING && bookingId != null) {
+      // `appointmentId` is optional and reaches routing too (untrusted FCM
+      // data): a non-UUID value is dropped, the booking target itself stays.
+      final String? rawAppointmentId = _nonBlank(dto.appointmentId);
+      final String? appointmentId =
+          rawAppointmentId != null && _uuid.hasMatch(rawAppointmentId)
+          ? rawAppointmentId
+          : null;
+      if (rawAppointmentId != null && appointmentId == null && kDebugMode) {
+        log(
+          'dropping non-UUID appointmentId from notification target',
+          name: 'feature.notifications.mapper',
+          level: 900,
+        );
+      }
       return NotificationTarget.booking(
         bookingId: bookingId,
-        appointmentId: _nonBlank(dto.appointmentId),
+        appointmentId: appointmentId,
         salonId: salonId,
       );
     }
@@ -100,6 +115,55 @@ abstract final class NotificationMapper {
     }
     return const NotificationTarget.none();
   }
+
+  /// Phase 068 — builds the target from an FCM `data` map (backend 339) and
+  /// DELEGATES to [targetFromDto], so feed and push share one validation path
+  /// (UUID checks, [NoTarget] fallback). Non-string / absent / unknown
+  /// `targetKind` → [NoTarget]. Never throws.
+  static NotificationTarget targetFromPushData(Map<String, dynamic> d) {
+    final String? kindName = _pushString(d['targetKind']);
+    if (kindName == null) return const NotificationTarget.none();
+    // Wire name → generated member by lookup (never `valueOf`, whose
+    // fallback member would masquerade as data). Unknown → [NoTarget].
+    final api.NotificationTargetKindEnum? kind = api
+        .NotificationTargetKindEnum
+        .values
+        .where((e) => knownEnumName(e) == kindName)
+        .firstOrNull;
+    if (kind == null) return const NotificationTarget.none();
+    final api.NotificationTarget dto = api.NotificationTarget(
+      (b) => b
+        ..kind = kind
+        ..bookingId = _pushString(d['bookingId'])
+        ..appointmentId = _pushString(d['appointmentId'])
+        ..salonId = _pushString(d['salonId']),
+    );
+    return targetFromDto(dto);
+  }
+
+  /// Phase 068 — decodes an FCM `data` map. `null` (ignore the message) when
+  /// `notificationId` is absent / not a UUID. `v` is not gated: known keys are
+  /// always parsed, an unknown `type` / `targetKind` degrades to
+  /// [AppNotificationType.unknown] / [NoTarget] (same rule as [fromDto]).
+  static PushTap? pushTapFromData(Map<String, dynamic> d) {
+    final String? id = _pushString(d['notificationId']);
+    if (id == null || !_uuid.hasMatch(id)) return null;
+    final String? typeName = _pushString(d['type']);
+    final AppNotificationType type = typeFromDto(
+      api.NotificationResponseTypeEnum.values
+          .where((e) => knownEnumName(e) == typeName)
+          .firstOrNull,
+    );
+    return PushTap(
+      notificationId: id,
+      type: type,
+      target: type == AppNotificationType.unknown
+          ? const NotificationTarget.none()
+          : targetFromPushData(d),
+    );
+  }
+
+  static String? _pushString(Object? v) => v is String ? _nonBlank(v) : null;
 
   static NotificationParams paramsFromDto(api.NotificationParams? dto) {
     if (dto == null) return NotificationParams.empty;

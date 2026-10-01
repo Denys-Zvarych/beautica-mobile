@@ -188,6 +188,21 @@ void main() {
   );
 
   patrolTest(
+    'FCM FOREGROUND message refreshes the bell and feed '
+    '(SKIPPED: phase 068 — real FCM delivery needs a Firebase-configured '
+    'build and backend push; CI has no google-services.json so '
+    'pushAvailable is false; the refresh logic is covered fake-backed in the '
+    'push foreground refresh flow test; real-device run pending)',
+    skip: true,
+    ($) async {
+      // Un-skip only on a build with real Firebase config: log in, trigger a
+      // backend booking for this user, assert the bell dot appears without
+      // waiting for the 60 s poll (and the new feed row at the top when the
+      // feed is open).
+    },
+  );
+
+  patrolTest(
     'POST_NOTIFICATIONS permission prompt is granted on first login '
     '(SKIPPED: phase 067 shipped the request, but the nightly patrol job '
     'has no google-services.json so pushAvailable=false and the app never '

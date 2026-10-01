@@ -918,4 +918,410 @@ void main() {
     expect(state.items, isEmpty);
     expect(env.repo.fetchedPages, isEmpty);
   });
+
+  group('refreshFromPush (quiet head merge)', () {
+    List<String> ids(_Env env) => env.container
+        .read(notificationsFeedProvider)
+        .value!
+        .items
+        .map((AppNotification n) => n.id)
+        .toList();
+
+    Future<_Env> twoPagesLoaded() async {
+      final _Env env = _env(<NotificationPage>[
+        pageOf(0, 2, <AppNotification>[notif('a'), notif('b')]),
+        pageOf(1, 2, <AppNotification>[notif('c'), notif('d')]),
+      ]);
+      env.container.listen(notificationsFeedProvider, (_, _) {});
+      await _login(env, 'A');
+      await env.container.read(notificationsFeedProvider.notifier).loadMore();
+      expect(ids(env), <String>['a', 'b', 'c', 'd']);
+      return env;
+    }
+
+    test('merges page 0 into the head, keeps the tail and paging', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('n'),
+        notif('a'),
+      ]);
+      env.repo.fetchedPages.clear();
+
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+
+      expect(ids(env), <String>['n', 'a', 'b', 'c', 'd']);
+      expect(env.repo.fetchedPages, <int>[0], reason: 'one GET, page 0 only');
+      final NotificationsFeedState st = env.container
+          .read(notificationsFeedProvider)
+          .value!;
+      expect(st.nextPage, 2);
+      expect(st.hasMore, isFalse, reason: 'tail paging facts are kept');
+    });
+
+    test('pull-to-refresh still resets the list to page 0', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('n'),
+        notif('a'),
+      ]);
+      await env.container.read(notificationsFeedProvider.notifier).refresh();
+      expect(ids(env), <String>['n', 'a']);
+    });
+
+    test('updates the read state of existing rows; never un-reads', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('a', read: true),
+        notif('b'),
+      ]);
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      final List<AppNotification> items = env.container
+          .read(notificationsFeedProvider)
+          .value!
+          .items;
+      expect(items.firstWhere((AppNotification n) => n.id == 'a').read, isTrue);
+
+      // The server (stale) says unread again: the row stays read.
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('a'),
+        notif('b'),
+      ]);
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      expect(
+        env.container
+            .read(notificationsFeedProvider)
+            .value!
+            .items
+            .firstWhere((AppNotification n) => n.id == 'a')
+            .read,
+        isTrue,
+      );
+    });
+
+    test('only page 0 loaded: hasMore / nextPage follow the head', () async {
+      final _Env env = _env(<NotificationPage>[
+        onePage(<AppNotification>[notif('a')]),
+      ]);
+      env.container.listen(notificationsFeedProvider, (_, _) {});
+      await _login(env, 'A');
+      expect(
+        env.container.read(notificationsFeedProvider).value!.hasMore,
+        isFalse,
+      );
+      env.repo.pages = <NotificationPage>[
+        pageOf(0, 2, <AppNotification>[notif('n'), notif('a')]),
+      ];
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      final NotificationsFeedState st = env.container
+          .read(notificationsFeedProvider)
+          .value!;
+      expect(st.hasMore, isTrue);
+      expect(st.nextPage, 1);
+    });
+
+    test('failure rethrows and leaves the list untouched', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.fetchErrors[env.repo.fetchedPages.length] =
+          const NetworkFailure();
+      await expectLater(
+        env.container
+            .read(notificationsFeedProvider.notifier)
+            .refreshFromPush(),
+        throwsA(isA<NetworkFailure>()),
+      );
+      expect(ids(env), <String>['a', 'b', 'c', 'd']);
+    });
+
+    test(
+      'pushes during an in-flight head refresh -> exactly one follow-up',
+      () async {
+        final _Env env = await twoPagesLoaded();
+        env.repo.fetchedPages.clear();
+        final int n = env.repo.fetchedPages.length;
+        final Completer<void> gate = Completer<void>();
+        env.repo.pageGate = gate;
+        final NotificationsFeed feed = env.container.read(
+          notificationsFeedProvider.notifier,
+        );
+        final Future<void> first = feed.refreshFromPush();
+        await Future<void>.delayed(Duration.zero);
+        expect(env.repo.fetchedPages.length, n + 1);
+
+        unawaited(feed.refreshFromPush());
+        unawaited(feed.refreshFromPush());
+        unawaited(feed.refreshFromPush());
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          env.repo.fetchedPages.length,
+          n + 1,
+          reason: 'none joins/fetches',
+        );
+
+        env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+          notif('n'),
+          notif('a'),
+        ]);
+        env.repo.pageGate = null;
+        gate.complete();
+        await first;
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(env.repo.fetchedPages.length, n + 2, reason: 'one follow-up');
+        expect(ids(env).first, 'n', reason: 'the follow-up saw the new row');
+      },
+    );
+
+    test(
+      'a push during a FULL refresh triggers one follow-up head refresh',
+      () async {
+        final _Env env = await twoPagesLoaded();
+        env.repo.fetchedPages.clear();
+        final Completer<void> gate = Completer<void>();
+        env.repo.pageGate = gate;
+        final NotificationsFeed feed = env.container.read(
+          notificationsFeedProvider.notifier,
+        );
+        final Future<void> full = feed.refresh();
+        await Future<void>.delayed(Duration.zero);
+        unawaited(feed.refreshFromPush());
+        unawaited(feed.refreshFromPush());
+        await Future<void>.delayed(Duration.zero);
+        expect(env.repo.fetchedPages, <int>[0]);
+
+        env.repo.pageGate = null;
+        gate.complete();
+        await full;
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(env.repo.fetchedPages, <int>[0, 0]);
+      },
+    );
+
+    test(
+      'a push during the FIRST load -> exactly one head refresh after it lands, unread nudged',
+      () async {
+        final _Env env = _env(<NotificationPage>[
+          onePage(<AppNotification>[notif('a')]),
+        ]);
+        env.container.listen(notificationsFeedProvider, (_, _) {});
+        env.container.listen(unreadNotificationsProvider, (_, _) {});
+        final Completer<void> gate = Completer<void>();
+        env.repo.pageGate = gate;
+        await _login(env, 'A');
+        expect(env.container.read(notificationsFeedProvider).isLoading, isTrue);
+        final int n = env.repo.fetchedPages.length;
+        final int unreadBefore = env.repo.unreadCountCalls;
+
+        await env.container
+            .read(notificationsFeedProvider.notifier)
+            .refreshFromPush();
+        await Future<void>.delayed(Duration.zero);
+        expect(env.repo.fetchedPages.length, n, reason: 'no GET while loading');
+        expect(
+          env.repo.unreadCountCalls,
+          greaterThan(unreadBefore),
+          reason: 'the bell count is nudged',
+        );
+
+        // The row the push announced is on the server by the time the
+        // follow-up runs.
+        env.repo.pages[0] = onePage(<AppNotification>[notif('n'), notif('a')]);
+        env.repo.pageGate = null;
+        gate.complete();
+        for (int i = 0; i < 6; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(
+          env.repo.fetchedPages.length,
+          n + 1,
+          reason: 'exactly one follow-up head refresh',
+        );
+        expect(ids(env), <String>['n', 'a']);
+      },
+    );
+
+    test(
+      'a push during the first load, then a user switch -> no follow-up for the new user',
+      () async {
+        final _Env env = _env(<NotificationPage>[
+          onePage(<AppNotification>[notif('a')]),
+        ]);
+        env.container.listen(notificationsFeedProvider, (_, _) {});
+        final Completer<void> gate = Completer<void>();
+        env.repo.pageGate = gate;
+        await _login(env, 'A');
+        await env.container
+            .read(notificationsFeedProvider.notifier)
+            .refreshFromPush();
+
+        await env.container.read(authProvider.notifier).logout();
+        await Future<void>.delayed(Duration.zero);
+        await _login(env, 'B');
+        final int n = env.repo.fetchedPages.length;
+
+        env.repo.pageGate = null;
+        gate.complete();
+        for (int i = 0; i < 6; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(
+          env.repo.fetchedPages.length,
+          n,
+          reason: "A's push must not trigger a refresh for B",
+        );
+        expect(ids(env), <String>['a']);
+      },
+    );
+
+    test('unchanged rows keep their identity across the merge', () async {
+      final _Env env = await twoPagesLoaded();
+      final List<AppNotification> before = env.container
+          .read(notificationsFeedProvider)
+          .value!
+          .items;
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('n'),
+        notif('a'),
+        notif('b'),
+      ]);
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      final List<AppNotification> after = env.container
+          .read(notificationsFeedProvider)
+          .value!
+          .items;
+      expect(ids(env), <String>['n', 'a', 'b', 'c', 'd']);
+      expect(identical(after[1], before[0]), isTrue, reason: 'a reused');
+      expect(identical(after[2], before[1]), isTrue, reason: 'b reused');
+    });
+
+    test('a changed row is replaced, not reused', () async {
+      final _Env env = await twoPagesLoaded();
+      final AppNotification oldA = env.container
+          .read(notificationsFeedProvider)
+          .value!
+          .items
+          .first;
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('a', read: true),
+        notif('b'),
+      ]);
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      final AppNotification newA = env.container
+          .read(notificationsFeedProvider)
+          .value!
+          .items
+          .first;
+      expect(identical(newA, oldA), isFalse);
+      expect(newA.read, isTrue);
+    });
+
+    test('gap: page 0 shares no id with a paged list -> full reset', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.pages[0] = pageOf(0, 3, <AppNotification>[
+        notif('x1'),
+        notif('x2'),
+      ]);
+      env.repo.fetchedPages.clear();
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      expect(ids(env), <String>['x1', 'x2'], reason: 'no hole: reset to head');
+      expect(env.repo.fetchedPages, <int>[
+        0,
+      ], reason: 'reuses the fetched page');
+      final NotificationsFeedState st = env.container
+          .read(notificationsFeedProvider)
+          .value!;
+      expect(st.nextPage, 1);
+      expect(st.hasMore, isTrue);
+    });
+
+    test('only page 0 loaded and no overlap: plain merge, no reset', () async {
+      final _Env env = _env(<NotificationPage>[
+        onePage(<AppNotification>[notif('a')]),
+      ]);
+      env.container.listen(notificationsFeedProvider, (_, _) {});
+      await _login(env, 'A');
+      env.repo.pages = <NotificationPage>[
+        onePage(<AppNotification>[notif('x')]),
+      ];
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      expect(ids(env), <String>['x', 'a']);
+    });
+
+    test('skipped while the count notifier is in 429 back-off', () async {
+      final _Env env = await twoPagesLoaded();
+      env.repo.unreadError = const NotificationsRateLimitedFailure(
+        retryAfterSeconds: 60,
+      );
+      final UnreadNotifications unread = env.container.read(
+        unreadNotificationsProvider.notifier,
+      );
+      await unread.refresh();
+      expect(unread.isBackingOff, isTrue);
+
+      env.repo.pages[0] = pageOf(0, 2, <AppNotification>[
+        notif('n'),
+        notif('a'),
+      ]);
+      env.repo.fetchedPages.clear();
+      await env.container
+          .read(notificationsFeedProvider.notifier)
+          .refreshFromPush();
+      expect(env.repo.fetchedPages, isEmpty, reason: 'no head GET in back-off');
+      expect(ids(env), <String>['a', 'b', 'c', 'd']);
+    });
+
+    test('a stale refresh() after a user switch keeps B marker', () async {
+      final _Env env = _env(<NotificationPage>[
+        onePage(<AppNotification>[notif('a')]),
+      ]);
+      env.container.listen(notificationsFeedProvider, (_, _) {});
+      await _login(env, 'A');
+      final NotificationsFeed feed = env.container.read(
+        notificationsFeedProvider.notifier,
+      );
+      final Completer<void> gateA = Completer<void>();
+      env.repo.pageGate = gateA;
+      final Future<void> refreshA = feed.refresh();
+      await Future<void>.delayed(Duration.zero);
+
+      env.repo.pageGate = null;
+      await env.container.read(authProvider.notifier).logout();
+      await Future<void>.delayed(Duration.zero);
+      await _login(env, 'B');
+
+      final Completer<void> gateB = Completer<void>();
+      env.repo.pageGate = gateB;
+      final Future<void> refreshB = feed.refresh();
+      await Future<void>.delayed(Duration.zero);
+      env.repo.pageGate = null;
+
+      gateA.complete();
+      await refreshA;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        identical(feed.refresh(), refreshB),
+        isTrue,
+        reason: "A's settle must not clear B's in-flight marker",
+      );
+      gateB.complete();
+      await refreshB;
+    });
+  });
 }

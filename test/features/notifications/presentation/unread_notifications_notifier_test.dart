@@ -868,4 +868,80 @@ void main() {
       expect(h.value, 0, reason: 'user switch resets');
     });
   });
+
+  test('should_runExactlyOneFollowUp_when_pushesLandDuringInFlightFetch', () {
+    _run((h) {
+      h.start();
+      final int before = h.repo.calls;
+      final Completer<int> first = Completer<int>();
+      h.repo.handler = () => first.future;
+      h.notifier.refresh();
+      h.async.flushMicrotasks();
+      expect(h.repo.calls, before + 1);
+
+      // A burst of pushes while it is in flight: none joins, none fetches yet.
+      h.notifier.refreshAfterPush();
+      h.notifier.refreshAfterPush();
+      h.notifier.refreshAfterPush();
+      h.async.flushMicrotasks();
+      expect(h.repo.calls, before + 1);
+
+      h.repo.handler = () async => 7;
+      first.complete(1);
+      h.async.flushMicrotasks();
+      // Exactly one follow-up (max 2 requests per burst), carrying the new count.
+      expect(h.repo.calls, before + 2);
+      expect(h.value, 7);
+      h.elapse(const Duration(milliseconds: 100));
+      expect(h.repo.calls, before + 2);
+    });
+  });
+
+  test('should_fetchOnce_when_pushArrivesWithNothingInFlight', () {
+    _run((h) {
+      h.start();
+      final int before = h.repo.calls;
+      h.notifier.refreshAfterPush();
+      h.async.flushMicrotasks();
+      expect(h.repo.calls, before + 1);
+      h.elapse(const Duration(milliseconds: 100));
+      expect(h.repo.calls, before + 1);
+    });
+  });
+
+  test('should_dropPushDirtyFlag_when_userSwitchesMidFetch', () {
+    _run((h) {
+      h.start();
+      final Completer<int> gate = Completer<int>();
+      h.repo.handler = () => gate.future;
+      h.notifier.refresh();
+      h.async.flushMicrotasks();
+      h.notifier.refreshAfterPush();
+      h.repo.handler = () async => 0;
+      h.auth.set(_session('u2'));
+      h.async.flushMicrotasks();
+      final int afterSwitch = h.repo.calls;
+      gate.complete(5);
+      h.async.flushMicrotasks();
+      expect(h.repo.calls, afterSwitch);
+    });
+  });
+
+  test('should_restartPollTimer_afterPushDrivenFetch', () {
+    _run((h) {
+      h.start();
+      final int before = h.repo.calls;
+      // Just before the tick a push-driven fetch lands...
+      h.elapse(_interval - const Duration(seconds: 1));
+      h.notifier.refreshAfterPush();
+      h.async.flushMicrotasks();
+      expect(h.repo.calls, before + 1);
+      // ...so the original tick (1 s later) must NOT fire a redundant poll.
+      h.elapse(const Duration(seconds: 2));
+      expect(h.repo.calls, before + 1);
+      // The next poll is a full period after the push-driven fetch.
+      h.elapse(_interval - const Duration(seconds: 2));
+      expect(h.repo.calls, before + 2);
+    });
+  });
 }

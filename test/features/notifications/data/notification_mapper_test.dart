@@ -173,6 +173,27 @@ void main() {
         });
       }
 
+      for (final String bad in <String>['..', 'a/b', '?x', 'not-a-uuid']) {
+        test(
+          'should_dropAppointmentIdButKeepBooking_when_appointmentIdIs_$bad',
+          () {
+            expect(
+              _one(
+                _row(
+                  target: {
+                    'kind': 'BOOKING',
+                    'bookingId': _bk1,
+                    'appointmentId': bad,
+                    'salonId': _sl1,
+                  },
+                ),
+              ).target,
+              const NotificationTarget.booking(bookingId: _bk1, salonId: _sl1),
+            );
+          },
+        );
+      }
+
       test('should_keepTarget_when_idsAreValidUuids', () {
         expect(
           _one(_row(target: bookingTarget)).target,
@@ -318,6 +339,128 @@ void main() {
       final p = NotificationMapper.pageFromDto(dto);
       expect(p.items, isEmpty);
       expect(p.hasNext, isFalse);
+    });
+  });
+
+  group('push payload (phase 068)', () {
+    Map<String, dynamic> d(Map<String, dynamic> extra) => <String, dynamic>{
+      'v': '1',
+      'notificationId': _idOk,
+      'type': 'BOOKING_CREATED',
+      ...extra,
+    };
+
+    NotificationTarget feedTarget(Map<String, Object?> target) =>
+        NotificationMapper.fromDto(
+          api.standardSerializers.deserialize(
+                _row(type: 'BOOKING_CREATED', target: target),
+                specifiedType: const FullType(api.NotificationResponse),
+              )
+              as api.NotificationResponse,
+        )!.target;
+
+    test('parity with the feed mapper for every targetKind', () {
+      final cases = <Map<String, Object?>>[
+        {
+          'kind': 'BOOKING',
+          'bookingId': _bk1,
+          'appointmentId': _ap1,
+          'salonId': _sl1,
+        },
+        {'kind': 'BOOKING', 'bookingId': _bk1},
+        {'kind': 'BOOKING_REVIEW', 'bookingId': _bk1},
+        {'kind': 'SALON_TEAM', 'salonId': _sl1},
+        {'kind': 'NONE'},
+        {'kind': 'BOOKING'},
+        {'kind': 'BOOKING', 'bookingId': 'not-a-uuid'},
+        {'kind': 'BOOKING', 'bookingId': _bk1, 'appointmentId': '../x'},
+        {'kind': 'SALON_TEAM', 'salonId': 'x'},
+        {'kind': 'WAT', 'bookingId': _bk1},
+      ];
+      for (final c in cases) {
+        final push = <String, dynamic>{
+          'targetKind': c['kind'],
+          'bookingId': ?c['bookingId'],
+          'appointmentId': ?c['appointmentId'],
+          'salonId': ?c['salonId'],
+        };
+        expect(
+          NotificationMapper.targetFromPushData(push),
+          feedTarget(c),
+          reason: '$c',
+        );
+      }
+    });
+
+    test('targetKind absent / non-string -> NoTarget', () {
+      expect(
+        NotificationMapper.targetFromPushData({}),
+        const NotificationTarget.none(),
+      );
+      expect(
+        NotificationMapper.targetFromPushData({
+          'targetKind': 7,
+          'bookingId': _bk1,
+        }),
+        const NotificationTarget.none(),
+      );
+    });
+
+    test('push: a non-UUID appointmentId is dropped, the booking kept', () {
+      final tap = NotificationMapper.pushTapFromData(
+        d({
+          'targetKind': 'BOOKING',
+          'bookingId': _bk1,
+          'appointmentId': 'a/b?x=1',
+        }),
+      )!;
+      expect(tap.target, const NotificationTarget.booking(bookingId: _bk1));
+    });
+
+    test('pushTapFromData decodes id, type and target', () {
+      final tap = NotificationMapper.pushTapFromData(
+        d({'targetKind': 'BOOKING', 'bookingId': _bk1}),
+      )!;
+      expect(tap.notificationId, _idOk);
+      expect(tap.type, AppNotificationType.bookingCreated);
+      expect(tap.target, const NotificationTarget.booking(bookingId: _bk1));
+    });
+
+    test('missing / blank / non-UUID / non-string notificationId -> null', () {
+      expect(
+        NotificationMapper.pushTapFromData({'type': 'BOOKING_CREATED'}),
+        isNull,
+      );
+      expect(
+        NotificationMapper.pushTapFromData(d({'notificationId': ' '})),
+        isNull,
+      );
+      expect(
+        NotificationMapper.pushTapFromData(d({'notificationId': 'x'})),
+        isNull,
+      );
+      expect(
+        NotificationMapper.pushTapFromData(d({'notificationId': 1})),
+        isNull,
+      );
+    });
+
+    test('unknown / absent type -> unknown + NoTarget', () {
+      for (final extra in <Map<String, dynamic>>[
+        {'type': 'FROM_THE_FUTURE', 'targetKind': 'BOOKING', 'bookingId': _bk1},
+        {'type': null, 'targetKind': 'BOOKING', 'bookingId': _bk1},
+      ]) {
+        final tap = NotificationMapper.pushTapFromData(d(extra))!;
+        expect(tap.type, AppNotificationType.unknown);
+        expect(tap.target, const NotificationTarget.none());
+      }
+    });
+
+    test('unknown v is not gated; known keys still parse', () {
+      final tap = NotificationMapper.pushTapFromData(
+        d({'v': '2', 'targetKind': 'SALON_TEAM', 'salonId': _sl1}),
+      )!;
+      expect(tap.target, const NotificationTarget.salonTeam(salonId: _sl1));
     });
   });
 }

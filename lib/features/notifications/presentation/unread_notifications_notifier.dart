@@ -21,6 +21,12 @@
 //  * A `resumed`-triggered fetch is skipped within [kUnreadResumeMinGap] of the
 //    last completed fetch (success or failure, not 429); a wall clock that
 //    moved backwards never suppresses. Explicit [refresh] / ticks are exempt.
+//  * A push-driven refresh ([refreshAfterPush]) that lands while a fetch is in
+//    flight does NOT join it (that request may predate the new row): it marks
+//    the notifier dirty and exactly ONE follow-up fetch runs after it settles
+//    (max 2 requests per burst).
+//  * Every successful fetch restarts the periodic poll, so a push-driven fetch
+//    is not followed by a redundant tick moments later.
 //  * A rebuild for the SAME user (e.g. poll-interval change) keeps the count.
 
 import 'dart:async';
@@ -87,6 +93,9 @@ class UnreadNotifications extends _$UnreadNotifications {
   /// stale and must not overwrite the mutated value.
   int _version = 0;
 
+  /// A push arrived while a fetch was in flight (see [refreshAfterPush]).
+  bool _pushDirty = false;
+
   @override
   FutureOr<int> build() {
     final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
@@ -94,6 +103,7 @@ class UnreadNotifications extends _$UnreadNotifications {
     final int kept = (userId != null && userId == _userId) ? _count : 0;
     _epoch++;
     _inFlight = null;
+    _pushDirty = false;
     _lastFetchAt = null;
     _userId = userId;
     _pollTimer = null;
@@ -121,6 +131,10 @@ class UnreadNotifications extends _$UnreadNotifications {
     return kept;
   }
 
+  /// Whether a 429 back-off currently suspends fetching (read-only; lets the
+  /// feed's push head refresh honour it without this notifier reading the feed).
+  bool get isBackingOff => _backoffTimer != null;
+
   /// Refetches the count. Concurrent calls share one request, unless an
   /// optimistic mutation happened since it started (then a fresh one is
   /// issued). No-op while signed out or suspended by a 429.
@@ -131,11 +145,30 @@ class UnreadNotifications extends _$UnreadNotifications {
     late final Future<void> request;
     request = _fetch().whenComplete(() {
       // A stale request must not clear a newer one (or a new session's).
-      if (identical(_inFlight, request)) _inFlight = null;
+      if (!identical(_inFlight, request)) return;
+      _inFlight = null;
+      if (_pushDirty && ref.mounted) {
+        // One follow-up for every push that arrived during this request.
+        _pushDirty = false;
+        unawaited(refresh());
+      }
     });
     _inFlight = request;
     _inFlightVersion = _version;
     return request;
+  }
+
+  /// Push-driven [refresh]. Unlike [refresh] it never joins an in-flight fetch
+  /// (which may predate the pushed row): it flags the notifier dirty so one
+  /// follow-up fetch runs when that request settles. Resolves with the
+  /// in-flight request in that case.
+  Future<void> refreshAfterPush() {
+    final Future<void>? existing = _inFlight;
+    if (!_signedIn || _backoffTimer != null || existing == null) {
+      return refresh();
+    }
+    _pushDirty = true;
+    return existing;
   }
 
   /// Sets the count from a server response (mark-all-read → 0, feed page).
@@ -187,6 +220,9 @@ class UnreadNotifications extends _$UnreadNotifications {
       }
       _lastFetchAt = ref.read(clockProvider)();
       _emit(count);
+      // Any successful fetch (push-driven included) pushes the next tick a
+      // full period out. Only while polling is live (foreground, no 429).
+      if (_pollTimer != null) _startPolling(ref.read(pollIntervalProvider));
     } on NotificationsRateLimitedFailure catch (f) {
       if (!ref.mounted || epoch != _epoch) return;
       _suspendFor(f.retryAfterSeconds);

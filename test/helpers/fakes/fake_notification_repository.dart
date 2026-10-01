@@ -30,6 +30,9 @@ class FakeNotificationRepository implements NotificationRepository {
   /// Every `fetchPage` call, as the requested page index.
   final List<int> fetchedPages = <int>[];
   int unreadCountCalls = 0;
+
+  /// When non-null, `unreadCount` throws it (e.g. a 429 to start a back-off).
+  Object? unreadError;
   final List<String> markedRead = <String>[];
   final List<DateTime?> markAllUpTo = <DateTime?>[];
 
@@ -80,6 +83,8 @@ class FakeNotificationRepository implements NotificationRepository {
   @override
   Future<int> unreadCount() async {
     unreadCountCalls++;
+    final Object? error = unreadError;
+    if (error != null) throw error;
     return unread;
   }
 

@@ -22,6 +22,13 @@
 //    settles, so the refresh cannot cause a duplicate page request.
 //  * OWNERSHIP: every state carries the `ownerUserId` it was loaded for; a
 //    state owned by a previous user is never actionable (no-op).
+//  * [refreshFromPush] is the QUIET push-driven refresh: it fetches page 0 and
+//    merges it into the HEAD of the loaded list (dedupe by id, read state
+//    upgraded, loaded tail / `nextPage` / `hasMore` kept) so a push never
+//    collapses pagination or jumps the scroll. A push that lands while a
+//    refresh is in flight does not join it (it may predate the row): exactly
+//    one follow-up head refresh runs when it settles. Pull-to-refresh keeps
+//    the full reset ([refresh]).
 //  * [refresh] coalesces; it also nudges `UnreadNotifications.refresh()`,
 //    which coalesces on its own.
 //  * Mark-read is OPTIMISTIC: the row flips and the bell count drops in the
@@ -54,6 +61,11 @@ part 'notifications_feed_notifier.g.dart';
 class NotificationsFeed extends _$NotificationsFeed {
   String? _userId;
   Future<void>? _refreshing;
+  Future<void>? _headRefreshing;
+
+  /// A push arrived during an in-flight [_refreshing] / [_headRefreshing] /
+  /// first load: one follow-up head refresh runs once it settles.
+  bool _headDirty = false;
 
   /// Bumped whenever the first page REPLACES the list (refresh landing, or a
   /// rebuild). A [loadMore] that started under an older epoch is stale: its
@@ -130,6 +142,8 @@ class NotificationsFeed extends _$NotificationsFeed {
     );
     _userId = userId;
     _refreshing = null;
+    _headRefreshing = null;
+    _headDirty = false;
     _epoch++;
     _loadMoreInFlight = false;
     _pendingRead.clear();
@@ -147,6 +161,13 @@ class NotificationsFeed extends _$NotificationsFeed {
       page: 0,
       size: kNotificationsPageSize,
     );
+    // A push that landed DURING this load set [_headDirty] (build() reset it
+    // before the await, so it is not lost). Run the follow-up once the state
+    // is data: deferred past Riverpod's own completion handler. A user switch
+    // rebuilds, which clears the flag, so the new user never inherits it.
+    if (_headDirty && ref.mounted && userId == _userId) {
+      unawaited(Future<void>(_runDirtyHeadRefresh));
+    }
     return _fromFirstPage(page);
   }
 
@@ -199,12 +220,122 @@ class NotificationsFeed extends _$NotificationsFeed {
   Future<void> refresh() {
     final Future<void>? existing = _refreshing;
     if (existing != null) return existing;
-    final Future<void> request = _refresh().whenComplete(() {
+    late final Future<void> request;
+    request = _refresh().whenComplete(() {
+      // A stale request (user switch rebuilt the feed) must not clear a newer
+      // one's in-flight marker.
+      if (!identical(_refreshing, request)) return;
       _refreshing = null;
+      _runDirtyHeadRefresh();
     });
     _refreshing = request;
     return request;
   }
+
+  void _runDirtyHeadRefresh() {
+    if (!_headDirty || !ref.mounted) return;
+    _headDirty = false;
+    unawaited(refreshFromPush().then<void>((_) {}, onError: (Object _) {}));
+  }
+
+  /// Quiet push-driven refresh (see the header). With no list on screen yet it
+  /// falls back to the full [refresh]. Throws the [Failure] on a network error
+  /// (the list stays on screen untouched).
+  Future<void> refreshFromPush() {
+    // First load in flight: nothing to merge into yet, but its GET may predate
+    // the pushed row. Flag it: build() runs one head refresh once it lands.
+    // The bell count is nudged now (it coalesces on its own).
+    if (state is AsyncLoading<NotificationsFeedState>) {
+      _headDirty = true;
+      unawaited(
+        ref.read(unreadNotificationsProvider.notifier).refreshAfterPush(),
+      );
+      return Future<void>.value();
+    }
+    if (state.value == null) return refresh();
+    final Future<void>? inFlight = _headRefreshing ?? _refreshing;
+    if (inFlight != null) {
+      // The running request may predate the pushed row: re-run once after it.
+      _headDirty = true;
+      return inFlight;
+    }
+    late final Future<void> request;
+    request = _refreshHead().whenComplete(() {
+      if (!identical(_headRefreshing, request)) return;
+      _headRefreshing = null;
+      _runDirtyHeadRefresh();
+    });
+    _headRefreshing = request;
+    return request;
+  }
+
+  Future<void> _refreshHead() async {
+    final String? userId = _userId;
+    if (userId == null) return;
+    final UnreadNotifications unread = ref.read(
+      unreadNotificationsProvider.notifier,
+    );
+    // The count notifier is suspended by a 429: honour it (the endpoint is
+    // shared). Skipped, not deferred — pull-to-refresh / the next push after
+    // the back-off recovers the row.
+    if (unread.isBackingOff) return;
+    unawaited(unread.refreshAfterPush());
+    try {
+      final NotificationPage page = await ref
+          .read(notificationRepositoryProvider)
+          .fetchPage(page: 0, size: kNotificationsPageSize);
+      if (!ref.mounted || userId != _userId) return;
+      final NotificationsFeedState? current = state.value;
+      if (current == null) return;
+      final Map<String, AppNotification> existing = <String, AppNotification>{
+        for (final AppNotification n in current.items) n.id: n,
+      };
+      // More than a page of new rows arrived since the last merge: page 0 no
+      // longer touches the loaded list, so merging would leave a hole. Fall
+      // back to the full reset, reusing the page already fetched.
+      if (current.nextPage > 1 &&
+          page.items.isNotEmpty &&
+          !page.items.any((AppNotification n) => existing.containsKey(n.id))) {
+        _epoch++;
+        state = AsyncData<NotificationsFeedState>(_fromFirstPage(page));
+        return;
+      }
+      final List<AppNotification> head = <AppNotification>[
+        for (final AppNotification n in _applyPending(page.items))
+          _reuseIfEqual(
+            existing[n.id],
+            // Read never goes back to unread: keep a locally-read row read.
+            (existing[n.id]?.read ?? false) ? n.copyWith(read: true) : n,
+          ),
+      ];
+      final Set<String> headIds = <String>{
+        for (final AppNotification n in head) n.id,
+      };
+      final bool onlyHeadLoaded = current.nextPage <= 1;
+      state = AsyncData<NotificationsFeedState>(
+        current.copyWith(
+          items: <AppNotification>[
+            ...head,
+            for (final AppNotification n in current.items)
+              if (!headIds.contains(n.id)) n,
+          ],
+          // Only page 0 loaded: the head's paging facts are the truth. Past
+          // it, the loaded tail's `nextPage` / `hasMore` stay.
+          nextPage: onlyHeadLoaded ? page.page + 1 : current.nextPage,
+          hasMore: onlyHeadLoaded ? page.hasNext : current.hasMore,
+        ),
+      );
+    } on Failure catch (f) {
+      if (!ref.mounted || userId != _userId) return;
+      _log('head refresh failed: ${f.runtimeType}');
+      rethrow;
+    }
+  }
+
+  /// The cached row when [next] equals it, so the screen's `identical` row
+  /// cache keeps hitting for rows the merge did not change.
+  AppNotification _reuseIfEqual(AppNotification? prev, AppNotification next) =>
+      prev != null && prev == next ? prev : next;
 
   Future<void> _refresh() async {
     final String? userId = _userId;
