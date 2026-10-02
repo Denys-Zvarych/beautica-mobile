@@ -8,10 +8,16 @@
 //   * `SALON_ADMIN` — `session.user.salonId` is read SYNCHRONOUSLY (no
 //     provider at all — an admin belongs to exactly one salon, already known
 //     from the JWT-derived profile).
-//   * `SALON_OWNER` — watches `mySalonsProvider` (`GET /salons/mine`) and
-//     picks the primary salon (falling back to the first salon when no row
-//     is marked primary, or when several are — bad data must still resolve
-//     to SOME salon, never crash the landing).
+//   * `SALON_OWNER` — watches `mySalonsProvider` (`GET /salons/mine`) and,
+//     in parallel so the storage read overlaps the fetch,
+//     `lastVisitedSalonProvider` (Phase 288). The selection chain (Phase 288 D1), in order:
+//       1. the stored last-visited salon — only when its envelope's `userId`
+//          is this session's user AND the id is in the resolved salon list
+//          (the membership check makes a stale pointer to a deleted or
+//          no-longer-accessible salon self-healing);
+//       2. otherwise the first salon in `mySalonsProvider` (server) order;
+//       3. an empty list forwards to the My Salons hub — decided BEFORE the
+//          pointer is consulted, so it never waits on storage.
 //
 // Navigation happens from a `postFrame` callback, NEVER a go_router
 // `redirect:` — `redirect:` is synchronous and must never await the network
@@ -37,12 +43,18 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:go_router/go_router.dart';
 
+import '../application/last_visited_salon_provider.dart';
 import '../application/my_salons_notifier.dart';
+import '../domain/last_visited_salon.dart';
 import '../domain/salon.dart';
 
 /// Resolves the `SALON_OWNER`/`SALON_ADMIN` shared landing to a specific
 /// salon's shell screen (`RouteNames.salonShell`) — or, for the zero-salons
 /// edge case, back to the My Salons hub — and forwards there.
+///
+/// An admin enters `session.user.salonId`. An owner enters the salon they
+/// last viewed on this device when it still belongs to them, else the first
+/// salon of `GET /salons/mine`.
 class SalonHomeResolverScreen extends ConsumerWidget {
   const SalonHomeResolverScreen({super.key});
 
@@ -163,6 +175,15 @@ class SalonHomeResolverScreen extends ConsumerWidget {
 
     // SALON_OWNER.
     final AsyncValue<List<Salon>> mySalonsAsync = ref.watch(mySalonsProvider);
+    // Phase 288 D4 — the pointer is WATCHED here, alongside `mySalonsProvider`
+    // and before any of the gates below, so the secure-storage read overlaps
+    // the network fetch instead of starting only after it. It must stay AFTER
+    // the admin `return` above: the admin arm never touches the slot. Its
+    // value is CONSULTED only after the error / loading / empty gates, so an
+    // empty list still forwards to My Salons without waiting on storage.
+    final AsyncValue<LastVisitedSalon?> pointerAsync = ref.watch(
+      lastVisitedSalonProvider,
+    );
 
     if (mySalonsAsync is AsyncError<List<Salon>>) {
       final Object error = mySalonsAsync.error;
@@ -201,14 +222,34 @@ class SalonHomeResolverScreen extends ConsumerWidget {
       );
     }
 
-    // `firstWhere` — NEVER `singleWhere`, which throws on the "several
-    // isPrimary == true" bad-data case. `orElse` covers "isPrimary all
-    // null/false": both fall back to the first salon in the list.
-    final Salon primary = salons.firstWhere(
-      (Salon s) => s.isPrimary == true,
+    // Phase 288 D4 — the pointer gate (watched above, consulted only here, so
+    // the empty-list branch never waits on it). `AsyncLoading` is checked
+    // FIRST: a re-loading provider can be an `AsyncLoading` carrying a
+    // previous `.value`, which must not be read.
+    if (pointerAsync is AsyncLoading<LastVisitedSalon?>) {
+      return _LoadingBody(
+        semanticLabel: l10n.salonHomeResolverLoadingSemantics,
+      );
+    }
+    // Concrete-subtype read: only AsyncData counts. The provider never errors
+    // (D7); an AsyncError is treated as "nothing stored", never as a spinner.
+    final LastVisitedSalon? pointer =
+        pointerAsync is AsyncData<LastVisitedSalon?>
+        ? pointerAsync.value
+        : null;
+    final String? rememberedId =
+        pointer != null && pointer.userId == session.user.id
+        ? pointer.salonId
+        : null;
+    // D1/D3 — `firstWhere` over the RESOLVED list, never `singleWhere` or an
+    // index: a remembered id that is absent from the list (deleted salon,
+    // revoked access, another account's id) falls through to `orElse`, the
+    // first salon in server order. Bad data always resolves to SOME salon.
+    final Salon target = salons.firstWhere(
+      (Salon s) => s.id == rememberedId,
       orElse: () => salons.first,
     );
-    _goToShell(context, primary.id);
+    _goToShell(context, target.id);
     return _LoadingBody(semanticLabel: l10n.salonHomeResolverLoadingSemantics);
   }
 }

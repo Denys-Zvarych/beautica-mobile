@@ -39,6 +39,7 @@ import 'app_boot_without_firebase_flow_test.dart' as app_boot_without_firebase;
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'invite_accept_admin_landing_flow_test.dart'
@@ -125,6 +126,9 @@ void main() {
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
   group('salon_owner_landing_flow', salon_owner_landing.main);
   group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 288 — owner reopens on the last-visited salon across a relaunch;
+  // stale pointer self-heals; sign-out forgets it (D6).
+  group('owner_relaunch_last_salon_flow', owner_relaunch_last_salon.main);
   // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);

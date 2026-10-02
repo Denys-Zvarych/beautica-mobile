@@ -90,7 +90,6 @@
 // [_bounceIfNotOwned].
 
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -109,6 +108,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 
 import '../application/my_salons_notifier.dart';
 import '../application/salon_shell_provider.dart';
+import '../domain/last_visited_salon.dart';
 import '../domain/salon.dart';
 import 'admin_own_profile_screen.dart';
 import 'owner_own_profile_screen.dart';
@@ -198,7 +198,8 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// (Phase 287) so a later cold start can reopen this salon (Phase 288's
   /// reader). Phase 286 D2 fixed the envelope as `{userId, salonId}`, not a
   /// bare id, so Phase 288 can treat a `userId` mismatch as "no value
-  /// stored" — mirrors `PendingLocalityStore`'s JSON-blob style.
+  /// stored". Encoded by [LastVisitedSalon] (Phase 288 D8), the one codec
+  /// the reader (`lastVisitedSalonProvider`) also decodes with.
   ///
   /// Unconditional across roles (D4): an admin's slot simply always holds
   /// their one salon, and branching on role here would be a second place
@@ -224,10 +225,10 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       await ref
           .read(secureStorageProvider)
           .writeLastSalon(
-            jsonEncode(<String, String>{
-              'userId': session.user.id,
-              'salonId': salonId,
-            }),
+            LastVisitedSalon(
+              userId: session.user.id,
+              salonId: salonId,
+            ).encode(),
           );
     } catch (_) {
       // D2 — a storage failure never surfaces to the user and never blocks

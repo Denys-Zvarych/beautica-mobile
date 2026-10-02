@@ -12,6 +12,8 @@
 // is verified by forcing the iOS target platform so the iOS options surface in
 // the channel `options` map (the option only appears for the iOS platform).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/storage_keys.dart';
 import 'package:flutter/foundation.dart';
@@ -242,11 +244,76 @@ void main() {
       expect(store, isEmpty);
     });
 
+    // Phase 288 D6 (mobile-security INFO) — the restore loop for
+    // `StorageKeys.deviceScoped` runs on the SAME call; lastSalon must not
+    // ride it back in while the device flags (which DO survive) are present.
+    test(
+      'deleteAll removes lastSalon even while device-scoped flags survive',
+      () async {
+        store[StorageKeys.lastSalon] = '{"userId":"u1","salonId":"s1"}';
+        store[StorageKeys.pushPermissionAsked] = '1';
+        store[StorageKeys.pushRevokePending] = '1';
+        final storage = FlutterSecureStorageImpl();
+
+        await storage.deleteAll();
+
+        expect(await storage.readLastSalon(), isNull);
+        expect(store.containsKey(StorageKeys.lastSalon), isFalse);
+        expect(await storage.readPushPermissionAsked(), isTrue);
+      },
+    );
+
     test('read returns null for lastSalon when key is absent', () async {
       final storage = FlutterSecureStorageImpl();
 
       expect(await storage.readLastSalon(), isNull);
     });
+  });
+
+  // Phase 288 D10 — SecureStorage carries no per-key cache, queue or ordering:
+  // deleteAll() (logout) must never wait on another storage operation, so a
+  // hung lastSalon write can never block the wipe of the session tokens.
+  group('FlutterSecureStorageImpl deleteAll independence (Phase 288 D10)', () {
+    test(
+      'should_completeDeleteAll_when_aLastSalonWriteIsHung',
+      () async {
+        store[StorageKeys.refreshToken] = 'rt';
+        final Completer<void> neverCompletes = Completer<void>();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, (call) async {
+              calls.add(call);
+              final args =
+                  (call.arguments as Map?)?.cast<String, dynamic>() ?? {};
+              final String? key = args['key'] as String?;
+              switch (call.method) {
+                case 'read':
+                  return store[key];
+                case 'write':
+                  if (key == StorageKeys.lastSalon) {
+                    await neverCompletes.future;
+                  }
+                  store[key!] = args['value'] as String;
+                  return null;
+                case 'delete':
+                  store.remove(key);
+                  return null;
+                case 'deleteAll':
+                  store.clear();
+                  return null;
+                default:
+                  return null;
+              }
+            });
+        final storage = FlutterSecureStorageImpl();
+
+        unawaited(storage.writeLastSalon('{"userId":"u1","salonId":"s1"}'));
+        await storage.deleteAll();
+
+        expect(calls.where((c) => c.method == 'deleteAll'), hasLength(1));
+        expect(store.containsKey(StorageKeys.refreshToken), isFalse);
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
   });
 
   group('FlutterSecureStorageImpl iOS accessibility option', () {
