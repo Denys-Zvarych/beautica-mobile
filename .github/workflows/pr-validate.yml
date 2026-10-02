@@ -529,6 +529,24 @@ jobs:
         shell: bash
         run: ./scripts/forbid_api_enum_fallback.sh
 
+      # 2026-10-02 (Phase 300) — CI goldens discard layer opacity (Phase 299),
+      # so a dim under an `Opacity`/`AnimatedOpacity` can look golden-covered
+      # while never observed. Every layer-opacity site under lib/ must carry
+      # `// dim-gated: <test>` or `// dim-decorative: <why>`; pre-existing
+      # unclassified sites are a shrink-only path:count ratchet in
+      # scripts/.layer_dim_allow (grow AND stale entries both fail).
+      - name: Forbid unclassified layer-opacity dims
+        shell: bash
+        run: ./scripts/forbid_unclassified_layer_dim.sh
+
+      # Phase 300 — end-to-end harness for the guard above (runs the shipped
+      # script as a subprocess in temp trees: injection, path confinement,
+      # CRLF, comment handling, allow-list ratchet). Modelled on
+      # test_cycle_gates.sh.
+      - name: Self-test layer-dim guard (harness)
+        shell: bash
+        run: ./scripts/test/test_layer_dim_guard.sh
+
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
       # fixture snippets (plain offender → flagged, annotated/commented → pass).

@@ -1,0 +1,73 @@
+# Baseline for scripts/forbid_unclassified_layer_dim.sh — SHRINK-ONLY
+# RATCHET. Established 2026-10-02 (Phase 300), seeded from the measured
+# census of `Opacity(` / `AnimatedOpacity(` / `SliverOpacity(` /
+# `FadeTransition(` sites under lib/ that carry no classification comment.
+# Format: `<repo-relative path>:<number of unclassified sites permitted>`.
+#
+# These are NOT approved. They are the honest measurement of a debt: CI
+# goldens discard layer opacity (Phase 299), so any state-signalling dim
+# listed here has never been observed by a golden, and may not have been
+# observed by anything. Each state-signalling site must eventually earn
+#     // dim-gated: <test path with a dim_probe assertion>
+# and each transient one (entrance fade, scroll-linked, breathing
+# skeleton, value 0/1 at rest)
+#     // dim-decorative: <why>
+#
+# THE LIST ONLY SHRINKS. Adding a line, or raising a count, is never the
+# fix for a new site — classify it. When you classify a listed site,
+# decrement its count in the same change (delete the line at zero). The
+# count must match the tree EXACTLY: a count above the real number is a
+# STALE entry and the guard fails until it is shrunk.
+#
+# Regenerate (baseline reset only, never to make CI green):
+#   ./scripts/forbid_unclassified_layer_dim.sh --census
+
+lib/core/widgets/neumorphic.dart:2
+lib/core/widgets/reveal_transition.dart:1
+lib/core/widgets/staggered_reveal.dart:1
+lib/features/auth/presentation/widgets/otp_code_field.dart:1
+lib/features/booking/presentation/leave_client_feedback_screen.dart:1
+lib/features/booking/presentation/salon_create_booking_screen.dart:1
+lib/features/booking/presentation/salon_time_screen.dart:1
+lib/features/booking/presentation/widgets/booking_card.dart:1
+lib/features/booking/presentation/widgets/booking_counterparty_header.dart:2
+lib/features/booking/presentation/widgets/booking_status_medallion.dart:1
+lib/features/booking/presentation/widgets/booking_success_scaffold.dart:1
+lib/features/booking/presentation/widgets/bookings_month_calendar_panel.dart:2
+lib/features/booking/presentation/widgets/master_column_strip.dart:1
+lib/features/booking/presentation/widgets/master_schedule_page.dart:1
+lib/features/booking/presentation/widgets/month_calendar.dart:1
+lib/features/booking/presentation/widgets/my_bookings_states.dart:2
+lib/features/booking/presentation/widgets/selected_services_shelf.dart:1
+lib/features/booking/presentation/widgets/slot_chip.dart:1
+lib/features/booking/presentation/widgets/star_rating_input.dart:1
+lib/features/calendar/presentation/working_hours_screen.dart:1
+lib/features/discovery/presentation/widgets/staggered_reveal.dart:1
+lib/features/home/presentation/client_contacts_edit_screen.dart:1
+lib/features/home/presentation/client_location_edit_screen.dart:1
+lib/features/home/presentation/client_personal_info_edit_screen.dart:1
+lib/features/home/presentation/client_settings_hub_screen.dart:1
+lib/features/location/presentation/widgets/locality_tap_row.dart:1
+lib/features/master/presentation/contacts_edit_screen.dart:1
+lib/features/master/presentation/location_edit_screen.dart:1
+lib/features/master/presentation/master_profile_screen.dart:1
+lib/features/master/presentation/personal_info_edit_screen.dart:1
+lib/features/master/presentation/settings_hub_screen.dart:1
+lib/features/salon/presentation/my_salons_screen.dart:1
+lib/features/salon/presentation/salon_settings_screen.dart:1
+lib/features/salon/presentation/staff_settings_screen.dart:1
+lib/features/schedule/presentation/apply_schedule_sheet.dart:1
+lib/features/schedule/presentation/widgets/conflict_trough.dart:1
+lib/features/schedule/presentation/widgets/day_off_conflict_dialog.dart:2
+lib/features/schedule/presentation/widgets/interval_editor.dart:1
+lib/features/services/presentation/service_edit_screen.dart:1
+lib/features/services/presentation/widgets/pricing_field.dart:2
+lib/features/services/presentation/widgets/service_category_list.dart:1
+lib/features/services/presentation/widgets/service_form.dart:1
+lib/features/services/presentation/widgets/service_setup_widgets.dart:1
+lib/features/settings/presentation/settings_screen.dart:1
+lib/features/support/presentation/widgets/attachment_tray.dart:1
+lib/features/wishlist/presentation/widgets/wishlist_section.dart:1
+lib/shared/feedback/velvet_snack_host.dart:1
+lib/shared/widgets/loading_skeleton.dart:1
+lib/shared/widgets/period_range_picker.dart:1
