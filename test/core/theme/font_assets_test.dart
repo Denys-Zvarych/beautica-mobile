@@ -3,7 +3,8 @@
 // THE BUG
 // -------
 // The app requested Nunito weights w400 (Regular) and w800 (ExtraBold) — via
-// `GoogleFonts.nunitoTextTheme()` (app_theme.dart:25, defaults to w400) and the
+// `GoogleFonts.nunitoTextTheme()` (app_theme.dart, Material roles at w400 plus
+// the M3 w500 roles remapped to w600 by `_nunitoTextTheme`) and the
 // w800 pill / field-accent / form-caption styles (velvet_text.dart:321,
 // velvet_field.dart:110, service_form.dart:653) — but the matching TTFs were
 // NOT bundled under assets/fonts/. With `GoogleFonts.config.allowRuntimeFetching
@@ -31,11 +32,13 @@
 // `_requestedFonts` below or this test will not protect it.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 
 /// One (family, weight) tuple the production app requests from google_fonts.
@@ -66,8 +69,6 @@ String _weightSuffix(FontWeight w) {
   switch (w.value) {
     case 400:
       return 'Regular';
-    case 500:
-      return 'Medium';
     case 600:
       return 'SemiBold';
     case 700:
@@ -84,7 +85,8 @@ String _weightSuffix(FontWeight w) {
 /// The complete set of (family, weight) tuples the production app paints.
 ///
 /// Cross-referenced against:
-///   - app_theme.dart:25            GoogleFonts.nunitoTextTheme()  -> Nunito w400
+///   - app_theme.dart _nunitoTextTheme()                            -> Nunito w400 + w600
+///     (M3 w500 roles remapped to w600; Nunito w500 is NOT bundled)
 ///   - velvet_text.dart (body/input/label/link/feedback/statCaption) -> Nunito w600/w700
 ///   - velvet_text.dart:321 (_pillStyle)                            -> Nunito w800
 ///   - velvet_field.dart:110 / service_form.dart:653                -> Nunito w800
@@ -93,7 +95,7 @@ String _weightSuffix(FontWeight w) {
 ///   - registration_progress.dart:319                              -> Comfortaa w600
 ///   - main.dart:91-102 pre-warm block                            -> all of the above
 const List<_RequestedFont> _requestedFonts = <_RequestedFont>[
-  _RequestedFont('Nunito', FontWeight.w400, 'nunitoTextTheme default body'),
+  _RequestedFont('Nunito', FontWeight.w400, 'nunitoTextTheme Material roles'),
   _RequestedFont('Nunito', FontWeight.w600, 'VelvetText.body / input'),
   _RequestedFont(
     'Nunito',
@@ -208,8 +210,8 @@ void main() {
         ];
 
         // The Nunito w400 path comes in through the Material text theme
-        // (app_theme.dart -> GoogleFonts.nunitoTextTheme), not via VelvetText.
-        final textTheme = GoogleFonts.nunitoTextTheme();
+        // (app_theme.dart -> _nunitoTextTheme), not via VelvetText.
+        final textTheme = velvetTheme().textTheme;
 
         // Explicitly request the four Nunito weights + two Comfortaa weights so
         // the runtime path is exercised even if a VelvetText style is later
@@ -233,4 +235,115 @@ void main() {
       },
     );
   });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Layer 4 — glyph coverage of the SUBSET fonts (phase 077 audit N1).
+  //
+  // The bundled TTFs are fonttools subsets of the originals. User content
+  // (salon / master / review text) can contain any Latin-script name, so the
+  // subset must keep Latin Extended-A/B/Additional, € and the Ukrainian set.
+  // Re-subset FROM THE ORIGINAL full TTFs (git show HEAD:...), never from an
+  // already-subset file. A codepoint missing from the cmap renders as tofu or
+  // a fallback-font glyph.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('bundled TTFs keep the glyph coverage user content needs', () {
+    // ł ș ț č ő ğ ą € ₴ і ї є ґ № + Vietnamese ế + Turkish ı İ + Romanian ă â
+    // + U+02BC (ʼ, the Ukrainian apostrophe used in words like «м'який»).
+    const String representative =
+        '\u0142\u0219\u021B\u010D\u0151\u011F\u0105\u20AC\u20B4'
+        '\u0456\u0457\u0454\u0491\u2116\u1EBF\u0131\u0130\u0103\u00E2'
+        '\u02BC';
+    final Set<int> required = <int>{
+      for (int c = 0x20; c <= 0x7E; c++) c, // Basic Latin
+      ...representative.runes,
+    };
+
+    for (final String name in <String>[
+      'Comfortaa-SemiBold',
+      'Comfortaa-Bold',
+      'Nunito-Regular',
+      'Nunito-SemiBold',
+      'Nunito-Bold',
+      'Nunito-ExtraBold',
+    ]) {
+      test('$name.ttf cmap contains the representative set', () {
+        final Set<int> cmap = _readCmap(
+          File('assets/fonts/$name.ttf').readAsBytesSync(),
+        );
+        final List<String> missing = <String>[
+          for (final int c in required.toList()..sort())
+            if (!cmap.contains(c))
+              'U+${c.toRadixString(16).toUpperCase().padLeft(4, '0')}',
+        ];
+        expect(missing, isEmpty, reason: '$name.ttf lacks $missing');
+      });
+    }
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Layer 3 — no explicit lib/ usage requests an unbundled weight.
+  //
+  // Bundled: Comfortaa w600/w700, Nunito w400/w600/w700/w800. Nothing may ask
+  // for w100/w200/w300/w500/w900. (Also enforced by
+  // scripts/forbid_unbundled_font_weight.sh; this keeps it in `flutter test`.)
+  // ───────────────────────────────────────────────────────────────────────────
+  test('no lib/ file requests an unbundled FontWeight', () {
+    final RegExp bad = RegExp(r'FontWeight\.w(100|200|300|500|900)\b');
+    final List<String> hits = <String>[];
+    for (final FileSystemEntity f in Directory(
+      'lib',
+    ).listSync(recursive: true)) {
+      if (f is! File || !f.path.endsWith('.dart')) continue;
+      if (f.path.startsWith('lib/api/')) continue;
+      final List<String> lines = f.readAsLinesSync();
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('//')) continue;
+        if (bad.hasMatch(lines[i])) hits.add('${f.path}:${i + 1}');
+      }
+    }
+    expect(hits, isEmpty, reason: 'unbundled weights requested: $hits');
+  });
+}
+
+/// Minimal sfnt `cmap` reader (formats 4 and 12) returning every mapped
+/// codepoint. Enough for Unicode BMP / full-repertoire subtables.
+Set<int> _readCmap(Uint8List bytes) {
+  final ByteData d = ByteData.sublistView(bytes);
+  final int numTables = d.getUint16(4);
+  int cmapOff = -1;
+  for (int i = 0; i < numTables; i++) {
+    final int rec = 12 + i * 16;
+    if (String.fromCharCodes(bytes.sublist(rec, rec + 4)) == 'cmap') {
+      cmapOff = d.getUint32(rec + 8);
+    }
+  }
+  expect(cmapOff, greaterThanOrEqualTo(0), reason: 'no cmap table');
+  final int subCount = d.getUint16(cmapOff + 2);
+  final Set<int> out = <int>{};
+  for (int i = 0; i < subCount; i++) {
+    final int sub = cmapOff + d.getUint32(cmapOff + 4 + i * 8 + 4);
+    final int format = d.getUint16(sub);
+    if (format == 4) {
+      final int segX2 = d.getUint16(sub + 6);
+      final int endBase = sub + 14;
+      final int startBase = endBase + segX2 + 2;
+      for (int s = 0; s < segX2 ~/ 2; s++) {
+        final int end = d.getUint16(endBase + s * 2);
+        final int start = d.getUint16(startBase + s * 2);
+        if (start == 0xFFFF) continue;
+        for (int c = start; c <= end; c++) {
+          out.add(c);
+        }
+      }
+    } else if (format == 12) {
+      final int groups = d.getUint32(sub + 12);
+      for (int g = 0; g < groups; g++) {
+        final int o = sub + 16 + g * 12;
+        for (int c = d.getUint32(o); c <= d.getUint32(o + 4); c++) {
+          out.add(c);
+        }
+      }
+    }
+  }
+  return out;
 }

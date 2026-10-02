@@ -39,7 +39,8 @@ dependencies:
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
 
-  # Design system — Manrope via google_fonts (full Cyrillic glyph set).
+  # Design system — Comfortaa + Nunito via google_fonts, served from the bundled
+  # assets/fonts/ TTFs (runtime fetching is off; both carry full Cyrillic).
   google_fonts: ^8.1.0
 
   # Models / serialization — freezed + json_serializable codegen.
@@ -429,7 +430,7 @@ flutter:
 
     # Lottie animations directory. The splash screen renders
     # `assets/lottie/splash_wordmark.json` as the animated "beautica" wordmark
-    # below the static VelvetLogo B-pillow. See assets/lottie/README.md for
+    # below the static VelvetLogo B-pillow. See tool/asset_docs/lottie.README.md for
     # the design spec.
     - assets/lottie/
 

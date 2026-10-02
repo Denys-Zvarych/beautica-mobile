@@ -103,7 +103,7 @@ Future<void> main() async {
   // given (family, weight) — login + role-selection — show a one-frame
   // system-font → Nunito swap (visible as a "text flicker"). The native
   // splash is preserved above, so users see solid warm-taupe while these
-  // four FontLoader.load() futures complete (~ms on a modern device).
+  // six FontLoader.load() futures (one per bundled TTF) complete (~ms on a modern device).
   //
   // If you add a new (family, weight) tuple to VelvetText, add it here too,
   // or the first screen to use it will flicker on cold entry.
@@ -112,7 +112,7 @@ Future<void> main() async {
     GoogleFonts.comfortaa(
       fontWeight: FontWeight.w700,
     ); // wordmark / heading / cta
-    GoogleFonts.nunito(fontWeight: FontWeight.w400); // nunitoTextTheme default
+    GoogleFonts.nunito(fontWeight: FontWeight.w400); // Material text roles
     GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
     GoogleFonts.nunito(
       fontWeight: FontWeight.w700,

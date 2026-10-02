@@ -43,6 +43,15 @@ android {
         buildConfig = true
     }
 
+    // Phase 10.3 A2 — ship only the Android resource translations for the two
+    // supported locales (AppLocalizations.supportedLocales = [en, uk]); strips the
+    // strings bundled by AndroidX / Play services / Firebase. Dart l10n unaffected.
+    // NOTE: this shrinks the universal/sideloaded APK only. On Google Play the
+    // AAB is already split by language, so it gives ~0 download-size benefit there.
+    androidResources {
+        localeFilters += listOf("en", "uk")
+    }
+
     defaultConfig {
         applicationId = "com.beautica.beautica_mobile"
         minSdk = 26

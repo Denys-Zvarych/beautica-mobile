@@ -225,6 +225,13 @@ jobs:
         shell: bash
         run: ./scripts/forbid_inline_fontsize.sh
 
+      # 2026-10-03 phase 077 F3 — only Comfortaa w600/w700 and Nunito
+      # w400/w600/w700/w800 are bundled; FontWeight.w100/200/300/500/900 in
+      # lib/ renders at the wrong weight (no face to resolve).
+      - name: Forbid unbundled FontWeight under lib (bundled weights only)
+        shell: bash
+        run: ./scripts/forbid_unbundled_font_weight.sh
+
       # 2026-07-19 push-location safeguard — forbid a direct
       # currentConfiguration.uri/.fullPath read in tests; go_router excludes
       # ImperativeRouteMatch (the match kind context.push produces) from both,

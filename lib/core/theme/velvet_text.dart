@@ -2071,12 +2071,12 @@ abstract final class VelvetText {
   // ---------------------------------------------------------------------------
 
   /// The card's label line — [subheading]'s Comfortaa 14/600 stepped DOWN to
-  /// 11/500 and recoloured secondary: the quietest caption on the screen,
-  /// level with `sectionLabel` on size and one weight notch under every
-  /// `SettingsRow` label.
+  /// 11 (same w600 — no Comfortaa Medium is bundled) and recoloured
+  /// secondary: the quietest caption on the screen, level with
+  /// `sectionLabel` on size.
   static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
     fontSize: 11,
-    fontWeight: FontWeight.w500,
+    fontWeight: FontWeight.w600,
     height: 1.25,
     color: BrandColors.textSecondary,
   );
