@@ -55,15 +55,12 @@
 //       → `final bool inert = loading` → RED, measured ratio 1.0 (`enabled`
 //       stops feeding the dim at all — the pre-Phase-21.6 behaviour).
 
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 
 const Key _kEnabledKey = Key('dim-probe-enabled');
@@ -73,18 +70,14 @@ const Key _kDisabledKey = Key('dim-probe-disabled');
 /// in TWO places rather than a silently-absorbed drift.
 const double _kExpectedDim = 0.6;
 
-/// Composite tolerance — the capture is 8-bit per channel and the rows carry
-/// anti-aliased glyph/text edges, so the summed ratio lands a hair off the
-/// exact algebraic value. Tight enough that 1.0 (no dim) and 0.05 (the
-/// mutants) are both far outside.
-const double _kTolerance = 0.02;
-
 /// Two rows, identical but for `enabled`, over the app's own ground.
 ///
 /// The `value:` string is passed to BOTH so the compared subtrees paint the
 /// exact same glyph/text/chevron inventory — a difference in what is drawn
 /// would make the deviation ratio measure the CONTENT rather than the dim.
-Widget _host() => const ColoredBox(
+///
+/// [dimSecond] false leaves BOTH rows enabled (the control case).
+Widget _host({bool dimSecond = true}) => ColoredBox(
   color: BrandColors.base,
   child: Center(
     child: SizedBox(
@@ -93,7 +86,7 @@ Widget _host() => const ColoredBox(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          _Cell(
+          const _Cell(
             boundaryKey: _kEnabledKey,
             child: SettingsRow(
               icon: Icons.badge_outlined,
@@ -103,7 +96,7 @@ Widget _host() => const ColoredBox(
               onTap: _noop,
             ),
           ),
-          SizedBox(height: 12),
+          const SizedBox(height: 12),
           _Cell(
             boundaryKey: _kDisabledKey,
             child: SettingsRow(
@@ -111,7 +104,7 @@ Widget _host() => const ColoredBox(
               label: 'Aa Bb Cc',
               value: 'Xx',
               showChevron: false,
-              enabled: false,
+              enabled: !dimSecond,
               onTap: _noop,
             ),
           ),
@@ -152,39 +145,6 @@ class _Cell extends StatelessWidget {
   );
 }
 
-/// Sums every pixel's per-channel distance from [BrandColors.base] across the
-/// image captured under [key].
-///
-/// Alpha is ignored: the boundary is captured over an opaque ground, so every
-/// pixel comes back fully opaque and only the colour carries information.
-Future<double> _deviationFromGround(WidgetTester tester, Key key) async {
-  final RenderRepaintBoundary boundary = tester
-      .renderObject<RenderRepaintBoundary>(find.byKey(key));
-
-  late final ByteData? raw;
-  await tester.runAsync(() async {
-    final ui.Image image = await boundary.toImage();
-    raw = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    image.dispose();
-  });
-
-  final ByteData? bytes = raw;
-  expect(bytes, isNotNull, reason: 'the boundary must rasterize');
-
-  final Uint8List px = bytes!.buffer.asUint8List();
-  const int groundR = 0xE6;
-  const int groundG = 0xDD;
-  const int groundB = 0xD0;
-
-  double sum = 0;
-  for (int i = 0; i + 3 < px.length; i += 4) {
-    sum += (px[i] - groundR).abs().toDouble();
-    sum += (px[i + 1] - groundG).abs().toDouble();
-    sum += (px[i + 2] - groundB).abs().toDouble();
-  }
-  return sum;
-}
-
 void main() {
   testWidgets(
     'an `enabled: false` row composites to exactly 0.6 of an identical '
@@ -193,26 +153,12 @@ void main() {
       await tester.pumpApp(_host(), width: 400, height: 400);
       await tester.pumpAndSettle();
 
-      final double enabled = await _deviationFromGround(tester, _kEnabledKey);
-      final double disabled = await _deviationFromGround(tester, _kDisabledKey);
-
-      // Guard the guard: if the ENABLED row painted nothing distinguishable
-      // from the ground, the ratio below would be 0/0 and this test would be
-      // measuring the capture rather than the dim.
-      expect(
-        enabled,
-        greaterThan(0),
-        reason:
-            'the enabled control must paint something other than the ground '
-            '— otherwise the ratio is meaningless',
-      );
-
-      expect(
-        disabled / enabled,
-        closeTo(_kExpectedDim, _kTolerance),
-        reason:
-            'Opacity(a) composites to a·|P - B| deviation, so the ratio IS '
-            'the dim: 1.0 would mean `enabled: false` no longer dims at all',
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(_kDisabledKey),
+        full: find.byKey(_kEnabledKey),
+        ground: BrandColors.base,
+        expected: _kExpectedDim,
       );
     },
   );
@@ -223,51 +169,15 @@ void main() {
     // The additive-default half: two ENABLED rows must be indistinguishable,
     // so the measurement above cannot be an artefact of the two boundaries
     // sitting at different offsets.
-    await tester.pumpApp(
-      const ColoredBox(
-        color: BrandColors.base,
-        child: Center(
-          child: SizedBox(
-            width: 340,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                _Cell(
-                  boundaryKey: _kEnabledKey,
-                  child: SettingsRow(
-                    icon: Icons.badge_outlined,
-                    label: 'Aa Bb Cc',
-                    value: 'Xx',
-                    showChevron: false,
-                    onTap: _noop,
-                  ),
-                ),
-                SizedBox(height: 12),
-                _Cell(
-                  boundaryKey: _kDisabledKey,
-                  child: SettingsRow(
-                    icon: Icons.badge_outlined,
-                    label: 'Aa Bb Cc',
-                    value: 'Xx',
-                    showChevron: false,
-                    onTap: _noop,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      width: 400,
-      height: 400,
-    );
+    await tester.pumpApp(_host(dimSecond: false), width: 400, height: 400);
     await tester.pumpAndSettle();
 
-    final double a = await _deviationFromGround(tester, _kEnabledKey);
-    final double b = await _deviationFromGround(tester, _kDisabledKey);
-
-    expect(a, greaterThan(0));
-    expect(b / a, closeTo(1.0, _kTolerance));
+    await expectDimRatio(
+      tester: tester,
+      dimmed: find.byKey(_kDisabledKey),
+      full: find.byKey(_kEnabledKey),
+      ground: BrandColors.base,
+      expected: 1.0,
+    );
   });
 }

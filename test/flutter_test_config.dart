@@ -172,6 +172,17 @@ Future<void> testExecutable(FutureOr<void> Function() testMain) async {
 
   // (6) Phase 17.4 — Configure Alchemist suite-wide.
   //
+  // TIER CONTRACT (Phase 299): CI goldens gate GEOMETRY, LAYOUT, COPY and
+  // PER-ELEMENT colour (`Color.withValues(alpha:)` IS captured). They do NOT
+  // gate LAYER opacity (`Opacity` / `AnimatedOpacity` / `FadeTransition`):
+  // `obscureText: true` captures through a re-entrant paint into the live
+  // `debugLayer`, and a composited opacity layer does not survive it — a
+  // baseline generated at `Opacity(0.30)` compares GREEN at `1.0`. A green
+  // golden therefore says NOTHING about a layer dim. Layer opacity is gated by
+  // `test/helpers/dim_probe.dart` (`expectDimRatio`), which measures the real
+  // compositor. Details: `docs/mobile-phases/phase-299-golden-tier-layer-
+  // opacity-contract.md`.
+  //
   // Strategy:
   //   • Only CI goldens are enabled (platform goldens disabled). CI mode sets
   //     `obscureText: true` (text → coloured blocks), which is platform-agnostic
