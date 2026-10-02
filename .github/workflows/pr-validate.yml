@@ -532,16 +532,15 @@ jobs:
       # 2026-10-02 (Phase 300) — CI goldens discard layer opacity (Phase 299),
       # so a dim under an `Opacity`/`AnimatedOpacity` can look golden-covered
       # while never observed. Every layer-opacity site under lib/ must carry
-      # `// dim-gated: <test>` or `// dim-decorative: <why>`; pre-existing
-      # unclassified sites are a shrink-only path:count ratchet in
-      # scripts/.layer_dim_allow (grow AND stale entries both fail).
+      # `// dim-gated: <test>` or `// dim-decorative: <why>`; there is no
+      # allow-list (Phase 301 burned it down) — any unclassified site fails.
       - name: Forbid unclassified layer-opacity dims
         shell: bash
         run: ./scripts/forbid_unclassified_layer_dim.sh
 
       # Phase 300 — end-to-end harness for the guard above (runs the shipped
       # script as a subprocess in temp trees: injection, path confinement,
-      # CRLF, comment handling, allow-list ratchet). Modelled on
+      # CRLF, comment handling, no-allow-list). Modelled on
       # test_cycle_gates.sh.
       - name: Self-test layer-dim guard (harness)
         shell: bash

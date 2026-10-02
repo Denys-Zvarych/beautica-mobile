@@ -84,6 +84,7 @@ class LocalityTapRow extends StatelessWidget {
 
     final row = IgnorePointer(
       ignoring: !enabled,
+      // dim-gated: test/features/location/presentation/widgets/locality_tap_row_test.dart
       child: Opacity(
         opacity: enabled ? 1.0 : 0.45,
         child: Semantics(

@@ -57,6 +57,7 @@ class OtpCodeField extends StatelessWidget {
             // TextField in the widget tree (keyboard accessibility / focus
             // management / autofill) while rendering it invisible. Do not
             // replace with Offstage, which removes the widget from layout.
+            // dim-decorative: hidden IME TextField; constant 0, the cells draw the code
             Opacity(
               opacity: 0,
               child: SizedBox(

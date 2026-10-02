@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # End-to-end regression harness for scripts/forbid_unclassified_layer_dim.sh
-# (Phase 300). Complements the guard's own --self-test (cases 1-6): this one
+# (Phase 300/301). Complements the guard's own --self-test: this one
 # copies the SHIPPED script into a throwaway repo tree and runs it as a
-# subprocess, so security, path-confinement, CRLF, exemption and allow-list
-# parsing behaviour is exercised exactly as CI runs it.
+# subprocess, so security, path-confinement, CRLF and exemption
+# behaviour is exercised exactly as CI runs it.
 #
 # Tags: [GREEN] passes on the current guard (a regression pin).
 #
@@ -18,13 +18,12 @@ PASS=0; FAIL=0
 SITE='    child: Opacity(opacity: 0.5, child: SizedBox()),'
 PROBE_BODY='await expectDimRatio(tester, find.byKey(const Key("k")), 0.6);'
 
-# mk <case> : tree with scripts/<gate>, empty allow-list, lib/f, a probe-using
+# mk <case> : tree with scripts/<gate>, lib/f, a probe-using
 # test/foo_test.dart. Prints the root.
 mk() {
   local r="$TMP/$1"
   mkdir -p "$r/scripts" "$r/lib/f" "$r/test"
   cp "$GATE_SRC" "$r/scripts/forbid_unclassified_layer_dim.sh"
-  : > "$r/scripts/.layer_dim_allow"
   printf '%s\n' "$PROBE_BODY" > "$r/test/foo_test.dart"
   printf '%s' "$r"
 }
@@ -129,7 +128,7 @@ r="$(mk blockcomment)"
 printf '/*\n * Opacity(x) is avoided here\n */\n' > "$r/lib/f/a.dart"
 check "[GREEN] 'Opacity(' inside a block comment is not a site" 0 "$r"
 
-echo "== exemptions + allow-list parsing =="
+echo "== exemptions + no allow-list =="
 r="$(mk exempt)"; mkdir -p "$r/lib/api"
 printf '%s\n' "$SITE" > "$r/lib/api/x.dart"; printf '%s\n' "$SITE" > "$r/lib/f/a.g.dart"
 printf '%s\n' "$SITE" > "$r/lib/f/a.freezed.dart"
@@ -138,18 +137,26 @@ r="$(mk notdart)"; printf '%s\n' "$SITE" > "$r/lib/f/a.txt"
 check "[GREEN] non-.dart file ignored" 0 "$r"
 r="$(mk nolib)"; rm -rf "$r/lib"
 check "[GREEN] missing lib/ passes" 0 "$r"
-r="$(mk badallow)"; echo 'lib/f/a.dart:x' > "$r/scripts/.layer_dim_allow"
-check "[GREEN] malformed allow-list count fails" 1 "$r" "BAD allow-list"
-r="$(mk allow_cmt)"; printf '# header\n\nlib/f/a.dart:1  # why\n' > "$r/scripts/.layer_dim_allow"
-printf '%s\n' "$SITE" > "$r/lib/f/a.dart"
-check "[GREEN] allow-list comments/blank lines/trailing comment parsed" 0 "$r"
-r="$(mk allow_new)"; printf 'lib/f/a.dart:1\n' > "$r/scripts/.layer_dim_allow"
-printf '%s\n' "$SITE" > "$r/lib/f/a.dart"; printf '%s\n' "$SITE" > "$r/lib/f/b.dart"
-check "[GREEN] new unlisted file trips though another file is listed" 1 "$r" "b.dart"
+r="$(mk any_file)"; printf '%s\n' "$SITE" > "$r/lib/f/a.dart"; printf '%s\n' "$SITE" > "$r/lib/f/b.dart"
+check "[GREEN] unclassified sites in any file fail (no list can excuse them)" 1 "$r" "b.dart"
+r="$(mk stray_allow)"; printf '%s\n' "$SITE" > "$r/lib/f/a.dart"
+printf 'lib/f/a.dart:1\n' > "$r/scripts/.layer_dim_allow"
+check "[GREEN] a re-created scripts/.layer_dim_allow has NO effect (still fails)" 1 "$r" "a.dart:1"
+r="$(mk stray_allow_broad)"; printf '%s\n%s\n' "$SITE" "$SITE" > "$r/lib/f/a.dart"
+printf '# everything\nlib/f/a.dart:99\n' > "$r/scripts/.layer_dim_allow"
+check "[GREEN] a stray allow file with a huge count does not excuse sites" 1 "$r" "a.dart:2"
 r="$(mk census)"; printf '%s\n%s\n' "$SITE" "$SITE" > "$r/lib/f/a.dart"
 out="$(cd "$r" && bash scripts/forbid_unclassified_layer_dim.sh --census 2>&1)"
-if [ "$out" = "lib/f/a.dart:2" ]; then PASS=$((PASS + 1)); echo "  PASS  [GREEN] --census prints path:count"
+if [ "$out" = $'lib/f/a.dart:1\nlib/f/a.dart:2' ]; then PASS=$((PASS + 1)); echo "  PASS  [GREEN] --census prints unclassified file:line"
 else FAIL=$((FAIL + 1)); echo "  FAIL  --census output: $out"; fi
+
+echo "== symlinks under lib/ (cycle-1 LOW) =="
+r="$(mk symdir)"; mkdir -p "$r/elsewhere"; printf '%s\n' "$SITE" > "$r/elsewhere/a.dart"
+ln -s ../elsewhere "$r/lib/linkdir"
+check "[GREEN] symlinked dir under lib/ holding an unclassified Opacity( fails" 1 "$r" "SYMLINK"
+r="$(mk symfile)"; printf '%s\n' "$SITE" > "$r/elsewhere.dart"
+ln -s ../../elsewhere.dart "$r/lib/f/link.dart"
+check "[GREEN] symlinked file under lib/ fails" 1 "$r" "link.dart"
 
 echo "== marker-in-string / probe-in-comment (cycle-2 LOW findings) =="
 r="$(mk str_marker)"
@@ -199,6 +206,18 @@ r="$(gated pr_split $'await expectDimRatio(\n  t,\n  f,\n  0.6,\n);')"
 check "[GREEN] probe call split across lines passes" 0 "$r"
 r="$(gated pr_str_then_call $'final s = \'a\'; await expectDimRatio(t, f, 0.6);')"
 check "[GREEN] real call after a string on the same line passes" 0 "$r"
+r="$(gated pr_region_call 'await expectRegionDimRatio(t, f, 0.6);')"
+check "[GREEN] plain await expectRegionDimRatio( call passes" 0 "$r"
+r="$(gated pr_region_comment '// expectRegionDimRatio(t, f, 0.6);')"
+check "[GREEN] expectRegionDimRatio( only in a comment rejected" 1 "$r" "a.dart:2"
+r="$(gated pr_region_str "final s = 'expectRegionDimRatio(';")"
+check "[GREEN] expectRegionDimRatio( only in a string rejected" 1 "$r" "a.dart:2"
+r="$(gated pr_lookalike_pre 'await myexpectDimRatio(t, f, 0.6);')"
+check "[GREEN] look-alike myexpectDimRatio( rejected" 1 "$r" "a.dart:2"
+r="$(gated pr_lookalike_post 'await expectDimRatioX(t, f, 0.6);')"
+check "[GREEN] look-alike expectDimRatioX( rejected" 1 "$r" "a.dart:2"
+r="$(gated pr_lookalike_region 'await myexpectRegionDimRatio(t, f, 0.6); await expectRegionDimRatioX(t);')"
+check "[GREEN] look-alike region names rejected" 1 "$r" "a.dart:2"
 
 echo "== nested quotes in interpolation (cycle-3 LOW) =="
 r="$(mk interp)"

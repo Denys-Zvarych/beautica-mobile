@@ -815,6 +815,7 @@ class _ServiceTypeRowCardState extends State<ServiceTypeRowCard> {
               switchInCurve: Curves.easeOutCubic,
               switchOutCurve: Curves.easeIn,
               transitionBuilder: (Widget child, Animation<double> anim) {
+                // dim-decorative: fields row show/hide; 0/1
                 return FadeTransition(
                   opacity: anim,
                   child: SizeTransition(

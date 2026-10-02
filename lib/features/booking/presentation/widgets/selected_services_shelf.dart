@@ -334,6 +334,7 @@ class _ChosenLine extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       switchInCurve: Curves.easeOutCubic,
       transitionBuilder: (Widget child, Animation<double> anim) =>
+          // dim-decorative: chosen-slot line reveal
           FadeTransition(
             opacity: anim,
             child: SizeTransition(

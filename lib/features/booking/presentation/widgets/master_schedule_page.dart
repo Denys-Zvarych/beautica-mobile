@@ -459,6 +459,7 @@ class _MasterSchedulePageState extends ConsumerState<MasterSchedulePage>
             duration: const Duration(milliseconds: 260),
             switchInCurve: Curves.easeOutCubic,
             transitionBuilder: (Widget child, Animation<double> a) =>
+                // dim-decorative: date-to-slot phase switch
                 FadeTransition(
                   opacity: a,
                   child: SizeTransition(

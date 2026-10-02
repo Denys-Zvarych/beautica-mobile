@@ -177,6 +177,7 @@ class _ClientPersonalInfoEditScreenState
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     final Animation<Offset> slide = _slideTween.animate(anim);
+    // dim-decorative: screen entrance fade (`_reveal`); 1 at rest
     return FadeTransition(
       opacity: anim,
       child: SlideTransition(position: slide, child: child),

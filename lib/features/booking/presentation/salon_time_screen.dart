@@ -913,6 +913,7 @@ class _MasterPager extends StatelessWidget {
       child: Row(
         children: <Widget>[
           _PagerArrow(
+            key: const Key('salon-time-pager-prev'),
             icon: Icons.chevron_left_rounded,
             semanticLabel: l10n.salonSchedulePagerPrevSemantics,
             onTap: onPrev,
@@ -948,6 +949,7 @@ class _MasterPager extends StatelessWidget {
             ),
           ),
           _PagerArrow(
+            key: const Key('salon-time-pager-next'),
             icon: Icons.chevron_right_rounded,
             semanticLabel: l10n.salonSchedulePagerNextSemantics,
             onTap: onNext,
@@ -1022,6 +1024,7 @@ class _PagerDot extends StatelessWidget {
 
 class _PagerArrow extends StatefulWidget {
   const _PagerArrow({
+    super.key,
     required this.icon,
     required this.semanticLabel,
     required this.onTap,
@@ -1060,6 +1063,7 @@ class _PagerArrowState extends State<_PagerArrow> {
         button: true,
         enabled: false,
         label: widget.semanticLabel,
+        // dim-gated: test/features/booking/presentation/salon_time_screen_test.dart
         child: Opacity(opacity: 0.55, child: face),
       );
     }

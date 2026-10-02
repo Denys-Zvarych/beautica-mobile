@@ -938,6 +938,7 @@ class _AnimatedWordmarkState extends State<AnimatedWordmark> {
     final List<Widget> children = <Widget>[];
     for (int i = 0; i < widget.text.length; i++) {
       children.add(
+        // dim-decorative: wordmark per-letter entrance; 1 at rest
         FadeTransition(
           opacity: _opacities[i],
           child: SlideTransition(
@@ -1226,6 +1227,7 @@ class NeumorphicIconButton extends StatelessWidget {
       enabled: false,
       label: semanticLabel,
       child: AbsorbPointer(
+        // dim-gated: test/core/widgets/neumorphic_test.dart
         child: Opacity(
           opacity: 0.6,
           child: GestureDetector(onTap: onTap, child: face),

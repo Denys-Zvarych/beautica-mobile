@@ -460,6 +460,7 @@ class _EditBodyState extends State<_EditBody>
     Animation<Offset> slideAnim,
     Widget child,
   ) {
+    // dim-decorative: edit-body entrance
     return FadeTransition(
       opacity: fadeAnim,
       child: SlideTransition(position: slideAnim, child: child),

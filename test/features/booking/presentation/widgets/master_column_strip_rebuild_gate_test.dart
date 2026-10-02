@@ -42,10 +42,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_avatar_badge.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+import '../../../../helpers/dim_probe.dart';
 import '../../../../helpers/pump_app.dart';
 
 MasterColumnEntry _entry(
@@ -496,5 +499,58 @@ void main() {
     expectSpoken(_freeC, uk.salonBookingsMasterColumnFree);
     expectSpoken(offD, uk.salonBookingsColumnDayOff);
     handle.dispose();
+  });
+
+  // Phase 301 — the roster chip's avatar is dimmed to 0.45 for the two quiet
+  // states (`free || dayOff`). The name's muted style changes with it, which is
+  // why the probe crops to the `MasterAvatarBadge` alone: the badge is a const
+  // glyph that paints identically in both states, so the dim is the ONLY
+  // difference between the two crops. The badge sits over the chip's solid
+  // `base` fill (the chip's shadow pair is outside the 28dp disc), and the
+  // chip's own geometry does not move between the states.
+  //
+  // Goldens cannot see this (layer opacity is discarded on the CI-golden path —
+  // Phase 299); it is observed through the real compositor.
+  group('Phase 301 — quiet roster-chip avatar dim (pixel probe)', () {
+    Future<void> pumpChip(WidgetTester tester, MasterColumnEntry e) async {
+      await tester.pumpApp(
+        RepaintBoundary(
+          child: ColoredBox(
+            color: BrandColors.base,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: MasterColumnStrip(
+                entries: <MasterColumnEntry>[e],
+                columnWidth: 148,
+                gutter: 8,
+              ),
+            ),
+          ),
+        ),
+        width: 900,
+      );
+      await tester.pump();
+    }
+
+    final Finder badge = find.byType(MasterAvatarBadge);
+
+    for (final (String label, MasterColumnEntry quiet)
+        in <(String, MasterColumnEntry)>[
+          ('free', _entry('q1', bookingCount: 0)),
+          ('day-off', _entry('q2', bookingCount: 3, dayOff: true)),
+        ]) {
+      testWidgets('a $label chip avatar composites to 0.45 of a busy one', (
+        tester,
+      ) async {
+        await expectRegionDimRatio(
+          tester: tester,
+          target: badge,
+          pumpFull: () => pumpChip(tester, _entry('busy')),
+          pumpDimmed: () => pumpChip(tester, quiet),
+          ground: BrandColors.base,
+          expected: 0.45,
+        );
+      });
+    }
   });
 }

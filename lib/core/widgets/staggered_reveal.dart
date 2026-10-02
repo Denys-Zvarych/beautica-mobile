@@ -211,6 +211,7 @@ class _RevealState extends State<StaggeredReveal>
         ).animate(opacity),
       );
     });
+    // dim-decorative: staggered entrance; 1 at rest
     return FadeTransition(
       opacity: anims.opacity,
       child: SlideTransition(position: anims.position, child: child),

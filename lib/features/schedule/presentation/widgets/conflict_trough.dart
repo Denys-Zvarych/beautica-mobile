@@ -443,6 +443,7 @@ class _EdgeFade extends StatelessWidget {
       left: 0,
       right: 0,
       child: IgnorePointer(
+        // dim-decorative: scroll-overflow edge hint; 0/1
         child: AnimatedOpacity(
           opacity: visible ? 1 : 0,
           duration: const Duration(milliseconds: 180),

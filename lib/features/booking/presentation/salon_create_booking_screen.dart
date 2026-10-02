@@ -621,6 +621,7 @@ class _SalonCreateBookingScreenState
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 220),
                 transitionBuilder: (Widget child, Animation<double> a) =>
+                    // dim-decorative: step cross-fade (AnimatedSwitcher); 1 at rest
                     FadeTransition(opacity: a, child: child),
                 child: _buildStep(l10n),
               ),

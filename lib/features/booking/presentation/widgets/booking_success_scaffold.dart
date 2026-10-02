@@ -256,6 +256,7 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
     // `actions` footer is revealed through this same helper) — mirrors
     // NeumorphicButton.build()'s press-animation RepaintBoundary.
     return RepaintBoundary(
+      // dim-decorative: recap entrance
       child: FadeTransition(
         opacity: curved,
         child: AnimatedBuilder(

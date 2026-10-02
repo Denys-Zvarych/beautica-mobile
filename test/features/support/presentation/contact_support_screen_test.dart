@@ -45,6 +45,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -301,16 +302,26 @@ void main() {
   group('AttachmentTray counter + budget', () {
     Future<void> pumpTray(
       WidgetTester tester,
-      List<SupportAttachment> attachments,
-    ) async {
+      List<SupportAttachment> attachments, {
+      int maxFiles = SupportLimits.maxFiles,
+      bool grounded = false,
+    }) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      final Widget tray = AttachmentTray(
+        attachments: attachments,
+        onAdd: () {},
+        onRemove: (_) {},
+        maxFiles: maxFiles,
+        maxTotalBytes: SupportLimits.maxTotalBytes,
+      );
+      // `grounded` wraps the tray in a `RepaintBoundary` over a solid `base`
+      // ground so a pixel probe can crop a region out of it (Phase 301).
       await tester.pumpApp(
-        AttachmentTray(
-          attachments: attachments,
-          onAdd: () {},
-          onRemove: (_) {},
-          maxFiles: SupportLimits.maxFiles,
-          maxTotalBytes: SupportLimits.maxTotalBytes,
-        ),
+        grounded
+            ? RepaintBoundary(
+                child: ColoredBox(color: BrandColors.base, child: tray),
+              )
+            : tray,
       );
       await tester.pumpAndSettle();
     }
@@ -350,6 +361,38 @@ void main() {
         find.text(_l10n.contactSupportAttachmentsLimitReached),
         findsOneWidget,
       );
+    });
+
+    // Phase 301 — once the tray is full the add tile renders `Opacity(0.5)`. CI
+    // goldens discard layer opacity (Phase 299), so the dim is probed through
+    // the real compositor.
+    //
+    // Same two attachments in both pumps; only `maxFiles` differs (3 leaves
+    // room, 2 fills the tray), so the chips and the tile's rect are identical.
+    // The tile sits under the Opacity AND carries a `RepaintBoundary` of its
+    // own (around the dashed border), so the cropped target is the whole tile
+    // from the test's `base`-grounded boundary above the Opacity. The tile's
+    // subtitle copy differs between the two states (add-hint vs limit-reached),
+    // so the pixel content is not strictly identical, but the subtitle is a
+    // small share of the tile and the ratio lands inside the default 0.02.
+    group('AttachmentTray add tile dim (pixel probe)', () {
+      final List<SupportAttachment> two = <SupportAttachment>[
+        _attachment('a.png', 1024),
+        _attachment('b.png', 1024),
+      ];
+      final Finder tile = find.byKey(const Key('support-add-attachment'));
+
+      testWidgets('the add tile of a full tray composites to 0.5 of the one '
+          'with room', (tester) async {
+        await expectRegionDimRatio(
+          tester: tester,
+          target: tile,
+          pumpFull: () => pumpTray(tester, two, maxFiles: 3, grounded: true),
+          pumpDimmed: () => pumpTray(tester, two, maxFiles: 2, grounded: true),
+          ground: BrandColors.base,
+          expected: 0.5,
+        );
+      });
     });
 
     testWidgets(

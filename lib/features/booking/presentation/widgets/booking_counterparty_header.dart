@@ -122,6 +122,7 @@ class _MasterStrip extends StatelessWidget {
     // `OpacityLayer → OffsetLayer → PictureLayer` with. The residual
     // `saveLayer` is inherent to `Opacity` and bounded to a dead booking's
     // header while a splash runs; mobile-perf retracted the finding.
+    // dim-gated: test/features/booking/presentation/booking_detail_screen_test.dart
     return Opacity(opacity: 0.7, child: strip);
   }
 }
@@ -156,6 +157,7 @@ class _ClientStrip extends StatelessWidget {
     final String? name = booking.clientName;
     final String displayName = name ?? l10n.bookingDetailGuestClient;
 
+    // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
     return Opacity(
       opacity: isDead ? 0.7 : 1,
       child: Row(

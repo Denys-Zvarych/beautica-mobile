@@ -128,6 +128,7 @@ class _AddTile extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: l10n.contactSupportAddAttachment,
+      // dim-gated: test/features/support/presentation/contact_support_screen_test.dart
       child: Opacity(
         opacity: enabled ? 1 : 0.5,
         child: GestureDetector(

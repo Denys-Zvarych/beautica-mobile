@@ -693,6 +693,7 @@ class _ServiceCardState extends State<ServiceCard>
     // PERF: RepaintBoundary isolates this card's staggered entrance repaints so
     // the per-frame fade/slide does not invalidate sibling cards in the section.
     return RepaintBoundary(
+      // dim-decorative: staggered card entrance
       child: FadeTransition(
         opacity: _curve,
         child: SlideTransition(

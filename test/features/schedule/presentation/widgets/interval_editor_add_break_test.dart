@@ -16,11 +16,14 @@
 // key + the real `validateDayHours` domain function — no mocks needed, the
 // editor is a pure StatelessWidget mutating a host-owned DayHours.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/interval_editor.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../helpers/dim_probe.dart';
 
 void main() {
   group('IntervalEditor._addBreak — second-break regression', () {
@@ -142,6 +145,41 @@ void main() {
       },
     );
   });
+
+  // Phase 301 — once the day is full the add-break action renders
+  // `Opacity(0.4)`. CI goldens discard layer opacity (Phase 299), so the dim is
+  // probed through the real compositor. Both days carry the SAME single break
+  // (identical rows above the action, so the action's rect is identical); only
+  // the window end differs — 18:00 leaves room for another break, 11:30 does
+  // not. The target is the action itself, cropped from a `base`-grounded
+  // boundary (see `_pumpEditor(grounded: true)`).
+  group('IntervalEditor add-break action dim (pixel probe)', () {
+    DayHours dayEndingAt(int hour, int minute) => DayHours(
+      window: WorkInterval(
+        start: const TimeOfDay(hour: 9, minute: 0),
+        end: TimeOfDay(hour: hour, minute: minute),
+      ),
+      breaks: <BreakRange>[
+        BreakRange(
+          start: const TimeOfDay(hour: 10, minute: 0),
+          end: const TimeOfDay(hour: 11, minute: 0),
+        ),
+      ],
+    );
+
+    testWidgets('the add-break action on a full day composites to 0.4 of the '
+        'one with room', (tester) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: find.byKey(const Key('override-add-break')),
+        pumpFull: () => _pumpEditor(tester, dayEndingAt(18, 0), grounded: true),
+        pumpDimmed: () =>
+            _pumpEditor(tester, dayEndingAt(11, 30), grounded: true),
+        ground: BrandColors.base,
+        expected: 0.4,
+      );
+    });
+  });
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -152,13 +190,20 @@ void main() {
 /// strings (resolved through `AppLocalizations`) and a host that rebuilds on
 /// `onChanged` — mirroring the production screen so the rendered add-break action
 /// re-evaluates `_hasRoomForBreak` after each mutation.
-Future<void> _pumpEditor(WidgetTester tester, DayHours day) async {
+Future<void> _pumpEditor(
+  WidgetTester tester,
+  DayHours day, {
+  bool grounded = false,
+}) async {
+  await tester.pumpWidget(const SizedBox.shrink());
   await tester.pumpWidget(
     MaterialApp(
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       locale: const Locale('uk'),
-      home: Scaffold(body: _EditorHost(day: day)),
+      home: Scaffold(
+        body: _EditorHost(day: day, grounded: grounded),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -176,9 +221,13 @@ Future<void> _tapAddBreak(WidgetTester tester) async {
 /// A minimal stateful host that re-renders the editor on every `onChanged`,
 /// faithfully reproducing how the real schedule sheet drives the widget.
 class _EditorHost extends StatefulWidget {
-  const _EditorHost({required this.day});
+  const _EditorHost({required this.day, this.grounded = false});
 
   final DayHours day;
+
+  /// Wraps the editor in a `RepaintBoundary` over a solid `base` ground so a
+  /// pixel probe can crop a region out of it (Phase 301).
+  final bool grounded;
 
   @override
   State<_EditorHost> createState() => _EditorHostState();
@@ -188,14 +237,18 @@ class _EditorHostState extends State<_EditorHost> {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    return SingleChildScrollView(
-      child: IntervalEditor(
-        day: widget.day,
-        onChanged: () => setState(() {}),
-        strings: _intervalStrings(l10n),
-        fieldKeyPrefix: 'override',
-      ),
+    final Widget editor = IntervalEditor(
+      day: widget.day,
+      onChanged: () => setState(() {}),
+      strings: _intervalStrings(l10n),
+      fieldKeyPrefix: 'override',
     );
+    if (widget.grounded) {
+      return RepaintBoundary(
+        child: ColoredBox(color: BrandColors.base, child: editor),
+      );
+    }
+    return SingleChildScrollView(child: editor);
   }
 }
 

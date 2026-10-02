@@ -97,6 +97,7 @@ class _BookingsSkeletonState extends State<BookingsSkeleton>
         animation: curved,
         builder: (BuildContext context, Widget? child) {
           // 0.55 → 1.0: shallow enough to feel like breathing, not blinking.
+          // dim-decorative: skeleton pulse
           return Opacity(opacity: 0.55 + curved.value * 0.45, child: child);
         },
         child: Column(
@@ -504,6 +505,7 @@ class _MyBookingsSlowLoadNoticeState extends State<MyBookingsSlowLoadNotice> {
       tween: Tween<double>(begin: 0, end: 1),
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
+      // dim-decorative: slow-load notice settle-in; 0 to 1 once
       builder: (BuildContext context, double t, Widget? child) => Opacity(
         opacity: t,
         child: Transform.translate(
