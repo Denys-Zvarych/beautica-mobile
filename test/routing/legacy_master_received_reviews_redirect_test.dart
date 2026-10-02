@@ -57,6 +57,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// The exact legacy literal — deliberately NOT a `RouteNames` constant (the
@@ -126,13 +127,8 @@ Future<GoRouter> _pumpRouterApp(
   WidgetTester tester, {
   required User user,
 }) async {
-  final ProviderContainer container = ProviderContainer(
+  final ProviderContainer container = makeTestContainer(
     retry: beauticaProviderRetry,
-    // ProviderContainer.overrides expects List<Override>; that name is not
-    // imported directly (mirrors `test/helpers/pump_app.dart`'s convention)
-    // — `.cast()` with no explicit type argument infers `Override` from the
-    // parameter's context instead.
-    // ignore: avoid_dynamic_calls
     overrides: <Object>[
       authProvider.overrideWith(() => _FixedAuthNotifier(user)),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -141,9 +137,8 @@ Future<GoRouter> _pumpRouterApp(
       // resolved, never the master profile's own data states (already
       // covered by `master_profile_screen_test.dart`).
       masterProfileProvider.overrideWith(_NeverResolvingMasterProfile.new),
-    ].cast(),
+    ],
   );
-  addTearDown(container.dispose);
 
   final GoRouter router = container.read(appRouterProvider);
   addTearDown(router.dispose);

@@ -229,6 +229,7 @@ class CoverIconButton extends StatefulWidget {
     this.iconColor = BrandColors.text,
     this.toggled,
     this.svgIcon,
+    this.svgIconTint,
   }) : assert(
          (icon == null) != (svgIcon == null),
          'Provide exactly one of icon or svgIcon.',
@@ -251,6 +252,12 @@ class CoverIconButton extends StatefulWidget {
   /// notification bell's baked-in unread dot — keep their own palette;
   /// [iconColor] is ignored in this branch.
   final String? svgIcon;
+
+  /// Phase 361 — when non-null, [svgIcon] is flattened to this single tint
+  /// (`srcIn`) instead of rendering `multicolor`. Used by the idle (dotless)
+  /// notification bell; the unread asset keeps `null` so its dot survives.
+  /// Ignored when [svgIcon] is null. Default `null` = unchanged behaviour.
+  final Color? svgIconTint;
 
   @override
   State<CoverIconButton> createState() => _CoverIconButtonState();
@@ -304,7 +311,12 @@ class _CoverIconButtonState extends State<CoverIconButton> {
                 // smaller than its Material siblings as a deliberate optical-
                 // weight choice — do not collapse these into one constant.
                 child: widget.svgIcon != null
-                    ? AppIcon(widget.svgIcon!, size: 20, multicolor: true)
+                    ? AppIcon(
+                        widget.svgIcon!,
+                        size: 20,
+                        color: widget.svgIconTint,
+                        multicolor: widget.svgIconTint == null,
+                      )
                     : Icon(widget.icon!, size: 21, color: widget.iconColor),
               ),
             ),

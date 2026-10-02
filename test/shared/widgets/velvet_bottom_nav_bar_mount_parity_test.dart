@@ -84,6 +84,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../helpers/no_unread_notifications.dart';
 import '../../helpers/overflow_guard.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
@@ -159,7 +160,9 @@ Future<void> _pumpWithBottomInset(
     ProviderScope(
       retry: beauticaProviderRetry,
       key: UniqueKey(),
-      overrides: overrides.cast(),
+      // Phase 363 — «Мій профіль» now mounts the live notification bell; pin the
+      // global count to zero so its real notifier starts no poll timer.
+      overrides: withDefaultNoUnread(overrides).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

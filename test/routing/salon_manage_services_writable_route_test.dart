@@ -50,7 +50,6 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -80,6 +79,7 @@ import 'package:mocktail/mocktail.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/route_pump.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures.
@@ -237,8 +237,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer({List<dynamic> extraOverrides = const []}) {
-    final container = ProviderContainer(
-      retry: beauticaProviderRetry,
+    final container = makeTestContainer(
       overrides: [
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -251,11 +250,9 @@ void main() {
         approvedCategoriesProvider.overrideWith(
           (_) async => const <ServiceCategoryOption>[],
         ),
-        // ignore: avoid_dynamic_calls
-        ...extraOverrides.cast(),
+        ...extraOverrides.cast<Object>(),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

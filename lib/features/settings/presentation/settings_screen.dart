@@ -337,7 +337,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               key: const Key('row-notifications'),
               switchKey: const Key('switch-notifications'),
               icon: Icons.notifications_none_rounded,
-              // Match the top-bar idle bell (BellButton): the dotless
+              // Match the top-bar idle bell (NotificationBellButton): the dotless
               // `notificationPlain` SVG, tinted + sized to the settings-row
               // glyph spec (19 px, accentDeep) so it sits identically.
               iconWidget: const AppIcon(

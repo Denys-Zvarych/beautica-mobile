@@ -24,7 +24,7 @@ import 'package:beautica_mobile/core/storage/storage_keys.dart';
 ///
 /// All methods are synchronous under the hood (the `async` wrapper satisfies
 /// the interface contract). Last write wins — there is no expiry or eviction.
-final class FakeSecureStorage implements SecureStorage {
+class FakeSecureStorage implements SecureStorage {
   final Map<String, String> _backing = {};
 
   @override
@@ -72,5 +72,36 @@ final class FakeSecureStorage implements SecureStorage {
   }
 
   @override
-  Future<void> deleteAll() async => _backing.clear();
+  Future<bool> readPushPermissionAsked() async =>
+      _backing.containsKey(StorageKeys.pushPermissionAsked);
+
+  @override
+  Future<void> writePushPermissionAsked() async {
+    _backing[StorageKeys.pushPermissionAsked] = '1';
+  }
+
+  @override
+  Future<bool> readPushRevokePending() async =>
+      _backing.containsKey(StorageKeys.pushRevokePending);
+
+  @override
+  Future<void> writePushRevokePending() async {
+    _backing[StorageKeys.pushRevokePending] = '1';
+  }
+
+  @override
+  Future<void> clearPushRevokePending() async {
+    _backing.remove(StorageKeys.pushRevokePending);
+  }
+
+  // Mirrors production: the per-device flags survive logout.
+  @override
+  Future<void> deleteAll() async {
+    final Map<String, String> kept = <String, String>{
+      for (final String k in StorageKeys.deviceScoped)
+        if (_backing.containsKey(k)) k: _backing[k]!,
+    };
+    _backing.clear();
+    _backing.addAll(kept);
+  }
 }

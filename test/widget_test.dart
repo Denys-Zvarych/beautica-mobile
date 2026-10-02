@@ -26,6 +26,9 @@
 // (e.g. inline velvetTheme() call reinstated inside build()) or a palette
 // regression is caught immediately by CI — not just in golden tests.
 
+import 'dart:async';
+
+import 'package:beautica_mobile/core/push/push_available_provider.dart';
 import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -67,6 +70,38 @@ void main() {
     // The app has rendered at least one Scaffold (SplashScreen or LoginScreen
     // depending on how quickly authProvider resolves). Either way the app is up.
     expect(find.byType(Scaffold), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('first frame builds without awaiting Firebase init (phase 066)', (
+    WidgetTester tester,
+  ) async {
+    // Mirrors main(): runApp first, THEN kick off pushAvailableProvider
+    // unawaited. A never-completing initialiser (the real provider logic runs
+    // over it) must not block the first frame. If BeauticaApp (or anything on
+    // the first-frame path) started depending on pushAvailableProvider
+    // resolving, the Scaffold below would never appear.
+    final Completer<bool> never = Completer<bool>();
+    final ProviderContainer container = ProviderContainer(
+      retry: beauticaProviderRetry,
+      overrides: [
+        secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+        firebaseInitializerProvider.overrideWithValue(() => never.future),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const BeauticaApp(),
+      ),
+    );
+    unawaited(container.read(pushAvailableProvider.future));
+    await tester.pump();
+    expect(find.byType(Scaffold), findsAtLeastNWidgets(1));
+    expect(container.read(pushAvailableProvider).isLoading, isTrue);
+    // The call-site wiring of main() is mutation-proven in
+    // integration_test/app_boot_without_firebase_flow_test.dart (test 3).
   });
 
   // ---------------------------------------------------------------------------

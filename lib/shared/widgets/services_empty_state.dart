@@ -33,10 +33,16 @@ class ServicesEmptyState extends StatelessWidget {
     required this.body,
     this.onCreate,
     this.createLabel,
+    this.iconWidget,
   }) : assert(
          onCreate == null || createLabel != null,
          'createLabel is required whenever onCreate is provided.',
        );
+
+  /// Replaces the default `spa_rounded` glyph inside the inset disc (additive,
+  /// Phase 363: the notification feed's bell). `null` — every existing caller
+  /// — keeps the spa glyph, byte for byte.
+  final Widget? iconWidget;
 
   /// Empty-state heading, e.g. `l10n.servicesEmpty` ("Послуг ще немає").
   final String title;
@@ -71,11 +77,13 @@ class ServicesEmptyState extends StatelessWidget {
                 // empty-state in the approved preview.
                 radius: 52,
                 child: Center(
-                  child: Icon(
-                    Icons.spa_rounded,
-                    size: 44,
-                    color: BrandColors.accent.withValues(alpha: 0.9),
-                  ),
+                  child:
+                      iconWidget ??
+                      Icon(
+                        Icons.spa_rounded,
+                        size: 44,
+                        color: BrandColors.accent.withValues(alpha: 0.9),
+                      ),
                 ),
               ),
             ),

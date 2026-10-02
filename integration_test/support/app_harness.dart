@@ -655,6 +655,9 @@ abstract final class AppHarness {
     // function's own doc comment for the identical `secureStorageProvider`
     // trap).
     DateTime Function()? clock,
+    // Phase 069 — mounts the push-tap dispatcher from the FIRST frame, as
+    // `BeauticaApp` does (a cold-start tap must wait out the splash).
+    bool mountPushTapDispatcher = false,
   }) async {
     // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
@@ -686,7 +689,7 @@ abstract final class AppHarness {
           ),
           ...extraOverrides,
         ].cast(),
-        child: const E2eHarnessApp(),
+        child: E2eHarnessApp(mountPushTapDispatcher: mountPushTapDispatcher),
       ),
     );
 

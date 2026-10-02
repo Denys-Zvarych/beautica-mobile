@@ -112,7 +112,7 @@ final class RefreshInterceptor extends Interceptor {
         );
       }
       // Wipe the session; router guard will redirect to /login.
-      await _ref.read(authProvider.notifier).logout();
+      await _ref.read(authProvider.notifier).logoutForced();
       handler.next(err);
       return;
     }

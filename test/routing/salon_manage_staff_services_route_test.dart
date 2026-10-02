@@ -60,7 +60,6 @@ import 'dart:async';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -103,6 +102,7 @@ import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/route_pump.dart';
 import '../helpers/velvet_snack_matchers.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the userId and the masters ROW id are DELIBERATELY different.
@@ -402,8 +402,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer() {
-    final container = ProviderContainer(
-      retry: beauticaProviderRetry,
+    final container = makeTestContainer(
       overrides: [
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -433,7 +432,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

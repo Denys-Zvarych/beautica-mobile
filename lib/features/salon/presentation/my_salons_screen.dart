@@ -24,15 +24,13 @@
 //     renders identically. It resolves its own locality from taxonomy
 //     `cityId` via `resolvedLocalityProvider`, the same provider
 //     `_ManagementHeroCard` uses.)
-// NOT reused: the preview's `_HubTopBar`/`_BellButton` mirror the shipped
-// `ClientTopBar`/`BellButton` (`features/shell/presentation/widgets/
-// client_top_bar.dart`) by design, but that widget lives in the `shell`
-// feature's `presentation/` — importing it from here would cross the
-// feature-boundary import rule (`presentation/` may only import another
-// feature's `domain/`/`shared/`, never its `presentation/`). Small private
-// equivalents are written below from the same `core/` primitives
-// ([AppIcon], [BeauticaAssetIcons], [NeumorphicIconButton]) `ClientTopBar`
-// itself is built from, rather than forking its composed shape.
+// NOT reused: `ClientTopBar` itself lives in the `shell` feature's
+// `presentation/` — importing it from here would cross the feature-boundary
+// import rule (`presentation/` may only import another feature's `domain/`/
+// `shared/`, never its `presentation/`), so [_HubTopBar] is composed here from
+// `core/` primitives ([NeumorphicIconButton]). Its bell, however, IS the shared
+// `ConnectedNotificationBell` (Phase 361 — the private `_BellButton` mirror was
+// deleted and the widget PROMOTED to `shared/widgets/`).
 //
 // The card footer stats the preview shows (★ rating · staff count) are
 // DROPPED here — `GET /salons/mine` returns `SalonResponse`, which carries
@@ -69,8 +67,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/icons/app_icon.dart';
-import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -78,6 +74,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../../auth/presentation/auth_selectors.dart';
@@ -384,7 +381,6 @@ class _HubContent extends StatelessWidget {
                 onBack: () {
                   if (context.canPop()) context.pop();
                 },
-                onBell: () {},
               ),
             ),
           );
@@ -605,10 +601,9 @@ class _DeleteInFlightOverlay extends StatelessWidget {
 /// [VelvetText.wordmark], which is reserved for the literal "beautica" brand
 /// mark, not a screen's own title.
 class _HubTopBar extends StatelessWidget {
-  const _HubTopBar({required this.onBack, required this.onBell});
+  const _HubTopBar({required this.onBack});
 
   final VoidCallback onBack;
-  final VoidCallback onBell;
 
   @override
   Widget build(BuildContext context) {
@@ -631,42 +626,11 @@ class _HubTopBar extends StatelessWidget {
               maxLines: 1,
             ),
           ),
-          _BellButton(onTap: onBell),
-        ],
-      ),
-    );
-  }
-}
-
-/// Notification bell — state-driven asset swap identical to `ClientTopBar`'s
-/// own `BellButton`, kept private here for the feature-import-boundary
-/// reason this file's header explains.
-///
-// TODO(14.9): bind `hasUnread` from the unread-notifications provider once
-// the notification center ships. Until then it stays dotless, matching
-// every other pre-Phase-14.9 call site.
-class _BellButton extends StatelessWidget {
-  const _BellButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: AppLocalizations.of(context).homeHubNotificationsLabel,
-      child: GestureDetector(
-        key: const Key('my_salons_bell_button'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: const Padding(
-          padding: EdgeInsets.all(VelvetSpacing.xs),
-          child: AppIcon(
-            BeauticaAssetIcons.notificationPlain,
-            size: 24,
-            color: BrandColors.textSecondary,
+          // Global unread dot (never salon-scoped) + push to the feed.
+          const ConnectedNotificationBell(
+            buttonKey: Key('my_salons_bell_button'),
           ),
-        ),
+        ],
       ),
     );
   }

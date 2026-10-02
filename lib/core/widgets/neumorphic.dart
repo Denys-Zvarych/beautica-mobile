@@ -1114,11 +1114,25 @@ class NeumorphicIconButton extends StatelessWidget {
     required this.onTap,
     required this.semanticLabel,
     this.enabled = true,
+    this.faceSize,
   }) : assert(
          icon != null || iconWidget != null,
          'NeumorphicIconButton: supply either an `icon` (IconData) or an '
          '`iconWidget` (e.g. AppIcon) — both null renders nothing.',
+       ),
+       assert(
+         faceSize == null || (faceSize > 0 && faceSize <= extent),
+         'NeumorphicIconButton.faceSize must be in (0, extent].',
        );
+
+  /// Visible diameter of the raised face, for a DENSE row that cannot afford a
+  /// 48 dp button (additive, Phase 363 notification row). The TAP TARGET stays
+  /// the full [extent] × [extent] box — the smaller face is centred inside it
+  /// — so the control keeps its accessible hit area.
+  ///
+  /// `null` (every pre-existing call site) emits the byte-identical tree this
+  /// button shipped with: a [extent]-sized face and no extra wrapper.
+  final double? faceSize;
 
   /// Material glyph rendered as the button face. Ignored when [iconWidget] is
   /// provided. One of [icon] / [iconWidget] must be non-null.
@@ -1169,9 +1183,10 @@ class NeumorphicIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Widget face = Container(
-      height: extent,
-      width: extent,
+    final double? small = faceSize;
+    final Widget raised = Container(
+      height: small ?? extent,
+      width: small ?? extent,
       decoration: const BoxDecoration(
         color: BrandColors.base,
         borderRadius: _buttonRadius,
@@ -1180,6 +1195,19 @@ class NeumorphicIconButton extends StatelessWidget {
       child:
           iconWidget ?? Icon(icon, color: BrandColors.textSecondary, size: 22),
     );
+    // A reduced face keeps the full 48 dp hit box. The transparent
+    // `ColoredBox` is hit-opaque, so the margin around the face is tappable
+    // too (the GestureDetector below defers to its child).
+    final Widget face = small == null
+        ? raised
+        : ColoredBox(
+            color: Colors.transparent,
+            child: SizedBox(
+              height: extent,
+              width: extent,
+              child: Center(child: raised),
+            ),
+          );
 
     // The `enabled` branch is deliberately additive-by-omission: when enabled
     // (the default) NO extra wrapper is inserted, so the tree is identical to

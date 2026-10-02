@@ -117,10 +117,20 @@ import 'salon_management_profile_screen.dart';
 
 /// The `SALON_OWNER`/`SALON_ADMIN` bottom-nav shell for one salon.
 class SalonShellScreen extends ConsumerStatefulWidget {
-  const SalonShellScreen({super.key, required this.salonId});
+  const SalonShellScreen({
+    super.key,
+    required this.salonId,
+    this.initialNavTab,
+  });
 
   /// Backend Salon-row UUID this shell is scoped to.
   final String salonId;
+
+  /// Phase 364 — optional bottom-nav destination to open on, consumed ONCE on
+  /// the first frame through [_SalonShellScreenState._onNavSelected] (the same
+  /// code a nav-bar tap runs). `null` (every existing caller) = today's
+  /// behaviour. Route state, NOT provider state: nothing outlives this widget.
+  final int? initialNavTab;
 
   @override
   ConsumerState<SalonShellScreen> createState() => _SalonShellScreenState();
@@ -151,6 +161,13 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       if (!mounted) return;
       unawaited(_writeLastSalon(widget.salonId));
     });
+    final int? initialNavTab = widget.initialNavTab;
+    if (initialNavTab != null) {
+      // Providers cannot be written while the tree is building (initState).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onNavSelected(initialNavTab);
+      });
+    }
   }
 
   @override
@@ -163,6 +180,17 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     // the classic bug: switch salons, kill the app, reopen the previous one.
     if (widget.salonId != oldWidget.salonId) {
       unawaited(_writeLastSalon(widget.salonId));
+    }
+    // Phase 364 — a `go` can hand this same element a new salon / tab: apply
+    // the new tab ONCE through the same post-frame path as initState. Unchanged
+    // (the common rebuild) does nothing.
+    final int? newTab = widget.initialNavTab;
+    if (newTab != null &&
+        (newTab != oldWidget.initialNavTab ||
+            widget.salonId != oldWidget.salonId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onNavSelected(newTab);
+      });
     }
   }
 

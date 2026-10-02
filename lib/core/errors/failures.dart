@@ -15,6 +15,7 @@
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
+import 'package:dio/dio.dart' show DioException;
 import 'package:flutter/material.dart';
 
 /// The longest cooldown, in seconds, this app is willing to render as a live
@@ -22,9 +23,12 @@ import 'package:flutter/material.dart';
 ///
 /// ONE threshold, two enforcement points — keep them reading the same constant:
 ///
-///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network)
-///     returns `null` instead of a server value above this, so a rogue or
-///     merely long `Retry-After` never reaches a widget as a number.
+///   * `ErrorMapperInterceptor._extractRetryAfterSecondsNullable` (core/network,
+///     now static) returns `null` instead of a server value above this, so a
+///     rogue or merely long `Retry-After` never reaches a widget as a number.
+///     (`notificationsRetryAfterSeconds` is deliberately exempt — it clamps to
+///     3600 for the poller — and `NotificationsRateLimitedFailure.userMessage`
+///     enforces this ceiling at render time instead.)
 ///   * `OtpResendRow` (auth presentation) renders its non-numeric
 ///     "unavailable" label — and starts NO periodic timer — for a cooldown
 ///     above this, so «Надіслати знову (3600 с)» is unrepresentable.
@@ -48,14 +52,30 @@ sealed class Failure implements Exception {
 
   /// The underlying raw exception or error object, if available.
   ///
-  /// Exposed for logging (`log(error: failure.cause)`). Never displayed
-  /// directly to the user — use [userMessage] instead.
+  /// Never displayed directly to the user — use [userMessage] instead. For
+  /// logging, emit `failure.toString()` (PII-safe); NEVER log the cause or its
+  /// response — a raw `DioException` body can carry names / phones.
   final Object? cause;
 
   /// Returns a localized, user-facing description of this failure.
   ///
   /// Requires a valid [BuildContext] with [AppLocalizations] configured.
   String userMessage(BuildContext ctx);
+
+  /// PII-safe: [cause] is the raw `DioException` whose response body can carry
+  /// names / phones, so it is NEVER interpolated. Only the runtime type and,
+  /// when [cause] is a `DioException`, its type + HTTP status are emitted.
+  @override
+  String toString() {
+    final Object? c = cause;
+    if (c is DioException) {
+      return '$runtimeType(cause: DioException[${c.type.name}, '
+          'status: ${c.response?.statusCode}])';
+    }
+    return c == null
+        ? '$runtimeType()'
+        : '$runtimeType(cause: ${c.runtimeType})';
+  }
 }
 
 /// Emitted when a request fails due to absent or broken network connectivity
@@ -744,6 +764,36 @@ final class SalonBoardRateLimitedFailure extends Failure {
       return l10n.boardErrRateLimitedNoWait;
     }
     return l10n.boardErrRateLimited(seconds);
+  }
+}
+
+/// Emitted when any in-app notification-feed route (`GET /notifications`,
+/// `GET /notifications/unread-count`, `PATCH /notifications/{id}/read`,
+/// `PATCH /notifications/read-all`) returns HTTP **429** — the four routes
+/// share one per-user 60/min bucket (backend phase 334).
+///
+/// [retryAfterSeconds] comes from
+/// `ErrorMapperInterceptor.notificationsRetryAfterSeconds`: any positive
+/// server value clamped to [1, 3600] (so the poller honours a long wait);
+/// `null` means absent / unparsable / <= 0. [userMessage] renders a countdown
+/// only up to [kMaxUxCooldownSeconds]; beyond it (or `null`) the UI shows the
+/// wait-a-moment variant.
+///
+/// **Never auto-retried** — listed in `isThrottleFailure`.
+final class NotificationsRateLimitedFailure extends Failure {
+  const NotificationsRateLimitedFailure({this.retryAfterSeconds, super.cause});
+
+  /// Seconds until the next feed call is allowed, from `Retry-After`.
+  final int? retryAfterSeconds;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final l10n = AppLocalizations.of(ctx);
+    final seconds = retryAfterSeconds;
+    if (seconds == null || seconds <= 0 || seconds > kMaxUxCooldownSeconds) {
+      return l10n.notificationsErrRateLimitedNoWait;
+    }
+    return l10n.notificationsErrRateLimited(seconds);
   }
 }
 

@@ -63,8 +63,8 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 import 'role_landing_chrome_matrix.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
   group('each role lands on a screen that shows its expected nav chrome', () {
@@ -218,7 +218,7 @@ void main() {
       'called exactly ONCE, not twice (or three times)',
       (tester) async {
         final deferred = _H1bDeferredMySalons();
-        final container = ProviderContainer(
+        final container = makeTestContainer(
           retry: (_, _) => null,
           overrides: [
             authProvider.overrideWith(
@@ -232,7 +232,6 @@ void main() {
             ).overrideWith(_H1bSettledSalonManagementProfile.new),
           ],
         );
-        addTearDown(container.dispose);
 
         final router = _SpyGoRouter(
           initialLocation: RouteNames.salonShell(_kH1bSalonId),
@@ -389,8 +388,7 @@ class _SpyGoRouter extends GoRouter {
 /// master-profile landing resolves synchronously and schedules no wall-clock
 /// timer — same overrides the leaked-timer guard relies on).
 ProviderContainer _authedContainer(UserRole role) {
-  final container = ProviderContainer(
-    retry: beauticaProviderRetry,
+  final container = makeTestContainer(
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(_sessionFor(role))),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -478,7 +476,6 @@ ProviderContainer _authedContainer(UserRole role) {
       ).overrideWith(_SettledSalonManagementProfile.new),
     ],
   );
-  addTearDown(container.dispose);
   return container;
 }
 

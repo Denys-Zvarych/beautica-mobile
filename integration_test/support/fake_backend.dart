@@ -437,6 +437,8 @@ final class FakeBackend {
     // queue that no flow exercises.
     dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
+    _wireNotifications();
+    _wireDeviceTokens();
   }
 
   /// The Master-ROW UUID that `GET /masters/me` reports for the authenticated
@@ -10163,6 +10165,237 @@ final class FakeBackend {
             return _okVoid;
           }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  // ── Phase 365 — the in-app notification feed (`/api/v1/notifications`) ──────
+  //
+  // Four STATEFUL routes (list, unread-count, mark-one-read, mark-all-read) so
+  // a flow can drive the REAL `HttpNotificationRepository` + generated
+  // `NotificationsApi` + Dio stack with no repository override. Before this the
+  // fake had no notification route at all, so every flow that mounts a header
+  // with the live bell polled a missing route (closed backlog INFO).
+  //
+  // DEFAULT = ZERO UNREAD: nothing is seeded, `unread-count` answers 0 and the
+  // feed answers an empty page, so every pre-existing flow behaves as before
+  // (no dot). A flow seeds items with [seedNotification]; the unread count is
+  // always DERIVED from the rows, never stored, so a mark-read moves it exactly
+  // like the real backend.
+  //
+  // IDs: the mapper drops any `id` / target id that is not a UUID, so seeded
+  // ids are UUID-shaped. [kNotificationBookingId] is the one booking a seeded
+  // target can point at — the fake serves its detail (`GET /bookings/<it>`)
+  // from the same seeded booking `booking-1` uses, with only the `id` swapped.
+
+  /// UUID-shaped id of the booking the notification fixtures target; its
+  /// `GET /api/v1/bookings/{id}` detail is served by [_wireNotifications].
+  static const String kNotificationBookingId =
+      '5a1f0000-0000-4000-8000-000000000001';
+
+  final List<Map<String, dynamic>> _notifications = <Map<String, dynamic>>[];
+
+  /// Call counters + the ids / `upTo` the mutating routes received.
+  int notificationFeedCalls = 0;
+  int notificationUnreadCountCalls = 0;
+  int notificationMarkAllCalls = 0;
+  final List<String> notificationMarkedReadIds = <String>[];
+  final List<String?> notificationMarkAllUpTo = <String?>[];
+
+  /// Unread rows right now — what `GET /notifications/unread-count` answers
+  /// (the backend caps it at 99; no flow seeds that many).
+  int get unreadNotificationCount => _notifications
+      .where((Map<String, dynamic> n) => n['read'] != true)
+      .length;
+
+  /// Seeds ONE notification row and returns its UUID-shaped id.
+  ///
+  /// [type] is the wire enum (`BOOKING_DECLINED`, `BOOKING_CREATED`,
+  /// `INVITE_ACCEPTED`, …). [targetKind] defaults from the ids given: a
+  /// [bookingId] -> `BOOKING`, a [salonId] alone -> `SALON_TEAM`, neither ->
+  /// `NONE`. [age] is subtracted from [kFixedNow] (M15 — the one injected
+  /// clock), so a larger age is an older row.
+  String seedNotification({
+    required String type,
+    String? bookingId,
+    String? salonId,
+    String? targetKind,
+    String? salonName,
+    bool read = false,
+    Duration age = const Duration(hours: 1),
+  }) {
+    final int n = _notifications.length + 1;
+    final String id =
+        '00000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
+    final String kind =
+        targetKind ??
+        (bookingId != null
+            ? 'BOOKING'
+            : salonId != null
+            ? 'SALON_TEAM'
+            : 'NONE');
+    _notifications.add(<String, dynamic>{
+      'id': id,
+      'type': type,
+      'createdAt': kFixedNow.subtract(age).toUtc().toIso8601String(),
+      'read': read,
+      'target': <String, dynamic>{
+        'kind': kind,
+        'bookingId': ?bookingId,
+        'salonId': ?salonId,
+      },
+      // Non-empty on purpose: an EMPTY params block on a booking item reads as
+      // "the viewer lost access" (`isNotificationUnavailable`).
+      'params': <String, dynamic>{
+        'counterpartName': 'Client $n',
+        'serviceName': 'Service $n',
+        'startsAt': kFixedNow
+            .add(const Duration(days: 1))
+            .toUtc()
+            .toIso8601String(),
+        'salonName': ?salonName,
+      },
+    });
+    _adapter.onRoute(
+      '/api/v1/notifications/$id/read',
+      (server) => server.replyCallback(200, (_) {
+        notificationMarkedReadIds.add(id);
+        _setNotificationRead((Map<String, dynamic> row) => row['id'] == id);
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch),
+    );
+    return id;
+  }
+
+  void _setNotificationRead(bool Function(Map<String, dynamic> row) test) {
+    for (final Map<String, dynamic> row in _notifications) {
+      if (test(row)) row['read'] = true;
+    }
+  }
+
+  void _wireNotifications() {
+    // GET /api/v1/notifications?page&size — newest first, paged like the real
+    // endpoint (`PageResponseNotificationResponse`).
+    _adapter.onRoute(
+      '/api/v1/notifications',
+      (server) => server.replyCallback(200, (req) {
+        notificationFeedCalls++;
+        final int page = _intQueryParam(req.queryParameters, 'page', 0);
+        final int size = _intQueryParam(req.queryParameters, 'size', 20);
+        final List<Map<String, dynamic>> sorted =
+            List<Map<String, dynamic>>.of(_notifications)..sort(
+              (Map<String, dynamic> a, Map<String, dynamic> b) =>
+                  (b['createdAt'] as String).compareTo(
+                    a['createdAt'] as String,
+                  ),
+            );
+        final int from = (page * size).clamp(0, sorted.length);
+        final int to = (from + size).clamp(0, sorted.length);
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': sorted.sublist(from, to),
+          'page': page,
+          'size': size,
+          'totalElements': sorted.length,
+          'totalPages': (sorted.length / size).ceil(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/notifications/unread-count — derived from the rows.
+    _adapter.onRoute(
+      '/api/v1/notifications/unread-count',
+      (server) => server.replyCallback(200, (_) {
+        notificationUnreadCountCalls++;
+        return _ok(<String, dynamic>{'count': unreadNotificationCount});
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/notifications/read-all {upTo?} — marks every row created at
+    // or before `upTo` (default: all) read and answers the number updated.
+    _adapter.onRoute(
+      '/api/v1/notifications/read-all',
+      (server) => server.replyCallback(200, (req) {
+        notificationMarkAllCalls++;
+        final String? upToRaw = _decodeBody(req.data)['upTo'] as String?;
+        notificationMarkAllUpTo.add(upToRaw);
+        final DateTime? upTo = upToRaw == null ? null : DateTime.parse(upToRaw);
+        int updated = 0;
+        for (final Map<String, dynamic> row in _notifications) {
+          final bool covered =
+              upTo == null ||
+              !DateTime.parse(row['createdAt'] as String).isAfter(upTo);
+          if (row['read'] != true && covered) {
+            row['read'] = true;
+            updated++;
+          }
+        }
+        return _ok(<String, dynamic>{'updated': updated});
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // GET /api/v1/bookings/<kNotificationBookingId> — the detail a notification
+    // tap lands on. `booking-1`'s own route is keyed to that literal, and a
+    // seeded target must be UUID-shaped, so this serves the same seeded booking
+    // under the UUID.
+    _adapter.onRoute(
+      '/api/v1/bookings/$kNotificationBookingId',
+      (server) => server.replyCallback(200, (_) {
+        getBookingDetailCalls++;
+        return _ok(<String, dynamic>{
+          ..._seededBookingJson(includeReviewByClient: true),
+          'id': kNotificationBookingId,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  // ── Phase 067 — FCM device-token registration (`/api/v1/devices/token`) ─────
+  //
+  // POST (register / rebind) and DELETE (unregister), both 204 with the body
+  // `{token, platform?}`. Recorded in arrival order so a flow can assert the
+  // user journey (register -> DELETE on logout -> re-register). The token is
+  // test-fixture data here; production never logs it.
+
+  /// Every device-token call, in order: `POST <token> <platform>` /
+  /// `DELETE <token>`.
+  final List<String> deviceTokenCalls = <String>[];
+
+  /// Tokens POSTed (register), in order.
+  List<String> get registeredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('POST ')) c.split(' ')[1],
+  ];
+
+  /// Tokens DELETEd (unregister), in order.
+  List<String> get unregisteredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('DELETE ')) c.split(' ')[1],
+  ];
+
+  void _wireDeviceTokens() {
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('POST ${body['token']} ${body['platform']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('DELETE ${body['token']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
     );
   }
 

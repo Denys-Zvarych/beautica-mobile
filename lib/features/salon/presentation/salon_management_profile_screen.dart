@@ -83,6 +83,7 @@ import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -630,25 +631,29 @@ class _CoverAndHero extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              // Static demo unread state; tap is a placeholder — the
-              // notification centre is out of scope (all notifications stay
-              // dark until release, see mobile-backlog).
-              //
-              // The glyph keeps its baked-in unread dot verbatim per the
-              // approved design (docs/signup-designs/SalonManagementDesign/
-              // lib/screens/salon_profile_screen.dart:407-425) — do not add
-              // an overlay dot or swap the icon. But the accessible name
-              // deliberately does NOT say "unread": onTap is a no-op, so a
-              // screen-reader user would be told about unread notifications
-              // with no way to act on or dismiss the claim. Keep the label
-              // plain ("Сповіщення" / "Notifications") until a real
-              // notification centre exists — do not restore the longer
-              // "…, unread" label from the preview app.
-              CoverIconButton(
-                key: const Key('salon-manage-notifications'),
-                svgIcon: BeauticaAssetIcons.notificationUnread,
-                semanticLabel: l10n.salonManageNotificationsSemanticLabel,
-                onTap: () {},
+              // Phase 361 — the approved design's frosted cover bell (docs/
+              // signup-designs/SalonManagementDesign/lib/screens/
+              // salon_profile_screen.dart:407-425), now LIVE: the dot follows
+              // the GLOBAL unread flag (one per user across every owned salon
+              // — this widget never reads a salon-scoped provider, so
+              // switching salons never changes it) and the tap opens the feed.
+              // The dot is baked into the asset — never an overlay dot.
+              ConnectedNotificationBell(
+                builder:
+                    (
+                      BuildContext context,
+                      bool hasUnread,
+                      String label,
+                      VoidCallback onTap,
+                    ) => CoverIconButton(
+                      key: const Key('salon-manage-notifications'),
+                      svgIcon: hasUnread
+                          ? BeauticaAssetIcons.notificationUnread
+                          : BeauticaAssetIcons.notificationPlain,
+                      svgIconTint: hasUnread ? null : BrandColors.accentDeep,
+                      semanticLabel: label,
+                      onTap: onTap,
+                    ),
               ),
               const SizedBox(width: VelvetSpacing.sm),
               CoverIconButton(

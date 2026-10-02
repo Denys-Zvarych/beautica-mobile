@@ -173,29 +173,52 @@ void main() {
 
   // patrolTest's `skip` is a bool (no reason string, unlike test()), so the
   // deferral reason is carried in the test description + this comment:
-  //   SKIP REASON: Firebase push deferred — FIREBASE_ENABLED=false; enable when
-  //   Phase 8.x FCM lands.
+  //   SKIP REASON: no Firebase config in CI (no google-services.json) — a real
+  //   tray tap needs a Firebase-configured build; real-device run pending.
   patrolTest(
     'FCM notification tap opens the booking deep link '
-    '(SKIPPED: Firebase push deferred — FIREBASE_ENABLED=false; '
-    'enable when Phase 8.x FCM lands)',
+    '(SKIPPED: phase 069 — a real tray tap needs a Firebase-configured '
+    'build; CI has no google-services.json so pushAvailable is false; the '
+    'tap-to-destination logic is covered fake-backed in the push tap flow '
+    'test; real-device run pending)',
     skip: true,
     ($) async {
-      // TODO(phase-8.x): post a notification via $.platform.mobile.* and tap
-      // it, then assert the booking-detail screen renders. Requires
-      // firebase_messaging wired + FIREBASE_ENABLED=true.
+      // Un-skip only on a build with real Firebase config: send a push, tap
+      // it in the tray via $.platform.mobile.*, assert the booking detail
+      // renders and the bell drops. Fake-backed coverage:
+      // integration_test/push_tap_flow_test.dart.
     },
   );
 
   patrolTest(
-    'POST_NOTIFICATIONS permission prompt is granted on first FCM init '
-    '(SKIPPED: Firebase push deferred — FIREBASE_ENABLED=false; '
-    'enable when Phase 8.x FCM lands)',
+    'FCM FOREGROUND message refreshes the bell and feed '
+    '(SKIPPED: phase 068 — real FCM delivery needs a Firebase-configured '
+    'build and backend push; CI has no google-services.json so '
+    'pushAvailable is false; the refresh logic is covered fake-backed in the '
+    'push foreground refresh flow test; real-device run pending)',
     skip: true,
     ($) async {
-      // TODO(phase-8.x): trigger the Android 13+ POST_NOTIFICATIONS runtime
-      // prompt on FCM init and grant it via the permission-dialog selectors.
-      // Requires firebase_messaging wired.
+      // Un-skip only on a build with real Firebase config: log in, trigger a
+      // backend booking for this user, assert the bell dot appears without
+      // waiting for the 60 s poll (and the new feed row at the top when the
+      // feed is open).
+    },
+  );
+
+  patrolTest(
+    'POST_NOTIFICATIONS permission prompt is granted on first login '
+    '(SKIPPED: phase 067 shipped the request, but the nightly patrol job '
+    'has no google-services.json so pushAvailable=false and the app never '
+    'asks; needs a Firebase-configured build — real-device run in 067, '
+    'revisit with 069)',
+    skip: true,
+    ($) async {
+      // Phase 067: PushRegistration asks ONCE after the first authenticated
+      // landing (FirebaseMessaging.requestPermission). Un-skip only on a build
+      // with real Firebase config: log in, grant via
+      // $.platform.mobile.grantPermissionWhenInContext(), assert no 2nd dialog
+      // after relaunch. The token POST/DELETE journey is covered fake-backed in
+      // integration_test/push_token_registration_flow_test.dart.
     },
   );
 }

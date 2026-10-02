@@ -67,7 +67,24 @@ abstract interface class SecureStorage {
   /// Deletes the last-visited salon pointer.
   Future<void> deleteLastSalon();
 
-  /// Deletes all keys managed by this storage (called on logout).
+  /// Whether the notification-permission prompt was already shown on this
+  /// device (phase 067). Survives [deleteAll].
+  Future<bool> readPushPermissionAsked();
+
+  /// Records that the notification-permission prompt was shown (phase 067).
+  Future<void> writePushPermissionAsked();
+
+  /// Whether a push revocation is owed (phase 067). Survives [deleteAll].
+  Future<bool> readPushRevokePending();
+
+  /// Marks a push revocation as owed (set BEFORE logout cleanup).
+  Future<void> writePushRevokePending();
+
+  /// Clears the owed-revocation mark (only after `deleteToken()` succeeded).
+  Future<void> clearPushRevokePending();
+
+  /// Deletes all keys managed by this storage (called on logout), EXCEPT the
+  /// per-device flags in [StorageKeys.deviceScoped].
   Future<void> deleteAll();
 }
 
@@ -135,9 +152,52 @@ final class FlutterSecureStorageImpl implements SecureStorage {
   @override
   Future<void> deleteLastSalon() => _storage.delete(key: StorageKeys.lastSalon);
 
+  @override
+  Future<bool> readPushPermissionAsked() async =>
+      await _storage.read(key: StorageKeys.pushPermissionAsked) != null;
+
+  @override
+  Future<void> writePushPermissionAsked() =>
+      _storage.write(key: StorageKeys.pushPermissionAsked, value: '1');
+
+  @override
+  Future<bool> readPushRevokePending() async =>
+      await _storage.read(key: StorageKeys.pushRevokePending) != null;
+
+  @override
+  Future<void> writePushRevokePending() =>
+      _storage.write(key: StorageKeys.pushRevokePending, value: '1');
+
+  @override
+  Future<void> clearPushRevokePending() =>
+      _storage.delete(key: StorageKeys.pushRevokePending);
+
   // deleteAll() wipes every key managed by this storage — including
   // [StorageKeys.pendingLocality] and [StorageKeys.lastSalon] — so logout
-  // clears the locality slice and the last-visited-salon pointer too.
+  // clears the locality slice and the last-visited-salon pointer too. The ONE
+  // exceptions are the per-device flags in [StorageKeys.deviceScoped] (no
+  // PII): the permission-asked flag (so the prompt is never re-shown) and the
+  // push-revoke-pending flag (so an owed revocation outlives the wipe). Each is
+  // read first and restored afterwards.
   @override
-  Future<void> deleteAll() => _storage.deleteAll();
+  Future<void> deleteAll() async {
+    final Map<String, String> kept = <String, String>{};
+    for (final String key in StorageKeys.deviceScoped) {
+      try {
+        final String? v = await _storage.read(key: key);
+        if (v != null) kept[key] = v;
+      } on Object {
+        // Best-effort: an unreadable flag must never block the wipe below.
+      }
+    }
+    await _storage.deleteAll();
+    for (final MapEntry<String, String> e in kept.entries) {
+      try {
+        await _storage.write(key: e.key, value: e.value);
+      } on Object {
+        // Best-effort: worst case the prompt is shown once more / the
+        // revocation retry is lost.
+      }
+    }
+  }
 }

@@ -68,6 +68,19 @@ class _RecordingRefreshLock extends TokenRefreshLock {
   }
 }
 
+/// Real [AuthNotifier] (cold start unchanged) that records WHICH logout entry
+/// point was invoked. `logoutForced` is overridden WITHOUT `super`, so it does
+/// not also register as a plain `logout`.
+class _RecordingAuth extends AuthNotifier {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<void> logout() async => calls.add('logout');
+
+  @override
+  Future<void> logoutForced() async => calls.add('logoutForced');
+}
+
 // ---------------------------------------------------------------------------
 // Ref-capture provider
 //
@@ -108,6 +121,7 @@ ProviderContainer makeContainer({
   required FakeAuthRepository repo,
   required Dio refreshDio,
   TokenRefreshLock? lock,
+  List<Override> extraOverrides = const <Override>[],
 }) {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
@@ -116,6 +130,7 @@ ProviderContainer makeContainer({
       authRepositoryProvider.overrideWith((_) => repo),
       refreshDioProvider.overrideWith((_) => refreshDio),
       if (lock != null) tokenRefreshLockProvider.overrideWith((_) => lock),
+      ...extraOverrides,
     ],
   );
   addTearDown(container.dispose);
@@ -256,6 +271,45 @@ void main() {
         data: any(named: 'data'),
       ),
     );
+  });
+
+  // Refresh failure must end the session through logoutForced() — the access
+  // token is already dead, so the push DELETE (a certain 401) must be skipped.
+  test('refresh failure calls logoutForced(), never plain logout()', () async {
+    final storage = FakeSecureStorage();
+    await storage.writeRefreshToken('stored-refresh');
+    final repo = FakeAuthRepository();
+    final refreshDio = MockDio();
+    final mainDio = MockDio();
+    when(
+      () => refreshDio.post<Map<String, dynamic>>(
+        '/api/v1/auth/refresh',
+        data: any(named: 'data'),
+      ),
+    ).thenThrow(
+      DioException(
+        requestOptions: _opts('/api/v1/auth/refresh'),
+        type: DioExceptionType.connectionError,
+      ),
+    );
+    final auth = _RecordingAuth();
+    final container = makeContainer(
+      storage: storage,
+      repo: repo,
+      refreshDio: refreshDio,
+      extraOverrides: [authProvider.overrideWith(() => auth)],
+    );
+    final ref = container.read(testRefProvider);
+    await container.read(authProvider.future);
+
+    final handler = MockInterceptorHandler();
+    await RefreshInterceptor(
+      ref,
+      mainDio,
+    ).onError(make401(_opts('/protected')), handler);
+
+    expect(auth.calls, <String>['logoutForced']);
+    verify(() => handler.next(any())).called(1);
   });
 
   // -------------------------------------------------------------------------

@@ -159,9 +159,9 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
   @override
   final String? windowEnd;
   @override
-  final bool? kindConsistent;
-  @override
   final bool? windowConsistent;
+  @override
+  final bool? kindConsistent;
 
   factory _$ScheduleOverrideRequest(
           [void Function(ScheduleOverrideRequestBuilder)? updates]) =>
@@ -176,8 +176,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
       this.cancelOverlapping,
       this.windowStart,
       this.windowEnd,
-      this.kindConsistent,
-      this.windowConsistent})
+      this.windowConsistent,
+      this.kindConsistent})
       : super._();
   @override
   ScheduleOverrideRequest rebuild(
@@ -200,8 +200,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
         cancelOverlapping == other.cancelOverlapping &&
         windowStart == other.windowStart &&
         windowEnd == other.windowEnd &&
-        kindConsistent == other.kindConsistent &&
-        windowConsistent == other.windowConsistent;
+        windowConsistent == other.windowConsistent &&
+        kindConsistent == other.kindConsistent;
   }
 
   @override
@@ -215,8 +215,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
     _$hash = $jc(_$hash, cancelOverlapping.hashCode);
     _$hash = $jc(_$hash, windowStart.hashCode);
     _$hash = $jc(_$hash, windowEnd.hashCode);
-    _$hash = $jc(_$hash, kindConsistent.hashCode);
     _$hash = $jc(_$hash, windowConsistent.hashCode);
+    _$hash = $jc(_$hash, kindConsistent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -232,8 +232,8 @@ class _$ScheduleOverrideRequest extends ScheduleOverrideRequest {
           ..add('cancelOverlapping', cancelOverlapping)
           ..add('windowStart', windowStart)
           ..add('windowEnd', windowEnd)
-          ..add('kindConsistent', kindConsistent)
-          ..add('windowConsistent', windowConsistent))
+          ..add('windowConsistent', windowConsistent)
+          ..add('kindConsistent', kindConsistent))
         .toString();
   }
 }
@@ -278,15 +278,15 @@ class ScheduleOverrideRequestBuilder
   String? get windowEnd => _$this._windowEnd;
   set windowEnd(String? windowEnd) => _$this._windowEnd = windowEnd;
 
-  bool? _kindConsistent;
-  bool? get kindConsistent => _$this._kindConsistent;
-  set kindConsistent(bool? kindConsistent) =>
-      _$this._kindConsistent = kindConsistent;
-
   bool? _windowConsistent;
   bool? get windowConsistent => _$this._windowConsistent;
   set windowConsistent(bool? windowConsistent) =>
       _$this._windowConsistent = windowConsistent;
+
+  bool? _kindConsistent;
+  bool? get kindConsistent => _$this._kindConsistent;
+  set kindConsistent(bool? kindConsistent) =>
+      _$this._kindConsistent = kindConsistent;
 
   ScheduleOverrideRequestBuilder() {
     ScheduleOverrideRequest._defaults(this);
@@ -303,8 +303,8 @@ class ScheduleOverrideRequestBuilder
       _cancelOverlapping = $v.cancelOverlapping;
       _windowStart = $v.windowStart;
       _windowEnd = $v.windowEnd;
-      _kindConsistent = $v.kindConsistent;
       _windowConsistent = $v.windowConsistent;
+      _kindConsistent = $v.kindConsistent;
       _$v = null;
     }
     return this;
@@ -338,8 +338,8 @@ class ScheduleOverrideRequestBuilder
             cancelOverlapping: cancelOverlapping,
             windowStart: windowStart,
             windowEnd: windowEnd,
-            kindConsistent: kindConsistent,
             windowConsistent: windowConsistent,
+            kindConsistent: kindConsistent,
           );
     } catch (_) {
       late String _$failedField;

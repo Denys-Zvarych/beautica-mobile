@@ -71,6 +71,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/errors/resource_unavailable.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -115,7 +116,31 @@ class BookingDetailScreen extends ConsumerStatefulWidget {
     required this.bookingId,
     this.clientReviewRouteBuilder,
     this.salonId,
+    this.onUnavailable,
+    this.leaveReviewRouteBuilder,
   });
+
+  /// Phase 364 — builds the path of the CLIENT's own «Залишити відгук про
+  /// майстра» push. NOT [clientReviewRouteBuilder]: that one aims the
+  /// PROVIDER's leave-client-feedback CTA and is never read on a CLIENT mount.
+  /// `null` (every existing mount and test) means [RouteNames.bookingReview];
+  /// the feed's `/notifications/bookings/:id` alias passes
+  /// [RouteNames.notificationBookingReview] so the review stays in the feed's
+  /// stack instead of pushing a shell-nested route.
+  ///
+  /// ADDITIVE and NULLABLE, a ROUTE parameter (decision D5: not a role flag).
+  final String Function(String bookingId)? leaveReviewRouteBuilder;
+
+  /// Phase 364 — called ONCE when the booking load answers 403/404 (the
+  /// booking is gone, or the viewer lost access). The notification feed's
+  /// deep link uses it to pop back to the feed with a snackbar.
+  ///
+  /// ADDITIVE and NULLABLE: `null` (every mount that is not reached from the
+  /// feed, and every existing test) keeps today's behaviour exactly — the
+  /// retryable error state. While the callback is pending the screen shows the
+  /// loading skeleton, never the error state, so nothing flashes before the
+  /// pop.
+  final VoidCallback? onUnavailable;
 
   /// 2026-09-19 (mobile-perf MEDIUM) — the SALON this detail screen was
   /// drilled into FROM, when it was drilled into from a salon «Записи» board.
@@ -166,6 +191,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   // Captured in initState so dispose() never touches `ref` (Riverpod 3.x
   // throws on a post-dispose `ref` read).
   late final ScreenProtectionManager _screenProtection;
+
+  /// [BookingDetailScreen.onUnavailable] fires at most once per screen.
+  bool _unavailableFired = false;
 
   @override
   void initState() {
@@ -465,7 +493,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// onto the Записи branch (swipe-back returns here). Gated on
   /// `booking.canReview` at the call site (the CTA is only built then).
   void _onLeaveReview(Booking booking) {
-    context.push(RouteNames.bookingReview(booking.id));
+    context.push(
+      (widget.leaveReviewRouteBuilder ?? RouteNames.bookingReview)(booking.id),
+    );
   }
 
   /// «Залишити відгук про клієнта» (track 7.x Wave B) — pushes the leave-
@@ -508,10 +538,24 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
 
     return async.when(
       loading: () => const _DetailLoading(),
-      error: (Object e, StackTrace _) => _DetailError(
-        error: e,
-        onRetry: () => ref.invalidate(bookingDetailProvider(widget.bookingId)),
-      ),
+      error: (Object e, StackTrace _) {
+        final VoidCallback? onUnavailable = widget.onUnavailable;
+        if (onUnavailable != null && isResourceUnavailable(e)) {
+          if (!_unavailableFired) {
+            _unavailableFired = true;
+            // After the frame: a callback that pops must not run mid-build.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) onUnavailable();
+            });
+          }
+          return const _DetailLoading();
+        }
+        return _DetailError(
+          error: e,
+          onRetry: () =>
+              ref.invalidate(bookingDetailProvider(widget.bookingId)),
+        );
+      },
       data: (Booking booking) => _DetailBody(
         booking: booking,
         viewer: viewer,

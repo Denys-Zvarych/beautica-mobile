@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,7 +12,12 @@ import 'core/config/app_config.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
+import 'core/push/push_available_provider.dart';
 import 'core/theme/app_theme.dart';
+import 'features/notifications/presentation/push_message_listener.dart';
+import 'features/notifications/presentation/push_tap_dispatcher.dart';
+import 'features/notifications/presentation/push_registration_notifier.dart';
+import 'features/notifications/presentation/unread_notifications_notifier.dart';
 import 'l10n/app_localizations.dart';
 import 'routing/app_router.dart';
 import 'shared/time/time_zones.dart';
@@ -134,9 +140,29 @@ Future<void> main() async {
   // and a `Failure` is neither, so a 404 or a decode breakdown used to hold
   // the screen in `AsyncLoading` for the whole 38 s instead of rendering its
   // error state. See `core/errors/failure_retry_policy.dart`.
-  runApp(
-    const ProviderScope(retry: beauticaProviderRetry, child: BeauticaApp()),
+  final ProviderContainer container = ProviderContainer(
+    retry: beauticaProviderRetry,
+    overrides: [
+      // Phase 361 audit — de-sync the 60 s unread poll across clients. The
+      // provider defaults to zero so tests stay exact; the app draws 0..5 s.
+      pollJitterProvider.overrideWithValue(
+        Duration(
+          milliseconds: math.Random().nextInt(
+            kUnreadPollJitterMax.inMilliseconds + 1,
+          ),
+        ),
+      ),
+    ],
   );
+  runApp(
+    UncontrolledProviderScope(container: container, child: const BeauticaApp()),
+  );
+
+  // Phase 066 — initialise Firebase (Android only) AFTER the first frame is
+  // scheduled, off the cold-start critical path. Bounded by `kFirebaseInitTimeout`;
+  // degrades to `false` (push-less) when google-services.json was absent at
+  // build time. 067/068 await `pushAvailableProvider.future`.
+  unawaited(container.read(pushAvailableProvider.future));
 
   // Phase 2.15 fix — release the native splash so the first Flutter frame
   // can render. Must be called after runApp() and synchronously (not in a
@@ -163,7 +189,11 @@ Future<void> main() async {
 /// ([BeauticaAssetIcons.notificationPlain]) reused by Головна and the Beauty
 /// Passport top bar (L3). Add further high-traffic SVGs here as needed.
 Future<void> _warmSharedSvgs() async {
-  const List<String> assets = <String>[BeauticaAssetIcons.notificationPlain];
+  const List<String> assets = <String>[
+    BeauticaAssetIcons.notificationPlain,
+    // Phase 361 — the unread bell (baked-in red dot) is the same shared glyph.
+    BeauticaAssetIcons.notificationUnread,
+  ];
   for (final String asset in assets) {
     final SvgAssetLoader loader = SvgAssetLoader(asset);
     await svg.cache.putIfAbsent(
@@ -187,6 +217,12 @@ class BeauticaApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
+    // Phase 067 — build the FCM registration notifier at app start (no UI).
+    ref.listen(pushRegistrationProvider, (_, _) {});
+    // Phase 068 — foreground push -> bell / feed refresh (no UI).
+    ref.listen(pushMessageListenerProvider, (_, _) {});
+    // Phase 069 — push tap (background / cold start) -> mark read -> open.
+    ref.listen(pushTapDispatcherProvider, (_, _) {});
     return MaterialApp.router(
       // `MaterialApp.title` is evaluated at app-construction time, BEFORE the
       // `Localizations` widget is in scope, so `AppLocalizations.of(context)`

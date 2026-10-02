@@ -58,9 +58,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'app_boot_without_firebase_flow_test.dart' as app_boot_without_firebase;
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'invite_accept_admin_landing_flow_test.dart'
@@ -117,6 +119,9 @@ import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'logout_flow_test.dart' as logout;
+import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
+import 'push_tap_flow_test.dart' as push_tap;
+import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
@@ -203,6 +208,12 @@ import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'notification_bell_flow_test.dart' as notification_bell;
+import 'notification_tap_to_detail_flow_test.dart'
+    as notification_tap_to_detail;
+import 'notifications_flow_test.dart' as notifications;
+import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
@@ -221,6 +232,9 @@ void main() {
   // and resets global state via AppHarness.tearDownHarness — the per-test
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
+  // Phase 066 — cold start + login with Firebase unavailable (host, throwing
+  // init, hung init); pushAvailableProvider resolves false, never blocks.
+  group('app_boot_without_firebase_flow', app_boot_without_firebase.main);
   // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
   // login AND the post-registration done_to_app CTA both land on the My
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
@@ -405,6 +419,13 @@ void main() {
   // flow in this file inherits.
   group('harness_retry_policy_flow', harness_retry_policy.main);
   group('logout_flow', logout.main);
+  group('push_token_registration_flow', push_token_registration.main);
+  // Phase 068 — a foreground FCM message refreshes the bell / merges into the
+  // open feed after the debounce; a permission-denied user is ignored.
+  group('push_foreground_refresh_flow', push_foreground_refresh.main);
+  // Phase 069 — a push TAP (background / cold start) opens its destination,
+  // marks the notification read; a signed-out launch tap is dropped.
+  group('push_tap_flow', push_tap.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
@@ -716,4 +737,16 @@ void main() {
   // surviving the context.pop() that follows it, and single-slot
   // pre-emption against a real (non-same-tick) second trigger.
   group('velvet_snack_flow', velvet_snack.main);
+  // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
+  group('notification_bell_flow', notification_bell.main);
+  // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
+  group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
+  group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
+  // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
+  group('notifications_flow', notifications.main);
+  // Phase 365 — a BOOKING_CREATED / INVITE_ACCEPTED tap for every provider role.
+  group('notifications_provider_flow', notifications_provider.main);
+  // Phase 365 — one owner, two salons, one global feed.
+  group('owner_multi_salon_feed_flow', owner_multi_salon_feed.main);
 }

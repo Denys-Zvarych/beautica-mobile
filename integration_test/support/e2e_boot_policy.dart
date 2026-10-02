@@ -54,6 +54,7 @@ import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/theme/app_theme.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/notifications/presentation/push_tap_dispatcher.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
@@ -267,11 +268,19 @@ List<Object> e2eProviderOverrides({
 /// This used to be two private, byte-identical copies — one per harness — which
 /// is the same mirror-drift hazard this file exists to remove.
 class E2eHarnessApp extends ConsumerWidget {
-  const E2eHarnessApp({super.key});
+  const E2eHarnessApp({super.key, this.mountPushTapDispatcher = false});
+
+  /// Phase 069 — mirrors `BeauticaApp`'s eager
+  /// `ref.listen(pushTapDispatcherProvider)`. Off by default: every existing
+  /// flow renders exactly as before.
+  final bool mountPushTapDispatcher;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(appRouterProvider);
+    if (mountPushTapDispatcher) {
+      ref.listen(pushTapDispatcherProvider, (_, _) {});
+    }
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       theme: velvetTheme(),

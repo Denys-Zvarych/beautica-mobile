@@ -443,8 +443,8 @@ abstract final class RouteNames {
   /// none is a literal that a dynamic sibling could shadow — only [mySalons]
   /// and [salonHome] have that concern, both literals under the shorter
   /// `/salons/` prefix).
-  static String salonShell(String salonId) =>
-      '${salonPublicProfile(salonId)}/shell';
+  static String salonShell(String salonId, {bool openTeam = false}) =>
+      '${salonPublicProfile(salonId)}/shell${openTeam ? '?$kSalonShellTabQuery=$kSalonShellTabTeam' : ''}';
 
   /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
   /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
@@ -672,6 +672,25 @@ abstract final class RouteNames {
   /// free-text message (+ optional subject + attachments) to
   /// `POST /api/v1/support/contact`.
   static const String contactSupport = '/support/contact';
+
+  /// Phase 361 — the notification feed («Сповіщення»), pushed from the shared
+  /// bell on EVERY role's header. A literal top-level leaf with no role gate:
+  /// the feed is per user, not per role or salon.
+  static const String notifications = '/notifications';
+
+  /// Phase 364 — CLIENT booking detail reached FROM the feed. A feed-scoped
+  /// alias of [bookingDetail]: the client's own `/bookings/:id` lives inside
+  /// the client `StatefulShellRoute`, and pushing it from the root-level feed
+  /// appends a second copy of the shell (go_router asserts). Same screen, same
+  /// props; CLIENT-only via the `/notifications/bookings` gate in
+  /// [authRedirect].
+  static String notificationBookingDetail(String bookingId) =>
+      '$notifications/bookings/${Uri.encodeComponent(bookingId)}';
+
+  /// Phase 364 — the feed-scoped alias of [bookingReview], nested under
+  /// [notificationBookingDetail].
+  static String notificationBookingReview(String bookingId) =>
+      '$notifications/bookings/${Uri.encodeComponent(bookingId)}/review';
 
   // Phase 4.2 — Master profile (read-only).
   static const String masterProfile = '/master/profile';
@@ -1150,3 +1169,8 @@ abstract final class RouteNames {
   //     the empty state. Client comments are never shown (two-sided ratings only).
   static const String myRating = '/rating';
 }
+
+/// Phase 364 — optional query on [RouteNames.salonShell] that opens the shell
+/// on «Команда». Route state consumed once by the shell on its first frame.
+const String kSalonShellTabQuery = 'tab';
+const String kSalonShellTabTeam = 'team';

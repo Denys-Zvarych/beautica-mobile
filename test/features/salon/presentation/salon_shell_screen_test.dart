@@ -52,7 +52,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
@@ -87,6 +86,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/test_container.dart';
 import '../../../helpers/pump_app.dart';
 
 const String _kSalonId = 'shell-salon-1';
@@ -253,6 +253,17 @@ class _InstrumentedSecureStorage implements SecureStorage {
   Future<void> deletePendingLocality() => _backing.deletePendingLocality();
   @override
   Future<String?> readLastSalon() => _backing.readLastSalon();
+  @override
+  Future<bool> readPushPermissionAsked() => _backing.readPushPermissionAsked();
+  @override
+  Future<void> writePushPermissionAsked() =>
+      _backing.writePushPermissionAsked();
+  @override
+  Future<bool> readPushRevokePending() => _backing.readPushRevokePending();
+  @override
+  Future<void> writePushRevokePending() => _backing.writePushRevokePending();
+  @override
+  Future<void> clearPushRevokePending() => _backing.clearPushRevokePending();
 
   @override
   Future<void> writeLastSalon(String json) {
@@ -960,11 +971,7 @@ void main() {
   group('salonShellProvider family isolation', () {
     testWidgets('selecting a tab for one salonId leaves a DIFFERENT salonId\'s '
         'provider instance at its default (0)', (tester) async {
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
-        overrides: _ownerOverrides().cast(),
-      );
-      addTearDown(container.dispose);
+      final container = makeTestContainer(overrides: _ownerOverrides());
 
       await tester.pumpWidget(
         UncontrolledProviderScope(
@@ -1016,11 +1023,7 @@ void main() {
     testWidgets('AsyncError with a previous .value that does NOT contain the '
         'shell\'s salonId is treated as UNRESOLVED -> the shell stays '
         'mounted, never bounced on stale/wrong data', (tester) async {
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
-        overrides: _ownerOverrides().cast(),
-      );
-      addTearDown(container.dispose);
+      final container = makeTestContainer(overrides: _ownerOverrides());
 
       final router = GoRouter(
         initialLocation: RouteNames.salonShell(_kSalonId),
@@ -1112,14 +1115,12 @@ void main() {
       // `app_router.dart` guards already guarantee in production (they read
       // `authProvider` synchronously in `redirect:` and never navigate to
       // the shell until it is settled).
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._ownerOverrides(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       await tester.pumpWidget(
@@ -1164,14 +1165,12 @@ void main() {
       // test's comment) — otherwise the FIRST mount's postFrameCallback
       // would already miss its write.
       final storage = _InstrumentedSecureStorage();
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._ownerOverridesMultiSalon(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       Widget shellApp(String salonId) => UncontrolledProviderScope(
@@ -1214,6 +1213,57 @@ void main() {
       expect(decoded['userId'], equals(_stubOwner.id));
     });
 
+    testWidgets('should_applyInitialNavTab_when_sameElementGetsNewSalonAndTab', (
+      tester,
+    ) async {
+      // Phase 364 audit — a `go` between two shells reuses the element; the new
+      // `initialNavTab` must be applied once, not silently dropped.
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+
+      Widget shellApp(String salonId, int? tab) => UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: SalonShellScreen(salonId: salonId, initialNavTab: tab),
+        ),
+      );
+
+      await tester.pumpWidget(shellApp(_kSalonId, null));
+      await tester.pumpAndSettle();
+      final Element before = tester.element(
+        find.byKey(const Key('salon-shell-screen')),
+      );
+      expect(container.read(salonShellProvider(_kSalonId)), 0);
+
+      await tester.pumpWidget(shellApp(_kOtherSalonId, kSalonTeamNavTab));
+      await tester.pumpAndSettle();
+
+      expect(
+        identical(
+          tester.element(find.byKey(const Key('salon-shell-screen'))),
+          before,
+        ),
+        isTrue,
+        reason: 'must exercise didUpdateWidget on the SAME element',
+      );
+      expect(
+        container.read(salonShellProvider(_kOtherSalonId)),
+        kSalonTeamNavTab,
+      );
+
+      // Unchanged rebuild applies nothing again: move off team, re-pump same.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(shellApp(_kOtherSalonId, kSalonTeamNavTab));
+      await tester.pumpAndSettle();
+      expect(container.read(salonShellProvider(_kOtherSalonId)), 0);
+    });
+
     testWidgets('should_notWriteLastSalon_when_salonIdUnchanged', (
       tester,
     ) async {
@@ -1223,14 +1273,12 @@ void main() {
       // the second pump rebuilds the SAME element (didUpdateWidget) with an
       // unchanged salonId, which is exactly the case under test.
       final storage = _InstrumentedSecureStorage();
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._ownerOverridesMultiSalon(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       Widget shellApp() => UncontrolledProviderScope(
@@ -1269,14 +1317,12 @@ void main() {
       // Same explicit-container / pre-warmed-authProvider pattern as
       // `should_writeLastSalon_when_shellMounts` — see that test's comment.
       final storage = _InstrumentedSecureStorage()..throwOnWrite = true;
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._ownerOverrides(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       await tester.pumpWidget(
@@ -1329,14 +1375,12 @@ void main() {
       // wherever `_writeLastSalon` is invoked from — which is exactly what
       // lets the phase captured below discriminate the two call sites.
       final storage = _InstrumentedSecureStorage()..hangWrite = true;
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._ownerOverrides(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       // Deliberately NOT followed by pumpAndSettle — the pending write must
@@ -1384,14 +1428,12 @@ void main() {
       // as `should_writeLastSalon_when_shellMounts` — see that test's
       // comment.
       final storage = _InstrumentedSecureStorage();
-      final container = ProviderContainer(
-        // ignore: avoid_dynamic_calls
+      final container = makeTestContainer(
         overrides: <Object>[
           ..._adminOverrides(),
           secureStorageProvider.overrideWithValue(storage),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       await container.read(authProvider.future);
 
       await tester.pumpWidget(
@@ -1438,8 +1480,7 @@ void main() {
         )
         ..meResult = _stubAdmin;
 
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -1448,7 +1489,6 @@ void main() {
           ).overrideWith(_SettledSalonManagementProfile.new),
         ],
       );
-      addTearDown(container.dispose);
 
       // Cold-start restore -> Authenticated.
       await container.read(authProvider.future);
@@ -1570,8 +1610,7 @@ void main() {
         )
         ..meResult = _stubAdmin;
 
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -1581,7 +1620,6 @@ void main() {
           dayKeepAliveLruProvider.overrideWithValue(_ThrowingDayKeepAliveLru()),
         ],
       );
-      addTearDown(container.dispose);
 
       // Cold-start restore -> Authenticated.
       await container.read(authProvider.future);
@@ -1733,8 +1771,7 @@ void main() {
         )
         ..meResult = _stubAdmin;
 
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -1743,7 +1780,6 @@ void main() {
           ).overrideWith(_SettledSalonManagementProfile.new),
         ],
       );
-      addTearDown(container.dispose);
 
       await container.read(authProvider.future);
       // `pumpEventQueue()` MUST NOT be used inside `testWidgets` — see

@@ -1,7 +1,8 @@
 // Phase 13.3 — Shared CLIENT top bar (wordmark · bell · burger).
 //
 // Extracted from the byte-identical private `_TopBar` that lived in BOTH
-// `home_hub_screen.dart` and `passport_screen.dart`, plus the `BellButton` that
+// `home_hub_screen.dart` and `passport_screen.dart`, plus the `BellButton` (now the shared
+// `NotificationBellButton`, Phase 361) that
 // was `@visibleForTesting` inside the home hub. Hoisting it here gives the three
 // CLIENT branch roots (Головна, BEAUTY PASSPORT, Пошук) one source of truth so
 // the bar never drifts between pages.
@@ -14,7 +15,7 @@
 //     starving the wordmark to ~50% width and truncating it to "Beatu…". The
 //     ellipsis + maxLines:1 remain only as a defensive guard against pathological
 //     text scaling.);
-//   • the notification [BellButton] (idle / unread states baked into the SVG);
+//   • the notification [NotificationBellButton] (idle / unread states baked into the SVG);
 //   • an OPTIONAL [NeumorphicIconButton] burger on the right.
 //
 // The bell + burger semantic labels and the burger [Key] are supplied by the
@@ -25,13 +26,11 @@
 
 import 'package:flutter/material.dart';
 
-import 'package:beautica_mobile/core/icons/app_icon.dart';
-import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/beautica_icons.dart';
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 
 /// The shared CLIENT branch-root top bar: beautica wordmark · bell · burger.
 ///
@@ -49,6 +48,7 @@ class ClientTopBar extends StatelessWidget {
     this.burgerKey,
     this.bellKey,
     this.hasUnread = false,
+    this.bell,
   });
 
   /// Invoked when the notification bell is tapped.
@@ -73,6 +73,13 @@ class ClientTopBar extends StatelessWidget {
 
   /// Whether to render the unread-state bell (dot baked into the asset).
   final bool hasUnread;
+
+  /// Optional bell slot. When non-null it REPLACES the pure
+  /// [NotificationBellButton] (and [onBell] / [bellKey] / [hasUnread] /
+  /// [bellSemanticLabel] are then unused), so a host can mount a self-watching
+  /// bell (`ConnectedNotificationBell`) and keep the unread-flag rebuild scoped
+  /// to the bell alone. Omitted, the bar renders exactly as before.
+  final Widget? bell;
 
   /// Fixed cross-axis extent of the bar — pinned to the burger's square extent
   /// so the centred "beautica" wordmark sits at the SAME vertical offset on
@@ -106,12 +113,13 @@ class ClientTopBar extends StatelessWidget {
             maxLines: 1,
           ),
           const Spacer(),
-          BellButton(
-            key: bellKey,
-            onTap: onBell,
-            semanticLabel: bellSemanticLabel,
-            hasUnread: hasUnread,
-          ),
+          bell ??
+              NotificationBellButton(
+                key: bellKey,
+                onTap: onBell,
+                semanticLabel: bellSemanticLabel,
+                hasUnread: hasUnread,
+              ),
           // Burger is optional — omitted on Пошук (redundant settings hub). When
           // absent, the bell is the last trailing element.
           if (onBurger != null) ...<Widget>[
@@ -124,77 +132,6 @@ class ClientTopBar extends StatelessWidget {
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// Top-bar notification bell.
-///
-/// Swaps between two state-driven bell SVGs:
-///   * [hasUnread] `false` ⇒ [BeauticaAssetIcons.notificationPlain] (dotless
-///     bell, flattened to [BrandColors.textSecondary] via `srcIn`);
-///   * [hasUnread] `true`  ⇒ [BeauticaAssetIcons.notificationUnread] (the same
-///     bell silhouette with a baked-in warm red-orange dot at the top-right).
-///
-/// The unread asset is two-tone, so it renders with `multicolor: true` (no
-/// `srcIn` flatten) — that keeps the dot red instead of repainting it to the
-/// bell colour. There is **no** `Positioned`/`Stack` overlay dot (it caused a
-/// double-dot bug); the dot lives inside the asset and is purely state-driven.
-///
-/// Moved here (public, no longer `@visibleForTesting`) from `home_hub_screen`
-/// so all three CLIENT branch roots share it. The unread-gating regression test
-/// pumps it with `hasUnread: true` (production call sites are pinned to `false`
-/// until the Phase 14.9 notification provider ships).
-class BellButton extends StatelessWidget {
-  const BellButton({
-    super.key,
-    required this.onTap,
-    required this.semanticLabel,
-    this.hasUnread = false,
-  });
-
-  /// Key on the rendered bell icon — stable across both states so a widget test
-  /// can grab the [AppIcon] and assert which asset path it points at.
-  static const Key bellIconKey = Key('home_hub_bell_icon');
-
-  final VoidCallback onTap;
-  final String semanticLabel;
-
-  /// Whether to render the unread-state bell (dot baked into the asset).
-  ///
-  // TODO(14.9): bind from the unread-notifications provider once the
-  // notification center ships (watch the unread count/flag and pass `> 0`).
-  // Until then it defaults to `false` so the dotless bell is shown.
-  final bool hasUnread;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.all(VelvetSpacing.xs),
-          child: hasUnread
-              ? const AppIcon(
-                  BeauticaAssetIcons.notificationUnread,
-                  key: bellIconKey,
-                  size: 24,
-                  // Two-tone asset: skip the srcIn flatten so the red dot
-                  // survives. The bell colour is baked into the SVG to match
-                  // the idle bell's tint.
-                  multicolor: true,
-                )
-              : const AppIcon(
-                  BeauticaAssetIcons.notificationPlain,
-                  key: bellIconKey,
-                  size: 24,
-                  color: BrandColors.textSecondary,
-                ),
-        ),
       ),
     );
   }

@@ -110,6 +110,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -257,11 +258,23 @@ class _SalonMasterProfileScreenState
         // «Записи» instead of bouncing back to this very screen.
         bookingsRoute: RouteNames.salonMasterBookings,
       ),
-      trailing: NeumorphicIconButton(
-        key: const Key('btn-menu-salon-master'),
-        icon: Icons.tune_rounded,
-        semanticLabel: l10n.settingsHubMenuButton,
-        onTap: () => context.push(RouteNames.salonMasterSettings),
+      // Phase 363 — the global notification bell sits LEFT of the settings
+      // button (client top bar's `bell · action` order and gap). «Мій профіль»
+      // is this role's landing tab, so it is the one header that carries it.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const ConnectedNotificationBell(
+            buttonKey: Key('salon_master_profile_bell_button'),
+          ),
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: const Key('btn-menu-salon-master'),
+            icon: Icons.tune_rounded,
+            semanticLabel: l10n.settingsHubMenuButton,
+            onTap: () => context.push(RouteNames.salonMasterSettings),
+          ),
+        ],
       ),
       onRefresh: () async {
         ref.invalidate(salonMasterOwnProfileProvider);

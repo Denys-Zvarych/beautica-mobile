@@ -27,6 +27,11 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -59,6 +64,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/test_container.dart';
 
 const _owner = User(
   id: 'u-1',
@@ -193,7 +199,104 @@ class _RouterApp extends StatelessWidget {
   );
 }
 
+/// Phase 365 addendum — a global unread count of two, so the bell shows its dot.
+class _TwoUnread extends UnreadNotifications {
+  @override
+  FutureOr<int> build() => 2;
+}
+
 void main() {
+  // Phase 365 addendum — the global notification bell, left of the tune button.
+  group('notification bell in the header (phase 365 addendum)', () {
+    GoRouter bellRouter() => GoRouter(
+      initialLocation: '/profile/owner',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/profile/owner',
+          builder: (_, _) => const OwnerOwnProfileScreen(embedded: true),
+        ),
+        GoRoute(
+          path: RouteNames.notifications,
+          builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+      ],
+    );
+
+    Future<void> pumpBell(
+      WidgetTester tester,
+      GoRouter router, {
+      List<Object> extra = const <Object>[],
+    }) async {
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((owner: _owner, master: (_master, _services))),
+          ...extra,
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_sitLeftOfTheTuneButton_with12dpGap', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      final Rect bell = tester.getRect(
+        find.byKey(const Key('owner-profile-bell')),
+      );
+      final Rect button = tester.getRect(
+        find.byKey(const Key('btn-owner-own-profile-settings')),
+      );
+      expect(bell.right, lessThan(button.left));
+      expect(button.left - bell.right, VelvetSpacing.sm + 4);
+    });
+
+    testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(
+        tester,
+        router,
+        extra: <Object>[
+          unreadNotificationsProvider.overrideWith(_TwoUnread.new),
+        ],
+      );
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationUnread,
+      );
+    });
+
+    testWidgets('should_showThePlainBell_whenNothingIsUnread', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationPlain,
+      );
+    });
+
+    testWidgets('should_pushTheFeed_whenTheBellIsTapped', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('owner-profile-bell')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('feed-stub'), findsOneWidget);
+      expect(router.canPop(), isTrue, reason: 'push, never go');
+    });
+  });
+
   testWidgets('master section present', (tester) async {
     await tester.pumpApp(
       const OwnerOwnProfileScreen(embedded: true),
@@ -782,7 +885,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeRouterContainer(User user) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(
@@ -805,7 +908,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

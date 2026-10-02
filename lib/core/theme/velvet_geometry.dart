@@ -209,6 +209,26 @@ abstract final class VelvetShadows {
     ),
   ];
 
+  /// [extrudedSmall] pressed FLUSH with the page: the SAME two offsets and
+  /// blurs with both colours at alpha 0, so an `AnimatedContainer` lerping
+  /// between this and [extrudedSmall] fades the shadow pair in place instead
+  /// of jumping (a null / shorter list would lerp from a different geometry).
+  ///
+  /// Phase 363 — a notification row that has been read. Pair with a hairline
+  /// border, which takes over the edge the shadow pair used to draw.
+  static final List<BoxShadow> flushSmall = <BoxShadow>[
+    BoxShadow(
+      color: BrandColors.shadowDarkButton.withValues(alpha: 0),
+      offset: const Offset(5, 5),
+      blurRadius: 12,
+    ),
+    BoxShadow(
+      color: BrandColors.shadowLightStrong.withValues(alpha: 0),
+      offset: const Offset(-5, -5),
+      blurRadius: 12,
+    ),
+  ];
+
   /// Subtle ambient shadow for a card that already carries a hairline
   /// [NeumorphicCard.showBorder] stroke for definition.
   ///

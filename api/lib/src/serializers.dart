@@ -48,6 +48,7 @@ import 'package:beautica_api/src/model/api_response_list_settlement_search_respo
 import 'package:beautica_api/src/model/api_response_list_sibling_salon_option.dart';
 import 'package:beautica_api/src/model/api_response_list_weekly_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_working_hours_response.dart';
+import 'package:beautica_api/src/model/api_response_mark_all_read_response.dart';
 import 'package:beautica_api/src/model/api_response_master_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_master_public_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_master_review_summary_response.dart';
@@ -82,6 +83,7 @@ import 'package:beautica_api/src/model/api_response_salon_service_catalog_respon
 import 'package:beautica_api/src/model/api_response_schedule_override_response.dart';
 import 'package:beautica_api/src/model/api_response_service_definition_response.dart';
 import 'package:beautica_api/src/model/api_response_unclosed_count_response.dart';
+import 'package:beautica_api/src/model/api_response_unread_count_response.dart';
 import 'package:beautica_api/src/model/api_response_user_profile_response.dart';
 import 'package:beautica_api/src/model/api_response_user_rating_response.dart';
 import 'package:beautica_api/src/model/api_response_verify_password_reset_otp_response.dart';
@@ -145,6 +147,8 @@ import 'package:beautica_api/src/model/invite_request.dart';
 import 'package:beautica_api/src/model/invite_response.dart';
 import 'package:beautica_api/src/model/location_filter.dart';
 import 'package:beautica_api/src/model/login_request.dart';
+import 'package:beautica_api/src/model/mark_all_read_request.dart';
+import 'package:beautica_api/src/model/mark_all_read_response.dart';
 import 'package:beautica_api/src/model/master_detail_response.dart';
 import 'package:beautica_api/src/model/master_profile_update_request.dart';
 import 'package:beautica_api/src/model/master_public_profile_response.dart';
@@ -156,6 +160,9 @@ import 'package:beautica_api/src/model/master_summary_response.dart';
 import 'package:beautica_api/src/model/master_working_day_response.dart';
 import 'package:beautica_api/src/model/media_file_response.dart';
 import 'package:beautica_api/src/model/my_review_response.dart';
+import 'package:beautica_api/src/model/notification_params.dart';
+import 'package:beautica_api/src/model/notification_response.dart';
+import 'package:beautica_api/src/model/notification_target.dart';
 import 'package:beautica_api/src/model/oblast_response.dart';
 import 'package:beautica_api/src/model/override_conflict_preview_response.dart';
 import 'package:beautica_api/src/model/override_conflict_query_request.dart';
@@ -169,6 +176,7 @@ import 'package:beautica_api/src/model/page_response_favorite_service_response.d
 import 'package:beautica_api/src/model/page_response_master_search_result.dart';
 import 'package:beautica_api/src/model/page_response_master_summary_response.dart';
 import 'package:beautica_api/src/model/page_response_my_review_response.dart';
+import 'package:beautica_api/src/model/page_response_notification_response.dart';
 import 'package:beautica_api/src/model/page_response_review_response.dart';
 import 'package:beautica_api/src/model/page_response_salon_review_response.dart';
 import 'package:beautica_api/src/model/page_response_salon_search_result.dart';
@@ -224,6 +232,7 @@ import 'package:beautica_api/src/model/status_update_request.dart';
 import 'package:beautica_api/src/model/suggest_service_type_request.dart';
 import 'package:beautica_api/src/model/timeline_item_response.dart';
 import 'package:beautica_api/src/model/unclosed_count_response.dart';
+import 'package:beautica_api/src/model/unread_count_response.dart';
 import 'package:beautica_api/src/model/unregister_device_token_request.dart';
 import 'package:beautica_api/src/model/update_master_service_band_request.dart';
 import 'package:beautica_api/src/model/update_profile_request.dart';
@@ -281,6 +290,7 @@ part 'serializers.g.dart';
   ApiResponseListSiblingSalonOption,
   ApiResponseListWeeklyScheduleResponse,
   ApiResponseListWorkingHoursResponse,
+  ApiResponseMarkAllReadResponse,
   ApiResponseMasterDetailResponse,
   ApiResponseMasterPublicProfileResponse,
   ApiResponseMasterReviewSummaryResponse,
@@ -315,6 +325,7 @@ part 'serializers.g.dart';
   ApiResponseScheduleOverrideResponse,
   ApiResponseServiceDefinitionResponse,
   ApiResponseUnclosedCountResponse,
+  ApiResponseUnreadCountResponse,
   ApiResponseUserProfileResponse,
   ApiResponseUserRatingResponse,
   ApiResponseVerifyPasswordResetOtpResponse,
@@ -378,6 +389,8 @@ part 'serializers.g.dart';
   InviteResponse,
   LocationFilter,
   LoginRequest,
+  MarkAllReadRequest,
+  MarkAllReadResponse,
   MasterDetailResponse,
   MasterProfileUpdateRequest,
   MasterPublicProfileResponse,
@@ -389,6 +402,9 @@ part 'serializers.g.dart';
   MasterWorkingDayResponse,
   MediaFileResponse,
   MyReviewResponse,
+  NotificationParams,
+  NotificationResponse,
+  NotificationTarget,
   OblastResponse,
   OverrideConflictPreviewResponse,
   OverrideConflictQueryRequest,
@@ -402,6 +418,7 @@ part 'serializers.g.dart';
   PageResponseMasterSearchResult,
   PageResponseMasterSummaryResponse,
   PageResponseMyReviewResponse,
+  PageResponseNotificationResponse,
   PageResponseReviewResponse,
   PageResponseSalonReviewResponse,
   PageResponseSalonSearchResult,
@@ -457,6 +474,7 @@ part 'serializers.g.dart';
   SuggestServiceTypeRequest,
   TimelineItemResponse,
   UnclosedCountResponse,
+  UnreadCountResponse,
   UnregisterDeviceTokenRequest,
   UpdateMasterServiceBandRequest,
   UpdateProfileRequest,

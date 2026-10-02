@@ -67,6 +67,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — mirrors my_salons_route_shadowing_test.dart's own.
@@ -132,7 +133,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeContainer() {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(
@@ -143,7 +144,6 @@ void main() {
           mySalonsProvider.overrideWith(_SettledMySalons.new),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

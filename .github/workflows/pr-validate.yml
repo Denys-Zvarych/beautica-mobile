@@ -188,6 +188,23 @@ jobs:
         shell: bash
         run: ./scripts/forbid_fixed_wait.sh
 
+      # Phase 361 audit (perf P2) — a test that imports a header/shell widget
+      # (which mounts the live notification bell) must build its container with
+      # `makeTestContainer` (test/helpers/test_container.dart), never a raw
+      # `ProviderContainer(`: the real notifier's 60 s poll timer would leak
+      # past the pending-timer check. Exceptions: FILE:LINE in
+      # scripts/.raw_container_with_header_allow.
+      - name: Forbid raw ProviderContainer in header-importing tests
+        shell: bash
+        run: ./scripts/forbid_raw_container_with_header.sh
+
+      # Phase 066 — Firebase client config (google-services.json /
+      # GoogleService-Info.plist) is injected at build time and must never be
+      # tracked by git (the repo is public). `git add -f` bypasses .gitignore.
+      - name: Forbid tracked Firebase client config
+        shell: bash
+        run: ./scripts/forbid_google_services_json.sh
+
       # 2026-06-24 fixture-footgun gate — a test that mounts ServiceForm( must
       # also override approvedCategoriesProvider. That provider sources from the
       # REAL Dio (not serviceRepositoryProvider); an un-overridden mount leaks a

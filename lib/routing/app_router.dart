@@ -124,8 +124,12 @@ import '../features/salon/presentation/salon_pending_invites_screen.dart';
 import '../features/salon/presentation/salon_profile_edit_screen.dart';
 import '../features/salon/presentation/salon_settings_screen.dart';
 import '../features/salon/presentation/salon_shell_screen.dart';
+import '../shared/widgets/salon_bottom_nav.dart' show kSalonTeamNavTab;
 import '../features/salon/presentation/salon_staff_profile_screen.dart';
 import '../features/shell/presentation/client_shell.dart';
+import '../features/notifications/presentation/notification_navigation.dart'
+    show notificationUnavailableHandler;
+import '../features/notifications/presentation/notifications_screen.dart';
 import '../features/support/presentation/contact_support_screen.dart';
 import '../features/schedule/domain/schedule_scope.dart';
 import '../features/schedule/presentation/master_schedule_screen.dart';
@@ -904,6 +908,40 @@ GoRouter appRouter(Ref ref) {
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
+      // Phase 361 — notification feed (placeholder until phase 363). Literal
+      // top-level leaf, no role gate: the feed is per user.
+      GoRoute(
+        path: RouteNames.notifications,
+        builder: (context, state) => const NotificationsScreen(),
+        routes: [
+          // Phase 364 — feed-scoped ALIASES of the CLIENT's `/bookings/:id`
+          // and its `review` child. Those live inside the client
+          // StatefulShellRoute, and pushing them from this root-level feed
+          // appends a second shell copy (go_router asserts). Same screens, same
+          // props, so Back returns to the feed. CLIENT-only: `authRedirect`
+          // bounces other roles from `/notifications/bookings/**`.
+          GoRoute(
+            path: 'bookings/:bookingId',
+            // Second guard layer (security L3): the same per-route CLIENT gate
+            // as `/masters/:masterId`, independent of the `authRedirect` prefix.
+            redirect: clientOnlyGuard,
+            builder: (context, state) => BookingDetailScreen(
+              bookingId: state.pathParameters['bookingId']!,
+              leaveReviewRouteBuilder: RouteNames.notificationBookingReview,
+              onUnavailable: notificationUnavailableHandler(context, state),
+            ),
+            routes: [
+              GoRoute(
+                path: 'review',
+                redirect: clientOnlyGuard,
+                builder: (context, state) => LeaveReviewScreen(
+                  bookingId: state.pathParameters['bookingId']!,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       GoRoute(
         path: RouteNames.contactSupport,
         builder: (context, state) => const ContactSupportScreen(),
@@ -1505,8 +1543,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/shell',
         redirect: salonManageGuard,
-        builder: (context, state) =>
-            SalonShellScreen(salonId: state.pathParameters['salonId'] ?? ''),
+        builder: (context, state) => SalonShellScreen(
+          salonId: state.pathParameters['salonId'] ?? '',
+          initialNavTab:
+              state.uri.queryParameters[kSalonShellTabQuery] ==
+                  kSalonShellTabTeam
+              ? kSalonTeamNavTab
+              : null,
+        ),
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with
@@ -1901,6 +1945,7 @@ GoRouter appRouter(Ref ref) {
             path: ':bookingId',
             builder: (context, state) => BookingDetailScreen(
               bookingId: state.pathParameters['bookingId']!,
+              onUnavailable: notificationUnavailableHandler(context, state),
             ),
           ),
         ],
@@ -2091,6 +2136,7 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => BookingDetailScreen(
           bookingId: state.pathParameters['bookingId']!,
           clientReviewRouteBuilder: RouteNames.salonStaffClientReview,
+          onUnavailable: notificationUnavailableHandler(context, state),
           // SALON DOT SET (2026-09-19, mobile-perf MEDIUM) — the board's own
           // `widget.salonId`, carried on `extra` because NOTHING on this
           // route's path holds it (`/salon/bookings/:bookingId`) and
@@ -2391,6 +2437,7 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => BookingDetailScreen(
           bookingId: state.pathParameters['bookingId']!,
           clientReviewRouteBuilder: RouteNames.salonMasterClientReview,
+          onUnavailable: notificationUnavailableHandler(context, state),
         ),
       ),
       // Phase 330 — /staff/bookings/:bookingId/review, the SALON_MASTER's

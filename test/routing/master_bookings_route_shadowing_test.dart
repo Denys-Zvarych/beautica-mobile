@@ -87,6 +87,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
@@ -249,7 +250,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeContainer() {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
@@ -277,7 +278,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

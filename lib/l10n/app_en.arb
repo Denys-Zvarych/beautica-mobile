@@ -2800,6 +2800,17 @@
   "@boardErrRateLimitedNoWait": {
     "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
   },
+  "notificationsErrRateLimited": "Too many requests. Wait {seconds} s, then try again.",
+  "@notificationsErrRateLimited": {
+    "description": "Error shown when an in-app notification-feed call returns 429 with a usable Retry-After header.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "notificationsErrRateLimitedNoWait": "Too many requests. Wait a moment, then try again.",
+  "@notificationsErrRateLimitedNoWait": {
+    "description": "Error shown when a notification-feed call returns 429 without a usable Retry-After header. Same message minus the countdown."
+  },
   "boardRetryCooldown": "Try again in {seconds} s",
   "@boardRetryCooldown": {
     "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
@@ -3264,6 +3275,189 @@
   "homeHubNotificationsLabel": "Notifications",
   "@homeHubNotificationsLabel": {
     "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "notificationBellLabel": "Notifications",
+  "@notificationBellLabel": {
+    "description": "Accessibility label of the shared notification bell when nothing is unread."
+  },
+  "notificationBellUnreadLabel": "Notifications, new",
+  "@notificationBellUnreadLabel": {
+    "description": "Accessibility label of the shared notification bell when there are unread notifications."
+  },
+  "notificationsScreenTitle": "Notifications",
+  "@notificationsScreenTitle": {
+    "description": "Title of the notification feed screen."
+  },
+  "notificationsMarkAllRead": "Mark all as read",
+  "@notificationsMarkAllRead": {
+    "description": "Phase 363 — action above the notification feed that marks every loaded notification read. Hidden (not disabled) when nothing is unread."
+  },
+  "notificationsMarkOneRead": "Mark as read",
+  "@notificationsMarkOneRead": {
+    "description": "Phase 363 — semantic label and tooltip of the per-row check button that marks one notification read without opening it."
+  },
+  "notificationsMarkReadFailed": "Couldn't mark as read",
+  "@notificationsMarkReadFailed": {
+    "description": "Phase 363 — snackbar shown after a single mark-read failed and the row was rolled back to unread."
+  },
+  "notificationsBookingUnavailable": "This booking is no longer available",
+  "@notificationsBookingUnavailable": {
+    "description": "Phase 364 — snackbar shown when a tapped notification points at a booking the viewer can no longer open (target gone, or the detail answered 403/404)."
+  },
+  "notificationsMarkAllReadFailed": "Couldn't mark notifications as read",
+  "@notificationsMarkAllReadFailed": {
+    "description": "Phase 363 — snackbar shown after mark-all-read failed and every row was rolled back to unread."
+  },
+  "notificationsUnreadCount": "{count, plural, one{{count} unread} other{{count} unread}}",
+  "@notificationsUnreadCount": {
+    "description": "Phase 363 — unread counter beside the mark-all action.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "notificationsUnreadCountCapped": "99+ unread",
+  "@notificationsUnreadCountCapped": {
+    "description": "Phase 363 — unread counter when the backend's count is at its cap of 99, so the true number is unknown."
+  },
+  "notificationsUnreadSemantic": "unread",
+  "@notificationsUnreadSemantic": {
+    "description": "Phase 363 — screen-reader word announced on an unread notification row."
+  },
+  "notificationsParamsGone": "Details are no longer available",
+  "@notificationsParamsGone": {
+    "description": "Phase 363 — body of a notification whose display parameters the backend nulled because the recipient lost access to the subject."
+  },
+  "notificationsNoTarget": "No longer available",
+  "@notificationsNoTarget": {
+    "description": "Phase 363 — hint on a notification row that has nothing left to open."
+  },
+  "notificationsEmptyTitle": "No notifications yet",
+  "@notificationsEmptyTitle": {
+    "description": "Phase 363 — empty-state headline of the notification feed."
+  },
+  "notificationsEmptyBody": "New bookings, cancellations, reschedules and reviews will show up here.",
+  "@notificationsEmptyBody": {
+    "description": "Phase 363 — empty-state sub-line of the notification feed; says what WILL arrive, there is no action."
+  },
+  "notificationsLoadingSemantics": "Loading notifications",
+  "@notificationsLoadingSemantics": {
+    "description": "Phase 363 — screen-reader label of the notification feed's loading skeleton."
+  },
+  "notificationsLoadMoreFailed": "Couldn't load notifications",
+  "@notificationsLoadMoreFailed": {
+    "description": "Phase 363 — footer notice after the next feed page failed for a reason other than a rate limit; a retry action sits beside it."
+  },
+  "notificationTitleBookingCreated": "New booking",
+  "@notificationTitleBookingCreated": {
+    "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
+  },
+  "notificationTitleCancelledByClient": "Client cancelled a booking",
+  "@notificationTitleCancelledByClient": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."
+  },
+  "notificationTitleDeclinedClient": "Your booking was cancelled",
+  "@notificationTitleDeclinedClient": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
+  },
+  "notificationTitleDeclinedProvider": "A booking in your day was cancelled",
+  "@notificationTitleDeclinedProvider": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
+  },
+  "notificationTitleRescheduledClient": "Your booking was moved",
+  "@notificationTitleRescheduledClient": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for the client."
+  },
+  "notificationTitleRescheduledProvider": "Booking moved",
+  "@notificationTitleRescheduledProvider": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for a provider."
+  },
+  "notificationTitleInviteAccepted": "New team member",
+  "@notificationTitleInviteAccepted": {
+    "description": "Phase 363 — title of an INVITE_ACCEPTED notification (salon owner / admin)."
+  },
+  "notificationTitleNotCompleted": "Visit marked as not completed",
+  "@notificationTitleNotCompleted": {
+    "description": "Phase 363 — title of a BOOKING_NOT_COMPLETED notification for the client."
+  },
+  "notificationTitleReviewRequested": "How was your visit? Leave a review",
+  "@notificationTitleReviewRequested": {
+    "description": "Phase 363 — title of a REVIEW_REQUESTED notification for the client."
+  },
+  "notificationTitleReviewReceived": "New review",
+  "@notificationTitleReviewReceived": {
+    "description": "Phase 363 — title of a REVIEW_RECEIVED notification for a provider."
+  },
+  "notificationTitleSalonClosed": "Salon closed, booking cancelled",
+  "@notificationTitleSalonClosed": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_SALON_CLOSED notification for the client."
+  },
+  "notificationTitleMasterRemoved": "Master no longer available, booking cancelled",
+  "@notificationTitleMasterRemoved": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_MASTER_REMOVED notification for the client."
+  },
+  "notificationTitleUnknown": "New notification",
+  "@notificationTitleUnknown": {
+    "description": "Phase 363 — title of a notification whose type this build does not recognise."
+  },
+  "notificationBodyProvider": "{counterpart} — {service}, {dateTime}",
+  "@notificationBodyProvider": {
+    "description": "Phase 363 — body line for a provider: client first, then service and time.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyClient": "{service}, {dateTime} — {counterpart}",
+  "@notificationBodyClient": {
+    "description": "Phase 363 — body line for a client: service and time first, then who provides it.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduled": "{counterpart} — {service}, new time: {dateTime}",
+  "@notificationBodyProviderRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a provider.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyClientRescheduled": "{service}, new time: {dateTime} — {counterpart}",
+  "@notificationBodyClientRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a client.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyInviteAccepted": "{subject} joined the team — {role}",
+  "@notificationBodyInviteAccepted": {
+    "description": "Phase 363 — body line of an INVITE_ACCEPTED notification; role is notificationRoleSalonMaster or notificationRoleSalonAdmin.",
+    "placeholders": {
+      "subject": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "notificationRoleSalonMaster": "master",
+  "@notificationRoleSalonMaster": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationRoleSalonAdmin": "administrator",
+  "@notificationRoleSalonAdmin": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationServiceWithExtra": "{service} +{extraCount}",
+  "@notificationServiceWithExtra": {
+    "description": "Phase 363 — first service of a multi-service visit plus the number of further services.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "extraCount": { "type": "int" }
+    }
   },
   "homeHubMenuLabel": "Menu",
   "@homeHubMenuLabel": {
@@ -5394,10 +5588,6 @@
   "salonManageSettingsSemanticLabel": "Salon settings",
   "@salonManageSettingsSemanticLabel": {
     "description": "Phase 21.2 — semantic label for the tune_rounded cover control on the owner/admin salon management profile, which opens the salon settings page."
-  },
-  "salonManageNotificationsSemanticLabel": "Notifications",
-  "@salonManageNotificationsSemanticLabel": {
-    "description": "Semantic label for the notification bell cover control on the owner/admin salon management profile cover. Deliberately omits the unread state: the glyph shows the baked-in unread dot per the approved design, but the control is inert (notification centre out of scope, tap is a placeholder), so the accessible name must not assert a state the user cannot act on or dismiss."
   },
   "salonManageNameLabel": "Salon name",
   "@salonManageNameLabel": {

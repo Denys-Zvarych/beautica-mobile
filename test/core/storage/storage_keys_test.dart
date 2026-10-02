@@ -31,5 +31,20 @@ void main() {
     test('lastSalon key has expected value', () {
       expect(StorageKeys.lastSalon, 'BEAUTICA_LAST_SALON');
     });
+
+    test('pushPermissionAsked key has expected value', () {
+      expect(StorageKeys.pushPermissionAsked, 'BEAUTICA_PUSH_PERMISSION_ASKED');
+    });
+
+    test('pushRevokePending key has expected value', () {
+      expect(StorageKeys.pushRevokePending, 'BEAUTICA_PUSH_REVOKE_PENDING');
+    });
+
+    test('deviceScoped lists exactly the keys that survive deleteAll', () {
+      expect(StorageKeys.deviceScoped, <String>[
+        StorageKeys.pushPermissionAsked,
+        StorageKeys.pushRevokePending,
+      ]);
+    });
   });
 }

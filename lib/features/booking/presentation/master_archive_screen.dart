@@ -108,7 +108,6 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
-import 'package:beautica_mobile/shared/widgets/cooldown_ticker.dart';
 
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
@@ -1062,11 +1061,14 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                           padding: kMyBookingsListPadding,
                           children: <Widget>[
                             if (autoCooldown > 0)
-                              _ArchiveRetryCooldown(
+                              MyBookingsRetryCooldown(
+                                textKey: const Key(
+                                  'master-archive-retry-cooldown',
+                                ),
                                 seconds: autoCooldown,
                                 // Fired from the ticker's TIMER, never from
                                 // its builder, so this `setState` is legal —
-                                // see [CooldownTicker.onElapsed]. It re-runs
+                                // see `CooldownTicker.onElapsed`. It re-runs
                                 // the branch above, which now reads a zero
                                 // cooldown and re-arms the auto-continue.
                                 onElapsed: () {
@@ -1162,7 +1164,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                             // silently re-fired the same request; it now
                             // parks the tail behind
                             // `MasterArchiveState.retryNotBefore` and says
-                            // so. `_ArchiveRetryCooldown` counts the window
+                            // so. `MyBookingsRetryCooldown` counts the window
                             // down in its own subtree — the 1 Hz rebuild
                             // never reaches this `State` — and falls back to
                             // the ordinary spinner the instant it elapses,
@@ -1171,7 +1173,12 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
                               now,
                             );
                             if (cooldown > 0) {
-                              return _ArchiveRetryCooldown(seconds: cooldown);
+                              return MyBookingsRetryCooldown(
+                                textKey: const Key(
+                                  'master-archive-retry-cooldown',
+                                ),
+                                seconds: cooldown,
+                              );
                             }
                             return const MyBookingsLoadMoreSpinner();
                           }
@@ -1435,60 +1442,6 @@ class _ArchiveEmptyState extends StatelessWidget {
 /// (see [_MasterArchiveScreenState._autoContinueAttempts]'s doc for why an
 /// unbounded auto-spin is its own UX problem). [onLoadMore] resumes fetching
 /// and re-arms a fresh auto-continue burst.
-/// The tail slot while a failed `loadMore` is parked behind
-/// [MasterArchiveState.retryNotBefore] — the footer that SURFACES the
-/// cooldown instead of leaving a spinner turning over a request that will not
-/// be re-issued (mobile-security HIGH, 2026-09-20).
-///
-/// Counts down inside its own [CooldownTicker] subtree, so the 1 Hz rebuild
-/// never reaches `_MasterArchiveScreenState` and never regroups the list; and
-/// it falls back to the ordinary [MyBookingsLoadMoreSpinner] the instant the
-/// window elapses — which is the same instant `_onScroll` and
-/// `MasterArchiveNotifier.loadMore` are free again, so the two cannot disagree
-/// about whether the tail is live.
-///
-/// Reuses the shared ticker rather than owning a second `Timer`; see
-/// `shared/widgets/cooldown_ticker.dart`'s header for the relationship to
-/// `OtpResendRow`, which owns the original of this mechanism.
-class _ArchiveRetryCooldown extends StatelessWidget {
-  const _ArchiveRetryCooldown({required this.seconds, this.onElapsed});
-
-  final int seconds;
-
-  /// Lets the HOST re-evaluate when the window closes. Load-bearing in the
-  /// auto-continue branch, which decides inside `build` whether to schedule
-  /// the next `loadMore`: without it a lapsed cooldown would leave that
-  /// branch parked on a spinner with nothing in flight and nothing to wake
-  /// it. `null` on the tail slot, where the next scroll notification is the
-  /// natural wake-up.
-  final VoidCallback? onElapsed;
-
-  @override
-  Widget build(BuildContext context) {
-    return CooldownTicker(
-      seconds: seconds,
-      onElapsed: onElapsed,
-      builder: (BuildContext context, int remaining, Widget? _) {
-        if (remaining <= 0) return const MyBookingsLoadMoreSpinner();
-        return Padding(
-          key: const Key('master-archive-retry-cooldown'),
-          padding: const EdgeInsets.symmetric(vertical: VelvetSpacing.md),
-          child: Semantics(
-            liveRegion: true,
-            child: Text(
-              AppLocalizations.of(
-                context,
-              ).masterArchiveLoadMorePaused(remaining),
-              textAlign: TextAlign.center,
-              style: VelvetText.body(),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
 class _ArchiveContinueState extends StatelessWidget {
   const _ArchiveContinueState({required this.onLoadMore});
 

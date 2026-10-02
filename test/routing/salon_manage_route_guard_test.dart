@@ -104,6 +104,7 @@ import 'package:go_router/go_router.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -386,7 +387,7 @@ void main() {
       // explicit stub is still worth having).
       MySalons Function()? mySalonsOverride,
     }) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
@@ -480,7 +481,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

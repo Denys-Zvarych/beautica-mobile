@@ -59,7 +59,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../helpers/test_container.dart';
 
 const _fakeClientUser = User(
   id: 'c1',
@@ -85,8 +85,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeAuthenticatedContainer() {
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
@@ -104,7 +103,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
@@ -165,8 +163,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeAuthenticatedClientContainer() {
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedClientSession),
@@ -199,7 +196,6 @@ void main() {
           wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

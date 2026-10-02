@@ -80,6 +80,7 @@ import 'package:mocktail/mocktail.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/route_pump.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the auth session's userId, the masters ROW id, and the salon id
@@ -288,7 +289,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer() {
-    final container = ProviderContainer(
+    final container = makeTestContainer(
       retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_MutableAuthNotifier.new),
@@ -304,7 +305,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

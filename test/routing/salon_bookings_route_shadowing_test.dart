@@ -82,6 +82,7 @@ import 'package:go_router/go_router.dart';
 import '../helpers/fake_salon_master_coverage.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — mirrors master_bookings_route_shadowing_test.dart's own.
@@ -185,7 +186,7 @@ void main() {
       Duration? Function(int, Object)? retry = beauticaProviderRetry,
       List<Object> extra = const <Object>[],
     }) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: retry,
         overrides: <Object>[
           ...extra,
@@ -213,9 +214,8 @@ void main() {
           // regression — same shape every other override in this file
           // guards against).
           mySalonsProvider.overrideWith(_SettledMySalons.new),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
