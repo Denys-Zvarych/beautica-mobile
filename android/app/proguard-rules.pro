@@ -19,9 +19,3 @@
 # protectDataLeakageWithBlur/…Off become silent no-ops.
 -keep class com.prongbang.screen_protector.** { *; }
 -keepclassmembers class com.prongbang.screen_protector.** { *; }
-
-# Dio — keep response type adapters
--keep class retrofit2.** { *; }
--keep class okhttp3.** { *; }
--dontwarn okhttp3.**
--dontwarn retrofit2.**

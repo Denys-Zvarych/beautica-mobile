@@ -27,13 +27,17 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_status_medallion.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
@@ -46,6 +50,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -896,5 +901,145 @@ void main() {
         );
       },
     );
+  });
+  // `_MasterStrip` (inside BookingCounterpartyHeader, client view) wears
+  // `Opacity(0.7)` on a CANCELLED / DECLINED booking — the dim is the only thing
+  // that says the master is no longer in the client's future. Goldens discard
+  // layer opacity (Phase 299), and the field-level `Opacity` assertions cannot
+  // see pixels, so Phase 301 probes it through the real compositor.
+  //
+  // The strip's content does not depend on status, so the same `_booking`
+  // fixture in CONFIRMED vs a dead status differs ONLY in the dim; the public
+  // header is pumped twice side by side, each in its own boundary over a solid
+  // `base` ground.
+  //
+  // TOLERANCE 0.04, not the 0.02 default: the strip is a neumorphic card whose
+  // soft shadow tails are thousands of pixels 1–3 levels off the ground, and
+  // 8-bit rounding of `0.7·d` drops them (d=2 -> 1, d=3 -> 2), so a plain
+  // `Opacity(0.7)` hand-wrapped around the same strip measures 0.670, not
+  // 0.700 (checked 2026-10-02). The mutants are 1.0 (dim gone) and ~0.05.
+  group('Phase 301 — master strip dim on a dead booking (pixel probe)', () {
+    const double tolerance = 0.04;
+    const Key keyFull = Key('master-strip-dim-full');
+    const Key keyDim = Key('master-strip-dim-dim');
+
+    Widget cell(Key key, Booking b) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: SizedBox(
+            width: 340,
+            child: BookingCounterpartyHeader(
+              booking: b,
+              viewer: BookingViewerRole.client,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    for (final BookingStatus dead in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('$dead strip composites to 0.7 of the CONFIRMED strip', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              cell(keyFull, _booking(status: BookingStatus.confirmed)),
+              cell(keyDim, _booking(status: dead)),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        await expectDimRatio(
+          tester: tester,
+          dimmed: find.byKey(keyDim),
+          full: find.byKey(keyFull),
+          ground: BrandColors.base,
+          expected: 0.7,
+          tolerance: tolerance,
+        );
+      });
+    }
+
+    // The 0.04 band above cannot see a 0.7 -> 0.73/0.75 drift (mutation-probed
+    // 2026-10-02: both stayed GREEN). This pins the dim TIGHTLY by comparing the
+    // real dead strip to the SAME header hand-wrapped in `Opacity(0.7)`: both
+    // sides lose the identical shadow-tail rounding, so the ratio is 1.0 +- 0.015.
+    for (final BookingStatus dead in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('$dead strip matches a hand-wrapped Opacity(0.7) control', (
+        tester,
+      ) async {
+        const Key keyControl = Key('master-strip-dim-control');
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              RepaintBoundary(
+                key: keyControl,
+                child: ColoredBox(
+                  color: BrandColors.base,
+                  child: Opacity(
+                    opacity: 0.7,
+                    child: Padding(
+                      padding: const EdgeInsets.all(VelvetSpacing.md),
+                      child: SizedBox(
+                        width: 340,
+                        child: BookingCounterpartyHeader(
+                          booking: _booking(status: BookingStatus.confirmed),
+                          viewer: BookingViewerRole.client,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              cell(keyDim, _booking(status: dead)),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        await expectDimRatio(
+          tester: tester,
+          dimmed: find.byKey(keyDim),
+          full: find.byKey(keyControl),
+          ground: BrandColors.base,
+          expected: 1.0,
+          tolerance: 0.015,
+        );
+      });
+    }
+
+    testWidgets('a COMPLETED strip is NOT dimmed (ratio 1.0)', (tester) async {
+      await tester.pumpApp(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            cell(keyFull, _booking(status: BookingStatus.confirmed)),
+            cell(keyDim, _booking(status: BookingStatus.completed)),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(keyDim),
+        full: find.byKey(keyFull),
+        ground: BrandColors.base,
+        expected: 1.0,
+      );
+    });
   });
 }

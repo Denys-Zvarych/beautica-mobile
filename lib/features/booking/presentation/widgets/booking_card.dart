@@ -654,6 +654,7 @@ class _MasterPhoto extends StatelessWidget {
     );
     // A cancelled booking's photo desaturates toward the base tone — the
     // person is no longer in the client's near future.
+    // dim-gated: test/features/booking/presentation/booking_surfaces_overflow_test.dart
     return dimmed ? Opacity(opacity: 0.55, child: disc) : disc;
   }
 }

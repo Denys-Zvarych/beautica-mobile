@@ -9,6 +9,8 @@
 // assertion here has a client-view twin.
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -21,6 +23,7 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -29,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy. They are
@@ -933,5 +937,128 @@ void main() {
             'half.',
       );
     });
+  });
+  // The `Opacity.opacity` field assertions above prove the WIDGET is configured,
+  // not that the pixels dim (Phase 299: CI goldens discard layer opacity, and a
+  // field read cannot see the compositor). Phase 301 observes `_ClientStrip`'s
+  // `isDead ? 0.7 : 1` through the real compositor.
+  //
+  // The strip's content does not depend on status, so the same `_booking`
+  // fixture CONFIRMED vs CANCELLED/DECLINED differs ONLY in the dim. The public
+  // header is pumped twice side by side, each in its own boundary over a solid
+  // `base` ground. Tolerance 0.04: 8-bit rounding of `0.7·d` on the avatar's
+  // soft edges biases the summed ratio a touch low (see the master-strip probe
+  // in booking_detail_screen_test.dart, which measures 0.670).
+  group('Phase 301 — client strip dim on a dead booking (pixel probe)', () {
+    const Key keyFull = Key('client-strip-dim-full');
+    const Key keyDim = Key('client-strip-dim-dim');
+
+    Widget cell(Key key, Booking b) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: SizedBox(
+            width: 340,
+            child: BookingCounterpartyHeader(
+              booking: b,
+              viewer: BookingViewerRole.provider,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Future<void> probe(
+      WidgetTester tester, {
+      required BookingStatus status,
+      required double expected,
+    }) async {
+      await tester.pumpApp(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            cell(keyFull, _booking()),
+            cell(keyDim, _booking(status: status)),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(keyDim),
+        full: find.byKey(keyFull),
+        ground: BrandColors.base,
+        expected: expected,
+        tolerance: 0.04,
+      );
+    }
+
+    testWidgets(
+      'a CANCELLED client strip composites to 0.7 of the live one',
+      (tester) => probe(tester, status: BookingStatus.cancelled, expected: 0.7),
+    );
+
+    testWidgets(
+      'a DECLINED client strip composites to 0.7 of the live one',
+      (tester) => probe(tester, status: BookingStatus.declined, expected: 0.7),
+    );
+
+    // The 0.04 band cannot see a 0.7 -> 0.73/0.75 drift. This pins the dim
+    // TIGHTLY against the SAME live header hand-wrapped in `Opacity(0.7)`: both
+    // sides share the 8-bit rounding bias, so the ratio is 1.0 +- 0.015.
+    for (final BookingStatus dead in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('a $dead client strip matches a hand-wrapped Opacity(0.7) '
+          'control', (tester) async {
+        const Key keyControl = Key('client-strip-dim-control');
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              RepaintBoundary(
+                key: keyControl,
+                child: ColoredBox(
+                  color: BrandColors.base,
+                  child: Opacity(
+                    opacity: 0.7,
+                    child: Padding(
+                      padding: const EdgeInsets.all(VelvetSpacing.md),
+                      child: SizedBox(
+                        width: 340,
+                        child: BookingCounterpartyHeader(
+                          booking: _booking(),
+                          viewer: BookingViewerRole.provider,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              cell(keyDim, _booking(status: dead)),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        await expectDimRatio(
+          tester: tester,
+          dimmed: find.byKey(keyDim),
+          full: find.byKey(keyControl),
+          ground: BrandColors.base,
+          expected: 1.0,
+          tolerance: 0.015,
+        );
+      });
+    }
+
+    testWidgets(
+      'a COMPLETED client strip is NOT dimmed (ratio 1.0)',
+      (tester) => probe(tester, status: BookingStatus.completed, expected: 1.0),
+    );
   });
 }

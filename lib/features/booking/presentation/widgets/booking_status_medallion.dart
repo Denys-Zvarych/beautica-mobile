@@ -61,6 +61,7 @@ class BookingStatusMedallion extends StatelessWidget {
           animation: entrance,
           builder: (BuildContext context, Widget? child) {
             final double t = entrance.value.clamp(0.0, 1.0);
+            // dim-decorative: success-badge entrance
             return Opacity(
               opacity: t,
               child: Transform.scale(scale: 0.86 + 0.14 * t, child: child),

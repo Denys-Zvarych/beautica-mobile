@@ -152,6 +152,7 @@ class _PressableSurfaceState extends State<PressableSurface> {
           child: AnimatedScale(
             scale: _pressed ? widget.pressedScale : 1,
             duration: widget.pressDuration,
+            // dim-gated: test/features/master/presentation/settings_row_disabled_dim_test.dart
             child: AnimatedOpacity(
               opacity: widget.inert ? widget.inertOpacity : 1,
               duration: PressableSurface.decorationTweenDuration,

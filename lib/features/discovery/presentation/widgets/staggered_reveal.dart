@@ -107,6 +107,7 @@ class _SearchStaggeredRevealState extends State<SearchStaggeredReveal>
         curve: Interval(start, end, curve: Curves.easeOutCubic),
       ),
     );
+    // dim-decorative: search entrance; 1 at rest
     return FadeTransition(
       opacity: curved,
       child: AnimatedBuilder(

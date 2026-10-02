@@ -17,7 +17,11 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
@@ -41,6 +45,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -2430,6 +2435,84 @@ void main() {
         reason:
             'the empty state must name the conflicting service, not just '
             'say "no free slots" — phase-274 D5',
+      );
+    });
+  });
+  // SlotChip's unavailable face is `Opacity(0.7)` over a faint-label inset well.
+  // That dim is the ONLY signal that a slot is not bookable beyond the label's
+  // colour, and CI goldens discard layer opacity (Phase 299) — so it is probed
+  // here through the real compositor (Phase 301).
+  //
+  // The two states cannot be one widget in two pumps (available:false changes
+  // the face), so the control is an UNDIMMED replica of the unavailable face
+  // built from the same public pieces (`NeumorphicInset`, `VelvetText.
+  // bookSlotChip`, `BrandColors.faint`). The ratio chip : replica is the dim.
+  group('Phase 301 — unavailable SlotChip dim (pixel probe)', () {
+    const Key keyDim = Key('slot-dim-probe-dim');
+    const Key keyFull = Key('slot-dim-probe-full');
+
+    Widget cell(Key key, Widget child) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: SizedBox(width: 74, child: child),
+        ),
+      ),
+    );
+
+    testWidgets('unavailable chip composites to 0.7 of its undimmed face', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            cell(
+              keyDim,
+              SlotChip(
+                time: '12:00',
+                selected: false,
+                available: false,
+                onTap: () {},
+              ),
+            ),
+            cell(
+              keyFull,
+              SizedBox(
+                height: 40,
+                child: NeumorphicInset(
+                  radius: VelvetRadii.pill,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: VelvetSpacing.sm + 2,
+                      ),
+                      child: Text(
+                        '12:00',
+                        style: VelvetText.bookSlotChip.copyWith(
+                          color: BrandColors.faint,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(keyDim),
+        full: find.byKey(keyFull),
+        ground: BrandColors.base,
+        expected: 0.7,
+        reason:
+            'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
       );
     });
   });

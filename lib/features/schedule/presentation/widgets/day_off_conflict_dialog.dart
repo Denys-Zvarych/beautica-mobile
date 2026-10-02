@@ -194,6 +194,7 @@ class _DayOffConflictDialogState extends State<DayOffConflictDialog>
         final double t = curved.value.clamp(0.0, 1.0);
         // Floor the painted opacity so a stalled ticker can never leave a row
         // completely invisible.
+        // dim-decorative: row entrance
         return Opacity(
           opacity: (0.06 + t * 0.94).clamp(0.0, 1.0),
           child: Transform.translate(offset: Offset(0, (1 - t) * 10), child: c),
@@ -467,6 +468,7 @@ class _DialogShell extends StatelessWidget {
         animation: curved,
         builder: (BuildContext context, Widget? c) {
           final double t = curved.value.clamp(0.0, 1.0);
+          // dim-decorative: dialog entrance
           return Opacity(
             opacity: (0.08 + t * 0.92).clamp(0.0, 1.0),
             child: Transform.scale(scale: 0.94 + t * 0.06, child: c),

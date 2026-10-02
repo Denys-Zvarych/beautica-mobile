@@ -254,6 +254,7 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
   /// only re-offsets a retained layer. `my_salons_screen.dart`'s own
   /// `_reveal` carries the same boundary for the same reason.
   Widget _reveal(_RevealAnim anim, Widget child) {
+    // dim-decorative: screen entrance fade (`_reveal`); 1 at rest
     return FadeTransition(
       opacity: anim.fade,
       child: SlideTransition(

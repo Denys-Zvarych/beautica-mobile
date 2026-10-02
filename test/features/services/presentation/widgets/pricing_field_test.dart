@@ -22,11 +22,14 @@
 //                       whole-well opaque tap target.
 //   TAP-DISABLED-NOP   Tap on a disabled well does NOT grant focus (onTap:null).
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/pricing_field.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../helpers/dim_probe.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -43,6 +46,7 @@ Future<void> _pumpField(
   ValueChanged<ServicePriceType>? onModeChanged,
   String? rangeError,
   bool enabled = true,
+  bool probeGround = false,
 }) async {
   final fixedCtrl = TextEditingController();
   final minCtrl = TextEditingController();
@@ -59,7 +63,7 @@ Future<void> _pumpField(
       home: Scaffold(
         body: StatefulBuilder(
           builder: (BuildContext context, StateSetter setState) {
-            return PricingField(
+            final Widget field = PricingField(
               mode: mode,
               onModeChanged: onModeChanged ?? (_) {},
               fixedController: fixedCtrl,
@@ -68,6 +72,13 @@ Future<void> _pumpField(
               enabled: enabled,
               rangeError: rangeError,
             );
+            // dim probe only: an opaque ground INSIDE a RepaintBoundary so
+            // the crop composites over a real colour.
+            return probeGround
+                ? RepaintBoundary(
+                    child: ColoredBox(color: BrandColors.base, child: field),
+                  )
+                : field;
           },
         ),
       ),
@@ -414,6 +425,32 @@ void main() {
       );
     },
   );
+
+  // PIXEL gate for `_PricingModeToggle`'s `Opacity(enabled ? 1 : 0.55)`. The
+  // B1-DISABLED test above reads the widget FIELD, which proves nothing about
+  // pixels (and CI goldens are blind to layer opacity — Phase 299). The toggle
+  // is private, so it is cropped out of the boundary in two pumps; the crop is
+  // the toggle only, identical geometry, so the dim is the only difference.
+  testWidgets('B1-DISABLED-PIXELS: enabled:false toggle composites to 0.55 of '
+      'the enabled toggle\'s deviation from the ground', (tester) async {
+    final Finder toggle = find.byWidgetPredicate(
+      (Widget w) => w.runtimeType.toString() == '_PricingModeToggle',
+    );
+    await expectRegionDimRatio(
+      tester: tester,
+      target: toggle,
+      pumpFull: () async {
+        await _pumpField(tester, probeGround: true);
+        await tester.pumpAndSettle();
+      },
+      pumpDimmed: () async {
+        await _pumpField(tester, enabled: false, probeGround: true);
+        await tester.pumpAndSettle();
+      },
+      ground: BrandColors.base,
+      expected: 0.55,
+    );
+  });
 
   // ── Regression: tap-target fix — GestureDetector(HitTestBehavior.opaque) ──
   //

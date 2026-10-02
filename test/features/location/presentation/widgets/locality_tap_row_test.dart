@@ -15,10 +15,13 @@
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/location/presentation/widgets/locality_tap_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../helpers/dim_probe.dart';
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -35,24 +38,39 @@ Future<void> _pumpRow(
   String? errorText,
   Widget? labelSuffix,
   VoidCallback? onTap,
-}) {
+  bool grounded = false,
+  Widget Function(Widget row)? wrapRow,
+}) async {
+  // A fresh tree per pump: the probe pumps the same harness twice.
+  await tester.pumpWidget(const SizedBox.shrink());
+  Widget row = LocalityTapRow(
+    label: label,
+    placeholder: placeholder,
+    value: value,
+    enabled: enabled,
+    helper: helper,
+    errorText: errorText,
+    labelSuffix: labelSuffix,
+    onTap: onTap ?? () {},
+  );
+  if (wrapRow != null) row = wrapRow(row);
+  // `grounded` wraps the row in a `RepaintBoundary` over a solid `base` ground
+  // so a pixel probe can crop a region out of it (Phase 301).
   return tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: LocalityTapRow(
-          label: label,
-          placeholder: placeholder,
-          value: value,
-          enabled: enabled,
-          helper: helper,
-          errorText: errorText,
-          labelSuffix: labelSuffix,
-          onTap: onTap ?? () {},
-        ),
+        body: grounded
+            ? RepaintBoundary(
+                child: ColoredBox(color: BrandColors.base, child: row),
+              )
+            : row,
       ),
     ),
   );
 }
+
+/// The probe's hand-made dim control (Phase 301): the SAME row, dimmed here.
+Widget _handMadeDim(Widget row) => Opacity(opacity: 0.45, child: row);
 
 /// Returns the leading place-pin [AppIcon] (the only location-marker SVG).
 AppIcon _pinIcon(WidgetTester tester) => tester.widget<AppIcon>(
@@ -212,6 +230,71 @@ void main() {
 
       final opacity = tester.widget<Opacity>(_rowOpacity());
       expect(opacity.opacity, 1.0);
+    });
+  });
+
+  // Phase 301 — a disabled row renders `Opacity(0.45)`. CI goldens discard
+  // layer opacity (Phase 299), so the dim is probed through the real
+  // compositor.
+  //
+  // The Opacity sits ABOVE the row's `NeumorphicInset` (which owns its own
+  // `RepaintBoundary`), so the cropped target is the inset itself: the nearest
+  // boundary above it is the test's `base`-grounded one, which includes the
+  // Opacity layer. Disabled also drops the 20dp chevron, so the two states are
+  // NOT pixel-identical apart from the dim: dim = 0.45*S, full = S + chevron.
+  // The measured ratio is therefore 0.426 (0.45*S/(S+C)), 0.024 under the dim.
+  // The control below proves the probe itself is unbiased on identical
+  // content (enabled row vs the SAME row in a hand-made `Opacity(0.45)` reads
+  // 0.45 within the default 0.02), which pins the whole 0.024 on the chevron;
+  // the tolerance for the real probe is widened to 0.04 for that reason only —
+  // the no-dim mutant reads 1.0 and is still far outside.
+  group('LocalityTapRow disabled dim (pixel probe)', () {
+    final Finder inset = find.byType(NeumorphicInset);
+
+    testWidgets('control: an enabled row inside a hand-made Opacity(0.45) '
+        'reads 0.45 of the same row undimmed', (tester) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: inset,
+        pumpFull: () => _pumpRow(tester, grounded: true),
+        pumpDimmed: () async {
+          await _pumpRow(tester, grounded: true, wrapRow: _handMadeDim);
+        },
+        ground: BrandColors.base,
+        expected: 0.45,
+      );
+    });
+
+    testWidgets('a disabled row composites to 0.45 of the enabled one, less '
+        'the chevron it drops', (tester) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: inset,
+        pumpFull: () => _pumpRow(tester, grounded: true),
+        pumpDimmed: () => _pumpRow(tester, enabled: false, grounded: true),
+        ground: BrandColors.base,
+        expected: 0.45,
+        tolerance: 0.04,
+      );
+    });
+  });
+
+  // The 0.04 band above admits 0.45 -> 0.50 (reads ~0.473) — mutation-probed
+  // 2026-10-02. The reading itself is deterministic (0.45·S/(S+C) = 0.426, the
+  // control above proving the rest unbiased), so this pins it to +-0.012.
+  // A restyled chevron moves C and turns this RED on purpose — re-measure then.
+  group('LocalityTapRow disabled dim (tight pin)', () {
+    testWidgets('a disabled row reads the measured 0.426, not merely "about '
+        '0.45"', (tester) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: find.byType(NeumorphicInset),
+        pumpFull: () => _pumpRow(tester, grounded: true),
+        pumpDimmed: () => _pumpRow(tester, enabled: false, grounded: true),
+        ground: BrandColors.base,
+        expected: 0.426,
+        tolerance: 0.012,
+      );
     });
   });
 

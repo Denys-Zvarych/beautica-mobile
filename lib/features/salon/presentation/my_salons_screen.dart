@@ -166,6 +166,7 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: curved,
+        // dim-decorative: list entrance; 1 at rest
         builder: (BuildContext context, Widget? c) => Opacity(
           opacity: curved.value,
           child: Transform.translate(

@@ -347,6 +347,7 @@ class _MasterColumnChip extends StatelessWidget {
         child: Row(
           children: <Widget>[
             // The SHARED glyph, at the chip's size — see the file header.
+            // dim-gated: test/features/booking/presentation/widgets/master_column_strip_rebuild_gate_test.dart
             Opacity(
               opacity: quiet ? 0.45 : 1,
               child: const MasterAvatarBadge(size: 28),

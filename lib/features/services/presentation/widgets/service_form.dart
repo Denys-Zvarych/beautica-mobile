@@ -1212,6 +1212,11 @@ class _DirtyMarker extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
       alignment: Alignment.topLeft,
+      // dim-decorative: 0/1 at rest and unobservable even there — the clean
+      // state's child is a zero-height SizedBox that paints nothing at ANY
+      // opacity, so the fade is a 220 ms transient (presence is pinned by the
+      // marker-text widget tests). Mutation 2026-10-02: opacity forced to 1
+      // left services_form golden + form validation + edit screen all GREEN.
       child: AnimatedOpacity(
         duration: const Duration(milliseconds: 220),
         opacity: visible ? 1.0 : 0.0,

@@ -31,12 +31,15 @@
 // MUTATION-PROBED (2026-08-14) — each assertion was confirmed load-bearing by
 // reverting the production change it guards; see the per-test notes.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/month_calendar.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../../helpers/dim_probe.dart';
+import '../../../../helpers/dim_probe_replicas.dart';
 import '../../../../helpers/pump_app.dart';
 
 /// A July fixture, deliberately mid-month so no six-week-row edge case is in
@@ -319,4 +322,85 @@ void main() {
       );
     },
   );
+
+  // Phase 301 — a chevron with no callback (`onPrevMonth: null` with the header
+  // shown — the constructor assert allows it) renders `Opacity(0.55)` over a
+  // `faint`-glyph face. That dim is the only non-colour signal that the month
+  // cannot be navigated that way, and CI goldens discard layer opacity
+  // (Phase 299), so it is probed through the real compositor.
+  //
+  // Enabled and disabled are different pictures, so the "full" control is an
+  // UNDIMMED replica of the disabled face (`UndimmedDisabledArrowFace`) keyed
+  // and positioned exactly where the real chevron sits — the replica is laid
+  // out by the SAME `MonthCalendar` padding, so the two crops share a rect.
+  group('Phase 301 — disabled month chevron dim (pixel probe)', () {
+    const Key key = _prevChevron;
+
+    Widget boundary(Widget child) => RepaintBoundary(
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Align(alignment: Alignment.topLeft, child: child),
+      ),
+    );
+
+    Future<void> pumpReal(WidgetTester tester) async {
+      await tester.pumpApp(
+        boundary(
+          MonthCalendar(
+            visibleMonth: _month,
+            today: _today,
+            selected: _today,
+            isAvailable: (DateTime _) => true,
+            onSelectDay: (DateTime _) {},
+            onNextMonth: () {},
+            // onPrevMonth omitted: the ‹ chevron is the disabled one.
+          ),
+        ),
+        width: 360,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> pumpReplica(WidgetTester tester) async {
+      // MonthCalendar's own outer padding (lg, sm) around the header row.
+      await tester.pumpApp(
+        boundary(
+          const Padding(
+            padding: EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              VelvetSpacing.sm,
+              VelvetSpacing.lg,
+              0,
+            ),
+            child: Row(
+              children: <Widget>[
+                UndimmedDisabledArrowFace(
+                  key: Key('booking-calendar-prev-month'),
+                  icon: Icons.chevron_left_rounded,
+                ),
+              ],
+            ),
+          ),
+        ),
+        width: 360,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'a callback-less chevron composites to 0.55 of its undimmed face',
+      (tester) async {
+        await expectRegionDimRatio(
+          tester: tester,
+          target: find.byKey(key),
+          pumpFull: () => pumpReplica(tester),
+          pumpDimmed: () => pumpReal(tester),
+          ground: BrandColors.base,
+          expected: 0.55,
+          reason:
+              'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
+        );
+      },
+    );
+  });
 }

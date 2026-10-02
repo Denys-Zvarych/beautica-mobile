@@ -444,6 +444,7 @@ class _LoadingFormState extends State<_LoadingForm>
       animation: curved,
       // 0.55 → 1.0 — same shallow breathe as `BookingsSkeleton`, not a blink.
       builder: (BuildContext context, Widget? child) =>
+          // dim-decorative: skeleton breathing pulse
           Opacity(opacity: 0.55 + curved.value * 0.45, child: child),
       child: content,
     );
