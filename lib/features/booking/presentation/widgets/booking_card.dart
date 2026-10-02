@@ -161,7 +161,25 @@ const double _tearLineX =
 const double _priceMaxWidth = 96;
 
 class _BookingCardState extends State<BookingCard> {
-  bool _pressed = false;
+  // Phase 076 row 5 — the press flag lives in a notifier so tap-down/cancel
+  // repaints only the scale/decoration shell (ValueListenableBuilder), never
+  // the whole card subtree. A touch that merely starts a scroll no longer
+  // rebuilds the card twice.
+  final ValueNotifier<bool> _pressed = ValueNotifier<bool>(false);
+
+  // Phase 076 row 5 — the status visual and the a11y label (two tz lookups via
+  // formatFullDate / formatSlotTime) are memoised on (booking, l10n) instead
+  // of being recomputed on every build.
+  Booking? _memoBooking;
+  AppLocalizations? _memoL10n;
+  BookingStatusVisual? _memoVisual;
+  String? _memoLabel;
+
+  @override
+  void dispose() {
+    _pressed.dispose();
+    super.dispose();
+  }
 
   Booking get _b => widget.booking;
 
@@ -187,8 +205,8 @@ class _BookingCardState extends State<BookingCard> {
   ];
 
   /// Depth-as-time-axis: proud → shallow → sunk.
-  List<BoxShadow>? get _shadows {
-    if (_pressed) return null;
+  List<BoxShadow>? _shadowsFor({required bool pressed}) {
+    if (pressed) return null;
     return switch (_b.status) {
       BookingStatus.confirmed => VelvetShadows.extrudedCard,
       BookingStatus.completed ||
@@ -204,81 +222,101 @@ class _BookingCardState extends State<BookingCard> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final BookingStatusVisual v = BookingStatusVisual.of(_b, l10n);
-
-    return Semantics(
-      button: true,
-      label: l10n.bookingCardSemantics(
+    if (_memoVisual == null ||
+        _memoL10n != l10n ||
+        !identical(_memoBooking, _b) && _memoBooking != _b) {
+      _memoBooking = _b;
+      _memoL10n = l10n;
+      _memoVisual = BookingStatusVisual.of(_b, l10n);
+      _memoLabel = l10n.bookingCardSemantics(
         _b.serviceName,
         _b.masterName,
         formatFullDate(_b.startAt),
         formatSlotTime(_b.startAt),
-        v.label,
+        _memoVisual!.label,
+      );
+    }
+    final BookingStatusVisual v = _memoVisual!;
+
+    // Everything inside the press shell is built once per card rebuild and
+    // handed to the builder as `child`, so a press never touches it.
+    final Widget content = ClipRRect(
+      borderRadius: BorderRadius.circular(VelvetRadii.card),
+      // The status rail + tear line are PAINTED behind the content
+      // rather than laid out beside it — a Row-based layout would
+      // need an IntrinsicHeight around the card, and this subtree's
+      // note-clamping LayoutBuilder cannot answer an intrinsic
+      // query (it asserts). A CustomPaint gets the card's final
+      // size for free and asks the subtree nothing.
+      child: CustomPaint(
+        painter: _CardChrome(accent: v.accent, muted: _isDead),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            _railWidth + _stubInset,
+            VelvetSpacing.sm,
+            VelvetSpacing.sm,
+            VelvetSpacing.sm,
+          ),
+          child: Row(
+            // Centres the stub against the card's FULL content
+            // height (the taller Expanded body defines that height;
+            // the shorter stub centres within it) — see the library
+            // doc's "date column" section for why this replaced the
+            // old fixed-offset pin.
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              _DateStub(
+                key: ValueKey<String>('stub-${_b.id}'),
+                bookingId: _b.id,
+                start: _b.startAt,
+                dimmed: _isDead,
+                struck: _isNoShow,
+              ),
+              const SizedBox(width: _gutter),
+              Expanded(child: _body(l10n)),
+            ],
+          ),
+        ),
       ),
+    );
+
+    return Semantics(
+      button: true,
+      label: _memoLabel,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
+        onTapDown: (_) => _pressed.value = true,
+        onTapCancel: () => _pressed.value = false,
         onTapUp: (_) {
-          setState(() => _pressed = false);
+          _pressed.value = false;
           widget.onOpenDetails();
         },
-        child: AnimatedScale(
-          scale: _pressed ? 0.985 : 1,
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 160),
-            decoration: BoxDecoration(
-              color: BrandColors.base,
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              boxShadow: _shadows,
-              // A cancelled card has no lift, so it earns a hairline instead
-              // — otherwise it would dissolve into the taupe background.
-              border: _isDead
-                  ? Border.all(color: BrandColors.faint.withValues(alpha: 0.55))
-                  : null,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(VelvetRadii.card),
-              // The status rail + tear line are PAINTED behind the content
-              // rather than laid out beside it — a Row-based layout would
-              // need an IntrinsicHeight around the card, and this subtree's
-              // note-clamping LayoutBuilder cannot answer an intrinsic
-              // query (it asserts). A CustomPaint gets the card's final
-              // size for free and asks the subtree nothing.
-              child: CustomPaint(
-                painter: _CardChrome(accent: v.accent, muted: _isDead),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    _railWidth + _stubInset,
-                    VelvetSpacing.sm,
-                    VelvetSpacing.sm,
-                    VelvetSpacing.sm,
+        child: ValueListenableBuilder<bool>(
+          valueListenable: _pressed,
+          child: content,
+          builder: (BuildContext context, bool pressed, Widget? child) =>
+              AnimatedScale(
+                scale: pressed ? 0.985 : 1,
+                duration: const Duration(milliseconds: 120),
+                curve: Curves.easeOut,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  decoration: BoxDecoration(
+                    color: BrandColors.base,
+                    borderRadius: BorderRadius.circular(VelvetRadii.card),
+                    boxShadow: _shadowsFor(pressed: pressed),
+                    // A cancelled card has no lift, so it earns a hairline
+                    // instead — otherwise it would dissolve into the taupe
+                    // background.
+                    border: _isDead
+                        ? Border.all(
+                            color: BrandColors.faint.withValues(alpha: 0.55),
+                          )
+                        : null,
                   ),
-                  child: Row(
-                    // Centres the stub against the card's FULL content
-                    // height (the taller Expanded body defines that height;
-                    // the shorter stub centres within it) — see the library
-                    // doc's "date column" section for why this replaced the
-                    // old fixed-offset pin.
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: <Widget>[
-                      _DateStub(
-                        key: ValueKey<String>('stub-${_b.id}'),
-                        bookingId: _b.id,
-                        start: _b.startAt,
-                        dimmed: _isDead,
-                        struck: _isNoShow,
-                      ),
-                      const SizedBox(width: _gutter),
-                      Expanded(child: _body(l10n)),
-                    ],
-                  ),
+                  child: child,
                 ),
               ),
-            ),
-          ),
         ),
       ),
     );

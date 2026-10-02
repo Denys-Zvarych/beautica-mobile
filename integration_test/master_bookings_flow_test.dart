@@ -239,9 +239,11 @@ Future<void> _scrollRailTo(WidgetTester tester, DateTime day) async {
 /// [BookingsTimelineGrid] culls every card whose `plannedTop` falls below
 /// `scrollOffset + 1.5 × viewport` (`_cullingWindowBottom`, the mobile-perf
 /// fix that stopped a `SingleChildScrollView` painting a whole 24-hour day).
-/// Culling is bottom-only, so scrolling down brings a late card into the band
-/// WITHOUT evicting the earlier ones — every card stays laid out for a
-/// subsequent `getRect`.
+/// Culling is two-sided at textScaler 1.0 (Phase 076, ADDENDUM 11): scrolling
+/// down brings a late card into the band but may evict an early card more
+/// than half a viewport above it to its size-exact placeholder (key
+/// `timeline-card-culled-<id>`, same lane x). Cards within half a viewport of
+/// the target stay laid out for a subsequent `getRect`.
 ///
 /// A card late in the day is therefore simply ABSENT from the tree until the
 /// grid is scrolled to it: `findsOneWidget` on a 17:00 booking fails on a
@@ -792,9 +794,9 @@ void main() {
 
       // The published window anchors the grid's top to 09:00, so both cards
       // (18:00 and 20:00 Kyiv) sit well below the initial vertical-culling
-      // band. Scrolling to the LATER one is enough for both — culling is
-      // bottom-only, so it never evicts the earlier card once built (see
-      // `_scrollTimelineTo`'s doc).
+      // band. Scrolling to the LATER one is enough for both — they sit 240dp
+      // apart, inside the 0.5V top slack of a phone viewport, so the earlier
+      // card is not evicted (see `_scrollTimelineTo`'s doc).
       await _scrollTimelineTo(
         tester,
         find.byKey(const ValueKey<String>('timeline-card-filter-completed')),
@@ -3004,18 +3006,23 @@ void main() {
       // The late booking starts at 17:00 Kyiv — 960dp down a grid that begins
       // at 09:00 (8h × the 120dp hour) — so on a phone viewport it sits below
       // the grid's culling band and is not built until the grid is scrolled
-      // to it. That is vertical culling, not the lane bug under test; scroll
-      // it into the band so all three cards are laid out, then assert. The
-      // band is bottom-only, so the early card stays built.
-      await _scrollTimelineTo(tester, lateCard);
-
+      // to it. That is vertical culling, not the lane bug under test.
+      //
+      // Phase 076 (ADDENDUM 11): the band is now two-sided at textScaler 1.0,
+      // so cards far ABOVE the scroll position are replaced by size-exact,
+      // same-lane placeholders. A card is therefore only guaranteed built
+      // while it is being scrolled to: scroll DOWN through early -> cancelled
+      // -> late and measure each card's rect at the moment it is reached.
+      // Vertical scrolling never moves x, so the LEFT edges stay comparable.
+      await _scrollTimelineTo(tester, earlyCard);
       expect(
         earlyCard,
         findsOneWidget,
-        reason:
-            'the early active booking must still be built after the '
-            'vertical scroll — the culling band evicts nothing above it',
+        reason: 'the early active booking must be built when scrolled to',
       );
+      final Rect earlyRect = _masterCardRect(tester, 'early-active');
+
+      await _scrollTimelineTo(tester, cancelledCard);
       expect(
         cancelledCard,
         findsOneWidget,
@@ -3025,6 +3032,9 @@ void main() {
             'master reading a cancelled card off-screen as "still blocking '
             'the slot"',
       );
+      final Rect cancelledRect = _masterCardRect(tester, 'isolated-cancelled');
+
+      await _scrollTimelineTo(tester, lateCard);
       expect(
         lateCard,
         findsOneWidget,
@@ -3032,14 +3042,12 @@ void main() {
             'the late active booking must be reachable by VERTICAL '
             'scroll alone — no horizontal scroll may be needed to find it',
       );
+      final Rect lateRect = _masterCardRect(tester, 'late-active');
 
       // ── The cancelled card is LEFT-ALIGNED with both active cards — real
       //      rendered geometry, not a declared property. Nothing here
       //      overlaps anything else, so all three sit in lane 0 and their
       //      LEFT edges must coincide exactly. ─────────────────────────────
-      final Rect earlyRect = _masterCardRect(tester, 'early-active');
-      final Rect cancelledRect = _masterCardRect(tester, 'isolated-cancelled');
-      final Rect lateRect = _masterCardRect(tester, 'late-active');
       expect(
         cancelledRect.left,
         earlyRect.left,
