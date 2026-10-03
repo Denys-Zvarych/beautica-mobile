@@ -160,6 +160,19 @@ jobs:
         shell: bash
         run: ./scripts/test/test_cycle_gates.sh
 
+      # Perf measurement scripts (startup / jank / download size) — hermetic
+      # behavioural suites: fake adb/flutter/java/curl/git stubs on PATH, no
+      # device, no network, no Flutter build. Run from scripts/perf/tests/.
+      - name: Self-test perf measurement scripts
+        shell: bash
+        run: |
+          set -e
+          for t in scripts/perf/tests/*.test.sh; do
+            echo "::group::$t"
+            bash "$t"
+            echo "::endgroup::"
+          done
+
       # 2026-06-24 drift-prevention gate — CLIENT branch-root screens must reuse
       # the shared ClientTopBar; a per-screen Scaffold(appBar:)/AppBar() re-lays
       # out the wordmark and makes it jump on tab hop. The check lives in
