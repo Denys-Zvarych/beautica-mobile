@@ -245,6 +245,16 @@ jobs:
         shell: bash
         run: ./scripts/forbid_unbundled_font_weight.sh
 
+      # Phase 075 — no assignment of debug hooks in lib/ (production code).
+      - name: Forbid debug-hook assignment in lib
+        shell: bash
+        run: ./scripts/forbid_debug_hook_assignment_in_lib.sh
+
+      # Phase 076 — raw Image.network / NetworkImage is banned; use the shared cached image widget.
+      - name: Forbid raw network image
+        shell: bash
+        run: ./scripts/forbid_raw_network_image.sh
+
       # 2026-07-19 push-location safeguard — forbid a direct
       # currentConfiguration.uri/.fullPath read in tests; go_router excludes
       # ImperativeRouteMatch (the match kind context.push produces) from both,
@@ -565,6 +575,11 @@ jobs:
       - name: Self-test layer-dim guard (harness)
         shell: bash
         run: ./scripts/test/test_layer_dim_guard.sh
+
+      # Phase 076 — end-to-end harness for the raw-network-image guard.
+      - name: Self-test raw-network-image guard (harness)
+        shell: bash
+        run: ./scripts/test/test_raw_network_image_guard.sh
 
       # 2026-06-24 — self-test the drift gates above. Each gate's
       # comment/annotation detection is load-bearing; --self-test pins it against
