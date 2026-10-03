@@ -211,6 +211,7 @@ import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
 import 'notification_bell_flow_test.dart' as notification_bell;
 import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
@@ -748,6 +749,7 @@ void main() {
   // pre-emption against a real (non-same-tick) second trigger.
   group('velvet_snack_flow', velvet_snack.main);
   // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
+  group('media_avatar_upload_flow', media_avatar_upload.main);
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);

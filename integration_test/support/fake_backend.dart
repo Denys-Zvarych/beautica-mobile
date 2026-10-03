@@ -415,6 +415,7 @@ final class FakeBackend {
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
     this.forgotPasswordFailureStatusCode,
+    this.mediaAvatarUploadStatus,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -2715,6 +2716,24 @@ final class FakeBackend {
   // ── Support-contact telemetry ─────────────────────────────────────────────
   /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
   int supportContactCalls = 0;
+
+  // ── Media avatar telemetry (Phase 070) ────────────────────────────────────
+  /// Number of `POST /api/v1/media/avatar` calls the fake received (counted
+  /// even when [mediaAvatarUploadStatus] makes it fail).
+  int mediaAvatarUploadCalls = 0;
+
+  /// Number of `DELETE /api/v1/media/avatar` calls the fake accepted (204).
+  int mediaAvatarDeleteCalls = 0;
+
+  /// When non-null, `POST /api/v1/media/avatar` replies with this status and a
+  /// bare `{success:false}` body instead of the 200 success envelope — e.g.
+  /// 413 (too large), 400 (bad format), 503 (storage off).
+  ///
+  /// Read at construction time (like [forgotPasswordFailureStatusCode]):
+  /// `replyCallback`'s status is fixed when the route is wired from the
+  /// constructor, so mutating this after boot is a silent no-op (it was a
+  /// mutable field until QA measured exactly that). Pass it to `FakeBackend()`.
+  final int? mediaAvatarUploadStatus;
 
   // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
   /// `GET /api/v1/search/masters` call count + the last `page` requested.
@@ -6755,6 +6774,34 @@ final class FakeBackend {
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/media/avatar — multipart (`file` part), so the body is not
+    // decoded. 200 with the public URL on success; [mediaAvatarUploadStatus]
+    // switches it to a failure status. Tests that render the returned URL must
+    // allow the `media.test` host via MediaConfig's debug hosts.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(mediaAvatarUploadStatus ?? 200, (_) {
+        mediaAvatarUploadCalls++;
+        if (mediaAvatarUploadStatus != null) {
+          return <String, dynamic>{'success': false};
+        }
+        return _ok(<String, dynamic>{
+          'avatarUrl': 'https://media.test/avatars/u1/1.jpg',
+        });
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/media/avatar → 204.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(204, (_) {
+        mediaAvatarDeleteCalls++;
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
     );
 
     // GET /api/v1/users/me

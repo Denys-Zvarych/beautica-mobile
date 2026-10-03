@@ -263,8 +263,6 @@ export 'package:beautica_api/src/model/update_master_service_band_request.dart';
 export 'package:beautica_api/src/model/update_profile_request.dart';
 export 'package:beautica_api/src/model/update_salon_request.dart';
 export 'package:beautica_api/src/model/update_service_definition_request.dart';
-export 'package:beautica_api/src/model/update_service_photo_request.dart';
-export 'package:beautica_api/src/model/upload_portfolio_photo_request.dart';
 export 'package:beautica_api/src/model/user_profile_response.dart';
 export 'package:beautica_api/src/model/user_rating_response.dart';
 export 'package:beautica_api/src/model/verify_email_request.dart';

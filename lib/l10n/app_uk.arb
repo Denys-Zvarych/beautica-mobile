@@ -6644,5 +6644,41 @@
   "errSettlementRequired": "Оберіть населений пункт",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
+  },
+  "uploadErrorTooLarge": "Фото завелике (макс. 5 МБ)",
+  "@uploadErrorTooLarge": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorFormat": "Підтримуються лише JPEG, PNG або WebP",
+  "@uploadErrorFormat": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorStorage": "Завантаження фото тимчасово недоступне",
+  "@uploadErrorStorage": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNetwork": "Не вдалося завантажити фото. Перевірте з'єднання",
+  "@uploadErrorNetwork": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorGeneric": "Не вдалося завантажити фото",
+  "@uploadErrorGeneric": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorUnauthorized": "Сесія завершилася. Увійдіть знову",
+  "@uploadErrorUnauthorized": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorForbidden": "Немає прав для цієї дії",
+  "@uploadErrorForbidden": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNotFound": "Не вдалося знайти потрібний запис",
+  "@uploadErrorNotFound": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorCancelled": "Завантаження скасовано",
+  "@uploadErrorCancelled": {
+    "description": "Phase 070 — media upload failure copy."
   }
 }

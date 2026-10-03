@@ -194,6 +194,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMasterServices**](doc/ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**bulkCreateMyServices**](doc/ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deactivateServiceDefinition**](doc/ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**deleteServicePhoto**](doc/ServiceControllerApi.md#deleteservicephoto) | **DELETE** /api/v1/services/{serviceDefId}/photo | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMasterServices**](doc/ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getMyServices**](doc/ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**getSalonMasterServices**](doc/ServiceControllerApi.md#getsalonmasterservices) | **GET** /api/v1/salons/{salonId}/masters/{masterId}/services | 
@@ -201,7 +202,7 @@ Class | Method | HTTP request | Description
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**unassignServiceFromMaster**](doc/ServiceControllerApi.md#unassignservicefrommaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateMasterServiceBand**](doc/ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServiceDefinition**](doc/ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
-[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**updateServicePhoto**](doc/ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
+[*ServiceControllerApi*](doc/ServiceControllerApi.md) | [**uploadServicePhoto**](doc/ServiceControllerApi.md#uploadservicephoto) | **POST** /api/v1/services/{serviceDefId}/photo | 
 [*SettlementSearchControllerApi*](doc/SettlementSearchControllerApi.md) | [**searchSettlements**](doc/SettlementSearchControllerApi.md#searchsettlements) | **GET** /api/v1/settlements | 
 [*StaffBookingsApi*](doc/StaffBookingsApi.md) | [**createStaffBooking**](doc/StaffBookingsApi.md#createstaffbooking) | **POST** /api/v1/masters/{masterId}/bookings | Create a walk-in visit on a master&#39;s calendar
 [*SupportControllerApi*](doc/SupportControllerApi.md) | [**contact**](doc/SupportControllerApi.md#contact) | **POST** /api/v1/support/contact | Send a Help / Contact-us message to support
@@ -438,8 +439,6 @@ Class | Method | HTTP request | Description
  - [UpdateProfileRequest](doc/UpdateProfileRequest.md)
  - [UpdateSalonRequest](doc/UpdateSalonRequest.md)
  - [UpdateServiceDefinitionRequest](doc/UpdateServiceDefinitionRequest.md)
- - [UpdateServicePhotoRequest](doc/UpdateServicePhotoRequest.md)
- - [UploadPortfolioPhotoRequest](doc/UploadPortfolioPhotoRequest.md)
  - [UserProfileResponse](doc/UserProfileResponse.md)
  - [UserRatingResponse](doc/UserRatingResponse.md)
  - [VerifyEmailRequest](doc/VerifyEmailRequest.md)

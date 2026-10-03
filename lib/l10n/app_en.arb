@@ -6644,5 +6644,41 @@
   "errSettlementRequired": "Choose a settlement",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
+  },
+  "uploadErrorTooLarge": "Photo is too large (max 5 MB)",
+  "@uploadErrorTooLarge": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorFormat": "Only JPEG, PNG or WebP are supported",
+  "@uploadErrorFormat": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorStorage": "Photo upload is temporarily unavailable",
+  "@uploadErrorStorage": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNetwork": "Could not upload the photo. Check your connection",
+  "@uploadErrorNetwork": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorGeneric": "Could not upload the photo",
+  "@uploadErrorGeneric": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorUnauthorized": "Your session has ended. Sign in again",
+  "@uploadErrorUnauthorized": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorForbidden": "You do not have permission for this action",
+  "@uploadErrorForbidden": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNotFound": "The requested item could not be found",
+  "@uploadErrorNotFound": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorCancelled": "Upload cancelled",
+  "@uploadErrorCancelled": {
+    "description": "Phase 070 — media upload failure copy."
   }
 }

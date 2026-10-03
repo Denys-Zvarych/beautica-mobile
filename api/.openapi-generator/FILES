@@ -252,8 +252,6 @@ doc/UpdateMasterServiceBandRequest.md
 doc/UpdateProfileRequest.md
 doc/UpdateSalonRequest.md
 doc/UpdateServiceDefinitionRequest.md
-doc/UpdateServicePhotoRequest.md
-doc/UploadPortfolioPhotoRequest.md
 doc/UserControllerApi.md
 doc/UserProfileResponse.md
 doc/UserRatingResponse.md
@@ -529,8 +527,6 @@ lib/src/model/update_master_service_band_request.dart
 lib/src/model/update_profile_request.dart
 lib/src/model/update_salon_request.dart
 lib/src/model/update_service_definition_request.dart
-lib/src/model/update_service_photo_request.dart
-lib/src/model/upload_portfolio_photo_request.dart
 lib/src/model/user_profile_response.dart
 lib/src/model/user_rating_response.dart
 lib/src/model/verify_email_request.dart
