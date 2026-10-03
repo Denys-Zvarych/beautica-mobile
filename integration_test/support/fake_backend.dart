@@ -2622,6 +2622,68 @@ final class FakeBackend {
   /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
   /// profile's services section resolves.
   void clearServices() => _services.clear();
+
+  /// Phase 076 (jank audit) — appends [count] extra services to the master's
+  /// own list, spread over [categories] round-robin, so a scroll-perf flow can
+  /// mount a list well past the default three rows. Additive: nothing calls
+  /// this but `integration_test/perf/scroll_jank_test.dart`. Ids are
+  /// `assign-bulk-<i>`; call BEFORE the services list first resolves.
+  void seedManyServices(
+    int count, {
+    List<String> categories = const <String>['NAILS', 'FACE', 'HAIR'],
+  }) {
+    for (int i = 0; i < count; i++) {
+      final String category = categories[i % categories.length];
+      _services.add(<String, dynamic>{
+        'id': 'assign-bulk-$i',
+        'masterId': 'user-master-1',
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 300 + i,
+        'priceMax': null,
+        'priceDisplay': '${300 + i} ₴',
+        'effectiveDurationMinutes': 45,
+        'serviceDefinition': <String, dynamic>{
+          'id': 'svc-bulk-$i',
+          'name': 'Послуга $i',
+          'description': null,
+          'category': category,
+          'baseDurationMinutes': 45,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300 + i,
+          'priceMax': null,
+          'priceDisplay': '${300 + i} ₴',
+          'photoUrl': null,
+        },
+      });
+    }
+  }
+
+  /// Phase 076 (jank audit) — when non-null, `GET /search/masters` serves
+  /// these rows in pages of 20 (real `page` slice, `totalPages` derived)
+  /// instead of the two-row default. Set by [seedManySearchMasters].
+  List<Map<String, dynamic>>? _searchMastersBulk;
+
+  /// Seeds [count] master search results (see [_searchMastersBulk]).
+  void seedManySearchMasters(int count) {
+    _searchMastersBulk = <Map<String, dynamic>>[
+      for (int i = 0; i < count; i++)
+        <String, dynamic>{
+          'masterId': 'master-bulk-$i',
+          'firstName': 'Майстер',
+          'lastName': 'Номер$i',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Печерський',
+          'avgRating': 4.5,
+          'reviewCount': 3,
+          'avatarUrl': null,
+          'minEffectivePrice': 300 + i,
+        },
+    ];
+  }
+
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;
@@ -8487,6 +8549,22 @@ final class FakeBackend {
         // (q + location.cityId + category + minPrice/maxPrice) arrived on
         // this SAME request — see [lastSearchMastersQueryMap].
         lastSearchMastersQueryMap = Map<String, dynamic>.from(reqJson);
+        final List<Map<String, dynamic>>? bulk = _searchMastersBulk;
+        if (bulk != null) {
+          const int pageSize = 20;
+          final int from = (page < 0 ? 0 : page) * pageSize;
+          final int to = (from + pageSize) > bulk.length
+              ? bulk.length
+              : from + pageSize;
+          return _searchEnvelope(
+            from >= bulk.length
+                ? const <Map<String, dynamic>>[]
+                : bulk.sublist(from, to),
+            page: page < 0 ? 0 : page,
+            totalPages: (bulk.length / pageSize).ceil(),
+            totalElements: bulk.length,
+          );
+        }
         if (page <= 0) {
           return _searchEnvelope(
             _withMatchedNames(

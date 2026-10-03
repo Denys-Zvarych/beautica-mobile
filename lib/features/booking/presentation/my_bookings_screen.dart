@@ -173,6 +173,37 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
   bool _hasMore = false;
   bool _isLoadingMore = false;
 
+  // Phase 076 row 4 — one built card widget per booking id, reused while the
+  // `Booking` is unchanged. `BookingCard` is a StatefulWidget with no `==`, so
+  // a FRESH instance (as a per-build `() => onOpenDetails(id)` closure forces)
+  // always re-runs the card's build; handing Flutter the IDENTICAL widget lets
+  // `Element.updateChild` skip it. Pruned to the live ids whenever the list
+  // identity changes, so it never outgrows `items`.
+  final Map<String, ({Booking booking, Widget widget})> _cards =
+      <String, ({Booking booking, Widget widget})>{};
+  List<Booking>? _cardsFor;
+
+  Widget _cardFor(Booking booking) {
+    final ({Booking booking, Widget widget})? hit = _cards[booking.id];
+    if (hit != null && hit.booking == booking) return hit.widget;
+    final Widget built = RepaintBoundary(
+      key: ValueKey<String>(booking.id),
+      child: BookingCard(
+        booking: booking,
+        onOpenDetails: () => widget.onOpenDetails(booking.id),
+      ),
+    );
+    _cards[booking.id] = (booking: booking, widget: built);
+    return built;
+  }
+
+  void _pruneCards(List<Booking> items) {
+    if (identical(_cardsFor, items)) return;
+    _cardsFor = items;
+    final Set<String> live = <String>{for (final Booking b in items) b.id};
+    _cards.removeWhere((String id, _) => !live.contains(id));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -251,6 +282,7 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
           // header), so a visit's legs land in their natural chronological
           // position among any other bookings with no client-side re-sort.
           final List<Booking> items = state.items;
+          _pruneCards(items);
           final int extra = state.hasMore ? 1 : 0;
           return ListView.separated(
             key: ValueKey<String>('my-bookings-list-${widget.tab.name}'),
@@ -264,14 +296,7 @@ class _BookingsTabViewState extends ConsumerState<_BookingsTabView> {
               if (i >= items.length) {
                 return const MyBookingsLoadMoreSpinner();
               }
-              final Booking booking = items[i];
-              return RepaintBoundary(
-                key: ValueKey<String>(booking.id),
-                child: BookingCard(
-                  booking: booking,
-                  onOpenDetails: () => widget.onOpenDetails(booking.id),
-                ),
-              );
+              return _cardFor(items[i]);
             },
           );
         },

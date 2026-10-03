@@ -92,6 +92,8 @@ import 'client_review_refreshes_salon_surfaces_flow_test.dart'
     as client_review_refreshes_salon_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_session_switch_my_bookings_flow_test.dart'
+    as client_session_switch_my_bookings;
 import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'staff_delete_account_flow_test.dart' as staff_delete_account;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
@@ -359,6 +361,10 @@ void main() {
   group('client_home_hub_flow', client_home_hub.main);
   group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
+  group(
+    'client_session_switch_my_bookings_flow',
+    client_session_switch_my_bookings.main,
+  );
   group('client_delete_account_flow', client_delete_account.main);
   // Staff delete-account widening (2026-09-08, Step 2.7 Rule 3b, mobile-qa)
   // — SALON_MASTER / INDEPENDENT_MASTER / SALON_ADMIN reachability + the

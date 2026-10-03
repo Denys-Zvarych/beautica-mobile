@@ -1012,4 +1012,144 @@ void main() {
       );
     });
   });
+
+  // Phase 076 jank #7 — ADDENDUM 11. The board used to cull only BELOW the
+  // band, so scrolling to the bottom of a 100-booking day left every card
+  // above the viewport (each with 2 RepaintBoundaries + 2 blur draws) mounted.
+  // Culling is now two-sided at textScaler <= 1.0, where the placeholder is
+  // size-exact, so no visible card moves and the scroll extent is unchanged.
+  group('the board culls ABOVE the viewport too (phase 076 jank #7)', () {
+    const int masters = 5;
+    const int firstHour = 2;
+    const int perMaster = 20; // 2:00 .. 21:00 -> 5 x 20 = 100 bookings
+
+    List<TimelineBoardColumn> hundredBookings() => <TimelineBoardColumn>[
+      for (int m = 0; m < masters; m++)
+        TimelineBoardColumn(
+          header: _entry('m$m', 'Майстер $m', perMaster),
+          bookings: <Booking>[
+            for (int h = firstHour; h < firstHour + perMaster; h++)
+              _booking(id: 'v$m-$h', masterId: 'm$m', hour: h),
+          ],
+        ),
+    ];
+
+    Future<ScrollableState> pumpBoard(WidgetTester tester) async {
+      final List<TimelineBoardColumn> cols = hundredBookings();
+      await tester.pumpApp(
+        Column(
+          children: <Widget>[
+            // Same stand-in chrome as the cull-band safety group: gives the
+            // grid's inner scroller the shipping board's ~174dp viewport.
+            const SizedBox(height: 362),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: BookingsTimelineGrid(
+                  bookings:
+                      <Booking>[
+                        for (final TimelineBoardColumn c in cols) ...c.bookings,
+                      ]..sort(
+                        (Booking a, Booking b) =>
+                            a.startAt.compareTo(b.startAt),
+                      ),
+                  day: _day,
+                  onBookingTap: (_) {},
+                  density: TimelineDensity.salon,
+                  columns: cols,
+                ),
+              ),
+            ),
+          ],
+        ),
+        width: 360,
+        height: 600,
+      );
+      await tester.pump();
+      await tester.pump();
+      return tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byType(BookingsTimelineGrid),
+              matching: find.byType(Scrollable),
+            )
+            .last,
+      );
+    }
+
+    testWidgets('scrolled to the bottom of a 100-booking day, the mounted '
+        'card count is bounded and the cards above the viewport are '
+        'placeholders', (WidgetTester tester) async {
+      final ScrollableState scrollable = await pumpBoard(tester);
+      final double extentAtRest = scrollable.position.maxScrollExtent;
+      expect(
+        extentAtRest,
+        greaterThan(scrollable.position.viewportDimension * 3),
+        reason: 'fixture guard: the day must be many viewports tall',
+      );
+
+      scrollable.position.jumpTo(extentAtRest);
+      await tester.pump();
+      await tester.pump();
+
+      final int mounted = find.byType(MasterBookingCard).evaluate().length;
+      expect(
+        mounted,
+        lessThan(30),
+        reason:
+            'only the viewport plus 0.5V of slack per side (~4-5 cards per '
+            'column, ~3 columns) may be mounted; the one-sided cull left '
+            '~20 per column. Mounted: $mounted',
+      );
+      expect(
+        mounted,
+        greaterThan(0),
+        reason: 'vacuity guard: the tail is live',
+      );
+
+      // The head of the day is far above the viewport: placeholder, not card.
+      for (int m = 0; m < 2; m++) {
+        for (int h = firstHour; h < firstHour + 6; h++) {
+          expect(
+            find.byKey(ValueKey<String>('timeline-card-v$m-$h')),
+            findsNothing,
+            reason: 'v$m-$h is >= 5 viewports above the fold and still mounted',
+          );
+          expect(
+            find.byKey(ValueKey<String>('timeline-card-culled-v$m-$h')),
+            findsOneWidget,
+            reason: 'v$m-$h must be its size-exact placeholder',
+          );
+        }
+      }
+      // The last card of the first column is on screen and must be live.
+      expect(
+        find.byKey(
+          const ValueKey<String>(
+            'timeline-card-v0-${firstHour + perMaster - 1}',
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      // Size-exactness: culling above must not change the scroll extent (a
+      // wrong-height placeholder would shift everything below it).
+      expect(
+        scrollable.position.maxScrollExtent,
+        closeTo(extentAtRest, 0.5),
+        reason:
+            'above-culling changed the scroll extent — placeholders are '
+            'not size-exact',
+      );
+
+      // Scrolling back up re-materialises the head.
+      scrollable.position.jumpTo(0);
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-v0-$firstHour')),
+        findsOneWidget,
+      );
+    });
+  });
 }

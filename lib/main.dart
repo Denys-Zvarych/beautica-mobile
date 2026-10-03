@@ -12,6 +12,7 @@ import 'core/config/app_config.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
+import 'core/perf/startup_trace.dart';
 import 'core/push/push_available_provider.dart';
 import 'core/theme/app_theme.dart';
 import 'features/notifications/presentation/push_message_listener.dart';
@@ -72,7 +73,7 @@ Future<void> main() async {
   // (DST-aware) via shared/time/time_zones.dart. Synchronous + cheap; must
   // complete before the first frame so the slot picker never reads the zone
   // uninitialised.
-  initBeauticaTimeZones();
+  StartupTrace.sync(StartupSlice.timezones, initBeauticaTimeZones);
 
   // Splash timing is recorded in SplashScreen.initState — see
   // lib/features/auth/presentation/splash_screen.dart. The gate must measure
@@ -102,23 +103,25 @@ Future<void> main() async {
   // given (family, weight) — login + role-selection — show a one-frame
   // system-font → Nunito swap (visible as a "text flicker"). The native
   // splash is preserved above, so users see solid warm-taupe while these
-  // four FontLoader.load() futures complete (~ms on a modern device).
+  // six FontLoader.load() futures (one per bundled TTF) complete (~ms on a modern device).
   //
   // If you add a new (family, weight) tuple to VelvetText, add it here too,
   // or the first screen to use it will flicker on cold entry.
-  GoogleFonts.comfortaa(fontWeight: FontWeight.w600); // VelvetText.subheading
-  GoogleFonts.comfortaa(
-    fontWeight: FontWeight.w700,
-  ); // wordmark / heading / cta
-  GoogleFonts.nunito(fontWeight: FontWeight.w400); // nunitoTextTheme default
-  GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
-  GoogleFonts.nunito(
-    fontWeight: FontWeight.w700,
-  ); // bodyStrong / label / link / feedback
-  GoogleFonts.nunito(
-    fontWeight: FontWeight.w800,
-  ); // pill / field accent / form caption
-  await GoogleFonts.pendingFonts();
+  await StartupTrace.async(StartupSlice.fonts, () async {
+    GoogleFonts.comfortaa(fontWeight: FontWeight.w600); // VelvetText.subheading
+    GoogleFonts.comfortaa(
+      fontWeight: FontWeight.w700,
+    ); // wordmark / heading / cta
+    GoogleFonts.nunito(fontWeight: FontWeight.w400); // Material text roles
+    GoogleFonts.nunito(fontWeight: FontWeight.w600); // body / input
+    GoogleFonts.nunito(
+      fontWeight: FontWeight.w700,
+    ); // bodyStrong / label / link / feedback
+    GoogleFonts.nunito(
+      fontWeight: FontWeight.w800,
+    ); // pill / field accent / form caption
+    await GoogleFonts.pendingFonts();
+  });
 
   // L3 (mobile-perf, MP11 pattern): warm the flutter_svg cache for the
   // shared notification bell so its first paint (Головна AND the Beauty
@@ -132,7 +135,7 @@ Future<void> main() async {
   // MEDIUM-3 (mobile-security 2026-05-27): pre-load ISRG Root X1 cert for
   // Dio IOHttpClientAdapter cert-pinning. Must complete before runApp so
   // the SecurityContext is cached before any provider reads dioProvider.
-  await initCertPinning();
+  await StartupTrace.async(StartupSlice.certPinning, initCertPinning);
 
   // `retry:` installs the app-wide retry predicate on the ROOT container, so
   // it governs every provider at once. Riverpod's own default retries ANY
@@ -140,19 +143,22 @@ Future<void> main() async {
   // and a `Failure` is neither, so a 404 or a decode breakdown used to hold
   // the screen in `AsyncLoading` for the whole 38 s instead of rendering its
   // error state. See `core/errors/failure_retry_policy.dart`.
-  final ProviderContainer container = ProviderContainer(
-    retry: beauticaProviderRetry,
-    overrides: [
-      // Phase 361 audit — de-sync the 60 s unread poll across clients. The
-      // provider defaults to zero so tests stay exact; the app draws 0..5 s.
-      pollJitterProvider.overrideWithValue(
-        Duration(
-          milliseconds: math.Random().nextInt(
-            kUnreadPollJitterMax.inMilliseconds + 1,
+  final ProviderContainer container = StartupTrace.sync(
+    StartupSlice.container,
+    () => ProviderContainer(
+      retry: beauticaProviderRetry,
+      overrides: [
+        // Phase 361 audit — de-sync the 60 s unread poll across clients. The
+        // provider defaults to zero so tests stay exact; the app draws 0..5 s.
+        pollJitterProvider.overrideWithValue(
+          Duration(
+            milliseconds: math.Random().nextInt(
+              kUnreadPollJitterMax.inMilliseconds + 1,
+            ),
           ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
   runApp(
     UncontrolledProviderScope(container: container, child: const BeauticaApp()),

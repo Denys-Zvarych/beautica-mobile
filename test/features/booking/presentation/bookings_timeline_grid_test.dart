@@ -2165,11 +2165,7 @@ void main() {
         };
 
         // Fixture guard: at rest the day's TAIL must actually be substituted,
-        // or there is nothing to observe and the test is vacuous. (This used
-        // to guard on the HEAD being culled after scrolling to the bottom —
-        // ADDENDUM 6 deliberately made that impossible: nothing at or above
-        // the visible band is ever culled. The substitution being observed is
-        // the same one either way, just measured from the other end.)
+        // or there is nothing to observe and the test is vacuous.
         expect(
           culledPlaceholder('reflow-${day.length - 1}'),
           findsOneWidget,
@@ -2181,18 +2177,17 @@ void main() {
         await scrollTo(tester, double.infinity);
         await tester.pumpAndSettle();
 
-        // ADDENDUM 6's invariant, directly: the head of the day is STILL a
-        // real card after scrolling a full day away from it. Culling below
-        // the window only is what makes "no visible card can move" true by
-        // construction rather than by a measurement table.
+        // ADDENDUM 11 (supersedes ADDENDUM 6's "never above"): at textScaler
+        // 1.0 the head of the day IS culled after scrolling a full day away
+        // from it — and the loop below is what makes that safe: placeholder
+        // height is exact, so no card's content offset moved.
         expect(
-          realCard('reflow-0'),
+          culledPlaceholder('reflow-0'),
           findsOneWidget,
           reason:
-              'the head of the day was culled after scrolling to the bottom '
-              '— culling has been re-enabled ABOVE the visible band, which '
-              'makes placeholder height fidelity load-bearing again at every '
-              'text scale (see ADDENDUM 6)',
+              'the head of the day is still a live card after scrolling to '
+              'the bottom at textScaler 1.0 — above-the-band culling '
+              '(ADDENDUM 11) is not engaging',
         );
 
         for (int i = 0; i < day.length; i++) {
@@ -2545,10 +2540,10 @@ void main() {
               'used elsewhere',
         );
 
-        /// The topmost culled card's rendered top, or null when nothing is
-        /// culled. Collected in ONE tree walk (a key-prefix predicate) rather
-        /// than 24 finder lookups per offset, so the fine step stays cheap.
-        double? topmostCulledTop() {
+        /// Every culled placeholder's rendered `(top, bottom)`. Collected in
+        /// ONE tree walk (a key-prefix predicate) rather than 24 finder
+        /// lookups per offset, so the fine step stays cheap.
+        List<(double, double)> culledSpans() {
           final Iterable<Element> culled = find
               .byWidgetPredicate(
                 (Widget w) =>
@@ -2558,14 +2553,19 @@ void main() {
                     ),
               )
               .evaluate();
-          double? top;
-          for (final Element e in culled) {
-            final RenderBox box = e.renderObject! as RenderBox;
-            final double t = box.localToGlobal(Offset.zero).dy;
-            if (top == null || t < top) top = t;
-          }
-          return top;
+          return <(double, double)>[
+            for (final Element e in culled)
+              (
+                (e.renderObject! as RenderBox).localToGlobal(Offset.zero).dy,
+                (e.renderObject! as RenderBox).localToGlobal(Offset.zero).dy +
+                    (e.renderObject! as RenderBox).size.height,
+              ),
+          ];
         }
+
+        final double gridTop = tester
+            .getRect(find.byType(BookingsTimelineGrid))
+            .top;
 
         final double fold = tester
             .getRect(find.byType(BookingsTimelineGrid))
@@ -2588,21 +2588,27 @@ void main() {
         int sawCulled = 0;
         for (double offset = 0; offset <= maxExtent; offset += kFineStep) {
           await scrollTo(tester, offset);
-          final double? top = topmostCulledTop();
-          if (top == null) continue;
+          final List<(double, double)> spans = culledSpans();
+          if (spans.isEmpty) continue;
           sawCulled++;
-          expect(
-            top,
-            greaterThanOrEqualTo(fold - 0.5),
-            reason:
-                'at scroll offset $offset the topmost culled card starts at '
-                '${top}dp, ABOVE the fold at ${fold}dp — it is on screen and '
-                'it is a blank box. The guaranteed margin '
-                '`(slack - reanchorFraction) x viewport` has gone negative: '
-                'either the slack was shaved or the re-anchor threshold was '
-                'raised without raising the slack with it. Cards will POP IN '
-                'as the user scrolls.',
-          );
+          for (final (double top, double bottom) in spans) {
+            // ADDENDUM 11: culling is two-sided, so a placeholder may sit
+            // wholly ABOVE the grid's top edge or wholly BELOW its fold — it
+            // must never intersect the viewport.
+            expect(
+              top >= fold - 0.5 || bottom <= gridTop + 0.5,
+              isTrue,
+              reason:
+                  'at scroll offset $offset a culled card spans '
+                  '${top}dp..${bottom}dp, INTERSECTING the viewport '
+                  '[$gridTop, $fold] — it is on screen and '
+                  'it is a blank box. The guaranteed margin '
+                  '`(slack - reanchorFraction) x viewport` has gone negative: '
+                  'either the slack was shaved or the re-anchor threshold was '
+                  'raised without raising the slack with it. Cards will POP IN '
+                  'as the user scrolls.',
+            );
+          }
         }
 
         expect(
@@ -2709,6 +2715,74 @@ void main() {
                 '$id moved from ${offset}dp to ${contentOffsetOf(id)}dp '
                 'within the timeline content purely because the view was '
                 'scrolled, at textScaler 1.3',
+          );
+        });
+      },
+    );
+
+    // N3 — above-the-band culling needs a size-EXACT placeholder, which holds
+    // only at a body text scale of exactly 1.0. A scaler BELOW 1.0 (0.85, a
+    // real accessibility setting) satisfied the old `scale(1) <= 1.0` gate but
+    // renders cards shorter than the 124dp plan, so culling above the band
+    // would have shifted every card below it.
+    testWidgets(
+      'at textScaler 0.85 above-the-band culling is OFF and no visible card '
+      'shifts when the view is scrolled to the bottom',
+      (WidgetTester tester) async {
+        final List<Booking> day = <Booking>[
+          for (int i = 0; i < 12; i++)
+            _booking(
+              id: 'small-$i',
+              startAtUtc: _kyivAtUtc(9 + i),
+              durationMinutes: 60,
+            ),
+        ];
+
+        await tester.pumpApp(
+          BookingsTimelineGrid(bookings: day, day: _day, onBookingTap: (_) {}),
+          textScaleFactor: 0.85,
+        );
+        await tester.pump();
+
+        double contentOffsetOf(String id) {
+          final double gridTop = tester
+              .getTopLeft(
+                find.byKey(const ValueKey<String>('timeline-lane-stack')),
+              )
+              .dy;
+          final Finder target = realCard(id).evaluate().isNotEmpty
+              ? realCard(id)
+              : culledPlaceholder(id);
+          return tester.getTopLeft(target).dy - gridTop;
+        }
+
+        final Map<String, double> atRest = <String, double>{
+          for (int i = 0; i < day.length; i++)
+            if (realCard('small-$i').evaluate().isNotEmpty)
+              'small-$i': contentOffsetOf('small-$i'),
+        };
+        expect(
+          atRest.length,
+          lessThan(day.length),
+          reason: 'fixture guard: nothing was culled below the band at rest',
+        );
+
+        await scrollTo(tester, double.infinity);
+        await tester.pumpAndSettle();
+
+        expect(
+          realCard('small-0'),
+          findsOneWidget,
+          reason:
+              'the head of the day was culled above the band at textScaler '
+              '0.85: the gate admits scalers below 1.0, where the placeholder '
+              'is not size-exact',
+        );
+        atRest.forEach((String id, double offset) {
+          expect(
+            contentOffsetOf(id),
+            closeTo(offset, 0.5),
+            reason: '$id moved from ${offset}dp to ${contentOffsetOf(id)}dp',
           );
         });
       },

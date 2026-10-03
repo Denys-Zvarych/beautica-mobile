@@ -146,7 +146,7 @@ class PasswordStrengthIndicator extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 color: activeColor,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

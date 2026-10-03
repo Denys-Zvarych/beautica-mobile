@@ -279,7 +279,7 @@ class WeekStripDay extends StatelessWidget {
         : BrandColors.text;
 
     final FontWeight numberWeight = past && !selected
-        ? FontWeight.w500
+        ? FontWeight.w600
         : FontWeight.w700;
 
     final Column body = Column(

@@ -526,6 +526,44 @@
 //    [_laneGeometry]. The scroll path does one `>` comparison per card.
 //
 // ============================================================================
+// ADDENDUM 11 (2026-10-02, Phase 076 jank #7) — CULL ABOVE TOO, WHEN IT IS
+// SIZE-EXACT. AMENDS ADDENDUM 6's "BELOW ONLY".
+// ============================================================================
+// ADDENDUM 6 dropped above-window culling because a placeholder above the
+// band must be SIZE-EXACT: this lane is a flex `Column`, so a wrong-height
+// placeholder shifts every card below it (visible ones included), and the hour
+// lines (`Positioned`, never culled) lose registration. Exactness only holds at
+// textScaler <= 1.0 (`occupiedHeightFor` is a 1.0 measurement; 124dp @1.15,
+// 132dp @1.3). The cost was real, though: scrolling to the bottom of a
+// 100-booking day left every card above the viewport — each with 2
+// `RepaintBoundary`s + 2 `MaskFilter.blur` draws — mounted, so layers and
+// raster memory grew monotonically with scroll depth.
+//
+// WHAT IS PRESERVED, AND HOW:
+//   * No visible card moves, at any scale: top culling is applied ONLY when
+//     `MediaQuery.textScalerOf(context).scale(1) <= 1.0`. Above 1.0 behaviour
+//     is byte-for-byte ADDENDUM 6 (below-only), so the 1.15 / 1.3 users are
+//     unchanged — they keep the one-sided cost, by design.
+//   * Planned == rendered at 1.0, so the placeholder is the same box (width AND
+//     height), the `Column`'s child count/order/geometry are unchanged, R3's
+//     no-overlap guarantee and [assignLanes] are untouched, the scroll offset
+//     never shifts (nothing above the viewport changes size) and
+//     `maxScrollExtent` stays exactly stable.
+//   * Margin: the top edge is `offset - 0.5V` (mirror of the bottom's
+//     `+ 1.5V`), re-anchored on the same `V / 4` drift, so a card that is on
+//     screen always has >= 0.25V before it can be substituted. A card is
+//     culled above only when its planned BOTTOM is above that edge.
+//   * Hit-testing: a placeholder is inert, but it is >= 0.25V off-screen, so
+//     nothing tappable is ever under the finger.
+//   * Unknown viewport (pre-metrics): the top edge is `-inf` / negative at
+//     offset 0, so nothing above is culled until the real window is anchored.
+//   * Horizontal band, deepest-column pin, and the card cache keys are
+//     untouched.
+// Pinned by `salon_bookings_board_test.dart`'s "culls ABOVE the viewport too"
+// and `bookings_timeline_grid_test.dart`'s ADDENDUM 4 group (reflow test now
+// asserts the head IS culled yet no card moved).
+//
+// ============================================================================
 // ADDENDUM 7 (2026-07-24) — VERTICAL-SCALE PASS: CARDS LAND ON THEIR END LINE
 // ============================================================================
 // THE REPORT: a booking ending at 14:00 rendered its card bottom down to
@@ -1252,9 +1290,11 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// post-frame callback at a time.
   bool _viewportSyncScheduled = false;
 
-  /// The culling band's BOTTOM edge, in the lane `Column`s' own local
-  /// coordinates — the ONLY scroll-derived value the tree consumes, and it
-  /// flows to exactly one place: each [_LaneColumn]'s `visibleBottom`.
+  /// The culling band's `(top, bottom)` edges, in the lane `Column`s' own
+  /// local coordinates — the ONLY scroll-derived value the tree consumes, and
+  /// it flows to exactly one place: each [_LaneColumn]'s `visibleTop` /
+  /// `visibleBottom`. Phase 076 jank #7 added the top edge (previously only
+  /// the bottom existed); see the "ADDENDUM 11" note on [_cullingWindowTop].
   ///
   /// `_windowOffset` is measured against the scroll view's child, whose origin
   /// sits [TimelineHourRuler.labelCenteringNudge] above each lane's own origin
@@ -1267,7 +1307,8 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   /// rebuild when the window moves (mobile-perf LOW). Recomputed via
   /// [_cullingWindowBottom] wherever [_windowOffset] / [_windowViewport]
   /// change.
-  final ValueNotifier<double> _visibleBottom = ValueNotifier<double>(0);
+  final ValueNotifier<(double, double)> _visibleBand =
+      ValueNotifier<(double, double)>((double.negativeInfinity, 0));
 
   // ── The SALON board's HORIZONTAL culling window (audit H2, 2026-09-16) ──
   //
@@ -1392,10 +1433,9 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
 
   /// The current culling-band bottom edge from the window anchor + viewport.
   ///
-  /// ADDENDUM 6 — there is deliberately no matching `visibleTop`: cards above
-  /// the window are never culled, which is what lets culling run at every text
-  /// scale without the placeholder having to be size-exact. Do not reintroduce
-  /// a top edge without re-reading ADDENDUM 5 and 6.
+  /// ADDENDUM 6 made bottom culling unconditional at every text scale. The top
+  /// edge is [_cullingWindowTop] (ADDENDUM 11) and is applied per-lane only at
+  /// textScaler <= 1.0.
   ///
   /// ADDENDUM 9 — the slack is `0.5V` (the band ends at `offset + 1.5V`), not
   /// ADDENDUM 4's `1V`. See that addendum for the re-derived margin.
@@ -1403,6 +1443,21 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
       _windowOffset +
       (1 + _kWindowSlack) * _windowViewport -
       TimelineHourRuler.labelCenteringNudge;
+
+  /// The culling band's TOP edge — ADDENDUM 11 (Phase 076 jank #7). Mirror of
+  /// [_cullingWindowBottom]: `_kWindowSlack` of a viewport ABOVE the visible
+  /// band, so with the same `V / 4` re-anchor drift a card that is genuinely on
+  /// screen always has >= `0.25V` of margin before it can be substituted.
+  /// Whether it is APPLIED is decided per lane against the text scale (see
+  /// [_LaneColumnState.build]) — publishing it is harmless at any scale.
+  double get _cullingWindowTop =>
+      _windowOffset -
+      _kWindowSlack * _windowViewport -
+      TimelineHourRuler.labelCenteringNudge;
+
+  void _publishVisibleBand() {
+    _visibleBand.value = (_cullingWindowTop, _cullingWindowBottom);
+  }
 
   @override
   void initState() {
@@ -1420,7 +1475,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     super.didChangeDependencies();
     if (_windowViewport <= 0) {
       _windowViewport = MediaQuery.sizeOf(context).height;
-      _visibleBottom.value = _cullingWindowBottom;
+      _publishVisibleBand();
     }
     // `ScrollPosition` never notifies on `applyViewportDimension`, so the
     // seed above would otherwise persist for an un-scrolled day's whole
@@ -1488,7 +1543,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
   void dispose() {
     _scrollController.dispose();
     _horizontalController.dispose();
-    _visibleBottom.dispose();
+    _visibleBand.dispose();
     _visibleColumnBand.dispose();
     super.dispose();
   }
@@ -1517,7 +1572,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // the gridlines (mobile-perf LOW).
     _windowViewport = viewport;
     if (position.hasPixels) _windowOffset = position.pixels;
-    _visibleBottom.value = _cullingWindowBottom;
+    _publishVisibleBand();
   }
 
   /// [_scheduleViewportSync]'s horizontal twin (audit H2). Same guard, same
@@ -1831,7 +1886,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     // the `_kWindowSlack` band) is unchanged; only the delivery mechanism is.
     _windowOffset = position.pixels;
     _windowViewport = viewport;
-    _visibleBottom.value = _cullingWindowBottom;
+    _publishVisibleBand();
   }
 
   @override
@@ -1867,10 +1922,10 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
     final double gridStackHeight =
         (lastHour - firstHour) * widget.density.hourHeight + 1;
 
-    // The scroll-derived culling band ([_visibleBottom]) is consumed ONLY
+    // The scroll-derived culling band ([_visibleBand]) is consumed ONLY
     // inside the [ValueListenableBuilder] wrapping the lane `Row` below, so a
     // scroll re-anchor rebuilds that `Row` alone — never this `build`, the
-    // ruler, or the gridlines. See [_visibleBottom] / [_cullingWindowBottom].
+    // ruler, or the gridlines. See [_visibleBand] / [_cullingWindowBottom].
 
     // ADDENDUM 10 — the SALON board is a genuinely different tree (the scroll
     // axes nest the other way round so the roster strip can pin; see "THE
@@ -2022,16 +2077,16 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                           // The lane `Row` is the sole non-`Positioned` child
                           // of the `Stack` (it drives the `Stack`'s size — see
                           // the R3 note above). Wrapping it in a
-                          // [ValueListenableBuilder] on [_visibleBottom] keeps
+                          // [ValueListenableBuilder] on [_visibleBand] keeps
                           // that role (the builder is layout-transparent,
                           // sizing to its `Row`) while confining every scroll
                           // re-anchor's rebuild to this subtree alone.
-                          ValueListenableBuilder<double>(
-                            valueListenable: _visibleBottom,
+                          ValueListenableBuilder<(double, double)>(
+                            valueListenable: _visibleBand,
                             builder:
                                 (
                                   BuildContext context,
-                                  double visibleBottom,
+                                  (double, double) band,
                                   Widget? child,
                                 ) {
                                   return Row(
@@ -2055,7 +2110,8 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                                           bookings: bookings,
                                           geometry: _laneGeometry[lane],
                                           cardWidth: effectiveCardW,
-                                          visibleBottom: visibleBottom,
+                                          visibleTop: band.$1,
+                                          visibleBottom: band.$2,
                                           onBookingTap: widget.onBookingTap,
                                         ),
                                       ],
@@ -2313,7 +2369,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
                                   models: _columnModels,
                                   columnWidth: columnWidth,
                                   deepestIndex: _deepestColumnIndex,
-                                  visibleBottom: _visibleBottom,
+                                  visibleBand: _visibleBand,
                                   visibleColumnBand: _visibleColumnBand,
                                   onBookingTap: widget.onBookingTap,
                                   emptyDayLabel:
@@ -2357,7 +2413,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
 /// (rather than an inline `Stack` in [_buildBoard]) so the per-lane
 /// [ValueListenableBuilder]s below have a stable element to rebuild under.
 ///
-/// WHY EACH LANE CARRIES ITS OWN [ValueListenableBuilder] on [visibleBottom]:
+/// WHY EACH LANE CARRIES ITS OWN [ValueListenableBuilder] on [visibleBand]:
 /// a VERTICAL culling re-anchor then rebuilds one lane at a time rather than
 /// the whole board. The HORIZONTAL band ([visibleColumnBand]) is watched once,
 /// around the column `Row` — it decides which columns exist at all, so it
@@ -2403,7 +2459,7 @@ class _BoardStack extends StatefulWidget {
     required this.models,
     required this.columnWidth,
     required this.deepestIndex,
-    required this.visibleBottom,
+    required this.visibleBand,
     required this.visibleColumnBand,
     required this.onBookingTap,
     required this.emptyDayLabel,
@@ -2424,7 +2480,9 @@ class _BoardStack extends StatefulWidget {
   /// board.
   final int deepestIndex;
 
-  final ValueNotifier<double> visibleBottom;
+  /// The vertical culling band's `(top, bottom)` edges — see
+  /// [_BookingsTimelineGridState._visibleBand].
+  final ValueNotifier<(double, double)> visibleBand;
 
   /// The horizontal culling band's `(left, right)` edges, in this `Stack`'s
   /// own coordinates — audit H2. See
@@ -2567,7 +2625,7 @@ class _BoardStackState extends State<_BoardStack> {
     // test (0/4 → 4/4 cards rebuilt). Check it rather than trust this note.
     if (!identical(oldWidget.models, widget.models) ||
         !identical(oldWidget.columns, widget.columns) ||
-        !identical(oldWidget.visibleBottom, widget.visibleBottom) ||
+        !identical(oldWidget.visibleBand, widget.visibleBand) ||
         oldWidget.onBookingTap != widget.onBookingTap ||
         oldWidget.density != widget.density ||
         oldWidget.columnWidth != widget.columnWidth ||
@@ -2938,20 +2996,26 @@ class _BoardStackState extends State<_BoardStack> {
                   width: laneWidth,
                   // Per-LANE, still: a vertical culling re-anchor rebuilds
                   // one lane at a time rather than the whole board.
-                  child: ValueListenableBuilder<double>(
-                    valueListenable: widget.visibleBottom,
-                    builder: (BuildContext context, double bottom, Widget? _) {
-                      return _LaneColumn(
-                        key: ValueKey<String>(
-                          'timeline-column-$index-lane-$lane',
-                        ),
-                        bookings: model.bookings,
-                        geometry: model.lanes[lane],
-                        cardWidth: laneWidth,
-                        visibleBottom: bottom,
-                        onBookingTap: widget.onBookingTap,
-                      );
-                    },
+                  child: ValueListenableBuilder<(double, double)>(
+                    valueListenable: widget.visibleBand,
+                    builder:
+                        (
+                          BuildContext context,
+                          (double, double) band,
+                          Widget? _,
+                        ) {
+                          return _LaneColumn(
+                            key: ValueKey<String>(
+                              'timeline-column-$index-lane-$lane',
+                            ),
+                            bookings: model.bookings,
+                            geometry: model.lanes[lane],
+                            cardWidth: laneWidth,
+                            visibleTop: band.$1,
+                            visibleBottom: band.$2,
+                            onBookingTap: widget.onBookingTap,
+                          );
+                        },
                   ),
                 ),
               ],
@@ -2977,6 +3041,7 @@ class _LaneColumn extends StatefulWidget {
     required this.visibleBottom,
     required this.onBookingTap,
     super.key,
+    this.visibleTop = double.negativeInfinity,
   });
 
   /// The FULL day's bookings — [geometry] selects this lane's subset by
@@ -2993,10 +3058,16 @@ class _LaneColumn extends StatefulWidget {
   /// The culling band's BOTTOM edge in this column's own coordinates — a card
   /// planned entirely below it is replaced by an identically-sized `SizedBox`.
   ///
-  /// ADDENDUM 6: there is no top edge. Cards at or above the visible band are
-  /// NEVER culled, so no visible card can move if a placeholder's height is
-  /// imperfect — which is what allows culling at every text scale.
+  /// ADDENDUM 6: culling BELOW the band is unconditional, at every text scale
+  /// — an imperfect placeholder there only displaces off-screen content.
   final double visibleBottom;
+
+  /// The culling band's TOP edge (ADDENDUM 11, Phase 076 jank #7). A card
+  /// planned entirely ABOVE it is replaced by its size-exact placeholder, but
+  /// ONLY at textScaler <= 1.0, where [_CardGeometry.occupiedHeight] is exact —
+  /// see [_LaneColumnState.build]. Defaults to `-inf` (never cull above), so a
+  /// caller that passes nothing behaves exactly as before.
+  final double visibleTop;
 
   final ValueChanged<Booking> onBookingTap;
 
@@ -3054,6 +3125,17 @@ class _LaneColumnState extends State<_LaneColumn> {
     final List<_CardGeometry> geometry = widget.geometry;
     final double cardWidth = widget.cardWidth;
     final double visibleBottom = widget.visibleBottom;
+    final double visibleTop = widget.visibleTop;
+    // `textScalerOf` registers an InheritedModel aspect on text scale alone,
+    // so this does not rebuild on unrelated MediaQuery changes.
+    //
+    // N3: gate on a BODY-size probe equal to 1.0, not `scale(1) <= 1.0` — a
+    // scaler below 1.0 (e.g. 0.85) passes the latter yet renders cards
+    // SHORTER than the 124dp plan, so an above-band placeholder would shift
+    // every card below it. 14 is a body-size probe (same as the salon board
+    // tests); a scaler that is linear at 1.0 gives exactly 1.0.
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final bool aboveCullExact = (scaler.scale(14) / 14 - 1.0).abs() < 1e-6;
 
     for (final _CardGeometry geo in geometry) {
       final Booking booking = bookings[geo.bookingIndex];
@@ -3065,7 +3147,15 @@ class _LaneColumnState extends State<_LaneColumn> {
       // changes. The width matters as much as the height: a lane whose cards
       // were all replaced by height-only boxes would collapse to zero width
       // and drag every lane to its right sideways.
-      final bool culled = geo.plannedTop > visibleBottom;
+      // ADDENDUM 11 — ABOVE the band too, but only when the placeholder is
+      // size-exact (textScaler <= 1.0). Above the band the card's real height
+      // matters: a wrong placeholder would shift every card BELOW it, visible
+      // ones included (the ADDENDUM 5 reflow bug). Exact at 1.0 means planned
+      // == rendered, so the scroll extent, every card's content offset and the
+      // ruler registration are unchanged by culling.
+      final bool culled =
+          geo.plannedTop > visibleBottom ||
+          (aboveCullExact && geo.plannedTop + geo.occupiedHeight < visibleTop);
 
       // ADDENDUM 9 part 2 — only a POSITIVE spacer is worth an element. Since
       // ADDENDUM 8 floored the spacer at 0, `spacer == 0` for every card after
