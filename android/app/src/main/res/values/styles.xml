@@ -19,4 +19,13 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+    <!-- Phase 071: native uCrop crop screen. Palette-matched (base toolbar,
+         mocha widgets); colours are also set per-crop from BrandColors in
+         ImagePickGatewayImpl. Parent MUST be an AppCompat theme (uCrop). -->
+    <style name="Ucrop.Velvet" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#E6DDD0</item>
+        <item name="colorPrimaryDark">#E6DDD0</item>
+        <item name="colorAccent">#B89A7A</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>

@@ -5,6 +5,21 @@ allprojects {
     }
 }
 
+// Supply-chain (phase 071 audit, MEDIUM): image_cropper's own build.gradle adds
+// an UNFILTERED `maven { jitpack.io }` to every project. JitPack builds from
+// arbitrary GitHub tags, so any artifact name could resolve from it. Restrict
+// every jitpack repo to the single group ucrop needs. Evaluated AFTER all
+// projects are configured, i.e. after the plugin has added its repository.
+gradle.projectsEvaluated {
+    allprojects {
+        repositories.withType<MavenArtifactRepository>().configureEach {
+            if (url.host == "jitpack.io") {
+                content { includeGroup("com.github.Yalantis") }
+            }
+        }
+    }
+}
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")

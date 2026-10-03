@@ -11,6 +11,7 @@ intents, permission dialogs, notifications, and WebViews via `$.native.*`.
 | `auth_login_patrol_test.dart` | Ported template (fake backend) | Yes — porting reference for converting an `integration_test` flow to a patrol binding |
 | `deep_link_patrol_test.dart` | Native: deep link → `/invite/accept` | Yes — real `ACTION_VIEW` App Link intent |
 | `deep_link_patrol_test.dart` (FCM cases) | Native: FCM tap-through + notification permission | **No — skip-marked**; Firebase push is deferred (`FIREBASE_ENABLED=false`). Enable when Phase 8.x FCM lands |
+| `media_pick_patrol_test.dart` | Native: source sheet → system Photo Picker, no permission dialog, back → `null` | Yes — Android only (skipped elsewhere) |
 | `support/patrol_harness.dart` | Boot helper (fake backend) for the template | — |
 
 The pure-Flutter flows stay under `integration_test/*.dart` and run on the FAST

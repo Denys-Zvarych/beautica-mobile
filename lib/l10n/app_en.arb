@@ -6680,5 +6680,33 @@
   "uploadErrorCancelled": "Upload cancelled",
   "@uploadErrorCancelled": {
     "description": "Phase 070 — media upload failure copy."
+  },
+  "imageSourceTitle": "Photo",
+  "@imageSourceTitle": {
+    "description": "Phase 071 — image source sheet title."
+  },
+  "imageSourceGallery": "Choose from gallery",
+  "@imageSourceGallery": {
+    "description": "Phase 071 — image source sheet row: pick from gallery."
+  },
+  "imageSourceCamera": "Take a photo",
+  "@imageSourceCamera": {
+    "description": "Phase 071 — image source sheet row: take a photo with the camera."
+  },
+  "imageSourceRemove": "Remove photo",
+  "@imageSourceRemove": {
+    "description": "Phase 071 — image source sheet row: remove the current photo (destructive)."
+  },
+  "cropTitle": "Crop photo",
+  "@cropTitle": {
+    "description": "Phase 071 — native crop screen toolbar title."
+  },
+  "cropDone": "Done",
+  "@cropDone": {
+    "description": "Phase 071 — iOS crop screen confirm button."
+  },
+  "cropCancel": "Cancel",
+  "@cropCancel": {
+    "description": "Phase 071 — iOS crop screen cancel button."
   }
 }

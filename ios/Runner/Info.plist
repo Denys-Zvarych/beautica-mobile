@@ -78,5 +78,9 @@
 		     the key is declared here so we don't re-touch the plist when it does. -->
 		<key>NSCalendarsUsageDescription</key>
 		<string>Beautica додає ваш запис до календаря, щоб ви не пропустили візит.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>Beautica використовує фото, щоб ви могли додати фото профілю та послуг.</string>
+		<key>NSCameraUsageDescription</key>
+		<string>Beautica використовує камеру, щоб ви могли зробити фото профілю чи послуги.</string>
 	</dict>
 </plist>

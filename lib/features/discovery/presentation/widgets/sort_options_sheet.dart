@@ -15,8 +15,8 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 import '../../domain/search_filters.dart';
@@ -106,7 +106,8 @@ class SortPillButton extends StatelessWidget {
 ///
 /// Renders the 4 [SearchSort] options as full-width rows; the active row is
 /// shown in a pressed inset well with a camel check. Returns the tapped option
-/// (and pops), or null when dismissed.
+/// (and pops), or null when dismissed. Chrome + rows are the shared
+/// [VelvetSheetChrome] / [VelvetSheetOptionRow] (promoted in Phase 071).
 class SortOptionsSheet extends StatelessWidget {
   const SortOptionsSheet({super.key, required this.active});
 
@@ -118,142 +119,29 @@ class SortOptionsSheet extends StatelessWidget {
     BuildContext context, {
     required SearchSort active,
   }) {
-    return showModalBottomSheet<SearchSort>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: false,
+    return showVelvetSheet<SearchSort>(
+      context,
       builder: (BuildContext ctx) => SortOptionsSheet(active: active),
     );
   }
 
-  static const BorderRadius _sheetRadius = BorderRadius.vertical(
-    top: Radius.circular(VelvetRadii.card),
-  );
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: _sheetRadius,
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            VelvetSpacing.md,
-            VelvetSpacing.lg,
-            VelvetSpacing.lg,
+    return VelvetSheetChrome(
+      title: l10n.searchSortSheetTitle,
+      children: <Widget>[
+        for (final SearchSort option in SearchSort.values)
+          VelvetSheetOptionRow(
+            tapKey: Key('sort_option_${option.name}'),
+            label: sortLabel(l10n, option),
+            selected: option == active,
+            semanticsLabel: option == active
+                ? l10n.searchSortOptionSelected(sortLabel(l10n, option))
+                : sortLabel(l10n, option),
+            onTap: () => ModalRoute.of(context)?.navigator?.pop(option),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              // Drag handle.
-              Center(
-                child: Container(
-                  height: 4,
-                  width: 44,
-                  decoration: BoxDecoration(
-                    color: BrandColors.faint,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.md),
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Text(
-                  l10n.searchSortSheetTitle,
-                  style: VelvetText.subheading(),
-                ),
-              ),
-              const SizedBox(height: VelvetSpacing.md),
-              for (final SearchSort option in SearchSort.values) ...<Widget>[
-                _SortRow(
-                  option: option,
-                  label: sortLabel(l10n, option),
-                  selected: option == active,
-                  selectedSemanticsLabel: l10n.searchSortOptionSelected(
-                    sortLabel(l10n, option),
-                  ),
-                  onTap: () => ModalRoute.of(context)?.navigator?.pop(option),
-                ),
-                if (option != SearchSort.values.last)
-                  const SizedBox(height: VelvetSpacing.sm),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// One selectable sort row. Selected → pressed inset well + camel check;
-/// unselected → flat on the base surface.
-class _SortRow extends StatelessWidget {
-  const _SortRow({
-    required this.option,
-    required this.label,
-    required this.selected,
-    required this.selectedSemanticsLabel,
-    required this.onTap,
-  });
-
-  final SearchSort option;
-  final String label;
-  final bool selected;
-  final String selectedSemanticsLabel;
-  final VoidCallback onTap;
-
-  static const BorderRadius _radius = BorderRadius.all(
-    Radius.circular(VelvetRadii.field),
-  );
-
-  static final TextStyle _labelStyle = VelvetText.discSortOption;
-
-  @override
-  Widget build(BuildContext context) {
-    final Widget row = Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.md,
-        vertical: VelvetSpacing.md,
-      ),
-      child: Row(
-        children: <Widget>[
-          Expanded(child: Text(label, style: _labelStyle)),
-          if (selected)
-            const Icon(
-              Icons.check_rounded,
-              color: BrandColors.accent,
-              size: 22,
-            ),
-        ],
-      ),
-    );
-
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: selected ? selectedSemanticsLabel : label,
-      child: GestureDetector(
-        key: Key('sort_option_${option.name}'),
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: selected
-            ? NeumorphicInset(radius: VelvetRadii.field, child: row)
-            : DecoratedBox(
-                decoration: const BoxDecoration(
-                  color: BrandColors.base,
-                  borderRadius: _radius,
-                  boxShadow: VelvetShadows.extrudedSmall,
-                ),
-                child: row,
-              ),
-      ),
+      ],
     );
   }
 }

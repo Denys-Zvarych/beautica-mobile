@@ -39,6 +39,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/errors/auth_rejection.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/media/beautica_image.dart';
+import '../../../core/media/pick/media_pick_service.dart';
 import '../../../core/push/push_session_hooks.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/time/clock_provider.dart';
@@ -1488,6 +1489,12 @@ class AuthNotifier extends _$AuthNotifier {
       // every other per-session UI notifier in this file that isn't listed
       // in the belt-and-braces NOTE below.
       ref.read(searchSuggestionCacheProvider).clear();
+      // Security (phase 071 audit, LOW) — a picked/cropped photo that was never
+      // `discard`ed (crash / kill mid-upload) sits in `<tmp>/media_upload/`.
+      // Wiped here so the next account on a shared device cannot find it.
+      // Fire-and-forget: `wipeAll` never throws and this method must stay
+      // free of extra awaits between the token wipe and the state flip.
+      unawaited(ref.read(mediaPickServiceProvider).wipeAll());
       // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
       // sweep, for the same reason the day-timeline one above is needed:
       // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on

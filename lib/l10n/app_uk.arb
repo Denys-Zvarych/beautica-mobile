@@ -6680,5 +6680,33 @@
   "uploadErrorCancelled": "Завантаження скасовано",
   "@uploadErrorCancelled": {
     "description": "Phase 070 — media upload failure copy."
+  },
+  "imageSourceTitle": "Фото",
+  "@imageSourceTitle": {
+    "description": "Phase 071 — image source sheet title."
+  },
+  "imageSourceGallery": "Обрати з галереї",
+  "@imageSourceGallery": {
+    "description": "Phase 071 — image source sheet row: pick from gallery."
+  },
+  "imageSourceCamera": "Зробити фото",
+  "@imageSourceCamera": {
+    "description": "Phase 071 — image source sheet row: take a photo with the camera."
+  },
+  "imageSourceRemove": "Видалити фото",
+  "@imageSourceRemove": {
+    "description": "Phase 071 — image source sheet row: remove the current photo (destructive)."
+  },
+  "cropTitle": "Обрізати фото",
+  "@cropTitle": {
+    "description": "Phase 071 — native crop screen toolbar title."
+  },
+  "cropDone": "Готово",
+  "@cropDone": {
+    "description": "Phase 071 — iOS crop screen confirm button."
+  },
+  "cropCancel": "Скасувати",
+  "@cropCancel": {
+    "description": "Phase 071 — iOS crop screen cancel button."
   }
 }
