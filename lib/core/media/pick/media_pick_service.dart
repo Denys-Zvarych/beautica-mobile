@@ -20,16 +20,17 @@ import 'dart:math' show Random;
 import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
 import 'package:beautica_mobile/core/media/pick/image_pick_gateway.dart';
 import 'package:beautica_mobile/core/media/pick/media_kind.dart';
+import 'package:beautica_mobile/core/media/pick/media_scratch.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-part 'media_pick_service.g.dart';
+export 'package:beautica_mobile/core/media/pick/media_scratch.dart'
+    show kMediaUploadDirName;
 
-/// Sub-directory of the temp dir that holds finished picks.
-const String kMediaUploadDirName = 'media_upload';
+part 'media_pick_service.g.dart';
 
 /// Orphaned files in the scratch dir older than this are swept.
 const Duration kScratchMaxAge = Duration(days: 1);

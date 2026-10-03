@@ -1649,6 +1649,14 @@
   "@servicePhotoChangeSemantics": {
     "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
   },
+  "photoUploading": "Uploading photo",
+  "@photoUploading": {
+    "description": "Screen-reader label for the in-flight photo upload indicator on the avatar editor and the service photo slot (phase 072). The numeric percentage is exposed separately as the semantics value."
+  },
+  "photoUploadFailed": "Photo upload failed",
+  "@photoUploadFailed": {
+    "description": "Message on the failed-upload state of the avatar editor / service photo slot (phase 072); sits beside the retry affordance (retryLabel)."
+  },
   "serviceUnsavedChangesBody": "You have edited this service but not saved it. Leaving now discards your changes.",
   "@serviceUnsavedChangesBody": {
     "description": "Qase defect #26 (case 43 step 2) — body of the unsaved-changes confirmation on ServiceEditScreen, shown when the master leaves a DIRTY form via the system back gesture or the top-bar back icon. The dialog's TITLE reuses `serviceUnsavedChanges`, the same string the in-form dirty caption already renders, so the warning the tester was told to expect and the indicator they can see on screen read identically."

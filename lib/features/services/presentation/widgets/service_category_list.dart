@@ -40,6 +40,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -813,18 +814,21 @@ class _ServiceCardState extends State<ServiceCard>
 /// 40×40 recessed inset well with a centred camel spa icon.
 ///
 /// Compact-row sizing (was 48×48) so the dense list fits more rows on screen.
-/// When actual photo upload is implemented (Phase 9.x), this widget will
-/// accept a `photoUrl` and render an [Image.network] inside the same
-/// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
-/// placeholder so depth always comes from shadows, never a flat grey box.
+/// Phase 072: an optional [photoUrl] renders the real photo through the
+/// allow-listed `RemoteImage` inside the same 40×40 rounded box; null, a
+/// disallowed host or a failed fetch keep the icon placeholder, so depth always
+/// comes from shadows, never a flat grey box.
 class PhotoThumbnail extends StatelessWidget {
-  const PhotoThumbnail({super.key});
+  const PhotoThumbnail({super.key, this.photoUrl});
+
+  /// The service photo, or null (every pre-existing caller) for the icon well.
+  final String? photoUrl;
 
   static const double _size = 40;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final Widget well = SizedBox(
       height: _size,
       width: _size,
       child: NeumorphicInset(
@@ -837,6 +841,16 @@ class PhotoThumbnail extends StatelessWidget {
           ),
         ),
       ),
+    );
+    final String? url = photoUrl;
+    if (url == null) return well;
+    return RemoteImage(
+      url: url,
+      width: _size,
+      height: _size,
+      borderRadius: BorderRadius.circular(VelvetRadii.field),
+      excludeFromSemantics: true,
+      fallback: well,
     );
   }
 }
