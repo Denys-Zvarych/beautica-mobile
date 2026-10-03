@@ -102,6 +102,8 @@ final class ImagePickGatewayImpl implements ImagePickGateway {
           toolbarWidgetColor: BrandColors.accentDeep,
           backgroundColor: BrandColors.base,
           activeControlsWidgetColor: BrandColors.accent,
+          cropFrameColor: BrandColors.accent,
+          cropGridColor: BrandColors.accent,
           cropStyle: spec.circle ? CropStyle.circle : CropStyle.rectangle,
           lockAspectRatio: true,
           initAspectRatio: spec.aspectX == spec.aspectY
