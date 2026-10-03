@@ -13,6 +13,7 @@ intents, permission dialogs, notifications, and WebViews via `$.native.*`.
 | `deep_link_patrol_test.dart` (FCM cases) | Native: FCM tap-through + notification permission | **No — skip-marked**; Firebase push is deferred (`FIREBASE_ENABLED=false`). Enable when Phase 8.x FCM lands |
 | `media_pick_patrol_test.dart` | Native: source sheet → system Photo Picker, no permission dialog, back → `null` | Yes — Android only (skipped elsewhere) |
 | `exif_strip_patrol_test.dart` | Native: in-test geotagged JPEG -> real uCrop (Done tapped natively) + compress; asserts post-crop HAS GPS and final has no Exif APP1 / GPS IFD | Yes — Android only (skipped elsewhere) |
+| `avatar_pick_patrol_test.dart` | Native: avatar badge -> source sheet -> system Photo Picker (a seeded gallery photo) -> uCrop Done -> upload reaches the fake backend (200 success snack; 503 storage-off snack + retry veil). **Needs `scripts/seed_gallery_fixture.sh` run on the host first** (a device test cannot write MediaStore) | Yes — Android only (skipped elsewhere) |
 | `support/patrol_harness.dart` | Boot helper (fake backend) for the template | — |
 
 The pure-Flutter flows stay under `integration_test/*.dart` and run on the FAST

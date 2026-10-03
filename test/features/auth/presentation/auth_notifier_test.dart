@@ -94,6 +94,12 @@ final class _DeleteAllThrowsStorage implements SecureStorage {
   final FakeSecureStorage _inner;
 
   @override
+  Future<String?> readPendingPick() => _inner.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _inner.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _inner.deletePendingPick();
+  @override
   Future<bool> readPushPermissionAsked() => _inner.readPushPermissionAsked();
   @override
   Future<void> writePushPermissionAsked() => _inner.writePushPermissionAsked();
@@ -201,6 +207,12 @@ class SpySecureStorage extends Mock implements SecureStorage {
 final class _ThrowingWriteStorage implements SecureStorage {
   final FakeSecureStorage _backing = FakeSecureStorage();
 
+  @override
+  Future<String?> readPendingPick() => _backing.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _backing.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _backing.deletePendingPick();
   @override
   Future<bool> readPushPermissionAsked() => _backing.readPushPermissionAsked();
   @override
@@ -1466,6 +1478,55 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
       }
       expect(dir.existsSync(), isFalse);
+    });
+
+    // Phase 073 audit (security MEDIUM): image_picker's lost-data record
+    // survives a logout; unless it is drained and its file deleted, the NEXT
+    // account on the device could resume the previous account's photo.
+    test('logout() drains the lost-pick record and deletes its file', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      await storage.writePendingPick('{"ownerId":"u","kind":"avatar"}');
+      final Directory tmp = Directory.systemTemp.createTempSync('logout_lost');
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final File lostFile = File('${tmp.path}/lost_pick.jpg')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+      final _NoopGateway gateway = _NoopGateway(lost: lostFile.path);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gateway, tempDir: () async => tmp),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      await container.read(authProvider.notifier).logout();
+      for (var i = 0; i < 50 && lostFile.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect(gateway.lostReads, 1);
+      expect(lostFile.existsSync(), isFalse);
+      expect(
+        await storage.readPendingPick(),
+        isNull,
+        reason: 'the owner tag is cleared with the rest of the session',
+      );
     });
 
     // Phase 352 cycle-1 audit (mobile-perf HIGH + mobile-security MEDIUM,
@@ -4714,8 +4775,14 @@ void main() {
   });
 }
 
-/// Gateway that is never called: logout only touches the scratch dir.
+/// Gateway that is never asked to pick: logout only touches the scratch dir and
+/// (phase 073 audit) drains the platform's lost-pick record, which is [lost].
 class _NoopGateway implements ImagePickGateway {
+  _NoopGateway({this.lost});
+
+  final String? lost;
+  int lostReads = 0;
+
   @override
   Future<String?> pickImage(
     MediaPickSource source, {
@@ -4741,5 +4808,8 @@ class _NoopGateway implements ImagePickGateway {
   }) async => null;
 
   @override
-  Future<String?> retrieveLostData() async => null;
+  Future<String?> retrieveLostData() async {
+    lostReads++;
+    return lost;
+  }
 }

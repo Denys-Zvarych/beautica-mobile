@@ -63,6 +63,19 @@ class MasterProfile extends _$MasterProfile {
     return ref.read(masterRepositoryProvider).getMyProfile(userId);
   }
 
+  /// Writes [url] (null = removed) into the CACHED profile without a refetch.
+  ///
+  /// Phase 073 audit — `POST/DELETE /media/avatar` already returns the new
+  /// state, so invalidating (a `GET /masters/me` plus every provider watching
+  /// this one) would be pure waste. Returns `false` when there is no cached
+  /// profile to patch; the caller then falls back to an invalidate.
+  bool patchAvatarUrl(String? url) {
+    final Master? current = state.value;
+    if (current == null) return false;
+    state = AsyncData<Master>(current.copyWith(avatarUrl: url));
+    return true;
+  }
+
   /// Re-fetches the profile. Call after the user saves edits (Phase 4.3).
   Future<void> refresh() async {
     state = const AsyncLoading();

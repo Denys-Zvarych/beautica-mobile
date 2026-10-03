@@ -67,6 +67,15 @@ abstract interface class SecureStorage {
   /// Deletes the last-visited salon pointer.
   Future<void> deleteLastSalon();
 
+  /// Reads the in-flight media pick tag (`{ownerId, kind}` JSON), or `null`.
+  Future<String?> readPendingPick();
+
+  /// Writes (or overwrites) the in-flight media pick tag.
+  Future<void> writePendingPick(String json);
+
+  /// Deletes the in-flight media pick tag.
+  Future<void> deletePendingPick();
+
   /// Whether the notification-permission prompt was already shown on this
   /// device (phase 067). Survives [deleteAll].
   Future<bool> readPushPermissionAsked();
@@ -151,6 +160,18 @@ final class FlutterSecureStorageImpl implements SecureStorage {
 
   @override
   Future<void> deleteLastSalon() => _storage.delete(key: StorageKeys.lastSalon);
+
+  @override
+  Future<String?> readPendingPick() =>
+      _storage.read(key: StorageKeys.pendingPick);
+
+  @override
+  Future<void> writePendingPick(String json) =>
+      _storage.write(key: StorageKeys.pendingPick, value: json);
+
+  @override
+  Future<void> deletePendingPick() =>
+      _storage.delete(key: StorageKeys.pendingPick);
 
   @override
   Future<bool> readPushPermissionAsked() async =>

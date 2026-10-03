@@ -1329,6 +1329,10 @@ class NeumorphicAvatarEditor extends StatefulWidget {
   /// Inner avatar disc diameter.
   static const double _disc = 96;
 
+  /// Public [_disc]: the logical size a photo is decoded at (e.g. to precache
+  /// the remote image at exactly the size this editor will request).
+  static const double discSize = _disc;
+
   // Cached initials style — Comfortaa 30/700, accentDeep. Computed once at
   // class-load time so build() never calls GoogleFonts on every frame.
   static final TextStyle _initialsStyle = VelvetText.displayName().copyWith(

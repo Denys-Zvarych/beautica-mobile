@@ -1,7 +1,13 @@
 // Phase 072 — the ONE upload-state vocabulary shared by every photo widget
-// (NeumorphicAvatarEditor, ServicePhotoSlot): a cream veil + camel spinner while
-// uploading, a cream veil + retry affordance when it failed. Fixing the look
-// here fixes every photo surface.
+// (NeumorphicAvatarEditor, ServicePhotoSlot): a camel spinner while uploading,
+// a retry affordance when it failed. Fixing the look here fixes every photo
+// surface.
+//
+// Phase 073 audit — the photo must stay clearly visible while it uploads / when
+// it failed (it is the user's confirmation of WHAT they picked). So there is no
+// full-coverage cream veil any more: just a faint espresso scrim over the photo
+// plus a small opaque-ish cream chip behind the spinner / retry icon / message,
+// which keeps them legible on light AND dark photos.
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -9,8 +15,15 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 
-/// Opacity of the cream veil laid over a photo while it is uploading / failed.
-const double kUploadVeilAlpha = 0.78;
+/// Opacity of the faint espresso scrim laid over a photo while it is uploading
+/// / failed (a hint of "busy"; the photo stays clearly visible).
+const double kUploadScrimAlpha = 0.16;
+
+/// Opacity of the cream chip behind the spinner / retry icon / message.
+const double kUploadChipAlpha = 0.92;
+
+/// Diameter of the chip behind the spinner / retry icon.
+const double kUploadChipSize = 44;
 
 /// Minimum interactive target (Material / WCAG 2.5.5).
 const double kUploadRetryTarget = 48;
@@ -52,7 +65,43 @@ class UploadProgressSpinner extends StatelessWidget {
   }
 }
 
-/// Cream veil + centred [UploadProgressSpinner]; fills its parent.
+/// Faint scrim over the photo, [UploadChip] shape.
+class _UploadScrim extends StatelessWidget {
+  const _UploadScrim({required this.circular});
+
+  final bool circular;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      shape: circular ? BoxShape.circle : BoxShape.rectangle,
+      color: BrandColors.text.withValues(alpha: kUploadScrimAlpha),
+    ),
+  );
+}
+
+/// Cream disc behind the spinner / retry icon so they read on any photo.
+class UploadChip extends StatelessWidget {
+  const UploadChip({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: BrandColors.white.withValues(alpha: kUploadChipAlpha),
+    ),
+    child: SizedBox(
+      width: kUploadChipSize,
+      height: kUploadChipSize,
+      child: Center(child: child),
+    ),
+  );
+}
+
+/// Faint scrim + centred [UploadProgressSpinner] on a [UploadChip]; fills its
+/// parent.
 class UploadProgressOverlay extends StatelessWidget {
   const UploadProgressOverlay({
     super.key,
@@ -77,20 +126,17 @@ class UploadProgressOverlay extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          DecoratedBox(
-            decoration: BoxDecoration(
-              shape: circular ? BoxShape.circle : BoxShape.rectangle,
-              color: BrandColors.white.withValues(alpha: kUploadVeilAlpha),
-            ),
+          _UploadScrim(circular: circular),
+          Center(
+            child: UploadChip(child: UploadProgressSpinner(progress: progress)),
           ),
-          Center(child: UploadProgressSpinner(progress: progress)),
         ],
       ),
     );
   }
 }
 
-/// Cream veil + a 48 dp retry target. [showMessage] adds the visible
+/// Faint scrim + a 48 dp retry target on a [UploadChip]. [showMessage] adds the visible
 /// «Не вдалося завантажити фото» line (room permitting — the avatar disc is too
 /// small for it and carries it in semantics only).
 class UploadFailedOverlay extends StatelessWidget {
@@ -112,12 +158,7 @@ class UploadFailedOverlay extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          DecoratedBox(
-            decoration: BoxDecoration(
-              shape: circular ? BoxShape.circle : BoxShape.rectangle,
-              color: BrandColors.white.withValues(alpha: kUploadVeilAlpha),
-            ),
-          ),
+          _UploadScrim(circular: circular),
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -134,10 +175,14 @@ class UploadFailedOverlay extends StatelessWidget {
                     child: const SizedBox(
                       height: kUploadRetryTarget,
                       width: kUploadRetryTarget,
-                      child: Icon(
-                        Icons.refresh_rounded,
-                        color: BrandColors.accentDeep,
-                        size: 26,
+                      child: Center(
+                        child: UploadChip(
+                          child: Icon(
+                            Icons.refresh_rounded,
+                            color: BrandColors.accentDeep,
+                            size: 26,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -147,13 +192,27 @@ class UploadFailedOverlay extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(
                       horizontal: VelvetSpacing.md,
                     ),
-                    child: Text(
-                      l10n.photoUploadFailed,
-                      key: const Key('upload-failed-message'),
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: VelvetText.bodyStrong(),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: BrandColors.white.withValues(
+                          alpha: kUploadChipAlpha,
+                        ),
+                        borderRadius: BorderRadius.circular(VelvetRadii.field),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: VelvetSpacing.sm,
+                          vertical: VelvetSpacing.xs,
+                        ),
+                        child: Text(
+                          l10n.photoUploadFailed,
+                          key: const Key('upload-failed-message'),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: VelvetText.bodyStrong(),
+                        ),
+                      ),
                     ),
                   ),
               ],

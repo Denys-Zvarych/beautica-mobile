@@ -340,5 +340,38 @@ void main() {
       await service.wipeAll();
       expect(scratch.listSync(), isEmpty);
     });
+
+    // Phase 073 audit (security MEDIUM): image_picker's lost-data record
+    // survives logout; wipeAll must consume it and delete its file.
+    test('drains the lost-pick record and deletes its file', () async {
+      gw.lost = 'x';
+      await service.wipeAll();
+      final File lostFile = File(gw.pickedPath!);
+      expect(lostFile.existsSync(), isFalse);
+    });
+
+    test('a lost pick OUTSIDE the temp tree (gallery original) is never '
+        'deleted', () async {
+      gw.lost = 'x';
+      gw.pickIn = Where.outside;
+      await service.drainLost();
+      expect(File(gw.pickedPath!).existsSync(), isTrue);
+    });
+
+    test('never throws when the gateway does', () async {
+      final MediaPickService throwing = MediaPickService(
+        _ThrowingLostGateway(scratch: scratch, outside: outside),
+        tempDir: () async => scratch,
+      );
+      await throwing.wipeAll();
+      await throwing.drainLost();
+    });
   });
+}
+
+class _ThrowingLostGateway extends ScriptedPickGateway {
+  _ThrowingLostGateway({required super.scratch, required super.outside});
+
+  @override
+  Future<String?> retrieveLostData() async => throw StateError('plugin hiccup');
 }

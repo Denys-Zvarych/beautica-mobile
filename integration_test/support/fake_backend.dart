@@ -2735,6 +2735,15 @@ final class FakeBackend {
   /// mutable field until QA measured exactly that). Pass it to `FakeBackend()`.
   final int? mediaAvatarUploadStatus;
 
+  /// Phase 073 — the avatar URL `GET /masters/me` currently reports: set by a
+  /// successful `POST /media/avatar` (a NEW url per upload, like the real
+  /// per-upload R2 key), cleared by `DELETE /media/avatar`. Null until the first
+  /// upload, so every pre-existing flow's `/masters/me` body is unchanged.
+  String? mediaAvatarUrl;
+
+  /// Successful avatar uploads so far — numbers the fake URLs.
+  int _mediaAvatarSeq = 0;
+
   // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
   /// `GET /api/v1/search/masters` call count + the last `page` requested.
   int searchMastersCalls = 0;
@@ -3029,6 +3038,8 @@ final class FakeBackend {
     'bio': masterBio,
     'phoneNumber': masterPhone,
     'instagram': masterInstagram,
+    // Phase 073 — omitted until an avatar upload set it.
+    if (mediaAvatarUrl != null) 'avatarUrl': mediaAvatarUrl,
     // professionalTitle is optional — null is valid (omitted from the
     // ApiResponse.data when the master has not set one). Include only when
     // set so flows that do not exercise this field see a clean seed.
@@ -6787,9 +6798,10 @@ final class FakeBackend {
         if (mediaAvatarUploadStatus != null) {
           return <String, dynamic>{'success': false};
         }
-        return _ok(<String, dynamic>{
-          'avatarUrl': 'https://media.test/avatars/u1/1.jpg',
-        });
+        final String url =
+            'https://media.test/avatars/u1/${++_mediaAvatarSeq}.jpg';
+        mediaAvatarUrl = url;
+        return _ok(<String, dynamic>{'avatarUrl': url});
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
@@ -6799,6 +6811,7 @@ final class FakeBackend {
       '/api/v1/media/avatar',
       (server) => server.replyCallback(204, (_) {
         mediaAvatarDeleteCalls++;
+        mediaAvatarUrl = null;
         return null;
       }),
       request: const Request(method: RequestMethods.delete),

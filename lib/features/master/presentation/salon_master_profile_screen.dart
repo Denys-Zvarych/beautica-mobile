@@ -412,7 +412,7 @@ class _SalonMasterProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                const ProfileAvatar(),
+                ProfileAvatar(imageUrl: master.avatarUrl),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(

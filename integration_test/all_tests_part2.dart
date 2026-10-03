@@ -28,6 +28,7 @@ import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
+import 'master_avatar_upload_test.dart' as master_avatar_upload;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -357,6 +358,7 @@ void main() {
   group('velvet_snack_flow', velvet_snack.main);
   // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
   group('media_avatar_upload_flow', media_avatar_upload.main);
+  group('master_avatar_upload', master_avatar_upload.main);
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);

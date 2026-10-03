@@ -6716,5 +6716,13 @@
   "cropCancel": "Скасувати",
   "@cropCancel": {
     "description": "Phase 071 — iOS crop screen cancel button."
+  },
+  "avatarUpdated": "Фото оновлено",
+  "@avatarUpdated": {
+    "description": "Phase 073 — success snack after a master avatar upload."
+  },
+  "avatarRemoved": "Фото видалено",
+  "@avatarRemoved": {
+    "description": "Phase 073 — success snack after a master avatar removal."
   }
 }

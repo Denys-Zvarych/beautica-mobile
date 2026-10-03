@@ -1,5 +1,6 @@
 // Phase 071 QA — scriptable ImagePickGateway shared by the invariant tests.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
@@ -47,6 +48,15 @@ class ScriptedPickGateway implements ImagePickGateway {
   String? pickedPath;
   String? croppedPath;
 
+  /// When set, `pickImage` / `cropImage` complete only after it does (so a test
+  /// can dispose the owner mid-pick / mid-crop).
+  Completer<void>? holdPick;
+  Completer<void>? holdCrop;
+
+  /// The labels the last `cropImage` received (and whether it ran at all).
+  CropLabels? seenLabels;
+  bool cropLabelsSeen = false;
+
   File _make(Where where, String name, int bytes) =>
       File('${(where == Where.scratch ? scratch : outside).path}/$name')
         ..writeAsBytesSync(List<int>.filled(bytes, 1));
@@ -60,9 +70,12 @@ class ScriptedPickGateway implements ImagePickGateway {
     if (cancelPick) return null;
     if (pickAs != null) {
       File(pickAs!).writeAsBytesSync(List<int>.filled(10, 1));
+      await holdPick?.future;
       return pickedPath = pickAs;
     }
-    return pickedPath = _make(pickIn, 'picked.jpg', 10).path;
+    final String path = pickedPath = _make(pickIn, 'picked.jpg', 10).path;
+    await holdPick?.future;
+    return path;
   }
 
   @override
@@ -72,6 +85,9 @@ class ScriptedPickGateway implements ImagePickGateway {
     required int quality,
     CropLabels? labels,
   }) async {
+    cropLabelsSeen = true;
+    seenLabels = labels;
+    await holdCrop?.future;
     if (throwOnCrop != null) throw throwOnCrop!;
     if (cancelCrop) return null;
     return croppedPath = _make(cropIn, 'cropped.jpg', 10).path;

@@ -40,8 +40,11 @@
 // Server field errors: [ValidationFailure.fieldErrors] keyed by field name.
 // Each validator checks the server error first, then the local rule.
 //
-// Avatar edit is deferred — tapping the camera badge shows a "Незабаром…"
-// info VelvetSnack (photo upload ships later).
+// Avatar (Phase 073): tapping the camera badge opens the shared «Фото» source
+// sheet (071) and hands the choice to [AvatarUploadController], which runs
+// pick → crop → upload (070) and patches the cached own profile. The
+// editor renders the controller's state through the 072 progress / failure
+// states. `POST /media/avatar` writes the avatar directly — no profile PATCH.
 //
 // Security: ScreenProtector active in release builds (PII-bearing screen).
 //
@@ -56,12 +59,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
+import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
+import 'package:beautica_mobile/features/master/application/avatar_upload_controller.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -155,6 +162,17 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     _anim3 = _curve(0.22, 0.64);
     _anim4 = _curve(0.30, 0.72);
     _animFooter = _curve(0.60, 1.0);
+    // Keep the (autoDispose) controller alive for the screen's whole life: the
+    // recovery below can start an upload before the avatar Consumer has been
+    // built (the profile may still be loading), and an unwatched controller
+    // would be disposed — cancelling that upload.
+    ref.listenManual<AvatarUploadState>(
+      avatarUploadControllerProvider,
+      (_, _) {},
+    );
+    // Android process death mid-pick: resume it (needs the l10n for the crop
+    // screen, hence post-frame).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _recoverLostAvatar());
   }
 
   CurvedAnimation _curve(double start, double end) => CurvedAnimation(
@@ -382,9 +400,133 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
     }
   }
 
-  void _onAvatarTap() {
+  Future<void> _recoverLostAvatar() async {
     if (!mounted) return;
-    showInfoSnack(context, AppLocalizations.of(context).snackbarAvatarSoon);
+    final CropLabels labels = CropLabels.of(AppLocalizations.of(context));
+    final AvatarChangeResult result = await ref
+        .read(avatarUploadControllerProvider.notifier)
+        .recoverLost(labels: labels, precache: _precacheAvatar);
+    _showAvatarResult(result, ImageSourceChoice.gallery);
+  }
+
+  /// Warms the image cache with the new remote avatar (decoded at the size the
+  /// editor requests) so releasing the local preview does not flash.
+  Future<void> _precacheAvatar(String url) async {
+    if (!mounted) return;
+    await precacheRemoteImage(
+      context,
+      url,
+      NeumorphicAvatarEditor.discSize,
+      NeumorphicAvatarEditor.discSize,
+    );
+  }
+
+  /// The failed-state retry target: re-sends the SAME photo (no picker).
+  Future<void> _onAvatarRetry() async {
+    if (!mounted) return;
+    final AvatarChangeResult result = await ref
+        .read(avatarUploadControllerProvider.notifier)
+        .retry(precache: _precacheAvatar);
+    _showAvatarResult(result, ImageSourceChoice.gallery);
+  }
+
+  Future<void> _onAvatarTap(Master cached) async {
+    if (!mounted) return;
+    // Ignore taps while an upload / removal is in flight (a FAILED upload may
+    // be replaced: the tap opens the sheet for a new photo).
+    final AvatarUploadState current = ref.read(avatarUploadControllerProvider);
+    if (current is AvatarUploading || current is AvatarRemoving) return;
+    final ImageSourceChoice? choice = await showImageSourceSheet(
+      context,
+      canRemove: cached.avatarUrl != null,
+    );
+    if (choice == null || !mounted) return;
+    final CropLabels labels = CropLabels.of(AppLocalizations.of(context));
+    final AvatarUploadController controller = ref.read(
+      avatarUploadControllerProvider.notifier,
+    );
+    final AvatarChangeResult result = choice == ImageSourceChoice.remove
+        ? await controller.remove()
+        : await controller.change(
+            choice,
+            labels: labels,
+            precache: _precacheAvatar,
+          );
+    _showAvatarResult(result, choice);
+  }
+
+  void _showAvatarResult(AvatarChangeResult result, ImageSourceChoice choice) {
+    if (!mounted) return;
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    switch (result) {
+      case AvatarChangeCancelled():
+        return;
+      case AvatarChangeSucceeded():
+        showSuccessSnack(
+          context,
+          choice == ImageSourceChoice.remove
+              ? l10n.avatarRemoved
+              : l10n.avatarUpdated,
+        );
+      case AvatarChangeFailed(:final failure):
+        // The controller keeps the failed photo in [AvatarFailed]; the editor
+        // shows it with the retry target.
+        showErrorSnack(context, failure.message(l10n));
+    }
+  }
+
+  /// Maps the controller state onto the 072 editor states.
+  Widget _buildAvatarEditor(Master cached) {
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, _) {
+        final AvatarUploadState upload = ref.watch(
+          avatarUploadControllerProvider,
+        );
+        final String? url = cached.avatarUrl;
+        final String initials = _buildInitials();
+        void onTap() => _onAvatarTap(cached);
+        return switch (upload) {
+          AvatarUploading(:final progress, :final previewFile) =>
+            NeumorphicAvatarEditor(
+              key: const Key('avatar-editor'),
+              state: AvatarEditState.picking,
+              initials: initials,
+              onTap: onTap,
+              imageUrl: url,
+              previewFile: previewFile,
+              progress: progress,
+            ),
+          AvatarRemoving() => NeumorphicAvatarEditor(
+            key: const Key('avatar-editor'),
+            state: AvatarEditState.picking,
+            initials: initials,
+            onTap: onTap,
+            imageUrl: url,
+          ),
+          // The failed upload's photo stays visible under the retry target;
+          // `loaded` is the only state that renders a photo + overlay.
+          AvatarFailed(:final previewFile) => NeumorphicAvatarEditor(
+            key: const Key('avatar-editor'),
+            state: AvatarEditState.loaded,
+            initials: initials,
+            onTap: onTap,
+            imageUrl: url,
+            previewFile: previewFile,
+            uploadFailed: true,
+            onRetry: _onAvatarRetry,
+          ),
+          AvatarIdle() => NeumorphicAvatarEditor(
+            key: const Key('avatar-editor'),
+            state: url != null
+                ? AvatarEditState.loaded
+                : AvatarEditState.pristine,
+            initials: initials,
+            onTap: onTap,
+            imageUrl: url,
+          ),
+        };
+      },
+    );
   }
 
   String _buildInitials() {
@@ -454,11 +596,7 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
                         _firstName,
                         _lastName,
                       ]),
-                      builder: (context, _) => NeumorphicAvatarEditor(
-                        state: AvatarEditState.pristine,
-                        initials: _buildInitials(),
-                        onTap: _onAvatarTap,
-                      ),
+                      builder: (context, _) => _buildAvatarEditor(cached),
                     ),
                   ),
                   const SizedBox(height: VelvetSpacing.sm),

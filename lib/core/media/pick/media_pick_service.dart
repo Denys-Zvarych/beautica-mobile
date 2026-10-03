@@ -97,8 +97,23 @@ final class MediaPickService {
     }
   }
 
+  /// Consumes Android's lost-pick record and deletes the file it points at
+  /// (when that file is in the app's temp tree — a user's own gallery original
+  /// is never touched). For a pick that is NOT ours to resume. Never throws.
+  Future<void> drainLost() async {
+    try {
+      final String? lost = await _gateway.retrieveLostData();
+      if (lost == null) return;
+      await _deleteScratch(lost, await _tempDir());
+    } on Object {
+      log('drain lost failed', name: 'media.pick', level: 900);
+    }
+  }
+
   /// Deletes the whole `media_upload` dir (logout: a previous account's
-  /// not-yet-discarded photos must not outlive the session). Never throws.
+  /// not-yet-discarded photos must not outlive the session) and drains the
+  /// platform's lost-pick record (it survives logout and would otherwise be
+  /// resumable by the next account). Never throws.
   Future<void> wipeAll() async {
     try {
       final Directory dir = Directory(
@@ -111,6 +126,7 @@ final class MediaPickService {
       // e.g. no path_provider channel (tests / unsupported platform).
       log('wipe failed', name: 'media.pick', level: 900);
     }
+    await drainLost();
   }
 
   /// Lazy, once per process: removes orphans (crash / kill before `discard`)

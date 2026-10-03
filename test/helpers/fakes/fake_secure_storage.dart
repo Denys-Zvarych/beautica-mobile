@@ -72,6 +72,19 @@ class FakeSecureStorage implements SecureStorage {
   }
 
   @override
+  Future<String?> readPendingPick() async => _backing[StorageKeys.pendingPick];
+
+  @override
+  Future<void> writePendingPick(String json) async {
+    _backing[StorageKeys.pendingPick] = json;
+  }
+
+  @override
+  Future<void> deletePendingPick() async {
+    _backing.remove(StorageKeys.pendingPick);
+  }
+
+  @override
   Future<bool> readPushPermissionAsked() async =>
       _backing.containsKey(StorageKeys.pushPermissionAsked);
 

@@ -67,6 +67,7 @@ class StaffIdentityCard extends StatelessWidget {
     this.nameKey,
     this.roleChipKey,
     this.professionalTitleKey,
+    this.avatarUrl,
   });
 
   /// The person's full display name. Callers compose and trim it — this widget
@@ -98,6 +99,13 @@ class StaffIdentityCard extends StatelessWidget {
   final Key? roleChipKey;
   final Key? professionalTitleKey;
 
+  /// Phase 073 — the person's avatar photo, forwarded to [ProfileAvatar]. ADDITIVE:
+  /// `null` (what every pre-existing caller passes by omission) keeps the icon
+  /// well, byte-identical to before. Scope decision: owner/admin personal
+  /// avatar upload is OUT OF SCOPE for this track (their `User` model has no
+  /// `avatarUrl`), so their screens deliberately do not pass this.
+  final String? avatarUrl;
+
   @override
   Widget build(BuildContext context) {
     final String? professionalTitle = this.professionalTitle;
@@ -112,7 +120,7 @@ class StaffIdentityCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          const ProfileAvatar(),
+          ProfileAvatar(imageUrl: avatarUrl),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(

@@ -471,7 +471,7 @@ class _StaffProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                const ProfileAvatar(),
+                ProfileAvatar(imageUrl: member.avatarUrl),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(
