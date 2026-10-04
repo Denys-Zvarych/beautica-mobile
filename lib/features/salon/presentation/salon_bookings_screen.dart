@@ -280,6 +280,7 @@ class SalonBookingsScreen extends ConsumerStatefulWidget {
             // damning `0.0`, exactly as every other identity card in the
             // booking flow.
             avgRating: m.avgRating,
+            imageUrl: m.avatarUrl,
             bookingCount: (byMaster[m.masterId] ?? const <Booking>[]).length,
             // Phase 336 — `false` unless the roster-complete schedule
             // POSITIVELY says this master is off on this date. Both new

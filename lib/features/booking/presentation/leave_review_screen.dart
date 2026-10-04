@@ -270,6 +270,7 @@ class _Form extends StatelessWidget {
                   visitContext: visitContext,
                   avgRating: avgRating,
                   reviewCount: reviewCount,
+                  avatarImageUrl: booking.masterAvatarUrl,
                   semanticsLabel:
                       '${l10n.bookingSummaryMasterSemantics(booking.masterName, roleLabel, ratingLabel, l10n.salonReviewCountLabel(reviewCount))}, $visitContext',
                   // TAPPABLE per the policy on `MasterStrip.onTap` — a

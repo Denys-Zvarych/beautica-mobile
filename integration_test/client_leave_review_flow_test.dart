@@ -26,6 +26,8 @@
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only, and status copy is asserted through l10n.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_review_screen.dart';
@@ -40,15 +42,27 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so a seeded master photo is actually rendered.
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
       AppLocalizations.of(tester.element(find.byType(screen)));
@@ -117,6 +131,12 @@ void main() {
       await tester.tap(find.byKey(const Key('booking-detail-leave-review')));
       await AppHarness.settle(tester);
       expect(find.byType(LeaveReviewScreen), findsOneWidget);
+      // Phase 9.7 — the seeded booking carries no masterAvatarUrl, so the
+      // master card keeps the gradient glyph (the photo half is the test below).
+      expectAvatarFallback(
+        tester,
+        find.byKey(const Key('leave-review-master-card')),
+      );
 
       // ── 5. Rate 5, write a comment, submit. ───────────────────────────────
       await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
@@ -168,6 +188,96 @@ void main() {
 
       // Drain the dwell Timer so none is pending at teardown.
       await pumpPastVelvetSnack(tester);
+    },
+  );
+
+  testWidgets(
+    'Phase 9.7 — «Залишити відгук» shows the master photo the booking carries',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..bookingCanReview = true
+        ..bookingMasterAvatarUrl = 'https://media.test/avatars/master-aaa.png';
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(MyBookingsTabBar),
+          matching: find.text(
+            l10nOf(tester, MyBookingsScreen).myBookingsTabPast,
+          ),
+        ),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      // «Деталі запису» first: wire `masterAvatarUrl` →
+      // `Booking.masterAvatarUrl` → `MasterStrip.fromBooking` → the rendered
+      // image provider in the counterparty header.
+      final Finder detailStrip = find.byKey(
+        const Key('booking-detail-master-strip'),
+      );
+      await tester.ensureVisible(detailStrip);
+      await tester.pumpAndSettle();
+      expect(renderedImageUrls(tester, within: detailStrip), <String>[
+        'https://media.test/avatars/master-aaa.png',
+      ]);
+
+      await tester.tap(find.byKey(const Key('booking-detail-leave-review')));
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveReviewScreen), findsOneWidget);
+
+      // Wire `masterAvatarUrl` → `Booking.masterAvatarUrl` →
+      // `MasterFeedbackCard.avatarImageUrl` → the rendered image provider.
+      expect(
+        renderedImageUrls(
+          tester,
+          within: find.byKey(const Key('leave-review-master-card')),
+        ),
+        <String>['https://media.test/avatars/master-aaa.png'],
+      );
+    },
+  );
+  testWidgets(
+    'Phase 9.7 — «Деталі запису» falls back to the glyph when the booking '
+    'carries no master photo',
+    (tester) async {
+      // `bookingMasterAvatarUrl` left at its `null` default: the wire body
+      // carries `masterAvatarUrl: null`.
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..bookingCanReview = true;
+      await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      await tester.tap(find.byKey(const Key('client-nav-tile-3')));
+      await AppHarness.settle(tester);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(MyBookingsTabBar),
+          matching: find.text(
+            l10nOf(tester, MyBookingsScreen).myBookingsTabPast,
+          ),
+        ),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byType(BookingCard));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+      final Finder detailStrip = find.byKey(
+        const Key('booking-detail-master-strip'),
+      );
+      await tester.ensureVisible(detailStrip);
+      await tester.pumpAndSettle();
+      expectAvatarFallback(tester, detailStrip);
     },
   );
 }

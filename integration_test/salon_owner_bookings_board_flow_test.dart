@@ -62,6 +62,8 @@
 // after the drill-in, not the location string, per this repo's
 // literal-before-dynamic go_router shadowing trap.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
@@ -81,7 +83,9 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
 
 /// The owner's OWN primary salon — the id `roleHomePath` lands them on, and
@@ -221,8 +225,19 @@ Future<void> _landOnSalonBoard(
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so the column chips render the roster's master photos
+    // (the real cache manager needs path_provider/sqflite).
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   testWidgets(
     'SALON_OWNER logs in, taps «Записи» in their own salon shell, sees the '
@@ -376,6 +391,24 @@ void main() {
             const ValueKey<String>('salon-bookings-column-chip-master-ccc'),
           ),
           findsOneWidget,
+        );
+        // Phase 9.7 — the column chip renders the roster master's photo
+        // (`SalonMasterSummary.avatarUrl` → `MasterColumnEntry.imageUrl` →
+        // the chip's badge); master-ddd has none and keeps the glyph.
+        expect(
+          renderedImageUrls(
+            tester,
+            within: find.byKey(
+              const ValueKey<String>('salon-bookings-column-chip-master-aaa'),
+            ),
+          ),
+          <String>['https://media.test/avatars/master-aaa.png'],
+        );
+        expectAvatarFallback(
+          tester,
+          find.byKey(
+            const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
+          ),
         );
         // Both masters' cards, by id — data binding, not a smoke check.
         expect(

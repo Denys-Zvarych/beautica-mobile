@@ -59,6 +59,7 @@ class MasterStrip extends StatelessWidget {
     this.showRating = false,
     this.avatarGradient,
     this.avatarBordered = false,
+    this.avatarImageUrl,
     this.onTap,
   });
 
@@ -82,7 +83,8 @@ class MasterStrip extends StatelessWidget {
        type = master.type,
        professionalTitle = master.professionalTitle,
        avgRating = master.displayRating,
-       reviewCount = master.reviewCount;
+       reviewCount = master.reviewCount,
+       avatarImageUrl = master.avatarUrl;
 
   /// Builds the strip from the salon flow's per-master [SalonMasterSchedule]
   /// (the "Час" slide header, the confirm card, the success card).
@@ -99,7 +101,8 @@ class MasterStrip extends StatelessWidget {
        type = schedule.type,
        professionalTitle = schedule.professionalTitle,
        avgRating = (schedule.reviewCount > 0) ? schedule.avgRating : null,
-       reviewCount = schedule.reviewCount;
+       reviewCount = schedule.reviewCount,
+       avatarImageUrl = schedule.avatarUrl;
 
   /// Builds the strip from a placed [Booking] — «Деталі запису» and «Залишити
   /// відгук», the two screens that show the master AFTER the booking exists.
@@ -138,7 +141,8 @@ class MasterStrip extends StatelessWidget {
        // with an ABSENT count render «0.0», the exact artefact this surface
        // exists to remove.
        avgRating = booking.masterDisplayRating,
-       reviewCount = booking.masterReviewCount ?? 0;
+       reviewCount = booking.masterReviewCount ?? 0,
+       avatarImageUrl = booking.masterAvatarUrl;
 
   /// Master display name (already joined — "Олена Ковальчук").
   final String name;
@@ -173,6 +177,10 @@ class MasterStrip extends StatelessWidget {
 
   /// Adds the salon flow's translucent-white avatar ring.
   final bool avatarBordered;
+
+  /// Phase 9.7 — the master's photo URL. Derived by the `from*` factories from
+  /// their source model; `null` renders the gradient glyph as before.
+  final String? avatarImageUrl;
 
   /// Makes the card tappable; `null` leaves it inert.
   ///
@@ -233,6 +241,7 @@ class MasterStrip extends StatelessWidget {
       topLabel: showLabel ? l10n.bookingMasterStripLabel : null,
       avatarGradient: avatarGradient,
       avatarBordered: avatarBordered,
+      avatarImageUrl: avatarImageUrl,
       middleLine: showRole
           ? Text(
               subtitle,

@@ -16,6 +16,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -53,7 +54,44 @@ const List<List<Color>> _kAvatarGradients = <List<Color>>[
 /// overflowing diameter, at 1.00px, scaling ~1:1 with diameter above that —
 /// i.e. ~28px of slack above the original 56px avatar, of which 73px spends
 /// 17px and leaves a 3px safety margin below the 76px max-safe diameter).
+///
+/// This is the 1.0x height. Every layout that sizes a card (the card itself,
+/// both grids' `mainAxisExtent`, the «Команда» add tile) reads
+/// [salonMasterCardHeight] instead, which returns exactly this at 1.0x.
 const double kSalonMasterCardHeight = 190;
+
+const double _kAvatarDiameter = 73;
+
+/// Gap between the name and the role line.
+const double _kNameRoleGap = 2;
+
+/// The part of [kSalonMasterCardHeight] that the four text lines (name,
+/// 2-line role, rating) get: the height minus vertical padding, the avatar
+/// and the fixed gaps. 71dp at today's tokens; only this part scales with
+/// the text, the avatar and the gaps stay fixed.
+const double _kTextBudget =
+    kSalonMasterCardHeight -
+    2 * VelvetSpacing.md -
+    _kAvatarDiameter -
+    VelvetSpacing.sm -
+    _kNameRoleGap -
+    VelvetSpacing.xs;
+
+/// The card height for [textScaler] (phase 368 fix: at 1.3x the fixed 190dp
+/// overflowed by 10dp). Grows [_kTextBudget] by the factor the scaler
+/// applies to the card's text size, so a 1.3x scale gives 190 + 71 * 0.3 =
+/// 211.3dp. Returns exactly [kSalonMasterCardHeight] at 1.0x (and never less
+/// for a shrinking scaler), so the default rendering is unchanged. Use it for
+/// the grid's `mainAxisExtent` too, or the grid cell clips the card.
+double salonMasterCardHeight(TextScaler textScaler) {
+  // Every text line in the card is 11sp (subheading14 / feedbackMutedXs /
+  // bodyStrong12 all ship at 11), so one factor covers the linear and the
+  // Android 14 non-linear scalers alike.
+  final double fontSize = VelvetText.subheading14.fontSize ?? 11;
+  final double factor = textScaler.scale(fontSize) / fontSize;
+  if (factor <= 1) return kSalonMasterCardHeight;
+  return kSalonMasterCardHeight + _kTextBudget * (factor - 1);
+}
 
 /// One master in the salon's "Майстри салону" 2-column grid. A raised
 /// neumorphic card: circular gradient avatar → master name → role sub-line →
@@ -73,6 +111,7 @@ class SalonMasterCard extends StatefulWidget {
     required this.ratingLabel,
     required this.avatarIndex,
     required this.onTap,
+    this.imageUrl,
   });
 
   final String name;
@@ -87,6 +126,12 @@ class SalonMasterCard extends StatefulWidget {
   /// Tapping the card body opens the master's public profile.
   final VoidCallback onTap;
 
+  /// Phase 9.7 — the master's photo. `null` (the default) keeps the gradient
+  /// disc chosen by [avatarIndex]; when set the photo renders through the
+  /// shared [RemoteImage] over that disc, which is also the load-error and
+  /// disallowed-host fallback.
+  final String? imageUrl;
+
   @override
   State<SalonMasterCard> createState() => _SalonMasterCardState();
 }
@@ -99,6 +144,13 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
     final l10n = AppLocalizations.of(context);
     final List<Color> gradient =
         _kAvatarGradients[widget.avatarIndex % _kAvatarGradients.length];
+    final Widget glyph = Center(
+      child: Icon(
+        Icons.person_rounded,
+        color: BrandColors.white.withValues(alpha: 0.82),
+        size: 34,
+      ),
+    );
     return Semantics(
       button: true,
       label: l10n.salonMasterCardSemanticLabel(
@@ -131,7 +183,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
             // Height is exactly the tile's `mainAxisExtent`, so this adds no
             // overflow.
             width: double.infinity,
-            height: kSalonMasterCardHeight,
+            height: salonMasterCardHeight(MediaQuery.textScalerOf(context)),
             decoration: BoxDecoration(
               color: BrandColors.base,
               borderRadius: BorderRadius.circular(VelvetRadii.card),
@@ -158,8 +210,8 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                 // ([kSalonMasterCardHeight], the grid's `mainAxisExtent`)
                 // stays untouched — only this circle grows.
                 Container(
-                  height: 73,
-                  width: 73,
+                  height: _kAvatarDiameter,
+                  width: _kAvatarDiameter,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: LinearGradient(
@@ -169,13 +221,16 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                     ),
                     boxShadow: VelvetShadows.extrudedSmall,
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.person_rounded,
-                      color: BrandColors.white.withValues(alpha: 0.82),
-                      size: 34,
-                    ),
-                  ),
+                  child: widget.imageUrl == null
+                      ? glyph
+                      : RemoteImage(
+                          url: widget.imageUrl,
+                          width: _kAvatarDiameter,
+                          height: _kAvatarDiameter,
+                          shape: RemoteImageShape.circle,
+                          excludeFromSemantics: true,
+                          fallback: glyph,
+                        ),
                 ),
                 const SizedBox(height: VelvetSpacing.sm),
                 Text(
@@ -185,7 +240,7 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: _kNameRoleGap),
                 Text(
                   widget.role,
                   style: VelvetText.feedbackMutedXs,

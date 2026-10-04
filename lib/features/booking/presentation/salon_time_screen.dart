@@ -729,6 +729,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
       // roster entry.
       avgRating: master.reviewCount > 0 ? master.avgRating : null,
       reviewCount: master.reviewCount,
+      avatarUrl: master.avatarUrl,
       services: services,
       orderedMasterServiceIds: assignmentIds,
     );

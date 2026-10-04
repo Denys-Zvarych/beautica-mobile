@@ -188,7 +188,7 @@ class _PublicSalonProfileScreenState
       salonServiceFilterProvider(widget.salonId),
     );
 
-    final double topInset = MediaQuery.of(context).padding.top;
+    final double topInset = MediaQuery.paddingOf(context).top;
 
     return Scaffold(
       backgroundColor: BrandColors.base,
@@ -196,43 +196,63 @@ class _PublicSalonProfileScreenState
         data: (PublicSalonProfileData data) => _BookingShelf(salon: data.$1),
         orElse: () => null,
       ),
-      body: SingleChildScrollView(
+      // mobile-perf LOW fix (phase 368 audit) — was a `SingleChildScrollView`
+      // wrapping a plain `Column`, which forced `_MastersTab`'s
+      // `GridView.builder` into `shrinkWrap: true` +
+      // `NeverScrollableScrollPhysics` and so built every visible card (up to
+      // [kSalonMastersPageSize], each with its own avatar fetch + decode) in
+      // one go. Same shape as `SalonManagementProfileScreen.build`: ONE
+      // `CustomScrollView` (same physics, same bottom inset via the
+      // `SliverPadding`) whose loaded body is a sliver, so `_MastersTab` can
+      // contribute a genuinely lazy `SliverGrid.builder`. Only one tab body is
+      // ever mounted (`_LoadedBody`'s `switch (tab)`), so there is no
+      // nested-scrollable hazard.
+      body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
-        child: async.when(
-          loading: () => _LoadingBody(
-            salonId: widget.salonId,
-            topInset: topInset,
-            coverHeight: _coverHeight,
-            heroProtrusion: _heroProtrusion,
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+            sliver: async.when(
+              loading: () => SliverToBoxAdapter(
+                child: _LoadingBody(
+                  salonId: widget.salonId,
+                  topInset: topInset,
+                  coverHeight: _coverHeight,
+                  heroProtrusion: _heroProtrusion,
+                ),
+              ),
+              error: (Object e, _) => SliverToBoxAdapter(
+                child: _ErrorBody(
+                  salonId: widget.salonId,
+                  topInset: topInset,
+                  failure: e is Failure ? e : UnknownFailure(cause: e),
+                  onRetry: () => ref.invalidate(
+                    publicSalonProfileProvider(widget.salonId),
+                  ),
+                ),
+              ),
+              data: (PublicSalonProfileData data) {
+                _startReveal();
+                return _LoadedBody(
+                  salonId: widget.salonId,
+                  salon: data.$1,
+                  masters: data.$2,
+                  serviceFilter: serviceFilter,
+                  topInset: topInset,
+                  coverHeight: _coverHeight,
+                  tab: _tab,
+                  onTabSelected: (int i) => setState(() => _tab = i),
+                  anim0: _anim0,
+                  anim1: _anim1,
+                  anim2: _anim2,
+                  slide0: _slide0,
+                  slide1: _slide1,
+                  slide2: _slide2,
+                );
+              },
+            ),
           ),
-          error: (Object e, _) => _ErrorBody(
-            salonId: widget.salonId,
-            topInset: topInset,
-            failure: e is Failure ? e : UnknownFailure(cause: e),
-            onRetry: () =>
-                ref.invalidate(publicSalonProfileProvider(widget.salonId)),
-          ),
-          data: (PublicSalonProfileData data) {
-            _startReveal();
-            return _LoadedBody(
-              salonId: widget.salonId,
-              salon: data.$1,
-              masters: data.$2,
-              serviceFilter: serviceFilter,
-              topInset: topInset,
-              coverHeight: _coverHeight,
-              tab: _tab,
-              onTabSelected: (int i) => setState(() => _tab = i),
-              anim0: _anim0,
-              anim1: _anim1,
-              anim2: _anim2,
-              slide0: _slide0,
-              slide1: _slide1,
-              slide2: _slide2,
-            );
-          },
-        ),
+        ],
       ),
     );
   }
@@ -416,54 +436,74 @@ class _LoadedBody extends StatelessWidget {
       l10n.salonTabReviews,
     ];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        _CoverAndHero(
-          coverHeight: coverHeight,
-          topInset: topInset,
-          salon: salon,
-          anim0: anim0,
-          slide0: slide0,
+    // A SLIVER (was a `Column`) — spliced into the screen's
+    // `CustomScrollView` (see `PublicSalonProfileScreen.build`). Mirrors
+    // `salon_management_profile_screen.dart`'s `_LoadedBody`: the fixed
+    // cover/hero/tab-bar header is one `SliverToBoxAdapter`, the tab body the
+    // sliver below it.
+    return SliverMainAxisGroup(
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              _CoverAndHero(
+                coverHeight: coverHeight,
+                topInset: topInset,
+                salon: salon,
+                anim0: anim0,
+                slide0: slide0,
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+              RevealTransition(
+                key: const Key('public-salon-profile-reveal-1'),
+                fade: anim1,
+                slide: slide1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: VelvetSpacing.lg,
+                  ),
+                  child: ProfileTabBar(
+                    tabs: tabs,
+                    selected: tab,
+                    onSelect: onTabSelected,
+                  ),
+                ),
+              ),
+              const SizedBox(height: VelvetSpacing.lg),
+            ],
+          ),
         ),
-        const SizedBox(height: VelvetSpacing.lg),
-        RevealTransition(
-          key: const Key('public-salon-profile-reveal-1'),
-          fade: anim1,
-          slide: slide1,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: ProfileTabBar(
-              tabs: tabs,
-              selected: tab,
-              onSelect: onTabSelected,
+        KeyedSubtree(
+          key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
+          child: switch (tab) {
+            // The masters tab is a sliver of its own (lazy grid) and applies
+            // the tab-body entrance itself — see `_MastersTab.fade`.
+            1 => _MastersTab(
+              salonId: salonId,
+              masters: masters,
+              filter: serviceFilter,
+              fade: anim2,
             ),
-          ),
-        ),
-        const SizedBox(height: VelvetSpacing.lg),
-        RevealTransition(
-          key: const Key('public-salon-profile-reveal-2'),
-          fade: anim2,
-          slide: slide2,
-          child: KeyedSubtree(
-            key: ValueKey<String>('salon-tab-body-${_tabKeys[tab]}'),
-            child: switch (tab) {
-              0 => _AboutTab(salon: salon),
-              1 => _MastersTab(
-                salonId: salonId,
-                masters: masters,
-                filter: serviceFilter,
+            _ => SliverToBoxAdapter(
+              child: RevealTransition(
+                key: const Key('public-salon-profile-reveal-2'),
+                fade: anim2,
+                slide: slide2,
+                child: switch (tab) {
+                  0 => _AboutTab(salon: salon),
+                  2 => _ServicesTab(
+                    salonId: salonId,
+                    selectedServiceId: serviceFilter?.id,
+                    // Selecting a service jumps to the Майстри tab (index 1)
+                    // so the client immediately sees the narrowed roster.
+                    onSwitchToMasters: () => onTabSelected(1),
+                  ),
+                  _ => SalonReviewsSection(salonId: salonId),
+                },
               ),
-              2 => _ServicesTab(
-                salonId: salonId,
-                selectedServiceId: serviceFilter?.id,
-                // Selecting a service jumps to the Майстри tab (index 1) so the
-                // client immediately sees the narrowed roster.
-                onSwitchToMasters: () => onTabSelected(1),
-              ),
-              _ => SalonReviewsSection(salonId: salonId),
-            },
-          ),
+            ),
+          },
         ),
       ],
     );
@@ -1322,8 +1362,9 @@ class _SalonPortfolioTile extends StatelessWidget {
 
 /// How many masters render up front before the "show all" affordance is
 /// needed (mobile-perf LOW fix, Phase 13.6 audit follow-up). 3 full rows of
-/// the 2-column grid — small enough to bound the eager-build cost described
-/// below regardless of how close a roster gets to [kSalonMastersPageSize].
+/// the 2-column grid. Introduced when the grid was a shrink-wrapped (eager)
+/// `GridView`; the grid is a lazy `SliverGrid` now (see `_buildGrid`), and the
+/// cap + "show all" reveal is kept as a deliberate, user-visible layout.
 const int kSalonMastersInitialCount = 6;
 
 /// mobile-perf LOW (Phase 266 audit cycle 3) — bumped once per genuine
@@ -1346,6 +1387,7 @@ class _MastersTab extends ConsumerStatefulWidget {
     required this.salonId,
     required this.masters,
     required this.filter,
+    required this.fade,
   });
 
   final String salonId;
@@ -1353,6 +1395,14 @@ class _MastersTab extends ConsumerStatefulWidget {
 
   /// The active service filter, or null to show every master (default).
   final SalonServiceSelection? filter;
+
+  /// The tab-body entrance opacity (the host's `anim2`). This tab is a sliver,
+  /// so it takes a [SliverFadeTransition] rather than the box-only
+  /// [RevealTransition] the other tabs use. There is no sliver slide; the
+  /// slide segment is dropped here. That is invisible in practice, because
+  /// the screen always opens on tab 0 and the entrance finishes before the
+  /// masters tab can be shown, so the slide is already at rest.
+  final Animation<double> fade;
 
   @override
   ConsumerState<_MastersTab> createState() => _MastersTabState();
@@ -1419,7 +1469,7 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
     // different service — the visible set changes, so the first-paint cap must
     // re-arm. Without this reset a "show all" from one set leaks into the next
     // (e.g. show-all on a filtered set → clear the filter → the full roster
-    // would render eagerly, defeating the kSalonMastersInitialCount cap).
+    // would show uncapped, defeating the kSalonMastersInitialCount cap).
     if (oldWidget.filter != widget.filter) {
       _showAll = false;
     }
@@ -1431,14 +1481,28 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
     final List<SalonMasterSummary> masters = widget.masters;
     final SalonServiceSelection? filter = widget.filter;
 
+    return SliverFadeTransition(
+      opacity: widget.fade,
+      sliver: _buildBody(context, l10n, masters, filter),
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    AppLocalizations l10n,
+    List<SalonMasterSummary> masters,
+    SalonServiceSelection? filter,
+  ) {
     // Salon has no masters at all — nothing a filter could change.
     if (masters.isEmpty) {
-      return Padding(
-        key: const Key('salon-masters-empty'),
-        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-        child: Text(
-          l10n.salonMastersEmpty,
-          style: VelvetText.feedback(BrandColors.muted),
+      return SliverToBoxAdapter(
+        child: Padding(
+          key: const Key('salon-masters-empty'),
+          padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+          child: Text(
+            l10n.salonMastersEmpty,
+            style: VelvetText.feedback(BrandColors.muted),
+          ),
         ),
       );
     }
@@ -1467,38 +1531,43 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
       salonMasterServiceCoverageProvider(coverageArgs),
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(
-            VelvetSpacing.lg,
-            0,
-            VelvetSpacing.lg,
-            VelvetSpacing.md,
-          ),
-          child: _ServiceFilterChip(
-            serviceName: filter.name,
-            onClear: () => ref
-                .read(salonServiceFilterProvider(widget.salonId).notifier)
-                .clear(),
+    return SliverMainAxisGroup(
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              VelvetSpacing.lg,
+              0,
+              VelvetSpacing.lg,
+              VelvetSpacing.md,
+            ),
+            child: _ServiceFilterChip(
+              serviceName: filter.name,
+              onClear: () => ref
+                  .read(salonServiceFilterProvider(widget.salonId).notifier)
+                  .clear(),
+            ),
           ),
         ),
         coverageAsync.when(
-          loading: () => const Padding(
-            padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
-            child: SkeletonShimmerScope(
-              child: SkeletonBlock(
-                width: double.infinity,
-                height: 160,
-                radius: VelvetRadii.card,
+          loading: () => const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: VelvetSpacing.lg),
+              child: SkeletonShimmerScope(
+                child: SkeletonBlock(
+                  width: double.infinity,
+                  height: 160,
+                  radius: VelvetRadii.card,
+                ),
               ),
             ),
           ),
-          error: (Object e, _) => ErrorState(
-            failure: e is Failure ? e : UnknownFailure(cause: e),
-            onRetry: () => ref.invalidate(
-              salonMasterServiceCoverageProvider(coverageArgs),
+          error: (Object e, _) => SliverToBoxAdapter(
+            child: ErrorState(
+              failure: e is Failure ? e : UnknownFailure(cause: e),
+              onRetry: () => ref.invalidate(
+                salonMasterServiceCoverageProvider(coverageArgs),
+              ),
             ),
           ),
           // Phase 266 — `.byMaster` only; this filter path has no per-service
@@ -1514,7 +1583,7 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
               filter.id,
             );
             if (filtered.isEmpty) {
-              return const _MastersForServiceEmpty();
+              return const SliverToBoxAdapter(child: _MastersForServiceEmpty());
             }
             return _buildGrid(context, filtered);
           },
@@ -1533,41 +1602,36 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
         ? masters.sublist(0, kSalonMastersInitialCount)
         : masters;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
+    return SliverMainAxisGroup(
+      slivers: <Widget>[
+        SliverPadding(
           padding: const EdgeInsets.fromLTRB(
             VelvetSpacing.lg,
             0,
             VelvetSpacing.lg,
             VelvetSpacing.sm,
           ),
-          // Vertical 2-column grid, not a lazy viewport-backed sliver: the
-          // masters tab sits inside the screen's single outer
-          // [SingleChildScrollView] (see `PublicSalonProfileScreen.build`),
-          // not a [CustomScrollView], so `shrinkWrap: true` +
-          // `NeverScrollableScrollPhysics` is the standard way to embed a
-          // grid without a nested scrollable (double-scroll jank / gesture
-          // conflicts). Because shrink-wrapping forces Flutter to eagerly
-          // build every child up front to measure the wrapped height (no
-          // lazy viewport culling), [visible] is capped to
-          // [kSalonMastersInitialCount] on first paint rather than the full
-          // roster (capped at [kSalonMastersPageSize], 50) — see the "show
-          // all" affordance below (mobile-perf LOW fix, Phase 13.6 audit
-          // follow-up). `mainAxisExtent` (not `childAspectRatio`) pins each
-          // row to the exact [kSalonMasterCardHeight] regardless of column
-          // width, so [SalonMasterCard]'s long-name/wrapped-role overflow
-          // budget stays valid at any screen width.
-          child: GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          // A lazy `SliverGrid.builder` in the screen's ONE
+          // `CustomScrollView` (mobile-perf LOW fix, phase 368 audit; same
+          // shape as `_StaffTab` in `salon_management_profile_screen.dart`).
+          // It was a `shrinkWrap: true` `GridView.builder`, which built every
+          // card up front to measure its own height, so "show all" inflated
+          // the whole roster (up to [kSalonMastersPageSize], 50) and fired
+          // every avatar fetch at once. Now only the cells in the viewport
+          // (plus `cacheExtent`) are built. The [kSalonMastersInitialCount]
+          // cap + "show all" reveal below is kept as-is, so the rendered
+          // content is unchanged. `mainAxisExtent` (not `childAspectRatio`)
+          // pins each row to [salonMasterCardHeight] (190 at 1.0x) regardless of
+          // column width, so [SalonMasterCard]'s long-name/wrapped-role
+          // overflow budget stays valid at any screen width.
+          sliver: SliverGrid.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
               mainAxisSpacing: VelvetSpacing.md,
               crossAxisSpacing: VelvetSpacing.md,
-              mainAxisExtent: kSalonMasterCardHeight,
+              mainAxisExtent: salonMasterCardHeight(
+                MediaQuery.textScalerOf(context),
+              ),
             ),
             itemCount: visible.length,
             itemBuilder: (context, i) {
@@ -1588,6 +1652,7 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
                     ? (master.avgRating?.toStringAsFixed(1) ?? '—')
                     : '—',
                 avatarIndex: i,
+                imageUrl: master.avatarUrl,
                 onTap: () => context.push(
                   RouteNames.masterPublicProfile(master.masterId),
                 ),
@@ -1596,15 +1661,17 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
           ),
         ),
         if (hasMore && !_showAll)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              VelvetSpacing.lg,
-              0,
-              VelvetSpacing.lg,
-              VelvetSpacing.sm,
-            ),
-            child: _ShowAllMastersButton(
-              onTap: () => setState(() => _showAll = true),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                VelvetSpacing.lg,
+                0,
+                VelvetSpacing.lg,
+                VelvetSpacing.sm,
+              ),
+              child: _ShowAllMastersButton(
+                onTap: () => setState(() => _showAll = true),
+              ),
             ),
           ),
       ],

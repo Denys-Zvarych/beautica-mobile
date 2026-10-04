@@ -3548,7 +3548,7 @@ final class FakeBackend {
           'masterId': 'master-aaa',
           'firstName': 'Софія',
           'lastName': 'Бондар',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-aaa.png',
           // Same master as the public detail / summary / search card — the
           // rail card opens THAT profile, so the numbers must match.
           'avgRating': kPublicMasterAvgRatingBeforeReview,
@@ -3559,7 +3559,7 @@ final class FakeBackend {
           'masterId': 'master-ccc',
           'firstName': 'Марія',
           'lastName': 'Гриценко',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-ccc.png',
           'avgRating': 4.6,
           'reviewCount': 9,
           'masterType': 'SALON_OWNER',
@@ -3636,7 +3636,7 @@ final class FakeBackend {
       'firstName': 'Софія',
       'lastName': 'Бондар',
       'professionalTitle': null,
-      'avatarUrl': null,
+      'avatarUrl': 'https://media.test/avatars/master-aaa.png',
       'phoneNumber': '+380671112233',
       'instagram': null,
       'bio': null,
@@ -4211,6 +4211,12 @@ final class FakeBackend {
   /// `false` so a detail re-fetch re-resolves the entry CTA away and a stale
   /// deep link lands on the not-reviewable info state.
   bool bookingCanReview = false;
+
+  /// Phase 9.7 — `masterAvatarUrl` of the seeded `booking-1` (detail + list).
+  /// `null` (default) keeps every pre-existing flow's wire body unchanged; the
+  /// leave-review flow seeds a `media.test` URL to prove the master photo
+  /// reaches «Залишити відгук»'s `MasterFeedbackCard`.
+  String? bookingMasterAvatarUrl;
 
   /// `POST /reviews` call count + the last rating/comment/bookingId submitted
   /// (Phase 14.6). Asserted by the leave-review flow.
@@ -4820,7 +4826,7 @@ final class FakeBackend {
     'masterId': 'master-aaa',
     'masterFirstName': 'Софія',
     'masterLastName': 'Бондар',
-    'masterAvatarUrl': null,
+    'masterAvatarUrl': bookingMasterAvatarUrl,
     'masterType': bookingMasterType,
     'salonName': bookingSalonName,
     // Phase 232. Emitted UNCONDITIONALLY (not behind an `if`, unlike the

@@ -503,8 +503,10 @@ void main() {
 
   // Phase 301 — the roster chip's avatar is dimmed to 0.45 for the two quiet
   // states (`free || dayOff`). The name's muted style changes with it, which is
-  // why the probe crops to the `MasterAvatarBadge` alone: the badge is a const
-  // glyph that paints identically in both states, so the dim is the ONLY
+  // why the probe crops to the `MasterAvatarBadge` alone: with no `imageUrl`
+  // (these fixtures set none) the badge is the gradient glyph, which paints
+  // identically in both states (it is no longer `const` since Phase 9.7
+  // threads `entry.imageUrl` into it), so the dim is the ONLY
   // difference between the two crops. The badge sits over the chip's solid
   // `base` fill (the chip's shadow pair is outside the 28dp disc), and the
   // chip's own geometry does not move between the states.

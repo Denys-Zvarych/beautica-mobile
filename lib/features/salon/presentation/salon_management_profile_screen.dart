@@ -1119,11 +1119,13 @@ class _StaffTab extends StatelessWidget {
             ),
           ),
         SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: VelvetSpacing.md,
             crossAxisSpacing: VelvetSpacing.md,
-            mainAxisExtent: kSalonMasterCardHeight,
+            mainAxisExtent: salonMasterCardHeight(
+              MediaQuery.textScalerOf(context),
+            ),
           ),
           itemCount: staff.length + 1,
           itemBuilder: (BuildContext context, int i) {
@@ -1160,6 +1162,7 @@ class _StaffTab extends StatelessWidget {
                   ? (member.avgRating?.toStringAsFixed(1) ?? '—')
                   : '—',
               avatarIndex: i,
+              imageUrl: member.avatarUrl,
               onTap: () => onOpenMember(member),
             );
           },
@@ -1171,7 +1174,7 @@ class _StaffTab extends StatelessWidget {
 
 /// The trailing "invite staff" tile, always the last cell in the «Персонал»
 /// grid. Reuses [SalonMasterCard]'s exact shell dimensions
-/// ([kSalonMasterCardHeight], `VelvetRadii.card`, `VelvetShadows.extrudedCard`)
+/// ([salonMasterCardHeight], `VelvetRadii.card`, `VelvetShadows.extrudedCard`)
 /// so it sits flush with the real cards, but there is no existing production
 /// "add tile" widget to reuse (the client-facing masters grid never has one) —
 /// this is a small, genuinely new widget, private to this screen.
@@ -1208,7 +1211,7 @@ class _AddStaffTileState extends State<_AddStaffTile> {
           curve: Curves.easeOut,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            height: kSalonMasterCardHeight,
+            height: salonMasterCardHeight(MediaQuery.textScalerOf(context)),
             decoration: BoxDecoration(
               color: BrandColors.base,
               borderRadius: BorderRadius.circular(VelvetRadii.card),

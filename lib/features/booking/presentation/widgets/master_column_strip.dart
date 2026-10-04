@@ -64,9 +64,14 @@ class MasterColumnEntry {
     this.professionalTitle,
     this.avgRating,
     this.dayOff = false,
+    this.imageUrl,
   });
 
   final String masterId;
+
+  /// Phase 9.7 — the master's photo URL, forwarded to the chip's
+  /// [MasterAvatarBadge]. `null` (default) keeps the gradient glyph.
+  final String? imageUrl;
 
   /// Already-joined display name ("Олена Ковальчук"). The chip ellipsises it
   /// to one line rather than abbreviating — a shortened name is a guess, and
@@ -350,7 +355,7 @@ class _MasterColumnChip extends StatelessWidget {
             // dim-gated: test/features/booking/presentation/widgets/master_column_strip_rebuild_gate_test.dart
             Opacity(
               opacity: quiet ? 0.45 : 1,
-              child: const MasterAvatarBadge(size: 28),
+              child: MasterAvatarBadge(size: 28, imageUrl: entry.imageUrl),
             ),
             const SizedBox(width: VelvetSpacing.xs + 2),
             Expanded(
