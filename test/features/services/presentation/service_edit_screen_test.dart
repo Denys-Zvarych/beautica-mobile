@@ -12,8 +12,7 @@
 //   4. Save calls update(id, patch) and invalidates servicesListProvider.
 //   5. Error state shows with retry button when serviceByIdProvider errors.
 //   6. Dirty-state marker visible after changing name, hidden when reverted.
-//   7. ServicePhotoSlot shows empty state by default.
-//   8. ServicePhotoSlot shows filled state when imageUrl is provided (widget test).
+//   7. No ServicePhotoSlot on the screen (product decision 2026-10-04).
 //   Item 3 (M4). Changing the service type in the picker and saving sends the
 //      NEW serviceTypeId in MasterServiceUpdate (no silent PATCH drop).
 
@@ -582,58 +581,21 @@ void main() {
     },
   );
 
-  // ── 7. ServicePhotoSlot — empty state ────────────────────────────────────
+  // ── Regression — no photo slot on the edit screen ────────────────────────
+  // Product decision 2026-10-04: services carry no custom photos.
 
-  testWidgets('7. ServicePhotoSlot shows empty state when imageUrl is null', (
+  testWidgets('edit screen renders no ServicePhotoSlot', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      const MaterialApp(
-        localizationsDelegates: AppLocalizations.localizationsDelegates,
-        supportedLocales: AppLocalizations.supportedLocales,
-        locale: Locale('uk'),
-        home: Scaffold(body: ServicePhotoSlot(key: Key('photo-slot'))),
-      ),
-    );
-    await tester.pump();
+    await _pumpEdit(tester, repo);
 
-    // Empty state: camera icon is present.
-    expect(find.byIcon(Icons.add_a_photo_rounded), findsOneWidget);
-
-    // FIX 2: the "Обкладинка сервісу у списку" cover subtitle was removed.
     expect(
-      find.text('Обкладинка сервісу у списку'),
-      findsNothing,
-      reason: 'the cover-subtitle line must no longer render (FIX 2)',
+      find.byKey(Key('service-edit-form-${_stubService.id}')),
+      findsOneWidget,
+      reason: 'anti-vacuity: the loaded form must be on screen',
     );
+    expect(find.byType(ServicePhotoSlot), findsNothing);
   });
-
-  // ── 8. ServicePhotoSlot — filled state ───────────────────────────────────
-
-  testWidgets(
-    '8. ServicePhotoSlot shows filled state when imageUrl is provided',
-    (WidgetTester tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          supportedLocales: AppLocalizations.supportedLocales,
-          locale: Locale('uk'),
-          home: Scaffold(
-            body: ServicePhotoSlot(
-              key: Key('photo-slot-filled'),
-              imageUrl: 'https://example.com/photo.jpg',
-            ),
-          ),
-        ),
-      );
-      await tester.pump();
-
-      // Filled state: change-photo camera icon is present.
-      expect(find.byIcon(Icons.photo_camera_rounded), findsOneWidget);
-      // The "add photo" camera icon must NOT be shown.
-      expect(find.byIcon(Icons.add_a_photo_rounded), findsNothing);
-    },
-  );
 
   // ── 7. Tapping btn-delete-service opens the dialog ───────────────────────
 

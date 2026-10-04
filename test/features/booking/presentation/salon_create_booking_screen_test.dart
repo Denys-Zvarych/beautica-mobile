@@ -2272,28 +2272,15 @@ void main() {
     });
   });
 
-  // ── Phase 323 — THE OTHER ServiceCard CONSUMER KEEPS ITS PHOTO WELL ───────
+  // ── Product decision 2026-10-04 — NO service photo wells anywhere ─────────
   //
-  // `ServiceCard.showPhoto` is additive and defaults to `true`, and
-  // `services_list_screen.dart` is the ONE caller that opts out. This wizard's
-  // picker (`booking_wizard_steps.dart:629`) is the only other real consumer
-  // in `lib/`, and nothing pinned its side of that contract.
-  //
-  // Why the default-value test in
-  // `test/features/services/presentation/widgets/service_category_list_test.dart`
-  // is NOT enough: that case constructs a bare [ServiceCard] itself, so it
-  // catches a flipped DEFAULT and nothing else. Adding `showPhoto: false` at
-  // the wizard's own call site — a one-token edit, and the obvious one for
-  // anyone copying the services page's reclaim across — leaves it green.
-  //
-  // Asserted from the LAID-OUT render tree, never from
-  // `.widget<ServiceCard>(...).showPhoto`
-  // (`project_widget_field_assertion_is_vacuous`): a field read passes even if
-  // the Row drops the well.
-  group('Phase 323 — the wizard picker keeps the leading photo well', () {
+  // Services and categories carry no custom photos, so the wizard picker rows
+  // render no empty PhotoThumbnail well (this reverses Phase 323's "keep the
+  // well" for the picker). Asserted from the laid-out tree.
+  group('no photo well — the wizard picker rows', () {
     testWidgets(
-      'a salon-catalogue service card renders a 40 dp PhotoThumbnail and its '
-      'name column starts 58 dp inside the card (8 inset + 40 well + 10 gap)',
+      'a salon-catalogue service card renders no PhotoThumbnail and its name '
+      'column starts at the 8 dp card inset',
       (tester) async {
         await _pump(tester);
         await _fillClientStepAndAdvance(tester);
@@ -2304,35 +2291,14 @@ void main() {
         expect(
           card,
           findsOneWidget,
-          reason:
-              'anti-vacuity — nothing below means anything if the picker '
-              'card never rendered',
-        );
-
-        final Finder well = find.descendant(
-          of: card,
-          matching: find.byType(PhotoThumbnail),
+          reason: 'anti-vacuity: the picker card must have rendered',
         );
         expect(
-          well,
-          findsOneWidget,
-          reason:
-              'the picker is SCANNED rather than read, and the leading well '
-              'anchors the selectable row against its trailing check '
-              'indicator — this consumer must never inherit the services '
-              "page's `showPhoto: false`",
+          find.descendant(of: card, matching: find.byType(PhotoThumbnail)),
+          findsNothing,
         );
-        expect(
-          tester.getSize(well),
-          const Size(40, 40),
-          reason:
-              'present-but-collapsed is the failure mode a findsOneWidget '
-              'check alone cannot see',
-        );
+        expect(find.byType(PhotoThumbnail), findsNothing);
 
-        // The gap is the other half of the 50 dp the services page reclaims,
-        // so a half-applied opt-out here (well dropped, gap kept, or vice
-        // versa) has to fail too.
         final double indent =
             tester
                 .getTopLeft(
@@ -2342,11 +2308,8 @@ void main() {
             tester.getTopLeft(card).dx;
         expect(
           indent,
-          58.0,
-          reason:
-              "8 dp card inset + 40 dp well + 10 dp gap. The services page's "
-              'opt-out drops the last two together (50 dp); this consumer '
-              'keeps both.',
+          8.0,
+          reason: '8 dp card inset only — no well, no gap, no extra indent',
         );
       },
     );

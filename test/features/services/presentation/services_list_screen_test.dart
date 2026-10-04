@@ -2032,8 +2032,8 @@ void main() {
           ),
           findsNothing,
           reason:
-              'the services MANAGEMENT page opts out of the leading well; the '
-              'booking wizard is the consumer that keeps it',
+              'no service row draws a leading photo well (product decision '
+              '2026-10-04)',
         );
       },
     );
