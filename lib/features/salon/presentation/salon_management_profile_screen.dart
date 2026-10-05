@@ -89,6 +89,7 @@ import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 import '../application/my_salons_notifier.dart';
+import '../application/salon_image_patch.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../domain/salon.dart';
@@ -96,6 +97,7 @@ import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
+import 'widgets/salon_media_editors.dart';
 import 'widgets/salon_reviews_section.dart';
 import 'widgets/salon_services_accordion.dart';
 
@@ -278,6 +280,30 @@ class _SalonManagementProfileScreenState
     });
   }
 
+  /// Phase 369 — whether the owner's lost salon-photo pick probe ran.
+  bool _recoveryScheduled = false;
+
+  /// Phase 369 — resumes an Android process-death logo / cover pick for THIS
+  /// salon, once per mount, post-frame (needs l10n + the editors mounted to
+  /// keep the controller alive). Owner only; off Android it is a no-op. A pick
+  /// for another salon / account / an avatar is drained, never resumed here.
+  void _scheduleLostPickRecovery() {
+    if (_recoveryScheduled) return;
+    _recoveryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final double logo = SalonLogo.imageDiameter(
+        _ManagementHeroCard.logoDiameter,
+      );
+      recoverLostSalonImage(
+        host: this,
+        salonId: widget.salonId,
+        logoDecodeSize: Size(logo, logo),
+        coverDecodeSize: Size(MediaQuery.sizeOf(context).width, _coverHeight),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // NARROWED to the role (Phase 367 audit, mobile-perf LOW) — see
@@ -289,6 +315,29 @@ class _SalonManagementProfileScreenState
     // owner-only rows — see [_AboutReadView.canEdit] for why the two "add"
     // links must not be offered to a SALON_ADMIN.
     final bool isOwner = role == UserRole.salonOwner;
+    // Phase 369 audit (mobile-security LOW) — the logo / cover editors need
+    // OWNERSHIP of THIS salon, not just the role: `salonManageGuard` admits a
+    // SALON_OWNER before `mySalonsProvider` resolves, and the embedded shell
+    // instance does not bounce itself. Only a SETTLED `AsyncData` that
+    // contains [widget.salonId] unlocks them — [settledValueOrNull], the same
+    // rule `patchImage` uses: stale `.value` on a later loading/error is
+    // ignored, and so is a same-session refresh (`AsyncData` + `isLoading`,
+    // e.g. after a salon was deleted or registered) whose in-flight list may
+    // no longer contain this salon. Narrow select → a bool, so a list patch
+    // elsewhere does not rebuild this screen; never watched for a non-owner
+    // (no unwanted `/salons/mine`).
+    final bool ownsSalon =
+        isOwner &&
+        ref.watch(
+          mySalonsProvider.select(
+            (AsyncValue<List<Salon>> a) =>
+                settledValueOrNull(
+                  a,
+                )?.any((Salon s) => s.id == widget.salonId) ??
+                false,
+          ),
+        );
+    if (ownsSalon) _scheduleLostPickRecovery();
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );
@@ -369,6 +418,7 @@ class _SalonManagementProfileScreenState
                   tab: widget.tab ?? _tab,
                   onTabSelected: _onTabSelected,
                   canEdit: isOwner,
+                  canEditMedia: ownsSalon,
                   onOpenSettings: _openSettings,
                   onOpenStaffMember: _openStaffMember,
                   onInviteStaff: _openInviteStaff,
@@ -449,6 +499,7 @@ class _LoadedBody extends StatelessWidget {
     required this.tab,
     required this.onTabSelected,
     required this.canEdit,
+    required this.canEditMedia,
     required this.onOpenSettings,
     required this.onOpenStaffMember,
     required this.onInviteStaff,
@@ -471,6 +522,11 @@ class _LoadedBody extends StatelessWidget {
 
   /// See [_AboutReadView.canEdit] — `true` only for a `SALON_OWNER`.
   final bool canEdit;
+
+  /// Phase 369 — `true` only for a `SALON_OWNER` whose resolved
+  /// `mySalonsProvider` list contains [salonId]. See
+  /// [_CoverAndHero.canEditMedia].
+  final bool canEditMedia;
 
   final VoidCallback onOpenSettings;
   final ValueChanged<SalonStaffMember> onOpenStaffMember;
@@ -502,6 +558,7 @@ class _LoadedBody extends StatelessWidget {
                 salon: salon,
                 embedded: embedded,
                 onOpenSettings: onOpenSettings,
+                canEditMedia: canEditMedia,
               ),
               const SizedBox(height: VelvetSpacing.lg),
               Padding(
@@ -589,6 +646,7 @@ class _CoverAndHero extends StatelessWidget {
     required this.salon,
     required this.embedded,
     required this.onOpenSettings,
+    this.canEditMedia = false,
   });
 
   final double coverHeight;
@@ -601,6 +659,12 @@ class _CoverAndHero extends StatelessWidget {
   final bool embedded;
   final VoidCallback onOpenSettings;
 
+  /// Phase 369 — `true` ONLY for a SALON_OWNER (locked 2026-10-04): the cover
+  /// gets its upload overlays + the camera control, the hero logo its camera
+  /// badge. A SALON_ADMIN gets the plain read-only marks — no badge, nothing
+  /// tappable for upload (the backend 403s the endpoint anyway).
+  final bool canEditMedia;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -608,11 +672,18 @@ class _CoverAndHero extends StatelessWidget {
       children: <Widget>[
         Padding(
           padding: EdgeInsets.only(bottom: heroProtrusion),
-          child: SalonCover(
-            height: coverHeight,
-            topInset: topInset,
-            imageUrl: salon.coverImageUrl,
-          ),
+          child: canEditMedia
+              ? SalonCoverEditor(
+                  salonId: salon.id,
+                  height: coverHeight,
+                  topInset: topInset,
+                  imageUrl: salon.coverImageUrl,
+                )
+              : SalonCover(
+                  height: coverHeight,
+                  topInset: topInset,
+                  imageUrl: salon.coverImageUrl,
+                ),
         ),
         if (!embedded)
           Positioned(
@@ -631,6 +702,15 @@ class _CoverAndHero extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // Phase 369 — the owner's cover camera, first in the row.
+              if (canEditMedia) ...<Widget>[
+                SalonCoverEditButton(
+                  salonId: salon.id,
+                  coverHeight: coverHeight,
+                  imageUrl: salon.coverImageUrl,
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+              ],
               // Phase 361 — the approved design's frosted cover bell (docs/
               // signup-designs/SalonManagementDesign/lib/screens/
               // salon_profile_screen.dart:407-425), now LIVE: the dot follows
@@ -670,7 +750,7 @@ class _CoverAndHero extends StatelessWidget {
           left: VelvetSpacing.lg,
           right: VelvetSpacing.lg,
           bottom: 0,
-          child: _ManagementHeroCard(salon: salon),
+          child: _ManagementHeroCard(salon: salon, canEditMedia: canEditMedia),
         ),
       ],
     );
@@ -689,9 +769,16 @@ class _CoverAndHero extends StatelessWidget {
 /// 2026-08-29) — see [build] for the fallback chain and why
 /// `salon.city`/`salon.region` are never read.
 class _ManagementHeroCard extends ConsumerWidget {
-  const _ManagementHeroCard({required this.salon});
+  const _ManagementHeroCard({required this.salon, this.canEditMedia = false});
 
   final Salon salon;
+
+  /// Phase 369 — see [_CoverAndHero.canEditMedia]. Swaps the logo for the
+  /// owner's [SalonLogoEditor] (same 68 dp box, badge inside it).
+  final bool canEditMedia;
+
+  /// The hero logo's diameter, exposed for the recovery precache.
+  static const double logoDiameter = _logoDiameter;
 
   static const double _logoDiameter = 68;
 
@@ -805,7 +892,19 @@ class _ManagementHeroCard extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          SalonLogo(diameter: _logoDiameter, monogram: monogram),
+          if (canEditMedia)
+            SalonLogoEditor(
+              salonId: salon.id,
+              diameter: _logoDiameter,
+              monogram: monogram,
+              imageUrl: salon.avatarUrl,
+            )
+          else
+            SalonLogo(
+              diameter: _logoDiameter,
+              monogram: monogram,
+              imageUrl: salon.avatarUrl,
+            ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(

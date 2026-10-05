@@ -49,12 +49,16 @@
 //
 // Pure Dart — no widget tree.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -426,6 +430,148 @@ void main() {
 
       expect(await container.read(mySalonsProvider.future), equals(_salonsB));
       verify(() => repo.getMySalons()).called(1);
+    });
+  });
+  // Phase 369 audit (MASVS-AUTH LOW, defence in depth): `patchImage` used to
+  // read `state.value` — which keeps the PREVIOUS list through a refetch or an
+  // error — and wrote `AsyncData` back, promoting a stale list (after an
+  // account switch: the PREVIOUS owner's) to "resolved" and reopening the
+  // `ownsSalon` gate + the shell's ownership bounce, both of which deliberately
+  // ignore a stale `.value`. Each non-settled case pins BOTH halves: `false`
+  // AND the state keeps its loading / error shape, un-patched.
+  group('patchImage() — only a settled AsyncData is patchable', () {
+    const String kNewCover = 'https://cdn.beautica.ua/salons/new-cover.webp';
+
+    Future<ProviderContainer> settledContainer(
+      AuthNotifier Function() auth,
+    ) async {
+      final container = _makeContainer(
+        authFactory: auth,
+        repo: repo,
+        retry: (_, _) => null,
+      );
+      await container.read(authProvider.future);
+      final sub = container.listen(mySalonsProvider, (_, _) {});
+      addTearDown(sub.close);
+      expect(await container.read(mySalonsProvider.future), equals(_salonsA));
+      return container;
+    }
+
+    test(
+      'plain AsyncData: patches the cover in place and returns true',
+      () async {
+        when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+        final container = await settledContainer(
+          () => _FixedAuthNotifier(_sessionA),
+        );
+
+        final bool patched = container
+            .read(mySalonsProvider.notifier)
+            .patchImage('salon-a-1', SalonImageSlot.cover, kNewCover);
+
+        expect(patched, isTrue);
+        final state = container.read(mySalonsProvider);
+        expect(state, isA<AsyncData<List<Salon>>>());
+        expect(state.isLoading, isFalse);
+        expect(state.value?.single.coverImageUrl, kNewCover);
+        verify(() => repo.getMySalons()).called(1);
+      },
+    );
+
+    test(
+      'plain AsyncData without the salon: returns false, list untouched',
+      () async {
+        when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+        final container = await settledContainer(
+          () => _FixedAuthNotifier(_sessionA),
+        );
+
+        final bool patched = container
+            .read(mySalonsProvider.notifier)
+            .patchImage('salon-b-1', SalonImageSlot.cover, kNewCover);
+
+        expect(patched, isFalse);
+        expect(container.read(mySalonsProvider).value, equals(_salonsA));
+      },
+    );
+
+    test('refreshing (AsyncData + isLoading, stale list): returns false and '
+        'the state stays loading, un-patched', () async {
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+      final container = await settledContainer(
+        () => _FixedAuthNotifier(_sessionA),
+      );
+
+      final Completer<List<Salon>> pending = Completer<List<Salon>>();
+      when(() => repo.getMySalons()).thenAnswer((_) => pending.future);
+      container.invalidate(mySalonsProvider);
+      container.read(mySalonsProvider);
+      expect(container.read(mySalonsProvider).isLoading, isTrue);
+      expect(container.read(mySalonsProvider).value, equals(_salonsA));
+
+      final bool patched = container
+          .read(mySalonsProvider.notifier)
+          .patchImage('salon-a-1', SalonImageSlot.cover, kNewCover);
+
+      expect(patched, isFalse);
+      final state = container.read(mySalonsProvider);
+      expect(state.isLoading, isTrue);
+      expect(state.value?.single.coverImageUrl, isNull);
+    });
+
+    test("account switch: the PREVIOUS owner's list (AsyncLoading carrying "
+        'it) is NOT promoted to AsyncData', () async {
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+      final auth = _ControllableAuthNotifier(_sessionA);
+      final container = await settledContainer(() => auth);
+
+      final Completer<List<Salon>> pending = Completer<List<Salon>>();
+      when(() => repo.getMySalons()).thenAnswer((_) => pending.future);
+      auth.emit(_sessionB);
+      await pumpEventQueue();
+      expect(container.read(mySalonsProvider).isLoading, isTrue);
+      expect(
+        container.read(mySalonsProvider).value,
+        equals(_salonsA),
+        reason: "the stale value really is owner A's list",
+      );
+
+      final bool patched = container
+          .read(mySalonsProvider.notifier)
+          .patchImage('salon-a-1', SalonImageSlot.cover, kNewCover);
+
+      expect(patched, isFalse);
+      final state = container.read(mySalonsProvider);
+      expect(state, isNot(isA<AsyncData<List<Salon>>>()));
+      expect(state.isLoading, isTrue);
+      expect(state.value?.single.coverImageUrl, isNull);
+    });
+
+    test('AsyncError carrying a stale list: returns false and the error '
+        'survives', () async {
+      when(() => repo.getMySalons()).thenAnswer((_) async => _salonsA);
+      final container = await settledContainer(
+        () => _FixedAuthNotifier(_sessionA),
+      );
+
+      when(
+        () => repo.getMySalons(),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      container.invalidate(mySalonsProvider);
+      container.read(mySalonsProvider);
+      await pumpEventQueue();
+      expect(container.read(mySalonsProvider), isA<AsyncError<List<Salon>>>());
+      expect(container.read(mySalonsProvider).value, equals(_salonsA));
+
+      final bool patched = container
+          .read(mySalonsProvider.notifier)
+          .patchImage('salon-a-1', SalonImageSlot.cover, kNewCover);
+
+      expect(patched, isFalse);
+      final state = container.read(mySalonsProvider);
+      expect(state, isA<AsyncError<List<Salon>>>());
+      expect(state.error, isA<NetworkFailure>());
+      expect(state.value?.single.coverImageUrl, isNull);
     });
   });
 }

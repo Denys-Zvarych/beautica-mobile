@@ -334,10 +334,16 @@ class RemoteImage extends StatelessWidget {
     // ANIMATED SOURCES header.
     image = TickerMode(enabled: false, child: image);
 
+    // A square-cornered box needs no clip layer: `BoxFit` already confines
+    // the paint to the [width]×[height] box (`paintImage` crops the SOURCE
+    // rect for `cover`), so a `ClipRRect(BorderRadius.zero)` only cost a
+    // full-size clip on full-bleed sites (the salon cover).
+    final BorderRadius? radius = borderRadius;
     final Widget clipped = switch (shape) {
       RemoteImageShape.circle => ClipOval(child: image),
+      RemoteImageShape.roundedRect when radius == BorderRadius.zero => image,
       RemoteImageShape.roundedRect => ClipRRect(
-        borderRadius: borderRadius!,
+        borderRadius: radius!,
         child: image,
       ),
     };

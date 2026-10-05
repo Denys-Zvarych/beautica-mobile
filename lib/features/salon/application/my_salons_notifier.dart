@@ -46,9 +46,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/salon_repository.dart';
 import '../domain/salon.dart';
+import 'salon_image_patch.dart';
 
 part 'my_salons_notifier.g.dart';
 
@@ -81,5 +84,23 @@ class MySalons extends _$MySalons {
       throw const UnauthorizedFailure();
     }
     return ref.read(salonRepositoryProvider).getMySalons();
+  }
+
+  /// Phase 369 — patches [salonId]'s logo / cover URL ([url] `null` =
+  /// removed) into the cached list IN PLACE, so the «Мої салони» hub card and
+  /// the rotate-admin picker follow an upload without a `GET /salons/mine`
+  /// refetch. Returns `false` (nothing changed) when the list is not a
+  /// SETTLED [AsyncData] (loading, refreshing, or an error carrying a stale
+  /// list — see [settledValueOrNull]) or does not contain [salonId].
+  bool patchImage(String salonId, SalonImageSlot slot, String? url) {
+    final List<Salon>? current = settledValueOrNull(state);
+    if (current == null) return false;
+    final int i = current.indexWhere((Salon s) => s.id == salonId);
+    if (i < 0) return false;
+    state = AsyncData<List<Salon>>(<Salon>[
+      for (int k = 0; k < current.length; k++)
+        k == i ? current[k].withImage(slot, url) : current[k],
+    ]);
+    return true;
   }
 }

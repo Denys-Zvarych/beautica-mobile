@@ -406,4 +406,242 @@ void main() {
       },
     );
   });
+
+  // ── Phase 369 — salon logo / cover ──────────────────────────────────────
+  group('salon logo / cover (Phase 369)', () {
+    const String salonId = '3f2a6c1e-0000-4000-8000-000000000001';
+    Map<String, Object> salonOk({String? logo, String? cover}) =>
+        <String, Object>{
+          'success': true,
+          'data': <String, Object?>{
+            'id': salonId,
+            'name': 'Вельвет',
+            'avatarUrl': logo,
+            'coverImageUrl': cover,
+          },
+          'message': 'OK',
+        };
+
+    for (final SalonImageSlot slot in SalonImageSlot.values) {
+      test('${slot.name}: POST /api/v1/salons/{id}/media/${slot.wire} with '
+          'ONLY the "file" part, and resolves to the slot field', () async {
+        const String url = 'https://media.test/salons/s1/x.jpg';
+        final adapter = _WireAdapter(<_Handler>[
+          _json(
+            200,
+            slot == SalonImageSlot.logo
+                ? salonOk(logo: url, cover: 'https://media.test/other.jpg')
+                : salonOk(cover: url, logo: 'https://media.test/other.jpg'),
+          ),
+        ]);
+        final String got = await build(
+          adapter,
+        ).uploadSalonImage(salonId, slot, photo).result;
+
+        expect(got, url);
+        final w = adapter.wire.single;
+        expect(w.options.method, 'POST');
+        expect(w.options.path, '/api/v1/salons/$salonId/media/${slot.wire}');
+        expect(slot.wire, slot == SalonImageSlot.logo ? 'logo' : 'cover');
+        final List<String> parts = RegExp(
+          r'(?<![a-z])name="([^"]+)"',
+        ).allMatches(w.body).map((Match m) => m.group(1)!).toList();
+        expect(parts, <String>['file'], reason: 'exactly one part: file');
+        expect(w.body, contains('filename="${slot.wire}.jpg"'));
+        expect(w.body, isNot(contains(secretName)));
+      });
+
+      test('${slot.name}: DELETE hits the same path (204)', () async {
+        final adapter = _WireAdapter(<_Handler>[
+          (_, _) async => ResponseBody.fromString('', 204),
+        ]);
+        await build(adapter).deleteSalonImage(salonId, slot);
+        final w = adapter.wire.single;
+        expect(w.options.method, 'DELETE');
+        expect(w.options.path, '/api/v1/salons/$salonId/media/${slot.wire}');
+      });
+    }
+
+    test('a 200 without the slot URL is a failure, not a success', () async {
+      final adapter = _WireAdapter(<_Handler>[_json(200, salonOk())]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage(salonId, SalonImageSlot.cover, photo).result,
+      );
+      expect(f, isA<UploadUnknownFailure>());
+    });
+
+    test(
+      '403 → the owner-only forbidden failure (upload AND delete)',
+      () async {
+        final adapter = _WireAdapter(<_Handler>[
+          _json(403, <String, Object>{
+            'success': false,
+            'message': 'Forbidden',
+          }),
+        ]);
+        final repo = build(adapter);
+        final up = await failureOf(
+          repo.uploadSalonImage(salonId, SalonImageSlot.logo, photo).result,
+        );
+        expect(up, isA<UploadForbiddenFailure>());
+        expect((up as UploadForbiddenFailure).salonOwnerOnly, isTrue);
+        final del = await failureOf(
+          repo.deleteSalonImage(salonId, SalonImageSlot.cover),
+        );
+        expect((del as UploadForbiddenFailure).salonOwnerOnly, isTrue);
+      },
+    );
+
+    test('an avatar 403 stays the generic forbidden failure', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        _json(403, <String, Object>{'success': false, 'message': 'Forbidden'}),
+      ]);
+      final f = await failureOf(build(adapter).uploadAvatar(photo).result);
+      expect((f as UploadForbiddenFailure).salonOwnerOnly, isFalse);
+    });
+
+    test('409 → the retryable conflict failure', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        _json(409, <String, Object>{'success': false, 'message': 'Locked'}),
+      ]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage(salonId, SalonImageSlot.cover, photo).result,
+      );
+      expect(f, isA<UploadConflictFailure>());
+    });
+
+    test('429 → rate limited, honouring Retry-After', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        (_, _) async => ResponseBody.fromString(
+          jsonEncode(<String, Object>{'success': false, 'message': 'Slow'}),
+          429,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+            'retry-after': <String>['42'],
+          },
+        ),
+      ]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage(salonId, SalonImageSlot.logo, photo).result,
+      );
+      expect((f as UploadRateLimitedFailure).retryAfterSeconds, 42);
+    });
+
+    test('429 without a usable Retry-After carries no number', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        (_, _) async => ResponseBody.fromString(
+          jsonEncode(<String, Object>{'success': false}),
+          429,
+          headers: <String, List<String>>{
+            Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+            'retry-after': <String>['99999'],
+          },
+        ),
+      ]);
+      final f = await failureOf(build(adapter).uploadAvatar(photo).result);
+      expect((f as UploadRateLimitedFailure).retryAfterSeconds, isNull);
+    });
+
+    // Phase 369 QA — security LOW regression (EXPECTED RED until the
+    // mobile-dev fix). `jsonDecode` turns an out-of-range JSON number
+    // (`1e999`) into `double.infinity`, and `num.toInt()` on it throws
+    // `UnsupportedError` inside `uploadRetryAfterSeconds` — so a hostile or
+    // buggy 429 body escapes the typed-failure contract instead of yielding
+    // «too many uploads». The body is written RAW: `jsonEncode` refuses to
+    // encode an infinity, which is exactly why only a server can send it.
+    for (final String number in <String>['1e999', '-1e999']) {
+      test('429 body retryAfterSeconds $number with no header → the rate-'
+          'limited failure with no number (never throws) '
+          '[369 security LOW]', () async {
+        final adapter = _WireAdapter(<_Handler>[
+          (_, _) async => ResponseBody.fromString(
+            '{"success":false,"message":"Slow",'
+            '"data":{"retryAfterSeconds":$number}}',
+            429,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+            },
+          ),
+        ]);
+        Object? thrown;
+        try {
+          await build(
+            adapter,
+          ).uploadSalonImage(salonId, SalonImageSlot.cover, photo).result;
+        } catch (e) {
+          thrown = e;
+        }
+        expect(thrown, isA<UploadRateLimitedFailure>());
+        expect((thrown! as UploadRateLimitedFailure).retryAfterSeconds, isNull);
+      });
+    }
+
+    // Control for the two above: a huge but FINITE body number already
+    // clamps (no throw) and is dropped by the cooldown cap — green today, so
+    // a fix that special-cases only `infinity` keeps this shape working.
+    test(
+      '429 body retryAfterSeconds 1e300 → rate limited, no number',
+      () async {
+        final adapter = _WireAdapter(<_Handler>[
+          (_, _) async => ResponseBody.fromString(
+            '{"success":false,"data":{"retryAfterSeconds":1e300}}',
+            429,
+            headers: <String, List<String>>{
+              Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+            },
+          ),
+        ]);
+        final f = await failureOf(
+          build(
+            adapter,
+          ).uploadSalonImage(salonId, SalonImageSlot.logo, photo).result,
+        );
+        expect((f as UploadRateLimitedFailure).retryAfterSeconds, isNull);
+      },
+    );
+
+    test('429 body retryAfterSeconds 42 with no header → honoured', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        _json(429, <String, Object>{
+          'success': false,
+          'data': <String, Object>{'retryAfterSeconds': 42},
+        }),
+      ]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage(salonId, SalonImageSlot.logo, photo).result,
+      );
+      expect((f as UploadRateLimitedFailure).retryAfterSeconds, 42);
+    });
+
+    test('503 → storage unavailable', () async {
+      final adapter = _WireAdapter(<_Handler>[
+        _json(503, <String, Object>{'success': false}),
+      ]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage(salonId, SalonImageSlot.cover, photo).result,
+      );
+      expect(f, isA<UploadStorageUnavailableFailure>());
+    });
+
+    test('a dot-segment salon id never opens a request', () async {
+      final adapter = _WireAdapter(<_Handler>[_json(200, salonOk())]);
+      final f = await failureOf(
+        build(
+          adapter,
+        ).uploadSalonImage('..', SalonImageSlot.logo, photo).result,
+      );
+      expect(f, isA<UploadUnknownFailure>());
+      expect(adapter.wire, isEmpty);
+    });
+  });
 }

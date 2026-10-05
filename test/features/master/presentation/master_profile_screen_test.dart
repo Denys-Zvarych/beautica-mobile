@@ -2209,6 +2209,57 @@ void main() {
     );
   });
 
+  // ── 12g. A non-avatar change still rebuilds the body (Phase 369, 367 perf
+  // INFO a) — the counterpart of 12f: `MasterProfileIgnoringAvatar` must
+  // ignore ONLY the photo. Were it to compare too little, a name edit would
+  // never reach the screen; this pins that it does.
+  testWidgets('a non-avatar change (firstName) still rebuilds the body', (
+    tester,
+  ) async {
+    const String url = 'https://media.test/avatars/u1/1.jpg';
+    await tester.pumpApp(
+      const MasterProfileScreen(),
+      overrides: _buildOverrides(
+        masterState: AsyncData<Master>(_stubMaster.copyWith(avatarUrl: url)),
+        repo: repo,
+        serviceRepo: mockServiceRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Widget nameBefore = tester.widget(
+      find.byKey(const Key('master-profile-name')),
+    );
+    expect(find.textContaining('Тест'), findsWidgets);
+
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(MasterProfileScreen)),
+    );
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    container.read(masterProfileProvider.notifier).state = AsyncData<Master>(
+      _stubMaster.copyWith(avatarUrl: url, firstName: 'Оновлена'),
+    );
+    await tester.pump();
+
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('master-profile-name'))),
+        nameBefore,
+      ),
+      isFalse,
+      reason: 'a firstName change must rebuild the profile body',
+    );
+    expect(find.textContaining('Оновлена'), findsWidgets);
+    expect(
+      tester
+          .widget<NeumorphicAvatarEditor>(
+            find.byKey(const Key('master-profile-avatar-editor')),
+          )
+          .imageUrl,
+      url,
+      reason: 'the photo is unchanged',
+    );
+  });
+
   // ── 13. Services section states ──────────────────────────────────────────
 
   /// Four sub-tests exercise all three [servicesListProvider] states rendered

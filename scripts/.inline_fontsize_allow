@@ -19,7 +19,7 @@ lib/features/home/presentation/widgets/home_profile_card.dart:72     # HubAvatar
 lib/features/home/presentation/widgets/favorite_masters_card.dart:171 # HubPhoto(fontSize:) ctor arg
 #
 # --- Runtime-computed (cannot be a compile-time VelvetText token) ------------
-lib/features/salon/presentation/widgets/salon_cover_widgets.dart:81  # diameter * 0.44 monogram glyph — shifted 82→81 by Phase 351 (SalonTabBar promoted out to shared/widgets/profile_tab_bar.dart)
+lib/features/salon/presentation/widgets/salon_cover_widgets.dart:131  # diameter * 0.44 monogram glyph — shifted 82→81 by Phase 351 (SalonTabBar promoted out to shared/widgets/profile_tab_bar.dart), 81→131 by Phase 369 (SalonLogo photo params; glyph moved into _monogram())
 lib/features/home/presentation/widgets/hub_widgets.dart:106          # HubAvatar EXPLICIT-override path only; the default scale is size-derived
 lib/features/home/presentation/widgets/hub_widgets.dart:193          # fontSize pass-through into cached HubPhoto style
 lib/features/home/presentation/widgets/hub_widgets.dart:625          # size * 0.5 fallback-avatar glyph

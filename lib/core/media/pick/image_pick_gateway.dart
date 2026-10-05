@@ -106,9 +106,7 @@ final class ImagePickGatewayImpl implements ImagePickGateway {
           cropGridColor: BrandColors.accent,
           cropStyle: spec.circle ? CropStyle.circle : CropStyle.rectangle,
           lockAspectRatio: true,
-          initAspectRatio: spec.aspectX == spec.aspectY
-              ? CropAspectRatioPreset.square
-              : CropAspectRatioPreset.ratio4x3,
+          initAspectRatio: _initPreset(spec),
         ),
         IOSUiSettings(
           title: labels?.title,
@@ -171,6 +169,16 @@ final class ImagePickGatewayImpl implements ImagePickGateway {
       );
       return null;
     }
+  }
+
+  /// The uCrop preset matching [spec]'s locked aspect (1:1, 16:9 — Phase 369
+  /// salon cover — or the 4:3 service photo).
+  static CropAspectRatioPreset _initPreset(MediaSpec spec) {
+    if (spec.aspectX == spec.aspectY) return CropAspectRatioPreset.square;
+    if (spec.aspectX * 9 == spec.aspectY * 16) {
+      return CropAspectRatioPreset.ratio16x9;
+    }
+    return CropAspectRatioPreset.ratio4x3;
   }
 }
 

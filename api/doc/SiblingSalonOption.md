@@ -12,6 +12,7 @@ Name | Type | Description | Notes
 **name** | **String** | Salon display name. | 
 **street** | **String** | Street of the structured address (Phase 10.6). May be null for a salon persisted before that phase. | [optional] 
 **buildingNo** | **String** | Building number of the structured address (Phase 10.6). May be null for a salon persisted before that phase. | [optional] 
+**avatarUrl** | **String** | Salon logo image URL (same value as SalonResponse.avatarUrl); null when the salon has no logo. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

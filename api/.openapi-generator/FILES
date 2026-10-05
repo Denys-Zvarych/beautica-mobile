@@ -218,6 +218,7 @@ doc/SalonInviteHistoryResponse.md
 doc/SalonInviteResponse.md
 doc/SalonMasterControllerApi.md
 doc/SalonMasterEffectiveScheduleResponse.md
+doc/SalonMediaControllerApi.md
 doc/SalonResponse.md
 doc/SalonReviewResponse.md
 doc/SalonReviewSummaryResponse.md
@@ -287,6 +288,7 @@ lib/src/api/public_booking_controller_api.dart
 lib/src/api/review_controller_api.dart
 lib/src/api/salon_controller_api.dart
 lib/src/api/salon_master_controller_api.dart
+lib/src/api/salon_media_controller_api.dart
 lib/src/api/search_controller_api.dart
 lib/src/api/search_suggestion_controller_api.dart
 lib/src/api/service_catalog_controller_api.dart

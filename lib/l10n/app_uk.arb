@@ -6724,5 +6724,50 @@
   "avatarRemoved": "Фото видалено",
   "@avatarRemoved": {
     "description": "Phase 073 — success snack after a master avatar removal."
+  },
+  "cropTitleSalonLogo": "Обрізати логотип",
+  "@cropTitleSalonLogo": {
+    "description": "Phase 369 — native crop screen title when cropping the salon logo."
+  },
+  "cropTitleSalonCover": "Обрізати обкладинку",
+  "@cropTitleSalonCover": {
+    "description": "Phase 369 — native crop screen title when cropping the salon cover banner (16:9)."
+  },
+  "salonCoverUpdated": "Обкладинку оновлено",
+  "@salonCoverUpdated": {
+    "description": "Phase 369 — success snack after the owner uploads a new salon cover."
+  },
+  "salonCoverRemoved": "Обкладинку видалено",
+  "@salonCoverRemoved": {
+    "description": "Phase 369 — success snack after the owner removes the salon cover."
+  },
+  "salonLogoEditLabel": "Змінити логотип салону",
+  "@salonLogoEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only salon logo editor on the management profile."
+  },
+  "salonCoverEditLabel": "Змінити обкладинку салону",
+  "@salonCoverEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only cover camera control on the management profile."
+  },
+  "uploadErrorSalonOwnerOnly": "Змінювати фото салону може лише власник",
+  "@uploadErrorSalonOwnerOnly": {
+    "description": "Phase 369 (D6) — HTTP 403 on a salon logo / cover upload or removal (a SALON_ADMIN, a stale role or a revoked owner)."
+  },
+  "uploadErrorConflict": "Не вдалося зберегти фото. Спробуйте ще раз",
+  "@uploadErrorConflict": {
+    "description": "Phase 369 — HTTP 409 on a photo upload (the server's per-record lock timed out). Retryable."
+  },
+  "uploadErrorRateLimitedNoWait": "Забагато завантажень. Спробуйте трохи згодом",
+  "@uploadErrorRateLimitedNoWait": {
+    "description": "Phase 369 — HTTP 429 on a photo upload (all photo uploads share one 10/min bucket) without a usable Retry-After."
+  },
+  "uploadErrorRateLimited": "Забагато завантажень. Спробуйте за {seconds} с",
+  "@uploadErrorRateLimited": {
+    "description": "Phase 369 — HTTP 429 on a photo upload with a usable Retry-After (seconds).",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
   }
 }

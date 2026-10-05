@@ -30,6 +30,7 @@ export 'package:beautica_api/src/api/public_booking_controller_api.dart';
 export 'package:beautica_api/src/api/review_controller_api.dart';
 export 'package:beautica_api/src/api/salon_controller_api.dart';
 export 'package:beautica_api/src/api/salon_master_controller_api.dart';
+export 'package:beautica_api/src/api/salon_media_controller_api.dart';
 export 'package:beautica_api/src/api/search_controller_api.dart';
 export 'package:beautica_api/src/api/search_suggestion_controller_api.dart';
 export 'package:beautica_api/src/api/service_catalog_controller_api.dart';

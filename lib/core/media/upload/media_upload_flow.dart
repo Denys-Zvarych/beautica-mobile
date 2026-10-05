@@ -218,7 +218,11 @@ mixin MediaUploadFlow {
     _picking = true;
     final PickedImage? picked;
     try {
-      await deps.pending.begin(owner, deps.target.kind);
+      await deps.pending.begin(
+        owner,
+        deps.target.kind,
+        scope: deps.target.pendingKey,
+      );
       picked = await deps.pick.pick(
         deps.target.kind,
         source == ImageSourceChoice.camera
@@ -289,7 +293,12 @@ mixin MediaUploadFlow {
       // a lost-pick record (the tag write never landed, or an earlier wipe
       // cleared only the tag). Drain it rather than leave it resumable by
       // whoever opens the editor next (Phase 367 audit, security LOW).
-      if (tag == null || !tag.belongsTo(owner, deps.target.kind)) {
+      if (tag == null ||
+          !tag.belongsTo(
+            owner,
+            deps.target.kind,
+            expectedScope: deps.target.pendingKey,
+          )) {
         await deps.pick.drainLost();
         return const AvatarChangeCancelled();
       }

@@ -1360,8 +1360,6 @@ class NeumorphicAvatarEditor extends StatefulWidget {
 }
 
 class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
-  bool _badgePressed = false;
-
   bool get _picking => widget.state == AvatarEditState.picking;
 
   Widget _discContent() {
@@ -1477,45 +1475,89 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
               ),
             ),
             // Camera edit badge — bottom-right, offset from ring edge.
+            // PROMOTED to [PhotoEditBadge] (Phase 369) so the salon logo
+            // editor wears the same badge; renders exactly as before.
             Positioned(
               right: 0,
               bottom: 0,
-              child: GestureDetector(
-                onTapDown: _picking
-                    ? null
-                    : (_) => setState(() => _badgePressed = true),
-                onTapCancel: _picking
-                    ? null
-                    : () => setState(() => _badgePressed = false),
-                onTapUp: _picking
-                    ? null
-                    : (_) {
-                        setState(() => _badgePressed = false);
-                        widget.onTap();
-                      },
-                child: AnimatedContainer(
-                  key: const Key('avatar-edit-badge'),
-                  duration: const Duration(milliseconds: 140),
-                  height: 30,
-                  width: 30,
-                  decoration: BoxDecoration(
-                    color: BrandColors.accent,
-                    shape: BoxShape.circle,
-                    boxShadow: _badgePressed || _picking
-                        ? null
-                        : VelvetShadows.extrudedSmall,
-                  ),
-                  child: Icon(
-                    _picking
-                        ? Icons.hourglass_top_rounded
-                        : Icons.photo_camera_rounded,
-                    color: BrandColors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
+              child: PhotoEditBadge(busy: _picking, onTap: widget.onTap),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The camel camera badge of a photo editor — PROMOTED (Phase 369) out of
+/// [NeumorphicAvatarEditor]'s private build so the salon logo editor wears
+/// the SAME badge (REUSE-FIRST: one badge, one fix, every photo editor).
+///
+/// A [size] dp camel disc with a white camera glyph, raised by
+/// [VelvetShadows.extrudedSmall]; it flattens while pressed and, while
+/// [busy], shows an hourglass and ignores taps. [badgeKey] keys the disc
+/// (finders / the badge-vs-text geometry guard); [size] defaults to the
+/// avatar editor's 30 dp — every pre-369 call renders byte-identically.
+class PhotoEditBadge extends StatefulWidget {
+  const PhotoEditBadge({
+    super.key,
+    required this.onTap,
+    this.busy = false,
+    this.size = defaultSize,
+    this.badgeKey = const Key('avatar-edit-badge'),
+  });
+
+  /// Invoked on tap (never while [busy]).
+  final VoidCallback onTap;
+
+  /// An upload / removal is in flight: hourglass glyph, flat, inert.
+  final bool busy;
+
+  /// Diameter of the disc.
+  final double size;
+
+  /// Key of the disc itself.
+  final Key badgeKey;
+
+  /// The avatar editor's badge diameter.
+  static const double defaultSize = 30;
+
+  /// Glyph size relative to [size] (18 dp on the 30 dp disc).
+  static const double _glyphRatio = 0.6;
+
+  @override
+  State<PhotoEditBadge> createState() => _PhotoEditBadgeState();
+}
+
+class _PhotoEditBadgeState extends State<PhotoEditBadge> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool busy = widget.busy;
+    return GestureDetector(
+      onTapDown: busy ? null : (_) => setState(() => _pressed = true),
+      onTapCancel: busy ? null : () => setState(() => _pressed = false),
+      onTapUp: busy
+          ? null
+          : (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            },
+      child: AnimatedContainer(
+        key: widget.badgeKey,
+        duration: const Duration(milliseconds: 140),
+        height: widget.size,
+        width: widget.size,
+        decoration: BoxDecoration(
+          color: BrandColors.accent,
+          shape: BoxShape.circle,
+          boxShadow: _pressed || busy ? null : VelvetShadows.extrudedSmall,
+        ),
+        child: Icon(
+          busy ? Icons.hourglass_top_rounded : Icons.photo_camera_rounded,
+          color: BrandColors.white,
+          size: widget.size * PhotoEditBadge._glyphRatio,
         ),
       ),
     );

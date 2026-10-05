@@ -6,12 +6,15 @@
 // [UploadTargetBinding.apply] still reads providers lazily — the flow only
 // invokes it while the operation that owns it is the live one.
 
+import 'dart:io';
+
 import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_target.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_image_patch.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 /// The binding for [target], resolved against [ref].
@@ -24,8 +27,38 @@ UploadTargetBinding resolveUploadTargetBinding(Ref ref, UploadTarget target) {
       delete: uploads.deleteAvatar,
       apply: (String? url) => applySelfAvatarUrl(ref, url),
     ),
+    SalonLogoTarget(:final String salonId) => _salonBinding(
+      ref,
+      uploads,
+      salonId,
+      SalonImageSlot.logo,
+      MediaKind.salonLogo,
+    ),
+    SalonCoverTarget(:final String salonId) => _salonBinding(
+      ref,
+      uploads,
+      salonId,
+      SalonImageSlot.cover,
+      MediaKind.salonCover,
+    ),
   };
 }
+
+/// Phase 369 — a salon logo / cover binding: the slot's endpoints, its crop
+/// spec, the per-salon pending key, and the in-place salon patch.
+UploadTargetBinding _salonBinding(
+  Ref ref,
+  MediaUploadRepository uploads,
+  String salonId,
+  SalonImageSlot slot,
+  MediaKind kind,
+) => UploadTargetBinding(
+  kind: kind,
+  upload: (File file) => uploads.uploadSalonImage(salonId, slot, file),
+  delete: () => uploads.deleteSalonImage(salonId, slot),
+  apply: (String? url) => applySalonImageUrl(ref, salonId, slot, url),
+  pendingKey: '${kind.name}:$salonId',
+);
 
 /// The self-avatar sink (D3): writes the new own-avatar [url] (null =
 /// removed) into every cached own-profile that renders it, with no refetch.

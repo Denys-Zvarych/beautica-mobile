@@ -31,6 +31,7 @@ final class MediaSpec {
     required this.circle,
     required this.maxWidth,
     required this.maxHeight,
+    this.finalQuality = kFinalQuality,
   });
 
   final int aspectX;
@@ -40,6 +41,11 @@ final class MediaSpec {
   final bool circle;
   final int maxWidth;
   final int maxHeight;
+
+  /// Phase 369 — the final re-encode quality for this kind (the q70 size
+  /// retry is shared). ADDITIVE: defaults to [kFinalQuality], so every
+  /// pre-369 kind encodes exactly as before.
+  final int finalQuality;
 }
 
 enum MediaKind {
@@ -62,6 +68,33 @@ enum MediaKind {
       circle: false,
       maxWidth: 1600,
       maxHeight: 1200,
+    ),
+  ),
+
+  /// Phase 369 — the salon logo: 1:1 circle crop (it renders in the round
+  /// `SalonLogo`), final ≤ 1024×1024 — the same output as [avatar].
+  salonLogo(
+    MediaSpec(
+      aspectX: 1,
+      aspectY: 1,
+      circle: true,
+      maxWidth: 1024,
+      maxHeight: 1024,
+    ),
+  ),
+
+  /// Phase 369 — the salon cover banner: 16:9 locked rectangle, final
+  /// ≤ 1600×900 at q80 (user-approved research, 2026-10-05: a full-bleed
+  /// phone-width banner gains nothing visible above 1600 px wide, and q80
+  /// keeps a busy interior photo well under 0.5 MB).
+  salonCover(
+    MediaSpec(
+      aspectX: 16,
+      aspectY: 9,
+      circle: false,
+      maxWidth: 1600,
+      maxHeight: 900,
+      finalQuality: 80,
     ),
   );
 

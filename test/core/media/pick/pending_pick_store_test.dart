@@ -52,6 +52,71 @@ void main() {
     expect(tag.belongsTo('u1', MediaKind.servicePhoto), isFalse);
   });
 
+  // ── Phase 369 — the per-target pending key ─────────────────────────────
+  test(
+    'an avatar tag is byte-identical to the pre-369 one (no scope key)',
+    () async {
+      await store.begin('u1', MediaKind.avatar);
+      expect(
+        await storage.readPendingPick(),
+        '{"ownerId":"u1","kind":"avatar"}',
+      );
+      expect((await store.read())?.scope, isNull);
+    },
+  );
+
+  test(
+    'a scoped tag round-trips its key; belongsTo requires the SAME key',
+    () async {
+      await store.begin('u1', MediaKind.salonCover, scope: 'salonCover:s-a');
+      final PendingPick tag = (await store.read())!;
+      expect(tag.kind, MediaKind.salonCover);
+      expect(tag.scope, 'salonCover:s-a');
+      expect(
+        tag.belongsTo(
+          'u1',
+          MediaKind.salonCover,
+          expectedScope: 'salonCover:s-a',
+        ),
+        isTrue,
+      );
+      expect(
+        tag.belongsTo(
+          'u1',
+          MediaKind.salonCover,
+          expectedScope: 'salonCover:s-b',
+        ),
+        isFalse,
+        reason: 'another salon',
+      );
+      expect(tag.belongsTo('u1', MediaKind.salonCover), isFalse);
+      expect(
+        tag.belongsTo(
+          'u2',
+          MediaKind.salonCover,
+          expectedScope: 'salonCover:s-a',
+        ),
+        isFalse,
+        reason: 'another account',
+      );
+    },
+  );
+
+  test('a pre-369 (unscoped) tag never matches a scoped target', () {
+    const PendingPick legacy = PendingPick(
+      ownerId: 'u1',
+      kind: MediaKind.salonLogo,
+    );
+    expect(
+      legacy.belongsTo(
+        'u1',
+        MediaKind.salonLogo,
+        expectedScope: 'salonLogo:s-a',
+      ),
+      isFalse,
+    );
+  });
+
   test('no owner (signed out) writes nothing', () async {
     await store.begin(null, MediaKind.avatar);
     expect(await store.read(), isNull);
@@ -63,6 +128,8 @@ void main() {
     '{"ownerId":"u1"}',
     '{"ownerId":1,"kind":"avatar"}',
     '{"ownerId":"u1","kind":"nope"}',
+    // Phase 369 — a present-but-malformed scope fails closed.
+    '{"ownerId":"u1","kind":"salonLogo","scope":7}',
   ]) {
     test('malformed tag reads as null: $bad', () async {
       await storage.writePendingPick(bad);

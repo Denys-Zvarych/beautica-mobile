@@ -6724,5 +6724,50 @@
   "avatarRemoved": "Photo removed",
   "@avatarRemoved": {
     "description": "Phase 073 — success snack after a master avatar removal."
+  },
+  "cropTitleSalonLogo": "Crop logo",
+  "@cropTitleSalonLogo": {
+    "description": "Phase 369 — native crop screen title when cropping the salon logo."
+  },
+  "cropTitleSalonCover": "Crop cover",
+  "@cropTitleSalonCover": {
+    "description": "Phase 369 — native crop screen title when cropping the salon cover banner (16:9)."
+  },
+  "salonCoverUpdated": "Cover updated",
+  "@salonCoverUpdated": {
+    "description": "Phase 369 — success snack after the owner uploads a new salon cover."
+  },
+  "salonCoverRemoved": "Cover removed",
+  "@salonCoverRemoved": {
+    "description": "Phase 369 — success snack after the owner removes the salon cover."
+  },
+  "salonLogoEditLabel": "Change salon logo",
+  "@salonLogoEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only salon logo editor on the management profile."
+  },
+  "salonCoverEditLabel": "Change salon cover",
+  "@salonCoverEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only cover camera control on the management profile."
+  },
+  "uploadErrorSalonOwnerOnly": "Only the salon owner can change salon photos",
+  "@uploadErrorSalonOwnerOnly": {
+    "description": "Phase 369 (D6) — HTTP 403 on a salon logo / cover upload or removal (a SALON_ADMIN, a stale role or a revoked owner)."
+  },
+  "uploadErrorConflict": "Couldn't save the photo. Please try again",
+  "@uploadErrorConflict": {
+    "description": "Phase 369 — HTTP 409 on a photo upload (the server's per-record lock timed out). Retryable."
+  },
+  "uploadErrorRateLimitedNoWait": "Too many uploads. Please try again shortly",
+  "@uploadErrorRateLimitedNoWait": {
+    "description": "Phase 369 — HTTP 429 on a photo upload (all photo uploads share one 10/min bucket) without a usable Retry-After."
+  },
+  "uploadErrorRateLimited": "Too many uploads. Try again in {seconds} s",
+  "@uploadErrorRateLimited": {
+    "description": "Phase 369 — HTTP 429 on a photo upload with a usable Retry-After (seconds).",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
   }
 }

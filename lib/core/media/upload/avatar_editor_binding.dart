@@ -25,6 +25,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
 import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
+import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -88,14 +89,19 @@ mixin AvatarEditorBinding<T extends ConsumerStatefulWidget>
     }
   }
 
-  Future<void> _recoverLostAvatar() async {
-    if (!mounted) return;
-    final CropLabels labels = CropLabels.of(AppLocalizations.of(context));
-    final AvatarChangeResult result = await ref
-        .read(avatarUploadControllerProvider.notifier)
-        .recoverLost(labels: labels, precache: _precacheAvatar);
-    _showAvatarResult(result, ImageSourceChoice.gallery);
-  }
+  /// The shared tap / retry / recovery / snack flow, bound to the own-avatar
+  /// controller ([MediaEditActions], promoted out of this mixin in Phase 369).
+  MediaEditActions get _actions => MediaEditActions(
+    host: this,
+    readState: () => ref.read(avatarUploadControllerProvider),
+    readFlow: () => ref.read(avatarUploadControllerProvider.notifier),
+    kind: MediaKind.avatar,
+    precache: _precacheAvatar,
+    updatedMessage: (AppLocalizations l10n) => l10n.avatarUpdated,
+    removedMessage: (AppLocalizations l10n) => l10n.avatarRemoved,
+  );
+
+  Future<void> _recoverLostAvatar() => _actions.recoverLost();
 
   /// Warms the image cache with the new remote avatar (decoded at the size the
   /// editor requests) so releasing the local preview does not flash.
@@ -110,58 +116,9 @@ mixin AvatarEditorBinding<T extends ConsumerStatefulWidget>
   }
 
   /// The failed-state retry target: re-sends the SAME photo (no picker).
-  Future<void> _onAvatarRetry() async {
-    if (!mounted) return;
-    final AvatarChangeResult result = await ref
-        .read(avatarUploadControllerProvider.notifier)
-        .retry(precache: _precacheAvatar);
-    _showAvatarResult(result, ImageSourceChoice.gallery);
-  }
+  Future<void> _onAvatarRetry() => _actions.retry();
 
-  Future<void> _onAvatarTap(String? currentUrl) async {
-    if (!mounted) return;
-    // Ignore taps while an upload / removal is in flight (a FAILED upload may
-    // be replaced: the tap opens the sheet for a new photo).
-    final AvatarUploadState current = ref.read(avatarUploadControllerProvider);
-    if (current is AvatarUploading || current is AvatarRemoving) return;
-    final ImageSourceChoice? choice = await showImageSourceSheet(
-      context,
-      canRemove: currentUrl != null,
-    );
-    if (choice == null || !mounted) return;
-    final CropLabels labels = CropLabels.of(AppLocalizations.of(context));
-    final AvatarUploadController controller = ref.read(
-      avatarUploadControllerProvider.notifier,
-    );
-    final AvatarChangeResult result = choice == ImageSourceChoice.remove
-        ? await controller.remove()
-        : await controller.change(
-            choice,
-            labels: labels,
-            precache: _precacheAvatar,
-          );
-    _showAvatarResult(result, choice);
-  }
-
-  void _showAvatarResult(AvatarChangeResult result, ImageSourceChoice choice) {
-    if (!mounted) return;
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    switch (result) {
-      case AvatarChangeCancelled():
-        return;
-      case AvatarChangeSucceeded():
-        showSuccessSnack(
-          context,
-          choice == ImageSourceChoice.remove
-              ? l10n.avatarRemoved
-              : l10n.avatarUpdated,
-        );
-      case AvatarChangeFailed(:final failure):
-        // The controller keeps the failed photo in [AvatarFailed]; the editor
-        // shows it with the retry target.
-        showErrorSnack(context, failure.message(l10n));
-    }
-  }
+  Future<void> _onAvatarTap(String? currentUrl) => _actions.tap(currentUrl);
 
   /// Maps the controller state onto the 072 editor states. [initials] is read
   /// on every editor rebuild (it may follow live name input). [badgeOnRing]
@@ -314,5 +271,116 @@ class _SelfAvatarEditorState extends ConsumerState<SelfAvatarEditor>
         badgeOnRing: true,
       ),
     );
+  }
+}
+
+/// The photo-editor tap flow — source sheet → change / remove → snack, plus
+/// the failed-state retry and the Android lost-pick recovery — for ANY
+/// upload controller built on `MediaUploadFlow`.
+///
+/// PROMOTED (Phase 369) out of [AvatarEditorBinding]'s private
+/// `_onAvatarTap` / `_onAvatarRetry` / `_recoverLostAvatar` /
+/// `_showAvatarResult` so the salon logo and cover editors run the SAME code
+/// as the own-avatar editor (REUSE-FIRST: one flow, one fix, every photo
+/// editor). The avatar binding behaves exactly as before.
+///
+/// [host] supplies `mounted` / `context` (checked after every await);
+/// [readState] / [readFlow] read the controller lazily, only while mounted.
+final class MediaEditActions {
+  const MediaEditActions({
+    required this.host,
+    required this.readState,
+    required this.readFlow,
+    required this.kind,
+    required this.precache,
+    required this.updatedMessage,
+    required this.removedMessage,
+  });
+
+  /// The editor's [State].
+  final State host;
+
+  /// The controller's current state.
+  final AvatarUploadState Function() readState;
+
+  /// The controller itself.
+  final MediaUploadFlow Function() readFlow;
+
+  /// The media kind (picks the native crop screen's title).
+  final MediaKind kind;
+
+  /// Warms the image cache with the new remote photo.
+  final AvatarPrecache precache;
+
+  /// Success snack after an upload.
+  final String Function(AppLocalizations l10n) updatedMessage;
+
+  /// Success snack after a removal.
+  final String Function(AppLocalizations l10n) removedMessage;
+
+  CropLabels _labels() =>
+      CropLabels.forKind(AppLocalizations.of(host.context), kind);
+
+  /// The editor tap: ignored while an upload / removal is in flight (a FAILED
+  /// upload may be replaced: the tap opens the sheet for a new photo).
+  /// [currentUrl] offers «Видалити фото» only when there is a photo.
+  Future<void> tap(String? currentUrl) async {
+    if (!host.mounted) return;
+    final AvatarUploadState current = readState();
+    if (current is AvatarUploading || current is AvatarRemoving) return;
+    final ImageSourceChoice? choice = await showImageSourceSheet(
+      host.context,
+      canRemove: currentUrl != null,
+    );
+    if (choice == null || !host.mounted) return;
+    final CropLabels labels = _labels();
+    final MediaUploadFlow flow = readFlow();
+    final AvatarChangeResult result = choice == ImageSourceChoice.remove
+        ? await flow.remove()
+        : await flow.change(choice, labels: labels, precache: precache);
+    showResult(result, choice);
+  }
+
+  /// The failed-state retry target: re-sends the SAME photo (no picker).
+  Future<void> retry() async {
+    if (!host.mounted) return;
+    final AvatarChangeResult result = await readFlow().retry(
+      precache: precache,
+    );
+    showResult(result, ImageSourceChoice.gallery);
+  }
+
+  /// Resumes an Android process-death pick of THIS target (the flow drains
+  /// anyone else's).
+  Future<void> recoverLost() async {
+    if (!host.mounted) return;
+    final CropLabels labels = _labels();
+    final AvatarChangeResult result = await readFlow().recoverLost(
+      labels: labels,
+      precache: precache,
+    );
+    showResult(result, ImageSourceChoice.gallery);
+  }
+
+  /// The success / failure snack for [result].
+  void showResult(AvatarChangeResult result, ImageSourceChoice choice) {
+    if (!host.mounted) return;
+    final BuildContext context = host.context;
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    switch (result) {
+      case AvatarChangeCancelled():
+        return;
+      case AvatarChangeSucceeded():
+        showSuccessSnack(
+          context,
+          choice == ImageSourceChoice.remove
+              ? removedMessage(l10n)
+              : updatedMessage(l10n),
+        );
+      case AvatarChangeFailed(:final failure):
+        // The controller keeps the failed photo in [AvatarFailed]; the editor
+        // shows it with the retry target.
+        showErrorSnack(context, failure.message(l10n));
+    }
   }
 }

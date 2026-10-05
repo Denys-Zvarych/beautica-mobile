@@ -1619,8 +1619,8 @@ final class FakeBackend {
   /// same reason [salonAdminOneStaff] is its own list rather than a widened
   /// `salonStaff`: nothing else reads this one, so widening the shared list
   /// would risk rippling into `salon-xyz`'s own exact-content assertions for
-  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo
-  /// — `SiblingSalonOption`), and non-empty on purpose: an empty destination
+  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo/
+  /// avatarUrl — `SiblingSalonOption`), and non-empty on purpose: an empty destination
   /// list is indistinguishable from a broken endpoint in
   /// [MoveAdminSalonScreen]'s rendered output, so a flow asserting the
   /// LOADED (not merely non-error) state needs at least one real row here.
@@ -1631,6 +1631,7 @@ final class FakeBackend {
           'name': 'Філія на Оболоні',
           'street': 'просп. Оболонський',
           'buildingNo': '12',
+          'avatarUrl': null,
         },
       ];
 
@@ -1656,8 +1657,10 @@ final class FakeBackend {
 
   /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
   /// sharing this salon's owner, minus this salon. Shape mirrors the
-  /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
-  /// deliberately narrower than `SalonResponse`). Since the OpenAPI snapshot
+  /// backend's `SiblingSalonOption` (id + name + street + buildingNo +
+  /// avatarUrl ONLY — deliberately narrower than `SalonResponse`). `avatarUrl`
+  /// defaults to null (no logo → monogram); a flow that needs the picker's
+  /// logo sets it on a row before opening the picker (Phase 369). Since the OpenAPI snapshot
   /// refresh this is deserialized by the GENERATED built_value model, so the
   /// shape here is now schema-checked rather than merely conventional.
   final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
@@ -1666,12 +1669,14 @@ final class FakeBackend {
       'name': 'Студія «Камелія» на Подолі',
       'street': 'вул. Спаська',
       'buildingNo': '5',
+      'avatarUrl': null,
     },
     <String, dynamic>{
       'id': 'salon-sibling-2',
       'name': 'Барбершоп «Дуб»',
       'street': 'вул. Січових Стрільців',
       'buildingNo': '4',
+      'avatarUrl': null,
     },
   ];
 
@@ -2764,6 +2769,52 @@ final class FakeBackend {
 
   /// Successful avatar uploads so far — numbers the fake URLs.
   int _mediaAvatarSeq = 0;
+
+  // ── Salon logo / cover (Phase 369) ────────────────────────────────────────
+  //
+  // `POST`/`DELETE /api/v1/salons/{salonId}/media/{logo|cover}` (backend 343,
+  // SALON_OWNER of that salon only). A success writes the new URL into
+  // [mySalons]' first entry — the owner salon [kOwnerSalonId] that
+  // `GET /salons/mine` AND `GET /salons/{kOwnerSalonId}` (which spreads that
+  // same map) both serve — so every later read reflects it, like the real
+  // backend. `salon-admin-1` ([kAdminSalonId]) has no owner in this fake: its
+  // media routes ALWAYS answer 403, mirroring backend 343 TC-4 (an admin is
+  // never the owner).
+
+  /// Every `POST …/media/{slot}` request URI (any salon, any status).
+  final List<Uri> salonMediaUploadUris = <Uri>[];
+
+  /// The multipart part NAMES of every salon media upload, one list per
+  /// request (must be exactly `['file']`).
+  final List<List<String>> salonMediaUploadPartNames = <List<String>>[];
+
+  /// Every `DELETE …/media/{slot}` request URI.
+  final List<Uri> salonMediaDeleteUris = <Uri>[];
+
+  /// When non-null, the OWNER salon's media routes answer this status (with a
+  /// bare `{success:false}` body) instead of succeeding — 409 / 413 / 429 /
+  /// 503 … Setting it RE-REGISTERS the routes (a `replyCallback` status is
+  /// fixed when wired — see [bookingDetailFailStatus]).
+  int? get salonMediaFailStatus => _salonMediaFailStatus;
+  set salonMediaFailStatus(int? value) {
+    _salonMediaFailStatus = value;
+    _wireSalonMedia();
+  }
+
+  int? _salonMediaFailStatus;
+
+  /// `Retry-After` (seconds) sent with a 429 from [salonMediaFailStatus].
+  int salonMediaRetryAfterSeconds = 30;
+
+  int _salonMediaSeq = 0;
+
+  /// Phase 369 QA — the logo / cover `GET /salons/salon-admin-1` serves (read
+  /// at REQUEST time). Null by default, so every pre-existing admin flow sees
+  /// the unchanged no-photo salon; set by a flow that needs the SALON_ADMIN's
+  /// read-only surfaces (affiliation card, settings context row, hero) to
+  /// render a real logo / cover.
+  String? salonAdminOneAvatarUrl;
+  String? salonAdminOneCoverImageUrl;
 
   // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
   /// `GET /api/v1/search/masters` call count + the last `page` requested.
@@ -7797,8 +7848,8 @@ final class FakeBackend {
             'locationNote': null,
             'phone': null,
             'instagramUrl': null,
-            'avatarUrl': null,
-            'coverImageUrl': null,
+            'avatarUrl': salonAdminOneAvatarUrl,
+            'coverImageUrl': salonAdminOneCoverImageUrl,
             'avgRating': null,
             'reviewCount': 0,
           }),
@@ -8995,6 +9046,7 @@ final class FakeBackend {
     _wireSalonBoard();
     _wireSalonAdminBoard();
     _wireSalonMultiServiceWizard();
+    _wireSalonMedia();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -10597,5 +10649,89 @@ final class FakeBackend {
     if (data is String) return jsonDecode(data) as Map<String, dynamic>;
     if (data is Map) return data.cast<String, dynamic>();
     return const <String, dynamic>{};
+  }
+
+  /// Phase 369 — wires the salon logo / cover routes (see the field block's
+  /// header). Re-callable: a later registration of the same route replaces
+  /// the earlier one.
+  void _wireSalonMedia() {
+    List<String> partNames(Object? body) => body is FormData
+        ? <String>[
+            for (final MapEntry<String, String> f in body.fields) f.key,
+            for (final MapEntry<String, MultipartFile> f in body.files) f.key,
+          ]
+        : <String>['<non-multipart:${body.runtimeType}>'];
+    const Map<String, dynamic> failBody = <String, dynamic>{'success': false};
+
+    for (final String slot in <String>['logo', 'cover']) {
+      final String field = slot == 'logo' ? 'avatarUrl' : 'coverImageUrl';
+
+      // The owner's salon.
+      final String ownerPath = '/api/v1/salons/$kOwnerSalonId/media/$slot';
+      final int? fail = _salonMediaFailStatus;
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(
+          fail ?? 200,
+          (RequestOptions options) {
+            salonMediaUploadUris.add(options.uri);
+            salonMediaUploadPartNames.add(partNames(options.data));
+            if (fail != null) return failBody;
+            final String url =
+                'https://media.test/salons/$kOwnerSalonId/$slot-'
+                '${++_salonMediaSeq}.jpg';
+            mySalons.first[field] = url;
+            return _ok(<String, dynamic>{
+              ...withSeededSalonLocality(mySalons.first),
+            });
+          },
+          headers: fail == 429
+              ? <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                  'retry-after': <String>['$salonMediaRetryAfterSeconds'],
+                }
+              : <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                },
+        ),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(fail ?? 204, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          if (fail != null) return failBody;
+          mySalons.first[field] = null;
+          return null;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+
+      // The admin's salon: never the caller's to change.
+      final String adminPath = '/api/v1/salons/$kAdminSalonId/media/$slot';
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaUploadUris.add(options.uri);
+          salonMediaUploadPartNames.add(partNames(options.data));
+          return failBody;
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          return failBody;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+    }
   }
 }

@@ -26,14 +26,19 @@ final double kBadgeShadowBlur = VelvetShadows.extrudedSmall
 /// inflated by its shadow blur — does not intersect the header text column
 /// (the [Expanded] that holds the widget keyed [nameKey]), and that the two
 /// are at least [kMinBadgeTextGap] apart horizontally.
+///
+/// [badgeKey] (Phase 369, additive) names the badge for an editor that keys
+/// its own (the salon logo's `salon-logo-edit-badge`); the default is the
+/// avatar editor's.
 void expectBadgeClearsTextColumn(
   WidgetTester tester, {
   required Key editorKey,
   required Key nameKey,
+  Key badgeKey = const Key('avatar-edit-badge'),
 }) {
   final Finder badge = find.descendant(
     of: find.byKey(editorKey),
-    matching: find.byKey(const Key('avatar-edit-badge')),
+    matching: find.byKey(badgeKey),
   );
   expect(badge, findsOneWidget);
   final Finder column = find

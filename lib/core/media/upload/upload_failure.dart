@@ -65,11 +65,49 @@ final class UploadUnauthorizedFailure extends UploadFailure {
 }
 
 /// HTTP 403.
+///
+/// Phase 369 (D6) — [salonOwnerOnly] marks a 403 on a salon logo / cover
+/// write: only the SALON_OWNER may change them, so the message says so
+/// («Змінювати фото салону може лише власник») instead of the generic "no
+/// rights". ADDITIVE: `false` (every pre-369 site) keeps the generic text.
 final class UploadForbiddenFailure extends UploadFailure {
-  const UploadForbiddenFailure();
+  const UploadForbiddenFailure({this.salonOwnerOnly = false});
+
+  final bool salonOwnerOnly;
 
   @override
-  String message(AppLocalizations l10n) => l10n.uploadErrorForbidden;
+  String message(AppLocalizations l10n) => salonOwnerOnly
+      ? l10n.uploadErrorSalonOwnerOnly
+      : l10n.uploadErrorForbidden;
+}
+
+/// HTTP 409 — the server's per-record write lock timed out (another write to
+/// the same photo slot was in flight). Retryable: the same photo may simply be
+/// sent again (Phase 369).
+final class UploadConflictFailure extends UploadFailure {
+  const UploadConflictFailure();
+
+  @override
+  String message(AppLocalizations l10n) => l10n.uploadErrorConflict;
+}
+
+/// HTTP 429 — every photo upload shares ONE per-user 10/min bucket (backend
+/// `13ce2100`). [retryAfterSeconds] is the server's `Retry-After` (seconds),
+/// or `null` when absent / unparsable / above the 10-minute UX ceiling — the
+/// message then carries no number (Phase 369).
+final class UploadRateLimitedFailure extends UploadFailure {
+  const UploadRateLimitedFailure({this.retryAfterSeconds});
+
+  final int? retryAfterSeconds;
+
+  @override
+  String message(AppLocalizations l10n) {
+    final int? seconds = retryAfterSeconds;
+    if (seconds == null || seconds <= 0) {
+      return l10n.uploadErrorRateLimitedNoWait;
+    }
+    return l10n.uploadErrorRateLimited(seconds);
+  }
 }
 
 /// HTTP 404 — e.g. the service definition is inactive or gone.

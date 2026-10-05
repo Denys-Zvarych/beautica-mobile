@@ -760,7 +760,11 @@ class _SalonHeroCard extends StatelessWidget {
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: <Widget>[
-                    SalonLogo(diameter: _logoDiameter, monogram: monogram),
+                    SalonLogo(
+                      diameter: _logoDiameter,
+                      monogram: monogram,
+                      imageUrl: salon.avatarUrl,
+                    ),
                     const SizedBox(width: VelvetSpacing.md),
                     Expanded(
                       child: Column(

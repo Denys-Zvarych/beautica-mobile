@@ -113,6 +113,18 @@ class _FakeUploads implements MediaUploadRepository {
     final UploadFailure? f = deleteFailure;
     if (f != null) throw f;
   }
+
+  // Phase 369 — salon logo / cover: not exercised by this file.
+  @override
+  UploadTask<String> uploadSalonImage(
+    String salonId,
+    SalonImageSlot slot,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) =>
+      throw UnimplementedError();
 }
 
 void main() {

@@ -161,4 +161,34 @@ void main() {
       expect(fb.mediaAvatarUploadCalls, 2);
     },
   );
+
+  // Phase 369 — one salon COVER pick: proves the 16:9 uCrop preset
+  // (`CropAspectRatioPreset.ratio16x9`, locked) on a real picker and that the
+  // owner's cover control reaches `POST /salons/{id}/media/cover`.
+  patrolTest(
+    'salon owner cover pick through the Photo Picker and the 16:9 uCrop '
+    'uploads the cover',
+    skip: !Platform.isAndroid,
+    config: config,
+    ($) async {
+      final FakeBackend fb = FakeBackend();
+      final GoRouter router = await PatrolHarness.boot($, fb);
+      await PatrolHarness.loginAs($, fb, UserRole.salonOwner);
+      router.go(RouteNames.salonManage(FakeBackend.kOwnerSalonId));
+      await $.pumpAndSettle();
+
+      await $(const Key('salon-cover-edit')).tap();
+      await $(const Key('image-source-gallery')).tap();
+      expect(await $.platform.mobile.isPermissionDialogVisible(), isFalse);
+      await _pickFirstPhoto($);
+      await $.platform.android.tap(_cropDone, timeout: _nativeTimeout);
+
+      await $(_l10n($).salonCoverUpdated).waitUntilVisible();
+      expect(
+        fb.salonMediaUploadUris.single.path,
+        '/api/v1/salons/${FakeBackend.kOwnerSalonId}/media/cover',
+      );
+      expect(fb.mySalons.first['coverImageUrl'], isNotNull);
+    },
+  );
 }

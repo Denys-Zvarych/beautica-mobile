@@ -16,6 +16,11 @@ void main() {
     UploadNotFoundFailure(),
     UploadCancelledFailure(),
     UploadUnknownFailure(500),
+    // Phase 369.
+    UploadForbiddenFailure(salonOwnerOnly: true),
+    UploadConflictFailure(),
+    UploadRateLimitedFailure(),
+    UploadRateLimitedFailure(retryAfterSeconds: 42),
   ];
 
   for (final AppLocalizations l10n in <AppLocalizations>[
@@ -53,6 +58,34 @@ void main() {
     expect(
       const UploadUnknownFailure().message(l10n),
       'Не вдалося завантажити фото',
+    );
+  });
+
+  test('Phase 369 uk copy: owner-only 403, 409, 429 (with / without wait)', () {
+    final l10n = AppLocalizationsUk();
+    expect(
+      const UploadForbiddenFailure(salonOwnerOnly: true).message(l10n),
+      'Змінювати фото салону може лише власник',
+    );
+    expect(
+      const UploadForbiddenFailure().message(l10n),
+      'Немає прав для цієї дії',
+    );
+    expect(
+      const UploadConflictFailure().message(l10n),
+      'Не вдалося зберегти фото. Спробуйте ще раз',
+    );
+    expect(
+      const UploadRateLimitedFailure().message(l10n),
+      'Забагато завантажень. Спробуйте трохи згодом',
+    );
+    expect(
+      const UploadRateLimitedFailure(retryAfterSeconds: 42).message(l10n),
+      'Забагато завантажень. Спробуйте за 42 с',
+    );
+    expect(
+      const UploadRateLimitedFailure(retryAfterSeconds: 0).message(l10n),
+      'Забагато завантажень. Спробуйте трохи згодом',
     );
   });
 }

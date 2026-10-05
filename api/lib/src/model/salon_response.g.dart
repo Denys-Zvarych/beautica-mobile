@@ -126,6 +126,8 @@ class _$SalonResponse extends SalonResponse {
   @override
   final String? avatarUrl;
   @override
+  final String? coverImageUrl;
+  @override
   final bool? isActive;
   @override
   final bool? isPrimary;
@@ -156,6 +158,7 @@ class _$SalonResponse extends SalonResponse {
       this.phone,
       this.instagramUrl,
       this.avatarUrl,
+      this.coverImageUrl,
       this.isActive,
       this.isPrimary,
       this.createdAt,
@@ -189,6 +192,7 @@ class _$SalonResponse extends SalonResponse {
         phone == other.phone &&
         instagramUrl == other.instagramUrl &&
         avatarUrl == other.avatarUrl &&
+        coverImageUrl == other.coverImageUrl &&
         isActive == other.isActive &&
         isPrimary == other.isPrimary &&
         createdAt == other.createdAt &&
@@ -215,6 +219,7 @@ class _$SalonResponse extends SalonResponse {
     _$hash = $jc(_$hash, phone.hashCode);
     _$hash = $jc(_$hash, instagramUrl.hashCode);
     _$hash = $jc(_$hash, avatarUrl.hashCode);
+    _$hash = $jc(_$hash, coverImageUrl.hashCode);
     _$hash = $jc(_$hash, isActive.hashCode);
     _$hash = $jc(_$hash, isPrimary.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
@@ -243,6 +248,7 @@ class _$SalonResponse extends SalonResponse {
           ..add('phone', phone)
           ..add('instagramUrl', instagramUrl)
           ..add('avatarUrl', avatarUrl)
+          ..add('coverImageUrl', coverImageUrl)
           ..add('isActive', isActive)
           ..add('isPrimary', isPrimary)
           ..add('createdAt', createdAt)
@@ -320,6 +326,11 @@ class SalonResponseBuilder
   String? get avatarUrl => _$this._avatarUrl;
   set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
 
+  String? _coverImageUrl;
+  String? get coverImageUrl => _$this._coverImageUrl;
+  set coverImageUrl(String? coverImageUrl) =>
+      _$this._coverImageUrl = coverImageUrl;
+
   bool? _isActive;
   bool? get isActive => _$this._isActive;
   set isActive(bool? isActive) => _$this._isActive = isActive;
@@ -367,6 +378,7 @@ class SalonResponseBuilder
       _phone = $v.phone;
       _instagramUrl = $v.instagramUrl;
       _avatarUrl = $v.avatarUrl;
+      _coverImageUrl = $v.coverImageUrl;
       _isActive = $v.isActive;
       _isPrimary = $v.isPrimary;
       _createdAt = $v.createdAt;
@@ -411,6 +423,7 @@ class SalonResponseBuilder
           phone: phone,
           instagramUrl: instagramUrl,
           avatarUrl: avatarUrl,
+          coverImageUrl: coverImageUrl,
           isActive: isActive,
           isPrimary: isPrimary,
           createdAt: createdAt,

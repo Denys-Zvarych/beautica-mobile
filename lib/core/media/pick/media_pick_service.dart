@@ -196,7 +196,7 @@ final class MediaPickService {
         kind,
         croppedPath,
         outDir,
-        kFinalQuality,
+        kind.spec.finalQuality,
         outputs,
       );
       var bytes = await result.length();

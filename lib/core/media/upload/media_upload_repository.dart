@@ -7,6 +7,10 @@
 //
 // Phase 074 adds the service-photo methods by calling the SAME private
 // `_upload` — do NOT add a second upload path.
+//
+// Phase 369 adds the salon logo / cover methods ([uploadSalonImage] /
+// [deleteSalonImage], `POST`/`DELETE /salons/{salonId}/media/{logo|cover}`,
+// SALON_OWNER only) on that same `_upload`.
 
 import 'dart:async';
 import 'dart:developer';
@@ -16,6 +20,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/core/network/retry_on_unauthorized.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
@@ -37,6 +42,21 @@ const String kUploadPartName = 'file';
 /// Minimum progress step (1 %) so listeners rebuild cheaply.
 const double _kProgressStep = 0.01;
 
+/// Phase 369 — the two salon image slots. [wire] is the EXACT lowercase path
+/// segment the backend binds (`/salons/{salonId}/media/{logo|cover}`).
+enum SalonImageSlot {
+  /// The round salon logo (served back as `SalonResponse.avatarUrl`).
+  logo('logo'),
+
+  /// The 16:9 cover banner (served back as `SalonResponse.coverImageUrl`).
+  cover('cover');
+
+  const SalonImageSlot(this.wire);
+
+  /// The path segment.
+  final String wire;
+}
+
 /// Uploads / deletes media through the authenticated Dio.
 abstract interface class MediaUploadRepository {
   /// Uploads [file] as the caller's avatar; the task resolves to the public
@@ -45,6 +65,18 @@ abstract interface class MediaUploadRepository {
 
   /// Removes the caller's avatar.
   Future<void> deleteAvatar();
+
+  /// Phase 369 — uploads [file] as [salonId]'s [slot] image (SALON_OWNER of
+  /// that salon only; anyone else gets 403 → [UploadForbiddenFailure] with
+  /// `salonOwnerOnly`). The task resolves to the slot's new public URL.
+  UploadTask<String> uploadSalonImage(
+    String salonId,
+    SalonImageSlot slot,
+    File file,
+  );
+
+  /// Phase 369 — removes [salonId]'s [slot] image (owner only, `204`).
+  Future<void> deleteSalonImage(String salonId, SalonImageSlot slot);
 }
 
 /// HTTP implementation. Inject via [mediaUploadRepositoryProvider].
@@ -106,6 +138,84 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
       throw mapUploadFailure(e);
     }
   }
+
+  @override
+  UploadTask<String> uploadSalonImage(
+    String salonId,
+    SalonImageSlot slot,
+    File file,
+  ) {
+    final String path;
+    try {
+      path = _salonImagePath(salonId, slot);
+    } on Failure {
+      // Unreachable for a server-issued UUID; never open a request for it.
+      return UploadTask<String>(
+        progress: const Stream<double>.empty(),
+        result: Future<String>.error(const UploadUnknownFailure()),
+        onCancel: () {},
+      );
+    }
+    final UploadTask<String> task = _upload<String>(
+      path,
+      file,
+      filename: '${slot.wire}.jpg',
+      contentType: MediaType('image', 'jpeg'),
+      parse: (Object? body) {
+        if (body is Map) {
+          final data = body['data'];
+          if (data is Map) {
+            // The answer is the whole updated salon; the slot's own field is
+            // the new URL (logo → `avatarUrl`, cover → `coverImageUrl`).
+            final url =
+                data[switch (slot) {
+                  SalonImageSlot.logo => 'avatarUrl',
+                  SalonImageSlot.cover => 'coverImageUrl',
+                }];
+            if (url is String && url.isNotEmpty) return url;
+          }
+        }
+        return null;
+      },
+    );
+    return UploadTask<String>(
+      progress: task.progress,
+      result: task.result.catchError(
+        (Object e) => throw _asSalonFailure(e as UploadFailure),
+        test: (Object e) => e is UploadFailure,
+      ),
+      onCancel: task.cancel,
+    );
+  }
+
+  @override
+  Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) async {
+    final String path;
+    try {
+      path = _salonImagePath(salonId, slot);
+    } on Failure {
+      throw const UploadUnknownFailure();
+    }
+    try {
+      await _dio.delete<Object?>(path);
+    } on DioException catch (e) {
+      _logFailure('deleteSalonImage', e);
+      throw _asSalonFailure(mapUploadFailure(e));
+    }
+  }
+
+  /// `/api/v1/salons/{salonId}/media/{logo|cover}` — the id is encoded as ONE
+  /// path segment (throws a [Failure] for an empty / dot-segment id).
+  static String _salonImagePath(String salonId, SalonImageSlot slot) =>
+      '/api/v1/salons/'
+      '${encodePathSegment(salonId, 'salonId', logTag: _tag)}'
+      '/media/${encodePathSegment(slot.wire, 'slot', logTag: _tag)}';
+
+  /// A salon-image 403 always means "not the owner" (D6).
+  static UploadFailure _asSalonFailure(UploadFailure f) =>
+      f is UploadForbiddenFailure
+      ? const UploadForbiddenFailure(salonOwnerOnly: true)
+      : f;
 
   /// Shared multipart upload. [parse] returns `null` for an unusable body.
   UploadTask<T> _upload<T>(
@@ -251,6 +361,14 @@ UploadFailure mapUploadFailure(DioException e) {
       return const UploadForbiddenFailure();
     case 404:
       return const UploadNotFoundFailure();
+    // Phase 369 — the per-record write lock timed out: retryable.
+    case 409:
+      return const UploadConflictFailure();
+    // Phase 369 — the shared 10/min photo-upload bucket is empty.
+    case 429:
+      return UploadRateLimitedFailure(
+        retryAfterSeconds: uploadRetryAfterSeconds(e),
+      );
   }
 
   if (failure is NetworkFailure) return const UploadNetworkFailure();
@@ -268,6 +386,35 @@ UploadFailure mapUploadFailure(DioException e) {
     case DioExceptionType.unknown:
       return UploadUnknownFailure(status);
   }
+}
+
+/// The `Retry-After` of a 429 (integer seconds — the backend never sends the
+/// HTTP-date form), then the `data.retryAfterSeconds` envelope field; `null`
+/// when absent, unparsable, non-positive or above [kMaxUxCooldownSeconds] (a
+/// rogue value never reaches the UI as a number). Exposed for tests.
+@visibleForTesting
+int? uploadRetryAfterSeconds(DioException e) {
+  int? raw;
+  final String? header = e.response?.headers.value('retry-after');
+  if (header != null) raw = int.tryParse(header.trim());
+  if (raw == null) {
+    final Object? body = e.response?.data;
+    if (body is Map) {
+      final Object? data = body['data'];
+      if (data is Map) {
+        final Object? v = data['retryAfterSeconds'];
+        // `double.infinity.toInt()` throws (a `1e999` body decodes to ±∞) —
+        // only a finite number is converted; anything else = no hint.
+        if (v is int) {
+          raw = v;
+        } else if (v is double && v.isFinite) {
+          raw = v.toInt();
+        }
+      }
+    }
+  }
+  if (raw == null || raw <= 0 || raw > kMaxUxCooldownSeconds) return null;
+  return raw;
 }
 
 /// App-wide [MediaUploadRepository] over the authenticated Dio.

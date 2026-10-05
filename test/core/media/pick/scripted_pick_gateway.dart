@@ -57,6 +57,12 @@ class ScriptedPickGateway implements ImagePickGateway {
   CropLabels? seenLabels;
   bool cropLabelsSeen = false;
 
+  /// Phase 369 — every crop spec received, in order.
+  final List<MediaSpec> cropSpecs = <MediaSpec>[];
+
+  /// Phase 369 — every compress's `(maxWidth, maxHeight)`.
+  final List<(int, int)> compressDims = <(int, int)>[];
+
   File _make(Where where, String name, int bytes) =>
       File('${(where == Where.scratch ? scratch : outside).path}/$name')
         ..writeAsBytesSync(List<int>.filled(bytes, 1));
@@ -87,6 +93,7 @@ class ScriptedPickGateway implements ImagePickGateway {
   }) async {
     cropLabelsSeen = true;
     seenLabels = labels;
+    cropSpecs.add(spec);
     await holdCrop?.future;
     if (throwOnCrop != null) throw throwOnCrop!;
     if (cancelCrop) return null;
@@ -104,6 +111,7 @@ class ScriptedPickGateway implements ImagePickGateway {
   }) async {
     final int i = compressCalls.length;
     compressCalls.add(CompressCall(quality, keepExif, targetPath));
+    compressDims.add((maxWidth, maxHeight));
     if (throwOnCompress != null) {
       if (partialBeforeThrow) {
         File(targetPath)

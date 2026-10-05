@@ -27,6 +27,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
+import '../../master/domain/master.dart';
 import '../../master/presentation/master_profile_notifier.dart';
 import '../domain/schedule_scope.dart';
 
@@ -55,6 +56,11 @@ ScheduleScope ownScheduleScope(Ref ref) {
     return const ScheduleScope.own(masterId: '');
   }
 
-  final master = ref.watch(masterProfileProvider).value;
-  return ScheduleScope.own(masterId: master?.id ?? '');
+  // Narrowed to the id (Phase 367 audit, perf INFO): only `master.id` is
+  // read, so an own-avatar patch / bio edit / any other profile field change
+  // must not rebuild this scope (and every schedule screen watching it).
+  final String? masterId = ref.watch(
+    masterProfileProvider.select((AsyncValue<Master> s) => s.value?.id),
+  );
+  return ScheduleScope.own(masterId: masterId ?? '');
 }

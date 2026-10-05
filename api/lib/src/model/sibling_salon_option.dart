@@ -8,13 +8,14 @@ import 'package:built_value/serializer.dart';
 
 part 'sibling_salon_option.g.dart';
 
-/// A salon offered as a rotate-admin destination: id, name and short address.
+/// A salon offered as a rotate-admin destination: id, name, short address and logo URL.
 ///
 /// Properties:
 /// * [id] - Send this as destinationSalonId to PATCH /salons/{salonId}/admins/{userId}/salon.
 /// * [name] - Salon display name.
 /// * [street] - Street of the structured address (Phase 10.6). May be null for a salon persisted before that phase.
 /// * [buildingNo] - Building number of the structured address (Phase 10.6). May be null for a salon persisted before that phase.
+/// * [avatarUrl] - Salon logo image URL (same value as SalonResponse.avatarUrl); null when the salon has no logo.
 @BuiltValue()
 abstract class SiblingSalonOption
     implements Built<SiblingSalonOption, SiblingSalonOptionBuilder> {
@@ -33,6 +34,10 @@ abstract class SiblingSalonOption
   /// Building number of the structured address (Phase 10.6). May be null for a salon persisted before that phase.
   @BuiltValueField(wireName: r'buildingNo')
   String? get buildingNo;
+
+  /// Salon logo image URL (same value as SalonResponse.avatarUrl); null when the salon has no logo.
+  @BuiltValueField(wireName: r'avatarUrl')
+  String? get avatarUrl;
 
   SiblingSalonOption._();
 
@@ -82,6 +87,13 @@ class _$SiblingSalonOptionSerializer
       yield serializers.serialize(
         object.buildingNo,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.avatarUrl != null) {
+      yield r'avatarUrl';
+      yield serializers.serialize(
+        object.avatarUrl,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -136,6 +148,14 @@ class _$SiblingSalonOptionSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.buildingNo = valueDes;
+          break;
+        case r'avatarUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.avatarUrl = valueDes;
           break;
         default:
           unhandled.add(key);

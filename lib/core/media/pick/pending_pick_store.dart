@@ -25,14 +25,24 @@ part 'pending_pick_store.g.dart';
 
 /// Who started the pick in flight, and for which media kind.
 final class PendingPick {
-  const PendingPick({required this.ownerId, required this.kind});
+  const PendingPick({required this.ownerId, required this.kind, this.scope});
 
   final String ownerId;
   final MediaKind kind;
 
-  /// Whether this pick may be resumed by [userId] for [expected].
-  bool belongsTo(String? userId, MediaKind expected) =>
-      userId != null && userId == ownerId && kind == expected;
+  /// Phase 369 — the target's pending key (`salonLogo:<salonId>` …), or
+  /// `null` for a target that needs none (the own avatar). Absent from a
+  /// pre-369 tag, which therefore reads as `null`.
+  final String? scope;
+
+  /// Whether this pick may be resumed by [userId] for [expected] — and, when
+  /// the expecting target is scoped, only for the SAME [expectedScope] (a
+  /// salon-A pick is never resumed while salon B's editor recovers).
+  bool belongsTo(String? userId, MediaKind expected, {String? expectedScope}) =>
+      userId != null &&
+      userId == ownerId &&
+      kind == expected &&
+      scope == expectedScope;
 }
 
 final class PendingPickStore {
@@ -45,12 +55,18 @@ final class PendingPickStore {
   /// (tests flip it with `debugDefaultTargetPlatformOverride`).
   bool get _recoveryApplies => defaultTargetPlatform == TargetPlatform.android;
 
-  /// Records that [ownerId] is picking a [kind].
-  Future<void> begin(String? ownerId, MediaKind kind) async {
+  /// Records that [ownerId] is picking a [kind] (for the [scope]d target —
+  /// Phase 369; omitted from the tag when `null`, so an avatar tag is
+  /// byte-identical to the pre-369 one).
+  Future<void> begin(String? ownerId, MediaKind kind, {String? scope}) async {
     if (ownerId == null || !_recoveryApplies) return;
     try {
       await _storage.writePendingPick(
-        jsonEncode(<String, String>{'ownerId': ownerId, 'kind': kind.name}),
+        jsonEncode(<String, String>{
+          'ownerId': ownerId,
+          'kind': kind.name,
+          'scope': ?scope,
+        }),
       );
     } on Object {
       log('pending pick write failed', name: 'media.pick', level: 900);
@@ -66,9 +82,14 @@ final class PendingPickStore {
       if (decoded is! Map<String, Object?>) return null;
       final Object? owner = decoded['ownerId'];
       final Object? kindName = decoded['kind'];
+      final Object? scope = decoded['scope'];
       if (owner is! String || kindName is! String) return null;
+      // A present-but-malformed scope reads as "not ours" (fail closed).
+      if (scope != null && scope is! String) return null;
       for (final MediaKind k in MediaKind.values) {
-        if (k.name == kindName) return PendingPick(ownerId: owner, kind: k);
+        if (k.name == kindName) {
+          return PendingPick(ownerId: owner, kind: k, scope: scope as String?);
+        }
       }
       return null;
     } on Object {
