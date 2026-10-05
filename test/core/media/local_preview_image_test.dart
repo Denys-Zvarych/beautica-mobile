@@ -7,6 +7,8 @@ import 'dart:io';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/local_preview_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/media/pick/image_pick_gateway.dart';
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/media/pick/media_scratch.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/upload_state_overlay.dart';
@@ -60,6 +62,41 @@ void main() {
       );
       expect(isMediaScratchFile(File('media_upload/x.jpg')), false);
       expect(isMediaScratchFile(File('/etc/passwd')), false);
+    });
+
+    // Phase 367 audit (security INFO): a parent folder that merely HAPPENS to
+    // be named `media_upload` (e.g. inside a shared / external dir) is not
+    // the pipeline's scratch dir — the full `<temp>/media_upload` parent is.
+    test('with a known temp root, only <temp>/media_upload/<file> passes', () {
+      const String root = '/data/user/0/app/cache';
+      bool ok(String path) => isMediaScratchFile(File(path), tempRoot: root);
+
+      expect(ok('$root/media_upload/x.jpg'), true);
+      expect(ok('$root/./media_upload/x.jpg'), true);
+      expect(ok('/sdcard/Download/media_upload/x.jpg'), false);
+      expect(ok('$root/other/media_upload/x.jpg'), false);
+      expect(ok('$root/media_upload/sub/x.jpg'), false);
+      expect(ok('$root/media_upload/../media_upload2/x.jpg'), false);
+    });
+
+    test('the root MediaPickService resolves is the one enforced', () async {
+      addTearDown(debugResetMediaScratchRoot);
+      final Directory tmp = Directory.systemTemp.createTempSync('scratch_root');
+      addTearDown(() => tmp.deleteSync(recursive: true));
+      final File inRoot = File('${tmp.path}/$kMediaUploadDirName/x.jpg');
+      const String foreign = '/sdcard/Download/media_upload/x.jpg';
+
+      // No root yet (debug build): the shape check alone.
+      expect(isMediaScratchFile(File(foreign)), true);
+
+      // Any temp-dir resolution registers the root (here via wipeAll).
+      await MediaPickService(
+        _NeverGateway(),
+        tempDir: () async => tmp,
+      ).wipeAll();
+
+      expect(isMediaScratchFile(inRoot), true);
+      expect(isMediaScratchFile(File(foreign)), false);
     });
   });
 
@@ -258,4 +295,14 @@ void main() {
       );
     });
   });
+}
+
+/// A gateway with nothing to pick and no lost record.
+class _NeverGateway implements ImagePickGateway {
+  @override
+  Future<String?> retrieveLostData() async => null;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('${invocation.memberName}');
 }

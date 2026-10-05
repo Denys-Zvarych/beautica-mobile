@@ -17,6 +17,7 @@ import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/network/retry_on_unauthorized.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http_parser/http_parser.dart' show MediaType;
@@ -48,15 +49,26 @@ abstract interface class MediaUploadRepository {
 
 /// HTTP implementation. Inject via [mediaUploadRepositoryProvider].
 final class HttpMediaUploadRepository implements MediaUploadRepository {
-  HttpMediaUploadRepository({required Dio dio, bool Function()? isSessionLive})
-    : _dio = dio,
-      _isSessionLive = isSessionLive ?? _alwaysLive;
+  HttpMediaUploadRepository({
+    required Dio dio,
+    bool Function()? isSessionLive,
+    String? Function()? currentUserId,
+  }) : _dio = dio,
+       _isSessionLive = isSessionLive ?? _alwaysLive,
+       _currentUserId = currentUserId;
 
   final Dio _dio;
 
   /// `false` once the session has ended (e.g. `RefreshInterceptor` failed and
   /// forced a logout) — the 401 retry is then pointless and is skipped.
   final bool Function() _isSessionLive;
+
+  /// The signed-in user's id. When set, the 401 retry additionally requires
+  /// the user who STARTED the upload to still be the signed-in one (Phase 367
+  /// audit, security INFO): an account switch between the 401 and the retry
+  /// must never deliver one user's photo under another user's fresh token.
+  /// `null` (the default) skips the identity check.
+  final String? Function()? _currentUserId;
 
   static bool _alwaysLive() => true;
 
@@ -105,6 +117,14 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
   }) {
     final cancelToken = CancelToken();
     final controller = StreamController<double>.broadcast();
+    // Captured synchronously, before any await: the user this upload is FOR.
+    final String? Function()? currentUserId = _currentUserId;
+    final String? startedBy = currentUserId?.call();
+    bool sameUser() {
+      if (currentUserId == null) return true;
+      return startedBy != null && currentUserId() == startedBy;
+    }
+
     // Reset on every retry so progress restarts from 0 instead of freezing at
     // the first attempt's high-water mark. Within an attempt it is strictly
     // increasing; across the retry the UI sees a deliberate restart.
@@ -167,7 +187,7 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
           },
           isUnauthorized: (e) =>
               mapUploadFailure(e) is UploadUnauthorizedFailure,
-          isSessionLive: _isSessionLive,
+          isSessionLive: () => _isSessionLive() && sameUser(),
           onRetry: (e) {
             _logFailure('upload(401, retrying)', e);
             last = 0.0;
@@ -256,4 +276,5 @@ MediaUploadRepository mediaUploadRepository(Ref ref) =>
     HttpMediaUploadRepository(
       dio: ref.watch(dioProvider),
       isSessionLive: () => isAuthSessionLive(ref),
+      currentUserId: () => authUserIdOrNull(ref.read(authProvider)),
     );

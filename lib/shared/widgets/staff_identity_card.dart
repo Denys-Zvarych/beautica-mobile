@@ -68,6 +68,7 @@ class StaffIdentityCard extends StatelessWidget {
     this.roleChipKey,
     this.professionalTitleKey,
     this.avatarUrl,
+    this.avatar,
   });
 
   /// The person's full display name. Callers compose and trim it — this widget
@@ -101,10 +102,15 @@ class StaffIdentityCard extends StatelessWidget {
 
   /// Phase 073 — the person's avatar photo, forwarded to [ProfileAvatar]. ADDITIVE:
   /// `null` (what every pre-existing caller passes by omission) keeps the icon
-  /// well, byte-identical to before. Scope decision: owner/admin personal
-  /// avatar upload is OUT OF SCOPE for this track (their `User` model has no
-  /// `avatarUrl`), so their screens deliberately do not pass this.
+  /// well, byte-identical to before. Ignored when [avatar] is supplied.
   final String? avatarUrl;
+
+  /// Phase 367 — replaces the read-only [ProfileAvatar] well with a caller-
+  /// supplied avatar: the OWN-profile screens (owner, admin) pass the live
+  /// `SelfAvatarEditor` (camera badge → the shared own-avatar flow). ADDITIVE:
+  /// `null` (every other caller, e.g. a staff member viewed by someone else)
+  /// keeps the read-only [ProfileAvatar], byte-identical to before.
+  final Widget? avatar;
 
   @override
   Widget build(BuildContext context) {
@@ -120,8 +126,10 @@ class StaffIdentityCard extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          ProfileAvatar(imageUrl: avatarUrl),
-          const SizedBox(width: VelvetSpacing.md),
+          avatar ?? ProfileAvatar(imageUrl: avatarUrl),
+          // A supplied [avatar] (the own-avatar editor) carries its own
+          // badge→text gutter (`SelfAvatarEditor.textGap`).
+          if (avatar == null) const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -276,10 +276,8 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   ///
   /// `SALON_ADMIN` is exempt — `salonManageGuard`'s admin arm is an exact
   /// synchronous `User.salonId` check with no unresolved window to close.
-  void _bounceIfNotOwned(AuthSession? session) {
-    if (session is! Authenticated || session.user.role != UserRole.salonOwner) {
-      return;
-    }
+  void _bounceIfNotOwned(UserRole? role) {
+    if (role != UserRole.salonOwner) return;
     ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
       AsyncValue<List<Salon>>? previous,
       AsyncValue<List<Salon>> next,
@@ -292,7 +290,7 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       if (next is! AsyncData<List<Salon>>) return;
       final List<Salon> salons = next.value;
       if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
-      if (context.mounted) context.go(roleHomePath(session.user.role));
+      if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
     });
   }
 
@@ -410,12 +408,16 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final AsyncValue<AuthSession> authAsync = ref.watch(authProvider);
-    final AuthSession? session = authAsync.value;
-    final bool isOwner =
-        session is Authenticated && session.user.role == UserRole.salonOwner;
+    // NARROWED to the role (Phase 367 audit, mobile-perf LOW): a bare
+    // `ref.watch(authProvider)` rebuilt the whole shell on every silent token
+    // refresh and on every own-avatar patch (`patchAvatarUrl`). The shell
+    // reads nothing but the role — `authUserRoleOrNull` unwraps `.value`
+    // exactly as the old `authAsync.value` did, so a sign-out (role → null)
+    // still rebuilds it.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final bool isOwner = role == UserRole.salonOwner;
 
-    _bounceIfNotOwned(session);
+    _bounceIfNotOwned(role);
 
     final int navIndex = ref.watch(salonShellProvider(widget.salonId));
     // The SHARED in-screen sub-tab index. The one hosted profile screen below

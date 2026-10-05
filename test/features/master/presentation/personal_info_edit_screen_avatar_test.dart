@@ -24,6 +24,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -331,5 +332,36 @@ void main() {
       tester.element(find.byType(PersonalInfoEditScreen)),
     );
     expect(find.text(l10n.snackbarAvatarSoon), findsNothing);
+  });
+
+  // Phase 367 audit (perf L2): the screen watches the profile through
+  // `MasterProfileIgnoringAvatar` and the editor watches the photo itself, so
+  // an avatar patch on `masterProfileProvider` rebuilds the editor only. The
+  // form field's widget instance is created in the screen's build(); it stays
+  // identical only when that build did not run again.
+  testWidgets('an avatar patch rebuilds the editor only, not the form', (
+    tester,
+  ) async {
+    await pumpScreen(tester, avatarUrl: url);
+    expect(_editor(tester).imageUrl, url);
+    final Widget formFieldBefore = tester.widget(
+      find.byKey(const Key('field-firstName')),
+    );
+
+    ProviderScope.containerOf(
+      tester.element(find.byType(PersonalInfoEditScreen)),
+    ).read(masterProfileProvider.notifier).patchAvatarUrl(null);
+    await tester.pump();
+
+    expect(_editor(tester).imageUrl, isNull, reason: 'the editor follows');
+    expect(_editor(tester).state, AvatarEditState.pristine);
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('field-firstName'))),
+        formFieldBefore,
+      ),
+      isTrue,
+      reason: 'the screen build() must not re-run for an avatar patch',
+    );
   });
 }

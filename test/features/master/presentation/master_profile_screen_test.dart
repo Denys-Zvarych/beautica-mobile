@@ -38,6 +38,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -78,6 +79,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -2109,6 +2111,101 @@ void main() {
         // (wired into pumpApp) fails this test in tearDown if any
         // RenderFlex overflow was reported during the pump/tap/settle above.
       },
+    );
+  });
+
+  // ── 12e. Identity card — avatar badge vs text column (Phase 367 fix) ─────
+  //
+  // The own-avatar camera badge (and its 12 dp shadow blur) ran into the
+  // pin row at 320/360 dp once the column grew down to it. A long address at
+  // 320 × 1.3 is the tallest-column, narrowest-width case.
+  group('identity card — avatar badge clears the text column', () {
+    for (final ({String label, Master master}) c
+        in <({String label, Master master})>[
+          (label: 'long address', master: _stubMasterLongAddress),
+          (label: 'full address + long note', master: _stubMasterLongNote),
+        ]) {
+      testWidgets('${c.label} at 320dp × textScaler 1.3', (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: AsyncData<Master>(c.master),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+          textScaleFactor: 1.3,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find
+                  .byKey(const Key('master-profile-locality-text'))
+                  .evaluate()
+                  .isNotEmpty ||
+              find
+                  .byKey(const Key('master-profile-address-combined-text'))
+                  .evaluate()
+                  .isNotEmpty ||
+              find
+                  .byKey(const Key('master-profile-address-text'))
+                  .evaluate()
+                  .isNotEmpty,
+          isTrue,
+          reason:
+              'the address rows must render, or the column is too short '
+              'to reach the badge and the guard is vacuous',
+        );
+        expectBadgeClearsTextColumn(
+          tester,
+          editorKey: const Key('master-profile-avatar-editor'),
+          nameKey: const Key('master-profile-name'),
+        );
+      });
+    }
+  });
+
+  // ── 12f. Avatar patch rebuilds the avatar only (Phase 367 audit, L2) ──────
+  //
+  // The screen watches the profile through `MasterProfileIgnoringAvatar`;
+  // `MasterOwnAvatar` watches the photo itself. An upload/remove patches
+  // `masterProfileProvider` in place — only the avatar may rebuild. The name
+  // Text is created in `_ProfileBody.build()`, so its widget instance stays
+  // identical only when the body did not rebuild.
+  testWidgets('an avatar patch rebuilds the avatar only, not the body', (
+    tester,
+  ) async {
+    const String url = 'https://media.test/avatars/u1/1.jpg';
+    await tester.pumpApp(
+      const MasterProfileScreen(),
+      overrides: _buildOverrides(
+        masterState: AsyncData<Master>(_stubMaster.copyWith(avatarUrl: url)),
+        repo: repo,
+        serviceRepo: mockServiceRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+    NeumorphicAvatarEditor editor() => tester.widget<NeumorphicAvatarEditor>(
+      find.byKey(const Key('master-profile-avatar-editor')),
+    );
+    expect(editor().imageUrl, url);
+    final Widget nameBefore = tester.widget(
+      find.byKey(const Key('master-profile-name')),
+    );
+
+    ProviderScope.containerOf(
+      tester.element(find.byType(MasterProfileScreen)),
+    ).read(masterProfileProvider.notifier).patchAvatarUrl(null);
+    await tester.pump();
+
+    expect(editor().imageUrl, isNull, reason: 'the avatar follows');
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('master-profile-name'))),
+        nameBefore,
+      ),
+      isTrue,
+      reason: 'the profile body must not rebuild for an avatar patch',
     );
   });
 

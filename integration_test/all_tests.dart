@@ -143,6 +143,8 @@ import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
 import 'master_avatar_upload_test.dart' as master_avatar_upload;
+import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
+import 'own_avatar_surface_matrix_test.dart' as own_avatar_surface_matrix;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -752,6 +754,9 @@ void main() {
   // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
   group('media_avatar_upload_flow', media_avatar_upload.main);
   group('master_avatar_upload', master_avatar_upload.main);
+  // Phase 367 — own-avatar for owner/admin/client + role × surface matrix.
+  group('owner_admin_avatar_upload', owner_admin_avatar_upload.main);
+  group('own_avatar_surface_matrix', own_avatar_surface_matrix.main);
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);

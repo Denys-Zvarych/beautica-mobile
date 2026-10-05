@@ -18,13 +18,13 @@ import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
 import 'package:beautica_mobile/core/media/pick/image_pick_gateway.dart';
-import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -33,54 +33,9 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/fixture_avatar_gateway.dart';
 
-const String _fixture = 'integration_test/fixtures/avatar.jpg';
 const String _firstUrl = 'https://media.test/avatars/u1/1.jpg';
-
-/// Headless stand-in for the native pick → crop → compress plugins: hands the
-/// fixture JPEG through the REAL `MediaPickService` pipeline.
-final class _FixtureGateway implements ImagePickGateway {
-  int picks = 0;
-  bool cancelPick = false;
-  CropLabels? lastCropLabels;
-
-  @override
-  Future<String?> pickImage(
-    MediaPickSource source, {
-    required int maxDimension,
-  }) async {
-    picks++;
-    if (cancelPick) return null;
-    return _fixture;
-  }
-
-  @override
-  Future<String?> cropImage(
-    String sourcePath, {
-    required MediaSpec spec,
-    required int quality,
-    CropLabels? labels,
-  }) async {
-    lastCropLabels = labels;
-    return sourcePath;
-  }
-
-  @override
-  Future<String?> compress(
-    String sourcePath,
-    String targetPath, {
-    required int maxWidth,
-    required int maxHeight,
-    required int quality,
-    required bool keepExif,
-  }) async {
-    await File(sourcePath).copy(targetPath);
-    return targetPath;
-  }
-
-  @override
-  Future<String?> retrieveLostData() async => null;
-}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -98,7 +53,7 @@ void main() {
     await AppHarness.tearDownHarness();
   });
 
-  late _FixtureGateway gateway;
+  late FixtureAvatarGateway gateway;
   late Directory scratch;
 
   Future<GoRouter> bootAs(
@@ -106,7 +61,7 @@ void main() {
     FakeBackend fb,
     UserRole role,
   ) async {
-    gateway = _FixtureGateway();
+    gateway = FixtureAvatarGateway();
     scratch = Directory.systemTemp.createTempSync('avatar_e2e');
     addTearDown(() => scratch.deleteSync(recursive: true));
     final GoRouter router = await AppHarness.boot(
@@ -134,18 +89,36 @@ void main() {
       tester,
       find.byKey(const Key('avatar-edit-badge')),
     );
-    await AppHarness.pumpUntilFound(
+    // `tapVisible`: the source sheet is still sliding in when its rows
+    // first exist — a found-then-tap can land below the viewport.
+    await AppHarness.tapVisible(
       tester,
       find.byKey(const Key('image-source-gallery')),
     );
-    await tester.tap(find.byKey(const Key('image-source-gallery')));
     await tester.pump();
   }
 
-  List<String?> profileAvatarUrls(WidgetTester t) => find
-      .byType(ProfileAvatar)
+  // Phase 367 (D2 exception, see the phase doc): Scope update 2 replaced the
+  // read-only `ProfileAvatar` on the master OWN profiles with the live
+  // `SelfAvatarEditor` (keyed below). The finder follows the widget; every
+  // asserted URL is unchanged.
+  final Finder ownProfileAvatar = find.byWidgetPredicate(
+    (Widget w) =>
+        w is ProfileAvatar ||
+        (w is NeumorphicAvatarEditor &&
+            (w.key == const Key('master-profile-avatar-editor') ||
+                w.key == const Key('salon-master-profile-avatar-editor'))),
+  );
+
+  List<String?> profileAvatarUrls(WidgetTester t) => ownProfileAvatar
       .evaluate()
-      .map((Element e) => (e.widget as ProfileAvatar).imageUrl)
+      .map(
+        (Element e) => switch (e.widget) {
+          final ProfileAvatar a => a.imageUrl,
+          final NeumorphicAvatarEditor a => a.imageUrl,
+          _ => null,
+        },
+      )
       .toList();
 
   for (final (String, UserRole, String) c in <(String, UserRole, String)>[
@@ -174,6 +147,7 @@ void main() {
       );
 
       expect(fb.mediaAvatarUploadCalls, 1);
+      expectSelfOnlyAvatarRequests(fb, uploads: 1);
       expect(gateway.picks, 1);
       expect(
         gateway.lastCropLabels?.title,
@@ -212,7 +186,7 @@ void main() {
       );
       expect(
         find.descendant(
-          of: find.byType(ProfileAvatar),
+          of: ownProfileAvatar,
           matching: find.byWidgetPredicate(
             (Widget w) => w is RemoteImage && w.url == _firstUrl,
           ),
@@ -221,6 +195,59 @@ void main() {
       );
     });
   }
+
+  // Phase 367 fix — the salon-master own-profile loader ignores avatar-only
+  // changes (`masterIgnoringAvatar`), and the identity card reads the photo
+  // straight off `masterProfileProvider`. An upload from the card's own badge
+  // must land in place: no skeleton on any pumped frame, no `/masters/me`,
+  // services or salon refetch.
+  testWidgets('SALON_MASTER: upload from the own-profile identity card lands '
+      'in place — no skeleton, no refetch', (tester) async {
+    final FakeBackend fb = FakeBackend();
+    final GoRouter router = await bootAs(tester, fb, UserRole.salonMaster);
+    const Key card = Key('salon-master-profile-avatar-editor');
+    NeumorphicAvatarEditor cardEditor() =>
+        tester.widget<NeumorphicAvatarEditor>(find.byKey(card));
+
+    router.go(RouteNames.salonMasterProfile);
+    await AppHarness.settle(tester);
+    expect(find.byKey(const Key('salon-master-profile-name')), findsOneWidget);
+    expect(cardEditor().state, AvatarEditState.pristine);
+    final int masterMeCalls = fb.getMasterCalls;
+    final int servicesCalls = fb.getPublicMasterServicesCalls;
+    final int salonCalls = fb.getSalonByIdCalls;
+
+    await chooseFromGallery(tester);
+    var frames = 0;
+    while (!(cardEditor().imageUrl == _firstUrl &&
+        cardEditor().previewFile == null)) {
+      // fixed-wait-ok: one 16 ms FRAME per iteration — every frame is
+      // asserted skeleton-free; the loop waits on the condition above.
+      await tester.pump(const Duration(milliseconds: 16));
+      frames++;
+      expect(
+        find.byType(SkeletonBlock),
+        findsNothing,
+        reason: 'frame $frames: the loading skeleton flashed',
+      );
+      expect(
+        find.byKey(const Key('salon-master-profile-name')),
+        findsOneWidget,
+      );
+      if (frames > 1000) fail('the new photo never rendered on the card');
+    }
+
+    expect(fb.mediaAvatarUploadCalls, 1);
+    expectSelfOnlyAvatarRequests(fb, uploads: 1);
+    expect(find.text(l10n(tester).avatarUpdated), findsOneWidget);
+    expect(fb.getMasterCalls, masterMeCalls, reason: 'no /masters/me refetch');
+    expect(
+      fb.getPublicMasterServicesCalls,
+      servicesCalls,
+      reason: 'no services refetch',
+    );
+    expect(fb.getSalonByIdCalls, salonCalls, reason: 'no salon refetch');
+  });
 
   testWidgets(
     '503 storage-off: error snack, avatar unchanged, the picked photo '
@@ -263,6 +290,7 @@ void main() {
         description: 'the retry to reach POST /media/avatar and fail again',
       );
       expect(gateway.picks, 1, reason: 'retry must not reopen the picker');
+      expectSelfOnlyAvatarRequests(fb, uploads: 2);
       expect(
         find.byKey(const Key('image-source-gallery')),
         findsNothing,
@@ -310,17 +338,19 @@ void main() {
       tester,
       find.byKey(const Key('avatar-edit-badge')),
     );
-    await AppHarness.pumpUntilFound(
+    // `tapVisible`: the source sheet is still sliding in when its rows
+    // first exist — a found-then-tap can land below the viewport.
+    await AppHarness.tapVisible(
       tester,
       find.byKey(const Key('image-source-remove')),
     );
-    await tester.tap(find.byKey(const Key('image-source-remove')));
     await AppHarness.pumpUntilFound(
       tester,
       find.text(l10n(tester).avatarRemoved),
     );
 
     expect(fb.mediaAvatarDeleteCalls, 1);
+    expectSelfOnlyAvatarRequests(fb, uploads: 1, deletes: 1);
     expect(fb.mediaAvatarUrl, isNull);
     await AppHarness.pumpUntilCondition(
       tester,

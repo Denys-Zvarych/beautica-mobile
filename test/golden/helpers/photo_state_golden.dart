@@ -44,10 +44,14 @@ Stream<FileResponse> _solidTeal(String url) =>
 /// [goldenPumpWidget] plus a real-time wait so a fake-cache image finishes its
 /// off-fake-clock decode (`pumpAndSettle` alone never awaits it, and the golden
 /// would silently capture the not-yet-loaded state).
-PumpWidget _pumpWithImages(bool settle) {
+PumpWidget _pumpWithImages(
+  bool settle, {
+  List<Object> overrides = const <Object>[],
+}) {
   final PumpWidget base = goldenPumpWidget(
     width: kPhotoGoldenWidth,
     settle: settle,
+    overrides: overrides,
   );
   return (WidgetTester tester, Widget child) async {
     await base(tester, child);
@@ -65,6 +69,9 @@ void photoGolden(
   Size size = const Size(360, 260),
   double textScale = 1.0,
   bool settle = true,
+  // Phase 367 — ADDITIVE: provider overrides for a scene that reads providers
+  // (e.g. `SelfAvatarEditor` reads the session user). Empty = unchanged.
+  List<Object> overrides = const <Object>[],
 }) {
   goldenTest(
     fileName,
@@ -72,7 +79,7 @@ void photoGolden(
     constraints: BoxConstraints.tight(size),
     textScaleFactor: textScale,
     pumpBeforeTest: settle ? onlyPumpAndSettle : pumpOnce,
-    pumpWidget: _pumpWithImages(settle),
+    pumpWidget: _pumpWithImages(settle, overrides: overrides),
     builder: () => ColoredBox(
       color: BrandColors.base,
       child: Center(child: build()),

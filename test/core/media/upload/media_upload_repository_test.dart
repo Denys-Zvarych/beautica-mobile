@@ -259,6 +259,79 @@ void main() {
     expect(adapter.requests, hasLength(1));
   });
 
+  // Phase 367 audit (security INFO): the one 401 retry re-sends the photo
+  // under whatever token is current. If the signed-in account changed between
+  // the 401 and the retry, that would deliver user A's photo as user B's
+  // avatar — so the retry requires the SAME user who started the upload.
+  group('401 retry is bound to the user who started the upload', () {
+    HttpMediaUploadRepository withUser(
+      _ScriptedAdapter adapter,
+      String? Function() currentUserId,
+    ) {
+      final dio = Dio(BaseOptions(baseUrl: 'https://api.test'))
+        ..httpClientAdapter = adapter
+        ..interceptors.add(ErrorMapperInterceptor());
+      return HttpMediaUploadRepository(dio: dio, currentUserId: currentUserId);
+    }
+
+    test('same user -> retried once, succeeds', () async {
+      final adapter = _ScriptedAdapter([_reply(401), _reply(200, _okBody)]);
+      final url = await withUser(
+        adapter,
+        () => 'u1',
+      ).uploadAvatar(photo).result;
+      expect(url, isNotEmpty);
+      expect(adapter.requests, hasLength(2));
+    });
+
+    test('user switched after the 401 -> NO retry, unauthorized', () async {
+      String? user = 'u1';
+      final adapter = _ScriptedAdapter([
+        (_, _) async {
+          user = 'u2'; // account switch lands while the 401 is in flight
+          return _json(401, const <String, Object>{'success': false});
+        },
+        _reply(200, _okBody),
+      ]);
+      expect(
+        await failureOf(
+          withUser(adapter, () => user).uploadAvatar(photo).result,
+        ),
+        isA<UploadUnauthorizedFailure>(),
+      );
+      expect(adapter.requests, hasLength(1), reason: 'never re-sent as u2');
+    });
+
+    test('signed out after the 401 -> NO retry', () async {
+      String? user = 'u1';
+      final adapter = _ScriptedAdapter([
+        (_, _) async {
+          user = null;
+          return _json(401, const <String, Object>{'success': false});
+        },
+        _reply(200, _okBody),
+      ]);
+      expect(
+        await failureOf(
+          withUser(adapter, () => user).uploadAvatar(photo).result,
+        ),
+        isA<UploadUnauthorizedFailure>(),
+      );
+      expect(adapter.requests, hasLength(1));
+    });
+
+    test('no user when it started -> NO retry', () async {
+      final adapter = _ScriptedAdapter([_reply(401), _reply(200, _okBody)]);
+      expect(
+        await failureOf(
+          withUser(adapter, () => null).uploadAvatar(photo).result,
+        ),
+        isA<UploadUnauthorizedFailure>(),
+      );
+      expect(adapter.requests, hasLength(1));
+    });
+  });
+
   test('progress restarts from 0 on the 401 retry, not frozen', () async {
     final adapter = _ScriptedAdapter([
       (o, _) async {

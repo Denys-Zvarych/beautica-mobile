@@ -112,6 +112,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
+import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -535,6 +536,13 @@ class _AdminProfileBody extends StatelessWidget {
             roleChipKey: const Key('admin-own-profile-role-chip'),
             professionalTitleKey: const Key(
               'admin-own-profile-professional-title',
+            ),
+            // Phase 367 — the OWN photo with the live camera badge (the shared
+            // own-avatar flow); the URL comes from the session user, patched
+            // in place on upload / remove.
+            avatar: SelfAvatarEditor(
+              initials: avatarMonogram(displayName),
+              editorKey: const Key('admin-own-profile-avatar-editor'),
             ),
           ),
         ),

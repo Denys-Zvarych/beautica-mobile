@@ -76,7 +76,7 @@ Future<void> _pumpCard(
   double? textScaleFactor,
 }) {
   return tester.pumpApp(
-    HomeProfileCard(profile: profile, onCamera: () {}, onLocation: () {}),
+    HomeProfileCard(profile: profile, onLocation: () {}),
     width: width,
     textScaleFactor: textScaleFactor,
   );

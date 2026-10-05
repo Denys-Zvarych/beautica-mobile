@@ -86,6 +86,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/media/upload/avatar_editor_binding.dart';
 import '../../../core/icons/app_icon.dart';
 import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/security/screen_protection.dart';
@@ -94,6 +95,7 @@ import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
 import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/app_refresh_indicator.dart';
+import '../../../core/widgets/neumorphic.dart';
 import '../../../core/widgets/staggered_reveal.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
@@ -155,17 +157,6 @@ class _PassportScreenState extends ConsumerState<PassportScreen>
       );
     }
     super.dispose();
-  }
-
-  void _onCameraTap() {
-    // TODO(13.7.1): wire image upload. Placeholder for now.
-    if (kDebugMode) {
-      log(
-        'change photo tapped — placeholder',
-        name: 'feature.passport',
-        level: 700,
-      );
-    }
   }
 
   void _onFindMaster() {
@@ -245,7 +236,7 @@ class _PassportScreenState extends ConsumerState<PassportScreen>
                   reveal(
                     start: 0.06,
                     end: 0.46,
-                    child: _ProfileSection(onCamera: _onCameraTap),
+                    child: const _ProfileSection(),
                   ),
                   const SizedBox(height: VelvetSpacing.lg),
                   // 2 + 3. Identity strip and its data page. One Consumer: both
@@ -474,9 +465,7 @@ class _PassportSkeleton extends StatelessWidget {
 
 /// Watches `clientProfileProvider` in its own subtree.
 class _ProfileSection extends ConsumerWidget {
-  const _ProfileSection({required this.onCamera});
-
-  final VoidCallback onCamera;
+  const _ProfileSection();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -494,7 +483,7 @@ class _ProfileSection extends ConsumerWidget {
       final ClientProfileSummary? retained = async.value;
       return retained == null
           ? const _ProfileSkeleton()
-          : _ProfileBlock(profile: retained, onCamera: onCamera);
+          : _ProfileBlock(profile: retained);
     }
     if (async.hasError) {
       return _ProfileError(
@@ -504,30 +493,19 @@ class _ProfileSection extends ConsumerWidget {
     final ClientProfileSummary? profile = async.value;
     return profile == null
         ? const _ProfileSkeleton()
-        : _ProfileBlock(profile: profile, onCamera: onCamera);
+        : _ProfileBlock(profile: profile);
   }
 }
 
 class _ProfileBlock extends StatelessWidget {
-  const _ProfileBlock({required this.profile, required this.onCamera});
+  const _ProfileBlock({required this.profile});
 
   final ClientProfileSummary profile;
-  final VoidCallback onCamera;
 
-  static const double _kSlot = 100;
-  static const double _kAvatar = 96;
-  static const double _kBadge = 30;
-  static const double _kBadgeGlyph = 15;
   static const double _kMetaGlyph = 16;
 
   static final TextStyle _nameStyle = VelvetText.displayName21;
   static final TextStyle _lineStyle = VelvetText.body14Text;
-
-  static final BoxDecoration _cameraBadgeDecoration = BoxDecoration(
-    color: BrandColors.white,
-    shape: BoxShape.circle,
-    border: Border.all(color: BrandColors.base, width: 2),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -546,43 +524,16 @@ class _ProfileBlock extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        SizedBox(
-          height: _kSlot,
-          width: _kSlot,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              HubAvatar(
-                initials: profile.initials,
-                size: _kAvatar,
-                fontSize: 27,
-              ),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Semantics(
-                  button: true,
-                  label: l10n.homeHubChangePhotoLabel,
-                  child: GestureDetector(
-                    key: const Key('passport_change_photo_button'),
-                    onTap: onCamera,
-                    child: Container(
-                      height: _kBadge,
-                      width: _kBadge,
-                      decoration: _cameraBadgeDecoration,
-                      child: const Icon(
-                        Icons.photo_camera_rounded,
-                        size: _kBadgeGlyph,
-                        color: BrandColors.accentDeep,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        // Phase 367 — the OWN photo (or monogram) with the live camera
+        // badge: the SAME shared own-avatar editor every role's own profile
+        // uses (it replaced a dead white badge whose tap was a placeholder).
+        SelfAvatarEditor(
+          key: const Key('passport_change_photo_button'),
+          initials: profile.initials,
+          editorKey: const Key('passport-avatar-editor'),
         ),
-        const SizedBox(width: VelvetSpacing.md),
+        // No spacer: the editor carries its own badge→text gutter
+        // ([SelfAvatarEditor.textGap]).
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -595,10 +546,14 @@ class _ProfileBlock extends StatelessWidget {
               ),
               const SizedBox(height: VelvetSpacing.sm + 2),
               // Location line — pin + city, NO chevron and NO tap (approved
-              // design dropped the chevron the Головна card has). maxLines: 2
+              // design dropped the chevron the Головна card has). maxLines: 3
               // — a long composed saved-settlement label (village + hromada +
               // oblast) must wrap, not silently collapse to one ellipsised
-              // line (user-reported, 2026-09-26).
+              // line (user-reported, 2026-09-26). Phase 367: 2 → 3 — the
+              // shared own-avatar editor (104 dp ring box + 16 dp gutter)
+              // leaves this column 4 dp narrower than the old 100 dp
+              // HubAvatar slot + 16 dp gap,
+              // and the third line keeps a city+oblast label fully shown.
               ProfileMetaLine(
                 icon: Icons.location_on_rounded,
                 iconWidget: const AppIcon(
@@ -608,7 +563,7 @@ class _ProfileBlock extends StatelessWidget {
                 ),
                 text: city,
                 style: _lineStyle,
-                maxLines: 2,
+                maxLines: 3,
                 textKey: const Key('passport_profile_city'),
               ),
               const SizedBox(height: VelvetSpacing.sm),
@@ -638,8 +593,11 @@ class _ProfileError extends StatelessWidget {
 
   final VoidCallback onRetry;
 
-  static const double _kSlot = 100;
-  static const double _kWell = 96;
+  // ONE source of truth with the loaded header: the shared own-avatar
+  // editor's ring box / disc, never a second pair of numbers that can drift
+  // (a 100 dp slot here jumped the row 4 dp against the 104 dp ring).
+  static const double _kSlot = NeumorphicAvatarEditor.ringSize;
+  static const double _kWell = NeumorphicAvatarEditor.discSize;
   static const double _kGlyph = 38;
 
   static const BoxDecoration _glyphWellDecoration = BoxDecoration(
@@ -657,8 +615,9 @@ class _ProfileError extends StatelessWidget {
       key: const Key('passport_profile_error_state'),
       crossAxisAlignment: CrossAxisAlignment.center,
       children: <Widget>[
-        // Matches the avatar's 100 dp slot / 96 dp disc so the row keeps
-        // _ProfileBlock's exact height and the strip below never shifts.
+        // Matches the avatar editor's ring box / disc (and, below, its
+        // badge→text gutter) so the row keeps _ProfileBlock's exact height
+        // and the strip below never shifts.
         SizedBox(
           height: _kSlot,
           width: _kSlot,
@@ -675,7 +634,7 @@ class _ProfileError extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: VelvetSpacing.md),
+        const SizedBox(width: SelfAvatarEditor.textGap),
         Expanded(
           child: Column(
             mainAxisSize: MainAxisSize.min,

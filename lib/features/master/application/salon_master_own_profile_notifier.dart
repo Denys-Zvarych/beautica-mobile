@@ -88,6 +88,9 @@ part 'salon_master_own_profile_notifier.g.dart';
 /// The data [SalonMasterProfileScreen] renders: the signed-in SALON_MASTER's
 /// own master row, their active services, and their employing salon.
 ///
+/// [master] is avatar-stripped ([masterIgnoringAvatar]) — its `avatarUrl` is
+/// always `null`; read the live photo from `masterProfileProvider`.
+///
 /// [salon] is `null` when the master carries no `salonId`, or when the salon
 /// read failed — both degrade to the identity card simply omitting the
 /// salon-name/salon-address rows, never a crash or a `—` placeholder.
@@ -103,7 +106,21 @@ typedef SalonMasterOwnProfileData = (
 /// Generated provider name: `salonMasterOwnProfileProvider`.
 @riverpod
 Future<SalonMasterOwnProfileData> salonMasterOwnProfile(Ref ref) async {
-  final Master master = await ref.watch(masterProfileProvider.future);
+  // `selectAsync(masterIgnoringAvatar)`, not `.future` (Phase 367 fix) —
+  // the same selector `owner_own_profile_notifier.dart` uses. An own-avatar
+  // upload patches `masterProfileProvider` in place
+  // (`applySelfAvatarUrl`); through `.future` that patch rebuilt THIS loader,
+  // so `SalonMasterProfileScreen` flashed its skeleton and re-fired the
+  // services + salon reads for a photo change. The returned [Master]
+  // therefore carries NO avatar (always `null`): the screen reads the live
+  // photo straight off `masterProfileProvider` with a narrow `select`, so
+  // the photo updates in place while this record stays put. Every OTHER
+  // field (bio, name, id, salonId, …) still rebuilds this loader, and an
+  // account switch still does too (`masterProfileProvider` rebuilds on the
+  // auth user id, and the new master compares unequal).
+  final Master master = await ref.watch(
+    masterProfileProvider.selectAsync(masterIgnoringAvatar),
+  );
 
   // WARM-START, not a read (mobile-perf LOW, 2026-09-01) — mirrors
   // `owner_own_profile_notifier.dart:161`'s identical fix. The category

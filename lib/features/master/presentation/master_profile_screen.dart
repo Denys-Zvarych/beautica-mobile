@@ -44,6 +44,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -78,6 +79,7 @@ import 'package:beautica_mobile/features/services/presentation/service_catalogue
 import 'master_profile_notifier.dart';
 import 'widgets/master_address_block.dart';
 import 'widgets/master_profile_tabs.dart';
+import 'widgets/master_own_avatar.dart';
 import 'widgets/master_reviews_body.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
@@ -207,7 +209,13 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final masterAsync = ref.watch(masterProfileProvider);
+    // NARROWED (Phase 367 audit, perf LOW — mirrors the salon-master fix):
+    // the body branches on the profile but never renders its avatar, so an
+    // avatar-only patch must not rebuild this whole screen. The photo is read
+    // by [MasterOwnAvatar]'s own narrow watch.
+    final masterAsync = ref
+        .watch(masterProfileProvider.select(MasterProfileIgnoringAvatar.new))
+        .profile;
 
     return ProfileScaffold(
       title: l10n.masterProfileTitle,
@@ -401,8 +409,16 @@ class _ProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                ProfileAvatar(imageUrl: master.avatarUrl),
-                const SizedBox(width: VelvetSpacing.md),
+                // Phase 367 — the OWN photo with the live camera badge (the
+                // shared own-avatar flow, same as «Особисті дані»).
+                // Phase 367 audit — its own narrow avatar watch (the body
+                // above ignores the avatar), shared with the salon master.
+                MasterOwnAvatar(
+                  initials: avatarMonogram(displayName),
+                  editorKey: const Key('master-profile-avatar-editor'),
+                ),
+                // No spacer: the editor carries its own badge→text gutter
+                // ([SelfAvatarEditor.textGap]).
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

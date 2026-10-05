@@ -3,6 +3,7 @@
 // Ported verbatim from the preview's `_ProfileBlock` inner class.
 // No card surface — sits directly on the background like the mockup.
 // Shows: circular avatar with camera badge, name, city (tappable), phone.
+// Phase 367 — the avatar is the shared live `SelfAvatarEditor`.
 //
 // 2026-09-26 (user-reported) — the private `_MetaLine` here was a
 // byte-for-byte fork of `PassportScreen._ProfileBlock._line`. Both are now
@@ -13,6 +14,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/media/upload/avatar_editor_binding.dart';
+
 import '../../../../core/icons/app_icon.dart';
 import '../../../../core/icons/beautica_asset_icons.dart';
 import '../../../../core/theme/brand_colors.dart';
@@ -20,24 +23,21 @@ import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../core/theme/velvet_text.dart';
 import '../../../../l10n/app_localizations.dart';
 import '../../../../shared/widgets/profile_meta_line.dart';
-import '../widgets/hub_widgets.dart';
 import '../../domain/home_hub_models.dart';
 import '../../../location/presentation/saved_settlement_label.dart';
 
 /// The profile block at the top of the Home Hub.
 ///
-/// [onCamera] opens the photo-picker (placeholder until Phase 13.7.1 wires
-/// image upload). [onLocation] opens the locality picker.
+/// The avatar is the shared [SelfAvatarEditor] (Phase 367 — live own-avatar
+/// upload). [onLocation] opens the locality picker.
 class HomeProfileCard extends StatelessWidget {
   const HomeProfileCard({
     super.key,
     required this.profile,
-    required this.onCamera,
     required this.onLocation,
   });
 
   final ClientProfileSummary profile;
-  final VoidCallback onCamera;
   final VoidCallback onLocation;
 
   // Pre-composed text style to avoid per-build TextStyle allocation.
@@ -62,44 +62,16 @@ class HomeProfileCard extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        // Avatar with camera badge bottom-right.
-        SizedBox(
-          height: 100,
-          width: 100,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              HubAvatar(initials: profile.initials, size: 96, fontSize: 27),
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: Semantics(
-                  button: true,
-                  label: l10n.homeHubChangePhotoLabel,
-                  child: GestureDetector(
-                    key: const Key('home_hub_change_photo_button'),
-                    onTap: onCamera,
-                    child: Container(
-                      height: 30,
-                      width: 30,
-                      decoration: BoxDecoration(
-                        color: BrandColors.white,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: BrandColors.base, width: 2),
-                      ),
-                      child: const Icon(
-                        Icons.photo_camera_rounded,
-                        size: 15,
-                        color: BrandColors.accentDeep,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        // Phase 367 — the OWN photo (or monogram) with the live camera
+        // badge: the SAME shared own-avatar editor every role's own profile
+        // uses (it replaced a dead white badge that did nothing on tap).
+        SelfAvatarEditor(
+          key: const Key('home_hub_change_photo_button'),
+          initials: profile.initials,
+          editorKey: const Key('home-hub-avatar-editor'),
         ),
-        const SizedBox(width: VelvetSpacing.md),
+        // No spacer: the editor carries its own badge→text gutter
+        // ([SelfAvatarEditor.textGap]).
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

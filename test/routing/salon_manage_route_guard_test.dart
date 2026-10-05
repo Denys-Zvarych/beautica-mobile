@@ -60,7 +60,9 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -332,6 +334,14 @@ const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
 
+/// Phase 367 QA — settles `/owner/edit/personal`'s own data source
+/// (`clientEditProfileProvider`, `GET /users/me`) for the ADMITTED owner row,
+/// so [ClientPersonalInfoEditScreen] mounts without a Dio request.
+class _SettledOwnerEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => _ownerUser;
+}
+
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue] —
 /// mirrors `booking_route_guard_test.dart`'s `_FixedAuthNotifier`.
 class _FixedAuthNotifier extends AuthNotifier {
@@ -386,6 +396,9 @@ void main() {
       // deliberately (see `_NeverResolvingMySalons`'s own doc for why an
       // explicit stub is still worth having).
       MySalons Function()? mySalonsOverride,
+      // Phase 367 QA — additive: extra overrides for one group's ADMITTED
+      // screen. Empty for every pre-existing row.
+      List<Object> extraOverrides = const <Object>[],
     }) {
       final container = makeTestContainer(
         retry: (_, _) => null,
@@ -479,6 +492,7 @@ void main() {
           approvedCategoriesProvider.overrideWith(
             (_) async => const <ServiceCategoryOption>[],
           ),
+          ...extraOverrides,
         ],
       );
       return container;
@@ -568,10 +582,12 @@ void main() {
       // MySalonsScreen, disposing its shimmer controller before any
       // subsequent `pumpAndSettle()`.
       bool initialSettle = true,
+      List<Object> extraOverrides = const <Object>[],
     }) async {
       final container = makeContainer(
         session,
         mySalonsOverride: mySalonsOverride,
+        extraOverrides: extraOverrides,
       );
       final router = container.read(appRouterProvider);
       addTearDown(router.dispose);
@@ -1920,6 +1936,62 @@ void main() {
         );
         expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
       });
+    });
+
+    // Phase 367 (9.6, D6) — `/owner/edit/personal` reuses the SALON_OWNER-only
+    // `mySalonsGuard`. Before this group nothing exercised that `redirect:`
+    // on this route (`navigation_links_test` only resolves the path via
+    // `findMatch`, which never runs a redirect), so dropping or swapping the
+    // guard stayed green while every other role reached the owner's
+    // «Особисті дані».
+    group('/owner/edit/personal (Phase 367, mySalonsGuard)', () {
+      testWidgets('SALON_OWNER is ADMITTED onto the reused '
+          'ClientPersonalInfoEditScreen', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+          extraOverrides: <Object>[
+            clientEditProfileProvider.overrideWith(
+              _SettledOwnerEditProfile.new,
+            ),
+          ],
+        );
+
+        router.go(RouteNames.ownerEditPersonal);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.ownerEditPersonal));
+        expect(find.byType(ClientPersonalInfoEditScreen), findsOneWidget);
+      });
+
+      for (final (String label, AsyncValue<AuthSession> session, String home)
+          in <(String, AsyncValue<AuthSession>, String)>[
+            ('CLIENT', _clientSession, RouteNames.clientHome),
+            ('SALON_ADMIN', _adminSession, RouteNames.salonShell(_kSalonId)),
+            (
+              'SALON_MASTER',
+              _salonMasterSession,
+              RouteNames.salonMasterProfile,
+            ),
+            (
+              'INDEPENDENT_MASTER',
+              _independentSession,
+              RouteNames.masterProfile,
+            ),
+            ('unauthenticated', _unauthenticatedSession, RouteNames.login),
+          ]) {
+        testWidgets('$label is bounced off ${RouteNames.ownerEditPersonal} to '
+            '$home, never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, session);
+
+          router.go(RouteNames.ownerEditPersonal);
+          await tester.pumpAndSettle();
+
+          expectBouncedTo(router, home);
+          expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+        });
+      }
     });
   });
 }

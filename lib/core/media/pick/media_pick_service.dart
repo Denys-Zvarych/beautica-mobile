@@ -51,15 +51,24 @@ final class MediaPickService {
     this._gateway, {
     TempDirProvider tempDir = getTemporaryDirectory,
     DateTime Function()? now,
-  }) : _tempDir = tempDir,
+  }) : _resolveTempDir = tempDir,
        // File-age comparison against lastModified: an absolute instant.
        _now = now ?? (() => DateTime.now()); // instant-ok: file age, no day
 
   final ImagePickGateway _gateway;
-  final TempDirProvider _tempDir;
+  final TempDirProvider _resolveTempDir;
   final DateTime Function() _now;
   final Random _random = Random.secure();
   bool _swept = false;
+
+  /// Resolves the temp root and records it as THE scratch root (see
+  /// [registerMediaScratchRoot]) — every write into the scratch dir goes
+  /// through here first, so a preview can verify the full path.
+  Future<Directory> _tempDir() async {
+    final Directory dir = await _resolveTempDir();
+    registerMediaScratchRoot(dir.path);
+    return dir;
+  }
 
   /// Picks from [source], crops to [kind]'s spec, compresses. `null` = cancelled.
   ///

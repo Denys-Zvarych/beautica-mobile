@@ -20,6 +20,9 @@
 //     `resolvedLocalityProvider` short-circuit synchronously to
 //     `ResolvedLocality()` with no network read — no `locationRepositoryProvider`
 //     override needed (same fixture shape as that widget-test file's `_salon`).
+//   • [masterProfileProvider] overridden with the SAME master (Phase 367):
+//     the identity card's photo is read straight off it, not off the loader
+//     record (which is avatar-stripped) — see `_SalonMasterOwnAvatar`.
 //   • [approvedCategoriesProvider] overridden so the «Послуги» tab's
 //     `ServiceCategoryCardList` resolves its label without a real API hit.
 //   • [masterReviewSummaryProvider]/[masterReviewsProvider] overridden so the
@@ -33,6 +36,7 @@ import 'package:beautica_mobile/features/master/application/master_review_summar
 import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -83,10 +87,17 @@ const Salon _salon = Salon(
 // Override factory
 // ---------------------------------------------------------------------------
 
+/// The settled `GET /masters/me` the identity card's avatar reads.
+class _SettledMasterProfile extends MasterProfile {
+  @override
+  Future<Master> build() async => _seedMaster;
+}
+
 List<Object> _overrides() => <Object>[
   salonMasterOwnProfileProvider.overrideWith(
     (ref) async => (_seedMaster, _services, _salon),
   ),
+  masterProfileProvider.overrideWith(_SettledMasterProfile.new),
   approvedCategoriesProvider.overrideWith(
     (ref) async => const <ServiceCategoryOption>[
       ServiceCategoryOption(name: 'HAIR', displayName: 'Стрижки'),

@@ -243,7 +243,7 @@ class _SalonManagementProfileScreenState
   // role that has no use for it (would otherwise reintroduce the same
   // unwanted-fetch shape the mobile-perf HIGH finding on that provider just
   // closed).
-  void _bounceIfNotOwned(AuthSession? session) {
+  void _bounceIfNotOwned(UserRole? role) {
     // Phase 21.8 H1b / mobile-security MEDIUM follow-up (2026-08-28) —
     // embedded (i.e. mounted inside `SalonShellScreen`'s `IndexedStack`) is
     // NOT this screen's job to ownership-bounce. The Salon Shell mounts this
@@ -260,9 +260,7 @@ class _SalonManagementProfileScreenState
     // "admit while `mySalonsProvider` is unresolved" window, which is
     // exactly what the shell's own listener (not the guard) closes.
     if (widget.embedded) return;
-    if (session is! Authenticated || session.user.role != UserRole.salonOwner) {
-      return;
-    }
+    if (role != UserRole.salonOwner) return;
     ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
       AsyncValue<List<Salon>>? previous,
       AsyncValue<List<Salon>> next,
@@ -276,19 +274,21 @@ class _SalonManagementProfileScreenState
       if (next is! AsyncData<List<Salon>>) return;
       final List<Salon> salons = next.value;
       if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
-      if (context.mounted) context.go(roleHomePath(session.user.role));
+      if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final AuthSession? session = ref.watch(authProvider).value;
-    _bounceIfNotOwned(session);
+    // NARROWED to the role (Phase 367 audit, mobile-perf LOW) — see
+    // `SalonShellScreen.build`: a bare watch rebuilt this screen on every
+    // token refresh and own-avatar patch, and only the role is read here.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    _bounceIfNotOwned(role);
     // Same `isOwner` predicate `salon_settings_screen.dart` uses to gate its
     // owner-only rows — see [_AboutReadView.canEdit] for why the two "add"
     // links must not be offered to a SALON_ADMIN.
-    final bool isOwner =
-        session is Authenticated && session.user.role == UserRole.salonOwner;
+    final bool isOwner = role == UserRole.salonOwner;
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );

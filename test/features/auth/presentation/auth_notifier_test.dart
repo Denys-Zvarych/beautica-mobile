@@ -904,6 +904,115 @@ void main() {
       });
     });
 
+    // Phase 367 audit (security LOW): the two cold-start wipes in build()
+    // (expired / rejected refresh token) end the previous account's session
+    // exactly like logout does, so they must also delete an un-discarded
+    // photo in `<tmp>/media_upload/` and drain Android's lost-pick record —
+    // otherwise the next account on the device could find or resume it.
+    group('cold-start wipe clears the media scratch + lost pick', () {
+      late Directory tmp;
+      late Directory dir;
+      late File lostFile;
+      late _NoopGateway gateway;
+
+      setUp(() {
+        tmp = Directory.systemTemp.createTempSync('coldstart_media');
+        dir = Directory('${tmp.path}/$kMediaUploadDirName')..createSync();
+        File('${dir.path}/leftover.jpg').writeAsBytesSync(<int>[1, 2, 3]);
+        lostFile = File('${tmp.path}/lost_pick.jpg')
+          ..writeAsBytesSync(<int>[4, 5, 6]);
+        gateway = _NoopGateway(lost: lostFile.path);
+      });
+      tearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+
+      Override pickOverride() => mediaPickServiceProvider.overrideWithValue(
+        MediaPickService(gateway, tempDir: () async => tmp),
+      );
+
+      // The wipe is fire-and-forget: wait on the artifacts themselves.
+      Future<void> waitForWipe() async {
+        for (
+          var i = 0;
+          i < 50 && (dir.existsSync() || lostFile.existsSync());
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      }
+
+      test('expired refresh token (pre-check wipe)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 60;
+        final b64 = base64Url
+            .encode(utf8.encode('{"sub":"u1","exp":$exp}'))
+            .replaceAll('=', '');
+        await storage.writeRefreshToken('h.$b64.s');
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('rejected refresh token (401)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('expired-refresh');
+        when(
+          () => repo.refresh('expired-refresh'),
+        ).thenThrow(const UnauthorizedFailure());
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('transient failure (5xx) keeps the session: NO wipe', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenThrow(const ServerFailure(statusCode: 503));
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        await container.read(authProvider.future);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(dir.existsSync(), isTrue);
+        expect(gateway.lostReads, 0);
+        expect(lostFile.existsSync(), isTrue);
+      });
+    });
+
     // -----------------------------------------------------------------------
     // Test 5a2 — mobile-qa gap-fix (KNOWN COVERAGE GAP 3, mobile-security
     // MEDIUM regression guard): logout() must reset screenProtectionProvider.

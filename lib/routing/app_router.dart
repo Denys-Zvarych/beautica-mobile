@@ -1164,6 +1164,17 @@ GoRouter appRouter(Ref ref) {
       // [ClientContactsEditScreen] VERBATIM (Instagram already removed from
       // that screen) via the same additive `doneRoute` param. See
       // `RouteNames.adminEditContacts`'s own doc.
+      // Phase 367 (9.6, D6) — «Особисті дані» for a SALON_OWNER. REUSES
+      // [ClientPersonalInfoEditScreen] VERBATIM exactly as the admin route
+      // above does; saving returns to the owner's own profile. See
+      // `RouteNames.ownerEditPersonal`'s own doc.
+      GoRoute(
+        path: RouteNames.ownerEditPersonal,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const ClientPersonalInfoEditScreen(
+          doneRoute: RouteNames.ownerOwnProfile,
+        ),
+      ),
       GoRoute(
         path: RouteNames.adminEditContacts,
         redirect: salonAdminOnlyGuard,

@@ -66,11 +66,14 @@ class _Auth extends AuthNotifier {
 
 int _profileBuilds = 0;
 
+/// When set, every profile build waits on it (a GET still in flight).
+Completer<Master>? _profileGate;
+
 class _CountingProfile extends MasterProfile {
   @override
   Future<Master> build() {
     _profileBuilds++;
-    return Future<Master>.value(_master);
+    return _profileGate?.future ?? Future<Master>.value(_master);
   }
 }
 
@@ -122,6 +125,7 @@ void main() {
 
   setUp(() async {
     _profileBuilds = 0;
+    _profileGate = null;
     scratch = Directory.systemTemp.createTempSync('avatar_ctrl_scratch');
     outside = Directory.systemTemp.createTempSync('avatar_ctrl_out');
     gw = ScriptedPickGateway(scratch: scratch, outside: outside);
@@ -437,22 +441,42 @@ void main() {
     expect(current(), isA<AvatarIdle>());
   });
 
-  test(
-    'with no cached profile the success path falls back to a refetch',
-    () async {
-      keepAlive();
-      // masterProfileProvider never read => nothing cached to patch.
-      final Future<AvatarChangeResult> f = await startUpload();
-      uploads.result.complete(kNewAvatar);
-      expect(await f, isA<AvatarChangeSucceeded>());
-      await container.read(masterProfileProvider.future);
-      expect(
-        _profileBuilds,
-        2,
-        reason: 'nothing cached to patch: invalidated, re-read from server',
-      );
-    },
-  );
+  // Phase 367 audit (perf INFO): with the profile never built, the sink used
+  // to BUILD it (one `GET /masters/me`), miss the still-loading patch, then
+  // invalidate it (a second GET). Now an unbuilt profile is left alone: the
+  // first reader fetches it once, already carrying the new photo.
+  test('with the profile never built the success path fires NO GET; the '
+      'first read fetches exactly once', () async {
+    keepAlive();
+    expect(container.exists(masterProfileProvider), isFalse);
+    final Future<AvatarChangeResult> f = await startUpload();
+    uploads.result.complete(kNewAvatar);
+    expect(await f, isA<AvatarChangeSucceeded>());
+    expect(_profileBuilds, 0, reason: 'the sink never builds the profile');
+    expect(container.exists(masterProfileProvider), isFalse);
+
+    await container.read(masterProfileProvider.future);
+    expect(_profileBuilds, 1, reason: 'one GET, not two');
+  });
+
+  test('a profile that is built but still LOADING falls back to a refetch '
+      '(Phase 073 behaviour kept)', () async {
+    keepAlive();
+    final Future<AvatarChangeResult> f = await startUpload();
+    // Built (listened) but its first GET has not resolved: nothing to patch.
+    final Completer<Master> gate = _profileGate = Completer<Master>();
+    container.listen(masterProfileProvider, (_, _) {});
+    uploads.result.complete(kNewAvatar);
+    expect(await f, isA<AvatarChangeSucceeded>());
+    expect(container.read(masterProfileProvider).hasValue, isFalse);
+    gate.complete(_master);
+    await container.read(masterProfileProvider.future);
+    expect(
+      _profileBuilds,
+      2,
+      reason: 'nothing cached to patch: invalidated, re-read from server',
+    );
+  });
 
   test('ImageSourceChoice.remove routed through change() deletes', () async {
     keepAlive();
@@ -492,6 +516,24 @@ void main() {
 
       expect(uploads.uploaded, isEmpty);
       expect(File(gw.pickedPath!).existsSync(), isFalse);
+    });
+
+    // Phase 367 audit (security LOW): a lost-pick record with NO owner tag
+    // (the tag write never landed, or a wipe cleared only the tag) is not ours
+    // to resume — it is drained and its file deleted, never left resumable by
+    // whoever opens the editor next. Before the fix, `tag == null` returned
+    // early and the record + file survived.
+    test('drains (and deletes) a lost pick that has NO owner tag', () async {
+      keepAlive();
+      expect(await storage.readPendingPick(), isNull);
+      gw.lost = 'x';
+
+      expect(await ctrl().recoverLost(), isA<AvatarChangeCancelled>());
+
+      expect(gw.pickedPath, isNotNull, reason: 'retrieveLostData drained');
+      expect(File(gw.pickedPath!).existsSync(), isFalse);
+      expect(uploads.uploaded, isEmpty);
+      expect(gw.compressCalls, isEmpty, reason: 'never resumed');
     });
 
     test('is Android-only: no tag read, no native call elsewhere', () async {

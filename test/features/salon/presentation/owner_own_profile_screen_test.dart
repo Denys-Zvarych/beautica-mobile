@@ -25,8 +25,14 @@
 // `serviceRepositoryProvider` — it bypasses that provider entirely), the same
 // footgun `salon_staff_profile_screen_test.dart` documents.
 import 'dart:async';
+import 'dart:io';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -55,12 +61,15 @@ import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
@@ -206,6 +215,8 @@ class _TwoUnread extends UnreadNotifications {
 }
 
 void main() {
+  _identityAvatarTests();
+  _avatarUploadNoReloadTests();
   // Phase 365 addendum — the global notification bell, left of the tune button.
   group('notification bell in the header (phase 365 addendum)', () {
     GoRouter bellRouter() => GoRouter(
@@ -1017,4 +1028,230 @@ class _VisibilityHostState extends State<_VisibilityHost> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 367 (9.6) — the identity card carries the OWN avatar with the live
+// camera badge (the shared `SelfAvatarEditor`), sourced from the session user.
+// ---------------------------------------------------------------------------
+
+class _AvatarAuth extends AuthNotifier {
+  _AvatarAuth(this._u);
+  final User _u;
+  @override
+  Future<AuthSession> build() async =>
+      AuthSession.authenticated(user: _u, accessToken: 't');
+}
+
+void _identityAvatarTests() {
+  const String url = 'https://media.test/avatars/u1/1.jpg';
+  final Finder editor = find.descendant(
+    of: find.byKey(const Key('owner-own-profile-avatar-editor')),
+    matching: find.byType(NeumorphicAvatarEditor),
+    matchRoot: true,
+  );
+
+  group('identity avatar (Phase 367)', () {
+    for (final String? avatar in <String?>[url, null]) {
+      testWidgets('session avatar ${avatar ?? 'null'} -> '
+          '${avatar == null ? 'monogram' : 'photo'} + a live camera badge', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const OwnerOwnProfileScreen(embedded: true),
+          overrides: <Object>[
+            ..._overrides((owner: _owner, master: (_master, _services))),
+            authProvider.overrideWith(
+              () => _AvatarAuth(_owner.copyWith(avatarUrl: avatar)),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final NeumorphicAvatarEditor e = tester.widget<NeumorphicAvatarEditor>(
+          editor,
+        );
+        expect(e.imageUrl, avatar);
+        expect(
+          e.state,
+          avatar == null ? AvatarEditState.pristine : AvatarEditState.loaded,
+        );
+        expect(e.initials, 'ОК');
+        expect(
+          find.byType(ProfileAvatar),
+          findsNothing,
+          reason: 'own profile: no read-only well',
+        );
+        expect(find.byKey(const Key('avatar-edit-badge')), findsOneWidget);
+
+        // The badge is live: it opens the 071 source sheet.
+        await tester.tap(find.byKey(const Key('avatar-edit-badge')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+        expect(
+          find.byKey(const Key('image-source-remove')),
+          avatar == null ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 367 fix — an own-avatar upload must NOT reload the owner loader.
+// ---------------------------------------------------------------------------
+
+/// `/users/me`, settled immediately with [_owner].
+class _SettledClientEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => _owner;
+}
+
+/// `POST /media/avatar` whose result the test completes by hand.
+class _HeldUploads implements MediaUploadRepository {
+  final List<File> uploaded = <File>[];
+  final Completer<String> result = Completer<String>();
+
+  @override
+  UploadTask<String> uploadAvatar(File file) {
+    uploaded.add(file);
+    return UploadTask<String>(
+      progress: const Stream<double>.empty(),
+      result: result.future,
+      onCancel: () {},
+    );
+  }
+
+  @override
+  Future<void> deleteAvatar() async {}
+}
+
+void _avatarUploadNoReloadTests() {
+  const String newUrl = 'https://media.test/avatars/u1/new.jpg';
+
+  group('own-avatar upload keeps the loaded body (Phase 367 fix)', () {
+    testWidgets('the skeleton never appears between the upload completing and '
+        'the new photo rendering; nothing is refetched', (tester) async {
+      final Directory scratch = Directory.systemTemp.createTempSync('own_av');
+      final Directory outside = Directory.systemTemp.createTempSync('own_av_o');
+      addTearDown(() {
+        scratch.deleteSync(recursive: true);
+        outside.deleteSync(recursive: true);
+      });
+      final ScriptedPickGateway gw = ScriptedPickGateway(
+        scratch: scratch,
+        outside: outside,
+      );
+      final _HeldUploads uploads = _HeldUploads();
+      final List<String> log = <String>[];
+
+      // FALSIFIER: the first catalogue read answers; any later one PARKS
+      // forever. A loader rebuilt by the avatar patch would re-issue it and
+      // sit in `AsyncLoading` — the skeleton — on every frame below.
+      final repo = _MockServiceRepository();
+      var catalogueCalls = 0;
+      when(() => repo.getMasterServices(any())).thenAnswer((_) {
+        catalogueCalls++;
+        return catalogueCalls == 1
+            ? Future<List<MasterService>>.value(_services)
+            : Completer<List<MasterService>>().future;
+      });
+
+      await tester.pumpApp(
+        const OwnerOwnProfileScreen(embedded: true),
+        overrides: <Object>[
+          authProvider.overrideWith(() => _AvatarAuth(_owner)),
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+          // cycle-stub-ok: leaf data dep of the loader under test.
+          masterProfileProvider.overrideWith(() => _CountingMasterProfile(log)),
+          publicServiceRepositoryProvider.overrideWithValue(repo),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gw, tempDir: () async => scratch),
+          ),
+          mediaUploadRepositoryProvider.overrideWithValue(uploads),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+        ],
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('owner-own-profile-name')), findsOneWidget);
+      expect(catalogueCalls, 1);
+      expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(OwnerOwnProfileScreen)),
+      );
+      // Every state the loader emits from here on.
+      final List<AsyncValue<OwnerOwnProfileData>> states =
+          <AsyncValue<OwnerOwnProfileData>>[];
+      final ProviderSubscription<AsyncValue<OwnerOwnProfileData>> sub =
+          container.listen(
+            ownerOwnProfileProvider,
+            (_, AsyncValue<OwnerOwnProfileData> next) => states.add(next),
+          );
+      addTearDown(sub.close);
+
+      // The pick / crop / compress steps do real file IO, so the flow runs
+      // in the real zone; frames are pumped between its event-loop turns.
+      AvatarChangeResult? result;
+      await tester.runAsync(() async {
+        unawaited(
+          container
+              .read(avatarUploadControllerProvider.notifier)
+              .change(ImageSourceChoice.gallery)
+              .then((AvatarChangeResult r) => result = r),
+        );
+        for (var i = 0; i < 5000 && uploads.uploaded.isEmpty; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      });
+      expect(uploads.uploaded, hasLength(1), reason: 'sanity: upload started');
+      await tester.pump();
+
+      uploads.result.complete(newUrl);
+
+      final Finder editor = find.descendant(
+        of: find.byKey(const Key('owner-own-profile-avatar-editor')),
+        matching: find.byType(NeumorphicAvatarEditor),
+        matchRoot: true,
+      );
+      var frames = 0;
+      while (true) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        // fixed-wait-ok: one 16 ms FRAME per iteration — the test asserts on
+        // every frame; the loop itself waits on the condition below.
+        await tester.pump(const Duration(milliseconds: 16));
+        frames++;
+        expect(
+          find.byType(SkeletonBlock),
+          findsNothing,
+          reason: 'frame $frames: the loading skeleton flashed',
+        );
+        expect(find.byType(ErrorState), findsNothing);
+        expect(find.byKey(const Key('owner-own-profile-name')), findsOneWidget);
+        final NeumorphicAvatarEditor e = tester.widget(editor);
+        if (result != null && e.imageUrl == newUrl && e.previewFile == null) {
+          break;
+        }
+        if (frames > 400) fail('the new photo never rendered');
+      }
+
+      expect(result, isA<AvatarChangeSucceeded>());
+      expect(
+        container.read(masterProfileProvider).value?.avatarUrl,
+        newUrl,
+        reason: 'the cached master row is still patched in place',
+      );
+      expect(
+        states.where((AsyncValue<OwnerOwnProfileData> s) => s.isLoading),
+        isEmpty,
+        reason: 'an avatar-only patch must not rebuild the owner loader',
+      );
+      expect(catalogueCalls, 1, reason: 'no services refetch');
+      expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+    });
+  });
 }

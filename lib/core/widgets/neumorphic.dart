@@ -1287,6 +1287,7 @@ class NeumorphicAvatarEditor extends StatefulWidget {
     this.progress,
     this.uploadFailed = false,
     this.onRetry,
+    this.badgeOnRing = false,
   });
 
   /// Which display state to render.
@@ -1323,6 +1324,15 @@ class NeumorphicAvatarEditor extends StatefulWidget {
   /// Invoked by the retry target shown when [uploadFailed].
   final VoidCallback? onRetry;
 
+  /// Phase 367 (layout fix) — seat the camera badge ON the ring's lower-right
+  /// arc (its centre on the ring edge at 45°) and shrink the layout box to the
+  /// [_ring] diameter, instead of overhanging the ring by 18 dp each axis.
+  /// For the header-row avatars (`SelfAvatarEditor`), where an overhanging
+  /// badge ran into the text column beside it. ADDITIVE: `false` (every other
+  /// caller — the centred «Особисті дані» editors) keeps the 122 dp box and the
+  /// overhanging badge, byte-identical to before.
+  final bool badgeOnRing;
+
   /// Outer extruded ring diameter.
   static const double _ring = 104;
 
@@ -1332,6 +1342,11 @@ class NeumorphicAvatarEditor extends StatefulWidget {
   /// Public [_disc]: the logical size a photo is decoded at (e.g. to precache
   /// the remote image at exactly the size this editor will request).
   static const double discSize = _disc;
+
+  /// Public [_ring]: the header-row footprint (`badgeOnRing: true`) — what a
+  /// sibling state standing in for this editor (an error / placeholder slot)
+  /// must size itself to so swapping the two never shifts the row.
+  static const double ringSize = _ring;
 
   // Cached initials style — Comfortaa 30/700, accentDeep. Computed once at
   // class-load time so build() never calls GoogleFonts on every frame.
@@ -1432,9 +1447,14 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
           ? UploadProgressSpinner.percentLabel(progress)
           : null,
       child: SizedBox(
-        // Room for the badge overflowing the ring bottom-right (+18 each axis).
-        height: NeumorphicAvatarEditor._ring + 18,
-        width: NeumorphicAvatarEditor._ring + 18,
+        // Room for the badge overflowing the ring bottom-right (+18 each axis)
+        // — none when [badgeOnRing] seats it inside the ring's box.
+        height: widget.badgeOnRing
+            ? NeumorphicAvatarEditor._ring
+            : NeumorphicAvatarEditor._ring + 18,
+        width: widget.badgeOnRing
+            ? NeumorphicAvatarEditor._ring
+            : NeumorphicAvatarEditor._ring + 18,
         child: Stack(
           clipBehavior: Clip.none,
           children: <Widget>[

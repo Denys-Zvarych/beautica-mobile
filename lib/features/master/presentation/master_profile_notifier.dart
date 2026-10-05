@@ -24,6 +24,60 @@ import '../domain/master.dart';
 
 part 'master_profile_notifier.g.dart';
 
+/// [master] with its avatar dropped — the `selectAsync` key for a loader that
+/// composes `masterProfileProvider` but never renders the master-row avatar
+/// (Phase 367 fix). [MasterProfile.patchAvatarUrl] replaces the cached
+/// [Master]; a plain `.future` watch would rebuild such a loader — re-firing
+/// its downstream reads and flashing its screen's loading branch — for a
+/// field it does not show. Selecting through this keeps every OTHER field
+/// reactive (freezed value equality) while an avatar-only patch is a no-op.
+Master masterIgnoringAvatar(Master master) => master.copyWith(avatarUrl: null);
+
+/// The `.select` key for a WIDGET that branches on `masterProfileProvider`'s
+/// [AsyncValue] but never renders the avatar (Phase 367 audit, perf LOW) —
+/// the widget-side sibling of [masterIgnoringAvatar]. Use as
+/// `ref.watch(masterProfileProvider.select(MasterProfileIgnoringAvatar.new))
+/// .profile`.
+///
+/// [profile] is passed through UNCHANGED (same loading / refresh / error
+/// semantics as a bare watch — `whenData` would drop a refresh's previous
+/// value), but equality ignores the avatar: an avatar-only
+/// [MasterProfile.patchAvatarUrl] does not rebuild the watcher, while every
+/// other change (another field, loading, error, a new value) still does. The
+/// avatar itself is rendered by a separate narrow watch
+/// ([masterAvatarUrlOrNull]). Because a skipped notification keeps the OLD
+/// selection, [profile]'s `avatarUrl` may be stale — never read it.
+@immutable
+final class MasterProfileIgnoringAvatar {
+  MasterProfileIgnoringAvatar(this.profile)
+    : _key = (
+        profile.runtimeType,
+        profile.isLoading,
+        profile.error,
+        switch (profile.value) {
+          final Master master => masterIgnoringAvatar(master),
+          null => null,
+        },
+      );
+
+  /// The watched state, as-is.
+  final AsyncValue<Master> profile;
+
+  final (Type, bool, Object?, Master?) _key;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MasterProfileIgnoringAvatar && other._key == _key;
+
+  @override
+  int get hashCode => _key.hashCode;
+}
+
+/// The cached master's avatar URL, or `null` — the narrow `.select` for the
+/// one widget that renders the master-row photo.
+String? masterAvatarUrlOrNull(AsyncValue<Master> profile) =>
+    profile.value?.avatarUrl;
+
 /// Loads and caches the authenticated INDEPENDENT_MASTER's own profile.
 ///
 /// Generated provider name: `masterProfileProvider`.

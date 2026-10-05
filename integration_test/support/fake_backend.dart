@@ -2722,6 +2722,26 @@ final class FakeBackend {
   /// even when [mediaAvatarUploadStatus] makes it fail).
   int mediaAvatarUploadCalls = 0;
 
+  /// Phase 367 — the full request URI of every `POST /api/v1/media/avatar`,
+  /// so a test can prove the upload names NO target user (no query, no
+  /// `userId`): a personal avatar is set only by the person themselves.
+  final List<Uri> mediaAvatarUploadUris = <Uri>[];
+
+  /// Phase 367 QA — the multipart part NAMES (text fields AND file parts) of
+  /// every `POST /api/v1/media/avatar`, one list per request. A self-avatar
+  /// upload carries exactly one part, `file`: any `userId` / `targetUserId`
+  /// form field would show up here. A non-multipart body is recorded as
+  /// `<non-multipart:Type>` so it can never pass as "only `file`".
+  final List<List<String>> mediaAvatarUploadPartNames = <List<String>>[];
+
+  /// Phase 367 QA — the full request URI of every `DELETE /api/v1/media/avatar`
+  /// (no query may name a target user).
+  final List<Uri> mediaAvatarDeleteUris = <Uri>[];
+
+  /// Phase 367 QA — the request body of every `DELETE /api/v1/media/avatar`
+  /// (must be absent: a self-avatar removal names no user).
+  final List<Object?> mediaAvatarDeleteBodies = <Object?>[];
+
   /// Number of `DELETE /api/v1/media/avatar` calls the fake accepted (204).
   int mediaAvatarDeleteCalls = 0;
 
@@ -2735,7 +2755,8 @@ final class FakeBackend {
   /// mutable field until QA measured exactly that). Pass it to `FakeBackend()`.
   final int? mediaAvatarUploadStatus;
 
-  /// Phase 073 — the avatar URL `GET /masters/me` currently reports: set by a
+  /// Phase 073 — the avatar URL `GET /masters/me` (and, Phase 367, `GET
+  /// /users/me` for every role) currently reports: set by a
   /// successful `POST /media/avatar` (a NEW url per upload, like the real
   /// per-upload R2 key), cleared by `DELETE /media/avatar`. Null until the first
   /// upload, so every pre-existing flow's `/masters/me` body is unchanged.
@@ -6799,8 +6820,21 @@ final class FakeBackend {
     // allow the `media.test` host via MediaConfig's debug hosts.
     _adapter.onRoute(
       '/api/v1/media/avatar',
-      (server) => server.replyCallback(mediaAvatarUploadStatus ?? 200, (_) {
+      (server) => server.replyCallback(mediaAvatarUploadStatus ?? 200, (
+        RequestOptions options,
+      ) {
         mediaAvatarUploadCalls++;
+        mediaAvatarUploadUris.add(options.uri);
+        final Object? body = options.data;
+        mediaAvatarUploadPartNames.add(
+          body is FormData
+              ? <String>[
+                  for (final MapEntry<String, String> f in body.fields) f.key,
+                  for (final MapEntry<String, MultipartFile> f in body.files)
+                    f.key,
+                ]
+              : <String>['<non-multipart:${body.runtimeType}>'],
+        );
         if (mediaAvatarUploadStatus != null) {
           return <String, dynamic>{'success': false};
         }
@@ -6815,12 +6849,18 @@ final class FakeBackend {
     // DELETE /api/v1/media/avatar → 204.
     _adapter.onRoute(
       '/api/v1/media/avatar',
-      (server) => server.replyCallback(204, (_) {
+      (server) => server.replyCallback(204, (RequestOptions options) {
         mediaAvatarDeleteCalls++;
+        mediaAvatarDeleteUris.add(options.uri);
+        mediaAvatarDeleteBodies.add(options.data);
         mediaAvatarUrl = null;
         return null;
       }),
-      request: const Request(method: RequestMethods.delete),
+      // `Matchers.any` (Phase 367 QA): a DELETE that smuggled a body must
+      // still reach this handler and be RECORDED, so
+      // `expectSelfOnlyAvatarRequests` fails on the body itself rather than
+      // on an opaque unmatched-route error.
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
     );
 
     // GET /api/v1/users/me
@@ -6834,11 +6874,19 @@ final class FakeBackend {
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
+        // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
+        // last successful `/media/avatar` write; OMITTED while none happened,
+        // so every pre-existing flow's body is byte-identical.
+        final String? avatar = mediaAvatarUrl;
         return switch (currentRole) {
-          UserRole.client => _ok(_clientProfileBody()),
+          UserRole.client => _ok(<String, dynamic>{
+            ..._clientProfileBody(),
+            'avatarUrl': ?avatar,
+          }),
           UserRole.salonAdmin => _ok(<String, dynamic>{
             ..._adminProfileBody(),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
           // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
           // it, so the default body is byte-identical to the pre-21.14 one
@@ -6846,6 +6894,7 @@ final class FakeBackend {
           _ => _ok(<String, dynamic>{
             ...userJsonForRole(currentRole),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
         };
       }),

@@ -2459,6 +2459,12 @@ void main() {
         startsWith(RouteNames.masterBookings),
       );
 
+      // Bounded wait, same lull as after the retry below: `settle` can
+      // return before the rejected fetch has rebuilt the error branch.
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('my_bookings_error')),
+      );
       expect(find.byType(MyBookingsErrorState), findsOneWidget);
       expect(find.byKey(const Key('my_bookings_error')), findsOneWidget);
       expect(find.byKey(const Key('my_bookings_error_retry')), findsOneWidget);
@@ -2471,6 +2477,21 @@ void main() {
 
       await tester.tap(find.byKey(const Key('my_bookings_error_retry')));
       await AppHarness.settle(tester);
+      // FLAKE FIX (2026-10-05): `settle` can return in the LULL between the
+      // retry tap and the refetched `GET /bookings/me` resolving —
+      // `hasScheduledFrame` goes false while the request is in flight, so the
+      // error branch was occasionally still mounted when asserted below (the
+      // fake had already counted the call). Wait, bounded, for the error
+      // branch to leave and the grid to arrive before asserting —
+      // `AppHarness.pumpUntilGone`'s documented recipe for this exact lull.
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('my_bookings_error')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(BookingsTimelineGrid),
+      );
 
       expect(
         fb.getMyBookingsCalls,
