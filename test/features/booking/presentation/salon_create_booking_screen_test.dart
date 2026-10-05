@@ -21,7 +21,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -44,6 +44,13 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wi
     show StepIndicator;
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -65,6 +72,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fake_salon_master_coverage.dart';
+import '../../../helpers/fake_salon_staff_masters_roster.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -481,6 +490,31 @@ class _FakeBookingRepository implements BookingRepository {
   }) => throw UnimplementedError();
 }
 
+/// A settled SALON_OWNER session — `salonManagementProfileProvider` watches
+/// the auth identity, so the real-roster test needs one.
+class _SettledOwnerAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'user-owner',
+      email: 'owner@beautica.ua',
+      role: UserRole.salonOwner,
+    ),
+    accessToken: 'token',
+  );
+}
+
+/// [m] as the `/staff` master row the management roster serves.
+SalonStaffMember _staffRowOf(SalonMasterSummary m) => SalonStaffMember(
+  userId: 'user-${m.masterId}',
+  masterId: m.masterId,
+  role: SalonStaffRole.master,
+  masterType: m.type,
+  firstName: m.firstName,
+  lastName: m.lastName,
+  reviewCount: m.reviewCount,
+);
+
 // ---------------------------------------------------------------------------
 // Router + pump helper
 // ---------------------------------------------------------------------------
@@ -515,14 +549,22 @@ Future<GoRouter> _pump(
   /// entry here wins for the provider it names and every existing call site
   /// pumps byte-identically to before this knob existed.
   List<Object> extraOverrides = const <Object>[],
+
+  /// ADDITIVE (2026-10-05) — `false` drops the [roster] stand-in so the REAL
+  /// `salonStaffMastersRosterProvider` resolves through
+  /// `salonManagementProfileProvider` -> `SalonRepository.getSalonStaff`;
+  /// the caller then supplies the repository + auth via [extraOverrides].
+  /// Every existing call site leaves it `true` and pumps byte-identically.
+  bool fakeRoster = true,
 }) async {
   final GoRouter router = _router();
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
-      salonMastersRosterProvider.overrideWith(
-        (ref, String salonId) async => roster,
-      ),
+      if (fakeRoster)
+        salonStaffMastersRosterProvider.overrideWith(
+          () => FakeSalonStaffMastersRoster(() => roster),
+        ),
       salonMasterServiceCoverageProvider.overrideWith(
         () => FakeSalonMasterServiceCoverage(
           () => salonCoverageOf(coverage ?? _coverageAOnly()),
@@ -1436,6 +1478,73 @@ void main() {
       expect(
         find.byKey(const Key('salon-create-booking-no-covering-master')),
         findsOneWidget,
+      );
+    });
+  });
+
+  // 2026-10-05 — the wizard's roster is the STAFF `/staff` roster, not the
+  // public (bookable-only) `/masters` rail. Driven through the REAL provider
+  // chain (`salonStaffMastersRosterProvider` -> `salonManagementProfileProvider`
+  // -> `SalonRepository.getSalonStaff`), NOT the roster stand-in — same fake-
+  // backend shape as `salon_bookings_screen_test.dart`'s «STAFF ROSTER» test.
+  group('SalonCreateBookingScreen — masters step reads the STAFF roster', () {
+    testWidgets('a master on GET /salons/{id}/staff but NOT on the public '
+        '(bookable-only) GET /salons/{id}/masters is offered; an admin is '
+        'not', (tester) async {
+      final FakeSalonRepository salonRepo = FakeSalonRepository(
+        salon: const Salon(id: _kSalonId, name: 'Салон «Велвет»'),
+        // The public rail lists A ONLY — a wizard still reading it would
+        // never offer B.
+        masters: const <SalonMasterSummary>[_kMasterA],
+        staff: <SalonStaffMember>[
+          _staffRowOf(_kMasterA),
+          _staffRowOf(_kMasterB),
+          const SalonStaffMember(
+            userId: 'user-admin-1',
+            role: SalonStaffRole.admin,
+            firstName: 'Адмін',
+            lastName: 'Салону',
+          ),
+        ],
+      );
+      await _pump(
+        tester,
+        fakeRoster: false,
+        coverage: _coverageBoth(),
+        slotRepository: _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+            _kMasterB.masterId: <BookingSlot>[_kSlot],
+          },
+        ),
+        extraOverrides: <Object>[
+          salonRepositoryProvider.overrideWithValue(salonRepo),
+          authProvider.overrideWith(_SettledOwnerAuth.new),
+        ],
+      );
+      await _driveToMasters(tester);
+
+      expect(
+        find.byKey(const Key('salon-master-tile-master-b')),
+        findsOneWidget,
+        reason:
+            'a /staff-only master (not publicly bookable) must still be '
+            'offered to staff in the walk-in wizard',
+      );
+      // Positive control: the publicly-listed master is offered too.
+      expect(
+        find.byKey(const Key('salon-master-tile-master-a')),
+        findsOneWidget,
+      );
+      // Admins have no master row — never a tile.
+      expect(
+        find.byKey(const Key('salon-master-tile-user-admin-1')),
+        findsNothing,
+      );
+      expect(
+        salonRepo.getSalonStaffCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the roster really came from GET /salons/{id}/staff',
       );
     });
   });

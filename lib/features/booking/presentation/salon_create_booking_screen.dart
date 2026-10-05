@@ -35,10 +35,11 @@
 //
 // ## Masters-provider choice (staff caller, not a public client)
 //
-// See `application/salon_masters_roster_notifier.dart`'s header for the full
-// reasoning: [salonMastersRosterProvider] (new, thin), NOT
-// `publicSalonProfileProvider` (over-fetches the full salon detail and is
-// tuned for the CLIENT-facing profile screen's lifecycle). Coverage
+// [salonStaffMastersRosterProvider] (`salon/application/
+// salon_staff_masters_roster.dart`, 2026-10-05): the management `/staff`
+// roster projected onto its masters — NOT the public `/masters` rail, which
+// lists only BOOKABLE masters, and NOT `publicSalonProfileProvider` (tuned
+// for the CLIENT-facing profile screen's lifecycle). Coverage
 // (`salonMasterServiceCoverageProvider`) and slots
 // (`salonMasterDaySlotsProvider`) are the SAME families the CLIENT-facing
 // salon booking flow already uses — see `salon_booking_wizard_steps.dart`.

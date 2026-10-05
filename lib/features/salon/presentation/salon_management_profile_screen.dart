@@ -64,6 +64,7 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -355,80 +356,104 @@ class _SalonManagementProfileScreenState
       // lazy `SliverGrid.builder`. Only one sub-tab is ever mounted at a time
       // (`_LoadedBody`'s `switch (tab)`, not a `TabBarView`/`IndexedStack`),
       // so there is no nested-scrollable or off-screen-tab hazard here.
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: <Widget>[
-          SliverPadding(
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
-            sliver: async.when(
-              loading: () => const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(top: 120),
-                  child: Center(child: CircularProgressIndicator()),
+      //
+      // Pull-to-refresh (2026-10-05): another member may change their photo
+      // (or the roster may change) while the shell keeps this screen mounted
+      // — a pull refetches the salon + roster. Seamless: Riverpod 3's
+      // invalidate keeps the loaded data on screen while the GETs run.
+      // `parent: AlwaysScrollableScrollPhysics()` only makes a SHORT body
+      // (loading / error) pullable; a body taller than the viewport scrolls
+      // and bounces exactly as plain `BouncingScrollPhysics` did.
+      body: AppRefreshIndicator(
+        key: const Key('salon-manage-refresh'),
+        edgeOffset: topInset,
+        onRefresh: () async {
+          final provider = salonManagementProfileProvider(widget.salonId);
+          ref.invalidate(provider);
+          try {
+            await ref.read(provider.future);
+          } on Object {
+            // A failed refetch surfaces through the `error:` branch below —
+            // it must not throw past the RefreshIndicator.
+          }
+        },
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          slivers: <Widget>[
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+              sliver: async.when(
+                loading: () => const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 120),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ),
-              ),
-              error: (Object e, _) => SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
-                  child: ErrorState(
-                    failure: e is Failure ? e : UnknownFailure(cause: e),
-                    onRetry: () => ref.invalidate(
-                      salonManagementProfileProvider(widget.salonId),
+                error: (Object e, _) => SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
+                    child: ErrorState(
+                      failure: e is Failure ? e : UnknownFailure(cause: e),
+                      onRetry: () => ref.invalidate(
+                        salonManagementProfileProvider(widget.salonId),
+                      ),
                     ),
                   ),
                 ),
+                data: (SalonManagementProfileData data) {
+                  final (Salon salon, List<SalonStaffMember> rawStaff) = data;
+                  // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
+                  // returns is rendered, the viewer's OWN row included (user
+                  // decision, 2026-09-13: "each salon member can see hisself").
+                  // What the roster contains is decided by the server: active
+                  // masters plus active SALON_ADMIN users
+                  // (`SalonService.java:721-735`) — never the owner as an owner,
+                  // never an inactive member, never a pending invitee.
+                  //
+                  // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
+                  // scoped an admin viewer to masters only, which hid every
+                  // co-admin and made `rotateAdmin`
+                  // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
+                  // admin-callable with no self-guard, `SalonService.java:789`)
+                  // unreachable in-app — a co-admin's settings screen is only
+                  // reachable from a row in this list. `41b271e5` narrowed it to
+                  // self-exclusion, which the user has since overruled. DO NOT ADD
+                  // A THIRD ONE: this is a roster, and a row missing from it
+                  // silently removes the only route to whatever that row leads to.
+                  //
+                  // The audience rule the product does enforce lives on the OTHER
+                  // surface — `public_salon_profile_screen.dart`, a different
+                  // provider, endpoint and model (`GET /salons/{id}/masters`). That
+                  // one stays master-only. Never express a client-audience rule
+                  // here.
+                  //
+                  // The viewer's own row is not filtered but it IS routed
+                  // differently — see [_openStaffMember].
+                  return _LoadedBody(
+                    salonId: widget.salonId,
+                    salon: salon,
+                    staff: rawStaff,
+                    embedded: widget.embedded,
+                    topInset: topInset,
+                    coverHeight: _coverHeight,
+                    heroProtrusion: _heroProtrusion,
+                    tab: widget.tab ?? _tab,
+                    onTabSelected: _onTabSelected,
+                    canEdit: isOwner,
+                    canEditMedia: ownsSalon,
+                    onOpenSettings: _openSettings,
+                    onOpenStaffMember: _openStaffMember,
+                    onInviteStaff: _openInviteStaff,
+                    onAddDescription: _openProfileEdit,
+                    onAddInstagram: _openContactsEdit,
+                  );
+                },
               ),
-              data: (SalonManagementProfileData data) {
-                final (Salon salon, List<SalonStaffMember> rawStaff) = data;
-                // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
-                // returns is rendered, the viewer's OWN row included (user
-                // decision, 2026-09-13: "each salon member can see hisself").
-                // What the roster contains is decided by the server: active
-                // masters plus active SALON_ADMIN users
-                // (`SalonService.java:721-735`) — never the owner as an owner,
-                // never an inactive member, never a pending invitee.
-                //
-                // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
-                // scoped an admin viewer to masters only, which hid every
-                // co-admin and made `rotateAdmin`
-                // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
-                // admin-callable with no self-guard, `SalonService.java:789`)
-                // unreachable in-app — a co-admin's settings screen is only
-                // reachable from a row in this list. `41b271e5` narrowed it to
-                // self-exclusion, which the user has since overruled. DO NOT ADD
-                // A THIRD ONE: this is a roster, and a row missing from it
-                // silently removes the only route to whatever that row leads to.
-                //
-                // The audience rule the product does enforce lives on the OTHER
-                // surface — `public_salon_profile_screen.dart`, a different
-                // provider, endpoint and model (`GET /salons/{id}/masters`). That
-                // one stays master-only. Never express a client-audience rule
-                // here.
-                //
-                // The viewer's own row is not filtered but it IS routed
-                // differently — see [_openStaffMember].
-                return _LoadedBody(
-                  salonId: widget.salonId,
-                  salon: salon,
-                  staff: rawStaff,
-                  embedded: widget.embedded,
-                  topInset: topInset,
-                  coverHeight: _coverHeight,
-                  heroProtrusion: _heroProtrusion,
-                  tab: widget.tab ?? _tab,
-                  onTabSelected: _onTabSelected,
-                  canEdit: isOwner,
-                  canEditMedia: ownsSalon,
-                  onOpenSettings: _openSettings,
-                  onOpenStaffMember: _openStaffMember,
-                  onInviteStaff: _openInviteStaff,
-                  onAddDescription: _openProfileEdit,
-                  onAddInstagram: _openContactsEdit,
-                );
-              },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1256,10 +1281,13 @@ class _StaffTab extends StatelessWidget {
               key: Key('salon-manage-staff-card-${member.userId}'),
               name: member.firstName,
               role: role,
-              // Admins carry no service rating — always the placeholder.
+              // Admins take no bookings and carry no rating — the ★ row is
+              // hidden on their card (user request, 2026-10-05). Masters,
+              // owner-masters included, keep it.
               ratingLabel: !isAdmin && member.reviewCount > 0
                   ? (member.avgRating?.toStringAsFixed(1) ?? '—')
                   : '—',
+              showRating: !isAdmin,
               avatarIndex: i,
               imageUrl: member.avatarUrl,
               onTap: () => onOpenMember(member),

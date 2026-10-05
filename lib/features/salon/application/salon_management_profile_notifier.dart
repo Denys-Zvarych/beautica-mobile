@@ -207,6 +207,29 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     return true;
   }
 
+  /// Writes [userId]'s new avatar [url] (`null` = removed) into the loaded
+  /// staff roster, IN PLACE — the «Команда» card of a viewer who just
+  /// changed their OWN photo (`applySelfAvatarUrl`) follows without a
+  /// `GET /salons/{id}` + `GET …/staff` refetch. Same settled-only rule as
+  /// [patchImage]: returns `false` (nothing changed) when the snapshot is not
+  /// a SETTLED [AsyncData] (see [settledValueOrNull]) or when [userId] is not
+  /// on the roster, and the caller then falls back to an invalidate.
+  bool patchStaffAvatar(String userId, String? url) {
+    final SalonManagementProfileData? current = settledValueOrNull(state);
+    if (current == null) return false;
+    final (Salon salon, List<SalonStaffMember> staff) = current;
+    final int i = staff.indexWhere((SalonStaffMember m) => m.userId == userId);
+    if (i < 0) return false;
+    state = AsyncData<SalonManagementProfileData>((
+      salon,
+      <SalonStaffMember>[
+        for (int k = 0; k < staff.length; k++)
+          k == i ? staff[k].copyWith(avatarUrl: url) : staff[k],
+      ],
+    ));
+    return true;
+  }
+
   /// Saves the edited «Редагувати профіль» fields (name, description, phone,
   /// Instagram) via a partial `PATCH /salons/{salonId}`.
   ///

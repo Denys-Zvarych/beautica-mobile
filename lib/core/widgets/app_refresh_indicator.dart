@@ -53,6 +53,7 @@ class AppRefreshIndicator extends StatelessWidget {
     super.key,
     required this.onRefresh,
     required this.child,
+    this.edgeOffset = 0,
   });
 
   /// Called when the user pulls down to refresh. Must return a [Future] that
@@ -66,10 +67,16 @@ class AppRefreshIndicator extends StatelessWidget {
   /// viewport.
   final Widget child;
 
+  /// Forwarded to [RefreshIndicator.edgeOffset]. `0` (the default) keeps
+  /// every existing caller unchanged; an edge-to-edge screen with no app bar
+  /// passes the status-bar inset so the spinner disc clears it.
+  final double edgeOffset;
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: onRefresh,
+      edgeOffset: edgeOffset,
       // Camel accent — the primary interactive token for the VelvetTouch
       // design system (BrandColors.accent = #B89A7A).
       color: BrandColors.accent,

@@ -2597,4 +2597,89 @@ void main() {
       expect(find.text(l10n.masterRoleSalonOwner), findsNothing);
     });
   });
+
+  // Team-tab fix (2026-10-05) — admins take no bookings, so their «Команда»
+  // card hides the ★ rating; master cards keep it. Asserted on what RENDERS
+  // (the star glyph + the label inside each card), never on the widget field.
+  group('Команда tab — admin rating hidden', () {
+    testWidgets('admin card renders no rating; master card does', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+
+      final Finder master = find.byKey(
+        const Key('salon-manage-staff-card-master-1'),
+      );
+      final Finder admin = find.byKey(
+        const Key('salon-manage-staff-card-admin-1'),
+      );
+      expect(
+        find.descendant(of: master, matching: find.byIcon(Icons.star_rounded)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: master, matching: find.text('4.9')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: admin, matching: find.byIcon(Icons.star_rounded)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: admin, matching: find.text('—')),
+        findsNothing,
+      );
+      // The spoken label drops the rating too.
+      expect(
+        tester.getSemantics(admin).label,
+        contains(
+          l10n.salonMasterCardSemanticLabelNoRating(
+            'Ірина',
+            l10n.salonStaffRoleAdmin,
+          ),
+        ),
+      );
+      expect(tester.getSemantics(admin).label, isNot(contains('—')));
+    });
+  });
+
+  // Team-tab fix (2026-10-05) — pull-to-refresh refetches the roster, so a
+  // photo another member changed shows up without leaving the shell.
+  group('pull-to-refresh', () {
+    testWidgets('a pull refetches the roster and renders the new photo', (
+      tester,
+    ) async {
+      final repo = FakeSalonRepository(salon: _stubSalon, staff: _stubStaff);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+      final int before = repo.getSalonStaffCalls;
+      const String photo = 'https://media.test/avatars/master-1-new.png';
+      repo.staff[0] = repo.staff[0].copyWith(avatarUrl: photo);
+
+      await tester.fling(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+
+      expect(repo.getSalonStaffCalls, before + 1);
+      expect(
+        tester
+            .widget<SalonMasterCard>(
+              find.byKey(const Key('salon-manage-staff-card-master-1')),
+            )
+            .imageUrl,
+        photo,
+      );
+    });
+  });
 }

@@ -112,6 +112,7 @@ class SalonMasterCard extends StatefulWidget {
     required this.avatarIndex,
     required this.onTap,
     this.imageUrl,
+    this.showRating = true,
   });
 
   final String name;
@@ -131,6 +132,14 @@ class SalonMasterCard extends StatefulWidget {
   /// shared [RemoteImage] over that disc, which is also the load-error and
   /// disallowed-host fallback.
   final String? imageUrl;
+
+  /// Whether the ★ [ratingLabel] row renders. `true` (the default) keeps
+  /// every existing caller unchanged. The management «Команда» grid passes
+  /// `false` for a SALON_ADMIN, who takes no bookings and so has no rating:
+  /// the row and its top gap are dropped (the content stays top-aligned so
+  /// the avatar row lines up with its grid neighbours) and the semantic label
+  /// omits the rating. [ratingLabel] is then ignored.
+  final bool showRating;
 
   @override
   State<SalonMasterCard> createState() => _SalonMasterCardState();
@@ -153,11 +162,13 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
     );
     return Semantics(
       button: true,
-      label: l10n.salonMasterCardSemanticLabel(
-        widget.name,
-        widget.role,
-        widget.ratingLabel,
-      ),
+      label: widget.showRating
+          ? l10n.salonMasterCardSemanticLabel(
+              widget.name,
+              widget.role,
+              widget.ratingLabel,
+            )
+          : l10n.salonMasterCardSemanticLabelNoRating(widget.name, widget.role),
       // Opaque + full-tile so a tap anywhere on the card body (incl. its
       // center and padding) always resolves onto this detector and fires
       // `onTap`, opening the master's public profile. `width: double.infinity`
@@ -248,19 +259,21 @@ class _SalonMasterCardState extends State<SalonMasterCard> {
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: VelvetSpacing.xs),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(
-                      Icons.star_rounded,
-                      size: 13,
-                      color: BrandColors.accentDeep,
-                    ),
-                    const SizedBox(width: 3),
-                    Text(widget.ratingLabel, style: VelvetText.bodyStrong12),
-                  ],
-                ),
+                if (widget.showRating) ...<Widget>[
+                  const SizedBox(height: VelvetSpacing.xs),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.star_rounded,
+                        size: 13,
+                        color: BrandColors.accentDeep,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(widget.ratingLabel, style: VelvetText.bodyStrong12),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),

@@ -3755,6 +3755,55 @@ final class FakeBackend {
     },
   ];
 
+  /// 2026-10-05 — `GET /salons/{id}/staff` for the two salons whose «Записи»
+  /// board / walk-in wizard this fake serves ([kOwnerSalonId],
+  /// [kAdminSalonId]): the salon's own management roster [own] FOLLOWED BY a
+  /// staff-shaped projection of every [_salonMasters] master it does not
+  /// already list.
+  ///
+  /// WHY. The board and the walk-in wizard read their master roster from
+  /// `/staff` (`salonStaffMastersRosterProvider`), no longer from the public
+  /// `/masters` rail — the backend narrows that rail to BOOKABLE masters. A
+  /// real `/staff` is a SUPERSET of `/masters` (every public master is
+  /// staff); serving [own] alone would silently drop the eight masters every
+  /// board/wizard flow seeds bookings and coverage against. [own]'s rows come
+  /// FIRST and keep their order, so a «Команда» grid on these salons renders
+  /// its pre-existing cards exactly where it did. The two endpoints still
+  /// DIFFER — [own]'s extra masters (e.g. `master-removable`) and anything a
+  /// test appends to [salonStaff] are `/staff`-only — which is the
+  /// post-backend-change world `salon_owner_bookings_board_flow_test.dart`'s
+  /// staff-only-column test pins.
+  List<Map<String, dynamic>> _boardSalonStaff(List<Map<String, dynamic>> own) {
+    final Set<Object?> listedMasterIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['masterId'],
+    };
+    final Set<Object?> listedUserIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['userId'],
+    };
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> row in own)
+        Map<String, dynamic>.from(row),
+      for (final Map<String, dynamic> m in _salonMasters)
+        if (!listedMasterIds.contains(m['masterId']) &&
+            !listedUserIds.contains(m['masterId']))
+          <String, dynamic>{
+            'userId': m['masterId'],
+            'masterId': m['masterId'],
+            'role': m['masterType'],
+            'firstName': m['firstName'],
+            'lastName': m['lastName'],
+            'professionalTitle': null,
+            'avatarUrl': m['avatarUrl'],
+            'phoneNumber': null,
+            'instagram': null,
+            'bio': null,
+            'avgRating': m['avgRating'],
+            'reviewCount': m['reviewCount'],
+            'serviceCount': 0,
+          },
+    ];
+  }
+
   /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
   /// each: NAILS carries the salon's SHARED signature service (offered by
   /// every master on the rail), BROWS carries an EXCLUSIVE service (offered
@@ -7875,11 +7924,7 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = 'salon-admin-1';
-        return _okList(
-          List<Map<String, dynamic>>.from(
-            salonAdminOneStaff.map(Map<String, dynamic>.from),
-          ),
-        );
+        return _okList(_boardSalonStaff(salonAdminOneStaff));
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -9846,11 +9891,7 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = kOwnerSalonId;
-        return _okList(
-          List<Map<String, dynamic>>.from(
-            salonStaff.map(Map<String, dynamic>.from),
-          ),
-        );
+        return _okList(_boardSalonStaff(salonStaff));
       }),
       request: const Request(method: RequestMethods.get),
     );

@@ -90,7 +90,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -113,6 +113,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../helpers/fake_salon_master_coverage.dart';
+import '../helpers/fake_salon_staff_masters_roster.dart';
 import '../helpers/pump_app.dart' show TapCalendarDay;
 import 'helpers/golden_pump.dart';
 
@@ -390,11 +391,10 @@ class _FakeBookingRepository implements BookingRepository {
 // ---------------------------------------------------------------------------
 
 List<Object> _overrides() => <Object>[
-  salonMastersRosterProvider.overrideWith(
-    (ref, String salonId) async => const <SalonMasterSummary>[
-      _kMasterA,
-      _kMasterB,
-    ],
+  salonStaffMastersRosterProvider.overrideWith(
+    () => FakeSalonStaffMastersRoster(
+      () => const <SalonMasterSummary>[_kMasterA, _kMasterB],
+    ),
   ),
   salonMasterServiceCoverageProvider.overrideWith(
     () =>
@@ -411,11 +411,10 @@ List<Object> _overrides() => <Object>[
 /// PHASE 341 D6 — same shape as [_overrides], multi-service catalogue +
 /// both-covering map (see the fixtures' own doc above).
 List<Object> _overridesMulti() => <Object>[
-  salonMastersRosterProvider.overrideWith(
-    (ref, String salonId) async => const <SalonMasterSummary>[
-      _kMasterA,
-      _kMasterB,
-    ],
+  salonStaffMastersRosterProvider.overrideWith(
+    () => FakeSalonStaffMastersRoster(
+      () => const <SalonMasterSummary>[_kMasterA, _kMasterB],
+    ),
   ),
   salonMasterServiceCoverageProvider.overrideWith(
     () => FakeSalonMasterServiceCoverage(

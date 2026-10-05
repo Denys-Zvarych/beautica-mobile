@@ -200,6 +200,16 @@ Future<GoRouter> _openCoAdminSettingsAs(
     final Finder coAdminCard = find.byKey(
       const Key('salon-manage-staff-card-$_kCoAdminId'),
     );
+    // The co-admin is row 0, ABOVE the self card just scrolled to. Since
+    // 2026-10-05 the fake's `salon-admin-1` `/staff` roster also carries the
+    // public masters (a real `/staff` is a superset of `/masters` — see
+    // `FakeBackend._boardSalonStaff`), so the lazy grid is long enough for
+    // that scroll to have disposed row 0, and [AppHarness.revealRosterCard]
+    // only scrolls DOWN. Scroll back UP first.
+    if (coAdminCard.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(coAdminCard, -200, maxScrolls: 20);
+      await tester.pump();
+    }
     await AppHarness.revealRosterCard(tester, coAdminCard);
     try {
       await tester.ensureVisible(coAdminCard);

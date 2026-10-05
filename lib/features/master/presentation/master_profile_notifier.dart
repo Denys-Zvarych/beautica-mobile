@@ -17,6 +17,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/state/settled_value.dart';
 import '../../auth/domain/auth_session.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/master_repository.dart';
@@ -121,10 +122,15 @@ class MasterProfile extends _$MasterProfile {
   ///
   /// Phase 073 audit — `POST/DELETE /media/avatar` already returns the new
   /// state, so invalidating (a `GET /masters/me` plus every provider watching
-  /// this one) would be pure waste. Returns `false` when there is no cached
-  /// profile to patch; the caller then falls back to an invalidate.
+  /// this one) would be pure waste. Returns `false` when there is no SETTLED
+  /// cached profile to patch; the caller then falls back to an invalidate.
+  ///
+  /// SETTLED = [settledValueOrNull], never the lenient `.value` (2026-10-05):
+  /// `.value` survives into an `AsyncError` (a failed [refresh]) and an
+  /// in-flight refetch, and writing `AsyncData` from it would hide the error
+  /// behind stale data, or be overwritten by a GET that predates the upload.
   bool patchAvatarUrl(String? url) {
-    final Master? current = state.value;
+    final Master? current = settledValueOrNull(state);
     if (current == null) return false;
     state = AsyncData<Master>(current.copyWith(avatarUrl: url));
     return true;

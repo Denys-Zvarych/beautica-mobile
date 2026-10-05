@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_target.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -75,10 +76,34 @@ UploadTargetBinding _salonBinding(
 ///   did (patch, or a seamless invalidate when the cached build has no value
 ///   yet; the SALON_MASTER own-profile loader watches it, so it follows); any
 ///   other role (an owner who also performs services) is patched only.
+/// - The «Команда» roster (`salonManagementProfileProvider`) — owner / admin
+///   only, patched in place when cached, never built; see
+///   [applyOwnStaffAvatarUrl]. Without it the owner's own staff card stayed
+///   on the old photo while the shell kept the roster alive.
 void applySelfAvatarUrl(Ref ref, String? url) {
+  // Read BEFORE `patchAvatarUrl`, so the selectors below judge the session
+  // the upload completed under, never one the patch itself wrote. The patch
+  // no longer promotes an unsettled session (it writes only from a SETTLED
+  // one — `AuthNotifier.patchAvatarUrl`), so this order is now defence in
+  // depth rather than the only guard; keep it
+  // (`apply_self_avatar_staff_roster_test.dart`, «stale (unsettled) session»).
+  final AsyncValue<AuthSession> session = ref.read(authProvider);
   ref.read(authProvider.notifier).patchAvatarUrl(url);
+  // STRICT selectors: a role / salon carried on an in-flight / stale session
+  // (`copyWithPrevious`) must not steer a roster WRITE.
+  applyOwnStaffAvatarUrl(
+    ref,
+    role: authUserRoleSettledOrNull(session),
+    userId: authUserIdOrNull(session),
+    adminSalonId: authUserSalonIdSettledOrNull(session),
+    url: url,
+  );
   if (!ref.exists(masterProfileProvider)) return;
-  final UserRole? role = authUserRoleOrNull(ref.read(authProvider));
+  // LENIENT on purpose — unchanged from Phase 073. This role only decides
+  // whether an unpatchable own profile is INVALIDATED (a refetch of the
+  // caller's own data, never a write); the strict selector would read `null`
+  // on a mid-refresh master session and silently drop that fallback.
+  final UserRole? role = authUserRoleOrNull(session);
   final bool isMaster =
       role == UserRole.independentMaster || role == UserRole.salonMaster;
   final bool patched = ref

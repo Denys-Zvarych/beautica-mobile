@@ -164,6 +164,103 @@ void main() {
     );
   });
 
+  // Team-tab fix (2026-10-05) — the shell keeps the «Команда» roster
+  // (`salonManagementProfileProvider`) alive in IndexedStack slot 0, keyed
+  // only on the user id, so a self-avatar upload from the «Профіль» slot left
+  // the owner's OWN staff card on the old photo. `applySelfAvatarUrl` now
+  // patches that cached roster row in place — no `GET …/staff` refetch.
+  // The fake roster's GET never learns the new URL, so ONLY the in-place
+  // patch can turn this green.
+  testWidgets('SALON_OWNER in the shell: upload from «Профіль», then '
+      '«Команда» — the owner card shows the new photo with no roster '
+      'refetch', (tester) async {
+    const String salonId = 'salon-xyz';
+    const Key ownerCard = Key('salon-manage-staff-card-user-owner-1');
+    final FakeBackend fb = FakeBackend();
+    fb.mySalons.add(<String, dynamic>{
+      'id': salonId,
+      'ownerId': 'user-owner-1',
+      'name': 'Студія Краси «Камелія»',
+      'city': 'Київ',
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'isActive': true,
+      'isPrimary': false,
+    });
+    // The owner is auto-enrolled as a master of their own salon — first row,
+    // so the card sits in the grid's first row.
+    fb.salonStaff.insert(0, <String, dynamic>{
+      'userId': 'user-owner-1',
+      'masterId': 'master-owner-1',
+      'role': 'SALON_MASTER',
+      'masterType': 'SALON_OWNER',
+      'firstName': 'Оксана',
+      'lastName': 'Власниця',
+      'professionalTitle': null,
+      'avatarUrl': null,
+      'phoneNumber': '+380671110000',
+      'instagram': null,
+      'bio': null,
+      'avgRating': null,
+      'reviewCount': 0,
+      'serviceCount': 0,
+    });
+    final GoRouter router = await bootAs(tester, fb, UserRole.salonOwner);
+    router.go(RouteNames.salonShell(salonId));
+    await AppHarness.settle(tester);
+
+    Finder ownerPhoto() => find.descendant(
+      of: find.byKey(ownerCard),
+      matching: find.byWidgetPredicate(
+        (Widget w) => w is RemoteImage && w.url == _firstUrl,
+      ),
+    );
+
+    // «Команда» (nav 2): the owner card renders, photo-less.
+    await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+    await AppHarness.settle(tester);
+    await tester.ensureVisible(find.byKey(ownerCard));
+    await AppHarness.settle(tester);
+    expect(find.byKey(ownerCard), findsOneWidget);
+    expect(ownerPhoto(), findsNothing);
+    final int staffCalls = fb.getSalonStaffCalls;
+
+    // «Профіль» (nav 3): upload from the owner identity card.
+    await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+    await AppHarness.settle(tester);
+    await tapBadgeThen(
+      tester,
+      const Key('owner-own-profile-avatar-editor'),
+      'image-source-gallery',
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.text(l10n(tester).avatarUpdated),
+    );
+    expectSelfOnlyAvatarRequests(fb, uploads: 1);
+
+    // The success snack floats over the bottom nav — let it go first.
+    await AppHarness.pumpUntilGone(
+      tester,
+      find.text(l10n(tester).avatarUpdated),
+      timeout: const Duration(seconds: 15),
+    );
+
+    // Back on «Команда»: the SAME live roster now carries the new photo.
+    await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+    await AppHarness.settle(tester);
+    await tester.ensureVisible(find.byKey(ownerCard));
+    await AppHarness.settle(tester);
+    expect(ownerPhoto(), findsOneWidget);
+    expect(
+      fb.getSalonStaffCalls,
+      staffCalls,
+      reason: 'patched in place — never a GET /salons/{id}/staff refetch',
+    );
+  });
+
   testWidgets('SALON_ADMIN: upload from «Особисті дані»; the own-profile '
       'identity card then shows it; remove', (tester) async {
     final FakeBackend fb = FakeBackend();

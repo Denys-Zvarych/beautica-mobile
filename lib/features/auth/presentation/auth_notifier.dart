@@ -42,6 +42,7 @@ import '../../../core/media/beautica_image.dart';
 import '../../../core/media/pick/media_pick_service.dart';
 import '../../../core/push/push_session_hooks.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/state/settled_value.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -1257,8 +1258,18 @@ class AuthNotifier extends _$AuthNotifier {
   /// The access token is preserved exactly as [refreshUser] does. Returns
   /// `false` (and changes nothing) when the session is not settled
   /// [Authenticated] — there is no user to patch.
+  ///
+  /// SETTLED means [settledValueOrNull], never the lenient `.value`
+  /// (2026-10-05). `.value` keeps a `copyWithPrevious`-attached stale
+  /// [Authenticated] through an `AsyncLoading` (mid-login / mid-logout), an
+  /// `AsyncError` (a failed re-fetch) and a seamless refresh's in-flight
+  /// `AsyncData`; writing a fresh `AsyncData` built from it PROMOTED that
+  /// stale session to settled — reopening [authUserRoleSettledOrNull] /
+  /// [authUserSalonIdSettledOrNull] for every write gate, and mid-logout
+  /// briefly resurrecting the session. An unsettled session is left exactly
+  /// as it is: whatever settles it next carries the server's own avatar.
   bool patchAvatarUrl(String? url) {
-    final s = state.value;
+    final s = settledValueOrNull(state);
     if (s is! Authenticated) return false;
     if (s.user.avatarUrl == url) return true;
     state = AsyncData(
