@@ -1686,6 +1686,13 @@ jobs:
             # is the line that says why — look for the domain under "Selection
             # state" / whether it reads as approved for user 0.
             echo "=== pm get-app-links (pre-test) ==="; adb shell pm get-app-links com.beautica.beautica_mobile 2>&1 || true
+            # GALLERY SEED (PR #79): avatar_pick_patrol_test selects a photo in the
+            # system Photo Picker, and a device test cannot write MediaStore — the
+            # host must seed it. Unseeded, the picker grid is empty: the test fails
+            # «no photo cell found», the picker stays in front with the app
+            # backgrounded, and the NEXT test hangs to the 900s bound. Fail the step
+            # here (not 15 min later) if the seed or its MediaStore row is missing.
+            timeout 60 ./scripts/seed_gallery_fixture.sh && timeout 30 adb shell content query --uri content://media/external/images/media --projection _data | grep -q beautica_avatar_fixture.jpg || { echo "GALLERY SEED FAILED: no MediaStore row for beautica_avatar_fixture.jpg"; exit 1; }
             # Run patrol, capture its exit, signal the loop to stop, then exit with
             # patrol's real code — all on ONE line so the exit status carries
             # (android-emulator-runner runs each line in its own sh -c, so a separate
