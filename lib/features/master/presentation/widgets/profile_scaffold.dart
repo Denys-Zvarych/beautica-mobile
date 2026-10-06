@@ -38,7 +38,23 @@ class ProfileScaffold extends StatelessWidget {
     this.showBack = true,
     this.bottomNavBar,
     this.onRefresh,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.onBack,
   });
+
+  /// Optional visible text beside the back chevron (Phase 24.1a), forwarded
+  /// to [VelvetTopBar.backLabel]. `null` → the icon-only back button.
+  final String? backLabel;
+
+  /// Optional accessible label for the back button, forwarded to
+  /// [VelvetTopBar.backSemanticLabel]. `null` → that bar's default `'Назад'`.
+  final String? backSemanticLabel;
+
+  /// Optional back handler replacing the default `context.pop()` (e.g. the
+  /// owner master-mode exit back to the salon). Ignored when [showBack] is
+  /// `false`.
+  final VoidCallback? onBack;
 
   final String title;
   final Widget child;
@@ -84,11 +100,7 @@ class ProfileScaffold extends StatelessWidget {
         child: Column(
           children: <Widget>[
             // Top bar — fixed height so the title never shifts between states.
-            VelvetTopBar(
-              title: title,
-              onBack: showBack ? () => context.pop() : null,
-              trailing: trailing,
-            ),
+            _topBar(context),
             // Fix 2 (PERF HIGH-2): RepaintBoundary prevents the static top bar
             // from being rasterized again during animation frames driven by the
             // entrance stagger — only the scrollable body layer is repainted.
@@ -99,6 +111,31 @@ class ProfileScaffold extends StatelessWidget {
       // Scaffold's own slot — see the [bottomNavBar] doc comment for why this
       // must NOT be a trailing child of the body's Column/SafeArea above.
       bottomNavigationBar: bottomNavBar,
+    );
+  }
+
+  /// The top bar. With every Phase 24.1a param `null` this is exactly the
+  /// pre-existing `VelvetTopBar(title, onBack: pop, trailing)` — the bar's own
+  /// `backSemanticLabel` default is used rather than re-stated here.
+  Widget _topBar(BuildContext context) {
+    final VoidCallback? back = showBack
+        ? (onBack ?? () => context.pop())
+        : null;
+    final String? semantic = backSemanticLabel;
+    if (semantic == null) {
+      return VelvetTopBar(
+        title: title,
+        onBack: back,
+        trailing: trailing,
+        backLabel: backLabel,
+      );
+    }
+    return VelvetTopBar(
+      title: title,
+      onBack: back,
+      backSemanticLabel: semantic,
+      trailing: trailing,
+      backLabel: backLabel,
     );
   }
 

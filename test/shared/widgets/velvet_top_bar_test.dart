@@ -26,7 +26,9 @@
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,6 +38,9 @@ import '../../helpers/pump_app.dart';
 /// bar's LAYOUT contract, so the title must be a value the test owns (M2 bans
 /// localised strings as finders for navigation//screen assertions — a
 /// test-owned sentinel is not locale-coupled).
+// Test-supplied label passed INTO the widget under test — not l10n copy.
+const String _kBackLabel = 'Салон';
+
 const String _kTitle = 'VTB_TITLE_SENTINEL';
 
 /// The title `Text` inside the bar (scoped, so a same-string label elsewhere in
@@ -404,6 +409,236 @@ void main() {
       );
 
       handle.dispose();
+    });
+  });
+
+  // ── backLabel — Phase 24.1a labelled «‹ Салон» pill ───────────────────────
+
+  group('VelvetTopBar — backLabel (Phase 24.1a)', () {
+    const Key backKey = Key('vtb_labelled_back');
+    // Longest master-mode title in use (`ownerOwnProfileTitle`, uk).
+    const String longestTitle = 'Мій профіль';
+
+    /// The owner-profile trailing pair: bell + `tune_rounded`, same gap as
+    /// `owner_own_profile_screen.dart`.
+    Widget trailingPair() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        NotificationBellButton(onTap: () {}, semanticLabel: 'Сповіщення'),
+        const SizedBox(width: VelvetSpacing.sm + 4),
+        NeumorphicIconButton(
+          icon: Icons.tune_rounded,
+          semanticLabel: 'Налаштування',
+          onTap: () {},
+        ),
+      ],
+    );
+
+    testWidgets('backLabel renders the visible pill text and still fires', (
+      tester,
+    ) async {
+      var backs = 0;
+      await _pump(
+        tester,
+        VelvetTopBar(
+          title: _kTitle,
+          backKey: backKey,
+          backLabel: _kBackLabel,
+          onBack: () => backs++,
+        ),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(backKey),
+          matching: find.text(_kBackLabel),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSize(find.byKey(backKey)).width,
+        greaterThan(NeumorphicIconButton.extent),
+      );
+
+      await tester.tap(find.byKey(backKey));
+      await tester.pump();
+      expect(backs, 1);
+    });
+
+    /// Pumps the owner master-mode bar — longest title, «Салон» pill,
+    /// bell+tune trailing — at 360×640 and [textScale].
+    Future<void> pumpOwnerBar(WidgetTester tester, double textScale) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: SafeArea(
+            child: Column(
+              children: <Widget>[
+                VelvetTopBar(
+                  title: longestTitle,
+                  backKey: backKey,
+                  backLabel: _kBackLabel,
+                  onBack: () {},
+                  trailing: trailingPair(),
+                ),
+              ],
+            ),
+          ),
+        ),
+        width: 360,
+        height: 640,
+        textScaleFactor: textScale,
+      );
+      await tester.pump();
+    }
+
+    /// Asserts the title can never touch the pill or the bell: both the
+    /// rendered title AND its whole layout slot (the widest it could ever
+    /// paint — the paragraph's max width, centred on the strip) sit strictly
+    /// between the pill and the bell. The slot assertion is what turns red if
+    /// the inset is dropped (a short title alone would still clear the pill).
+    void expectTitleClear(WidgetTester tester, Finder titleFinder) {
+      final Rect pill = tester.getRect(find.byKey(backKey));
+      final Rect title = tester.getRect(titleFinder);
+      final Rect bell = tester.getRect(find.byType(NotificationBellButton));
+      final Rect strip = tester.getRect(_stripFinder);
+      final RenderParagraph paragraph = tester.renderObject(titleFinder);
+      final double slotHalf = paragraph.constraints.maxWidth / 2;
+
+      expect(
+        strip.center.dx - slotHalf,
+        greaterThanOrEqualTo(pill.right),
+        reason: 'the title slot must start right of the «Салон» pill',
+      );
+      expect(
+        strip.center.dx + slotHalf,
+        lessThanOrEqualTo(bell.left),
+        reason: 'the title slot must end left of the bell',
+      );
+      expect(title.left, greaterThanOrEqualTo(pill.right));
+      expect(title.right, lessThanOrEqualTo(bell.left));
+      expect(tester.takeException(), isNull);
+    }
+
+    testWidgets(
+      '360×640: longest title clears the pill and the bell+tune pair, '
+      'no overflow',
+      (tester) async {
+        await pumpOwnerBar(tester, 1.0);
+
+        final Finder titleFinder = find.descendant(
+          of: find.byType(VelvetTopBar),
+          matching: find.text(longestTitle),
+        );
+        expectTitleClear(tester, titleFinder);
+        // Not ellipsised at 360 — the full title fits its inset slot.
+        final RenderParagraph paragraph = tester.renderObject(titleFinder);
+        expect(paragraph.didExceedMaxLines, isFalse);
+      },
+    );
+
+    for (final double scale in <double>[1.3, 2.0]) {
+      testWidgets('360×640 @ $scale× text: the grown pill never overlaps '
+          'the title, no overflow', (tester) async {
+        await pumpOwnerBar(tester, scale);
+
+        // Sanity: the pill really did grow past its 1.0× width (95.6 dp).
+        expect(
+          tester.getSize(find.byKey(backKey)).width,
+          greaterThan(VelvetTopBar.labelledTitleInset - VelvetSpacing.sm),
+        );
+        expectTitleClear(
+          tester,
+          find.descendant(
+            of: find.byType(VelvetTopBar),
+            matching: find.text(longestTitle),
+          ),
+        );
+      });
+    }
+
+    testWidgets('backLabel with a null onBack renders no pill and does not '
+        'inset the title', (tester) async {
+      await _pump(
+        tester,
+        const VelvetTopBar(title: _kTitle, backLabel: _kBackLabel),
+      );
+
+      expect(find.byType(NeumorphicIconButton), findsNothing);
+      expect(find.text(_kBackLabel), findsNothing);
+      final Text title = tester.widget<Text>(_titleFinder);
+      expect(title.maxLines, isNull, reason: 'the unlabelled title tree');
+      expect(
+        find.ancestor(
+          of: _titleFinder,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Padding &&
+                w.padding.horizontal >= 2 * VelvetTopBar.labelledTitleInset,
+          ),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an over-long title ellipsises inside the inset, clear of '
+        'the pill', (tester) async {
+      const String longTitle = 'Дуже довгий заголовок екрана майстра';
+      await tester.pumpApp(
+        Scaffold(
+          body: SafeArea(
+            child: Column(
+              children: <Widget>[
+                VelvetTopBar(
+                  title: longTitle,
+                  backKey: backKey,
+                  backLabel: _kBackLabel,
+                  onBack: () {},
+                ),
+              ],
+            ),
+          ),
+        ),
+        width: 360,
+        height: 640,
+      );
+      await tester.pump();
+
+      final Finder titleFinder = find.text(longTitle);
+      final Rect pill = tester.getRect(find.byKey(backKey));
+      final Rect title = tester.getRect(titleFinder);
+      expect(title.left, greaterThanOrEqualTo(pill.right));
+      final RenderParagraph paragraph = tester.renderObject(titleFinder);
+      expect(paragraph.didExceedMaxLines, isTrue);
+    });
+
+    testWidgets('null backLabel keeps the unpadded, unclamped title', (
+      tester,
+    ) async {
+      await _pump(tester, VelvetTopBar(title: _kTitle, onBack: () {}));
+
+      expect(
+        find.descendant(
+          of: find.byType(NeumorphicIconButton),
+          matching: find.byType(Text),
+        ),
+        findsNothing,
+      );
+      expect(tester.getSize(find.byType(NeumorphicIconButton)).width, 48);
+      final Text title = tester.widget<Text>(_titleFinder);
+      expect(title.maxLines, isNull);
+      expect(
+        find
+            .ancestor(of: _titleFinder, matching: find.byType(Padding))
+            .evaluate()
+            .where((Element e) {
+              final Padding p = e.widget as Padding;
+              return p.padding ==
+                  const EdgeInsets.symmetric(
+                    horizontal: VelvetTopBar.labelledTitleInset,
+                  );
+            }),
+        isEmpty,
+      );
     });
   });
 }
