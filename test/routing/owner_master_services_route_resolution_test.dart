@@ -19,6 +19,13 @@
 // PUT/DELETE read outside the shell's override would hit the
 // INDEPENDENT_MASTER `/masters/me/services` endpoints with the owner's token.
 //
+// Phase 381 (24.1d) — the «Графік» tab (`/owner/master/schedule`) shares
+// this harness: it pins the mounted [MasterScheduleScreen]'s scope (the
+// owner's OWN row in the primary salon — never the empty
+// `ownScheduleScopeProvider` id an owner would get), the canonical tile-2
+// bar, the «‹ Салон» back, and that every schedule read is keyed on the own
+// master row, never `/masters/me`.
+//
 // Layer: Widget (real appRouterProvider + authRedirect, faked providers).
 
 import 'dart:async';
@@ -35,7 +42,12 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
+import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_target.dart';
@@ -47,6 +59,7 @@ import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -113,6 +126,88 @@ class _GatedMySalons extends MySalons {
   Future<List<Salon>> build() => gate.future;
 }
 
+/// Phase 381 — the owner's primary-salon roster WITH their own auto-enrolled
+/// master row, which `scheduleEditable`'s owner arm requires.
+class _RosterWithOwnRow extends SalonManagementProfile {
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: _kSalonId, name: 'Test Salon', isPrimary: true),
+    const <SalonStaffMember>[
+      SalonStaffMember(
+        userId: _kOwnerUserId,
+        masterId: _kOwnerMasterRowId,
+        role: SalonStaffRole.master,
+        firstName: 'Олена',
+        lastName: 'Ковальчук',
+      ),
+    ],
+  );
+}
+
+/// Phase 381 QA — [_RosterWithOwnRow] that counts its builds. The FIRST
+/// build answers at once; every REFETCH is held on [refetchGate] — a real
+/// `GET /salons/{id}` takes network time, which an instantly-resolving fake
+/// would hide (the read-only window would be zero frames long).
+class _CountingRoster extends _RosterWithOwnRow {
+  static int builds = 0;
+  static Completer<void> refetchGate = Completer<void>();
+
+  @override
+  Future<SalonManagementProfileData> build(String salonId) async {
+    builds++;
+    if (builds > 1) await refetchGate.future;
+    return super.build(salonId);
+  }
+}
+
+/// Phase 381 QA — the ACCOUNT-SWITCH case: an owner session whose user can be
+/// replaced in place ([signInAs]), as a logout of owner A followed by a login
+/// of owner B does to `authProvider`.
+class _SwitchableOwnerAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => AuthSession.authenticated(
+    user: _ownerUser(_kOwnerUserId),
+    accessToken: 'token-a',
+  );
+
+  void signInAs(String userId) => state = AsyncData<AuthSession>(
+    AuthSession.authenticated(user: _ownerUser(userId), accessToken: 'token-b'),
+  );
+}
+
+User _ownerUser(String id) => User(
+  id: id,
+  email: '$id@beautica.test',
+  role: UserRole.salonOwner,
+  hasMasterProfile: true,
+);
+
+const String _kOwnerBUserId = 'user-owner-B';
+const String _kOwnerBMasterRowId = 'master-row-owner-B';
+const String _kSalonBId = 'salon-owner-B';
+
+/// Phase 381 QA — `masterProfileProvider` keyed on the session's user id the
+/// way production's is (`master_profile_notifier.dart:111`): owner A resolves
+/// at once; owner B's `GET /masters/me` is held on [ownerBGate], so the test
+/// can observe every frame of the reload that carries A's retained value.
+class _PerUserMasterProfile extends MasterProfile {
+  static Completer<Master> ownerBGate = Completer<Master>();
+
+  @override
+  Future<Master> build() async {
+    final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
+    if (userId == _kOwnerBUserId) return ownerBGate.future;
+    return const Master(
+      id: _kOwnerMasterRowId,
+      firstName: 'Олена',
+      lastName: 'Ковальчук',
+      reviewCount: 0,
+      type: MasterType.salonOwner,
+      salonId: _kSalonId,
+    );
+  }
+}
+
 class _MockDio extends Mock implements Dio {}
 
 class _RouterApp extends StatelessWidget {
@@ -165,6 +260,9 @@ void main() {
   Future<GoRouter> pumpOwnerRouter(
     WidgetTester tester, {
     MySalons Function() mySalons = _SettledMySalons.new,
+    SalonManagementProfile Function() roster = _RosterWithOwnRow.new,
+    MasterProfile Function() masterProfile = _OwnerMasterProfile.new,
+    AuthNotifier Function() auth = _OwnerAuth.new,
   }) async {
     dio = _MockDio();
     when(() => dio.get<Object?>(any())).thenAnswer((invocation) async {
@@ -182,15 +280,16 @@ void main() {
     final ProviderContainer container = makeTestContainer(
       retry: (_, _) => null,
       overrides: <Object>[
-        authProvider.overrideWith(_OwnerAuth.new),
+        authProvider.overrideWith(auth),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         mySalonsProvider.overrideWith(mySalons),
-        masterProfileProvider.overrideWith(_OwnerMasterProfile.new),
+        masterProfileProvider.overrideWith(masterProfile),
         dioProvider.overrideWithValue(dio),
         approvedCategoriesProvider.overrideWith(
           (ref) async => const <ServiceCategoryOption>[],
         ),
+        salonManagementProfileProvider.overrideWith(roster),
       ],
     );
     final GoRouter router = container.read(appRouterProvider);
@@ -475,4 +574,308 @@ void main() {
     expect(recordedUris, isEmpty);
     expectNoWrites();
   });
+  // -------------------------------------------------------------------------
+  // Phase 381 (24.1d) — «Графік».
+  // -------------------------------------------------------------------------
+
+  /// Answers every generated-client `request` (the schedule reads) with an
+  /// empty list, recording the path.
+  void stubScheduleReads() {
+    when(
+      () => dio.request<Object>(
+        any(),
+        data: any(named: 'data'),
+        queryParameters: any(named: 'queryParameters'),
+        cancelToken: any(named: 'cancelToken'),
+        options: any(named: 'options'),
+        onSendProgress: any(named: 'onSendProgress'),
+        onReceiveProgress: any(named: 'onReceiveProgress'),
+      ),
+    ).thenAnswer((invocation) async {
+      final String path = invocation.positionalArguments[0] as String;
+      recordedUris.add(path);
+      return Response<Object>(
+        requestOptions: RequestOptions(path: path),
+        statusCode: 200,
+        data: <String, Object?>{'success': true, 'data': <Object?>[]},
+      );
+    });
+  }
+
+  /// The schedule providers pin themselves for a 5-minute TTL
+  /// (`EffectiveScheduleNotifier._pinForTtl`, `OverridesNotifier`); fire
+  /// those fake timers before the test ends.
+  Future<void> drainScheduleTtl(WidgetTester tester) =>
+      // fixed-wait-ok: TTL crossing — must exceed the 5-minute keepAlive pin.
+      tester.pump(const Duration(minutes: 6));
+
+  testWidgets('/owner/master/schedule mounts MasterScheduleScreen on the '
+      'owner\'s OWN row (primary salon), tile-2 owner bar, «‹ Салон» back, '
+      'editable; every schedule read is keyed on the own master row', (
+    tester,
+  ) async {
+    final GoRouter router = await pumpOwnerRouter(tester);
+    stubScheduleReads();
+    recordedUris.clear();
+
+    router.go(RouteNames.ownerMasterSchedule);
+    await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('no-schedule-add-hours')),
+    );
+
+    expect(router.state.matchedLocation, RouteNames.ownerMasterSchedule);
+    final MasterScheduleScreen screen = tester.widget<MasterScheduleScreen>(
+      find.byType(MasterScheduleScreen),
+    );
+    expect(
+      screen.scope,
+      const ScheduleScope.salonMaster(
+        salonId: _kSalonId,
+        masterId: _kOwnerMasterRowId,
+      ),
+      reason:
+          'a null scope resolves through ownScheduleScopeProvider, which is '
+          'EMPTY for SALON_OWNER — the owner tab must pass its own row',
+    );
+    final AppLocalizations l10n = AppLocalizations.of(
+      tester.element(find.byType(MasterScheduleScreen)),
+    );
+    expect(screen.backLabel, l10n.ownerMasterModeBack);
+    expect(screen.backSemanticLabel, l10n.ownerMasterModeBackSemantics);
+    expect(screen.onBack, isNotNull);
+
+    final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+      find.byType(VelvetBottomNavBar),
+    );
+    expect(bar.activeIndex, 2);
+    expect(bar.servicesRoute, RouteNames.ownerMasterServices);
+    expect(bar.scheduleRoute, RouteNames.ownerMasterSchedule);
+    expect(bar.profileRoute, RouteNames.ownerMasterProfile);
+
+    // The CTA only renders for an EDITABLE viewer (scheduleEditable's owner
+    // arm: managed salon + own row on its roster).
+    expect(find.byKey(const Key('no-schedule-add-hours')), findsOneWidget);
+
+    expect(
+      recordedUris,
+      contains('/api/v1/masters/$_kOwnerMasterRowId/weekly-schedules'),
+    );
+    for (final String uri in recordedUris) {
+      expect(uri, isNot(contains('/masters/me')));
+      expect(uri, isNot(contains(_kOwnerUserId)));
+    }
+    await drainScheduleTtl(tester);
+  });
+
+  testWidgets('«‹ Салон» on the schedule tab goes to the salon resolver', (
+    tester,
+  ) async {
+    final GoRouter router = await pumpOwnerRouter(tester);
+    stubScheduleReads();
+
+    router.go(RouteNames.ownerMasterSchedule);
+    await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+    final MasterScheduleScreen screen = tester.widget<MasterScheduleScreen>(
+      find.byType(MasterScheduleScreen),
+    );
+    screen.onBack?.call();
+    await pumpUntil(
+      tester,
+      () => router.state.matchedLocation != RouteNames.ownerMasterSchedule,
+    );
+    await pumpUntilGone(tester, find.byType(MasterScheduleScreen));
+    await tester.pumpAndSettle();
+    expect(router.state.matchedLocation, isNot(startsWith('/owner/master/')));
+    // Phase 381 QA — pin the DESTINATION, not just "left master mode": the
+    // salon resolver lands on the owner's primary salon shell.
+    expect(router.state.matchedLocation, RouteNames.salonShell(_kSalonId));
+    await drainScheduleTtl(tester);
+  });
+
+  testWidgets('CONTROL: an INDEPENDENT_MASTER is bounced off '
+      '/owner/master/schedule (the prefix gate covers it)', (tester) async {
+    _OwnerAuth.role = UserRole.independentMaster;
+    final GoRouter router = await pumpOwnerRouter(tester);
+    stubScheduleReads();
+
+    router.go(RouteNames.ownerMasterSchedule);
+    await tester.pumpAndSettle();
+    expect(router.state.matchedLocation, isNot(startsWith('/owner/master/')));
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 381 QA — the owner nav table and the two audit findings.
+  // -------------------------------------------------------------------------
+
+  testWidgets('every reachable owner tab\'s bar routes tile 2 to '
+      '/owner/master/schedule (the one `_kOwnerMasterNavBars` table), and '
+      'tapping it from «Послуги» lands on «Графік»', (tester) async {
+    final GoRouter router = await pumpOwnerRouter(tester);
+    stubScheduleReads();
+
+    for (final String tab in <String>[
+      RouteNames.ownerMasterServices,
+      RouteNames.ownerMasterProfile,
+    ]) {
+      router.go(tab);
+      await pumpUntil(tester, () => router.state.matchedLocation == tab);
+      await pumpUntilFound(tester, find.byType(VelvetBottomNavBar));
+      expect(
+        tester
+            .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+            .scheduleRoute,
+        RouteNames.ownerMasterSchedule,
+        reason: '$tab bar must route «Графік» to the owner tab, not /schedule',
+      );
+    }
+
+    router.go(RouteNames.ownerMasterServices);
+    await pumpUntilFound(tester, find.byType(ServicesListScreen));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('master-nav-tile-2')));
+    await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+    expect(router.state.matchedLocation, RouteNames.ownerMasterSchedule);
+    await drainScheduleTtl(tester);
+  });
+
+  // SPEC — audit MEDIUM (perf): `salonManagementProfileProvider` is
+  // autoDispose, so leaving «Графік» drops the roster and every re-entry
+  // refetches it while the (TTL-cached) schedule is already resolved —
+  // `scheduleEditable` is false for that window, so the read-only banner
+  // (no «Додати години» CTA) flashes before the editable one. Planned fix:
+  // the owner shell keeps the roster alive while in master mode + a loading
+  // skeleton while the capability is pending. FIXED (phase 381 audit).
+  testWidgets(
+    'SPEC (perf MEDIUM): re-entering «Графік» never shows a read-only frame '
+    'before the editable one, and the roster is fetched once per visit',
+    (tester) async {
+      _CountingRoster.builds = 0;
+      _CountingRoster.refetchGate = Completer<void>();
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        roster: _CountingRoster.new,
+      );
+      stubScheduleReads();
+      final Finder addHours = find.byKey(const Key('no-schedule-add-hours'));
+      final Finder banner = find.byType(NoScheduleBanner);
+
+      router.go(RouteNames.ownerMasterSchedule);
+      await pumpUntilFound(tester, addHours);
+
+      // Away to another master-mode tab and back (the schedule itself stays
+      // TTL-cached, so only the roster can make the second entry read-only).
+      for (final String away in <String>[
+        RouteNames.ownerMasterServices,
+        RouteNames.ownerMasterProfile,
+      ]) {
+        router.go(away);
+        await pumpUntil(tester, () => router.state.matchedLocation == away);
+        // Wait for the schedule page to UNMOUNT (end of the tab transition):
+        // only then does the autoDispose roster lose its last listener.
+        await pumpUntilGone(
+          tester,
+          find.byType(MasterScheduleScreen, skipOffstage: false),
+        );
+        await tester.pump();
+      }
+
+      router.go(RouteNames.ownerMasterSchedule);
+      // 40 × one 60 Hz frame (640 ms) — spans the tab transition, so every
+      // frame the user would SEE is inspected.
+      for (int frame = 0; frame < 40; frame++) {
+        // fixed-wait-ok: frame-stepping (one vsync), not a wait for a result.
+        await tester.pump(const Duration(milliseconds: 16));
+        if (banner.evaluate().isNotEmpty) {
+          expect(
+            addHours,
+            findsWidgets,
+            reason:
+                'frame $frame: the schedule rendered READ-ONLY (banner without '
+                'the CTA) while the roster was refetched',
+          );
+        }
+      }
+      expect(addHours, findsOneWidget);
+      if (!_CountingRoster.refetchGate.isCompleted) {
+        _CountingRoster.refetchGate.complete();
+      }
+      expect(
+        _CountingRoster.builds,
+        1,
+        reason: 'the roster must survive a tab switch inside master mode',
+      );
+      await drainScheduleTtl(tester);
+    },
+  );
+
+  // SPEC — audit LOW (security): `_selectOwnMasterIds`
+  // (`app_router.dart` `_selectOwnMasterIds`) reads the lenient `.value`, so
+  // while `masterProfileProvider` RELOADS for a new session it still carries
+  // the previous owner's (salonId, masterId) and `_OwnMasterRowGate` builds
+  // the previous owner's schedule scope. Planned fix: null the ids when
+  // `async.isReloading`. FIXED (phase 381 audit).
+  testWidgets(
+    'SPEC (security LOW): owner A → owner B, while B\'s profile loads the gate '
+    'shows the loading skeleton — never a schedule scoped on A\'s row',
+    (tester) async {
+      _PerUserMasterProfile.ownerBGate = Completer<Master>();
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        masterProfile: _PerUserMasterProfile.new,
+        auth: _SwitchableOwnerAuth.new,
+      );
+      stubScheduleReads();
+      router.go(RouteNames.ownerMasterSchedule);
+      await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(MasterScheduleScreen)),
+      );
+      (container.read(authProvider.notifier) as _SwitchableOwnerAuth).signInAs(
+        _kOwnerBUserId,
+      );
+
+      for (int frame = 0; frame < 10; frame++) {
+        await tester.pump();
+        for (final MasterScheduleScreen s
+            in tester.widgetList<MasterScheduleScreen>(
+              find.byType(MasterScheduleScreen),
+            )) {
+          expect(
+            s.scope?.masterId,
+            isNot(_kOwnerMasterRowId),
+            reason: 'frame $frame: owner B saw owner A\'s schedule scope',
+          );
+        }
+      }
+      expect(
+        find.byKey(const Key('salon_master_own_services_loading')),
+        findsOneWidget,
+      );
+
+      _PerUserMasterProfile.ownerBGate.complete(
+        const Master(
+          id: _kOwnerBMasterRowId,
+          firstName: 'Ірина',
+          lastName: 'Бондар',
+          reviewCount: 0,
+          type: MasterType.salonOwner,
+          salonId: _kSalonBId,
+        ),
+      );
+      await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+      expect(
+        tester
+            .widget<MasterScheduleScreen>(find.byType(MasterScheduleScreen))
+            .scope,
+        const ScheduleScope.salonMaster(
+          salonId: _kSalonBId,
+          masterId: _kOwnerBMasterRowId,
+        ),
+      );
+      await drainScheduleTtl(tester);
+    },
+  );
 }

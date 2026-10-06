@@ -29,6 +29,14 @@
 // land on `/salons/{primary}/masters/{ownerRow}/services/{defId}` (keyed on
 // the DEFINITION id), and neither INDEPENDENT_MASTER write endpoint fires.
 //
+// Phase 381 (24.1d) — the «Графік» tab: profile → tile 2 → the owner's OWN
+// master-row schedule (empty) → «Додати години» → the weekly editor (a ROOT
+// push, so SYSTEM BACK returns to «Графік», not the salon) → Monday
+// 10:00–18:00 + a validity window → save → back on the calendar with Monday
+// working. The FakeBackend wires ONLY `/masters/{ownerRow}/…` schedule
+// routes (`wireOwnRowSchedule`); the flow pins the POST there and that no
+// hard-wired (`/masters/me`, `user-master-1`, …) schedule route is touched.
+//
 // NO PATROL FLOW: no OS dialog, permission, notification or WebView is
 // involved; system back is driven through `WidgetsBinding.handlePopRoute`,
 // the same entry point the Android back / predictive-back dispatch calls.
@@ -39,12 +47,16 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
 import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -571,6 +583,215 @@ void main() {
       );
       expect(card, findsNothing);
       AppHarness.expectLocation(router, RouteNames.ownerMasterServices);
+    });
+  });
+  testWidgets('SALON_OWNER: «Графік» tile → own-row empty schedule → weekly '
+      'editor (system back returns to «Графік») → Monday 10:00–18:00 → save '
+      '→ calendar shows Monday working; the POST targets '
+      '/masters/{ownerRow}/weekly-schedules only', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowSchedule: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      // ── 1. Profile → «Графік» (tile 2) ──────────────────────────────────
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-2')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterScheduleScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      AppHarness.expectLocation(router, RouteNames.ownerMasterSchedule);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowScheduleGetCalls >= 1,
+        description: 'the own-row weekly GET to reach the fake backend',
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(OwnerOwnProfileScreen), findsNothing);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterScheduleScreen)),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(VelvetTopBar),
+          matching: find.text(l10n.ownerMasterModeBack),
+        ),
+        findsOneWidget,
+        reason: 'the «‹ Салон» pill is the schedule tab\'s top-left exit',
+      );
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.activeIndex, 2);
+      expect(bar.scheduleRoute, RouteNames.ownerMasterSchedule);
+      expect(bar.servicesRoute, RouteNames.ownerMasterServices);
+      expect(bar.profileRoute, RouteNames.ownerMasterProfile);
+
+      // ── 2. Empty + editable → «Додати години» → weekly editor ───────────
+      final Finder addHours = find.byKey(const Key('no-schedule-add-hours'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        addHours,
+        timeout: const Duration(seconds: 20),
+      );
+      expect(find.byKey(const Key('schedule-weekly-card')), findsNothing);
+      await _tapWhenReady(tester, addHours);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(WeeklyTemplateEditorScreen),
+        timeout: const Duration(seconds: 20),
+      );
+
+      // SYSTEM BACK from the editor pops to «Графік» — never the salon.
+      await tester.binding.handlePopRoute();
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byType(WeeklyTemplateEditorScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterSchedule);
+      expect(find.byType(MasterScheduleScreen), findsOneWidget);
+      expect(find.byType(SalonShellScreen), findsNothing);
+
+      await _tapWhenReady(tester, addHours);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(WeeklyTemplateEditorScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+
+      // ── 3. Monday ON (seeds 09:00–18:00) → start +1 h = 10:00 ───────────
+      await _tapWhenReady(tester, find.byKey(const Key('weekly-toggle-1')));
+      await AppHarness.settle(tester);
+      final Finder mondayStart = find.byKey(
+        const Key('weekly-day-1-work-start'),
+      );
+      await _tapWhenReady(tester, mondayStart);
+      await AppHarness.settle(tester);
+      final Finder wheels = find.byType(ListWheelScrollView);
+      expect(wheels, findsNWidgets(2), reason: 'hours + minutes wheels');
+      // One wheel item extent (46 px, the picker's fixed extent) = one hour.
+      await tester.drag(wheels.at(0), const Offset(0, -46));
+      await AppHarness.settle(tester);
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('btn-velvet-time-picker-confirm')),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        tester
+            .widget<Text>(
+              find
+                  .descendant(of: mondayStart, matching: find.byType(Text))
+                  .first,
+            )
+            .data,
+        '10:00',
+      );
+
+      // First create REQUIRES a validity window (staged, not persisted).
+      final Finder windowCard = find.byKey(
+        const Key('weekly-active-window-card'),
+      );
+      await tester.scrollUntilVisible(
+        windowCard,
+        -120,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, windowCard);
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, find.byKey(const Key('preset-this-month')));
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, find.byKey(const Key('btn-apply-schedule')));
+      await AppHarness.settle(tester);
+      expect(fb.ownRowSchedulePostCalls, 0, reason: 'staging never persists');
+
+      // ── 4. Save → the POST lands on the OWN row ─────────────────────────
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('btn-save-weekly-template')),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowSchedulePostCalls >= 1,
+        description:
+            'the own-row weekly POST to reach the fake backend — if it never '
+            'does, the save was blocked client-side or went elsewhere',
+        timeout: const Duration(seconds: 20),
+      );
+      expect(fb.ownRowSchedulePostCalls, 1);
+      expect(
+        fb.lastOwnRowSchedulePostPath,
+        '/api/v1/masters/$_kOwnerMasterRowId/weekly-schedules',
+      );
+      final Map<String, dynamic> monday =
+          (fb.lastOwnRowWeeklyDays ?? <dynamic>[])
+              .cast<Map<String, dynamic>>()
+              .firstWhere((Map<String, dynamic> d) => d['dayOfWeek'] == 1);
+      final List<dynamic> mondayIntervals =
+          monday['intervals'] as List<dynamic>;
+      expect(mondayIntervals, hasLength(1));
+      expect(
+        (mondayIntervals.single as Map<String, dynamic>)['startTime'],
+        startsWith('10:00'),
+      );
+      expect(
+        (mondayIntervals.single as Map<String, dynamic>)['endTime'],
+        startsWith('18:00'),
+      );
+      expect(
+        fb.postScheduleCalls + fb.putScheduleCalls + fb.getScheduleCalls,
+        0,
+        reason:
+            'no hard-wired schedule route (/masters/me, user-master-1, …) '
+            'may be touched by the owner\'s own-row schedule',
+      );
+
+      // ── 5. Back on «Графік» with Monday WORKING ─────────────────────────
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byType(WeeklyTemplateEditorScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterSchedule);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('schedule-weekly-card')),
+        timeout: const Duration(seconds: 20),
+      );
+      // The strip is Monday-first (cell 0 = Monday of the visible week).
+      // Indexed by POSITION, not by day-of-month: `MasterScheduleScreen` mounts
+      // without an injected clock here (production mount), so the visible week
+      // follows the host clock, while the editor's window preset follows the
+      // app's `kFixedNow` — the fake's derived effective schedule ignores the
+      // validity window, so the weekday verdict is clock-independent.
+      final List<WeekStripDay> week = tester
+          .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+          .toList();
+      expect(week, hasLength(7));
+      expect(week[0].working, isTrue, reason: 'Monday now works');
+      for (int i = 1; i < 7; i++) {
+        expect(week[i].working, isFalse, reason: 'weekday ${i + 1} stays off');
+      }
     });
   });
 }

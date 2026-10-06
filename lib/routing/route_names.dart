@@ -636,6 +636,16 @@ abstract final class RouteNames {
   static String ownerMasterServiceEdit(String id) =>
       '$ownerMasterServices/${Uri.encodeComponent(id)}/edit';
 
+  /// Phase 381 (24.1d) — the owner master-mode «Графік» tab: the owner's OWN
+  /// master-row weekly schedule + overrides (primary salon), owner-editable,
+  /// rendered by the shipped `MasterScheduleScreen` with a
+  /// `ScheduleScope.salonMaster(primarySalonId, ownerMasterId)` scope — never
+  /// the INDEPENDENT_MASTER-only `/schedule` (whose gate is not widened). The
+  /// weekly editor is the owner-admitted
+  /// [salonManageStaffScheduleWeekly] push, so no sub-route is needed here.
+  /// No `?date=` variant (out of scope).
+  static const String ownerMasterSchedule = '/owner/master/schedule';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

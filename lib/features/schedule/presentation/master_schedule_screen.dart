@@ -61,7 +61,36 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
     DateTime Function()? clock,
     this.initialDate,
     this.scope,
+    this.bottomNavBar,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.onBack,
   }) : _clock = clock;
+
+  /// Phase 381 (24.1d) — optional prebuilt bottom bar that REPLACES the
+  /// role-resolved `VelvetBottomNavBar(activeIndex: 2, …)` built in [build].
+  /// The owner master-mode mount passes its canonical `const` tile-2 bar
+  /// (`_kOwnerMasterNavBars[2]` in `app_router.dart`), so every owner tab
+  /// reads its routes from ONE table — the same seam
+  /// `ServicesListScreen.bottomNavBar` (phase 380) and
+  /// `OwnerOwnProfileScreen.bottomNavBar` (phase 379) use. `null` (every
+  /// pre-existing mount) keeps today's role-resolved bar byte-identically.
+  final Widget? bottomNavBar;
+
+  /// Phase 381 (24.1d) — optional VISIBLE text beside the top bar's back
+  /// arrow, forwarded to [VelvetTopBar.backLabel] (the owner master-mode
+  /// «‹ Салон» pill, phase 378). `null` (every pre-existing mount) renders
+  /// the bare arrow, byte-identical.
+  final String? backLabel;
+
+  /// Phase 381 (24.1d) — optional screen-reader label for the back button.
+  /// `null` keeps `registerBackStep` («Назад»).
+  final String? backSemanticLabel;
+
+  /// Phase 381 (24.1d) — optional back action. `null` (every pre-existing
+  /// mount) keeps today's pop-or-go(role profile) behaviour; the owner
+  /// master-mode mount passes `go(salonHome)` — a tab root has no stack.
+  final VoidCallback? onBack;
 
   /// Additive (Phase 312) — `null` (every pre-existing call site: `/schedule`
   /// for an INDEPENDENT_MASTER, `/staff/schedule` for a SALON_MASTER's
@@ -558,26 +587,35 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       // three resolve to the current literals (`RouteNames.masterSchedule` /
       // `RouteNames.masterProfile` / `RouteNames.services`) — byte-identical
       // behaviour.
-      bottomNavigationBar: VelvetBottomNavBar(
-        activeIndex: 2,
-        scheduleRoute: scheduleRoute,
-        profileRoute: profileRoute,
-        servicesRoute: servicesRoute,
-        bookingsRoute: bookingsRoute,
-      ),
+      //
+      // Phase 381 — a non-null [MasterScheduleScreen.bottomNavBar] (the owner
+      // master-mode mount) replaces the whole bar.
+      bottomNavigationBar:
+          widget.bottomNavBar ??
+          VelvetBottomNavBar(
+            activeIndex: 2,
+            scheduleRoute: scheduleRoute,
+            profileRoute: profileRoute,
+            servicesRoute: servicesRoute,
+            bookingsRoute: bookingsRoute,
+          ),
       body: SafeArea(
         child: Column(
           children: <Widget>[
             VelvetTopBar(
               title: l10n.scheduleTitle,
-              backSemanticLabel: l10n.registerBackStep,
-              onBack: () {
-                if (context.canPop()) {
-                  context.pop();
-                } else {
-                  context.go(profileRoute);
-                }
-              },
+              backSemanticLabel:
+                  widget.backSemanticLabel ?? l10n.registerBackStep,
+              backLabel: widget.backLabel,
+              onBack:
+                  widget.onBack ??
+                  () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.go(profileRoute);
+                    }
+                  },
             ),
             Expanded(
               child: _body(l10n, editable, asyncDays, asyncWeekly, scope),

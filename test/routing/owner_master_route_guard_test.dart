@@ -46,7 +46,8 @@ final List<String> _gatedLocations = <String>[
   RouteNames.ownerMasterServices,
   RouteNames.ownerMasterServiceSetup,
   RouteNames.ownerMasterServiceEdit('svc-1'),
-  '/owner/master/schedule',
+  // Phase 381 (24.1d) — the «Графік» tab.
+  RouteNames.ownerMasterSchedule,
   '/owner/master/bookings',
 ];
 

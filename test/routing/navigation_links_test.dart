@@ -430,6 +430,8 @@ void main() {
       'ownerMasterServices': RouteNames.ownerMasterServices,
       'ownerMasterServiceSetup': RouteNames.ownerMasterServiceSetup,
       'ownerMasterServiceEdit()': RouteNames.ownerMasterServiceEdit(kSampleId),
+      // Phase 381 (24.1d) — the owner master-mode «Графік» tab.
+      'ownerMasterSchedule': RouteNames.ownerMasterSchedule,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

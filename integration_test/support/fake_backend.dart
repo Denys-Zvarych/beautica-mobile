@@ -411,6 +411,7 @@ final class FakeBackend {
     this.masterSalonId,
     this.wireOwnRowServices = false,
     this.ownRowServicesSeed,
+    this.wireOwnRowSchedule = false,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
@@ -500,6 +501,33 @@ final class FakeBackend {
   int ownRowServicesGetCalls = 0;
   int ownRowBulkCreateCalls = 0;
   String? lastOwnRowBulkPath;
+
+  /// Phase 381 (24.1d) — opt-in: wires the SESSION'S OWN master-row schedule
+  /// under `/api/v1/masters/{masterRowId}/…` (`weekly-schedules` GET + POST,
+  /// `overrides` GET, `effective-schedule` GET) backed by
+  /// [ownRowWeeklySchedule] (EMPTY at boot — first-create), and appends the
+  /// owner's own row (`role: SALON_OWNER`, `masterId: masterRowId`) to the
+  /// [kOwnerSalonId] roster — the backend auto-enrols the owner as a master
+  /// of their salon, which `scheduleEditable`'s owner arm requires.
+  ///
+  /// `effective-schedule` is DERIVED from [ownRowWeeklySchedule] over the
+  /// requested `from`/`to` (TEMPLATE days for every active weekday), so a
+  /// saved template genuinely shows as working days on the calendar.
+  ///
+  /// Off by default; requires a [masterRowId] distinct from every
+  /// hard-wired schedule id (`me`, `user-master-1`, `master-aaa`,
+  /// `master-admin-target`) so no path is registered twice. Only a POST is
+  /// wired for writes — a PUT/DELETE or a `/masters/me/…` write is an
+  /// unmatched route and fails loudly.
+  final bool wireOwnRowSchedule;
+
+  /// Phase 381 — the [wireOwnRowSchedule] templates; POSTs append here.
+  List<Map<String, dynamic>> ownRowWeeklySchedule = <Map<String, dynamic>>[];
+  int ownRowScheduleGetCalls = 0;
+  int ownRowSchedulePostCalls = 0;
+  int ownRowEffectiveGetCalls = 0;
+  String? lastOwnRowSchedulePostPath;
+  List<dynamic>? lastOwnRowWeeklyDays;
 
   /// Phase 380 (mobile-qa) — own-row band PATCH / identity PATCH / unassign
   /// DELETE recorders (see [ownRowServicesSeed]).
@@ -5873,6 +5901,106 @@ final class FakeBackend {
     );
   }
 
+  /// Phase 381 (24.1d) — see [wireOwnRowSchedule].
+  void _wireOwnRowSchedule() {
+    if (!wireOwnRowSchedule) return;
+    assert(
+      !<String>{
+        'me',
+        'user-master-1',
+        'master-aaa',
+        'master-admin-target',
+      }.contains(masterRowId),
+      'wireOwnRowSchedule needs a masterRowId distinct from the hard-wired '
+      'schedule ids, or its routes would be registered twice',
+    );
+    final String base = '/api/v1/masters/$masterRowId';
+    _adapter.onRoute(
+      '$base/weekly-schedules',
+      (server) => server.replyCallback(200, (_) {
+        ownRowScheduleGetCalls++;
+        return _okList(ownRowWeeklySchedule);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '$base/weekly-schedules',
+      (server) => server.replyCallback(200, (req) {
+        ownRowSchedulePostCalls++;
+        lastOwnRowSchedulePostPath = req.path;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastOwnRowWeeklyDays = body['days'] as List<dynamic>?;
+        final Map<String, dynamic> entry = <String, dynamic>{
+          'id': 'own-row-schedule-${_scheduleSeq++}',
+          'validFrom': body['validFrom'] ?? '2026-06-14',
+          'validTo': body['validTo'],
+          'days': body['days'] ?? <dynamic>[],
+        };
+        ownRowWeeklySchedule = <Map<String, dynamic>>[
+          ...ownRowWeeklySchedule,
+          entry,
+        ];
+        return _ok(entry);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '$base/overrides',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '$base/effective-schedule',
+      (server) => server.replyCallback(200, (req) {
+        ownRowEffectiveGetCalls++;
+        return _okList(_ownRowEffectiveDays(req.queryParameters));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// TEMPLATE days for every date in the request's `from`..`to` whose ISO
+  /// weekday has intervals in the most recent own-row template. CALENDAR-day
+  /// stepping (`DateTime(y, m, d + 1)`), never `+Duration(days: 1)` — the
+  /// DST trap. Validity windows are not modelled (every flow saves a window
+  /// covering the visible month).
+  List<Map<String, dynamic>> _ownRowEffectiveDays(Map<String, dynamic> query) {
+    final String? fromRaw = _scalarQueryParam(query, 'from');
+    final String? toRaw = _scalarQueryParam(query, 'to');
+    if (ownRowWeeklySchedule.isEmpty || fromRaw == null || toRaw == null) {
+      return const <Map<String, dynamic>>[];
+    }
+    final DateTime? from = DateTime.tryParse(fromRaw);
+    final DateTime? to = DateTime.tryParse(toRaw);
+    if (from == null || to == null) return const <Map<String, dynamic>>[];
+    final Map<int, List<(String, String)>> byWeekday =
+        <int, List<(String, String)>>{};
+    final List<dynamic> days =
+        ownRowWeeklySchedule.last['days'] as List<dynamic>? ?? <dynamic>[];
+    for (final dynamic raw in days) {
+      final Map<String, dynamic> day = raw as Map<String, dynamic>;
+      final List<dynamic> intervals =
+          day['intervals'] as List<dynamic>? ?? <dynamic>[];
+      if (intervals.isEmpty) continue;
+      byWeekday[day['dayOfWeek'] as int] = <(String, String)>[
+        for (final dynamic i in intervals)
+          (
+            (i as Map<String, dynamic>)['startTime'] as String,
+            i['endTime'] as String,
+          ),
+      ];
+    }
+    return <Map<String, dynamic>>[
+      for (
+        DateTime d = DateTime(from.year, from.month, from.day);
+        !d.isAfter(to);
+        d = DateTime(d.year, d.month, d.day + 1)
+      )
+        if (byWeekday[d.weekday] case final List<(String, String)> iv)
+          seedEffectiveScheduleDay(d, intervals: iv),
+    ];
+  }
+
   /// Phase 380 (24.1c) — see [wireOwnRowServices].
   void _wireOwnRowServices() {
     final String? salonId = masterSalonId;
@@ -8344,6 +8472,8 @@ final class FakeBackend {
 
     _wireOwnRowServices();
 
+    _wireOwnRowSchedule();
+
     // Phase 317 — the SHARED salon definitions (`PATCH /api/v1/services/
     // {defId}`) and the cascade that makes one master's definition write
     // visible on ANOTHER master's screen. Must run AFTER the three
@@ -10084,7 +10214,28 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = kOwnerSalonId;
-        return _okList(_boardSalonStaff(salonStaff));
+        return _okList(
+          _boardSalonStaff(<Map<String, dynamic>>[
+            ...salonStaff,
+            // Phase 381 — the owner's own auto-enrolled master row.
+            if (wireOwnRowSchedule)
+              <String, dynamic>{
+                'userId': 'user-owner-1',
+                'masterId': masterRowId,
+                'role': 'SALON_OWNER',
+                'firstName': 'Олена',
+                'lastName': 'Власниця',
+                'professionalTitle': null,
+                'avatarUrl': null,
+                'phoneNumber': null,
+                'instagram': null,
+                'bio': null,
+                'avgRating': null,
+                'reviewCount': 0,
+                'serviceCount': 0,
+              },
+          ]),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );

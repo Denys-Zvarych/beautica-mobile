@@ -2506,6 +2506,72 @@ GoRouter appRouter(Ref ref) {
               );
             },
           ),
+          // Phase 381 (24.1d) — «Графік»: the owner's OWN master-row
+          // schedule (primary salon) in the SAME [MasterScheduleScreen] every
+          // other mount uses, scoped `ScheduleScope.salonMaster(primarySalonId,
+          // ownerMasterId)` so every read/write hits the owner's OWN master
+          // row — `/api/v1/masters/{masterId}/weekly-schedules` and
+          // `/api/v1/masters/{masterId}/overrides` ([HttpScheduleRepository]),
+          // server-gated by backend 345's `canManageMasterSchedule` — never
+          // the INDEPENDENT_MASTER "me" scope `ownScheduleScopeProvider`
+          // would give an owner (an empty id).
+          // Editability is the unchanged `scheduleEditable` owner arm (owner
+          // manages the salon + own row is on its roster as a master). The
+          // weekly editor is the screen's own push to the owner-admitted
+          // `salonManageStaffScheduleWeekly` root page, so back returns here.
+          // [_OwnMasterRowGate] resolves the ids (loading skeleton / error +
+          // retry) exactly as the «Послуги» leaves do.
+          //
+          // Phase 381 audit (perf MEDIUM) — mirrors phase 380's services
+          // gate: while either editability input is still pending (owner's
+          // `mySalonsProvider` loading, or the roster loading with no value)
+          // the SAME loading skeleton renders instead of the screen, so it
+          // never mounts read-only and then flips editable. A roster ERROR
+          // is a verdict, not pending: the screen renders fail-closed.
+          GoRoute(
+            path: RouteNames.ownerMasterSchedule,
+            builder: (context, state) {
+              final AppLocalizations l10n = AppLocalizations.of(context);
+              return _OwnMasterRowGate(
+                role: UserRole.salonOwner,
+                builder:
+                    (
+                      BuildContext context,
+                      WidgetRef ref,
+                      String salonId,
+                      String masterId,
+                    ) {
+                      final bool capabilityPending =
+                          !ref.watch(canManageSalonProvider(salonId)) &&
+                          ref.watch(canManageSalonPendingProvider);
+                      final bool rosterPending = ref.watch(
+                        salonManagementProfileProvider(salonId).select(
+                          (AsyncValue<SalonManagementProfileData> roster) =>
+                              roster.isLoading && !roster.hasValue,
+                        ),
+                      );
+                      if (capabilityPending || rosterPending) {
+                        return const Scaffold(
+                          backgroundColor: BrandColors.base,
+                          body: LoadingSkeleton.list(
+                            key: Key('salon_master_own_services_loading'),
+                          ),
+                        );
+                      }
+                      return MasterScheduleScreen(
+                        scope: ScheduleScope.salonMaster(
+                          salonId: salonId,
+                          masterId: masterId,
+                        ),
+                        bottomNavBar: _kOwnerMasterNavBars[2],
+                        backLabel: l10n.ownerMasterModeBack,
+                        backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+                        onBack: () => context.go(RouteNames.salonHome),
+                      );
+                    },
+              );
+            },
+          ),
           // Setup + edit are SIBLINGS INSIDE this shell (not root-navigator
           // drill-ins): they must read the SAME `serviceTargetProvider`
           // override — a POST/PUT/DELETE outside it would hit the
@@ -2525,8 +2591,13 @@ GoRouter appRouter(Ref ref) {
             path: RouteNames.ownerMasterServiceSetup,
             builder: (context, state) => _OwnMasterRowGate(
               role: UserRole.salonOwner,
-              builder: (BuildContext context, WidgetRef ref, String salonId) =>
-                  _SalonManageServiceSetupRoute(
+              builder:
+                  (
+                    BuildContext context,
+                    WidgetRef ref,
+                    String salonId,
+                    String masterId,
+                  ) => _SalonManageServiceSetupRoute(
                     salonId: salonId,
                     exitRoute: RouteNames.ownerMasterServices,
                   ),
@@ -2542,11 +2613,15 @@ GoRouter appRouter(Ref ref) {
               return _OwnMasterRowGate(
                 role: UserRole.salonOwner,
                 builder:
-                    (BuildContext context, WidgetRef ref, String salonId) =>
-                        _SalonManageServiceEditRoute(
-                          salonId: salonId,
-                          serviceId: serviceId,
-                        ),
+                    (
+                      BuildContext context,
+                      WidgetRef ref,
+                      String salonId,
+                      String masterId,
+                    ) => _SalonManageServiceEditRoute(
+                      salonId: salonId,
+                      serviceId: serviceId,
+                    ),
               );
             },
           ),
@@ -2873,10 +2948,19 @@ typedef _OwnMasterIds = ({
 });
 
 _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
-  // `.value` (not `when`) so a RELOAD of the profile keeps the last resolved
-  // salon/master ids instead of dropping the scope — the same retained-value
-  // rule `_SalonManageStaffServicesShell`'s F3 fix documents.
-  final Master? retained = async.value;
+  // `.value` (not `when`) so a same-identity REFRESH of the profile
+  // (`ref.invalidate` → `isRefreshing`) keeps the last resolved salon/master
+  // ids instead of dropping the scope — the same retained-value rule
+  // `_SalonManageStaffServicesShell`'s F3 fix documents.
+  //
+  // Phase 381 audit (security LOW) — a RELOAD is different: the profile's
+  // ONLY watched dependency is the session's user id
+  // (`master_profile_notifier.dart`), so `isReloading` means the identity
+  // changed (logout of A → login of B) and the retained value is the
+  // PREVIOUS user's row. Dropping it makes every consumer (the shell's
+  // service target, [_OwnMasterRowGate]) render its loading state instead of
+  // scoping a frame at A's (salonId, masterId).
+  final Master? retained = async.isReloading ? null : async.value;
   return (
     salonId: retained?.salonId,
     masterId: retained?.id,
@@ -2892,29 +2976,33 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
 /// All four entries live in this ONE declaration, so 380/381/383 add each
 /// route override to every entry here.
 ///
-/// Phase 380 adds [VelvetBottomNavBar.servicesRoute]; until 381/383 land,
-/// the «Графік» / «Мої записи» tiles fall to their INDEPENDENT_MASTER
-/// defaults and are bounced by the `/master/*` / `/schedule` gates —
-/// acceptable because 384 adds the UI entry last.
+/// Phase 380 adds [VelvetBottomNavBar.servicesRoute], phase 381
+/// [VelvetBottomNavBar.scheduleRoute]; until 383 lands, the «Мої записи»
+/// tile falls to its INDEPENDENT_MASTER default and is bounced by the
+/// `/master/*` gate — acceptable because 384 adds the UI entry last.
 const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
   VelvetBottomNavBar(
     activeIndex: 0,
     servicesRoute: RouteNames.ownerMasterServices,
+    scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 1,
     servicesRoute: RouteNames.ownerMasterServices,
+    scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 2,
     servicesRoute: RouteNames.ownerMasterServices,
+    scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 3,
     servicesRoute: RouteNames.ownerMasterServices,
+    scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
 ];
@@ -3018,6 +3106,23 @@ class _SalonMasterTabsShell extends ConsumerWidget {
             _ownMasterServiceTarget(_selectOwnMasterIds(async)),
       ),
     );
+    // Phase 381 audit (perf MEDIUM) — the owner's «Графік» editability
+    // (`scheduleEditable`'s owner arm) needs the salon roster, an autoDispose
+    // family. Without a listener here it died on every tab leave and was
+    // refetched on return while the TTL-cached schedule was already resolved
+    // — a read-only frame, then editable. Holding a no-op listener for the
+    // master-mode session keeps it alive across tab switches. `listen`, not
+    // `watch`: a roster emission never rebuilds this shell (and the tab
+    // Navigator under it). Owner only — a SALON_MASTER's roster read is
+    // server-gated on `canManageSalon` and would 403; the salonId comes from
+    // the SAME resolved target, so a reloading/foreign session listens to
+    // nothing.
+    if (role == UserRole.salonOwner && target is SalonMasterTarget) {
+      ref.listen<AsyncValue<SalonManagementProfileData>>(
+        salonManagementProfileProvider(target.salonId),
+        (AsyncValue<SalonManagementProfileData>? _, _) {},
+      );
+    }
     return ProviderScope(
       overrides: <Override>[serviceTargetProvider.overrideWithValue(target)],
       child: child,
@@ -3079,7 +3184,7 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
   Widget build(BuildContext context) {
     return _OwnMasterRowGate(
       role: role,
-      builder: (BuildContext context, WidgetRef ref, String salonId) {
+      builder: (BuildContext context, WidgetRef ref, String salonId, String _) {
         if (_isStaffDefault) {
           // `/staff/services` — read-only, no capability watch, and the SAME
           // `const` instance phase 321 built (perf: an identical widget
@@ -3151,8 +3256,15 @@ class _OwnMasterRowGate extends ConsumerWidget {
   final UserRole role;
 
   /// Builds the resolved surface. Called with the gate's own [WidgetRef] so
-  /// a capability watch inside it rebuilds only this gate.
-  final Widget Function(BuildContext context, WidgetRef ref, String salonId)
+  /// a capability watch inside it rebuilds only this gate. [masterId] is the
+  /// resolved own master-row id (phase 381 — the «Графік» tab builds its
+  /// `ScheduleScope.salonMaster` from it); both ids are non-empty.
+  final Widget Function(
+    BuildContext context,
+    WidgetRef ref,
+    String salonId,
+    String masterId,
+  )
   builder;
 
   @override
@@ -3199,7 +3311,10 @@ class _OwnMasterRowGate extends ConsumerWidget {
       // [_SalonMasterTabsShell]; this gate asks the very function the shell
       // uses, so the two can never disagree about whether a target exists.
       final String? salonId = ids.salonId;
-      if (_ownMasterServiceTarget(ids) == null || salonId == null) {
+      final String? masterId = ids.masterId;
+      if (_ownMasterServiceTarget(ids) == null ||
+          salonId == null ||
+          masterId == null) {
         return const Scaffold(
           backgroundColor: BrandColors.base,
           body: ErrorState(
@@ -3208,7 +3323,7 @@ class _OwnMasterRowGate extends ConsumerWidget {
           ),
         );
       }
-      return builder(context, ref, salonId);
+      return builder(context, ref, salonId, masterId);
     }
 
     if (ids.isLoading) {
