@@ -103,7 +103,31 @@ class OwnerOwnProfileScreen extends ConsumerStatefulWidget {
     super.key,
     this.embedded = false,
     this.visible = true,
+    this.bottomNavBar,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.onBack,
   });
+
+  /// Phase 379 (24.1b) — the owner «master mode» mount
+  /// ([RouteNames.ownerMasterProfile]) passes the independent-master
+  /// `VelvetBottomNavBar` here, forwarded to [ProfileScaffold.bottomNavBar].
+  /// `null` (the stand-alone `/profile/owner` route and the salon shell slot)
+  /// renders the byte-identical pre-existing tree.
+  final Widget? bottomNavBar;
+
+  /// Phase 379 — visible text beside the back chevron («Салон»), forwarded
+  /// to [ProfileScaffold.backLabel]. `null` → the icon-only back.
+  final String? backLabel;
+
+  /// Phase 379 — the back button's accessible label, forwarded to
+  /// [ProfileScaffold.backSemanticLabel]. `null` → that bar's default.
+  final String? backSemanticLabel;
+
+  /// Phase 379 — replaces the default `context.pop()` back. When non-null the
+  /// back button renders regardless of [embedded] (master mode is a `go`
+  /// tab root with nothing to pop, yet must still offer «‹ Салон»).
+  final VoidCallback? onBack;
 
   /// `true` when hosted as the owner shell's «Профіль» tab root, where there
   /// is nothing to pop — the back chevron is dropped and the shell supplies
@@ -315,7 +339,14 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
 
     return ProfileScaffold(
       title: l10n.ownerOwnProfileTitle,
-      showBack: !widget.embedded,
+      showBack: widget.onBack != null || !widget.embedded,
+      bottomNavBar: widget.bottomNavBar,
+      backLabel: widget.backLabel,
+      backSemanticLabel: widget.backSemanticLabel,
+      onBack: widget.onBack,
+      backKey: widget.onBack == null
+          ? null
+          : const Key('owner-master-mode-back'),
       // Phase 365 addendum — the global notification bell sits LEFT of the
       // tune button, the same `bell · button` order and gap as the master
       // «Мій профіль» header.

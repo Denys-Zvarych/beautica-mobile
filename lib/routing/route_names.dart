@@ -589,6 +589,35 @@ abstract final class RouteNames {
   /// on the own-profile identity card.
   static const String ownerEditPersonal = '/owner/edit/personal';
 
+  /// Phase 379 (24.1b) — the SALON_OWNER's «master mode» «Профіль» tab: the
+  /// owner's own profile ([OwnerOwnProfileScreen], reused verbatim) mounted
+  /// with the INDEPENDENT_MASTER bottom nav («Профіль» active) and a
+  /// top-left «‹ Салон» back that `go`es to [salonHome] (the last-visited
+  /// salon resolver), so the owner returns to the salon they came from.
+  ///
+  /// THE `/owner/master/*` NAMESPACE. Owner-only, enforced by a prefix gate
+  /// in `auth_redirect.dart` (every other role → `roleHomePath`). A separate
+  /// subtree rather than a widened `/master/*` (INDEPENDENT_MASTER-only),
+  /// `/staff/*` (SALON_MASTER-only) or `/salon/*` (owner + admin) fence —
+  /// widening any of those would leak surfaces across roles. All literals;
+  /// no dynamic `/owner/:x` sibling exists to shadow them. Each phase adds
+  /// only its own constants, so `navigation_links_test` NL-R01 never sees an
+  /// unregistered one:
+  ///
+  /// | Constant | Path | Phase |
+  /// |---|---|---|
+  /// | `ownerMasterProfile` | `/owner/master/profile` | 379 |
+  /// | `ownerMasterServices`, `ownerMasterServiceSetup`, `ownerMasterServiceEdit(id)` | `/owner/master/services`, `/owner/master/services/setup`, `/owner/master/services/$id/edit` | 380 |
+  /// | `ownerMasterSchedule` | `/owner/master/schedule` | 381 |
+  /// | `ownerMasterBookings`, `ownerMasterBookingsArchive` | `/owner/master/bookings`, `/owner/master/bookings/archive` | 383 |
+  ///
+  /// Booking detail / client review reuse the owner's existing
+  /// [salonStaffBookingDetail] / [salonStaffClientReview] (`/salon/*`,
+  /// owner-admitted) — no new dynamic segment.
+  ///
+  /// Not yet reachable from the UI — phase 384 adds the salon-shell entry.
+  static const String ownerMasterProfile = '/owner/master/profile';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

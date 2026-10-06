@@ -88,6 +88,8 @@ import '../shared/feedback/show_velvet_snack.dart';
 import '../shared/widgets/async_value_view.dart';
 import '../shared/widgets/error_state.dart';
 import '../shared/widgets/loading_skeleton.dart';
+import '../shared/widgets/velvet_bottom_nav_bar.dart';
+import '../l10n/app_localizations.dart';
 import '../features/services/presentation/service_edit_screen.dart';
 import '../features/services/presentation/service_setup_screen.dart';
 import '../features/services/presentation/services_list_screen.dart';
@@ -2399,6 +2401,50 @@ GoRouter appRouter(Ref ref) {
         ],
       ),
       // ═══════════════════════════════════════════════════════════════════
+      // Phase 379 (24.1b) — the SALON_OWNER's «master mode» tab set
+      // (`/owner/master/*`). The owner-as-master counterpart of the `/staff/*`
+      // shell above, reusing the SAME [_SalonMasterTabsShell] with
+      // `role: UserRole.salonOwner` so 380's «Послуги» tab gets the owner's
+      // own `SalonMasterTarget` scope from `/masters/me` exactly as
+      // `/staff/services` does. Admission is the `/owner/master/` prefix gate
+      // in `auth_redirect.dart` (SALON_OWNER only).
+      //
+      // SYSTEM BACK = «‹ Салон». A tab root here is a `go` target (the nav
+      // tiles and every entry use `context.go`), so the stack under it is
+      // empty and a bare system back / predictive back would EXIT the app.
+      // The [PopScope] makes it do exactly what the top-left «‹ Салон»
+      // button does — `go(salonHome)`, the last-visited-salon resolver.
+      // `canPop` follows the router, so a genuinely pushed page underneath
+      // (should a future entry ever push) still pops normally, and pushed
+      // drill-ins on top (setup/edit, weekly editor, booking detail) are
+      // separate root-navigator pages that pop past this scope untouched.
+      //
+      // Only literal children — no dynamic segment under `/owner/` exists,
+      // so nothing can shadow these paths. 380/381/383 add their tabs here.
+      ShellRoute(
+        builder: (context, state, child) => PopScope<Object?>(
+          canPop: GoRouter.of(context).canPop(),
+          onPopInvokedWithResult: (bool didPop, Object? _) {
+            if (!didPop) context.go(RouteNames.salonHome);
+          },
+          child: _SalonMasterTabsShell(role: UserRole.salonOwner, child: child),
+        ),
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.ownerMasterProfile,
+            builder: (context, state) {
+              final AppLocalizations l10n = AppLocalizations.of(context);
+              return OwnerOwnProfileScreen(
+                bottomNavBar: _kOwnerMasterNavBars[3],
+                backLabel: l10n.ownerMasterModeBack,
+                backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+                onBack: () => context.go(RouteNames.salonHome),
+              );
+            },
+          ),
+        ],
+      ),
+      // ═══════════════════════════════════════════════════════════════════
       // Phase 330 / 332 — the SALON_MASTER's «Записи» DRILL-INS.
       //
       // Deliberately OUTSIDE the `ShellRoute` above, mirroring `/staff/
@@ -2737,6 +2783,36 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
   );
 }
 
+/// Phase 379 (24.1b) — the owner master-mode bottom nav, one `const`
+/// [VelvetBottomNavBar] per tile, indexed by `activeIndex` (0 services,
+/// 1 bookings, 2 schedule, 3 profile). `const` so a route-builder pass
+/// re-supplies the SAME canonical instance instead of allocating a new one.
+/// All four entries live in this ONE declaration, so 380/381/383 add each
+/// route override to every entry here.
+///
+/// Until 380/381/383 land only [VelvetBottomNavBar.profileRoute] is
+/// overridden; the other three tiles fall to their INDEPENDENT_MASTER
+/// defaults and are bounced by the `/services` / `/master/*` / `/schedule`
+/// gates — acceptable because 384 adds the UI entry last.
+const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
+  VelvetBottomNavBar(
+    activeIndex: 0,
+    profileRoute: RouteNames.ownerMasterProfile,
+  ),
+  VelvetBottomNavBar(
+    activeIndex: 1,
+    profileRoute: RouteNames.ownerMasterProfile,
+  ),
+  VelvetBottomNavBar(
+    activeIndex: 2,
+    profileRoute: RouteNames.ownerMasterProfile,
+  ),
+  VelvetBottomNavBar(
+    activeIndex: 3,
+    profileRoute: RouteNames.ownerMasterProfile,
+  ),
+];
+
 /// Resolves the SALON_MASTER's OWN [ServiceTarget] from [ids], or `null` when
 /// the profile has not yet produced a usable `(salonId, masterId)` pair.
 ///
@@ -2774,40 +2850,56 @@ ServiceTarget? _ownMasterServiceTarget(_OwnMasterIds ids) {
 /// INDEPENDENT_MASTER never paid this cost because its catalogue lives in the
 /// root container.)
 ///
-/// ROLE FIRST, exactly as [_SalonMasterOwnServicesRoute] does: a non-
-/// SALON_MASTER returns [child] WITHOUT ever watching [masterProfileProvider].
+/// ROLE FIRST, exactly as [_SalonMasterOwnServicesRoute] does: a session
+/// whose role is not this mount's [role] (SALON_MASTER for `/staff/*`,
+/// SALON_OWNER for `/owner/master/*` — phase 379) returns [child] WITHOUT ever
+/// watching [masterProfileProvider].
 /// Watched through [authUserRoleSettledOrNull] (the STRICT selector) — see the
 /// leaf below for why.
 ///
-/// UNRESOLVED PROFILE renders [child] BARE, with no override. That is not a
-/// hole: the only leaf that reads [serviceTargetProvider] is
-/// `/staff/services`, and its own gate ([_ownMasterServiceTarget], the same
-/// function this shell calls) renders a loading skeleton or an error state
-/// rather than mounting [ServicesListScreen]. The other two tabs never touch
-/// the provider.
+/// STABLE TREE SHAPE (phase 379 perf LOW) — once the role matches, the shell
+/// ALWAYS wraps [child] in the [ProviderScope], overriding with `null` (the
+/// provider's own root default) until the profile resolves. Returning [child]
+/// bare first and wrapping it later flipped the subtree's shape and forced a
+/// rebuild of the whole tab Navigator. The only remaining flip is the role
+/// gate above, constant for a settled session.
+///
+/// An UNRESOLVED PROFILE (`null` override) is not a hole: the only leaf that
+/// reads [serviceTargetProvider] is the services tab, and its own gate
+/// ([_ownMasterServiceTarget], the same function this shell calls) renders a
+/// loading skeleton or an error state rather than mounting
+/// [ServicesListScreen]. The other tabs never touch the provider.
 ///
 /// Rebuilding `ProviderScope(overrides: [serviceTargetProvider
 /// .overrideWithValue(...)])` does NOT churn the graph: riverpod gates on
 /// `newValue != previousState.value` and [ServiceTarget] is `freezed`, so an
 /// identical target re-supplied on a rebuild is a no-op.
 class _SalonMasterTabsShell extends ConsumerWidget {
-  const _SalonMasterTabsShell({required this.child});
+  const _SalonMasterTabsShell({
+    required this.child,
+    this.role = UserRole.salonMaster,
+  });
 
   /// The matched leaf's Navigator, supplied by [ShellRoute].
   final Widget child;
 
+  /// Phase 379 (24.1b) — the ONE role this mount scopes for. Defaults to
+  /// SALON_MASTER, so the `/staff/*` mount is unchanged; the owner's
+  /// `/owner/master/*` mount passes [UserRole.salonOwner] (their `/masters/me`
+  /// row is a `SALON_OWNER` row carrying the same `salonId` + row id). Any
+  /// session whose role is not exactly this one gets [child] bare.
+  final UserRole role;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final UserRole? role = ref.watch(
+    final UserRole? sessionRole = ref.watch(
       authProvider.select(authUserRoleSettledOrNull),
     );
-    if (role != UserRole.salonMaster) return child;
+    if (sessionRole != role) return child;
 
     final ServiceTarget? target = _ownMasterServiceTarget(
       ref.watch(masterProfileProvider.select(_selectOwnMasterIds)),
     );
-    if (target == null) return child;
-
     return ProviderScope(
       overrides: <Override>[serviceTargetProvider.overrideWithValue(target)],
       child: child,

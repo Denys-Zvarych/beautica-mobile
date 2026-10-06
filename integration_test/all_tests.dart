@@ -65,6 +65,7 @@ import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
 import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'owner_master_mode_flow_test.dart' as owner_master_mode;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
@@ -255,6 +256,7 @@ void main() {
   // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
+  group('owner_master_mode_flow', owner_master_mode.main);
   group('admin_own_profile_flow', admin_own_profile.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept

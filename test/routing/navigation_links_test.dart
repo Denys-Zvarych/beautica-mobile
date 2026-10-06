@@ -422,6 +422,9 @@ void main() {
       'adminEditContacts': RouteNames.adminEditContacts,
       // Phase 367 — the owner's «Особисті дані» (same reused screen).
       'ownerEditPersonal': RouteNames.ownerEditPersonal,
+      // Phase 379 (24.1b) — the owner «master mode» «Профіль» tab, the first
+      // literal under the owner-only `/owner/master/*` ShellRoute.
+      'ownerMasterProfile': RouteNames.ownerMasterProfile,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

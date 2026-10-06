@@ -6507,6 +6507,14 @@
   "@ownerOwnProfileTitle": {
     "description": "Phase 21.14 — top-bar title of the salon owner's own first-person profile screen."
   },
+  "ownerMasterModeBack": "Salon",
+  "@ownerMasterModeBack": {
+    "description": "Phase 379 (24.1b) — visible label of the top-left back pill («‹ Салон») on the salon owner's master-mode profile; returns to the salon shell."
+  },
+  "ownerMasterModeBackSemantics": "Back to the salon",
+  "@ownerMasterModeBackSemantics": {
+    "description": "Phase 379 (24.1b) — screen-reader label of the owner master-mode back pill that returns to the salon shell."
+  },
   "ownerOwnProfileSettingsSemanticLabel": "Account settings",
   "@ownerOwnProfileSettingsSemanticLabel": {
     "description": "Phase 21.14 — screen-reader label for the trailing tune action on the owner's own profile. Rendered disabled until the Phase 21.15 Owner Settings Hub ships."

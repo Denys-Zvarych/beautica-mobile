@@ -64,6 +64,7 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -214,8 +215,59 @@ class _TwoUnread extends UnreadNotifications {
   FutureOr<int> build() => 2;
 }
 
+/// The REAL `appRouterProvider` over a fixed [user] session — shared by the
+/// `/profile/owner` guard group and the phase 379 master-mode group.
+ProviderContainer _makeRouterContainer(User user) {
+  final container = makeTestContainer(
+    retry: (_, _) => null,
+    overrides: [
+      authProvider.overrideWith(
+        () => _FixedAuthNotifier(
+          AsyncData<AuthSession>(
+            AuthSession.authenticated(user: user, accessToken: 'token'),
+          ),
+        ),
+      ),
+      authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+      secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+      // Resolves IMMEDIATELY — keeps the owner landing off the real
+      // Dio-backed repository and off a never-settling shimmer.
+      mySalonsProvider.overrideWith(_SettledMySalons.new),
+      // Phase 379 mobile-qa — the `/owner/master/*` shell
+      // (`_SalonMasterTabsShell(role: salonOwner)`) WATCHES `/masters/me` for
+      // an owner session; un-overridden it reached the real Dio-backed
+      // repository. Settles to the owner's own row instead.
+      masterProfileProvider.overrideWith(
+        () => _CountingMasterProfile(<String>[]),
+      ),
+      ownerOwnProfileProvider.overrideWith(
+        (ref) async => (owner: _owner, master: null),
+      ),
+      approvedCategoriesProvider.overrideWith(
+        (ref) async => const <ServiceCategoryOption>[],
+      ),
+    ],
+  );
+  return container;
+}
+
+Future<GoRouter> _pumpRealRouterAs(WidgetTester tester, User user) async {
+  final ProviderContainer container = _makeRouterContainer(user);
+  final GoRouter router = container.read(appRouterProvider);
+  addTearDown(router.dispose);
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: _RouterApp(router: router),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return router;
+}
+
 void main() {
   _identityAvatarTests();
+  _masterModeTests();
   _avatarUploadNoReloadTests();
   // Phase 365 addendum — the global notification bell, left of the tune button.
   group('notification bell in the header (phase 365 addendum)', () {
@@ -895,46 +947,8 @@ void main() {
     );
     tearDown(AppStartTime.resetForTest);
 
-    ProviderContainer makeRouterContainer(User user) {
-      final container = makeTestContainer(
-        retry: (_, _) => null,
-        overrides: [
-          authProvider.overrideWith(
-            () => _FixedAuthNotifier(
-              AsyncData<AuthSession>(
-                AuthSession.authenticated(user: user, accessToken: 'token'),
-              ),
-            ),
-          ),
-          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
-          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-          // Resolves IMMEDIATELY — keeps the owner landing off the real
-          // Dio-backed repository and off a never-settling shimmer.
-          mySalonsProvider.overrideWith(_SettledMySalons.new),
-          ownerOwnProfileProvider.overrideWith(
-            (ref) async => (owner: _owner, master: null),
-          ),
-          approvedCategoriesProvider.overrideWith(
-            (ref) async => const <ServiceCategoryOption>[],
-          ),
-        ],
-      );
-      return container;
-    }
-
-    Future<GoRouter> pumpRouterAs(WidgetTester tester, User user) async {
-      final ProviderContainer container = makeRouterContainer(user);
-      final GoRouter router = container.read(appRouterProvider);
-      addTearDown(router.dispose);
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: _RouterApp(router: router),
-        ),
-      );
-      await tester.pumpAndSettle();
-      return router;
-    }
+    Future<GoRouter> pumpRouterAs(WidgetTester tester, User user) =>
+        _pumpRealRouterAs(tester, user);
 
     testWidgets('a SALON_OWNER is ADMITTED and gets the stand-alone screen '
         '(back chevron, not the embedded tab)', (tester) async {
@@ -1264,6 +1278,208 @@ void _avatarUploadNoReloadTests() {
       );
       expect(catalogueCalls, 1, reason: 'no services refetch');
       expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 379 (24.1b) — the owner «master mode» mount at
+// `RouteNames.ownerMasterProfile`: additive `bottomNavBar` / `backLabel` /
+// `backSemanticLabel` / `onBack`, and the router's «‹ Салон» + SYSTEM BACK
+// exits, which must agree (both `go(salonHome)`, never an app exit).
+// ---------------------------------------------------------------------------
+
+const Key _masterModeBack = Key('owner-master-mode-back');
+
+/// Whether nav tile [index] is announced as the active one.
+bool _navTileSelected(WidgetTester tester, int index) =>
+    tester
+        .widget<Semantics>(
+          find
+              .descendant(
+                of: find.byKey(Key('master-nav-tile-$index')),
+                matching: find.byType(Semantics),
+              )
+              .first,
+        )
+        .properties
+        .selected ??
+    false;
+
+void _masterModeTests() {
+  final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+  final List<Object> data = _overrides((
+    owner: _owner,
+    master: (_master, _services),
+  ));
+
+  group('master-mode params (phase 379) — widget', () {
+    for (final bool embedded in <bool>[false, true]) {
+      testWidgets('defaults (embedded: $embedded) — no nav bar, no labelled '
+          'back: the pre-379 tree', (tester) async {
+        await tester.pumpApp(
+          OwnerOwnProfileScreen(embedded: embedded),
+          overrides: data,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VelvetBottomNavBar), findsNothing);
+        expect(find.byKey(_masterModeBack), findsNothing);
+        expect(find.text(l10n.ownerMasterModeBack), findsNothing);
+      });
+    }
+
+    testWidgets('bottomNavBar renders the independent-master nav with '
+        '«Профіль» (tile 3) active', (tester) async {
+      await tester.pumpApp(
+        const OwnerOwnProfileScreen(
+          embedded: true,
+          bottomNavBar: VelvetBottomNavBar(
+            activeIndex: 3,
+            profileRoute: RouteNames.ownerMasterProfile,
+          ),
+        ),
+        overrides: data,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+      expect(_navTileSelected(tester, 3), isTrue);
+      for (final int i in <int>[0, 1, 2]) {
+        expect(_navTileSelected(tester, i), isFalse, reason: 'tile $i');
+      }
+    });
+
+    testWidgets('backLabel + onBack render the labelled pill EVEN when '
+        'embedded, and a tap calls onBack', (tester) async {
+      int backs = 0;
+      await tester.pumpApp(
+        OwnerOwnProfileScreen(
+          embedded: true,
+          backLabel: l10n.ownerMasterModeBack,
+          backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+          onBack: () => backs++,
+        ),
+        overrides: data,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_masterModeBack), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(_masterModeBack),
+          matching: find.text(l10n.ownerMasterModeBack),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(l10n.ownerMasterModeBackSemantics),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(_masterModeBack));
+      await tester.pumpAndSettle();
+      expect(backs, 1);
+    });
+  });
+
+  group('/owner/master/profile — real router (phase 379)', () {
+    setUp(
+      () => AppStartTime.setStartForTest(
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      ),
+    );
+    tearDown(AppStartTime.resetForTest);
+
+    String locationOf(GoRouter router) =>
+        // router-location-ok: `.go` only in this group — no imperative match.
+        router.routerDelegate.currentConfiguration.uri.toString();
+
+    /// Records `SystemNavigator.pop` — the app-EXIT a system back on a lone
+    /// root page would otherwise trigger.
+    List<String> recordAppExits() {
+      final List<String> exits = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+            if (call.method == 'SystemNavigator.pop') exits.add(call.method);
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null),
+      );
+      return exits;
+    }
+
+    /// Lands the owner on the real post-login landing (the salon shell via
+    /// `/salons/home`), records it, then `go`es to the master-mode profile.
+    Future<(GoRouter, String)> enterMasterMode(WidgetTester tester) async {
+      final GoRouter router = await _pumpRealRouterAs(tester, _routerOwner);
+      final String salonLanding = locationOf(router);
+
+      router.go(RouteNames.ownerMasterProfile);
+      await tester.pumpAndSettle();
+
+      expect(locationOf(router), RouteNames.ownerMasterProfile);
+      expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+      return (router, salonLanding);
+    }
+
+    testWidgets('a SALON_OWNER is ADMITTED: own profile + independent-master '
+        'nav («Профіль» active) + «‹ Салон»', (tester) async {
+      await enterMasterMode(tester);
+
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+      expect(_navTileSelected(tester, 3), isTrue);
+      expect(find.byKey(_masterModeBack), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(_masterModeBack),
+          matching: find.text(l10n.ownerMasterModeBack),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('tapping «‹ Салон» returns to the salon shell (salonHome '
+        'resolver → last salon)', (tester) async {
+      final (GoRouter router, String salonLanding) = await enterMasterMode(
+        tester,
+      );
+
+      await tester.tap(find.byKey(_masterModeBack));
+      await tester.pumpAndSettle();
+
+      expect(locationOf(router), salonLanding);
+      expect(find.byType(VelvetBottomNavBar), findsNothing);
+    });
+
+    testWidgets('SYSTEM BACK on the master-mode root does the SAME as '
+        '«‹ Салон» — salon shell, never an app exit', (tester) async {
+      final List<String> exits = recordAppExits();
+      final (GoRouter router, String salonLanding) = await enterMasterMode(
+        tester,
+      );
+      expect(router.canPop(), isFalse, reason: 'a go-entered tab root');
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(exits, isEmpty, reason: 'system back must not exit the app');
+      expect(locationOf(router), salonLanding);
+      expect(find.byType(VelvetBottomNavBar), findsNothing);
+    });
+
+    testWidgets('an INDEPENDENT_MASTER is BOUNCED off /owner/master/profile', (
+      tester,
+    ) async {
+      final GoRouter router = await _pumpRealRouterAs(tester, _routerMaster);
+
+      router.go(RouteNames.ownerMasterProfile);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(OwnerOwnProfileScreen), findsNothing);
+      expect(locationOf(router), isNot(RouteNames.ownerMasterProfile));
     });
   });
 }

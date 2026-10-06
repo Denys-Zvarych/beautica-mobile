@@ -41,7 +41,13 @@ class ProfileScaffold extends StatelessWidget {
     this.backLabel,
     this.backSemanticLabel,
     this.onBack,
+    this.backKey,
   });
+
+  /// Optional [Key] for the back button (Phase 24.1b), forwarded to
+  /// [VelvetTopBar.backKey] so a test can tap it directly. `null` → no key,
+  /// the byte-identical pre-existing tree.
+  final Key? backKey;
 
   /// Optional visible text beside the back chevron (Phase 24.1a), forwarded
   /// to [VelvetTopBar.backLabel]. `null` → the icon-only back button.
@@ -128,6 +134,7 @@ class ProfileScaffold extends StatelessWidget {
         onBack: back,
         trailing: trailing,
         backLabel: backLabel,
+        backKey: backKey,
       );
     }
     return VelvetTopBar(
@@ -136,6 +143,7 @@ class ProfileScaffold extends StatelessWidget {
       backSemanticLabel: semantic,
       trailing: trailing,
       backLabel: backLabel,
+      backKey: backKey,
     );
   }
 
