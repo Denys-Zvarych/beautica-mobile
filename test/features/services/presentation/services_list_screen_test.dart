@@ -27,6 +27,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -35,6 +36,7 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -898,6 +900,126 @@ void main() {
         expect(find.byKey(const Key('btn-create-service')), findsNothing);
       },
     );
+  });
+
+  // Phase 380 (24.1c) — additive `backLabel` / `backSemanticLabel` /
+  // `bottomNavBar`. `null` must leave the app bar and bar untouched.
+  group('Phase 380 — backLabel pill + bottomNavBar override', () {
+    GoRouter routerFor(ServicesListScreen screen) => GoRouter(
+      initialLocation: '/tab',
+      routes: <RouteBase>[
+        GoRoute(path: '/tab', builder: (_, _) => screen),
+        GoRoute(
+          path: '/fallback',
+          builder: (_, _) => const _DummyPage(label: 'fallback'),
+        ),
+      ],
+    );
+
+    Future<GoRouter> pumpWith(
+      WidgetTester tester,
+      ServicesListScreen screen,
+    ) async {
+      final GoRouter router = routerFor(screen);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: [
+          _servicesOverride(const AsyncData(_stubServiceList)),
+          serviceRepositoryProvider.overrideWithValue(mockRepo),
+          _categoriesOverride(),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      return router;
+    }
+
+    testWidgets('backLabel renders the labelled pill in AppBar.leading, '
+        'widens leadingWidth, and a tap with nothing to pop goes to '
+        'backFallbackRoute', (tester) async {
+      await pumpWith(
+        tester,
+        const ServicesListScreen(
+          showBack: true,
+          backFallbackRoute: '/fallback',
+          backLabel: 'Салон',
+          backSemanticLabel: 'Повернутися до салону',
+        ),
+      );
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(back, findsOneWidget);
+      expect(tester.widget<NeumorphicIconButton>(back).label, 'Салон');
+      expect(
+        tester.widget<NeumorphicIconButton>(back).semanticLabel,
+        'Повернутися до салону',
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('Салон')),
+        findsOneWidget,
+      );
+      final double? leadingWidth = tester
+          .widget<AppBar>(find.byType(AppBar))
+          .leadingWidth;
+      expect(leadingWidth, isNotNull);
+      expect(
+        tester.getSize(back).width,
+        lessThanOrEqualTo(leadingWidth!),
+        reason: 'the pill must fit the widened leading slot',
+      );
+      expect(
+        tester.getSize(back).width,
+        greaterThan(kToolbarHeight),
+        reason: 'a pill wider than the default 56 dp slot proves it fits',
+      );
+
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(find.text('Dummy fallback'), findsOneWidget);
+    });
+
+    testWidgets('null backLabel — the arrow-only button, default leadingWidth '
+        '(unchanged)', (tester) async {
+      await pumpWith(
+        tester,
+        const ServicesListScreen(
+          showBack: true,
+          backFallbackRoute: '/fallback',
+        ),
+      );
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(tester.widget<NeumorphicIconButton>(back).label, isNull);
+      expect(tester.widget<AppBar>(find.byType(AppBar)).leadingWidth, isNull);
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(ServicesListScreen)),
+      );
+      expect(
+        tester.widget<NeumorphicIconButton>(back).semanticLabel,
+        l10n.servicesListBackSemanticLabel,
+      );
+    });
+
+    testWidgets('bottomNavBar replaces the default bar; null keeps it', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        const ServicesListScreen(
+          bottomNavBar: VelvetBottomNavBar(
+            activeIndex: 0,
+            servicesRoute: '/owner-services',
+            profileRoute: '/owner-profile',
+          ),
+        ),
+      );
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.servicesRoute, '/owner-services');
+      expect(bar.profileRoute, '/owner-profile');
+    });
   });
 
   // ── 7. Ukrainian plural forms for _serviceWordUk ───────────────────────────

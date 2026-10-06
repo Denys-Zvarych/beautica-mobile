@@ -425,6 +425,11 @@ void main() {
       // Phase 379 (24.1b) — the owner «master mode» «Профіль» tab, the first
       // literal under the owner-only `/owner/master/*` ShellRoute.
       'ownerMasterProfile': RouteNames.ownerMasterProfile,
+      // Phase 380 (24.1c) — the owner master-mode «Послуги» tab and its
+      // setup (literal, declared first) / edit (dynamic) drill-ins.
+      'ownerMasterServices': RouteNames.ownerMasterServices,
+      'ownerMasterServiceSetup': RouteNames.ownerMasterServiceSetup,
+      'ownerMasterServiceEdit()': RouteNames.ownerMasterServiceEdit(kSampleId),
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

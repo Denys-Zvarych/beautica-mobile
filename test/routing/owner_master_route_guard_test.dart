@@ -37,13 +37,15 @@ const AsyncValue<AuthSession> _unauthenticated = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
 
-/// Every `/owner/master/*` location the gate must cover — the one route this
-/// phase registers plus the 380/381/383 paths, proving the gate is a PREFIX
-/// fence (later phases add routes, never gates).
-const List<String> _gatedLocations = <String>[
+/// Every `/owner/master/*` location the gate must cover — the routes 379/380
+/// register plus the 381/383 paths, proving the gate is a PREFIX fence (later
+/// phases add routes, never gates).
+final List<String> _gatedLocations = <String>[
   RouteNames.ownerMasterProfile,
-  '/owner/master/services',
-  '/owner/master/services/setup',
+  // Phase 380 (24.1c) — the «Послуги» tab and its two drill-ins.
+  RouteNames.ownerMasterServices,
+  RouteNames.ownerMasterServiceSetup,
+  RouteNames.ownerMasterServiceEdit('svc-1'),
   '/owner/master/schedule',
   '/owner/master/bookings',
 ];

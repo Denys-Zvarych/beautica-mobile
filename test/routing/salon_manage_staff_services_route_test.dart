@@ -1572,9 +1572,17 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('the /services/setup leaf gates on canManageSalon', () {
+    // Phase 380 (perf INFO) — the unresolved window renders a LOADING state,
+    // no longer the «Unauthorized» error: on a cold deep link that error used
+    // to flash before every legitimate owner's form. The security property
+    // this row exists for is unchanged — the bulk-create form still never
+    // mounts while ownership is unestablished. The resolved-and-excluded deny
+    // at the widget layer is pinned in
+    // `owner_master_services_route_resolution_test.dart` (CONTROL for the
+    // cold-link case) on the same shared `_SalonManageServiceSetupRoute`.
     testWidgets(
-      'DENY: a cold deep link whose ownership is unresolved renders the '
-      'unauthorized state, NOT ServiceSetupScreen',
+      'DENY: a cold deep link whose ownership is unresolved renders a '
+      'loading state (not the error flash), NOT ServiceSetupScreen',
       (tester) async {
         _MutableAuthNotifier.seed = _kOwnerOfOtherSalon;
         _ControlledMySalons.owned = null; // cold — never resolves
@@ -1587,12 +1595,16 @@ void main() {
         );
         await pumpUntilFound(
           tester,
-          find.byKey(const Key('salon_manage_service_setup_error')),
+          find.byKey(const Key('salon_manage_service_setup_loading')),
         );
 
         expect(
-          find.byKey(const Key('salon_manage_service_setup_error')),
+          find.byKey(const Key('salon_manage_service_setup_loading')),
           findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsNothing,
         );
         expect(
           find.byType(ServiceSetupScreen),

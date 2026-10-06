@@ -409,6 +409,8 @@ final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
     this.masterSalonId,
+    this.wireOwnRowServices = false,
+    this.ownRowServicesSeed,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
@@ -470,6 +472,52 @@ final class FakeBackend {
   /// [_wireSalonMasterServices] already wires by pairing this with
   /// `masterRowId: 'master-removable'`.
   final String? masterSalonId;
+
+  /// Phase 380 (24.1c) — opt-in: wires the SESSION'S OWN master-row services
+  /// pair, `GET /api/v1/salons/{masterSalonId}/masters/{masterRowId}/services`
+  /// (+ `POST …/services/bulk`), backed by [ownRowServices] (empty at boot).
+  /// For the owner-as-master «Послуги» tab, whose target is the owner's own
+  /// row in their primary salon. Off by default (and requires
+  /// [masterSalonId]) so the hard-wired `salon-xyz/master-removable` pairs
+  /// never collide with a second registration of the same path.
+  final bool wireOwnRowServices;
+
+  /// Phase 380 (mobile-qa) — rows the [wireOwnRowServices] catalogue boots
+  /// with. Each seeded definition id also gets its own-row band `PATCH` +
+  /// unassign `DELETE` at `…/services/{defId}` and the shared identity
+  /// `PATCH /api/v1/services/{defId}` — registered per SEEDED id only, so a
+  /// write aimed at any other id (or at the INDEPENDENT_MASTER endpoints)
+  /// fails loudly as an unmatched route instead of silently counting.
+  final List<Map<String, dynamic>>? ownRowServicesSeed;
+
+  /// Phase 380 — the [wireOwnRowServices] catalogue; bulk POSTs append here.
+  late final List<Map<String, dynamic>> ownRowServices = <Map<String, dynamic>>[
+    for (final Map<String, dynamic> row
+        in ownRowServicesSeed ?? const <Map<String, dynamic>>[])
+      _deepCopyRow(row),
+  ];
+
+  int ownRowServicesGetCalls = 0;
+  int ownRowBulkCreateCalls = 0;
+  String? lastOwnRowBulkPath;
+
+  /// Phase 380 (mobile-qa) — own-row band PATCH / identity PATCH / unassign
+  /// DELETE recorders (see [ownRowServicesSeed]).
+  int ownRowBandPatchCalls = 0;
+  String? lastOwnRowBandPatchPath;
+  Map<String, dynamic>? lastOwnRowBandPatchBody;
+  int ownRowIdentityPatchCalls = 0;
+  int ownRowUnassignCalls = 0;
+  String? lastOwnRowUnassignPath;
+
+  static Map<String, dynamic> _deepCopyRow(Map<String, dynamic> row) =>
+      <String, dynamic>{
+        for (final MapEntry<String, dynamic> e in row.entries)
+          e.key: e.value is Map<String, dynamic>
+              ? Map<String, dynamic>.from(e.value as Map<String, dynamic>)
+              : e.value,
+      };
+  int _nextOwnRowServiceSeq = 1;
 
   final Dio dio;
   late final DioAdapter _adapter;
@@ -5825,6 +5873,149 @@ final class FakeBackend {
     );
   }
 
+  /// Phase 380 (24.1c) — see [wireOwnRowServices].
+  void _wireOwnRowServices() {
+    final String? salonId = masterSalonId;
+    if (!wireOwnRowServices || salonId == null) return;
+    final String base = '/api/v1/salons/$salonId/masters/$masterRowId/services';
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        ownRowServicesGetCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            ownRowServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    final String bulkPath = '$base/bulk';
+    _adapter.onRoute(
+      bulkPath,
+      (server) => server.replyCallback(200, (req) {
+        ownRowBulkCreateCalls++;
+        lastOwnRowBulkPath = bulkPath;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final int seq = _nextOwnRowServiceSeq++;
+          final Object price = (map['price'] ?? map['priceMin'] ?? 0) as Object;
+          final row = <String, dynamic>{
+            'id': 'own-row-assign-bulk-$seq',
+            'masterId': masterRowId,
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': price,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '$price ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': 'own-row-def-bulk-$seq',
+              'name': 'Own row bulk service $seq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': price,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '$price ₴',
+              'photoUrl': null,
+            },
+          };
+          ownRowServices.add(row);
+          created.add(row);
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // Phase 380 (mobile-qa) — per SEEDED definition id: the own-row band
+    // PATCH + unassign DELETE, and the shared identity PATCH the split edit
+    // sends first (`_updateSalonMasterBand`).
+    for (final Map<String, dynamic> svc in List<Map<String, dynamic>>.of(
+      ownRowServices,
+    )) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          ownRowBandPatchCalls++;
+          lastOwnRowBandPatchPath = path;
+          final Map<String, dynamic> patch = _decodeBody(req.data);
+          lastOwnRowBandPatchBody = patch;
+          final Map<String, dynamic> row = ownRowServices.firstWhere(
+            (Map<String, dynamic> r) =>
+                (r['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          if (patch['priceType'] != null) {
+            row['priceType'] = patch['priceType'];
+            row['priceMin'] = patch['price'];
+            row['priceMax'] = patch['priceMax'];
+            row['priceDisplay'] = _priceDisplay(
+              patch['price'] as num?,
+              patch['priceMax'] as num?,
+            );
+          }
+          final Object? duration = patch['durationOverrideMinutes'];
+          if (duration != null) row['effectiveDurationMinutes'] = duration;
+          return _ok(Map<String, dynamic>.from(row));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(204, (_) {
+          ownRowUnassignCalls++;
+          lastOwnRowUnassignPath = path;
+          ownRowServices.removeWhere(
+            (Map<String, dynamic> r) =>
+                (r['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(200, (req) {
+          ownRowIdentityPatchCalls++;
+          final Map<String, dynamic> patch = _decodeBody(req.data);
+          final Map<String, dynamic> def =
+              ownRowServices.firstWhere(
+                    (Map<String, dynamic> r) =>
+                        (r['serviceDefinition']
+                            as Map<String, dynamic>?)?['id'] ==
+                        defId,
+                    orElse: () => svc,
+                  )['serviceDefinition']
+                  as Map<String, dynamic>;
+          if (patch['name'] != null) def['name'] = patch['name'];
+          return _ok(Map<String, dynamic>.from(def));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+    }
+  }
+
   /// Phase 318 (mobile-qa) — `POST /api/v1/salons/salon-xyz/masters/
   /// master-removable/services/bulk`, the SALON-scoped counterpart to
   /// [_wireBulkCreateServices]. Mirrors that method's success shape (echo one
@@ -8150,6 +8341,8 @@ final class FakeBackend {
     _wireSalonAdminMasterServices();
 
     _wireSalonAdminMasterServicesBulk();
+
+    _wireOwnRowServices();
 
     // Phase 317 — the SHARED salon definitions (`PATCH /api/v1/services/
     // {defId}`) and the cascade that makes one master's definition write

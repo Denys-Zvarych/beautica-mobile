@@ -17,6 +17,18 @@
 // Not reachable from the UI yet (phase 384 adds the salon-shell entry), so
 // master mode is entered with `router.go`, exactly as a deep link would.
 //
+// Phase 380 (24.1c) — the «Послуги» tab: profile → tile 0 → the owner's OWN
+// master-row catalogue (empty) → «Додати послугу» → setup → save → back on
+// the list with the new card. The FakeBackend wires ONLY the owner's own
+// `/salons/{A}/masters/{ownerRow}/services` pair, and the flow asserts the
+// bulk POST lands there and the INDEPENDENT_MASTER `/masters/me/services`
+// bulk endpoint never fires.
+//
+// Phase 380 (mobile-qa, security audit) — the owner EDITS and then DELETES
+// a seeded own-row service: the band PATCH and the unassign DELETE must both
+// land on `/salons/{primary}/masters/{ownerRow}/services/{defId}` (keyed on
+// the DEFINITION id), and neither INDEPENDENT_MASTER write endpoint fires.
+//
 // NO PATROL FLOW: no OS dialog, permission, notification or WebView is
 // involved; system back is driven through `WidgetsBinding.handlePopRoute`,
 // the same entry point the Android back / predictive-back dispatch calls.
@@ -27,6 +39,8 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -47,6 +61,80 @@ const String _kSalonA = 'salon-owner-1';
 const String _kSalonB = 'salon-master-mode-b';
 
 const Key _masterModeBack = Key('owner-master-mode-back');
+
+/// Phase 380 — the owner's `masters` ROW id, deliberately distinct from the
+/// session userId so a target built off the wrong id cannot hit the wired
+/// path.
+const String _kOwnerMasterRowId = 'master-row-owner-1';
+
+/// A NAILS-category service type the setup screen renders selectable
+/// (same fixture `salon_owner_set_master_services_flow_test.dart` uses).
+const String _kFreeTypeId = 'type-nails-gel';
+
+/// Phase 380 (mobile-qa) — the seeded own-row service the edit/delete flow
+/// drives. Assignment id and definition id deliberately differ so a write
+/// keyed on the wrong one misses the wired route.
+const String _kOwnAssignId = 'own-assign-1';
+const String _kOwnDefId = 'own-def-1';
+
+Map<String, dynamic> _seededOwnRow() => <String, dynamic>{
+  'id': _kOwnAssignId,
+  'masterId': _kOwnerMasterRowId,
+  'isActive': true,
+  'priceType': 'FIXED',
+  'priceMin': 400,
+  'priceMax': null,
+  'priceDisplay': '400 ₴',
+  'effectiveDurationMinutes': 60,
+  'serviceDefinition': <String, dynamic>{
+    'id': _kOwnDefId,
+    'name': 'Манікюр класичний',
+    'description': null,
+    'category': 'NAILS',
+    'baseDurationMinutes': 60,
+    'bufferMinutesAfter': 0,
+    'isActive': true,
+    'priceType': 'FIXED',
+    'priceMin': 400,
+    'priceMax': null,
+    'priceDisplay': '400 ₴',
+    'photoUrl': null,
+  },
+};
+
+/// Pumps until the NAILS section exists, expands it if [card] is not yet
+/// visible, and waits for [card].
+Future<void> _revealCard(WidgetTester tester, Finder card) async {
+  final Finder nailsSection = find.byKey(const Key('category_section_NAILS'));
+  await AppHarness.pumpUntilFound(
+    tester,
+    nailsSection,
+    timeout: const Duration(seconds: 20),
+  );
+  if (card.evaluate().isEmpty) await _tapWhenReady(tester, nailsSection);
+  await AppHarness.pumpUntilFound(
+    tester,
+    card,
+    timeout: const Duration(seconds: 20),
+  );
+}
+
+/// Readiness-gated tap (bounded), the same recipe the salon services flows
+/// use — never a bare tap on a not-yet-hit-testable widget.
+Future<void> _tapWhenReady(WidgetTester tester, Finder finder) async {
+  try {
+    await tester.ensureVisible(finder);
+  } catch (_) {
+    // Not yet laid out — pumpUntilFound below still gates on readiness.
+  }
+  await AppHarness.pumpUntilFound(
+    tester,
+    finder.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(finder);
+  await tester.pump();
+}
 
 /// Appends salon B after the default A (server order A, B) so "returns to B"
 /// can only mean "the last-visited salon", never "the first one".
@@ -195,6 +283,294 @@ void main() {
 
       expect(exits, isEmpty, reason: 'system back must not exit the app');
       _expectBackOnSalonB(router);
+    });
+  });
+
+  testWidgets('SALON_OWNER: «Послуги» tile → own-row empty catalogue → add a '
+      'service via setup → back on the list with it; the bulk POST targets '
+      '/salons/{primary}/masters/{ownerRow}/services', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowServices: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      final FakeSecureStorage storage = FakeSecureStorage();
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: storage,
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+
+      await _enterMasterMode(tester, router);
+
+      // ── 1. Profile → «Послуги» (tile 0) ─────────────────────────────────
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-0')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(ServicesListScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      AppHarness.expectLocation(router, RouteNames.ownerMasterServices);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowServicesGetCalls >= 1,
+        description: 'the own-row list GET to reach the fake backend',
+        timeout: const Duration(seconds: 20),
+      );
+      // Drain the tab transition — mid-fade both tabs' bars are mounted.
+      await AppHarness.settle(tester);
+      expect(find.byType(OwnerOwnProfileScreen), findsNothing);
+      expect(find.byKey(ServicesListScreen.backKey), findsOneWidget);
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+
+      // ── 2. Empty state → «Додати послугу» → setup ───────────────────────
+      final Finder emptyCta = find.byKey(const Key('btn-create-service-empty'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        emptyCta,
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(tester, emptyCta);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(ServiceSetupScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      // A push grafted INSIDE the owner ShellRoute (the setup leaf needs its
+      // service-target scope) — read through the nested-push resolver.
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.ownerMasterServiceSetup,
+      );
+
+      final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        nailsChip,
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(tester, nailsChip);
+
+      final Finder freeRow = find.byKey(const Key('setup_row_$_kFreeTypeId'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        freeRow,
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('setup_row_toggle_$_kFreeTypeId')),
+      );
+
+      final Finder durationField = find.descendant(
+        of: freeRow,
+        matching: find.byKey(const Key('service-setup-duration')),
+      );
+      final Finder priceField = find.descendant(
+        of: freeRow,
+        matching: find.byKey(const Key('pricing-fixed-amount')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        priceField,
+        timeout: const Duration(seconds: 20),
+      );
+      await tester.enterText(durationField, '45');
+      await tester.pump();
+      await tester.enterText(priceField, '350');
+      await tester.pump();
+
+      await _tapWhenReady(tester, find.byKey(const Key('btn-setup-save')));
+
+      // ── 3. The POST lands on the owner's OWN row ────────────────────────
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowBulkCreateCalls >= 1,
+        description:
+            'the own-row bulk POST to reach the fake backend — if it never '
+            'does, the save was blocked client-side or went elsewhere',
+        timeout: const Duration(seconds: 20),
+      );
+      expect(
+        fb.lastOwnRowBulkPath,
+        '/api/v1/salons/$_kSalonA/masters/$_kOwnerMasterRowId/services/bulk',
+      );
+      expect(
+        fb.bulkCreateCalls,
+        0,
+        reason:
+            'the INDEPENDENT_MASTER /masters/me bulk endpoint must never '
+            'fire for the owner\'s master-mode save',
+      );
+
+      // ── 4. Back on the list WITH the new card ───────────────────────────
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byType(ServiceSetupScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      AppHarness.expectLocation(router, RouteNames.ownerMasterServices);
+      final Finder nailsSection = find.byKey(
+        const Key('category_section_NAILS'),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        nailsSection,
+        timeout: const Duration(seconds: 20),
+      );
+      final Finder newCard = find.byKey(
+        const Key('service_card_own-row-assign-bulk-1'),
+      );
+      if (newCard.evaluate().isEmpty) {
+        await _tapWhenReady(tester, nailsSection);
+      }
+      await AppHarness.pumpUntilFound(
+        tester,
+        newCard,
+        timeout: const Duration(seconds: 20),
+      );
+      expect(newCard, findsOneWidget);
+      expect(find.byKey(const Key('btn-create-service')), findsOneWidget);
+    });
+  });
+
+  testWidgets('SALON_OWNER: edit then delete an OWN-row service — the band '
+      'PATCH and the unassign DELETE both hit '
+      '/salons/{primary}/masters/{ownerRow}/services/{defId}; no '
+      'INDEPENDENT_MASTER write fires', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowServices: true,
+              ownRowServicesSeed: <Map<String, dynamic>>[_seededOwnRow()],
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      const String ownRowPath =
+          '/api/v1/salons/$_kSalonA/masters/$_kOwnerMasterRowId/services/'
+          '$_kOwnDefId';
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      // ── 1. «Послуги» → the seeded card → edit form ───────────────────────
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-0')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(ServicesListScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      final Finder card = find.byKey(const Key('service_card_$_kOwnAssignId'));
+      await _revealCard(tester, card);
+      await _tapWhenReady(tester, card);
+      final Finder editForm = find.byKey(
+        const Key('service-edit-form-$_kOwnAssignId'),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        editForm,
+        timeout: const Duration(seconds: 20),
+      );
+
+      // ── 2. 400 → 550 ₴, save → band PATCH on the OWN row ────────────────
+      final Finder priceField = find.descendant(
+        of: find.byKey(const Key('pricing-fixed-amount')),
+        matching: find.byType(TextField),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        priceField,
+        timeout: const Duration(seconds: 20),
+      );
+      await tester.ensureVisible(priceField);
+      await tester.pump();
+      await tester.enterText(priceField, '550');
+      await tester.pump();
+      await _tapWhenReady(tester, find.byKey(const Key('btn-submit-service')));
+      await AppHarness.pumpUntilGone(
+        tester,
+        editForm,
+        timeout: const Duration(seconds: 20),
+      );
+
+      expect(
+        fb.ownRowBandPatchCalls,
+        1,
+        reason: 'the price edit must go to the owner\'s OWN row band',
+      );
+      expect(fb.lastOwnRowBandPatchPath, ownRowPath);
+      expect(fb.lastOwnRowBandPatchBody?['price'], 550);
+      expect(
+        fb.patchServiceCalls,
+        0,
+        reason: 'the INDEPENDENT_MASTER /masters/me PATCH must never fire',
+      );
+      AppHarness.expectLocation(router, RouteNames.ownerMasterServices);
+
+      // ── 3. Card again → delete → confirm → unassign DELETE on own row ───
+      await _revealCard(tester, card);
+      await _tapWhenReady(tester, card);
+      await AppHarness.pumpUntilFound(
+        tester,
+        editForm,
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(tester, find.byKey(const Key('btn-delete-service')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('delete-service-dialog')),
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('btn-confirm-delete-service')),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowUnassignCalls >= 1,
+        description:
+            'the own-row unassign DELETE to reach the fake backend — if it '
+            'never does, the delete went to another endpoint',
+        timeout: const Duration(seconds: 20),
+      );
+      expect(fb.ownRowUnassignCalls, 1);
+      expect(fb.lastOwnRowUnassignPath, ownRowPath);
+      expect(
+        fb.deleteServiceCalls,
+        0,
+        reason:
+            'the INDEPENDENT_MASTER DELETE /services/{defId} (deactivate the '
+            'whole definition) must never fire for the owner\'s own row',
+      );
+
+      // ── 4. Back on the list, card gone, empty state ─────────────────────
+      await AppHarness.pumpUntilGone(
+        tester,
+        editForm,
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('btn-create-service-empty')),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(card, findsNothing);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterServices);
     });
   });
 }

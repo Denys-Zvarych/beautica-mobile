@@ -20,6 +20,8 @@
 // switches and is shared across the entire widget tree via
 // [MaterialApp.router].
 
+import 'dart:developer' show log;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -226,6 +228,17 @@ final List<GlobalKey<NavigatorState>> clientBranchNavigatorKeys =
       GlobalKey<NavigatorState>(debugLabel: 'clientBookingsBranch'),
       GlobalKey<NavigatorState>(debugLabel: 'clientPassportBranch'),
     ];
+
+/// `true` when [error] is go_router's "no route matches this location"
+/// exception — the one [GoException] `appRouter`'s `onException` sends home.
+///
+/// go_router 17 exposes no type or code for it, only the message raised by
+/// `RouteConfiguration.findMatch` (`configuration.dart:360`); pinned by
+/// `test/routing/router_not_found_test.dart`, which goes red if a go_router
+/// upgrade rewords it.
+@visibleForTesting
+bool isNoRouteMatch(GoException error) =>
+    error.message.startsWith('no routes for location');
 
 @Riverpod(keepAlive: true)
 GoRouter appRouter(Ref ref) {
@@ -555,6 +568,38 @@ GoRouter appRouter(Ref ref) {
     initialLocation: RouteNames.splash,
     refreshListenable: refresh,
     redirect: (ctx, state) => authRedirect(ref.read(authProvider), state),
+    // Phase 380 — branded not-found handling. Without a handler, a location
+    // no route matches (`/owner/master/services//edit`: go_router's
+    // `:serviceId` never matches an EMPTY segment; a stale or malformed deep
+    // link) fell through to go_router's default, unbranded "Page Not Found"
+    // page. A no-match now lands on the viewer's OWN home via the same
+    // [roleHomePath] the auth gate forwards with; an unresolved session goes
+    // to the splash, where [authRedirect] decides (login vs. home) once the
+    // session settles.
+    //
+    // ONLY the no-match case redirects. Any other [GoException] (redirect
+    // loop / limit, a throwing redirect) is logged and the current page is
+    // kept: forwarding those to a home that may itself be in the loop would
+    // re-raise the same exception forever.
+    onException: (BuildContext context, GoRouterState state, GoRouter router) {
+      final GoException? error = state.error;
+      if (error == null || !isNoRouteMatch(error)) {
+        // Type only — `state.uri` and the message both embed path ids.
+        log(
+          'router exception: ${error?.runtimeType}',
+          name: 'routing',
+          level: 1000,
+        );
+        return;
+      }
+      log('no route match — sent home', name: 'routing');
+      final AuthSession? session = resolvedSession();
+      router.go(
+        session is Authenticated
+            ? roleHomePath(session.user.role)
+            : RouteNames.splash,
+      );
+    },
     routes: [
       GoRoute(
         path: RouteNames.splash,
@@ -1448,12 +1493,14 @@ GoRouter appRouter(Ref ref) {
               );
             },
           ),
-          // `/setup` is declared BEFORE the `:serviceId` sibling below: they
-          // are peers at the SAME segment, which is the one shape where
-          // go_router's literal-vs-dynamic shadowing is live
-          // (`project_gorouter_literal_before_dynamic_shadowing`). Registered
-          // after it, `setup` would resolve to the EDIT screen with
-          // `serviceId: 'setup'`.
+          // `/setup` (literal leaf) and `/:serviceId/edit` below do NOT
+          // shadow each other: they differ in segment count (`.../setup` vs
+          // `.../<id>/edit`) and go_router matches whole patterns, so either
+          // registration order resolves each to its own screen. Literal-vs-
+          // dynamic shadowing (`project_gorouter_literal_before_dynamic_
+          // shadowing`) needs a dynamic peer of the SAME length — e.g. a
+          // future `services/:serviceId` leaf, which would have to be declared
+          // AFTER `/setup`.
           GoRoute(
             path: '/salons/:salonId/manage/staff/:memberId/services/setup',
             redirect: salonManageGuard,
@@ -1476,20 +1523,11 @@ GoRouter appRouter(Ref ref) {
             path:
                 '/salons/:salonId/manage/staff/:memberId/services'
                 '/:serviceId/edit',
-            redirect: (context, state) {
-              final String? baseRedirect = salonManageGuard(context, state);
-              if (baseRedirect != null) return baseRedirect;
-              // Mirrors the root `/services/:id/edit` guard: an empty id
-              // segment falls back to the list rather than mounting a form
-              // that can only fail.
-              if ((state.pathParameters['serviceId'] ?? '').isEmpty) {
-                return RouteNames.salonManageStaffServices(
-                  state.pathParameters['salonId'] ?? '',
-                  state.pathParameters['memberId'] ?? '',
-                );
-              }
-              return null;
-            },
+            // No empty-id branch: go_router compiles `:serviceId` to
+            // `[^/]+`, so `services//edit` never matches this route — it is a
+            // router-level no-match, handled by `appRouter`'s `onException`
+            // (-> role home).
+            redirect: salonManageGuard,
             // ServiceEditScreen's post-save/post-delete exit is
             // `_popServiceEditScreen` (GoRouter.pop with a Navigator.maybePop
             // fallback) and carries no route literal — no new parameter
@@ -2415,12 +2453,15 @@ GoRouter appRouter(Ref ref) {
       // The [PopScope] makes it do exactly what the top-left «‹ Салон»
       // button does — `go(salonHome)`, the last-visited-salon resolver.
       // `canPop` follows the router, so a genuinely pushed page underneath
-      // (should a future entry ever push) still pops normally, and pushed
-      // drill-ins on top (setup/edit, weekly editor, booking detail) are
-      // separate root-navigator pages that pop past this scope untouched.
+      // (should a future entry ever push) still pops normally. Phase 380's
+      // services setup/edit drill-ins live INSIDE this shell (they need its
+      // service-target scope): pushed onto the shell's own Navigator, so back
+      // pops them to the list. Later drill-ins (weekly editor, booking
+      // detail) are root-navigator pages that pop past this scope untouched.
       //
-      // Only literal children — no dynamic segment under `/owner/` exists,
-      // so nothing can shadow these paths. 380/381/383 add their tabs here.
+      // 380/381/383 add their tabs here. The only dynamic segment is
+      // `services/:serviceId/edit` (380); it cannot shadow `services/setup`
+      // (different segment count) — see that registration below.
       ShellRoute(
         builder: (context, state, child) => PopScope<Object?>(
           canPop: GoRouter.of(context).canPop(),
@@ -2439,6 +2480,73 @@ GoRouter appRouter(Ref ref) {
                 backLabel: l10n.ownerMasterModeBack,
                 backSemanticLabel: l10n.ownerMasterModeBackSemantics,
                 onBack: () => context.go(RouteNames.salonHome),
+              );
+            },
+          ),
+          // Phase 380 (24.1c) — «Послуги»: the owner's OWN master-row
+          // services, read through the shell's
+          // `ServiceTarget.salonMaster(primarySalonId, ownerMasterId)` scope
+          // and WRITABLE (backend 345 pins owner-row writes 2xx). The SAME
+          // [_SalonMasterOwnServicesRoute] `/staff/services` mounts, widened
+          // additively — never a second builder.
+          GoRoute(
+            path: RouteNames.ownerMasterServices,
+            builder: (context, state) {
+              final AppLocalizations l10n = AppLocalizations.of(context);
+              return _SalonMasterOwnServicesRoute(
+                role: UserRole.salonOwner,
+                writableIfCanManage: true,
+                setupRoute: RouteNames.ownerMasterServiceSetup,
+                editRouteBuilder: RouteNames.ownerMasterServiceEdit,
+                showBack: true,
+                backFallbackRoute: RouteNames.salonHome,
+                backLabel: l10n.ownerMasterModeBack,
+                backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+                bottomNavBar: _kOwnerMasterNavBars[0],
+              );
+            },
+          ),
+          // Setup + edit are SIBLINGS INSIDE this shell (not root-navigator
+          // drill-ins): they must read the SAME `serviceTargetProvider`
+          // override — a POST/PUT/DELETE outside it would hit the
+          // INDEPENDENT_MASTER `/masters/me/services` endpoints — and an edit
+          // delete's `invalidateMasterServiceCatalogues` must land in the
+          // list's container. The identical reasoning as the salon-manage
+          // services ShellRoute's D2 note. Pushed from the list, they stack on
+          // the shell's own Navigator and pop back to it.
+          //
+          // `setup` (literal, 4 segments) and `:serviceId/edit` (dynamic, 5)
+          // cannot shadow each other in either order — go_router matches the
+          // whole pattern. Only a same-length dynamic peer (a future
+          // `services/:serviceId`) would, and it must then follow `setup`.
+          // `owner_master_services_route_resolution_test.dart` pins the
+          // resolved screen TYPE and scope, not an ordering.
+          GoRoute(
+            path: RouteNames.ownerMasterServiceSetup,
+            builder: (context, state) => _OwnMasterRowGate(
+              role: UserRole.salonOwner,
+              builder: (BuildContext context, WidgetRef ref, String salonId) =>
+                  _SalonManageServiceSetupRoute(
+                    salonId: salonId,
+                    exitRoute: RouteNames.ownerMasterServices,
+                  ),
+            ),
+          ),
+          GoRoute(
+            path: '${RouteNames.ownerMasterServices}/:serviceId/edit',
+            // No empty-id redirect: `:serviceId` never matches an empty
+            // segment (go_router's `[^/]+`), so `services//edit` is a
+            // router-level no-match -> `onException` -> role home.
+            builder: (context, state) {
+              final String serviceId = state.pathParameters['serviceId'] ?? '';
+              return _OwnMasterRowGate(
+                role: UserRole.salonOwner,
+                builder:
+                    (BuildContext context, WidgetRef ref, String salonId) =>
+                        _SalonManageServiceEditRoute(
+                          salonId: salonId,
+                          serviceId: serviceId,
+                        ),
               );
             },
           ),
@@ -2600,21 +2708,15 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state) => const ServiceSetupScreen(),
       ),
       // Phase 5.4 — Service edit form (INDEPENDENT_MASTER).
-      // Parameterised route — extracts `id` from the path. An empty id
-      // redirects to /services defensively; this keeps the guard resilient to
-      // programmatic pushes with a missing segment.
+      // Parameterised route — extracts `id` from the path. go_router compiles
+      // `:id` to `[^/]+`, so an empty segment (`/services//edit`) never
+      // matches here: it is a router-level no-match, sent to the role home by
+      // `appRouter`'s `onException`. (The former empty-id redirect was dead.)
       // Uses MaterialPage so swipe-back works on the push stack.
       GoRoute(
         path: '/services/:id/edit',
-        redirect: (context, state) {
-          final id = state.pathParameters['id'] ?? '';
-          if (id.isEmpty) return RouteNames.services;
-          return null;
-        },
-        builder: (context, state) {
-          final id = state.pathParameters['id']!;
-          return ServiceEditScreen(id: id);
-        },
+        builder: (context, state) =>
+            ServiceEditScreen(id: state.pathParameters['id'] ?? ''),
       ),
       // Phase 6.2 — the legacy `/master/working-hours` editor route
       // (WorkingHoursScreen) was retired: it wrote the deprecated `working_hours`
@@ -2790,25 +2892,29 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
 /// All four entries live in this ONE declaration, so 380/381/383 add each
 /// route override to every entry here.
 ///
-/// Until 380/381/383 land only [VelvetBottomNavBar.profileRoute] is
-/// overridden; the other three tiles fall to their INDEPENDENT_MASTER
-/// defaults and are bounced by the `/services` / `/master/*` / `/schedule`
-/// gates — acceptable because 384 adds the UI entry last.
+/// Phase 380 adds [VelvetBottomNavBar.servicesRoute]; until 381/383 land,
+/// the «Графік» / «Мої записи» tiles fall to their INDEPENDENT_MASTER
+/// defaults and are bounced by the `/master/*` / `/schedule` gates —
+/// acceptable because 384 adds the UI entry last.
 const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
   VelvetBottomNavBar(
     activeIndex: 0,
+    servicesRoute: RouteNames.ownerMasterServices,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 1,
+    servicesRoute: RouteNames.ownerMasterServices,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 2,
+    servicesRoute: RouteNames.ownerMasterServices,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
   VelvetBottomNavBar(
     activeIndex: 3,
+    servicesRoute: RouteNames.ownerMasterServices,
     profileRoute: RouteNames.ownerMasterProfile,
   ),
 ];
@@ -2874,6 +2980,15 @@ ServiceTarget? _ownMasterServiceTarget(_OwnMasterIds ids) {
 /// .overrideWithValue(...)])` does NOT churn the graph: riverpod gates on
 /// `newValue != previousState.value` and [ServiceTarget] is `freezed`, so an
 /// identical target re-supplied on a rebuild is a no-op.
+///
+/// Phase 380 (379 perf INFO) — the shell `.select`s the derived
+/// [ServiceTarget] itself, not the whole [_OwnMasterIds] record. The record
+/// carries `isLoading`/`error`, so a profile REFRESH (loading → data, ids
+/// unchanged) used to flip it twice and rebuild this shell — and the
+/// `ProviderScope` wrapping the whole tab Navigator — twice for nothing.
+/// [ServiceTarget] is `freezed` (structural `==`), so the select now bails
+/// out unless the target genuinely changes. Same function, same result for
+/// every input: `/staff/*` behaviour is identical.
 class _SalonMasterTabsShell extends ConsumerWidget {
   const _SalonMasterTabsShell({
     required this.child,
@@ -2897,8 +3012,11 @@ class _SalonMasterTabsShell extends ConsumerWidget {
     );
     if (sessionRole != role) return child;
 
-    final ServiceTarget? target = _ownMasterServiceTarget(
-      ref.watch(masterProfileProvider.select(_selectOwnMasterIds)),
+    final ServiceTarget? target = ref.watch(
+      masterProfileProvider.select(
+        (AsyncValue<Master> async) =>
+            _ownMasterServiceTarget(_selectOwnMasterIds(async)),
+      ),
     );
     return ProviderScope(
       overrides: <Override>[serviceTargetProvider.overrideWithValue(target)],
@@ -2907,8 +3025,135 @@ class _SalonMasterTabsShell extends ConsumerWidget {
   }
 }
 
-class _SalonMasterOwnServicesRoute extends ConsumerWidget {
-  const _SalonMasterOwnServicesRoute();
+/// The `/staff/services` and (phase 380) `/owner/master/services` leaf.
+///
+/// Phase 380 (24.1c) — WIDENED additively rather than duplicated for the
+/// owner: every parameter defaults to today's `/staff/*` value, so
+/// `const _SalonMasterOwnServicesRoute()` renders exactly what it did. The
+/// role + profile resolution moved into [_OwnMasterRowGate], which the
+/// owner's setup/edit leaves reuse too.
+class _SalonMasterOwnServicesRoute extends StatelessWidget {
+  const _SalonMasterOwnServicesRoute({
+    this.role = UserRole.salonMaster,
+    this.writableIfCanManage = false,
+    this.setupRoute,
+    this.editRouteBuilder,
+    this.showBack = false,
+    this.backFallbackRoute,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.bottomNavBar,
+  });
+
+  /// The ONE role admitted — see [_OwnMasterRowGate.role].
+  final UserRole role;
+
+  /// `false` (the `/staff/*` default) = read-only, exactly as phase 321.
+  /// `true` = writable iff [canManageSalonProvider] holds for the RESOLVED
+  /// row's salon — the owner mount. A flag rather than a `bool writable`
+  /// value because the salonId is only known after the profile resolves.
+  final bool writableIfCanManage;
+
+  /// Forwarded verbatim to [ServicesListScreen]; `null` = its own defaults.
+  final String? setupRoute;
+  final String Function(String serviceId)? editRouteBuilder;
+  final bool showBack;
+  final String? backFallbackRoute;
+  final String? backLabel;
+  final String? backSemanticLabel;
+  final Widget? bottomNavBar;
+
+  /// Every forwarded parameter at its `/staff/services` default — the one
+  /// mount whose list can be the `const` instance below.
+  bool get _isStaffDefault =>
+      !writableIfCanManage &&
+      setupRoute == null &&
+      editRouteBuilder == null &&
+      !showBack &&
+      backFallbackRoute == null &&
+      backLabel == null &&
+      backSemanticLabel == null &&
+      bottomNavBar == null;
+
+  @override
+  Widget build(BuildContext context) {
+    return _OwnMasterRowGate(
+      role: role,
+      builder: (BuildContext context, WidgetRef ref, String salonId) {
+        if (_isStaffDefault) {
+          // `/staff/services` — read-only, no capability watch, and the SAME
+          // `const` instance phase 321 built (perf: an identical widget
+          // short-circuits the subtree rebuild when the gate re-runs).
+          return const ServicesListScreen(
+            writable: false,
+            navScheduleRoute: RouteNames.salonMasterSchedule,
+            navProfileRoute: RouteNames.salonMasterProfile,
+            navBookingsRoute: RouteNames.salonMasterBookings,
+          );
+        }
+        final bool canManage =
+            writableIfCanManage && ref.watch(canManageSalonProvider(salonId));
+        // Same cold-deep-link window as [_SalonManageServiceSetupRoute]: a
+        // still-loading `mySalonsProvider` is not a read-only verdict, so do
+        // not mount the list read-only and then flip its write affordances in.
+        if (writableIfCanManage &&
+            !canManage &&
+            ref.watch(canManageSalonPendingProvider)) {
+          return const Scaffold(
+            backgroundColor: BrandColors.base,
+            body: LoadingSkeleton.list(
+              key: Key('salon_master_own_services_loading'),
+            ),
+          );
+        }
+        return ServicesListScreen(
+          writable: canManage,
+          setupRoute: setupRoute,
+          editRouteBuilder: editRouteBuilder,
+          showBack: showBack,
+          backFallbackRoute: backFallbackRoute,
+          backLabel: backLabel,
+          backSemanticLabel: backSemanticLabel,
+          // Ignored when non-null: the owner mount's canonical
+          // `_kOwnerMasterNavBars[0]` replaces the whole bar.
+          bottomNavBar: bottomNavBar,
+          // 2026-09-13 audit (M6) — the nav bar's «Графік»/«Профіль» tiles
+          // are pointed at this role's OWN `/staff/*` roots. Left at their
+          // defaults they targeted `/master/schedule` and `/master/profile`,
+          // which `auth_redirect.dart:300` bounces back to `roleHomePath` — a
+          // tap that visibly does nothing. Phase 330 completes the set with
+          // tile 1 («Мої записи»), so none of the four tiles bounces for a
+          // SALON_MASTER any more.
+          navScheduleRoute: RouteNames.salonMasterSchedule,
+          navProfileRoute: RouteNames.salonMasterProfile,
+          navBookingsRoute: RouteNames.salonMasterBookings,
+        );
+      },
+    );
+  }
+}
+
+/// Resolves the session's OWN master row (`/masters/me`: `salonId` + row id)
+/// for exactly one [role] and builds [builder] with the salonId only once
+/// [_ownMasterServiceTarget] — the function [_SalonMasterTabsShell] installs
+/// its `serviceTargetProvider` override from — yields a target. So a leaf
+/// can NEVER mount a services surface while the shell's scope is still the
+/// ROOT ("me" → INDEPENDENT_MASTER endpoints) target.
+///
+/// Extracted verbatim from [_SalonMasterOwnServicesRoute] (phase 380) so the
+/// owner's list, setup and edit leaves share ONE gate instead of three
+/// copies; the `/staff/services` branches, keys and failures are unchanged.
+class _OwnMasterRowGate extends ConsumerWidget {
+  const _OwnMasterRowGate({required this.role, required this.builder});
+
+  /// The ONE role admitted. SALON_MASTER for `/staff/*`, SALON_OWNER for
+  /// `/owner/master/*`. Any other settled role → [UnauthorizedFailure].
+  final UserRole role;
+
+  /// Builds the resolved surface. Called with the gate's own [WidgetRef] so
+  /// a capability watch inside it rebuilds only this gate.
+  final Widget Function(BuildContext context, WidgetRef ref, String salonId)
+  builder;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -2922,13 +3167,14 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
     // (`canManageSalonProvider`, `scheduleEditable`) uses the strict selector.
     // The loading branch below already renders the right skeleton for an
     // unsettled session.
-    final UserRole? role = ref.watch(
+    final UserRole? sessionRole = ref.watch(
       authProvider.select(authUserRoleSettledOrNull),
     );
-    if (role != UserRole.salonMaster) {
-      // Unreachable via `/staff/*` (see this class's header) — returned
-      // WITHOUT ever watching [masterProfileProvider], which is the whole
-      // point of checking the role first.
+    if (sessionRole != role) {
+      // Unreachable via `/staff/*` / `/owner/master/*` (the role gates in
+      // `auth_redirect.dart`) — returned WITHOUT ever watching
+      // [masterProfileProvider], which is the whole point of checking the
+      // role first.
       return const Scaffold(
         backgroundColor: BrandColors.base,
         body: ErrorState(
@@ -2946,7 +3192,23 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
       masterProfileProvider.select(_selectOwnMasterIds),
     );
     if (ids.masterId != null) {
-      return _resolved(ids);
+      // D3 point 3 — a resolved profile without a usable (salonId, masterId)
+      // pair is a broken session, never a silently empty list.
+      //
+      // 2026-09-13 audit (M2) — the [ProviderScope] lives in
+      // [_SalonMasterTabsShell]; this gate asks the very function the shell
+      // uses, so the two can never disagree about whether a target exists.
+      final String? salonId = ids.salonId;
+      if (_ownMasterServiceTarget(ids) == null || salonId == null) {
+        return const Scaffold(
+          backgroundColor: BrandColors.base,
+          body: ErrorState(
+            key: Key('salon_master_own_services_error'),
+            failure: NotFoundFailure(),
+          ),
+        );
+      }
+      return builder(context, ref, salonId);
     }
 
     if (ids.isLoading) {
@@ -2966,41 +3228,6 @@ class _SalonMasterOwnServicesRoute extends ConsumerWidget {
         failure: error is Failure ? error : UnknownFailure(cause: error),
         onRetry: () => ref.invalidate(masterProfileProvider),
       ),
-    );
-  }
-
-  /// The resolved-profile branch: either the D3-point-3 error gate, or the
-  /// read-only screen.
-  ///
-  /// 2026-09-13 audit (M2) — the [ProviderScope] that used to live here has
-  /// moved UP into [_SalonMasterTabsShell], so it is no longer torn down by a
-  /// `context.go` tab switch. The gate itself is unchanged in effect: it now
-  /// asks [_ownMasterServiceTarget] — the very function the shell uses to
-  /// decide whether to install the override — so the two can never disagree
-  /// about whether a usable target exists.
-  Widget _resolved(_OwnMasterIds ids) {
-    if (_ownMasterServiceTarget(ids) == null) {
-      return const Scaffold(
-        backgroundColor: BrandColors.base,
-        body: ErrorState(
-          key: Key('salon_master_own_services_error'),
-          failure: NotFoundFailure(),
-        ),
-      );
-    }
-    // 2026-09-13 audit (M6) — the nav bar's «Графік»/«Профіль» tiles are
-    // pointed at this role's OWN `/staff/*` roots. Left at their defaults
-    // they targeted `/master/schedule` and `/master/profile`, which
-    // `auth_redirect.dart:300` bounces back to `roleHomePath` — a tap that
-    // visibly does nothing. Phase 330 completes the set with tile 1.
-    return const ServicesListScreen(
-      writable: false,
-      navScheduleRoute: RouteNames.salonMasterSchedule,
-      navProfileRoute: RouteNames.salonMasterProfile,
-      // Phase 330 — tile 1 («Мої записи») now has a `/staff/*` counterpart
-      // too, so the M6 note above is fully discharged: none of this bar's
-      // four tiles bounces for a SALON_MASTER any more.
-      navBookingsRoute: RouteNames.salonMasterBookings,
     );
   }
 }
@@ -3086,15 +3313,35 @@ class _SalonManageServicesListRoute extends ConsumerWidget {
 class _SalonManageServiceSetupRoute extends ConsumerWidget {
   const _SalonManageServiceSetupRoute({
     required this.salonId,
-    required this.memberId,
+    this.memberId = '',
+    this.exitRoute,
   });
 
   final String salonId;
   final String memberId;
 
+  /// Phase 380 (24.1c) — additive no-stack fallback override. `null` (the
+  /// salon-manage mount) keeps `salonManageStaffServices(salonId, memberId)`;
+  /// the owner master-mode mount passes [RouteNames.ownerMasterServices] and
+  /// no [memberId].
+  final String? exitRoute;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!ref.watch(canManageSalonProvider(salonId))) {
+      // Phase 380 (perf INFO) — a cold deep link resolves `mySalonsProvider`
+      // AFTER the first frame; the fail-closed predicate's `false` during
+      // that window is "not known yet", not "denied". Rendering the denied
+      // state there flashed «Unauthorized» before the form. Both mounts
+      // (salon-manage and owner master mode) share this leaf.
+      if (ref.watch(canManageSalonPendingProvider)) {
+        return const Scaffold(
+          backgroundColor: BrandColors.base,
+          body: LoadingSkeleton.card(
+            key: Key('salon_manage_service_setup_loading'),
+          ),
+        );
+      }
       return const Scaffold(
         backgroundColor: BrandColors.base,
         body: ErrorState(
@@ -3106,7 +3353,8 @@ class _SalonManageServiceSetupRoute extends ConsumerWidget {
     return ServiceSetupScreen(
       // D3 — the no-stack fallback. Without it a cold start on this
       // path would `go` to the OPERATOR's own `/services`.
-      exitRoute: RouteNames.salonManageStaffServices(salonId, memberId),
+      exitRoute:
+          exitRoute ?? RouteNames.salonManageStaffServices(salonId, memberId),
     );
   }
 }

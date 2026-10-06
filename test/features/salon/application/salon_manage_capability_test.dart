@@ -248,4 +248,126 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 380 — canManageSalonPendingProvider: "the fail-closed `false` is not
+  // a verdict yet". It admits nothing; it only tells a gate to render loading
+  // instead of its denied state. TRUE in exactly one shape: a SETTLED
+  // SALON_OWNER whose mySalonsProvider is still loading.
+  // -------------------------------------------------------------------------
+  group(
+    'canManageSalonPendingProvider — phase 380 loading-window companion',
+    () {
+      test(
+        'settled SALON_OWNER + mySalonsProvider still loading → true',
+        () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isTrue);
+          // The gate it pairs with still denies — pending admits nothing.
+          expect(container.read(canManageSalonProvider(_kSalonId)), isFalse);
+        },
+      );
+
+      test('settled SALON_OWNER + RESOLVED list (not containing the salon) → '
+          'false — a resolved list is a verdict', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          extraOverrides: [
+            mySalonsProvider.overrideWith(
+              () => _SettledMySalons(const <Salon>[]),
+            ),
+          ],
+        );
+        await container.read(authProvider.future);
+        await container.read(mySalonsProvider.future);
+
+        expect(container.read(canManageSalonPendingProvider), isFalse);
+        expect(container.read(canManageSalonProvider(_kSalonId)), isFalse);
+      });
+
+      test(
+        'settled SALON_OWNER whose list ends in a terminal AsyncError → false '
+        '(denied, not an endless skeleton)',
+        () async {
+          final notifier = _TransitionableMySalons(const <Salon>[_kSalon]);
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+            extraOverrides: [mySalonsProvider.overrideWith(() => notifier)],
+          );
+          await container.read(authProvider.future);
+          await container.read(mySalonsProvider.future);
+          container.listen(canManageSalonPendingProvider, (_, _) {});
+
+          notifier.forceError(const NetworkFailure());
+
+          expect(
+            container.read(mySalonsProvider),
+            isA<AsyncError<List<Salon>>>(),
+          );
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+        },
+      );
+
+      test(
+        'SALON_ADMIN → false, and mySalonsProvider is never built',
+        () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(
+              _userWith(UserRole.salonAdmin, salonId: _kSalonId),
+            ),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+          expect(container.exists(mySalonsProvider), isFalse);
+        },
+      );
+
+      for (final UserRole role in <UserRole>[
+        UserRole.salonMaster,
+        UserRole.independentMaster,
+        UserRole.client,
+      ]) {
+        test('${role.name} with a loading mySalonsProvider → false', () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(role, salonId: _kSalonId)),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+        });
+      }
+
+      test('UNSETTLED session (auth still loading) → false', () async {
+        final container = _makeContainerFor(
+          _NeverSettlingAuth(),
+          extraOverrides: [
+            mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+          ],
+        );
+
+        expect(container.read(authProvider).isLoading, isTrue);
+        expect(container.read(canManageSalonPendingProvider), isFalse);
+      });
+    },
+  );
+}
+
+/// Auth that never settles — the cold-start window before session restore.
+class _NeverSettlingAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() => Completer<AuthSession>().future;
 }

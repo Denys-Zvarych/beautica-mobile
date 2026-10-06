@@ -75,3 +75,25 @@ bool canManageSalon(Ref ref, String salonId) {
   // all resolve to "cannot manage".
   return false;
 }
+
+/// `true` while [canManageSalon]'s `false` is NOT yet a verdict — a settled
+/// SALON_OWNER whose [mySalonsProvider] is still loading (the cold deep-link
+/// window: the predicate fails CLOSED on a non-`AsyncData` list). A gate
+/// built on [canManageSalon] renders a loading state for this window instead
+/// of flashing its denied/[UnauthorizedFailure] state.
+///
+/// Phase 380 — the companion of [canManageSalon], never a replacement: it
+/// admits nothing. `false` for every non-owner role (so an admin's gate never
+/// watches [mySalonsProvider]) and for a settled list, error included.
+@riverpod
+bool canManageSalonPending(Ref ref) {
+  final UserRole? role = ref.watch(
+    authProvider.select(authUserRoleSettledOrNull),
+  );
+  if (role != UserRole.salonOwner) return false;
+  return ref.watch(
+    mySalonsProvider.select(
+      (AsyncValue<List<Salon>> salons) => salons.isLoading,
+    ),
+  );
+}

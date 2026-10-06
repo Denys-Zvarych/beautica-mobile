@@ -600,7 +600,9 @@ abstract final class RouteNames {
   /// subtree rather than a widened `/master/*` (INDEPENDENT_MASTER-only),
   /// `/staff/*` (SALON_MASTER-only) or `/salon/*` (owner + admin) fence —
   /// widening any of those would leak surfaces across roles. All literals;
-  /// no dynamic `/owner/:x` sibling exists to shadow them. Each phase adds
+  /// no dynamic `/owner/:x` sibling exists to shadow them. The one dynamic
+  /// segment (380's `services/:serviceId/edit`) sits UNDER the literal
+  /// `services/setup`, which is declared first. Each phase adds
   /// only its own constants, so `navigation_links_test` NL-R01 never sees an
   /// unregistered one:
   ///
@@ -617,6 +619,22 @@ abstract final class RouteNames {
   ///
   /// Not yet reachable from the UI — phase 384 adds the salon-shell entry.
   static const String ownerMasterProfile = '/owner/master/profile';
+
+  /// Phase 380 (24.1c) — the owner master-mode «Послуги» tab: the owner's
+  /// OWN master-row services (primary salon), writable, rendered by the
+  /// shipped `ServicesListScreen` behind the owner shell's
+  /// `ServiceTarget.salonMaster(primarySalonId, ownerMasterId)` scope.
+  static const String ownerMasterServices = '/owner/master/services';
+
+  /// Phase 380 (24.1c) — «Додати послуги» for the owner's own row. LITERAL
+  /// peer of [ownerMasterServiceEdit]'s `:serviceId` segment, so it is
+  /// declared BEFORE it in `app_router.dart` (literal-before-dynamic).
+  static const String ownerMasterServiceSetup = '$ownerMasterServices/setup';
+
+  /// Phase 380 (24.1c) — «Редагувати послугу» for the owner's own row.
+  /// [id] is percent-encoded (it is the only dynamic segment).
+  static String ownerMasterServiceEdit(String id) =>
+      '$ownerMasterServices/${Uri.encodeComponent(id)}/edit';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
