@@ -109,6 +109,16 @@ dependencies:
   # after selection; the backend re-validates by magic-byte sniffing.
   file_picker: ^8.1.6
 
+  # Phase 071 — photo pick / crop / compress (avatars + service photos).
+  # image_picker uses the Android Photo Picker (no storage permission);
+  # image_cropper = native uCrop / TOCropViewController; flutter_image_compress
+  # does the final JPEG re-encode with EXIF/GPS stripped (keepExif: false).
+  image_picker: ^1.2.3
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  image_cropper: ^12.2.1
+  flutter_image_compress: ^2.5.0
+
   # Multipart MediaType for the support-contact request part (the JSON `request`
   # part carries Content-Type: application/json; file parts carry their sniffed
   # type). Dio does not re-export MediaType, so http_parser is a direct dep.

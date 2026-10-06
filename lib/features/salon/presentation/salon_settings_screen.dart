@@ -350,8 +350,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
 ///
 /// Reads the name off [salonManagementProfileProvider] — the family the
 /// management profile and the salon shell already watch under this same
-/// [salonId] — via a `select` down to the single `String?` it renders, so this
-/// widget rebuilds on a name change and on nothing else. It adds no fetch and
+/// [salonId] — via a `select` down to the single `String?` it renders (plus,
+/// Phase 369, a second one for the logo URL), so this widget rebuilds on a
+/// name or logo change and on nothing else. It adds no fetch and
 /// no repository call of its own; on every real entry path the family is
 /// already warm.
 ///
@@ -380,6 +381,12 @@ class _ContextSubheading extends ConsumerWidget {
         salonId,
       ).select((AsyncValue<SalonManagementProfileData> s) => s.value?.$1.name),
     );
+    // Phase 369 — the logo, its own narrow select (an upload patches only it).
+    final String? logoUrl = ref.watch(
+      salonManagementProfileProvider(salonId).select(
+        (AsyncValue<SalonManagementProfileData> s) => s.value?.$1.avatarUrl,
+      ),
+    );
     final String trimmed = name?.trim() ?? '';
     if (trimmed.isEmpty) {
       return const SizedBox.shrink(key: Key('salon-settings-context-absent'));
@@ -396,6 +403,7 @@ class _ContextSubheading extends ConsumerWidget {
           SalonLogo(
             diameter: _logoDiameter,
             monogram: trimmed[0].toUpperCase(),
+            imageUrl: logoUrl,
           ),
           const SizedBox(width: VelvetSpacing.sm),
           Flexible(

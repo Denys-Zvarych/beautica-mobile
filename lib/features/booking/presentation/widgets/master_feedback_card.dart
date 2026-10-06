@@ -45,6 +45,7 @@ class MasterFeedbackCard extends StatelessWidget {
     this.reviewCount = 0,
     this.onTap,
     this.semanticsLabel,
+    this.avatarImageUrl,
   });
 
   final String name;
@@ -78,6 +79,9 @@ class MasterFeedbackCard extends StatelessWidget {
   /// pre-rating name + visit composition.
   final String? semanticsLabel;
 
+  /// Phase 9.7 — the master's photo URL; `null` keeps the gradient glyph.
+  final String? avatarImageUrl;
+
   // Camel wash surface — matches the booking flow's master strip.
   static const Color _cardColor = Color(0xFFEDE4D5);
 
@@ -105,7 +109,7 @@ class MasterFeedbackCard extends StatelessWidget {
       padding: const EdgeInsets.all(VelvetSpacing.md),
       child: Row(
         children: <Widget>[
-          const MasterAvatarBadge(),
+          MasterAvatarBadge(imageUrl: avatarImageUrl),
           const SizedBox(width: VelvetSpacing.sm),
           Expanded(
             child: Column(

@@ -254,6 +254,12 @@ class _InstrumentedSecureStorage implements SecureStorage {
   @override
   Future<String?> readLastSalon() => _backing.readLastSalon();
   @override
+  Future<String?> readPendingPick() => _backing.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _backing.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _backing.deletePendingPick();
+  @override
   Future<bool> readPushPermissionAsked() => _backing.readPushPermissionAsked();
   @override
   Future<void> writePushPermissionAsked() =>

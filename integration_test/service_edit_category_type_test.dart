@@ -32,6 +32,9 @@
 // KEY POLICY: navigation taps use key-based finders only (see app_harness.dart).
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
+import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart'
+    show PhotoThumbnail;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -348,6 +351,60 @@ void main() {
 
       AppHarness.expectLocation(router, RouteNames.services);
       await pumpPastVelvetSnack(tester);
+    },
+    timeout: const Timeout(Duration(seconds: 40)),
+  );
+
+  // ── NO SERVICE PHOTOS — product decision 2026-10-04 ──────────────────────
+  //
+  // Services carry no custom photos: the edit screen has no ServicePhotoSlot
+  // and the booking-wizard service picker rows have no PhotoThumbnail well.
+  // One journey, both surfaces: open the edit screen, then step into the
+  // walk-in wizard's service picker.
+  testWidgets(
+    'service edit renders no photo slot and the wizard service picker rows '
+    'render no photo thumbnail',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      router.go(RouteNames.serviceEdit('assign-typed'));
+      await pumpBounded(tester);
+      AppHarness.expectLocation(router, '/services/assign-typed/edit');
+
+      expect(
+        find.byKey(const Key('btn-submit-service')),
+        findsOneWidget,
+        reason: 'anti-vacuity: the loaded edit form must be on screen',
+      );
+      expect(find.byType(ServicePhotoSlot), findsNothing);
+
+      // Step into the walk-in wizard's service picker.
+      router.go(RouteNames.masterBookingNew);
+      await AppHarness.settle(tester);
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-first-name')),
+        'Test',
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-last-name')),
+        'Guest',
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-phone')),
+        '0501234567',
+      );
+      await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await AppHarness.settle(tester);
+
+      final Finder card = find.byKey(const Key('mcb_service_card_assign-1'));
+      await AppHarness.pumpUntilFound(tester, card);
+      expect(card, findsOneWidget, reason: 'anti-vacuity: picker row rendered');
+      expect(find.byType(PhotoThumbnail), findsNothing);
     },
     timeout: const Timeout(Duration(seconds: 40)),
   );

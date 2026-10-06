@@ -343,7 +343,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// The masters the sheet may offer, supplied by the HOST for exactly
   /// [columnsBuilder]'s reason: this view owns the day and the fetch, the host
   /// owns "which masters exist". `SalonBookingsScreen` passes its already-
-  /// fetched roster — the SAME `salonMastersRosterProvider` list that builds
+  /// fetched roster — the SAME `salonStaffMastersRosterProvider` list that builds
   /// the board's columns — so the section adds no request of its own.
   ///
   /// EMPTY (the default, and both master routes) renders no section.

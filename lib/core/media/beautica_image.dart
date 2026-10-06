@@ -209,6 +209,33 @@ ImageProvider beauticaResizedProvider(String url, int width, int height) =>
       policy: ResizeImagePolicy.fit,
     );
 
+/// Warms the image cache with the SAME provider (and decode bound) that a
+/// [RemoteImage] of [width]×[height] will request, so the swap from a local
+/// preview to the remote photo does not flash. A non-allowed [url] is a no-op
+/// and any failure is swallowed — a precache is only ever an optimisation.
+Future<void> precacheRemoteImage(
+  BuildContext context,
+  String? url,
+  double width,
+  double height,
+) async {
+  if (!isAllowedMediaUrl(url)) return;
+  final double dpr = MediaQuery.devicePixelRatioOf(context);
+  try {
+    await precacheImage(
+      beauticaResizedProvider(
+        url!,
+        (width * dpr).round(),
+        (height * dpr).round(),
+      ),
+      context,
+      onError: (Object _, StackTrace? _) {},
+    );
+  } on Object {
+    // Optimisation only.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // RemoteImage — the widget the three non-critical sites adopt. Folds in the
 // guard, the decode bound, animated-WebP suppression, semantics exclusion, a
@@ -307,10 +334,16 @@ class RemoteImage extends StatelessWidget {
     // ANIMATED SOURCES header.
     image = TickerMode(enabled: false, child: image);
 
+    // A square-cornered box needs no clip layer: `BoxFit` already confines
+    // the paint to the [width]×[height] box (`paintImage` crops the SOURCE
+    // rect for `cover`), so a `ClipRRect(BorderRadius.zero)` only cost a
+    // full-size clip on full-bleed sites (the salon cover).
+    final BorderRadius? radius = borderRadius;
     final Widget clipped = switch (shape) {
       RemoteImageShape.circle => ClipOval(child: image),
+      RemoteImageShape.roundedRect when radius == BorderRadius.zero => image,
       RemoteImageShape.roundedRect => ClipRRect(
-        borderRadius: borderRadius!,
+        borderRadius: radius!,
         child: image,
       ),
     };

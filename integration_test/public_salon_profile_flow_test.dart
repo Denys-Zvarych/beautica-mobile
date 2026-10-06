@@ -53,6 +53,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
@@ -65,14 +67,72 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
+import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+/// Phase 9.7 — brings a «Майстри» grid card on screen before it is asserted.
+/// The grid is a lazy `SliverGrid` in the screen's one `CustomScrollView`
+/// (phase 368), so a card below the 800x600 fold may not be built yet: it is
+/// first dragged into existence along that outer scrollable, then scrolled
+/// fully into view.
+///
+/// The search always starts from the top, so a card ABOVE an already-scrolled
+/// viewport (disposed by the lazy grid) is found too, not just one below it.
+Future<void> _revealPublicMasterCard(WidgetTester tester, Finder card) async {
+  if (card.evaluate().isEmpty) {
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+  }
+  if (card.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(
+      card,
+      200,
+      scrollable: find.byType(Scrollable).first,
+      maxScrolls: 20,
+    );
+  }
+  await tester.ensureVisible(card);
+  await tester.pumpAndSettle();
+}
+
+/// Brings a control in the salon header (a tab, the favourite heart) back
+/// into view. The screen is one lazy
+/// `CustomScrollView` (phase 368), so once a long tab body has scrolled the
+/// header far enough away it is no longer built and `ensureVisible` has no
+/// element to act on; jumping to the top rebuilds it.
+Future<void> _revealSalonHeader(WidgetTester tester, Finder target) async {
+  if (target.evaluate().isEmpty) {
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pumpAndSettle();
+  }
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so the master photos the fake backend returns are
+    // actually rendered (the real cache manager needs path_provider/sqflite).
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   testWidgets('CLIENT taps a salon result card → the public salon profile renders real '
       'data across all 4 tabs, tapping a master card navigates to the master '
@@ -313,16 +373,38 @@ void main() {
         const Key('salon-master-card-master-aaa'),
       );
       expect(masterAaaCard, findsOneWidget);
-      expect(
-        find.byKey(const Key('salon-master-card-master-ccc')),
-        findsOneWidget,
+      // Phase 9.7 — the rail card renders the master's photo (the fixture
+      // carries an avatarUrl for master-aaa), asserted on the rendered image
+      // provider; master-ddd has none and keeps the gradient glyph. Each card
+      // is revealed first so this survives the grid becoming lazy.
+      await _revealPublicMasterCard(tester, masterAaaCard);
+      expect(renderedImageUrls(tester, within: masterAaaCard), <String>[
+        'https://media.test/avatars/master-aaa.png',
+      ]);
+      final Finder masterDddCard = find.byKey(
+        const Key('salon-master-card-master-ddd'),
       );
+      await _revealPublicMasterCard(tester, masterDddCard);
+      expectAvatarFallback(tester, masterDddCard);
       // Master display names below are real-wire fixture data from
       // FakeBackend (proving the actual roster decode), not translated copy.
-      // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Софія'), findsOneWidget);
-      // i18n-finder-ok: master display name is fixture data, not UI copy.
-      expect(find.text('Марія'), findsOneWidget);
+      // Each is asserted inside its own card, revealed first (lazy grid).
+      await _revealPublicMasterCard(tester, masterAaaCard);
+      expect(
+        // i18n-finder-ok: master display name is fixture data, not UI copy.
+        find.descendant(of: masterAaaCard, matching: find.text('Софія')),
+        findsOneWidget,
+      );
+      final Finder masterCccCard = find.byKey(
+        const Key('salon-master-card-master-ccc'),
+      );
+      await _revealPublicMasterCard(tester, masterCccCard);
+      expect(masterCccCard, findsOneWidget);
+      expect(
+        // i18n-finder-ok: master display name is fixture data, not UI copy.
+        find.descendant(of: masterCccCard, matching: find.text('Марія')),
+        findsOneWidget,
+      );
 
       // The 7th/8th masters (beyond the initial-6 cap) must stay unbuilt —
       // even though all 8 arrived in a single real response.
@@ -341,36 +423,49 @@ void main() {
       final Finder showAllMasters = find.byKey(
         const Key('salon-masters-show-all'),
       );
+      // `-d flutter-tester`'s window is `Size(800, 600)`. The grid is a lazy
+      // `SliverGrid` (phase 368), so the affordance below it may not be built
+      // until it is scrolled near the viewport.
+      if (showAllMasters.evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          showAllMasters,
+          200,
+          scrollable: find.byType(Scrollable).first,
+          maxScrolls: 20,
+        );
+      }
       expect(
         showAllMasters,
         findsOneWidget,
         reason: 'a real 8-master roster must render the reveal affordance',
       );
 
-      // `-d flutter-tester`'s window is `Size(800, 600)` — short and wide,
-      // unlike any phone. The masters grid (2-column, `shrinkWrap: true` +
-      // `NeverScrollableScrollPhysics` inside the screen's single outer
-      // `SingleChildScrollView` — see `_MastersTab._buildGrid`) is fully
-      // BUILT regardless of scroll offset (shrink-wrapping forces eager
-      // realization, unlike a lazy `ListView.builder`), so `find.byKey`
-      // above already resolved it — but `tester.tap()` still hit-tests
-      // against the real viewport, and this affordance sits well below the
-      // 600px fold. `tester.ensureVisible` (not `scrollUntilVisible`) is the
-      // right idiom here because the target Element already exists; it just
-      // needs to be scrolled into the visible window, not built.
+      // `tester.tap()` hit-tests against the real viewport, so the affordance
+      // is scrolled fully into view first.
       await tester.ensureVisible(showAllMasters);
       await tester.tap(showAllMasters);
       await tester.pumpAndSettle();
 
+      final Finder masterHhhCard = find.byKey(
+        const Key('salon-master-card-master-hhh'),
+      );
+      await _revealPublicMasterCard(tester, masterHhhCard);
       expect(
-        find.byKey(const Key('salon-master-card-master-hhh')),
+        masterHhhCard,
         findsOneWidget,
         reason:
             'tapping "show all" must reveal the remaining real masters, not '
             'just a widget-level fixture',
       );
-      // i18n-finder-ok: master display name is real-wire fixture data.
-      expect(find.text('Вікторія'), findsOneWidget);
+      final Finder masterIiiCard = find.byKey(
+        const Key('salon-master-card-master-iii'),
+      );
+      await _revealPublicMasterCard(tester, masterIiiCard);
+      expect(
+        // i18n-finder-ok: master display name is real-wire fixture data.
+        find.descendant(of: masterIiiCard, matching: find.text('Вікторія')),
+        findsOneWidget,
+      );
       expect(
         showAllMasters,
         findsNothing,
@@ -379,13 +474,12 @@ void main() {
 
       // ── Tab 2 «Послуги» — the real service catalogue (2 categories) ───────
       // The masters grid we just expanded ("show all", 8 cards over 4 rows)
-      // left the outer `SingleChildScrollView` scrolled well down; the fixed
+      // left the outer `CustomScrollView` scrolled well down; the fixed
       // `SalonTabBar` sits ABOVE that content, so it can now be off-screen
-      // too. `ensureVisible` — same idiom as above — brings it back into the
-      // 800x600 viewport before the tap (the tab bar itself is always built,
-      // never lazy).
+      // and, in the lazy `CustomScrollView`, not even built.
+      // `_revealSalonHeader` brings it back into the 800x600 viewport first.
       final Finder tab2 = find.byKey(const Key('salon-tab-2'));
-      await tester.ensureVisible(tab2);
+      await _revealSalonHeader(tester, tab2);
       await tester.tap(tab2);
       await tester.pumpAndSettle();
 
@@ -418,12 +512,15 @@ void main() {
       // Same fold issue as above — BROWS is the second (collapsed) category,
       // rendered below NAILS's already-expanded service row, and may sit
       // past the 600px viewport depending on the carried-over scroll offset
-      // from the previous tab. Content is eagerly built (plain Column, not a
-      // lazy list), so `ensureVisible` is enough.
+      // from the previous tab. The category is already built, so
+      // `ensureVisible` is enough, but the screen is a `CustomScrollView`
+      // (phase 368): the reveal can need a second layout pass (the scroll
+      // extent is re-measured), so settle before the tap.
       final Finder browsCategory = find.byKey(
         const Key('salon-service-category-BROWS'),
       );
       await tester.ensureVisible(browsCategory);
+      await tester.pumpAndSettle();
       await tester.tap(browsCategory);
       await tester.pumpAndSettle();
       // i18n-finder-ok: service name is real-wire catalogue fixture data.
@@ -435,7 +532,7 @@ void main() {
       // Same reasoning as the tab-2 switch above — the tab bar can be
       // scrolled out of the 800x600 window by the previous tab's content.
       final Finder tab3 = find.byKey(const Key('salon-tab-3'));
-      await tester.ensureVisible(tab3);
+      await _revealSalonHeader(tester, tab3);
       await tester.tap(tab3);
       await tester.pumpAndSettle();
 
@@ -548,14 +645,14 @@ void main() {
 
       // ── Tab 1 again → tap a master card → navigate to its public profile ──
       final Finder tab1Again = find.byKey(const Key('salon-tab-1'));
-      await tester.ensureVisible(tab1Again);
+      await _revealSalonHeader(tester, tab1Again);
       await tester.tap(tab1Again);
       await tester.pumpAndSettle();
 
       final Finder masterAaaCardAgain = find.byKey(
         const Key('salon-master-card-master-aaa'),
       );
-      await tester.ensureVisible(masterAaaCardAgain);
+      await _revealPublicMasterCard(tester, masterAaaCardAgain);
       await tester.tap(masterAaaCardAgain);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
@@ -595,7 +692,7 @@ void main() {
       final Finder favoriteToggle = find.byKey(
         const Key('salon-favorite-toggle'),
       );
-      await tester.ensureVisible(favoriteToggle);
+      await _revealSalonHeader(tester, favoriteToggle);
       await tester.tap(favoriteToggle);
       await tester.pumpAndSettle();
 
@@ -726,23 +823,37 @@ void main() {
         // D2 — both an ordinary active master (master-aaa) AND the active
         // owner (master-ccc, `masterType: SALON_OWNER` on the wire — see
         // `FakeBackend._salonMasters`) render on the client-facing rail.
-        expect(
-          find.byKey(const Key('salon-master-card-master-aaa')),
-          findsOneWidget,
+        final Finder aaaCard = find.byKey(
+          const Key('salon-master-card-master-aaa'),
         );
-        expect(
-          find.byKey(const Key('salon-master-card-master-ccc')),
-          findsOneWidget,
+        await _revealPublicMasterCard(tester, aaaCard);
+        expect(aaaCard, findsOneWidget);
+        final Finder cccCard = find.byKey(
+          const Key('salon-master-card-master-ccc'),
         );
+        await _revealPublicMasterCard(tester, cccCard);
+        expect(cccCard, findsOneWidget);
 
         // D3 — admin-zzz genuinely exists for salon-xyz (on `/staff`, the
-        // OTHER endpoint), yet nothing about them appears on this tab.
-        // i18n-finder-ok: the admin's real FakeBackend fixture first name,
-        // asserted ABSENT from the client-facing tab — not UI copy.
-        expect(find.text('Ірина'), findsNothing);
-        // i18n-finder-ok: the admin's real FakeBackend fixture last name,
-        // asserted ABSENT from the client-facing tab — not UI copy.
-        expect(find.text('Ковальська'), findsNothing);
+        // OTHER endpoint), yet nothing about them appears on this tab. The
+        // grid is lazy (phase 368), so the absence is checked at the top AND
+        // again with the grid's tail (the "show all" affordance) in view.
+        for (int pass = 0; pass < 2; pass++) {
+          if (pass == 1) {
+            await tester.scrollUntilVisible(
+              find.byKey(const Key('salon-masters-show-all')),
+              200,
+              scrollable: find.byType(Scrollable).first,
+              maxScrolls: 20,
+            );
+          }
+          // i18n-finder-ok: the admin's real FakeBackend fixture first name,
+          // asserted ABSENT from the client-facing tab — not UI copy.
+          expect(find.text('Ірина'), findsNothing);
+          // i18n-finder-ok: the admin's real FakeBackend fixture last name,
+          // asserted ABSENT from the client-facing tab — not UI copy.
+          expect(find.text('Ковальська'), findsNothing);
+        }
 
         // D1 — the public profile never even calls the owner/admin-gated
         // staff endpoint: the audience split is enforced by which endpoint

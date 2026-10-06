@@ -1649,6 +1649,14 @@
   "@servicePhotoChangeSemantics": {
     "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
   },
+  "photoUploading": "Завантаження фото",
+  "@photoUploading": {
+    "description": "Screen-reader label for the in-flight photo upload indicator on the avatar editor and the service photo slot (phase 072). The numeric percentage is exposed separately as the semantics value."
+  },
+  "photoUploadFailed": "Не вдалося завантажити фото",
+  "@photoUploadFailed": {
+    "description": "Message on the failed-upload state of the avatar editor / service photo slot (phase 072); sits beside the retry affordance (retryLabel)."
+  },
   "serviceUnsavedChangesBody": "Ви змінили послугу, але ще не зберегли. Якщо вийти зараз, зміни буде втрачено.",
   "@serviceUnsavedChangesBody": {
     "description": "Qase defect #26 (case 43 step 2) — body of the unsaved-changes confirmation on ServiceEditScreen, shown when the master leaves a DIRTY form via the system back gesture or the top-bar back icon. The dialog's TITLE reuses `serviceUnsavedChanges`, the same string the in-form dirty caption already renders, so the warning the tester was told to expect and the indicator they can see on screen read identically."
@@ -5077,6 +5085,18 @@
       }
     }
   },
+  "salonMasterCardSemanticLabelNoRating": "{name}, {role}",
+  "@salonMasterCardSemanticLabelNoRating": {
+    "description": "Accessibility label for a staff card that shows no rating (a salon admin in the management «Команда» grid).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "salonReviewCountLabel": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
   "@salonReviewCountLabel": {
     "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",
@@ -6644,5 +6664,122 @@
   "errSettlementRequired": "Оберіть населений пункт",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
+  },
+  "uploadErrorTooLarge": "Фото завелике (макс. 5 МБ)",
+  "@uploadErrorTooLarge": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorFormat": "Підтримуються лише JPEG, PNG або WebP",
+  "@uploadErrorFormat": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorStorage": "Завантаження фото тимчасово недоступне",
+  "@uploadErrorStorage": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNetwork": "Не вдалося завантажити фото. Перевірте з'єднання",
+  "@uploadErrorNetwork": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorGeneric": "Не вдалося завантажити фото",
+  "@uploadErrorGeneric": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorUnauthorized": "Сесія завершилася. Увійдіть знову",
+  "@uploadErrorUnauthorized": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorForbidden": "Немає прав для цієї дії",
+  "@uploadErrorForbidden": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNotFound": "Не вдалося знайти потрібний запис",
+  "@uploadErrorNotFound": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorCancelled": "Завантаження скасовано",
+  "@uploadErrorCancelled": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "imageSourceTitle": "Фото",
+  "@imageSourceTitle": {
+    "description": "Phase 071 — image source sheet title."
+  },
+  "imageSourceGallery": "Обрати з галереї",
+  "@imageSourceGallery": {
+    "description": "Phase 071 — image source sheet row: pick from gallery."
+  },
+  "imageSourceCamera": "Зробити фото",
+  "@imageSourceCamera": {
+    "description": "Phase 071 — image source sheet row: take a photo with the camera."
+  },
+  "imageSourceRemove": "Видалити фото",
+  "@imageSourceRemove": {
+    "description": "Phase 071 — image source sheet row: remove the current photo (destructive)."
+  },
+  "cropTitle": "Обрізати фото",
+  "@cropTitle": {
+    "description": "Phase 071 — native crop screen toolbar title."
+  },
+  "cropDone": "Готово",
+  "@cropDone": {
+    "description": "Phase 071 — iOS crop screen confirm button."
+  },
+  "cropCancel": "Скасувати",
+  "@cropCancel": {
+    "description": "Phase 071 — iOS crop screen cancel button."
+  },
+  "avatarUpdated": "Фото оновлено",
+  "@avatarUpdated": {
+    "description": "Phase 073 — success snack after a master avatar upload."
+  },
+  "avatarRemoved": "Фото видалено",
+  "@avatarRemoved": {
+    "description": "Phase 073 — success snack after a master avatar removal."
+  },
+  "cropTitleSalonLogo": "Обрізати логотип",
+  "@cropTitleSalonLogo": {
+    "description": "Phase 369 — native crop screen title when cropping the salon logo."
+  },
+  "cropTitleSalonCover": "Обрізати обкладинку",
+  "@cropTitleSalonCover": {
+    "description": "Phase 369 — native crop screen title when cropping the salon cover banner (16:9)."
+  },
+  "salonCoverUpdated": "Обкладинку оновлено",
+  "@salonCoverUpdated": {
+    "description": "Phase 369 — success snack after the owner uploads a new salon cover."
+  },
+  "salonCoverRemoved": "Обкладинку видалено",
+  "@salonCoverRemoved": {
+    "description": "Phase 369 — success snack after the owner removes the salon cover."
+  },
+  "salonLogoEditLabel": "Змінити логотип салону",
+  "@salonLogoEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only salon logo editor on the management profile."
+  },
+  "salonCoverEditLabel": "Змінити обкладинку салону",
+  "@salonCoverEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only cover camera control on the management profile."
+  },
+  "uploadErrorSalonOwnerOnly": "Змінювати фото салону може лише власник",
+  "@uploadErrorSalonOwnerOnly": {
+    "description": "Phase 369 (D6) — HTTP 403 on a salon logo / cover upload or removal (a SALON_ADMIN, a stale role or a revoked owner)."
+  },
+  "uploadErrorConflict": "Не вдалося зберегти фото. Спробуйте ще раз",
+  "@uploadErrorConflict": {
+    "description": "Phase 369 — HTTP 409 on a photo upload (the server's per-record lock timed out). Retryable."
+  },
+  "uploadErrorRateLimitedNoWait": "Забагато завантажень. Спробуйте трохи згодом",
+  "@uploadErrorRateLimitedNoWait": {
+    "description": "Phase 369 — HTTP 429 on a photo upload (all photo uploads share one 10/min bucket) without a usable Retry-After."
+  },
+  "uploadErrorRateLimited": "Забагато завантажень. Спробуйте за {seconds} с",
+  "@uploadErrorRateLimited": {
+    "description": "Phase 369 — HTTP 429 on a photo upload with a usable Retry-After (seconds).",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
   }
 }

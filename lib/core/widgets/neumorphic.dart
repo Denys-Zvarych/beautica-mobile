@@ -1,10 +1,15 @@
+import 'dart:io' show File;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/local_preview_image.dart';
 import 'package:beautica_mobile/core/theme/app_spacing.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/upload_state_overlay.dart';
 
 /// A raised ("extruded") soft surface. The building block for cards, the logo
 /// pillow, OTP cells and any resting tactile element.
@@ -1277,6 +1282,12 @@ class NeumorphicAvatarEditor extends StatefulWidget {
     required this.initials,
     required this.onTap,
     this.semanticLabel = 'Змінити фото профілю',
+    this.imageUrl,
+    this.previewFile,
+    this.progress,
+    this.uploadFailed = false,
+    this.onRetry,
+    this.badgeOnRing = false,
   });
 
   /// Which display state to render.
@@ -1291,11 +1302,51 @@ class NeumorphicAvatarEditor extends StatefulWidget {
   /// Accessibility label for the outer [Semantics] wrapper.
   final String semanticLabel;
 
+  /// Phase 072 — the uploaded photo, rendered in [AvatarEditState.loaded] /
+  /// [AvatarEditState.picking] through the allow-listed `RemoteImage` (a
+  /// disallowed / failing URL falls back to the camel gradient). Null keeps the
+  /// gradient stand-in.
+  final String? imageUrl;
+
+  /// Phase 072 — the just-picked local file, shown instead of [imageUrl] while
+  /// it uploads. Goes through `LocalPreviewImage` (a `File`, never a URL).
+  final File? previewFile;
+
+  /// Phase 072 — upload progress 0.0–1.0 for [AvatarEditState.picking]. Null
+  /// keeps the indeterminate spinner. At >= 1.0 the ring turns indeterminate
+  /// again (the server may still reject), so 100% never reads as "done".
+  final double? progress;
+
+  /// Phase 072 — the upload failed: cream veil + a 48 dp retry target
+  /// ([onRetry]) over the disc. Ignored while [AvatarEditState.picking].
+  final bool uploadFailed;
+
+  /// Invoked by the retry target shown when [uploadFailed].
+  final VoidCallback? onRetry;
+
+  /// Phase 367 (layout fix) — seat the camera badge ON the ring's lower-right
+  /// arc (its centre on the ring edge at 45°) and shrink the layout box to the
+  /// [_ring] diameter, instead of overhanging the ring by 18 dp each axis.
+  /// For the header-row avatars (`SelfAvatarEditor`), where an overhanging
+  /// badge ran into the text column beside it. ADDITIVE: `false` (every other
+  /// caller — the centred «Особисті дані» editors) keeps the 122 dp box and the
+  /// overhanging badge, byte-identical to before.
+  final bool badgeOnRing;
+
   /// Outer extruded ring diameter.
   static const double _ring = 104;
 
   /// Inner avatar disc diameter.
   static const double _disc = 96;
+
+  /// Public [_disc]: the logical size a photo is decoded at (e.g. to precache
+  /// the remote image at exactly the size this editor will request).
+  static const double discSize = _disc;
+
+  /// Public [_ring]: the header-row footprint (`badgeOnRing: true`) — what a
+  /// sibling state standing in for this editor (an error / placeholder slot)
+  /// must size itself to so swapping the two never shifts the row.
+  static const double ringSize = _ring;
 
   // Cached initials style — Comfortaa 30/700, accentDeep. Computed once at
   // class-load time so build() never calls GoogleFonts on every frame.
@@ -1309,8 +1360,6 @@ class NeumorphicAvatarEditor extends StatefulWidget {
 }
 
 class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
-  bool _badgePressed = false;
-
   bool get _picking => widget.state == AvatarEditState.picking;
 
   Widget _discContent() {
@@ -1324,9 +1373,9 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
         );
       case AvatarEditState.loaded:
       case AvatarEditState.picking:
-        // Muted camel gradient stands in for the real network image until
-        // Phase 9.4 wires the actual avatar upload + display.
-        Widget image = const DecoratedBox(
+        // Muted camel gradient — the base layer and the fallback of both photo
+        // sources below.
+        const Widget gradient = DecoratedBox(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: LinearGradient(
@@ -1341,27 +1390,41 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
             ),
           ),
         );
+        final File? preview = widget.previewFile;
+        final String? url = widget.imageUrl;
+        Widget image = preview != null
+            ? LocalPreviewImage(
+                file: preview,
+                width: NeumorphicAvatarEditor._disc,
+                height: NeumorphicAvatarEditor._disc,
+                fallback: gradient,
+              )
+            : url != null
+            ? RemoteImage(
+                url: url,
+                width: NeumorphicAvatarEditor._disc,
+                height: NeumorphicAvatarEditor._disc,
+                shape: RemoteImageShape.circle,
+                excludeFromSemantics: true,
+                fallback: gradient,
+              )
+            : gradient;
         if (_picking) {
           image = Stack(
             fit: StackFit.expand,
             children: <Widget>[
-              image,
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: BrandColors.white.withValues(alpha: 0.78),
-                ),
-              ),
-              const Center(
-                child: SizedBox(
-                  height: 30,
-                  width: 30,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 3,
-                    color: BrandColors.accent,
-                  ),
-                ),
-              ),
+              // Upload path only: the photo is cached as its own layer so the
+              // spinner repaint never re-rasterises it.
+              RepaintBoundary(child: image),
+              UploadProgressOverlay(progress: widget.progress, circular: true),
+            ],
+          );
+        } else if (widget.uploadFailed) {
+          image = Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              RepaintBoundary(child: image),
+              UploadFailedOverlay(onRetry: widget.onRetry, circular: true),
             ],
           );
         }
@@ -1371,14 +1434,25 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final double? progress = widget.progress;
     return Semantics(
       button: true,
       enabled: !_picking,
       label: widget.semanticLabel,
+      // Phase 072 — expose the upload percentage while picking (capped at 99 so
+      // an unconfirmed upload never announces 100%).
+      value: _picking && progress != null
+          ? UploadProgressSpinner.percentLabel(progress)
+          : null,
       child: SizedBox(
-        // Room for the badge overflowing the ring bottom-right (+18 each axis).
-        height: NeumorphicAvatarEditor._ring + 18,
-        width: NeumorphicAvatarEditor._ring + 18,
+        // Room for the badge overflowing the ring bottom-right (+18 each axis)
+        // — none when [badgeOnRing] seats it inside the ring's box.
+        height: widget.badgeOnRing
+            ? NeumorphicAvatarEditor._ring
+            : NeumorphicAvatarEditor._ring + 18,
+        width: widget.badgeOnRing
+            ? NeumorphicAvatarEditor._ring
+            : NeumorphicAvatarEditor._ring + 18,
         child: Stack(
           clipBehavior: Clip.none,
           children: <Widget>[
@@ -1401,45 +1475,89 @@ class _NeumorphicAvatarEditorState extends State<NeumorphicAvatarEditor> {
               ),
             ),
             // Camera edit badge — bottom-right, offset from ring edge.
+            // PROMOTED to [PhotoEditBadge] (Phase 369) so the salon logo
+            // editor wears the same badge; renders exactly as before.
             Positioned(
               right: 0,
               bottom: 0,
-              child: GestureDetector(
-                onTapDown: _picking
-                    ? null
-                    : (_) => setState(() => _badgePressed = true),
-                onTapCancel: _picking
-                    ? null
-                    : () => setState(() => _badgePressed = false),
-                onTapUp: _picking
-                    ? null
-                    : (_) {
-                        setState(() => _badgePressed = false);
-                        widget.onTap();
-                      },
-                child: AnimatedContainer(
-                  key: const Key('avatar-edit-badge'),
-                  duration: const Duration(milliseconds: 140),
-                  height: 30,
-                  width: 30,
-                  decoration: BoxDecoration(
-                    color: BrandColors.accent,
-                    shape: BoxShape.circle,
-                    boxShadow: _badgePressed || _picking
-                        ? null
-                        : VelvetShadows.extrudedSmall,
-                  ),
-                  child: Icon(
-                    _picking
-                        ? Icons.hourglass_top_rounded
-                        : Icons.photo_camera_rounded,
-                    color: BrandColors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
+              child: PhotoEditBadge(busy: _picking, onTap: widget.onTap),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The camel camera badge of a photo editor — PROMOTED (Phase 369) out of
+/// [NeumorphicAvatarEditor]'s private build so the salon logo editor wears
+/// the SAME badge (REUSE-FIRST: one badge, one fix, every photo editor).
+///
+/// A [size] dp camel disc with a white camera glyph, raised by
+/// [VelvetShadows.extrudedSmall]; it flattens while pressed and, while
+/// [busy], shows an hourglass and ignores taps. [badgeKey] keys the disc
+/// (finders / the badge-vs-text geometry guard); [size] defaults to the
+/// avatar editor's 30 dp — every pre-369 call renders byte-identically.
+class PhotoEditBadge extends StatefulWidget {
+  const PhotoEditBadge({
+    super.key,
+    required this.onTap,
+    this.busy = false,
+    this.size = defaultSize,
+    this.badgeKey = const Key('avatar-edit-badge'),
+  });
+
+  /// Invoked on tap (never while [busy]).
+  final VoidCallback onTap;
+
+  /// An upload / removal is in flight: hourglass glyph, flat, inert.
+  final bool busy;
+
+  /// Diameter of the disc.
+  final double size;
+
+  /// Key of the disc itself.
+  final Key badgeKey;
+
+  /// The avatar editor's badge diameter.
+  static const double defaultSize = 30;
+
+  /// Glyph size relative to [size] (18 dp on the 30 dp disc).
+  static const double _glyphRatio = 0.6;
+
+  @override
+  State<PhotoEditBadge> createState() => _PhotoEditBadgeState();
+}
+
+class _PhotoEditBadgeState extends State<PhotoEditBadge> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool busy = widget.busy;
+    return GestureDetector(
+      onTapDown: busy ? null : (_) => setState(() => _pressed = true),
+      onTapCancel: busy ? null : () => setState(() => _pressed = false),
+      onTapUp: busy
+          ? null
+          : (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            },
+      child: AnimatedContainer(
+        key: widget.badgeKey,
+        duration: const Duration(milliseconds: 140),
+        height: widget.size,
+        width: widget.size,
+        decoration: BoxDecoration(
+          color: BrandColors.accent,
+          shape: BoxShape.circle,
+          boxShadow: _pressed || busy ? null : VelvetShadows.extrudedSmall,
+        ),
+        child: Icon(
+          busy ? Icons.hourglass_top_rounded : Icons.photo_camera_rounded,
+          color: BrandColors.white,
+          size: widget.size * PhotoEditBadge._glyphRatio,
         ),
       ),
     );

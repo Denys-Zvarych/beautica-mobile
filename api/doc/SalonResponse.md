@@ -24,6 +24,7 @@ Name | Type | Description | Notes
 **phone** | **String** |  | [optional] 
 **instagramUrl** | **String** |  | [optional] 
 **avatarUrl** | **String** |  | [optional] 
+**coverImageUrl** | **String** | Salon cover (banner) image URL, 16:9. Set only by the salon's SALON_OWNER via POST /salons/{salonId}/media/cover (Phase 343); null when unset. | [optional] 
 **isActive** | **bool** |  | [optional] 
 **isPrimary** | **bool** |  | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 

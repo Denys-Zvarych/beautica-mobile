@@ -218,6 +218,7 @@ doc/SalonInviteHistoryResponse.md
 doc/SalonInviteResponse.md
 doc/SalonMasterControllerApi.md
 doc/SalonMasterEffectiveScheduleResponse.md
+doc/SalonMediaControllerApi.md
 doc/SalonResponse.md
 doc/SalonReviewResponse.md
 doc/SalonReviewSummaryResponse.md
@@ -252,8 +253,6 @@ doc/UpdateMasterServiceBandRequest.md
 doc/UpdateProfileRequest.md
 doc/UpdateSalonRequest.md
 doc/UpdateServiceDefinitionRequest.md
-doc/UpdateServicePhotoRequest.md
-doc/UploadPortfolioPhotoRequest.md
 doc/UserControllerApi.md
 doc/UserProfileResponse.md
 doc/UserRatingResponse.md
@@ -289,6 +288,7 @@ lib/src/api/public_booking_controller_api.dart
 lib/src/api/review_controller_api.dart
 lib/src/api/salon_controller_api.dart
 lib/src/api/salon_master_controller_api.dart
+lib/src/api/salon_media_controller_api.dart
 lib/src/api/search_controller_api.dart
 lib/src/api/search_suggestion_controller_api.dart
 lib/src/api/service_catalog_controller_api.dart
@@ -529,8 +529,6 @@ lib/src/model/update_master_service_band_request.dart
 lib/src/model/update_profile_request.dart
 lib/src/model/update_salon_request.dart
 lib/src/model/update_service_definition_request.dart
-lib/src/model/update_service_photo_request.dart
-lib/src/model/upload_portfolio_photo_request.dart
 lib/src/model/user_profile_response.dart
 lib/src/model/user_rating_response.dart
 lib/src/model/verify_email_request.dart

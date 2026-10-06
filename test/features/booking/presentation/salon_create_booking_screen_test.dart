@@ -21,7 +21,7 @@ import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -44,6 +44,13 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/booking_wi
     show StepIndicator;
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
@@ -65,6 +72,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fake_salon_master_coverage.dart';
+import '../../../helpers/fake_salon_staff_masters_roster.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -481,6 +490,31 @@ class _FakeBookingRepository implements BookingRepository {
   }) => throw UnimplementedError();
 }
 
+/// A settled SALON_OWNER session — `salonManagementProfileProvider` watches
+/// the auth identity, so the real-roster test needs one.
+class _SettledOwnerAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'user-owner',
+      email: 'owner@beautica.ua',
+      role: UserRole.salonOwner,
+    ),
+    accessToken: 'token',
+  );
+}
+
+/// [m] as the `/staff` master row the management roster serves.
+SalonStaffMember _staffRowOf(SalonMasterSummary m) => SalonStaffMember(
+  userId: 'user-${m.masterId}',
+  masterId: m.masterId,
+  role: SalonStaffRole.master,
+  masterType: m.type,
+  firstName: m.firstName,
+  lastName: m.lastName,
+  reviewCount: m.reviewCount,
+);
+
 // ---------------------------------------------------------------------------
 // Router + pump helper
 // ---------------------------------------------------------------------------
@@ -515,14 +549,22 @@ Future<GoRouter> _pump(
   /// entry here wins for the provider it names and every existing call site
   /// pumps byte-identically to before this knob existed.
   List<Object> extraOverrides = const <Object>[],
+
+  /// ADDITIVE (2026-10-05) — `false` drops the [roster] stand-in so the REAL
+  /// `salonStaffMastersRosterProvider` resolves through
+  /// `salonManagementProfileProvider` -> `SalonRepository.getSalonStaff`;
+  /// the caller then supplies the repository + auth via [extraOverrides].
+  /// Every existing call site leaves it `true` and pumps byte-identically.
+  bool fakeRoster = true,
 }) async {
   final GoRouter router = _router();
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
-      salonMastersRosterProvider.overrideWith(
-        (ref, String salonId) async => roster,
-      ),
+      if (fakeRoster)
+        salonStaffMastersRosterProvider.overrideWith(
+          () => FakeSalonStaffMastersRoster(() => roster),
+        ),
       salonMasterServiceCoverageProvider.overrideWith(
         () => FakeSalonMasterServiceCoverage(
           () => salonCoverageOf(coverage ?? _coverageAOnly()),
@@ -1440,6 +1482,73 @@ void main() {
     });
   });
 
+  // 2026-10-05 — the wizard's roster is the STAFF `/staff` roster, not the
+  // public (bookable-only) `/masters` rail. Driven through the REAL provider
+  // chain (`salonStaffMastersRosterProvider` -> `salonManagementProfileProvider`
+  // -> `SalonRepository.getSalonStaff`), NOT the roster stand-in — same fake-
+  // backend shape as `salon_bookings_screen_test.dart`'s «STAFF ROSTER» test.
+  group('SalonCreateBookingScreen — masters step reads the STAFF roster', () {
+    testWidgets('a master on GET /salons/{id}/staff but NOT on the public '
+        '(bookable-only) GET /salons/{id}/masters is offered; an admin is '
+        'not', (tester) async {
+      final FakeSalonRepository salonRepo = FakeSalonRepository(
+        salon: const Salon(id: _kSalonId, name: 'Салон «Велвет»'),
+        // The public rail lists A ONLY — a wizard still reading it would
+        // never offer B.
+        masters: const <SalonMasterSummary>[_kMasterA],
+        staff: <SalonStaffMember>[
+          _staffRowOf(_kMasterA),
+          _staffRowOf(_kMasterB),
+          const SalonStaffMember(
+            userId: 'user-admin-1',
+            role: SalonStaffRole.admin,
+            firstName: 'Адмін',
+            lastName: 'Салону',
+          ),
+        ],
+      );
+      await _pump(
+        tester,
+        fakeRoster: false,
+        coverage: _coverageBoth(),
+        slotRepository: _FakeSlotRepository(
+          slotsByMaster: <String, List<BookingSlot>>{
+            _kMasterA.masterId: <BookingSlot>[_kSlot],
+            _kMasterB.masterId: <BookingSlot>[_kSlot],
+          },
+        ),
+        extraOverrides: <Object>[
+          salonRepositoryProvider.overrideWithValue(salonRepo),
+          authProvider.overrideWith(_SettledOwnerAuth.new),
+        ],
+      );
+      await _driveToMasters(tester);
+
+      expect(
+        find.byKey(const Key('salon-master-tile-master-b')),
+        findsOneWidget,
+        reason:
+            'a /staff-only master (not publicly bookable) must still be '
+            'offered to staff in the walk-in wizard',
+      );
+      // Positive control: the publicly-listed master is offered too.
+      expect(
+        find.byKey(const Key('salon-master-tile-master-a')),
+        findsOneWidget,
+      );
+      // Admins have no master row — never a tile.
+      expect(
+        find.byKey(const Key('salon-master-tile-user-admin-1')),
+        findsNothing,
+      );
+      expect(
+        salonRepo.getSalonStaffCalls,
+        greaterThanOrEqualTo(1),
+        reason: 'the roster really came from GET /salons/{id}/staff',
+      );
+    });
+  });
+
   group('SalonCreateBookingScreen — masters step picks BOTH master AND time', () {
     testWidgets(
       'picking the SECOND (later) slot inside a tile carries THAT slot\'s '
@@ -2272,28 +2381,15 @@ void main() {
     });
   });
 
-  // ── Phase 323 — THE OTHER ServiceCard CONSUMER KEEPS ITS PHOTO WELL ───────
+  // ── Product decision 2026-10-04 — NO service photo wells anywhere ─────────
   //
-  // `ServiceCard.showPhoto` is additive and defaults to `true`, and
-  // `services_list_screen.dart` is the ONE caller that opts out. This wizard's
-  // picker (`booking_wizard_steps.dart:629`) is the only other real consumer
-  // in `lib/`, and nothing pinned its side of that contract.
-  //
-  // Why the default-value test in
-  // `test/features/services/presentation/widgets/service_category_list_test.dart`
-  // is NOT enough: that case constructs a bare [ServiceCard] itself, so it
-  // catches a flipped DEFAULT and nothing else. Adding `showPhoto: false` at
-  // the wizard's own call site — a one-token edit, and the obvious one for
-  // anyone copying the services page's reclaim across — leaves it green.
-  //
-  // Asserted from the LAID-OUT render tree, never from
-  // `.widget<ServiceCard>(...).showPhoto`
-  // (`project_widget_field_assertion_is_vacuous`): a field read passes even if
-  // the Row drops the well.
-  group('Phase 323 — the wizard picker keeps the leading photo well', () {
+  // Services and categories carry no custom photos, so the wizard picker rows
+  // render no empty PhotoThumbnail well (this reverses Phase 323's "keep the
+  // well" for the picker). Asserted from the laid-out tree.
+  group('no photo well — the wizard picker rows', () {
     testWidgets(
-      'a salon-catalogue service card renders a 40 dp PhotoThumbnail and its '
-      'name column starts 58 dp inside the card (8 inset + 40 well + 10 gap)',
+      'a salon-catalogue service card renders no PhotoThumbnail and its name '
+      'column starts at the 8 dp card inset',
       (tester) async {
         await _pump(tester);
         await _fillClientStepAndAdvance(tester);
@@ -2304,35 +2400,14 @@ void main() {
         expect(
           card,
           findsOneWidget,
-          reason:
-              'anti-vacuity — nothing below means anything if the picker '
-              'card never rendered',
-        );
-
-        final Finder well = find.descendant(
-          of: card,
-          matching: find.byType(PhotoThumbnail),
+          reason: 'anti-vacuity: the picker card must have rendered',
         );
         expect(
-          well,
-          findsOneWidget,
-          reason:
-              'the picker is SCANNED rather than read, and the leading well '
-              'anchors the selectable row against its trailing check '
-              'indicator — this consumer must never inherit the services '
-              "page's `showPhoto: false`",
+          find.descendant(of: card, matching: find.byType(PhotoThumbnail)),
+          findsNothing,
         );
-        expect(
-          tester.getSize(well),
-          const Size(40, 40),
-          reason:
-              'present-but-collapsed is the failure mode a findsOneWidget '
-              'check alone cannot see',
-        );
+        expect(find.byType(PhotoThumbnail), findsNothing);
 
-        // The gap is the other half of the 50 dp the services page reclaims,
-        // so a half-applied opt-out here (well dropped, gap kept, or vice
-        // versa) has to fail too.
         final double indent =
             tester
                 .getTopLeft(
@@ -2342,11 +2417,8 @@ void main() {
             tester.getTopLeft(card).dx;
         expect(
           indent,
-          58.0,
-          reason:
-              "8 dp card inset + 40 dp well + 10 dp gap. The services page's "
-              'opt-out drops the last two together (50 dp); this consumer '
-              'keeps both.',
+          8.0,
+          reason: '8 dp card inset only — no well, no gap, no extra indent',
         );
       },
     );

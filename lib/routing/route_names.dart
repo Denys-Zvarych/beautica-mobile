@@ -576,6 +576,19 @@ abstract final class RouteNames {
   /// why `doneRoute: adminSettings` is passed.
   static const String adminEditContacts = '/profile/admin/settings/contacts';
 
+  /// Phase 367 (9.6, D6) — «Особисті дані» edit for a SALON_OWNER: name
+  /// (`PATCH /users/me`, valid for every role) plus the live own-avatar
+  /// editor. REUSES [ClientPersonalInfoEditScreen] VERBATIM, exactly as
+  /// [adminEditPersonal] does, with `doneRoute: ownerOwnProfile`. A top-level
+  /// literal (no dynamic `/owner/:x` sibling exists to shadow it), gated by
+  /// the SALON_OWNER-only `mySalonsGuard` [ownerOwnProfile] reuses.
+  ///
+  /// No in-app row pushes it yet: the owner's own-profile tune button stays
+  /// inert until the Phase 21.15 Owner Settings Hub (whose «Особисті дані»
+  /// row this is the target of). The owner's avatar itself is already live
+  /// on the own-profile identity card.
+  static const String ownerEditPersonal = '/owner/edit/personal';
+
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
   /// target master id (a bare `String`) in `GoRouterState.extra`. Renders

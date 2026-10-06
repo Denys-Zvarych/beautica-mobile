@@ -35,6 +35,8 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -48,12 +50,15 @@ import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/bookings_discovery_view.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_filter_sheet.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_timeline_grid.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
@@ -146,6 +151,20 @@ Booking _booking({
   );
 }
 
+/// [m] as the `/staff` master row the board's roster is projected from.
+SalonStaffMember _staffMaster(SalonMasterSummary m) => SalonStaffMember(
+  userId: 'user-${m.masterId}',
+  masterId: m.masterId,
+  role: SalonStaffRole.master,
+  masterType: m.type,
+  firstName: m.firstName,
+  lastName: m.lastName,
+  professionalTitle: m.professionalTitle,
+  avatarUrl: m.avatarUrl,
+  avgRating: m.avgRating,
+  reviewCount: m.reviewCount,
+);
+
 SalonMasterSummary _rosterMaster(String id, String first, String last) =>
     SalonMasterSummary(
       masterId: id,
@@ -186,10 +205,13 @@ void main() {
   late _MockSalonRepository salonRepo;
   late _MockSalonRosterScheduleRepository rosterScheduleRepo;
 
+  List<SalonStaffMember> staffRoster = const <SalonStaffMember>[];
+
   setUp(() {
     bookingRepo = _MockBookingRepository();
     salonRepo = _MockSalonRepository();
     rosterScheduleRepo = _MockSalonRosterScheduleRepository();
+    staffRoster = const <SalonStaffMember>[];
   });
 
   /// Phase 335 — seeds `GET /salons/{id}/masters/effective-schedule`.
@@ -244,10 +266,17 @@ void main() {
     ).thenAnswer((_) async => _page(items));
   }
 
+  /// The board's master roster. 2026-10-05: the board reads it from the
+  /// MANAGEMENT `GET /salons/{id}/staff` roster (via
+  /// `salonManagementProfileProvider` -> `salonStaffMastersRosterProvider`),
+  /// no longer from the public `GET /salons/{id}/masters` rail — so the
+  /// masters are served as `/staff` master rows. Held in [staffRoster] and
+  /// read at CALL time by [stubSalonProfile]'s `getSalonStaff` stub, so the
+  /// two helpers compose in either order.
   void stubRoster(List<SalonMasterSummary> roster) {
-    when(
-      () => salonRepo.getSalonMasters(_salonId),
-    ).thenAnswer((_) async => roster);
+    staffRoster = <SalonStaffMember>[
+      for (final SalonMasterSummary m in roster) _staffMaster(m),
+    ];
   }
 
   /// The salon's own name + staff, the subtitle's source. Stubbed on the
@@ -259,7 +288,7 @@ void main() {
     ).thenAnswer((_) async => Salon(id: _salonId, name: name));
     when(
       () => salonRepo.getSalonStaff(_salonId),
-    ).thenAnswer((_) async => const <SalonStaffMember>[]);
+    ).thenAnswer((_) async => staffRoster);
   }
 
   /// `GET /salons/mine` — what `canManageSalonProvider` resolves the owner's
@@ -920,6 +949,160 @@ void main() {
       );
       expect(find.byType(BookingsTimelineGrid), findsOneWidget);
     });
+
+    testWidgets('STAFF ROSTER: a master on GET /salons/{id}/staff but NOT on '
+        'the public (bookable-only) GET /salons/{id}/masters keeps a column '
+        'and their CONFIRMED card; an admin never gets one', (
+      WidgetTester tester,
+    ) async {
+      // The post-backend-change world (2026-10-05): the public rail lists
+      // only BOOKABLE masters, so an owner-master whose schedule was cleared
+      // is absent from it while still holding a CONFIRMED booking. Stubbed
+      // so a board still reading the public rail would draw `m1` ONLY.
+      when(() => salonRepo.getSalonMasters(_salonId)).thenAnswer(
+        (_) async => <SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')],
+      );
+      stubSalonProfile();
+      staffRoster = <SalonStaffMember>[
+        _staffMaster(_rosterMaster('m1', 'Оля', 'Коваль')),
+        const SalonStaffMember(
+          userId: 'user-owner-m9',
+          masterId: 'm9',
+          role: SalonStaffRole.master,
+          masterType: MasterType.salonOwner,
+          firstName: 'Ірина',
+          lastName: 'Власник',
+        ),
+        const SalonStaffMember(
+          userId: 'user-admin-1',
+          role: SalonStaffRole.admin,
+          firstName: 'Адмін',
+          lastName: 'Салону',
+        ),
+      ];
+      stubSalonDay(<Booking>[
+        _booking(id: 'a1', masterId: 'm1', hour: 10),
+        _booking(id: 'o1', masterId: 'm9', hour: 11),
+      ]);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('salon-bookings-column-chip-m9')),
+        findsOneWidget,
+        reason:
+            'a /staff-only master (not publicly bookable) must keep a column '
+            'on the staff board',
+      );
+      expect(
+        find.byKey(const ValueKey<String>('timeline-card-o1')),
+        findsOneWidget,
+        reason: 'and their CONFIRMED booking must stay on the board',
+      );
+      // Positive control: the publicly-listed master is drawn too.
+      expect(
+        find.byKey(const ValueKey<String>('salon-bookings-column-chip-m1')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey<String>('timeline-card-a1')), findsOne);
+      // Admins have no master row — never a column.
+      expect(
+        find.byKey(
+          const ValueKey<String>('salon-bookings-column-chip-user-admin-1'),
+        ),
+        findsNothing,
+      );
+      verifyNever(() => salonRepo.getSalonMasters(any()));
+    });
+
+    // 2026-10-05 audit P2 — the board narrows its `salonManagementProfile`
+    // watch with `select` (error + salon name only), and the staff roster
+    // hands back the PREVIOUS list instance when its projection is unchanged.
+    // Together: an in-place profile patch the board never shows — an ADMIN's
+    // avatar, the salon COVER — must not rebuild the board. Measured on the
+    // `BookingsDiscoveryView` instance: `_SalonBookingsScreenState.build`
+    // constructs a fresh one on every run, so the SAME instance after the
+    // patch means the board did not rebuild (a build counter with no hook in
+    // production code). The positive control proves the probe is live.
+    testWidgets('a parent profile patch the board does not render (admin '
+        'avatar, cover) does NOT rebuild it; a master avatar patch DOES', (
+      WidgetTester tester,
+    ) async {
+      stubSalonProfile();
+      staffRoster = <SalonStaffMember>[
+        _staffMaster(_rosterMaster('m1', 'Оля', 'Коваль')),
+        const SalonStaffMember(
+          userId: 'user-admin-1',
+          role: SalonStaffRole.admin,
+          firstName: 'Адмін',
+          lastName: 'Салону',
+        ),
+      ];
+      stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
+
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonBookingsScreen)),
+      );
+      final SalonManagementProfile profile = container.read(
+        salonManagementProfileProvider(_salonId).notifier,
+      );
+      BookingsDiscoveryView board() => tester.widget<BookingsDiscoveryView>(
+        find.byType(BookingsDiscoveryView),
+      );
+      final BookingsDiscoveryView before = board();
+      final List<SalonMasterSummary> rosterBefore = container
+          .read(salonStaffMastersRosterProvider(_salonId))
+          .requireValue;
+
+      // 1. An ADMIN's new avatar — admins have no column.
+      expect(
+        profile.patchStaffAvatar('user-admin-1', 'https://cdn.test/a.webp'),
+        isTrue,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        identical(
+          container.read(salonStaffMastersRosterProvider(_salonId)).value,
+          rosterBefore,
+        ),
+        isTrue,
+        reason: 'the staff roster must keep its instance on an admin patch',
+      );
+      expect(
+        identical(board(), before),
+        isTrue,
+        reason: 'an admin avatar patch must not rebuild the board',
+      );
+
+      // 2. The salon COVER — the board shows the salon NAME only.
+      expect(
+        profile.patchImage(SalonImageSlot.cover, 'https://cdn.test/c.webp'),
+        isTrue,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        identical(board(), before),
+        isTrue,
+        reason: 'a cover patch must not rebuild the board',
+      );
+
+      // 3. Positive control — a MASTER's avatar is on the board's column
+      //    header, so this patch MUST rebuild it (the probe is not vacuous).
+      expect(
+        profile.patchStaffAvatar('user-m1', 'https://cdn.test/m.webp'),
+        isTrue,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        identical(board(), before),
+        isFalse,
+        reason: 'a master avatar patch must reach the board',
+      );
+    });
   });
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -930,10 +1113,13 @@ void main() {
     testWidgets('a FAILED roster fetch must not render the no-masters state — '
         'that state means "this salon employs nobody", which is a different '
         'and much worse thing to tell an owner', (WidgetTester tester) async {
-      when(
-        () => salonRepo.getSalonMasters(_salonId),
-      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
       stubSalonProfile();
+      // The roster's source is `GET /salons/{id}/staff` (2026-10-05), so
+      // THAT is the read that fails — stubbed after [stubSalonProfile] so it
+      // wins over the helper's own `getSalonStaff` stub.
+      when(
+        () => salonRepo.getSalonStaff(_salonId),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
       stubSalonDay(<Booking>[_booking(id: 'a1', masterId: 'm1', hour: 10)]);
 
       await pumpScreen(tester);

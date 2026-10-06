@@ -1649,6 +1649,14 @@
   "@servicePhotoChangeSemantics": {
     "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
   },
+  "photoUploading": "Uploading photo",
+  "@photoUploading": {
+    "description": "Screen-reader label for the in-flight photo upload indicator on the avatar editor and the service photo slot (phase 072). The numeric percentage is exposed separately as the semantics value."
+  },
+  "photoUploadFailed": "Photo upload failed",
+  "@photoUploadFailed": {
+    "description": "Message on the failed-upload state of the avatar editor / service photo slot (phase 072); sits beside the retry affordance (retryLabel)."
+  },
   "serviceUnsavedChangesBody": "You have edited this service but not saved it. Leaving now discards your changes.",
   "@serviceUnsavedChangesBody": {
     "description": "Qase defect #26 (case 43 step 2) — body of the unsaved-changes confirmation on ServiceEditScreen, shown when the master leaves a DIRTY form via the system back gesture or the top-bar back icon. The dialog's TITLE reuses `serviceUnsavedChanges`, the same string the in-form dirty caption already renders, so the warning the tester was told to expect and the indicator they can see on screen read identically."
@@ -5077,6 +5085,18 @@
       }
     }
   },
+  "salonMasterCardSemanticLabelNoRating": "{name}, {role}",
+  "@salonMasterCardSemanticLabelNoRating": {
+    "description": "Accessibility label for a staff card that shows no rating (a salon admin in the management «Команда» grid).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "salonReviewCountLabel": "{count, plural, =0{0 reviews} =1{1 review} other{{count} reviews}}",
   "@salonReviewCountLabel": {
     "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",
@@ -6644,5 +6664,122 @@
   "errSettlementRequired": "Choose a settlement",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
+  },
+  "uploadErrorTooLarge": "Photo is too large (max 5 MB)",
+  "@uploadErrorTooLarge": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorFormat": "Only JPEG, PNG or WebP are supported",
+  "@uploadErrorFormat": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorStorage": "Photo upload is temporarily unavailable",
+  "@uploadErrorStorage": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNetwork": "Could not upload the photo. Check your connection",
+  "@uploadErrorNetwork": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorGeneric": "Could not upload the photo",
+  "@uploadErrorGeneric": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorUnauthorized": "Your session has ended. Sign in again",
+  "@uploadErrorUnauthorized": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorForbidden": "You do not have permission for this action",
+  "@uploadErrorForbidden": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNotFound": "The requested item could not be found",
+  "@uploadErrorNotFound": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorCancelled": "Upload cancelled",
+  "@uploadErrorCancelled": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "imageSourceTitle": "Photo",
+  "@imageSourceTitle": {
+    "description": "Phase 071 — image source sheet title."
+  },
+  "imageSourceGallery": "Choose from gallery",
+  "@imageSourceGallery": {
+    "description": "Phase 071 — image source sheet row: pick from gallery."
+  },
+  "imageSourceCamera": "Take a photo",
+  "@imageSourceCamera": {
+    "description": "Phase 071 — image source sheet row: take a photo with the camera."
+  },
+  "imageSourceRemove": "Remove photo",
+  "@imageSourceRemove": {
+    "description": "Phase 071 — image source sheet row: remove the current photo (destructive)."
+  },
+  "cropTitle": "Crop photo",
+  "@cropTitle": {
+    "description": "Phase 071 — native crop screen toolbar title."
+  },
+  "cropDone": "Done",
+  "@cropDone": {
+    "description": "Phase 071 — iOS crop screen confirm button."
+  },
+  "cropCancel": "Cancel",
+  "@cropCancel": {
+    "description": "Phase 071 — iOS crop screen cancel button."
+  },
+  "avatarUpdated": "Photo updated",
+  "@avatarUpdated": {
+    "description": "Phase 073 — success snack after a master avatar upload."
+  },
+  "avatarRemoved": "Photo removed",
+  "@avatarRemoved": {
+    "description": "Phase 073 — success snack after a master avatar removal."
+  },
+  "cropTitleSalonLogo": "Crop logo",
+  "@cropTitleSalonLogo": {
+    "description": "Phase 369 — native crop screen title when cropping the salon logo."
+  },
+  "cropTitleSalonCover": "Crop cover",
+  "@cropTitleSalonCover": {
+    "description": "Phase 369 — native crop screen title when cropping the salon cover banner (16:9)."
+  },
+  "salonCoverUpdated": "Cover updated",
+  "@salonCoverUpdated": {
+    "description": "Phase 369 — success snack after the owner uploads a new salon cover."
+  },
+  "salonCoverRemoved": "Cover removed",
+  "@salonCoverRemoved": {
+    "description": "Phase 369 — success snack after the owner removes the salon cover."
+  },
+  "salonLogoEditLabel": "Change salon logo",
+  "@salonLogoEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only salon logo editor on the management profile."
+  },
+  "salonCoverEditLabel": "Change salon cover",
+  "@salonCoverEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only cover camera control on the management profile."
+  },
+  "uploadErrorSalonOwnerOnly": "Only the salon owner can change salon photos",
+  "@uploadErrorSalonOwnerOnly": {
+    "description": "Phase 369 (D6) — HTTP 403 on a salon logo / cover upload or removal (a SALON_ADMIN, a stale role or a revoked owner)."
+  },
+  "uploadErrorConflict": "Couldn't save the photo. Please try again",
+  "@uploadErrorConflict": {
+    "description": "Phase 369 — HTTP 409 on a photo upload (the server's per-record lock timed out). Retryable."
+  },
+  "uploadErrorRateLimitedNoWait": "Too many uploads. Please try again shortly",
+  "@uploadErrorRateLimitedNoWait": {
+    "description": "Phase 369 — HTTP 429 on a photo upload (all photo uploads share one 10/min bucket) without a usable Retry-After."
+  },
+  "uploadErrorRateLimited": "Too many uploads. Try again in {seconds} s",
+  "@uploadErrorRateLimited": {
+    "description": "Phase 369 — HTTP 429 on a photo upload with a usable Retry-After (seconds).",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
   }
 }

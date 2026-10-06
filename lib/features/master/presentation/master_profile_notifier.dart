@@ -17,12 +17,67 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/state/settled_value.dart';
 import '../../auth/domain/auth_session.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/master_repository.dart';
 import '../domain/master.dart';
 
 part 'master_profile_notifier.g.dart';
+
+/// [master] with its avatar dropped — the `selectAsync` key for a loader that
+/// composes `masterProfileProvider` but never renders the master-row avatar
+/// (Phase 367 fix). [MasterProfile.patchAvatarUrl] replaces the cached
+/// [Master]; a plain `.future` watch would rebuild such a loader — re-firing
+/// its downstream reads and flashing its screen's loading branch — for a
+/// field it does not show. Selecting through this keeps every OTHER field
+/// reactive (freezed value equality) while an avatar-only patch is a no-op.
+Master masterIgnoringAvatar(Master master) => master.copyWith(avatarUrl: null);
+
+/// The `.select` key for a WIDGET that branches on `masterProfileProvider`'s
+/// [AsyncValue] but never renders the avatar (Phase 367 audit, perf LOW) —
+/// the widget-side sibling of [masterIgnoringAvatar]. Use as
+/// `ref.watch(masterProfileProvider.select(MasterProfileIgnoringAvatar.new))
+/// .profile`.
+///
+/// [profile] is passed through UNCHANGED (same loading / refresh / error
+/// semantics as a bare watch — `whenData` would drop a refresh's previous
+/// value), but equality ignores the avatar: an avatar-only
+/// [MasterProfile.patchAvatarUrl] does not rebuild the watcher, while every
+/// other change (another field, loading, error, a new value) still does. The
+/// avatar itself is rendered by a separate narrow watch
+/// ([masterAvatarUrlOrNull]). Because a skipped notification keeps the OLD
+/// selection, [profile]'s `avatarUrl` may be stale — never read it.
+@immutable
+final class MasterProfileIgnoringAvatar {
+  MasterProfileIgnoringAvatar(this.profile)
+    : _key = (
+        profile.runtimeType,
+        profile.isLoading,
+        profile.error,
+        switch (profile.value) {
+          final Master master => masterIgnoringAvatar(master),
+          null => null,
+        },
+      );
+
+  /// The watched state, as-is.
+  final AsyncValue<Master> profile;
+
+  final (Type, bool, Object?, Master?) _key;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MasterProfileIgnoringAvatar && other._key == _key;
+
+  @override
+  int get hashCode => _key.hashCode;
+}
+
+/// The cached master's avatar URL, or `null` — the narrow `.select` for the
+/// one widget that renders the master-row photo.
+String? masterAvatarUrlOrNull(AsyncValue<Master> profile) =>
+    profile.value?.avatarUrl;
 
 /// Loads and caches the authenticated INDEPENDENT_MASTER's own profile.
 ///
@@ -61,6 +116,24 @@ class MasterProfile extends _$MasterProfile {
     // that never emits a new value — ref.watch creates an unnecessary reactive
     // subscription. ref.read is correct here for a one-shot async fetch.
     return ref.read(masterRepositoryProvider).getMyProfile(userId);
+  }
+
+  /// Writes [url] (null = removed) into the CACHED profile without a refetch.
+  ///
+  /// Phase 073 audit — `POST/DELETE /media/avatar` already returns the new
+  /// state, so invalidating (a `GET /masters/me` plus every provider watching
+  /// this one) would be pure waste. Returns `false` when there is no SETTLED
+  /// cached profile to patch; the caller then falls back to an invalidate.
+  ///
+  /// SETTLED = [settledValueOrNull], never the lenient `.value` (2026-10-05):
+  /// `.value` survives into an `AsyncError` (a failed [refresh]) and an
+  /// in-flight refetch, and writing `AsyncData` from it would hide the error
+  /// behind stale data, or be overwritten by a GET that predates the upload.
+  bool patchAvatarUrl(String? url) {
+    final Master? current = settledValueOrNull(state);
+    if (current == null) return false;
+    state = AsyncData<Master>(current.copyWith(avatarUrl: url));
+    return true;
   }
 
   /// Re-fetches the profile. Call after the user saves edits (Phase 4.3).

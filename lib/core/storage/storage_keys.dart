@@ -66,6 +66,12 @@ abstract final class StorageKeys {
   /// session right after the cleanup that may have failed).
   static const String pushRevokePending = 'BEAUTICA_PUSH_REVOKE_PENDING';
 
+  /// Phase 073 audit — the media pick in flight (`{ownerId, kind}` JSON), so a
+  /// pick the OS killed mid-way (Android lost data) is only ever resumed by the
+  /// SAME account for the SAME media kind. Opaque user id + enum name, no PII.
+  /// Cleared when the pick settles and on logout ([SecureStorage.deleteAll]).
+  static const String pendingPick = 'BEAUTICA_PENDING_PICK';
+
   /// Keys that belong to the DEVICE, not the account: [SecureStorage.deleteAll]
   /// restores them after the wipe. ONE mechanism for every such flag.
   static const List<String> deviceScoped = <String>[

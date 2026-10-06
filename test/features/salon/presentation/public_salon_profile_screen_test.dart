@@ -2483,6 +2483,65 @@ void main() {
       },
     );
 
+    // ── 1.3x text-scale overflow regression (phase 368) ────────────────────
+    //
+    // The card height was a fixed 190dp tuned at 1.0x only; at 1.3x the four
+    // text lines (name + 2-line role + rating) outgrew it by ~10dp. The grid's
+    // `mainAxisExtent` and the card's own height now come from
+    // [salonMasterCardHeight], which grows the text budget with the ambient
+    // [TextScaler] (identity at 1.0x). Worst case: long name + long 2-line
+    // professional title + salon-master type + rating + a photo, 8 masters.
+    for (final double width in const <double>[320, 360, 414]) {
+      testWidgets(
+        'worst-case cards do not overflow at 1.3x text scale, ${width}dp',
+        (tester) async {
+          MediaConfig.debugAllowedHosts = <String>{'media.test'};
+          debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+          addTearDown(() {
+            debugMediaCacheManager = null;
+            MediaConfig.debugAllowedHosts = null;
+          });
+          await tester.pumpApp(
+            const PublicSalonProfileScreen(salonId: _kSalonId),
+            overrides: _overrides(
+              repo: _FakeSalonRepository(
+                masters: () async => <SalonMasterSummary>[
+                  for (int i = 0; i < 8; i++)
+                    SalonMasterSummary(
+                      masterId: 'm-$i',
+                      firstName: 'Олександрина-Емілія',
+                      lastName: 'Верещагіна',
+                      avgRating: 4.8,
+                      reviewCount: 5,
+                      type: MasterType.salonMaster,
+                      professionalTitle:
+                          'Топ-стиліст з фарбування та догляду за волоссям',
+                      avatarUrl: 'https://media.test/m$i.png',
+                    ),
+                ],
+              ),
+            ),
+            width: width,
+            textScaleFactor: 1.3,
+          );
+          await tester.pumpAndSettle();
+
+          await tester.tap(find.byKey(const Key('salon-tab-1')));
+          await tester.pumpAndSettle();
+
+          expect(
+            find.byKey(const Key('salon-master-card-m-0')),
+            findsOneWidget,
+          );
+          expect(
+            tester.takeException(),
+            isNull,
+            reason: 'SalonMasterCard must not overflow at 1.3x, ${width}dp',
+          );
+        },
+      );
+    }
+
     // ── Surname-omission regression (the guard) ─────────────────────────────
     //
     // The salon master card was changed to render the FIRST NAME ONLY —
@@ -2601,7 +2660,11 @@ void main() {
       await tester.tap(find.byKey(const Key('salon-tab-1')));
       await tester.pumpAndSettle();
 
-      final GridView grid = tester.widget<GridView>(find.byType(GridView));
+      // A lazy `SliverGrid` in the screen's `CustomScrollView` (phase 368
+      // mobile-perf fix — was a shrink-wrapped `GridView`).
+      final SliverGrid grid = tester.widget<SliverGrid>(
+        find.byType(SliverGrid),
+      );
       final SliverGridDelegateWithFixedCrossAxisCount delegate =
           grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
       expect(
@@ -2658,14 +2721,11 @@ void main() {
 
     // ── Eager-build cap regression (mobile-perf LOW fix) ────────────────────
     //
-    // The grid is `shrinkWrap: true` + `NeverScrollableScrollPhysics`
-    // (required to embed a grid inside the screen's outer
-    // `SingleChildScrollView`), which forces Flutter to eagerly build every
-    // child up front to measure the shrink-wrapped height — unlike a lazy
-    // viewport-backed sliver. With 8 fixture masters (over
-    // `kSalonMastersInitialCount`, 6), this asserts the tab renders only the
-    // first 6 cards on first paint plus a "show all" affordance, and that
-    // tapping it reveals the rest.
+    // The grid is a lazy `SliverGrid` now (phase 368), but the first-paint
+    // cap + "show all" reveal stays as a deliberate layout. With 8 fixture
+    // masters (over `kSalonMastersInitialCount`, 6), this asserts the tab
+    // renders only the first 6 cards on first paint plus a "show all"
+    // affordance, and that tapping it reveals the rest.
     testWidgets(
       'more than 6 masters renders only the first 6 plus a show-all button, '
       'which reveals the rest on tap',
@@ -2736,6 +2796,74 @@ void main() {
           reason:
               'the show-all button must disappear once everything is '
               'revealed',
+        );
+      },
+    );
+
+    // ── Laziness pin (phase 368 audit INFO) ─────────────────────────────────
+    //
+    // The roster is a lazy `SliverGrid.builder` inside the screen's single
+    // `CustomScrollView`. With 30 masters revealed via "show all", the last
+    // card sits ~15 rows below the fold — far past viewport + cacheExtent —
+    // so it must NOT be built (even offstage). An eager grid (e.g. a
+    // `shrinkWrap: true` `GridView` in a `SliverToBoxAdapter`) would build all
+    // 30 up front and turn this red. Scrolling to the end must then build it.
+    testWidgets(
+      'with 30 masters revealed, the last card is not built until scrolled '
+      'into view (lazy SliverGrid)',
+      (tester) async {
+        final List<SalonMasterSummary> thirtyMasters = List.generate(
+          30,
+          (i) => SalonMasterSummary(
+            masterId: 'master-${i + 1}',
+            firstName: 'Майстер',
+            lastName: '${i + 1}',
+            avgRating: 4.5,
+            reviewCount: 1,
+            type: MasterType.independentMaster,
+          ),
+        );
+
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(masters: () async => thirtyMasters),
+          ),
+          width: 390,
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-tab-1')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-masters-show-all')));
+        await tester.pumpAndSettle();
+
+        const Key lastCard = Key('salon-master-card-master-30');
+        expect(
+          find.byKey(lastCard, skipOffstage: false),
+          findsNothing,
+          reason:
+              'the 30th master card is far below the fold — a lazy grid '
+              'must not build it (an eager grid would)',
+        );
+
+        await tester.scrollUntilVisible(
+          find.byKey(lastCard),
+          400,
+          scrollable: find
+              .descendant(
+                of: find.byType(CustomScrollView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(lastCard),
+          findsOneWidget,
+          reason: 'scrolling to the end must build the last master card',
         );
       },
     );

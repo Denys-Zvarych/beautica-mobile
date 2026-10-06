@@ -61,6 +61,7 @@ import 'package:beautica_mobile/features/salon/presentation/staff_settings_scree
 import 'package:beautica_mobile/features/salon/presentation/move_admin_salon_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart'
     show kSalonManageTabKeys, kSalonStaffSubTab, salonManageTabLabels;
+import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_hub_card.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
@@ -775,6 +776,31 @@ void main() {
       expect(find.text('Студія «Камелія»'), findsOneWidget);
       // i18n-finder-ok: same — a fixture salon name, not translatable copy.
       expect(find.text('Барбершоп «Дуб»'), findsOneWidget);
+    });
+
+    testWidgets('each card carries ITS sibling\'s logo (Phase 369 — '
+        '`SiblingSalonOption.avatarUrl`); no logo → the monogram', (
+      tester,
+    ) async {
+      const String logo = 'https://media.test/salons/salon-2/logo.jpg';
+      final List<SiblingSalonOption> siblings = _siblings();
+      siblings[0] = siblings[0].rebuild(
+        (SiblingSalonOptionBuilder b) => b..avatarUrl = logo,
+      );
+      await _pump(
+        tester,
+        _repo(siblings: siblings),
+        initial: RouteNames.salonManageAdminMove(_kSalonId, _kAdminId),
+      );
+
+      SalonLogo logoOf(String id) => tester.widget<SalonLogo>(
+        find.descendant(
+          of: find.byKey(ValueKey<String>('move-admin-target-$id')),
+          matching: find.byType(SalonLogo),
+        ),
+      );
+      expect(logoOf('salon-2').imageUrl, logo);
+      expect(logoOf('salon-3').imageUrl, isNull);
     });
 
     testWidgets('confirming PATCHes with THAT card\'s destination id', (

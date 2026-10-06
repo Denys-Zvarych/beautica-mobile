@@ -15,6 +15,7 @@ Method | HTTP request | Description
 [**bulkCreateMasterServices**](ServiceControllerApi.md#bulkcreatemasterservices) | **POST** /api/v1/salons/{salonId}/masters/{masterId}/services/bulk | Bulk-create a salon master&#39;s services
 [**bulkCreateMyServices**](ServiceControllerApi.md#bulkcreatemyservices) | **POST** /api/v1/independent-masters/me/services/bulk | Bulk-create my services
 [**deactivateServiceDefinition**](ServiceControllerApi.md#deactivateservicedefinition) | **DELETE** /api/v1/services/{serviceDefId} | 
+[**deleteServicePhoto**](ServiceControllerApi.md#deleteservicephoto) | **DELETE** /api/v1/services/{serviceDefId}/photo | 
 [**getMasterServices**](ServiceControllerApi.md#getmasterservices) | **GET** /api/v1/masters/{masterId}/services | 
 [**getMyServices**](ServiceControllerApi.md#getmyservices) | **GET** /api/v1/independent-masters/me/services | List my own active services
 [**getSalonMasterServices**](ServiceControllerApi.md#getsalonmasterservices) | **GET** /api/v1/salons/{salonId}/masters/{masterId}/services | 
@@ -22,7 +23,7 @@ Method | HTTP request | Description
 [**unassignServiceFromMaster**](ServiceControllerApi.md#unassignservicefrommaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [**updateMasterServiceBand**](ServiceControllerApi.md#updatemasterserviceband) | **PATCH** /api/v1/salons/{salonId}/masters/{masterId}/services/{serviceDefId} | 
 [**updateServiceDefinition**](ServiceControllerApi.md#updateservicedefinition) | **PATCH** /api/v1/services/{serviceDefId} | 
-[**updateServicePhoto**](ServiceControllerApi.md#updateservicephoto) | **PATCH** /api/v1/services/{serviceDefId}/photo | 
+[**uploadServicePhoto**](ServiceControllerApi.md#uploadservicephoto) | **POST** /api/v1/services/{serviceDefId}/photo | 
 
 
 # **addIndependentMasterService**
@@ -260,6 +261,46 @@ try {
     api.deactivateServiceDefinition(serviceDefId);
 } catch on DioException (e) {
     print('Exception when calling ServiceControllerApi->deactivateServiceDefinition: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **serviceDefId** | **String**|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **deleteServicePhoto**
+> deleteServicePhoto(serviceDefId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getServiceControllerApi();
+final String serviceDefId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    api.deleteServicePhoto(serviceDefId);
+} catch on DioException (e) {
+    print('Exception when calling ServiceControllerApi->deleteServicePhoto: $e\n');
 }
 ```
 
@@ -588,8 +629,8 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
-# **updateServicePhoto**
-> ApiResponseServiceDefinitionResponse updateServicePhoto(serviceDefId, updateServicePhotoRequest)
+# **uploadServicePhoto**
+> ApiResponseServiceDefinitionResponse uploadServicePhoto(serviceDefId, file)
 
 
 
@@ -599,13 +640,13 @@ import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getServiceControllerApi();
 final String serviceDefId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
-final UpdateServicePhotoRequest updateServicePhotoRequest = ; // UpdateServicePhotoRequest | 
+final MultipartFile file = BINARY_DATA_HERE; // MultipartFile | 
 
 try {
-    final response = api.updateServicePhoto(serviceDefId, updateServicePhotoRequest);
+    final response = api.uploadServicePhoto(serviceDefId, file);
     print(response);
 } catch on DioException (e) {
-    print('Exception when calling ServiceControllerApi->updateServicePhoto: $e\n');
+    print('Exception when calling ServiceControllerApi->uploadServicePhoto: $e\n');
 }
 ```
 
@@ -614,7 +655,7 @@ try {
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **serviceDefId** | **String**|  | 
- **updateServicePhotoRequest** | [**UpdateServicePhotoRequest**](UpdateServicePhotoRequest.md)|  | 
+ **file** | **MultipartFile**|  | 
 
 ### Return type
 
@@ -626,7 +667,7 @@ No authorization required
 
 ### HTTP request headers
 
- - **Content-Type**: application/json
+ - **Content-Type**: multipart/form-data
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

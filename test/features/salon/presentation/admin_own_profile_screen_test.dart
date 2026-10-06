@@ -68,6 +68,8 @@ import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -295,6 +297,7 @@ class _TwoUnread extends UnreadNotifications {
 }
 
 void main() {
+  _identityAvatarTests();
   // Phase 365 addendum — the global notification bell, left of the tune button.
   group('notification bell in the header (phase 365 addendum)', () {
     GoRouter bellRouter() => GoRouter(
@@ -2029,4 +2032,71 @@ class _VisibilityHostState extends State<_VisibilityHost> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 367 (9.6) — the identity card carries the OWN avatar with the live
+// camera badge (the shared `SelfAvatarEditor`), sourced from the session user.
+// ---------------------------------------------------------------------------
+
+class _AvatarAuth extends AuthNotifier {
+  _AvatarAuth(this._u);
+  final User _u;
+  @override
+  Future<AuthSession> build() async =>
+      AuthSession.authenticated(user: _u, accessToken: 't');
+}
+
+void _identityAvatarTests() {
+  const String url = 'https://media.test/avatars/u1/1.jpg';
+  final Finder editor = find.descendant(
+    of: find.byKey(const Key('admin-own-profile-avatar-editor')),
+    matching: find.byType(NeumorphicAvatarEditor),
+    matchRoot: true,
+  );
+
+  group('identity avatar (Phase 367)', () {
+    for (final String? avatar in <String?>[url, null]) {
+      testWidgets('session avatar ${avatar ?? 'null'} -> '
+          '${avatar == null ? 'monogram' : 'photo'} + a live camera badge', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const AdminOwnProfileScreen(embedded: true),
+          overrides: <Object>[
+            ..._overrides(_admin),
+            authProvider.overrideWith(
+              () => _AvatarAuth(_admin.copyWith(avatarUrl: avatar)),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final NeumorphicAvatarEditor e = tester.widget<NeumorphicAvatarEditor>(
+          editor,
+        );
+        expect(e.imageUrl, avatar);
+        expect(
+          e.state,
+          avatar == null ? AvatarEditState.pristine : AvatarEditState.loaded,
+        );
+        expect(e.initials, 'ІА');
+        expect(
+          find.byType(ProfileAvatar),
+          findsNothing,
+          reason: 'own profile: no read-only well',
+        );
+        expect(find.byKey(const Key('avatar-edit-badge')), findsOneWidget);
+
+        // The badge is live: it opens the 071 source sheet.
+        await tester.tap(find.byKey(const Key('avatar-edit-badge')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+        expect(
+          find.byKey(const Key('image-source-remove')),
+          avatar == null ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+  });
 }

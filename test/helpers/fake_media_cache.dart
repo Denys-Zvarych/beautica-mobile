@@ -70,9 +70,14 @@ Stream<FileResponse> mediaFetchError(String url) =>
 /// The bytes live in a [MemoryFileSystem], so the decode path
 /// (`FileInfo.file.readAsBytes()` in cached_network_image's ImageLoader)
 /// reads real bytes with no disk I/O.
-Stream<FileResponse> mediaLoaded(String url) {
+Stream<FileResponse> mediaLoaded(String url) =>
+    mediaLoadedWith(url, kTransparentPng);
+
+/// Like [mediaLoaded] but serving caller-supplied image bytes (goldens use a
+/// visible solid colour so a rendered image is distinguishable from fallback).
+Stream<FileResponse> mediaLoadedWith(String url, Uint8List bytes) {
   final file = MemoryFileSystem().file('/${url.hashCode}.png')
-    ..writeAsBytesSync(kTransparentPng);
+    ..writeAsBytesSync(bytes);
   return Stream<FileResponse>.value(
     FileInfo(
       file,

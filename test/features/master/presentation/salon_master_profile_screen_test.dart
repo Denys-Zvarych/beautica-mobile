@@ -22,6 +22,21 @@
 // Finders use widget Keys, never localized/Cyrillic strings (M2).
 
 import 'dart:async';
+import 'dart:io';
+
+import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/core/media/upload/upload_task.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -39,6 +54,7 @@ import 'package:beautica_mobile/features/master/application/master_reviews_notif
 import 'package:beautica_mobile/features/master/application/salon_master_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -55,6 +71,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/media/pick/scripted_pick_gateway.dart';
+import '../../../helpers/avatar_badge_geometry.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 
 const Master _master = Master(
@@ -229,8 +248,23 @@ final List<Finder> _salonAddressFinders = <Finder>[
   find.byKey(const Key('salon-master-profile-salon-address-combined-text')),
 ];
 
+/// The settled `GET /masters/me` the identity card's avatar reads (Phase
+/// 367: the loader record is avatar-stripped, so the photo comes from
+/// `masterProfileProvider` directly).
+class _SettledMasterProfile extends MasterProfile {
+  _SettledMasterProfile(this.master);
+  final Master master;
+
+  @override
+  Future<Master> build() async => master;
+}
+
+Object _settledMaster(Master master) =>
+    masterProfileProvider.overrideWith(() => _SettledMasterProfile(master));
+
 List<Object> _overrides(SalonMasterOwnProfileData data) => <Object>[
   salonMasterOwnProfileProvider.overrideWith((Ref ref) async => data),
+  _settledMaster(data.$1),
   approvedCategoriesProvider.overrideWith(
     (Ref ref) async => const <ServiceCategoryOption>[],
   ),
@@ -258,6 +292,7 @@ void main() {
       await tester.pumpApp(
         const SalonMasterProfileScreen(),
         overrides: <Object>[
+          _settledMaster(_master),
           salonMasterOwnProfileProvider.overrideWith(
             (Ref ref) => pending.future,
           ),
@@ -307,6 +342,7 @@ void main() {
       await tester.pumpApp(
         const SalonMasterProfileScreen(),
         overrides: <Object>[
+          _settledMaster(_master),
           salonMasterOwnProfileProvider.overrideWith((Ref ref) async {
             attempt++;
             if (attempt == 1) throw const ServerFailure();
@@ -1232,5 +1268,264 @@ void main() {
         expect(find.byKey(const Key('stub-services')), findsNothing);
       },
     );
+  });
+
+  // Phase 367 fix — the own-avatar camera badge (and its 12 dp shadow blur)
+  // ran into the salon / pin rows at 320 dp × 1.3 once the column grew down
+  // to it.
+  group('identity card — avatar badge clears the text column', () {
+    testWidgets('salon name + address at 320dp × textScaler 1.3', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: _overrides((_master, _services, _salon)),
+        width: 320,
+        textScaleFactor: 1.3,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('salon-master-profile-salon-name')),
+        findsOneWidget,
+        reason:
+            'the salon row must render, or the column is too short to '
+            'reach the badge and the guard is vacuous',
+      );
+      expectBadgeClearsTextColumn(
+        tester,
+        editorKey: const Key('salon-master-profile-avatar-editor'),
+        nameKey: const Key('salon-master-profile-name'),
+      );
+    });
+  });
+
+  _avatarUploadNoReloadTests();
+}
+
+// ---------------------------------------------------------------------------
+// Phase 367 fix — an own-avatar upload must NOT reload the salon-master
+// loader. Mirrors `owner_own_profile_screen_test.dart`'s frame-by-frame test;
+// here the photo itself is read from the master row (`masterProfileProvider`),
+// so the test also pins that the NEW photo renders.
+// ---------------------------------------------------------------------------
+
+class _MockServiceRepository extends Mock implements ServiceRepository {}
+
+class _MockSalonRepository extends Mock implements SalonRepository {}
+
+const User _salonMasterUser = User(
+  id: 'u-9',
+  email: 'master@beautica.test',
+  role: UserRole.salonMaster,
+  firstName: 'Ірина',
+  lastName: 'Бондар',
+);
+
+class _AvatarAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async =>
+      const AuthSession.authenticated(user: _salonMasterUser, accessToken: 't');
+}
+
+/// `/masters/me` that records every build — a refetch shows up in [log].
+class _CountingMasterProfile extends MasterProfile {
+  _CountingMasterProfile(this.log, this.master);
+
+  final List<String> log;
+  final Master master;
+
+  @override
+  Future<Master> build() async {
+    log.add('masters/me');
+    return master;
+  }
+}
+
+/// `POST /media/avatar` whose result the test completes by hand.
+class _HeldUploads implements MediaUploadRepository {
+  final List<File> uploaded = <File>[];
+  final Completer<String> result = Completer<String>();
+
+  @override
+  UploadTask<String> uploadAvatar(File file) {
+    uploaded.add(file);
+    return UploadTask<String>(
+      progress: const Stream<double>.empty(),
+      result: result.future,
+      onCancel: () {},
+    );
+  }
+
+  @override
+  Future<void> deleteAvatar() async {}
+
+  // Phase 369 — salon logo / cover: not exercised by this file.
+  @override
+  UploadTask<String> uploadSalonImage(
+    String salonId,
+    SalonImageSlot slot,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) =>
+      throw UnimplementedError();
+}
+
+void _avatarUploadNoReloadTests() {
+  const String oldUrl = 'https://media.test/avatars/u9/old.jpg';
+  const String newUrl = 'https://media.test/avatars/u9/new.jpg';
+
+  group('own-avatar upload keeps the loaded body (Phase 367 fix)', () {
+    testWidgets('the skeleton never appears between the upload completing and '
+        'the new photo rendering; nothing is refetched', (tester) async {
+      final Directory scratch = Directory.systemTemp.createTempSync('sm_av');
+      final Directory outside = Directory.systemTemp.createTempSync('sm_av_o');
+      addTearDown(() {
+        scratch.deleteSync(recursive: true);
+        outside.deleteSync(recursive: true);
+      });
+      final ScriptedPickGateway gw = ScriptedPickGateway(
+        scratch: scratch,
+        outside: outside,
+      );
+      final _HeldUploads uploads = _HeldUploads();
+      final List<String> log = <String>[];
+
+      // FALSIFIER: the first services / salon read answers; any later one
+      // PARKS forever. A loader rebuilt by the avatar patch would re-issue
+      // them and sit in `AsyncLoading` — the skeleton — on every frame below.
+      final serviceRepo = _MockServiceRepository();
+      var servicesCalls = 0;
+      when(() => serviceRepo.getMasterServices(any())).thenAnswer((_) {
+        servicesCalls++;
+        return servicesCalls == 1
+            ? Future<List<MasterService>>.value(_services)
+            : Completer<List<MasterService>>().future;
+      });
+      final salonRepo = _MockSalonRepository();
+      var salonCalls = 0;
+      when(() => salonRepo.getSalonById(any())).thenAnswer((_) {
+        salonCalls++;
+        return salonCalls == 1
+            ? Future<Salon>.value(_salon)
+            : Completer<Salon>().future;
+      });
+
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: <Object>[
+          authProvider.overrideWith(_AvatarAuth.new),
+          // cycle-stub-ok: leaf data dep of the loader under test.
+          masterProfileProvider.overrideWith(
+            () => _CountingMasterProfile(
+              log,
+              _master.copyWith(avatarUrl: oldUrl),
+            ),
+          ),
+          publicServiceRepositoryProvider.overrideWithValue(serviceRepo),
+          salonRepositoryProvider.overrideWithValue(salonRepo),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gw, tempDir: () async => scratch),
+          ),
+          mediaUploadRepositoryProvider.overrideWithValue(uploads),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+        ],
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('salon-master-profile-name')),
+        findsOneWidget,
+      );
+      expect((servicesCalls, salonCalls), (1, 1));
+      expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+
+      final Finder editor = find.descendant(
+        of: find.byKey(const Key('salon-master-profile-avatar-editor')),
+        matching: find.byType(NeumorphicAvatarEditor),
+        matchRoot: true,
+      );
+      expect(
+        tester.widget<NeumorphicAvatarEditor>(editor).imageUrl,
+        oldUrl,
+        reason:
+            'the photo is read from masterProfileProvider, not the '
+            'avatar-stripped loader record',
+      );
+
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonMasterProfileScreen)),
+      );
+      final List<AsyncValue<SalonMasterOwnProfileData>> states =
+          <AsyncValue<SalonMasterOwnProfileData>>[];
+      final ProviderSubscription<AsyncValue<SalonMasterOwnProfileData>> sub =
+          container.listen(
+            salonMasterOwnProfileProvider,
+            (_, AsyncValue<SalonMasterOwnProfileData> next) => states.add(next),
+          );
+      addTearDown(sub.close);
+
+      // The pick / crop / compress steps do real file IO, so the flow runs
+      // in the real zone; frames are pumped between its event-loop turns.
+      AvatarChangeResult? result;
+      await tester.runAsync(() async {
+        unawaited(
+          container
+              .read(avatarUploadControllerProvider.notifier)
+              .change(ImageSourceChoice.gallery)
+              .then((AvatarChangeResult r) => result = r),
+        );
+        for (var i = 0; i < 5000 && uploads.uploaded.isEmpty; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      });
+      expect(uploads.uploaded, hasLength(1), reason: 'sanity: upload started');
+      await tester.pump();
+
+      uploads.result.complete(newUrl);
+
+      var frames = 0;
+      while (true) {
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+        // fixed-wait-ok: one 16 ms FRAME per iteration — the test asserts on
+        // every frame; the loop itself waits on the condition below.
+        await tester.pump(const Duration(milliseconds: 16));
+        frames++;
+        expect(
+          find.byType(SkeletonBlock),
+          findsNothing,
+          reason: 'frame $frames: the loading skeleton flashed',
+        );
+        expect(find.byType(ErrorState), findsNothing);
+        expect(
+          find.byKey(const Key('salon-master-profile-name')),
+          findsOneWidget,
+        );
+        final NeumorphicAvatarEditor e = tester.widget(editor);
+        if (result != null && e.imageUrl == newUrl && e.previewFile == null) {
+          break;
+        }
+        if (frames > 400) fail('the new photo never rendered');
+      }
+
+      expect(result, isA<AvatarChangeSucceeded>());
+      expect(
+        container.read(masterProfileProvider).value?.avatarUrl,
+        newUrl,
+        reason: 'the cached master row is patched in place',
+      );
+      expect(
+        states.where((AsyncValue<SalonMasterOwnProfileData> s) => s.isLoading),
+        isEmpty,
+        reason: 'an avatar-only patch must not rebuild the salon-master loader',
+      );
+      expect((servicesCalls, salonCalls), (1, 1), reason: 'no refetch');
+      expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+    });
   });
 }

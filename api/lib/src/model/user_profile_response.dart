@@ -36,6 +36,7 @@ part 'user_profile_response.g.dart';
 /// * [hasMasterProfile]
 /// * [citySettlementType] - Kind of the saved settlement (cityId); null when no cityId is set.
 /// * [cityHromadaNameUk] - Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise.
+/// * [avatarUrl] - The caller's own avatar URL (https); null when no avatar is set. Written only via /api/v1/media/avatar.
 @BuiltValue()
 abstract class UserProfileResponse
     implements Built<UserProfileResponse, UserProfileResponseBuilder> {
@@ -113,6 +114,10 @@ abstract class UserProfileResponse
   /// Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise.
   @BuiltValueField(wireName: r'cityHromadaNameUk')
   String? get cityHromadaNameUk;
+
+  /// The caller's own avatar URL (https); null when no avatar is set. Written only via /api/v1/media/avatar.
+  @BuiltValueField(wireName: r'avatarUrl')
+  String? get avatarUrl;
 
   UserProfileResponse._();
 
@@ -312,6 +317,13 @@ class _$UserProfileResponseSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.avatarUrl != null) {
+      yield r'avatarUrl';
+      yield serializers.serialize(
+        object.avatarUrl,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -507,6 +519,14 @@ class _$UserProfileResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.cityHromadaNameUk = valueDes;
+          break;
+        case r'avatarUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.avatarUrl = valueDes;
           break;
         default:
           unhandled.add(key);

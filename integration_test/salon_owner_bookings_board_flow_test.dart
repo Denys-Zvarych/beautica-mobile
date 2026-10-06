@@ -62,6 +62,8 @@
 // after the drill-in, not the location string, per this repo's
 // literal-before-dynamic go_router shadowing trap.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
@@ -81,7 +83,9 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
 
 /// The owner's OWN primary salon — the id `roleHomePath` lands them on, and
@@ -221,8 +225,19 @@ Future<void> _landOnSalonBoard(
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so the column chips render the roster's master photos
+    // (the real cache manager needs path_provider/sqflite).
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   testWidgets(
     'SALON_OWNER logs in, taps «Записи» in their own salon shell, sees the '
@@ -376,6 +391,24 @@ void main() {
             const ValueKey<String>('salon-bookings-column-chip-master-ccc'),
           ),
           findsOneWidget,
+        );
+        // Phase 9.7 — the column chip renders the roster master's photo
+        // (`SalonMasterSummary.avatarUrl` → `MasterColumnEntry.imageUrl` →
+        // the chip's badge); master-ddd has none and keeps the glyph.
+        expect(
+          renderedImageUrls(
+            tester,
+            within: find.byKey(
+              const ValueKey<String>('salon-bookings-column-chip-master-aaa'),
+            ),
+          ),
+          <String>['https://media.test/avatars/master-aaa.png'],
+        );
+        expectAvatarFallback(
+          tester,
+          find.byKey(
+            const ValueKey<String>('salon-bookings-column-chip-master-ddd'),
+          ),
         );
         // Both masters' cards, by id — data binding, not a smoke check.
         expect(
@@ -1803,6 +1836,115 @@ void main() {
         expect(
           find.byType(MasterArchiveScreen, skipOffstage: false),
           findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ── 2026-10-05: STAFF roster, not the public (bookable-only) one ─────────
+  //
+  // The backend narrows the PUBLIC `GET /salons/{id}/masters` rail to masters
+  // with a bookable future slot, so a client never sees a non-bookable
+  // owner-master. A master whose schedule was cleared drops off that rail
+  // while still holding CONFIRMED bookings — and the owner's board must keep
+  // their column. The board therefore reads its roster from the management
+  // `GET /salons/{id}/staff` (`salonStaffMastersRosterProvider`).
+  //
+  // The fake serves the two endpoints DIFFERENTLY here: [_kStaffOnlyMasterId]
+  // is seeded onto `/staff` only and appears in NO public `/masters` fixture.
+  // A board still reading `salonMastersRosterProvider` draws no column for
+  // them (mutation-proved).
+  testWidgets(
+    'a master on /staff but NOT on the public /masters rail keeps a board '
+    'column and their CONFIRMED card',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        const String kStaffOnlyMasterId = 'master-staff-only';
+        final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        // FIRST row, so their column is the board's first (on-screen at
+        // 800dp — the card finder below needs the column BUILT).
+        fb.salonStaff.insert(0, <String, dynamic>{
+          'userId': 'user-master-staff-only',
+          'masterId': kStaffOnlyMasterId,
+          'role': 'SALON_OWNER',
+          'firstName': 'Ганна',
+          'lastName': 'Безрозкладна',
+          'professionalTitle': null,
+          'avatarUrl': null,
+          'phoneNumber': '+380671234567',
+          'instagram': null,
+          'bio': null,
+          'avgRating': null,
+          'reviewCount': 0,
+          'serviceCount': 1,
+        });
+
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        // Seeded after boot — see the first flow's comment on [_atKyivHour].
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'staff-only-booking',
+            masterId: kStaffOnlyMasterId,
+            masterFirstName: 'Ганна',
+            masterLastName: 'Безрозкладна',
+            startsAt: _atKyivHour(11, 0),
+          ),
+          fb.salonBoardBookingRow(
+            id: 'public-master-booking',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+          ),
+        ];
+
+        await _landOnSalonBoard(tester, fb, router);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(MasterColumnStrip),
+          timeout: const Duration(seconds: 20),
+        );
+
+        expect(
+          fb.getSalonStaffCallsById[_kSalonId] ?? 0,
+          greaterThan(0),
+          reason: 'the board roster must come from GET /salons/{id}/staff',
+        );
+        final List<String> columns = _renderedMasterIds(tester);
+        expect(
+          columns,
+          contains(kStaffOnlyMasterId),
+          reason:
+              'a /staff-only (not publicly bookable) master must keep a '
+              'column on the staff board',
+        );
+        expect(
+          columns,
+          contains('master-aaa'),
+          reason: 'positive control — a publicly-listed master is drawn too',
+        );
+        expect(
+          columns,
+          isNot(contains('admin-zzz')),
+          reason: 'an admin has no master row and never gets a column',
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>(
+              'salon-bookings-column-chip-$kStaffOnlyMasterId',
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('timeline-card-staff-only-booking'),
+          ),
+          findsOneWidget,
+          reason:
+              "the /staff-only master's CONFIRMED booking stays on the "
+              'board',
         );
         expect(tester.takeException(), isNull);
       });

@@ -1014,6 +1014,7 @@ class _Body extends StatelessWidget {
                 avatarGradient: _avatarGradient(
                   staticModel.eligibleIndex[m.masterId] ?? i,
                 ),
+                avatarImageUrl: m.avatarUrl,
                 pickListenable: pickListenable,
                 onTap: () => onToggleMaster(m.masterId),
               );
@@ -1092,6 +1093,7 @@ class _MasterPickRowListener extends StatefulWidget {
     required this.avatarGradient,
     required this.pickListenable,
     required this.onTap,
+    this.avatarImageUrl,
   });
 
   final String masterId;
@@ -1104,6 +1106,7 @@ class _MasterPickRowListener extends StatefulWidget {
   /// The selected services this master covers, e.g. "Манікюр · Педикюр".
   final String covered;
   final List<Color> avatarGradient;
+  final String? avatarImageUrl;
   final ValueListenable<_PickState> pickListenable;
   final VoidCallback onTap;
 
@@ -1155,6 +1158,7 @@ class _MasterPickRowListenerState extends State<_MasterPickRowListener> {
       reviewCount: widget.reviewCount,
       covered: widget.covered,
       avatarGradient: widget.avatarGradient,
+      avatarImageUrl: widget.avatarImageUrl,
       selected: _selected,
       onTap: widget.onTap,
     );
@@ -1253,6 +1257,7 @@ class _MasterPickRow extends StatefulWidget {
     required this.avatarGradient,
     required this.selected,
     required this.onTap,
+    this.avatarImageUrl,
   });
 
   final String name;
@@ -1264,6 +1269,7 @@ class _MasterPickRow extends StatefulWidget {
   /// The selected services this master covers, e.g. "Манікюр · Педикюр".
   final String covered;
   final List<Color> avatarGradient;
+  final String? avatarImageUrl;
   final bool selected;
   final VoidCallback onTap;
 
@@ -1331,6 +1337,7 @@ class _MasterPickRowState extends State<_MasterPickRow> {
                         showRole: true,
                         showRating: true,
                         avatarGradient: widget.avatarGradient,
+                        avatarImageUrl: widget.avatarImageUrl,
                         avatarBordered: true,
                       ),
                     ),

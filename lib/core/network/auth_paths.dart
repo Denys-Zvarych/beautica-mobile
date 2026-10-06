@@ -166,6 +166,10 @@ const List<String> kPiiPathPrefixes = <String>[
   // Service update / delete / photo carry a dynamic {serviceDefId} segment and
   // free-text names, so they cannot live in the exact-match [kPiiPaths].
   '/api/v1/services/',
+  // Phase 070 — media upload / delete (`/media/avatar`, `/media/portfolio[/{id}]`).
+  // Multipart bodies are binary photos of people and the success response
+  // carries user-id-bearing object URLs; neither belongs in plain-text logs.
+  '/api/v1/media/',
   // Service-type autocomplete echoes the user's typed free-text query.
   '/api/v1/service-types/suggest',
   // Phase 14.0 — CLIENT booking read/write endpoints. Covers

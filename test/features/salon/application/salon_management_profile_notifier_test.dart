@@ -29,6 +29,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -303,6 +305,163 @@ void main() {
       // rendered as a generic "unknown error" regardless of the real
       // network/server/unauthorized cause.
       expect(state.error, isA<NetworkFailure>());
+    });
+  });
+
+  // ── patchImage() — only a SETTLED AsyncData is patchable ────────────────
+  //
+  // Phase 369 audit (MASVS-AUTH LOW, defence in depth): `patchImage` used to
+  // read `state.value`, which keeps the PREVIOUS snapshot through a refetch
+  // or an error, and wrote `AsyncData` back — promoting a stale snapshot to
+  // "resolved" and, on the error path, HIDING the real `AsyncError` behind
+  // patched stale data. Each non-settled case pins BOTH halves: the return is
+  // `false` AND the state keeps its loading / error shape with the URL
+  // un-patched (the stale-promotion bug passed neither).
+  group('patchImage() — only a settled AsyncData is patchable', () {
+    const String kNewLogo = 'https://cdn.beautica.ua/salons/new-logo.webp';
+    final provider = salonManagementProfileProvider(_kSalonId);
+
+    ProviderContainer makeContainer(AuthNotifier Function() auth) {
+      final container = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          authProvider.overrideWith(auth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+      final sub = container.listen(provider, (_, _) {});
+      addTearDown(sub.close);
+      return container;
+    }
+
+    Future<void> settle(ProviderContainer container) async {
+      await container.read(authProvider.future);
+      await container.read(provider.future);
+      expect(container.read(provider).value?.$1.avatarUrl, isNull);
+    }
+
+    setUp(() {
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+    });
+
+    test(
+      'plain AsyncData: patches the logo in place and returns true',
+      () async {
+        when(
+          () => repo.getSalonById(_kSalonId),
+        ).thenAnswer((_) async => _freshSalon);
+        final container = makeContainer(_StubAuthAuthenticated.new);
+        await settle(container);
+
+        final bool patched = container
+            .read(provider.notifier)
+            .patchImage(SalonImageSlot.logo, kNewLogo);
+
+        expect(patched, isTrue);
+        final state = container.read(provider);
+        expect(state, isA<AsyncData<SalonManagementProfileData>>());
+        expect(state.isLoading, isFalse);
+        expect(state.value?.$1.avatarUrl, kNewLogo);
+      },
+    );
+
+    test('refreshing (AsyncData + isLoading, stale value): returns false and '
+        'the state stays loading, un-patched', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final container = makeContainer(_StubAuthAuthenticated.new);
+      await settle(container);
+
+      final Completer<Salon> pending = Completer<Salon>();
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) => pending.future);
+      container.invalidate(provider);
+      container.read(provider);
+      expect(container.read(provider).isLoading, isTrue);
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state.isLoading, isTrue);
+      expect(state.value?.$1.avatarUrl, isNull);
+    });
+
+    test('reloading after an identity change (AsyncLoading carrying the '
+        "previous account's value): returns false and stays loading", () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final auth = _ControllableAuthAuthenticated();
+      final container = makeContainer(() => auth);
+      await settle(container);
+
+      final Completer<Salon> pending = Completer<Salon>();
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) => pending.future);
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'owner-2',
+            email: 'owner-2@beautica.ua',
+            role: UserRole.salonOwner,
+          ),
+          accessToken: 'tok-2',
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(provider).isLoading, isTrue);
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state, isNot(isA<AsyncData<SalonManagementProfileData>>()));
+      expect(state.isLoading, isTrue);
+      expect(state.value?.$1.avatarUrl, isNull);
+    });
+
+    test('AsyncError carrying a stale value: returns false and the error is '
+        'NOT hidden behind patched stale data', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final container = makeContainer(_StubAuthAuthenticated.new);
+      await settle(container);
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      container.invalidate(provider);
+      container.read(provider);
+      await pumpEventQueue();
+      expect(
+        container.read(provider),
+        isA<AsyncError<SalonManagementProfileData>>(),
+      );
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state, isA<AsyncError<SalonManagementProfileData>>());
+      expect(state.error, isA<NetworkFailure>());
+      expect(state.value?.$1.avatarUrl, isNull);
     });
   });
 

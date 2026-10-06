@@ -117,6 +117,18 @@ final class RefreshInterceptor extends Interceptor {
       return;
     }
 
+    // A single-use body cannot be replayed: `FormData` is finalised on first
+    // send, so `_dio.fetch(opts)` would throw a StateError (surfacing as
+    // DioException.unknown) and the caller would never see the real 401. The
+    // token IS refreshed (above); hand the original 401 back so the caller —
+    // which owns the file and can rebuild a fresh body, e.g.
+    // `HttpMediaUploadRepository` — re-sends once with the new token. JSON
+    // bodies (Map/String/null) are replayable and take the normal path below.
+    if (opts.data is FormData || opts.data is Stream) {
+      handler.next(err);
+      return;
+    }
+
     // Replay the original request with the updated token.
     //
     // NOTE — this header is authoritative only for paths [AuthInterceptor]

@@ -420,6 +420,8 @@ void main() {
       // reusing the CLIENT editor screens via `doneRoute`.
       'adminEditPersonal': RouteNames.adminEditPersonal,
       'adminEditContacts': RouteNames.adminEditContacts,
+      // Phase 367 — the owner's «Особисті дані» (same reused screen).
+      'ownerEditPersonal': RouteNames.ownerEditPersonal,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

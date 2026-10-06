@@ -3,7 +3,7 @@
 // Loads the target service via [serviceByIdProvider] (cache-first). When data
 // is available, wraps [ServiceForm] in the same EditScaffold chrome used by
 // [MasterEditScreen]: fixed top bar (cancel icon + centred title), scrollable
-// form body, [ServicePhotoSlot] above the fields.
+// form body (no photo slot — services carry no custom photos).
 //
 // On successful save:
 //   1. Calls [ServiceRepository.update] via [serviceRepositoryProvider].
@@ -33,7 +33,6 @@ import 'package:beautica_mobile/features/services/presentation/service_by_id_not
 import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_form.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/unsaved_changes_dialog.dart';
-import 'package:beautica_mobile/features/services/presentation/widgets/service_photo_slot.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -336,7 +335,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
 }
 
 // ---------------------------------------------------------------------------
-// Loaded body — EditScaffold chrome + ServicePhotoSlot + ServiceForm
+// Loaded body — EditScaffold chrome + ServiceForm
 // ---------------------------------------------------------------------------
 
 class _EditBody extends StatefulWidget {
@@ -403,14 +402,12 @@ class _EditBodyState extends State<_EditBody>
   // Staggered entrance animation — mirrors the approved preview app's
   // orchestrated fade-up that builds the form rather than snapping it in flat.
   late final AnimationController _enter;
-  late final CurvedAnimation _photoCurve;
   late final CurvedAnimation _formCurve;
 
-  // PERF MEDIUM-1 fix: Pre-built Animation<Offset> instances so _reveal() never
+  // PERF MEDIUM-1 fix: Pre-built Animation<Offset> instance so _reveal() never
   // allocates a new Tween+_AnimatedEvaluation on each build frame during the
   // 1000 ms entrance animation. Pattern mirrors _MasterProfileScreenState
   // (_slide0.._slide5) in master_profile_screen.dart.
-  late final Animation<Offset> _photoSlide;
   late final Animation<Offset> _formSlide;
 
   @override
@@ -420,11 +417,6 @@ class _EditBodyState extends State<_EditBody>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..forward();
-    // Photo slot: 0.04 → 0.46; form: 0.0 → 1.0.
-    _photoCurve = CurvedAnimation(
-      parent: _enter,
-      curve: const Interval(0.04, 0.46, curve: Curves.easeOutCubic),
-    );
     _formCurve = CurvedAnimation(
       parent: _enter,
       curve: const Interval(0.0, 1.0, curve: Curves.easeOutCubic),
@@ -432,10 +424,6 @@ class _EditBodyState extends State<_EditBody>
     // Derive the slide animations once from their parent CurvedAnimation.
     // Animation<Offset> instances do not own resources and need no dispose().
     const slideBegin = Offset(0, 0.04);
-    _photoSlide = Tween<Offset>(
-      begin: slideBegin,
-      end: Offset.zero,
-    ).animate(_photoCurve);
     _formSlide = Tween<Offset>(
       begin: slideBegin,
       end: Offset.zero,
@@ -444,7 +432,6 @@ class _EditBodyState extends State<_EditBody>
 
   @override
   void dispose() {
-    _photoCurve.dispose();
     _formCurve.dispose();
     _enter.dispose();
     super.dispose();
@@ -552,19 +539,6 @@ class _EditBodyState extends State<_EditBody>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      // Cover-photo slot (placeholder tap — Phase 9.x wires real upload).
-                      _reveal(
-                        _photoCurve,
-                        _photoSlide,
-                        const ServicePhotoSlot(
-                          key: Key('service-photo-slot'),
-                          // imageUrl: widget.service.photoUrl (Phase 9.x)
-                          // onTap is null → slot shows empty state, not interactive
-                          // until Phase 9.x wires up the real picker.
-                        ),
-                      ),
-                      const SizedBox(height: VelvetSpacing.lg),
-
                       // ServiceForm with pre-populated values + dirty-state badge.
                       _reveal(
                         _formCurve,

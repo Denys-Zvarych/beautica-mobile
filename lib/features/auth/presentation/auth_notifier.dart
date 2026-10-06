@@ -39,8 +39,10 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/errors/auth_rejection.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/media/beautica_image.dart';
+import '../../../core/media/pick/media_pick_service.dart';
 import '../../../core/push/push_session_hooks.dart';
 import '../../../core/security/screen_protection.dart';
+import '../../../core/state/settled_value.dart';
 import '../../../core/time/clock_provider.dart';
 import '../../../core/storage/secure_storage.dart';
 import '../../../core/storage/secure_storage_provider.dart';
@@ -448,6 +450,7 @@ class AuthNotifier extends _$AuthNotifier {
       }
       await storage.deleteAll(); // clean up stale token
       _revokePushLocally();
+      _wipeMediaScratch();
       return const AuthSession.unauthenticated();
     }
 
@@ -518,6 +521,7 @@ class AuthNotifier extends _$AuthNotifier {
       if (rejected) {
         await storage.deleteAll();
         _revokePushLocally();
+        _wipeMediaScratch();
       }
       _lastKnownAccessToken = null;
       return const AuthSession.unauthenticated();
@@ -1246,6 +1250,37 @@ class AuthNotifier extends _$AuthNotifier {
     }
   }
 
+  /// Phase 367 — writes the user's own new avatar [url] (null = removed) into
+  /// the settled session [User] in place, with no `GET /users/me` refetch.
+  ///
+  /// Mirrors `MasterProfile.patchAvatarUrl`: `POST`/`DELETE /media/avatar`
+  /// already answers with the new state, so a refetch would be pure waste.
+  /// The access token is preserved exactly as [refreshUser] does. Returns
+  /// `false` (and changes nothing) when the session is not settled
+  /// [Authenticated] — there is no user to patch.
+  ///
+  /// SETTLED means [settledValueOrNull], never the lenient `.value`
+  /// (2026-10-05). `.value` keeps a `copyWithPrevious`-attached stale
+  /// [Authenticated] through an `AsyncLoading` (mid-login / mid-logout), an
+  /// `AsyncError` (a failed re-fetch) and a seamless refresh's in-flight
+  /// `AsyncData`; writing a fresh `AsyncData` built from it PROMOTED that
+  /// stale session to settled — reopening [authUserRoleSettledOrNull] /
+  /// [authUserSalonIdSettledOrNull] for every write gate, and mid-logout
+  /// briefly resurrecting the session. An unsettled session is left exactly
+  /// as it is: whatever settles it next carries the server's own avatar.
+  bool patchAvatarUrl(String? url) {
+    final s = settledValueOrNull(state);
+    if (s is! Authenticated) return false;
+    if (s.user.avatarUrl == url) return true;
+    state = AsyncData(
+      AuthSession.authenticated(
+        user: s.user.copyWith(avatarUrl: url),
+        accessToken: s.accessToken,
+      ),
+    );
+    return true;
+  }
+
   /// Clears the session and wipes all tokens from secure storage.
   ///
   /// Makes a best-effort server-side revocation call via the repository before
@@ -1274,6 +1309,19 @@ class AuthNotifier extends _$AuthNotifier {
   /// The in-progress [logout], so a concurrent call (e.g. RefreshInterceptor's
   /// forced logout racing a user tap) joins it instead of running it twice.
   Future<void>? _logoutFuture;
+
+  /// Security (phase 071 audit, LOW; Phase 367 audit, LOW) — a picked/cropped
+  /// photo that was never `discard`ed (crash / kill mid-upload) sits in
+  /// `<tmp>/media_upload/`, and Android's lost-pick record survives too. Every
+  /// auth wipe — [logout] AND the two cold-start wipes in [build] (expired or
+  /// rejected refresh token) — deletes both, so the next account on a shared
+  /// device can neither find nor resume the previous one's photo.
+  /// Fire-and-forget: `wipeAll` never throws, and neither caller may gain an
+  /// await between the token wipe and the state flip. `mediaPickServiceProvider`
+  /// watches only the pick gateway — no `authProvider` back-edge, no cycle.
+  void _wipeMediaScratch() {
+    unawaited(ref.read(mediaPickServiceProvider).wipeAll());
+  }
 
   /// Phase 067 — a non-logout auth wipe (expired / rejected refresh token at
   /// cold start) leaves the device holding the previous user's FCM token.
@@ -1488,6 +1536,12 @@ class AuthNotifier extends _$AuthNotifier {
       // every other per-session UI notifier in this file that isn't listed
       // in the belt-and-braces NOTE below.
       ref.read(searchSuggestionCacheProvider).clear();
+      // Security (phase 071 audit, LOW) — a picked/cropped photo that was never
+      // `discard`ed (crash / kill mid-upload) sits in `<tmp>/media_upload/`.
+      // Wiped here so the next account on a shared device cannot find it.
+      // Fire-and-forget: `wipeAll` never throws and this method must stay
+      // free of extra awaits between the token wipe and the state flip.
+      _wipeMediaScratch();
       // Security (mobile-perf P2-1, 2026-09-07) — SECOND belt-and-braces
       // sweep, for the same reason the day-timeline one above is needed:
       // `WeeklyScheduleNotifier`/`EffectiveScheduleNotifier` are keyed on

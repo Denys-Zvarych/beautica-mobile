@@ -86,6 +86,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
@@ -286,7 +287,11 @@ class _SalonStaffProfileScreenState
       orElse: () => null,
     );
     final bool isOwner = ref.watch(isSalonOwnerProvider);
-    final String? currentUserId = ref.watch(currentUserProvider)?.id;
+    // NARROWED to the id (Phase 367 audit, mobile-perf LOW): the whole
+    // `currentUserProvider` User renotified on every own-avatar patch.
+    final String? currentUserId = ref.watch(
+      authProvider.select(authUserIdOrNull),
+    );
     final bool showMasterGear =
         member != null &&
         member.role == SalonStaffRole.master &&
@@ -471,7 +476,7 @@ class _StaffProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                const ProfileAvatar(),
+                ProfileAvatar(imageUrl: member.avatarUrl),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(

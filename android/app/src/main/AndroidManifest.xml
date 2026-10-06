@@ -75,6 +75,14 @@
                     android:pathPrefix="/invite/accept" />
             </intent-filter>
         </activity>
+        <!-- Phase 071: uCrop crop screen (image_cropper). No storage/camera
+             permission is declared anywhere: the Photo Picker and the camera
+             intent need none. -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Ucrop.Velvet"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -52,7 +52,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -80,6 +80,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../helpers/fake_salon_master_coverage.dart';
+import '../helpers/fake_salon_staff_masters_roster.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/test_container.dart';
@@ -198,7 +199,9 @@ void main() {
           // The screen's own data — never needs to SETTLE for this test
           // (which only asserts the resolved WIDGET TYPE), but must not
           // throw synchronously while building the provider graph.
-          salonMastersRosterProvider.overrideWith((ref, salonId) async => []),
+          salonStaffMastersRosterProvider.overrideWith(
+            () => FakeSalonStaffMastersRoster(() => []),
+          ),
           salonMasterServiceCoverageProvider.overrideWith(
             () => FakeSalonMasterServiceCoverage(
               () => salonCoverageOf(<String, Map<String, String>>{}),

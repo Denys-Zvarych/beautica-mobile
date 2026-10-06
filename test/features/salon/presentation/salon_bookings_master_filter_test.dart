@@ -224,14 +224,27 @@ void main() {
     ).thenAnswer((_) async => <DateTime>[DateTime(2026, 6, 15)]);
 
     when(
-      () => salonRepo.getSalonMasters(_salonId),
-    ).thenAnswer((_) async => _roster);
-    when(
       () => salonRepo.getSalonById(_salonId),
     ).thenAnswer((_) async => const Salon(id: _salonId, name: 'Салон'));
-    when(
-      () => salonRepo.getSalonStaff(_salonId),
-    ).thenAnswer((_) async => const <SalonStaffMember>[]);
+    // The board's roster — and so this filter's option universe — is the
+    // MANAGEMENT `/staff` roster's masters (2026-10-05), not the public
+    // `/masters` rail.
+    when(() => salonRepo.getSalonStaff(_salonId)).thenAnswer(
+      (_) async => <SalonStaffMember>[
+        for (final SalonMasterSummary m in _roster)
+          SalonStaffMember(
+            userId: 'user-${m.masterId}',
+            masterId: m.masterId,
+            role: SalonStaffRole.master,
+            masterType: m.type,
+            firstName: m.firstName,
+            lastName: m.lastName,
+            professionalTitle: m.professionalTitle,
+            avgRating: m.avgRating,
+            reviewCount: m.reviewCount,
+          ),
+      ],
+    );
     when(() => salonRepo.getMySalons()).thenAnswer(
       (_) async => <Salon>[const Salon(id: _salonId, name: 'Салон')],
     );

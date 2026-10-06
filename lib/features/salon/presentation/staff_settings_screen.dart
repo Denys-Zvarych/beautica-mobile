@@ -99,6 +99,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
 import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:dio/dio.dart';
 
+import '../../auth/presentation/auth_notifier.dart';
 import '../../auth/presentation/auth_selectors.dart';
 import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
@@ -564,7 +565,11 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
         member != null && member.role != SalonStaffRole.admin;
 
     final bool isOwner = ref.watch(isSalonOwnerProvider);
-    final String? currentUserId = ref.watch(currentUserProvider)?.id;
+    // NARROWED to the id (Phase 367 audit, mobile-perf LOW): the whole
+    // `currentUserProvider` User renotified on every own-avatar patch.
+    final String? currentUserId = ref.watch(
+      authProvider.select(authUserIdOrNull),
+    );
 
     // D3 (Phase 308) — the owner-and-not-self predicate, computed ONCE and
     // shared by both the admin remove row (this file, below) and the master

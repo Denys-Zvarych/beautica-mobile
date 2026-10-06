@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Phase 071 audit (security MEDIUM): partial dependency verification.
+  image_cropper pulls com.github.Yalantis:ucrop from jitpack.io, which builds
+  from arbitrary GitHub tags. Only that group is verified (sha256 pinned
+  below); every other group is trusted so the rest of the build is unchanged.
+  When bumping image_cropper, re-pin with:
+    ./gradlew (write-verification-metadata) sha256 :app:dependencies
+  and keep the <trusted-artifacts> exclusion.
+-->
+<verification-metadata xmlns="https://schema.gradle.org/dependency-verification"
+                       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                       xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.3.xsd">
+   <configuration>
+      <verify-metadata>true</verify-metadata>
+      <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group="^(?!com\.github\.Yalantis$).*" regex="true"/>
+      </trusted-artifacts>
+   </configuration>
+   <components>
+      <component group="com.github.Yalantis" name="ucrop" version="2.2.11">
+         <artifact name="ucrop-2.2.11.aar">
+            <sha256 value="c12db23784aaa954d8998106cf5c1cfee2993c62f7601c790da8e21d4c51a0a9" origin="Pinned from jitpack.io, 2026-10-03"/>
+         </artifact>
+         <artifact name="ucrop-2.2.11.pom">
+            <sha256 value="3ca18a8bec4d8aa0c6aac9908b2e0d6d8e85c4f5e8ba90bcf165f2cd35ae42f7" origin="Pinned from jitpack.io, 2026-10-03"/>
+         </artifact>
+      </component>
+   </components>
+</verification-metadata>

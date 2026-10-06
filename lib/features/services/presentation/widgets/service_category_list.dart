@@ -19,8 +19,8 @@
 //   [CategorySection]     — the collapsible neumorphic disclosure section.
 //   [CategoryCountBadge]  — the small recessed per-category count pill.
 //   [ServiceCard]         — the tappable service row (staggered entrance).
-//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well (opt-out
-//                           via [ServiceCard.showPhoto]).
+//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well (opt-in,
+//                           default off, via [ServiceCard.showPhoto]).
 //   [ServiceInfo]         — the card's name + inline metadata column.
 //   [MetaLine]            — the compact duration · price metadata strip.
 //   [MetaItem]            — a single icon + value pair inside [MetaLine].
@@ -40,6 +40,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -462,7 +463,7 @@ class ServiceCard extends StatefulWidget {
     this.appearDelay = Duration.zero,
     this.selectable = false,
     this.selected = false,
-    this.showPhoto = true,
+    this.showPhoto = false,
     this.leadingIndent = 0,
     this.animateEntrance = true,
     this.onEntranceStarted,
@@ -506,8 +507,9 @@ class ServiceCard extends StatefulWidget {
 
   /// Additive — whether the leading [PhotoThumbnail] well is drawn.
   ///
-  /// Defaults to `true`, the behaviour every caller had before this parameter
-  /// existed, so nothing renders differently unless it opts out explicitly.
+  /// Defaults to `false` (product decision 2026-10-04: services and categories
+  /// carry no custom photos, so no empty well is drawn anywhere). Pass `true`
+  /// only if photos return.
   ///
   /// `false` drops BOTH the 40 dp well and the gap that follows it, reclaiming
   /// 50 dp of horizontal room for the service name. The services MANAGEMENT
@@ -515,10 +517,6 @@ class ServiceCard extends StatefulWidget {
   /// every card there renders the identical [Icons.spa_rounded] placeholder —
   /// 50 dp per row spent on a glyph that distinguishes nothing, on the one
   /// screen whose entire job is reading and editing long service names.
-  ///
-  /// The master booking wizard keeps the well (`true`): its cards are a
-  /// PICKER, scanned rather than read, and the leading well anchors the
-  /// selectable row's left edge against the trailing check indicator.
   final bool showPhoto;
 
   /// Horizontal distance from this card's own left edge to the start of its
@@ -678,9 +676,9 @@ class _ServiceCardState extends State<ServiceCard>
           // `0` — every caller but the services management page — adds NO
           // widget to this Row, so the default tree is unchanged.
           if (widget.leadingIndent > 0) SizedBox(width: widget.leadingIndent),
-          // Opt-out (see [ServiceCard.showPhoto]): the well AND its trailing
-          // gap disappear together, so the name column simply starts at the
-          // card's own inset rather than 50 dp inside it.
+          // Opt-in (see [ServiceCard.showPhoto]; default false): the well AND
+          // its trailing gap appear together; when omitted, the name column
+          // starts at the card's own inset rather than 50 dp inside it.
           if (widget.showPhoto) ...<Widget>[
             PhotoThumbnail(key: Key('thumb_${s.id}')),
             const SizedBox(width: VelvetSpacing.sm + 2),
@@ -813,18 +811,21 @@ class _ServiceCardState extends State<ServiceCard>
 /// 40×40 recessed inset well with a centred camel spa icon.
 ///
 /// Compact-row sizing (was 48×48) so the dense list fits more rows on screen.
-/// When actual photo upload is implemented (Phase 9.x), this widget will
-/// accept a `photoUrl` and render an [Image.network] inside the same
-/// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
-/// placeholder so depth always comes from shadows, never a flat grey box.
+/// Phase 072: an optional [photoUrl] renders the real photo through the
+/// allow-listed `RemoteImage` inside the same 40×40 rounded box; null, a
+/// disallowed host or a failed fetch keep the icon placeholder, so depth always
+/// comes from shadows, never a flat grey box.
 class PhotoThumbnail extends StatelessWidget {
-  const PhotoThumbnail({super.key});
+  const PhotoThumbnail({super.key, this.photoUrl});
+
+  /// The service photo, or null (every pre-existing caller) for the icon well.
+  final String? photoUrl;
 
   static const double _size = 40;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final Widget well = SizedBox(
       height: _size,
       width: _size,
       child: NeumorphicInset(
@@ -837,6 +838,16 @@ class PhotoThumbnail extends StatelessWidget {
           ),
         ),
       ),
+    );
+    final String? url = photoUrl;
+    if (url == null) return well;
+    return RemoteImage(
+      url: url,
+      width: _size,
+      height: _size,
+      borderRadius: BorderRadius.circular(VelvetRadii.field),
+      excludeFromSemantics: true,
+      fallback: well,
     );
   }
 }

@@ -32,6 +32,7 @@ Name | Type | Description | Notes
 **hasMasterProfile** | **bool** |  | [optional] 
 **citySettlementType** | **String** | Kind of the saved settlement (cityId); null when no cityId is set. | [optional] 
 **cityHromadaNameUk** | **String** | Bare hromada adjective of the saved settlement, populated only when its name is ambiguous within its oblast; null otherwise. | [optional] 
+**avatarUrl** | **String** | The caller's own avatar URL (https); null when no avatar is set. Written only via /api/v1/media/avatar. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

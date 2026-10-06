@@ -108,12 +108,15 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_api/beautica_api.dart' show UpdateSalonRequest;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 
 import '../../auth/presentation/auth_notifier.dart';
 import '../data/salon_repository.dart';
 import '../domain/salon.dart';
 import '../domain/salon_staff_member.dart';
 import 'my_salons_notifier.dart';
+import 'salon_image_patch.dart';
 
 part 'salon_management_profile_notifier.g.dart';
 
@@ -184,6 +187,47 @@ class SalonManagementProfile extends _$SalonManagementProfile {
       // rethrow the wrapper as-is so the failure is never silently swallowed.
       Error.throwWithStackTrace(error, stackTrace);
     }
+  }
+
+  /// Phase 369 — writes the salon logo / cover URL the upload endpoint just
+  /// answered with ([url] `null` = removed) into the loaded snapshot, IN
+  /// PLACE: no `GET /salons/{id}` + `GET …/staff` refetch, no loading frame
+  /// (mirrors `MasterProfile.patchAvatarUrl`). Returns `false` when the
+  /// snapshot is not a SETTLED [AsyncData] — loading, refreshing, or an
+  /// [AsyncError] (patching would hide the real error behind stale data; see
+  /// [settledValueOrNull]) — and the caller then falls back to an invalidate.
+  bool patchImage(SalonImageSlot slot, String? url) {
+    final SalonManagementProfileData? current = settledValueOrNull(state);
+    if (current == null) return false;
+    final (Salon salon, List<SalonStaffMember> staff) = current;
+    state = AsyncData<SalonManagementProfileData>((
+      salon.withImage(slot, url),
+      staff,
+    ));
+    return true;
+  }
+
+  /// Writes [userId]'s new avatar [url] (`null` = removed) into the loaded
+  /// staff roster, IN PLACE — the «Команда» card of a viewer who just
+  /// changed their OWN photo (`applySelfAvatarUrl`) follows without a
+  /// `GET /salons/{id}` + `GET …/staff` refetch. Same settled-only rule as
+  /// [patchImage]: returns `false` (nothing changed) when the snapshot is not
+  /// a SETTLED [AsyncData] (see [settledValueOrNull]) or when [userId] is not
+  /// on the roster, and the caller then falls back to an invalidate.
+  bool patchStaffAvatar(String userId, String? url) {
+    final SalonManagementProfileData? current = settledValueOrNull(state);
+    if (current == null) return false;
+    final (Salon salon, List<SalonStaffMember> staff) = current;
+    final int i = staff.indexWhere((SalonStaffMember m) => m.userId == userId);
+    if (i < 0) return false;
+    state = AsyncData<SalonManagementProfileData>((
+      salon,
+      <SalonStaffMember>[
+        for (int k = 0; k < staff.length; k++)
+          k == i ? staff[k].copyWith(avatarUrl: url) : staff[k],
+      ],
+    ));
+    return true;
   }
 
   /// Saves the edited «Редагувати профіль» fields (name, description, phone,
@@ -301,10 +345,13 @@ class SalonManagementProfile extends _$SalonManagementProfile {
       // depend on `ref.mounted` (see the correction above).
       container.invalidate(mySalonsProvider);
       if (!ref.mounted) return null;
-      // SalonResponse (the PATCH response) does not carry coverImageUrl /
-      // avgRating / reviewCount — preserve those from the last known-good
-      // read rather than letting them reset to null/0. See
-      // SalonMapper.fromUpdateDto's doc.
+      // SalonResponse (the PATCH response) does not carry avgRating /
+      // reviewCount — preserve those from the last known-good read rather
+      // than letting them reset to null/0. See SalonMapper.fromUpdateDto's
+      // doc. It DOES carry coverImageUrl since backend 343, but a text edit
+      // cannot change the cover and the snapshot is already current (an
+      // upload patches it in place — `patchImage`), so it is kept from there
+      // too: one source for the cover on every edit path.
       final Salon merged = patched.copyWith(
         coverImageUrl: current.coverImageUrl,
         avgRating: current.avgRating,

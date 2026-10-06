@@ -415,6 +415,7 @@ final class FakeBackend {
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
     this.forgotPasswordFailureStatusCode,
+    this.mediaAvatarUploadStatus,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -1618,8 +1619,8 @@ final class FakeBackend {
   /// same reason [salonAdminOneStaff] is its own list rather than a widened
   /// `salonStaff`: nothing else reads this one, so widening the shared list
   /// would risk rippling into `salon-xyz`'s own exact-content assertions for
-  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo
-  /// — `SiblingSalonOption`), and non-empty on purpose: an empty destination
+  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo/
+  /// avatarUrl — `SiblingSalonOption`), and non-empty on purpose: an empty destination
   /// list is indistinguishable from a broken endpoint in
   /// [MoveAdminSalonScreen]'s rendered output, so a flow asserting the
   /// LOADED (not merely non-error) state needs at least one real row here.
@@ -1630,6 +1631,7 @@ final class FakeBackend {
           'name': 'Філія на Оболоні',
           'street': 'просп. Оболонський',
           'buildingNo': '12',
+          'avatarUrl': null,
         },
       ];
 
@@ -1655,8 +1657,10 @@ final class FakeBackend {
 
   /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
   /// sharing this salon's owner, minus this salon. Shape mirrors the
-  /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
-  /// deliberately narrower than `SalonResponse`). Since the OpenAPI snapshot
+  /// backend's `SiblingSalonOption` (id + name + street + buildingNo +
+  /// avatarUrl ONLY — deliberately narrower than `SalonResponse`). `avatarUrl`
+  /// defaults to null (no logo → monogram); a flow that needs the picker's
+  /// logo sets it on a row before opening the picker (Phase 369). Since the OpenAPI snapshot
   /// refresh this is deserialized by the GENERATED built_value model, so the
   /// shape here is now schema-checked rather than merely conventional.
   final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
@@ -1665,12 +1669,14 @@ final class FakeBackend {
       'name': 'Студія «Камелія» на Подолі',
       'street': 'вул. Спаська',
       'buildingNo': '5',
+      'avatarUrl': null,
     },
     <String, dynamic>{
       'id': 'salon-sibling-2',
       'name': 'Барбершоп «Дуб»',
       'street': 'вул. Січових Стрільців',
       'buildingNo': '4',
+      'avatarUrl': null,
     },
   ];
 
@@ -2716,6 +2722,100 @@ final class FakeBackend {
   /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
   int supportContactCalls = 0;
 
+  // ── Media avatar telemetry (Phase 070) ────────────────────────────────────
+  /// Number of `POST /api/v1/media/avatar` calls the fake received (counted
+  /// even when [mediaAvatarUploadStatus] makes it fail).
+  int mediaAvatarUploadCalls = 0;
+
+  /// Phase 367 — the full request URI of every `POST /api/v1/media/avatar`,
+  /// so a test can prove the upload names NO target user (no query, no
+  /// `userId`): a personal avatar is set only by the person themselves.
+  final List<Uri> mediaAvatarUploadUris = <Uri>[];
+
+  /// Phase 367 QA — the multipart part NAMES (text fields AND file parts) of
+  /// every `POST /api/v1/media/avatar`, one list per request. A self-avatar
+  /// upload carries exactly one part, `file`: any `userId` / `targetUserId`
+  /// form field would show up here. A non-multipart body is recorded as
+  /// `<non-multipart:Type>` so it can never pass as "only `file`".
+  final List<List<String>> mediaAvatarUploadPartNames = <List<String>>[];
+
+  /// Phase 367 QA — the full request URI of every `DELETE /api/v1/media/avatar`
+  /// (no query may name a target user).
+  final List<Uri> mediaAvatarDeleteUris = <Uri>[];
+
+  /// Phase 367 QA — the request body of every `DELETE /api/v1/media/avatar`
+  /// (must be absent: a self-avatar removal names no user).
+  final List<Object?> mediaAvatarDeleteBodies = <Object?>[];
+
+  /// Number of `DELETE /api/v1/media/avatar` calls the fake accepted (204).
+  int mediaAvatarDeleteCalls = 0;
+
+  /// When non-null, `POST /api/v1/media/avatar` replies with this status and a
+  /// bare `{success:false}` body instead of the 200 success envelope — e.g.
+  /// 413 (too large), 400 (bad format), 503 (storage off).
+  ///
+  /// Read at construction time (like [forgotPasswordFailureStatusCode]):
+  /// `replyCallback`'s status is fixed when the route is wired from the
+  /// constructor, so mutating this after boot is a silent no-op (it was a
+  /// mutable field until QA measured exactly that). Pass it to `FakeBackend()`.
+  final int? mediaAvatarUploadStatus;
+
+  /// Phase 073 — the avatar URL `GET /masters/me` (and, Phase 367, `GET
+  /// /users/me` for every role) currently reports: set by a
+  /// successful `POST /media/avatar` (a NEW url per upload, like the real
+  /// per-upload R2 key), cleared by `DELETE /media/avatar`. Null until the first
+  /// upload, so every pre-existing flow's `/masters/me` body is unchanged.
+  String? mediaAvatarUrl;
+
+  /// Successful avatar uploads so far — numbers the fake URLs.
+  int _mediaAvatarSeq = 0;
+
+  // ── Salon logo / cover (Phase 369) ────────────────────────────────────────
+  //
+  // `POST`/`DELETE /api/v1/salons/{salonId}/media/{logo|cover}` (backend 343,
+  // SALON_OWNER of that salon only). A success writes the new URL into
+  // [mySalons]' first entry — the owner salon [kOwnerSalonId] that
+  // `GET /salons/mine` AND `GET /salons/{kOwnerSalonId}` (which spreads that
+  // same map) both serve — so every later read reflects it, like the real
+  // backend. `salon-admin-1` ([kAdminSalonId]) has no owner in this fake: its
+  // media routes ALWAYS answer 403, mirroring backend 343 TC-4 (an admin is
+  // never the owner).
+
+  /// Every `POST …/media/{slot}` request URI (any salon, any status).
+  final List<Uri> salonMediaUploadUris = <Uri>[];
+
+  /// The multipart part NAMES of every salon media upload, one list per
+  /// request (must be exactly `['file']`).
+  final List<List<String>> salonMediaUploadPartNames = <List<String>>[];
+
+  /// Every `DELETE …/media/{slot}` request URI.
+  final List<Uri> salonMediaDeleteUris = <Uri>[];
+
+  /// When non-null, the OWNER salon's media routes answer this status (with a
+  /// bare `{success:false}` body) instead of succeeding — 409 / 413 / 429 /
+  /// 503 … Setting it RE-REGISTERS the routes (a `replyCallback` status is
+  /// fixed when wired — see [bookingDetailFailStatus]).
+  int? get salonMediaFailStatus => _salonMediaFailStatus;
+  set salonMediaFailStatus(int? value) {
+    _salonMediaFailStatus = value;
+    _wireSalonMedia();
+  }
+
+  int? _salonMediaFailStatus;
+
+  /// `Retry-After` (seconds) sent with a 429 from [salonMediaFailStatus].
+  int salonMediaRetryAfterSeconds = 30;
+
+  int _salonMediaSeq = 0;
+
+  /// Phase 369 QA — the logo / cover `GET /salons/salon-admin-1` serves (read
+  /// at REQUEST time). Null by default, so every pre-existing admin flow sees
+  /// the unchanged no-photo salon; set by a flow that needs the SALON_ADMIN's
+  /// read-only surfaces (affiliation card, settings context row, hero) to
+  /// render a real logo / cover.
+  String? salonAdminOneAvatarUrl;
+  String? salonAdminOneCoverImageUrl;
+
   // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
   /// `GET /api/v1/search/masters` call count + the last `page` requested.
   int searchMastersCalls = 0;
@@ -3010,6 +3110,8 @@ final class FakeBackend {
     'bio': masterBio,
     'phoneNumber': masterPhone,
     'instagram': masterInstagram,
+    // Phase 073 — omitted until an avatar upload set it.
+    if (mediaAvatarUrl != null) 'avatarUrl': mediaAvatarUrl,
     // professionalTitle is optional — null is valid (omitted from the
     // ApiResponse.data when the master has not set one). Include only when
     // set so flows that do not exercise this field see a clean seed.
@@ -3518,7 +3620,7 @@ final class FakeBackend {
           'masterId': 'master-aaa',
           'firstName': 'Софія',
           'lastName': 'Бондар',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-aaa.png',
           // Same master as the public detail / summary / search card — the
           // rail card opens THAT profile, so the numbers must match.
           'avgRating': kPublicMasterAvgRatingBeforeReview,
@@ -3529,7 +3631,7 @@ final class FakeBackend {
           'masterId': 'master-ccc',
           'firstName': 'Марія',
           'lastName': 'Гриценко',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-ccc.png',
           'avgRating': 4.6,
           'reviewCount': 9,
           'masterType': 'SALON_OWNER',
@@ -3606,7 +3708,7 @@ final class FakeBackend {
       'firstName': 'Софія',
       'lastName': 'Бондар',
       'professionalTitle': null,
-      'avatarUrl': null,
+      'avatarUrl': 'https://media.test/avatars/master-aaa.png',
       'phoneNumber': '+380671112233',
       'instagram': null,
       'bio': null,
@@ -3652,6 +3754,55 @@ final class FakeBackend {
       'serviceCount': 0,
     },
   ];
+
+  /// 2026-10-05 — `GET /salons/{id}/staff` for the two salons whose «Записи»
+  /// board / walk-in wizard this fake serves ([kOwnerSalonId],
+  /// [kAdminSalonId]): the salon's own management roster [own] FOLLOWED BY a
+  /// staff-shaped projection of every [_salonMasters] master it does not
+  /// already list.
+  ///
+  /// WHY. The board and the walk-in wizard read their master roster from
+  /// `/staff` (`salonStaffMastersRosterProvider`), no longer from the public
+  /// `/masters` rail — the backend narrows that rail to BOOKABLE masters. A
+  /// real `/staff` is a SUPERSET of `/masters` (every public master is
+  /// staff); serving [own] alone would silently drop the eight masters every
+  /// board/wizard flow seeds bookings and coverage against. [own]'s rows come
+  /// FIRST and keep their order, so a «Команда» grid on these salons renders
+  /// its pre-existing cards exactly where it did. The two endpoints still
+  /// DIFFER — [own]'s extra masters (e.g. `master-removable`) and anything a
+  /// test appends to [salonStaff] are `/staff`-only — which is the
+  /// post-backend-change world `salon_owner_bookings_board_flow_test.dart`'s
+  /// staff-only-column test pins.
+  List<Map<String, dynamic>> _boardSalonStaff(List<Map<String, dynamic>> own) {
+    final Set<Object?> listedMasterIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['masterId'],
+    };
+    final Set<Object?> listedUserIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['userId'],
+    };
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> row in own)
+        Map<String, dynamic>.from(row),
+      for (final Map<String, dynamic> m in _salonMasters)
+        if (!listedMasterIds.contains(m['masterId']) &&
+            !listedUserIds.contains(m['masterId']))
+          <String, dynamic>{
+            'userId': m['masterId'],
+            'masterId': m['masterId'],
+            'role': m['masterType'],
+            'firstName': m['firstName'],
+            'lastName': m['lastName'],
+            'professionalTitle': null,
+            'avatarUrl': m['avatarUrl'],
+            'phoneNumber': null,
+            'instagram': null,
+            'bio': null,
+            'avgRating': m['avgRating'],
+            'reviewCount': m['reviewCount'],
+            'serviceCount': 0,
+          },
+    ];
+  }
 
   /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
   /// each: NAILS carries the salon's SHARED signature service (offered by
@@ -4181,6 +4332,12 @@ final class FakeBackend {
   /// `false` so a detail re-fetch re-resolves the entry CTA away and a stale
   /// deep link lands on the not-reviewable info state.
   bool bookingCanReview = false;
+
+  /// Phase 9.7 — `masterAvatarUrl` of the seeded `booking-1` (detail + list).
+  /// `null` (default) keeps every pre-existing flow's wire body unchanged; the
+  /// leave-review flow seeds a `media.test` URL to prove the master photo
+  /// reaches «Залишити відгук»'s `MasterFeedbackCard`.
+  String? bookingMasterAvatarUrl;
 
   /// `POST /reviews` call count + the last rating/comment/bookingId submitted
   /// (Phase 14.6). Asserted by the leave-review flow.
@@ -4790,7 +4947,7 @@ final class FakeBackend {
     'masterId': 'master-aaa',
     'masterFirstName': 'Софія',
     'masterLastName': 'Бондар',
-    'masterAvatarUrl': null,
+    'masterAvatarUrl': bookingMasterAvatarUrl,
     'masterType': bookingMasterType,
     'salonName': bookingSalonName,
     // Phase 232. Emitted UNCONDITIONALLY (not behind an `if`, unlike the
@@ -6757,6 +6914,55 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
+    // POST /api/v1/media/avatar — multipart (`file` part), so the body is not
+    // decoded. 200 with the public URL on success; [mediaAvatarUploadStatus]
+    // switches it to a failure status. Tests that render the returned URL must
+    // allow the `media.test` host via MediaConfig's debug hosts.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(mediaAvatarUploadStatus ?? 200, (
+        RequestOptions options,
+      ) {
+        mediaAvatarUploadCalls++;
+        mediaAvatarUploadUris.add(options.uri);
+        final Object? body = options.data;
+        mediaAvatarUploadPartNames.add(
+          body is FormData
+              ? <String>[
+                  for (final MapEntry<String, String> f in body.fields) f.key,
+                  for (final MapEntry<String, MultipartFile> f in body.files)
+                    f.key,
+                ]
+              : <String>['<non-multipart:${body.runtimeType}>'],
+        );
+        if (mediaAvatarUploadStatus != null) {
+          return <String, dynamic>{'success': false};
+        }
+        final String url =
+            'https://media.test/avatars/u1/${++_mediaAvatarSeq}.jpg';
+        mediaAvatarUrl = url;
+        return _ok(<String, dynamic>{'avatarUrl': url});
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/media/avatar → 204.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(204, (RequestOptions options) {
+        mediaAvatarDeleteCalls++;
+        mediaAvatarDeleteUris.add(options.uri);
+        mediaAvatarDeleteBodies.add(options.data);
+        mediaAvatarUrl = null;
+        return null;
+      }),
+      // `Matchers.any` (Phase 367 QA): a DELETE that smuggled a body must
+      // still reach this handler and be RECORDED, so
+      // `expectSelfOnlyAvatarRequests` fails on the body itself rather than
+      // on an opaque unmatched-route error.
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
+    );
+
     // GET /api/v1/users/me
     // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
     // round-trips on the next read (the edit screens invalidate
@@ -6768,11 +6974,19 @@ final class FakeBackend {
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
+        // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
+        // last successful `/media/avatar` write; OMITTED while none happened,
+        // so every pre-existing flow's body is byte-identical.
+        final String? avatar = mediaAvatarUrl;
         return switch (currentRole) {
-          UserRole.client => _ok(_clientProfileBody()),
+          UserRole.client => _ok(<String, dynamic>{
+            ..._clientProfileBody(),
+            'avatarUrl': ?avatar,
+          }),
           UserRole.salonAdmin => _ok(<String, dynamic>{
             ..._adminProfileBody(),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
           // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
           // it, so the default body is byte-identical to the pre-21.14 one
@@ -6780,6 +6994,7 @@ final class FakeBackend {
           _ => _ok(<String, dynamic>{
             ...userJsonForRole(currentRole),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
         };
       }),
@@ -7682,8 +7897,8 @@ final class FakeBackend {
             'locationNote': null,
             'phone': null,
             'instagramUrl': null,
-            'avatarUrl': null,
-            'coverImageUrl': null,
+            'avatarUrl': salonAdminOneAvatarUrl,
+            'coverImageUrl': salonAdminOneCoverImageUrl,
             'avgRating': null,
             'reviewCount': 0,
           }),
@@ -7709,11 +7924,7 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = 'salon-admin-1';
-        return _okList(
-          List<Map<String, dynamic>>.from(
-            salonAdminOneStaff.map(Map<String, dynamic>.from),
-          ),
-        );
+        return _okList(_boardSalonStaff(salonAdminOneStaff));
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -8880,6 +9091,7 @@ final class FakeBackend {
     _wireSalonBoard();
     _wireSalonAdminBoard();
     _wireSalonMultiServiceWizard();
+    _wireSalonMedia();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -9679,11 +9891,7 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = kOwnerSalonId;
-        return _okList(
-          List<Map<String, dynamic>>.from(
-            salonStaff.map(Map<String, dynamic>.from),
-          ),
-        );
+        return _okList(_boardSalonStaff(salonStaff));
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -10482,5 +10690,89 @@ final class FakeBackend {
     if (data is String) return jsonDecode(data) as Map<String, dynamic>;
     if (data is Map) return data.cast<String, dynamic>();
     return const <String, dynamic>{};
+  }
+
+  /// Phase 369 — wires the salon logo / cover routes (see the field block's
+  /// header). Re-callable: a later registration of the same route replaces
+  /// the earlier one.
+  void _wireSalonMedia() {
+    List<String> partNames(Object? body) => body is FormData
+        ? <String>[
+            for (final MapEntry<String, String> f in body.fields) f.key,
+            for (final MapEntry<String, MultipartFile> f in body.files) f.key,
+          ]
+        : <String>['<non-multipart:${body.runtimeType}>'];
+    const Map<String, dynamic> failBody = <String, dynamic>{'success': false};
+
+    for (final String slot in <String>['logo', 'cover']) {
+      final String field = slot == 'logo' ? 'avatarUrl' : 'coverImageUrl';
+
+      // The owner's salon.
+      final String ownerPath = '/api/v1/salons/$kOwnerSalonId/media/$slot';
+      final int? fail = _salonMediaFailStatus;
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(
+          fail ?? 200,
+          (RequestOptions options) {
+            salonMediaUploadUris.add(options.uri);
+            salonMediaUploadPartNames.add(partNames(options.data));
+            if (fail != null) return failBody;
+            final String url =
+                'https://media.test/salons/$kOwnerSalonId/$slot-'
+                '${++_salonMediaSeq}.jpg';
+            mySalons.first[field] = url;
+            return _ok(<String, dynamic>{
+              ...withSeededSalonLocality(mySalons.first),
+            });
+          },
+          headers: fail == 429
+              ? <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                  'retry-after': <String>['$salonMediaRetryAfterSeconds'],
+                }
+              : <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                },
+        ),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(fail ?? 204, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          if (fail != null) return failBody;
+          mySalons.first[field] = null;
+          return null;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+
+      // The admin's salon: never the caller's to change.
+      final String adminPath = '/api/v1/salons/$kAdminSalonId/media/$slot';
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaUploadUris.add(options.uri);
+          salonMediaUploadPartNames.add(partNames(options.data));
+          return failBody;
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          return failBody;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+    }
   }
 }

@@ -64,6 +64,7 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -89,6 +90,7 @@ import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 
 import '../application/my_salons_notifier.dart';
+import '../application/salon_image_patch.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../domain/salon.dart';
@@ -96,6 +98,7 @@ import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
+import 'widgets/salon_media_editors.dart';
 import 'widgets/salon_reviews_section.dart';
 import 'widgets/salon_services_accordion.dart';
 
@@ -243,7 +246,7 @@ class _SalonManagementProfileScreenState
   // role that has no use for it (would otherwise reintroduce the same
   // unwanted-fetch shape the mobile-perf HIGH finding on that provider just
   // closed).
-  void _bounceIfNotOwned(AuthSession? session) {
+  void _bounceIfNotOwned(UserRole? role) {
     // Phase 21.8 H1b / mobile-security MEDIUM follow-up (2026-08-28) —
     // embedded (i.e. mounted inside `SalonShellScreen`'s `IndexedStack`) is
     // NOT this screen's job to ownership-bounce. The Salon Shell mounts this
@@ -260,9 +263,7 @@ class _SalonManagementProfileScreenState
     // "admit while `mySalonsProvider` is unresolved" window, which is
     // exactly what the shell's own listener (not the guard) closes.
     if (widget.embedded) return;
-    if (session is! Authenticated || session.user.role != UserRole.salonOwner) {
-      return;
-    }
+    if (role != UserRole.salonOwner) return;
     ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
       AsyncValue<List<Salon>>? previous,
       AsyncValue<List<Salon>> next,
@@ -276,19 +277,68 @@ class _SalonManagementProfileScreenState
       if (next is! AsyncData<List<Salon>>) return;
       final List<Salon> salons = next.value;
       if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
-      if (context.mounted) context.go(roleHomePath(session.user.role));
+      if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
+    });
+  }
+
+  /// Phase 369 — whether the owner's lost salon-photo pick probe ran.
+  bool _recoveryScheduled = false;
+
+  /// Phase 369 — resumes an Android process-death logo / cover pick for THIS
+  /// salon, once per mount, post-frame (needs l10n + the editors mounted to
+  /// keep the controller alive). Owner only; off Android it is a no-op. A pick
+  /// for another salon / account / an avatar is drained, never resumed here.
+  void _scheduleLostPickRecovery() {
+    if (_recoveryScheduled) return;
+    _recoveryScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final double logo = SalonLogo.imageDiameter(
+        _ManagementHeroCard.logoDiameter,
+      );
+      recoverLostSalonImage(
+        host: this,
+        salonId: widget.salonId,
+        logoDecodeSize: Size(logo, logo),
+        coverDecodeSize: Size(MediaQuery.sizeOf(context).width, _coverHeight),
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final AuthSession? session = ref.watch(authProvider).value;
-    _bounceIfNotOwned(session);
+    // NARROWED to the role (Phase 367 audit, mobile-perf LOW) — see
+    // `SalonShellScreen.build`: a bare watch rebuilt this screen on every
+    // token refresh and own-avatar patch, and only the role is read here.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    _bounceIfNotOwned(role);
     // Same `isOwner` predicate `salon_settings_screen.dart` uses to gate its
     // owner-only rows — see [_AboutReadView.canEdit] for why the two "add"
     // links must not be offered to a SALON_ADMIN.
-    final bool isOwner =
-        session is Authenticated && session.user.role == UserRole.salonOwner;
+    final bool isOwner = role == UserRole.salonOwner;
+    // Phase 369 audit (mobile-security LOW) — the logo / cover editors need
+    // OWNERSHIP of THIS salon, not just the role: `salonManageGuard` admits a
+    // SALON_OWNER before `mySalonsProvider` resolves, and the embedded shell
+    // instance does not bounce itself. Only a SETTLED `AsyncData` that
+    // contains [widget.salonId] unlocks them — [settledValueOrNull], the same
+    // rule `patchImage` uses: stale `.value` on a later loading/error is
+    // ignored, and so is a same-session refresh (`AsyncData` + `isLoading`,
+    // e.g. after a salon was deleted or registered) whose in-flight list may
+    // no longer contain this salon. Narrow select → a bool, so a list patch
+    // elsewhere does not rebuild this screen; never watched for a non-owner
+    // (no unwanted `/salons/mine`).
+    final bool ownsSalon =
+        isOwner &&
+        ref.watch(
+          mySalonsProvider.select(
+            (AsyncValue<List<Salon>> a) =>
+                settledValueOrNull(
+                  a,
+                )?.any((Salon s) => s.id == widget.salonId) ??
+                false,
+          ),
+        );
+    if (ownsSalon) _scheduleLostPickRecovery();
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );
@@ -306,79 +356,104 @@ class _SalonManagementProfileScreenState
       // lazy `SliverGrid.builder`. Only one sub-tab is ever mounted at a time
       // (`_LoadedBody`'s `switch (tab)`, not a `TabBarView`/`IndexedStack`),
       // so there is no nested-scrollable or off-screen-tab hazard here.
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: <Widget>[
-          SliverPadding(
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
-            sliver: async.when(
-              loading: () => const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(top: 120),
-                  child: Center(child: CircularProgressIndicator()),
+      //
+      // Pull-to-refresh (2026-10-05): another member may change their photo
+      // (or the roster may change) while the shell keeps this screen mounted
+      // — a pull refetches the salon + roster. Seamless: Riverpod 3's
+      // invalidate keeps the loaded data on screen while the GETs run.
+      // `parent: AlwaysScrollableScrollPhysics()` only makes a SHORT body
+      // (loading / error) pullable; a body taller than the viewport scrolls
+      // and bounces exactly as plain `BouncingScrollPhysics` did.
+      body: AppRefreshIndicator(
+        key: const Key('salon-manage-refresh'),
+        edgeOffset: topInset,
+        onRefresh: () async {
+          final provider = salonManagementProfileProvider(widget.salonId);
+          ref.invalidate(provider);
+          try {
+            await ref.read(provider.future);
+          } on Object {
+            // A failed refetch surfaces through the `error:` branch below —
+            // it must not throw past the RefreshIndicator.
+          }
+        },
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(
+            parent: AlwaysScrollableScrollPhysics(),
+          ),
+          slivers: <Widget>[
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+              sliver: async.when(
+                loading: () => const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: 120),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ),
-              ),
-              error: (Object e, _) => SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
-                  child: ErrorState(
-                    failure: e is Failure ? e : UnknownFailure(cause: e),
-                    onRetry: () => ref.invalidate(
-                      salonManagementProfileProvider(widget.salonId),
+                error: (Object e, _) => SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: topInset + VelvetSpacing.xxl),
+                    child: ErrorState(
+                      failure: e is Failure ? e : UnknownFailure(cause: e),
+                      onRetry: () => ref.invalidate(
+                        salonManagementProfileProvider(widget.salonId),
+                      ),
                     ),
                   ),
                 ),
+                data: (SalonManagementProfileData data) {
+                  final (Salon salon, List<SalonStaffMember> rawStaff) = data;
+                  // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
+                  // returns is rendered, the viewer's OWN row included (user
+                  // decision, 2026-09-13: "each salon member can see hisself").
+                  // What the roster contains is decided by the server: active
+                  // masters plus active SALON_ADMIN users
+                  // (`SalonService.java:721-735`) — never the owner as an owner,
+                  // never an inactive member, never a pending invitee.
+                  //
+                  // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
+                  // scoped an admin viewer to masters only, which hid every
+                  // co-admin and made `rotateAdmin`
+                  // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
+                  // admin-callable with no self-guard, `SalonService.java:789`)
+                  // unreachable in-app — a co-admin's settings screen is only
+                  // reachable from a row in this list. `41b271e5` narrowed it to
+                  // self-exclusion, which the user has since overruled. DO NOT ADD
+                  // A THIRD ONE: this is a roster, and a row missing from it
+                  // silently removes the only route to whatever that row leads to.
+                  //
+                  // The audience rule the product does enforce lives on the OTHER
+                  // surface — `public_salon_profile_screen.dart`, a different
+                  // provider, endpoint and model (`GET /salons/{id}/masters`). That
+                  // one stays master-only. Never express a client-audience rule
+                  // here.
+                  //
+                  // The viewer's own row is not filtered but it IS routed
+                  // differently — see [_openStaffMember].
+                  return _LoadedBody(
+                    salonId: widget.salonId,
+                    salon: salon,
+                    staff: rawStaff,
+                    embedded: widget.embedded,
+                    topInset: topInset,
+                    coverHeight: _coverHeight,
+                    heroProtrusion: _heroProtrusion,
+                    tab: widget.tab ?? _tab,
+                    onTabSelected: _onTabSelected,
+                    canEdit: isOwner,
+                    canEditMedia: ownsSalon,
+                    onOpenSettings: _openSettings,
+                    onOpenStaffMember: _openStaffMember,
+                    onInviteStaff: _openInviteStaff,
+                    onAddDescription: _openProfileEdit,
+                    onAddInstagram: _openContactsEdit,
+                  );
+                },
               ),
-              data: (SalonManagementProfileData data) {
-                final (Salon salon, List<SalonStaffMember> rawStaff) = data;
-                // NO CLIENT-SIDE FILTER — every row `GET /salons/{id}/staff`
-                // returns is rendered, the viewer's OWN row included (user
-                // decision, 2026-09-13: "each salon member can see hisself").
-                // What the roster contains is decided by the server: active
-                // masters plus active SALON_ADMIN users
-                // (`SalonService.java:721-735`) — never the owner as an owner,
-                // never an inactive member, never a pending invitee.
-                //
-                // TWO EARLIER FILTERS LIVED HERE AND BOTH ARE GONE. `314f6318`
-                // scoped an admin viewer to masters only, which hid every
-                // co-admin and made `rotateAdmin`
-                // (`PATCH /salons/{salonId}/admins/{userId}/salon`,
-                // admin-callable with no self-guard, `SalonService.java:789`)
-                // unreachable in-app — a co-admin's settings screen is only
-                // reachable from a row in this list. `41b271e5` narrowed it to
-                // self-exclusion, which the user has since overruled. DO NOT ADD
-                // A THIRD ONE: this is a roster, and a row missing from it
-                // silently removes the only route to whatever that row leads to.
-                //
-                // The audience rule the product does enforce lives on the OTHER
-                // surface — `public_salon_profile_screen.dart`, a different
-                // provider, endpoint and model (`GET /salons/{id}/masters`). That
-                // one stays master-only. Never express a client-audience rule
-                // here.
-                //
-                // The viewer's own row is not filtered but it IS routed
-                // differently — see [_openStaffMember].
-                return _LoadedBody(
-                  salonId: widget.salonId,
-                  salon: salon,
-                  staff: rawStaff,
-                  embedded: widget.embedded,
-                  topInset: topInset,
-                  coverHeight: _coverHeight,
-                  heroProtrusion: _heroProtrusion,
-                  tab: widget.tab ?? _tab,
-                  onTabSelected: _onTabSelected,
-                  canEdit: isOwner,
-                  onOpenSettings: _openSettings,
-                  onOpenStaffMember: _openStaffMember,
-                  onInviteStaff: _openInviteStaff,
-                  onAddDescription: _openProfileEdit,
-                  onAddInstagram: _openContactsEdit,
-                );
-              },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -449,6 +524,7 @@ class _LoadedBody extends StatelessWidget {
     required this.tab,
     required this.onTabSelected,
     required this.canEdit,
+    required this.canEditMedia,
     required this.onOpenSettings,
     required this.onOpenStaffMember,
     required this.onInviteStaff,
@@ -471,6 +547,11 @@ class _LoadedBody extends StatelessWidget {
 
   /// See [_AboutReadView.canEdit] — `true` only for a `SALON_OWNER`.
   final bool canEdit;
+
+  /// Phase 369 — `true` only for a `SALON_OWNER` whose resolved
+  /// `mySalonsProvider` list contains [salonId]. See
+  /// [_CoverAndHero.canEditMedia].
+  final bool canEditMedia;
 
   final VoidCallback onOpenSettings;
   final ValueChanged<SalonStaffMember> onOpenStaffMember;
@@ -502,6 +583,7 @@ class _LoadedBody extends StatelessWidget {
                 salon: salon,
                 embedded: embedded,
                 onOpenSettings: onOpenSettings,
+                canEditMedia: canEditMedia,
               ),
               const SizedBox(height: VelvetSpacing.lg),
               Padding(
@@ -589,6 +671,7 @@ class _CoverAndHero extends StatelessWidget {
     required this.salon,
     required this.embedded,
     required this.onOpenSettings,
+    this.canEditMedia = false,
   });
 
   final double coverHeight;
@@ -601,6 +684,12 @@ class _CoverAndHero extends StatelessWidget {
   final bool embedded;
   final VoidCallback onOpenSettings;
 
+  /// Phase 369 — `true` ONLY for a SALON_OWNER (locked 2026-10-04): the cover
+  /// gets its upload overlays + the camera control, the hero logo its camera
+  /// badge. A SALON_ADMIN gets the plain read-only marks — no badge, nothing
+  /// tappable for upload (the backend 403s the endpoint anyway).
+  final bool canEditMedia;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -608,11 +697,18 @@ class _CoverAndHero extends StatelessWidget {
       children: <Widget>[
         Padding(
           padding: EdgeInsets.only(bottom: heroProtrusion),
-          child: SalonCover(
-            height: coverHeight,
-            topInset: topInset,
-            imageUrl: salon.coverImageUrl,
-          ),
+          child: canEditMedia
+              ? SalonCoverEditor(
+                  salonId: salon.id,
+                  height: coverHeight,
+                  topInset: topInset,
+                  imageUrl: salon.coverImageUrl,
+                )
+              : SalonCover(
+                  height: coverHeight,
+                  topInset: topInset,
+                  imageUrl: salon.coverImageUrl,
+                ),
         ),
         if (!embedded)
           Positioned(
@@ -631,6 +727,15 @@ class _CoverAndHero extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
+              // Phase 369 — the owner's cover camera, first in the row.
+              if (canEditMedia) ...<Widget>[
+                SalonCoverEditButton(
+                  salonId: salon.id,
+                  coverHeight: coverHeight,
+                  imageUrl: salon.coverImageUrl,
+                ),
+                const SizedBox(width: VelvetSpacing.sm),
+              ],
               // Phase 361 — the approved design's frosted cover bell (docs/
               // signup-designs/SalonManagementDesign/lib/screens/
               // salon_profile_screen.dart:407-425), now LIVE: the dot follows
@@ -670,7 +775,7 @@ class _CoverAndHero extends StatelessWidget {
           left: VelvetSpacing.lg,
           right: VelvetSpacing.lg,
           bottom: 0,
-          child: _ManagementHeroCard(salon: salon),
+          child: _ManagementHeroCard(salon: salon, canEditMedia: canEditMedia),
         ),
       ],
     );
@@ -689,9 +794,16 @@ class _CoverAndHero extends StatelessWidget {
 /// 2026-08-29) — see [build] for the fallback chain and why
 /// `salon.city`/`salon.region` are never read.
 class _ManagementHeroCard extends ConsumerWidget {
-  const _ManagementHeroCard({required this.salon});
+  const _ManagementHeroCard({required this.salon, this.canEditMedia = false});
 
   final Salon salon;
+
+  /// Phase 369 — see [_CoverAndHero.canEditMedia]. Swaps the logo for the
+  /// owner's [SalonLogoEditor] (same 68 dp box, badge inside it).
+  final bool canEditMedia;
+
+  /// The hero logo's diameter, exposed for the recovery precache.
+  static const double logoDiameter = _logoDiameter;
 
   static const double _logoDiameter = 68;
 
@@ -805,7 +917,19 @@ class _ManagementHeroCard extends ConsumerWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          SalonLogo(diameter: _logoDiameter, monogram: monogram),
+          if (canEditMedia)
+            SalonLogoEditor(
+              salonId: salon.id,
+              diameter: _logoDiameter,
+              monogram: monogram,
+              imageUrl: salon.avatarUrl,
+            )
+          else
+            SalonLogo(
+              diameter: _logoDiameter,
+              monogram: monogram,
+              imageUrl: salon.avatarUrl,
+            ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(
@@ -1119,11 +1243,13 @@ class _StaffTab extends StatelessWidget {
             ),
           ),
         SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
             mainAxisSpacing: VelvetSpacing.md,
             crossAxisSpacing: VelvetSpacing.md,
-            mainAxisExtent: kSalonMasterCardHeight,
+            mainAxisExtent: salonMasterCardHeight(
+              MediaQuery.textScalerOf(context),
+            ),
           ),
           itemCount: staff.length + 1,
           itemBuilder: (BuildContext context, int i) {
@@ -1155,11 +1281,15 @@ class _StaffTab extends StatelessWidget {
               key: Key('salon-manage-staff-card-${member.userId}'),
               name: member.firstName,
               role: role,
-              // Admins carry no service rating — always the placeholder.
+              // Admins take no bookings and carry no rating — the ★ row is
+              // hidden on their card (user request, 2026-10-05). Masters,
+              // owner-masters included, keep it.
               ratingLabel: !isAdmin && member.reviewCount > 0
                   ? (member.avgRating?.toStringAsFixed(1) ?? '—')
                   : '—',
+              showRating: !isAdmin,
               avatarIndex: i,
+              imageUrl: member.avatarUrl,
               onTap: () => onOpenMember(member),
             );
           },
@@ -1171,7 +1301,7 @@ class _StaffTab extends StatelessWidget {
 
 /// The trailing "invite staff" tile, always the last cell in the «Персонал»
 /// grid. Reuses [SalonMasterCard]'s exact shell dimensions
-/// ([kSalonMasterCardHeight], `VelvetRadii.card`, `VelvetShadows.extrudedCard`)
+/// ([salonMasterCardHeight], `VelvetRadii.card`, `VelvetShadows.extrudedCard`)
 /// so it sits flush with the real cards, but there is no existing production
 /// "add tile" widget to reuse (the client-facing masters grid never has one) —
 /// this is a small, genuinely new widget, private to this screen.
@@ -1208,7 +1338,7 @@ class _AddStaffTileState extends State<_AddStaffTile> {
           curve: Curves.easeOut,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
-            height: kSalonMasterCardHeight,
+            height: salonMasterCardHeight(MediaQuery.textScalerOf(context)),
             decoration: BoxDecoration(
               color: BrandColors.base,
               borderRadius: BorderRadius.circular(VelvetRadii.card),

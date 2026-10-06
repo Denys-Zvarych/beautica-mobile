@@ -24,6 +24,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart' show PlatformException;
@@ -33,7 +34,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/cache/lru_cache.dart';
+import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
+import 'package:beautica_mobile/core/media/pick/image_pick_gateway.dart';
+import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -88,6 +93,12 @@ final class _DeleteAllThrowsStorage implements SecureStorage {
 
   final FakeSecureStorage _inner;
 
+  @override
+  Future<String?> readPendingPick() => _inner.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _inner.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _inner.deletePendingPick();
   @override
   Future<bool> readPushPermissionAsked() => _inner.readPushPermissionAsked();
   @override
@@ -196,6 +207,12 @@ class SpySecureStorage extends Mock implements SecureStorage {
 final class _ThrowingWriteStorage implements SecureStorage {
   final FakeSecureStorage _backing = FakeSecureStorage();
 
+  @override
+  Future<String?> readPendingPick() => _backing.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _backing.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _backing.deletePendingPick();
   @override
   Future<bool> readPushPermissionAsked() => _backing.readPushPermissionAsked();
   @override
@@ -887,6 +904,115 @@ void main() {
       });
     });
 
+    // Phase 367 audit (security LOW): the two cold-start wipes in build()
+    // (expired / rejected refresh token) end the previous account's session
+    // exactly like logout does, so they must also delete an un-discarded
+    // photo in `<tmp>/media_upload/` and drain Android's lost-pick record —
+    // otherwise the next account on the device could find or resume it.
+    group('cold-start wipe clears the media scratch + lost pick', () {
+      late Directory tmp;
+      late Directory dir;
+      late File lostFile;
+      late _NoopGateway gateway;
+
+      setUp(() {
+        tmp = Directory.systemTemp.createTempSync('coldstart_media');
+        dir = Directory('${tmp.path}/$kMediaUploadDirName')..createSync();
+        File('${dir.path}/leftover.jpg').writeAsBytesSync(<int>[1, 2, 3]);
+        lostFile = File('${tmp.path}/lost_pick.jpg')
+          ..writeAsBytesSync(<int>[4, 5, 6]);
+        gateway = _NoopGateway(lost: lostFile.path);
+      });
+      tearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+
+      Override pickOverride() => mediaPickServiceProvider.overrideWithValue(
+        MediaPickService(gateway, tempDir: () async => tmp),
+      );
+
+      // The wipe is fire-and-forget: wait on the artifacts themselves.
+      Future<void> waitForWipe() async {
+        for (
+          var i = 0;
+          i < 50 && (dir.existsSync() || lostFile.existsSync());
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      }
+
+      test('expired refresh token (pre-check wipe)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 60;
+        final b64 = base64Url
+            .encode(utf8.encode('{"sub":"u1","exp":$exp}'))
+            .replaceAll('=', '');
+        await storage.writeRefreshToken('h.$b64.s');
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('rejected refresh token (401)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('expired-refresh');
+        when(
+          () => repo.refresh('expired-refresh'),
+        ).thenThrow(const UnauthorizedFailure());
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('transient failure (5xx) keeps the session: NO wipe', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenThrow(const ServerFailure(statusCode: 503));
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        await container.read(authProvider.future);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(dir.existsSync(), isTrue);
+        expect(gateway.lostReads, 0);
+        expect(lostFile.existsSync(), isTrue);
+      });
+    });
+
     // -----------------------------------------------------------------------
     // Test 5a2 — mobile-qa gap-fix (KNOWN COVERAGE GAP 3, mobile-security
     // MEDIUM regression guard): logout() must reset screenProtectionProvider.
@@ -1418,6 +1544,98 @@ void main() {
 
       expect(cache.length, 0);
       expect(cache.get('львів'), isNull);
+    });
+
+    // Phase 071 audit (security LOW): an un-discarded picked photo in
+    // `<tmp>/media_upload/` must not survive into the next account's session.
+    // The wipe is fire-and-forget, so the test waits on the directory itself.
+    test('logout() wipes the media_upload scratch dir', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final Directory tmp = Directory.systemTemp.createTempSync('logout_media');
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final Directory dir = Directory('${tmp.path}/$kMediaUploadDirName')
+        ..createSync();
+      File('${dir.path}/leftover.jpg').writeAsBytesSync(<int>[1, 2, 3]);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(_NoopGateway(), tempDir: () async => tmp),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(dir.existsSync(), isTrue);
+
+      await container.read(authProvider.notifier).logout();
+      for (var i = 0; i < 50 && dir.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(dir.existsSync(), isFalse);
+    });
+
+    // Phase 073 audit (security MEDIUM): image_picker's lost-data record
+    // survives a logout; unless it is drained and its file deleted, the NEXT
+    // account on the device could resume the previous account's photo.
+    test('logout() drains the lost-pick record and deletes its file', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      await storage.writePendingPick('{"ownerId":"u","kind":"avatar"}');
+      final Directory tmp = Directory.systemTemp.createTempSync('logout_lost');
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final File lostFile = File('${tmp.path}/lost_pick.jpg')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+      final _NoopGateway gateway = _NoopGateway(lost: lostFile.path);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gateway, tempDir: () async => tmp),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      await container.read(authProvider.notifier).logout();
+      for (var i = 0; i < 50 && lostFile.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect(gateway.lostReads, 1);
+      expect(lostFile.existsSync(), isFalse);
+      expect(
+        await storage.readPendingPick(),
+        isNull,
+        reason: 'the owner tag is cleared with the rest of the session',
+      );
     });
 
     // Phase 352 cycle-1 audit (mobile-perf HIGH + mobile-security MEDIUM,
@@ -4664,4 +4882,43 @@ void main() {
       },
     );
   });
+}
+
+/// Gateway that is never asked to pick: logout only touches the scratch dir and
+/// (phase 073 audit) drains the platform's lost-pick record, which is [lost].
+class _NoopGateway implements ImagePickGateway {
+  _NoopGateway({this.lost});
+
+  final String? lost;
+  int lostReads = 0;
+
+  @override
+  Future<String?> pickImage(
+    MediaPickSource source, {
+    required int maxDimension,
+  }) async => null;
+
+  @override
+  Future<String?> cropImage(
+    String sourcePath, {
+    required MediaSpec spec,
+    required int quality,
+    CropLabels? labels,
+  }) async => null;
+
+  @override
+  Future<String?> compress(
+    String sourcePath,
+    String targetPath, {
+    required int maxWidth,
+    required int maxHeight,
+    required int quality,
+    required bool keepExif,
+  }) async => null;
+
+  @override
+  Future<String?> retrieveLostData() async {
+    lostReads++;
+    return lost;
+  }
 }

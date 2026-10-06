@@ -1,5 +1,6 @@
 // CLIENT Особисті дані — the personal-info slice of the client profile: avatar
-// editor + "Змінити фото" caption, then Ім'я (required) and Прізвище (required).
+// editor (Phase 367: LIVE — the shared own-avatar flow, [AvatarEditorBinding],
+// for CLIENT, SALON_ADMIN and SALON_OWNER alike) + "Змінити фото" caption, then Ім'я (required) and Прізвище (required).
 // A pinned "Зберегти" CTA sits at the bottom.
 //
 // 1:1 transcription of the master [PersonalInfoEditScreen] with ONE approved
@@ -23,6 +24,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -64,7 +66,9 @@ class ClientPersonalInfoEditScreen extends ConsumerStatefulWidget {
 
 class _ClientPersonalInfoEditScreenState
     extends ConsumerState<ClientPersonalInfoEditScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        AvatarEditorBinding<ClientPersonalInfoEditScreen> {
   final _formKey = GlobalKey<FormState>();
 
   late final TextEditingController _firstName;
@@ -119,6 +123,9 @@ class _ClientPersonalInfoEditScreenState
     _anim1 = _curve(0.06, 0.50);
     _anim2 = _curve(0.14, 0.58);
     _animFooter = _curve(0.60, 1.0);
+    // Phase 367 — the own-avatar flow (pick, crop 1:1, progress, retry,
+    // remove), the SAME binding the master «Особисті дані» uses.
+    initAvatarEditorBinding();
   }
 
   CurvedAnimation _curve(double start, double end) => CurvedAnimation(
@@ -312,11 +319,6 @@ class _ClientPersonalInfoEditScreenState
     }
   }
 
-  void _onAvatarTap() {
-    if (!mounted) return;
-    showInfoSnack(context, AppLocalizations.of(context).snackbarAvatarSoon);
-  }
-
   String _buildInitials() {
     final first = _firstName.text.trim();
     final last = _lastName.text.trim();
@@ -384,10 +386,13 @@ class _ClientPersonalInfoEditScreenState
                         _firstName,
                         _lastName,
                       ]),
-                      builder: (context, _) => NeumorphicAvatarEditor(
-                        state: AvatarEditState.pristine,
-                        initials: _buildInitials(),
-                        onTap: _onAvatarTap,
+                      // The OWN photo, from the session user — patched in
+                      // place by the upload flow. Watched INSIDE the editor
+                      // (Phase 367 audit, perf LOW): an upload rebuilds the
+                      // avatar only, not this whole form.
+                      builder: (context, _) => buildAvatarEditor(
+                        initials: _buildInitials,
+                        watchImageUrl: watchSessionAvatarUrl,
                       ),
                     ),
                   ),

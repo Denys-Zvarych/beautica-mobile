@@ -119,8 +119,15 @@ Future<OwnerOwnProfileData> ownerOwnProfile(Ref ref) async {
   // the error handler synchronously so the `hasMasterProfile == false` arm
   // below can return WITHOUT awaiting this future — an unawaited rejected
   // Future is an unhandled zone error.
+  //
+  // `selectAsync(masterIgnoringAvatar)`, not `.future` (Phase 367 fix): this
+  // screen renders the SESSION user's avatar (`SelfAvatarEditor`), never the
+  // master row's. An own-avatar upload patches `masterProfileProvider` in
+  // place; through `.future` that patch rebuilt this loader — the screen
+  // flashed its skeleton (`isReloading`) and re-fetched the services — for a
+  // field nothing here shows. Every other `Master` field still rebuilds it.
   final Future<Master?> masterFuture = ref
-      .watch(masterProfileProvider.future)
+      .watch(masterProfileProvider.selectAsync(masterIgnoringAvatar))
       .then<Master?>(
         (Master master) => master,
         onError: (Object _, StackTrace _) => null,

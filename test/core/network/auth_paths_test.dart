@@ -747,4 +747,17 @@ void main() {
       expect(kPiiPaths.length, equals(23));
     });
   });
+  group('media upload paths (Phase 070)', () {
+    test('every /media/ route is a PII path and never a public path', () {
+      for (final p in const <String>[
+        '/api/v1/media/avatar',
+        '/api/v1/media/portfolio',
+        '/api/v1/media/portfolio/3f2c',
+        '/api/v1/services/3f2c/photo',
+      ]) {
+        expect(isPiiPath(p), isTrue, reason: p);
+        expect(kAuthPaths.contains(p), isFalse, reason: p);
+      }
+    });
+  });
 }

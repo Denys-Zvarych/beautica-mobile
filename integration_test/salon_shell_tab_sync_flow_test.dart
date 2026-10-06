@@ -78,6 +78,8 @@
 // `GET /salons/mine` row but no salon-detail fixture, so its «Салон» slot
 // renders an error state and no tab body at all).
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -89,6 +91,8 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
+import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
@@ -186,8 +190,19 @@ Future<void> _tapNav(WidgetTester tester, int index) async {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so the master photos the fake backend returns are
+    // actually rendered (the real cache manager needs path_provider/sqflite).
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   testWidgets('PART C — tapping the IN-SCREEN «Команда» tab from the «Салон» '
       'destination moves the bottom-nav highlight to «Команда» and swaps the '
@@ -237,6 +252,20 @@ void main() {
         find.byKey(const Key('salon-manage-staff-card-master-aaa')),
         findsOneWidget,
       );
+      // Phase 9.7 — the «Команда» card renders the staff member's photo.
+      expect(
+        renderedImageUrls(
+          tester,
+          within: find.byKey(const Key('salon-manage-staff-card-master-aaa')),
+        ),
+        <String>['https://media.test/avatars/master-aaa.png'],
+      );
+      // …and a staff member without a photo keeps the gradient glyph.
+      final Finder removableCard = find.byKey(
+        const Key('salon-manage-staff-card-user-master-removable'),
+      );
+      await AppHarness.revealRosterCard(tester, removableCard);
+      expectAvatarFallback(tester, removableCard);
 
       // THE DEDUPE (mobile-perf FINDING 1). This assertion replaces the pair
       // that used to prove the «Салон» twin was "still mounted offstage" —

@@ -99,7 +99,6 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../../booking/application/bookings_capability.dart';
-import '../../booking/application/salon_masters_roster_notifier.dart';
 import '../../booking/domain/booking.dart';
 import '../../booking/domain/bookings_day_query.dart';
 import '../../booking/presentation/bookings_discovery_view.dart';
@@ -113,6 +112,7 @@ import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/schedule_range.dart';
 import '../application/salon_manage_capability.dart';
 import '../application/salon_management_profile_notifier.dart';
+import '../application/salon_staff_masters_roster.dart';
 import '../domain/salon_master_summary.dart';
 
 /// The salon-wide bookings board for one salon.
@@ -280,6 +280,7 @@ class SalonBookingsScreen extends ConsumerStatefulWidget {
             // damning `0.0`, exactly as every other identity card in the
             // booking flow.
             avgRating: m.avgRating,
+            imageUrl: m.avatarUrl,
             bookingCount: (byMaster[m.masterId] ?? const <Booking>[]).length,
             // Phase 336 — `false` unless the roster-complete schedule
             // POSITIVELY says this master is off on this date. Both new
@@ -598,7 +599,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
     // has not yet resolved to `AsyncData` it deliberately ADMITS, leaving the
     // backend as the real boundary. That is fine for the surfaces it guards,
     // whose every fetch is authorized — but THIS screen also mounts the salon
-    // ROSTER, and `GET /salons/{id}/masters` is PUBLIC. In the admit window
+    // ROSTER (formerly the PUBLIC `GET /salons/{id}/masters`). In the admit window
     // with a foreign `salonId` the bookings fetch correctly 403s while the
     // roster strip renders a stranger's team as if it were the owner's.
     //
@@ -632,24 +633,57 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
     // CONCRETE `AsyncError` subtype, never `hasError`: an
     // `AsyncLoading(retrying: true)` carrying a previous error satisfies
     // `hasError` and must keep showing the board, not an error panel.
-    final AsyncValue<List<SalonMasterSummary>> rosterState = ref.watch(
-      salonMastersRosterProvider(widget.salonId),
-    );
+    //
+    // STAFF roster, not the public one (2026-10-05): the public
+    // `GET /salons/{id}/masters` rail lists only BOOKABLE masters, so a master
+    // whose schedule was cleared would lose their column here while still
+    // holding CONFIRMED bookings. [salonStaffMastersRosterProvider] projects
+    // `GET /salons/{id}/staff` (already fetched by
+    // [salonManagementProfileProvider] below) onto its masters.
+    //
+    // NARROWED with `select` too (2026-10-05, INFO gap b): every in-place
+    // patch of the PARENT profile rebuilds the roster notifier, which emits
+    // `AsyncLoading(previous)` -> `AsyncData(same instance)` even when the
+    // roster hands back its previous list — so a whole-`AsyncValue` watch
+    // rebuilt this board twice per admin-avatar / cover patch and made the
+    // profile `select` below moot. The board reads exactly two things off the
+    // roster: its CONCRETE-`AsyncError` error and `.value`. The record
+    // compares the list by identity (`List.==`), so the transient loading
+    // frame — same instance — is not a change. Pinned by
+    // `salon_bookings_screen_test.dart` («does NOT rebuild»).
+    final (Object? rosterError, List<SalonMasterSummary>? rosterValue) = ref
+        .watch(
+          salonStaffMastersRosterProvider(widget.salonId).select(
+            (AsyncValue<List<SalonMasterSummary>> s) => (
+              s is AsyncError<List<SalonMasterSummary>> ? s.error : null,
+              s.value,
+            ),
+          ),
+        );
     // The salon's own name, under the heading — an owner of several salons
     // must be able to tell whose board this is. `null` while it RESOLVES
     // renders no subtitle line at all rather than a placeholder that would
     // reflow; a FAILURE surfaces, for the same M4 reason as the roster (the
     // profile fetch is the second ownership-sensitive call this screen makes,
     // and a silently missing subtitle is how a 403 on it used to read).
-    final AsyncValue<SalonManagementProfileData> profileState = ref.watch(
-      salonManagementProfileProvider(widget.salonId),
+    //
+    // NARROWED with `select` (2026-10-05 audit P2): the board reads exactly
+    // two things off the profile — its CONCRETE-`AsyncError` error and the
+    // salon's name — so it rebuilds only when one of those moves, not on every
+    // in-place patch the profile takes (a logo/cover swap, a staff avatar).
+    // The record compares structurally. The error arm keeps the CONCRETE
+    // `AsyncError` subtype test, never `hasError`, for the same retrying
+    // reason as the roster above; the name keeps the lenient `.value` read.
+    final (Object? profileError, String? salonName) = ref.watch(
+      salonManagementProfileProvider(widget.salonId).select(
+        (AsyncValue<SalonManagementProfileData> s) => (
+          s is AsyncError<SalonManagementProfileData> ? s.error : null,
+          s.value?.$1.name,
+        ),
+      ),
     );
 
-    final Object? fetchError = switch ((rosterState, profileState)) {
-      (AsyncError(:final Object error), _) => error,
-      (_, AsyncError(:final Object error)) => error,
-      _ => null,
-    };
+    final Object? fetchError = rosterError ?? profileError;
     if (fetchError != null) {
       return Scaffold(
         key: const Key('salon-bookings-screen'),
@@ -663,7 +697,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         body: MyBookingsErrorState(
           error: fetchError,
           onRetry: () {
-            ref.invalidate(salonMastersRosterProvider(widget.salonId));
+            ref.invalidate(salonStaffMastersRosterProvider(widget.salonId));
             ref.invalidate(salonManagementProfileProvider(widget.salonId));
           },
         ),
@@ -680,8 +714,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
     // safe because the callbacks only ever fire from a DESCENDANT's build,
     // which is strictly after this method returns, and any change to either
     // value rebuilds this screen first (both come from a `ref.watch` above).
-    _roster = rosterState.value ?? const <SalonMasterSummary>[];
-    final String? salonName = profileState.value?.$1.name;
+    _roster = rosterValue ?? const <SalonMasterSummary>[];
 
     // ── THE BOARD'S WORKING-HOURS WINDOW (Phase 335) ─────────────────────
     // One request per MONTH, not per day: the batch route fans out across the
