@@ -1831,6 +1831,23 @@ void main() {
           AppHarness.location(router),
           isNot(equals(RouteNames.masterBookingDetail('booking-1'))),
         );
+        // ── PHASE 383 — THE SALON ID RIDES THE DRILL-IN ───────────────────
+        //
+        // `/salon/bookings/:bookingId` has no salon id on its path, so the
+        // detail screen's `salonId` comes ONLY from the push's `extra`. The
+        // archive route forwards it as `detailExtra`; dropped (at the route
+        // or in `MasterArchiveScreen._openDetail`), a write from this detail
+        // never invalidates this salon's board dot set — the board renders a
+        // stale rail with nothing visibly wrong on the detail itself.
+        expect(
+          tester
+              .widget<BookingDetailScreen>(find.byType(BookingDetailScreen))
+              .salonId,
+          FakeBackend.kOwnerSalonId,
+          reason:
+              'an archive-opened salon detail must carry the salon id on '
+              '`extra`, exactly like a board-opened one',
+        );
         // The archive stays MOUNTED underneath — a push, not a go, so
         // swipe-back returns to the still-scrolled list.
         expect(

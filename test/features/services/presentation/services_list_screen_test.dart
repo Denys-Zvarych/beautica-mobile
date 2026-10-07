@@ -1001,6 +1001,88 @@ void main() {
       );
     });
 
+    // Phase 383 audit cycle 2 (QA INFO) — `_ServicesAppBar._labelFits`, the
+    // shared `VelvetTopBar.labelledBackFits` collapse rule. On a narrow
+    // AppBar with large text the labelled pill would squeeze the title to a
+    // glyph or two, so it collapses to the plain chevron: SAME key, SAME
+    // semantics, default leading slot, still navigates.
+    Future<void> pumpAt(
+      WidgetTester tester, {
+      required double width,
+      required double textScale,
+    }) async {
+      tester.view.physicalSize = Size(width, 800);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await pumpWith(
+        tester,
+        const ServicesListScreen(
+          showBack: true,
+          // Body chrome off: at 280 dp / 2.0× the extended «create» FAB
+          // overflows on its own (sub-320 dp, outside this test's subject),
+          // and the overflow guard would fail on it, not on the AppBar.
+          showBottomNav: false,
+          writable: false,
+          backFallbackRoute: '/fallback',
+          backLabel: 'Салон',
+          backSemanticLabel: 'Повернутися до салону',
+        ),
+      );
+    }
+
+    testWidgets('280 dp @ 2.0× text — the labelled pill COLLAPSES to the '
+        'chevron with the same key and semantics, and still navigates', (
+      tester,
+    ) async {
+      await pumpAt(tester, width: 280, textScale: 2);
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(back, findsOneWidget, reason: 'same key on the collapsed shape');
+      expect(
+        tester.widget<NeumorphicIconButton>(back).label,
+        isNull,
+        reason: 'no room for the label — the pill must collapse',
+      );
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('Салон')),
+        findsNothing,
+      );
+      expect(
+        tester.widget<AppBar>(find.byType(AppBar)).leadingWidth,
+        isNull,
+        reason: 'the collapsed chevron sits in the default leading slot',
+      );
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        tester.getSemantics(back),
+        isSemantics(label: 'Повернутися до салону', isButton: true),
+      );
+      handle.dispose();
+
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(find.text('Dummy fallback'), findsOneWidget);
+    });
+
+    testWidgets('414 dp @ 1.0× text — room to spare KEEPS the labelled pill', (
+      tester,
+    ) async {
+      await pumpAt(tester, width: 414, textScale: 1);
+
+      final Finder back = find.byKey(ServicesListScreen.backKey);
+      expect(tester.widget<NeumorphicIconButton>(back).label, 'Салон');
+      expect(
+        find.descendant(of: find.byType(AppBar), matching: find.text('Салон')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<AppBar>(find.byType(AppBar)).leadingWidth,
+        isNotNull,
+      );
+    });
+
     testWidgets('bottomNavBar replaces the default bar; null keeps it', (
       tester,
     ) async {

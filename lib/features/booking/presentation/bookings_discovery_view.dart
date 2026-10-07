@@ -161,12 +161,14 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import '../application/booked_days_notifier.dart';
 import '../application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/services/data/master_service_catalog_provider.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
+import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/effective_schedule_notifier.dart';
 import 'package:beautica_mobile/features/schedule/presentation/schedule_range.dart';
@@ -282,9 +284,12 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     required this.query,
     required this.title,
     this.onBack,
+    this.backLabel,
+    this.backSemanticLabel,
     this.showMasterFilter = false,
     this.masterFilterOptions = const <MasterFilterOption>[],
     this.useScheduleWindow = false,
+    this.scheduleScope,
     this.onAddWorkingHours,
     required this.onBookingTap,
     this.onOpenArchive,
@@ -322,6 +327,16 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// The back affordance. `null` on a bottom-nav tab root (the master's own
   /// screen); non-null returns to a host shell's home tab.
   final VoidCallback? onBack;
+
+  /// Phase 383 (24.1f) — optional VISIBLE text beside the back arrow,
+  /// forwarded to [NeumorphicIconButton.label] (the owner master-mode
+  /// «‹ Салон» pill, phase 378). Ignored while [onBack] is `null`. `null`
+  /// (every pre-existing host) renders the bare arrow, byte-identical.
+  final String? backLabel;
+
+  /// Phase 383 (24.1f) — optional screen-reader label for the back button.
+  /// `null` keeps [AppLocalizations.bookingsDiscoveryBackSemantics].
+  final String? backSemanticLabel;
 
   /// Whether the teammate («Майстер») filter section is offered.
   ///
@@ -384,6 +399,16 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// that question before ever setting this `true`, so it stays `false` there
   /// until that is built. See `_Loaded` for the branching this drives.
   final bool useScheduleWindow;
+
+  /// Phase 383 (24.1f) — WHOSE working hours bound the timeline when
+  /// [useScheduleWindow] is `true`. `null` (every pre-383 host) resolves
+  /// through `ownScheduleScopeProvider`, byte-identical. The owner
+  /// master-mode mount passes `ScheduleScope.salonMaster(salonId,
+  /// ownerMasterId)`: `ownScheduleScopeProvider` resolves a SALON_OWNER to
+  /// the EMPTY own scope (it has no INDEPENDENT_MASTER row), which would
+  /// render «no working hours» on every day. Ignored while
+  /// [useScheduleWindow] is `false`.
+  final ScheduleScope? scheduleScope;
 
   /// Required whenever [useScheduleWindow] is `true` (see the constructor
   /// assert) — the "no working hours" empty state's CTA fires this with the
@@ -1055,15 +1080,21 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
           serviceIds: _serviceIds,
           maximalStatuses: _kMaximalFilterStatuses,
         ),
-      MasterOwnDayQuery() => _masterOwnQuery(),
+      MasterOwnDayQuery(:final bool asOwnerMaster) => _masterOwnQuery(
+        asOwnerMaster,
+      ),
     };
   }
 
-  BookingsDayQuery _masterOwnQuery() {
+  BookingsDayQuery _masterOwnQuery(bool asOwnerMaster) {
     return BookingsDayQuery.dayList(
       day: _day,
       statuses: _statuses,
       serviceIds: _serviceIds,
+      // Phase 383 (24.1f, 382 QA MEDIUM) — the seed's scope flag travels on
+      // EVERY rebuilt query. Dropping it reverted the owner's master-mode
+      // list to the salon-wide `/bookings/me` on the first day/filter change.
+      asOwnerMaster: asOwnerMaster,
       // The sheet's OWN coverage, not `BookingStatus.filterable`'s default —
       // computed from `BookingStatusFilterGroup.values` so the two can never
       // drift apart (2026-08-15: the sheet dropped its NOT_COMPLETED row).
@@ -1095,6 +1126,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     return switch (widget.query) {
       SalonDayQuery(:final String salonId) => ref.watch(
         salonBookedDaysProvider(salonId),
+      ),
+      // Phase 383 (24.1f, 382 QA MEDIUM) — the owner master-mode seed reads
+      // its OWN-row dots (`?asMaster=true`). Exactly ONE of the two is
+      // watched per mount, never both.
+      MasterOwnDayQuery(asOwnerMaster: true) => ref.watch(
+        ownerMasterBookedDaysProvider,
       ),
       MasterOwnDayQuery() => ref.watch(bookedDaysProvider),
     };
@@ -1399,7 +1436,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               widget.useScheduleWindow
               ? ref.watch(
                   effectiveScheduleProvider(
-                    ref.watch(ownScheduleScopeProvider),
+                    widget.scheduleScope ?? ref.watch(ownScheduleScopeProvider),
                     ScheduleRange(from: _day, to: _day),
                   ),
                 )
@@ -1530,6 +1567,8 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               title: widget.title,
               subtitle: widget.subtitle,
               onBack: widget.onBack,
+              backLabel: widget.backLabel,
+              backSemanticLabel: widget.backSemanticLabel,
               activeFilterCount: _activeFilterCount,
               onOpenFilters: _applyFilters,
               // Phase 329 — `null` when the viewer may not create bookings,
@@ -2265,6 +2304,8 @@ class _Header extends StatelessWidget {
     required this.onBack,
     required this.activeFilterCount,
     required this.onOpenFilters,
+    this.backLabel,
+    this.backSemanticLabel,
     this.subtitle,
     this.onAdd,
     this.addSemanticsLabelOverride,
@@ -2279,6 +2320,12 @@ class _Header extends StatelessWidget {
   /// wraps the title in a two-line `Column` — see [build].
   final String? subtitle;
   final VoidCallback? onBack;
+
+  /// Phase 383 — see [BookingsDiscoveryView.backLabel].
+  final String? backLabel;
+
+  /// Phase 383 — see [BookingsDiscoveryView.backSemanticLabel].
+  final String? backSemanticLabel;
   final int activeFilterCount;
   final VoidCallback onOpenFilters;
 
@@ -2324,9 +2371,134 @@ class _Header extends StatelessWidget {
     ],
   );
 
+  /// Phase 383 — the share of the header row the labelled back pill may
+  /// take (see the `LayoutBuilder` in [build]).
+  static const double _kBackPillMaxWidthFraction = 1 / 3;
+
+  /// The (+) affordance's square side (see its `Container` in [build]).
+  static const double _kAddButtonExtent = 40;
+
+  /// The fixed row width that is NOT the back pill or the title: the gap
+  /// after the pill, the gap after the title, and each trailing control with
+  /// its own leading gap — mirrors [build]'s `Row` children exactly.
+  double _trailingWidth() =>
+      VelvetSpacing.md +
+      VelvetSpacing.sm +
+      (onOpenArchive != null
+          ? NeumorphicIconButton.extent + VelvetSpacing.sm
+          : 0) +
+      BookingsFilterButton.extent +
+      (onAdd != null ? VelvetSpacing.sm + _kAddButtonExtent : 0);
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final VoidCallback? back = onBack;
+    // [label] `null` is the icon-only chevron — every unlabelled header, and
+    // a labelled one collapsed for lack of title room (see the LayoutBuilder
+    // below). Same key, same semantics, same 48 dp target either way.
+    Widget? buildBackButton(String? label) => back == null
+        ? null
+        : NeumorphicIconButton(
+            key: const Key('bookings-discovery-back'),
+            icon: Icons.arrow_back_ios_new_rounded,
+            semanticLabel:
+                backSemanticLabel ?? l10n.bookingsDiscoveryBackSemantics,
+            label: label,
+            onTap: back,
+          );
+    Widget buildRow(double? pillMaxWidth, {String? label}) {
+      final Widget? backButton = buildBackButton(label);
+      return Row(
+        children: <Widget>[
+          if (backButton case final Widget button) ...<Widget>[
+            if (pillMaxWidth == null)
+              button
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: pillMaxWidth),
+                child: button,
+              ),
+            const SizedBox(width: VelvetSpacing.md),
+          ],
+          Expanded(
+            child: subtitle == null
+                // The pre-existing shape, untouched — see [subtitle].
+                ? Text(
+                    title,
+                    style: VelvetText.pageTitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  )
+                : Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        style: VelvetText.pageTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        subtitle!,
+                        key: const Key('bookings-discovery-subtitle'),
+                        style: VelvetText.feedbackMutedSm,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+          ),
+          const SizedBox(width: VelvetSpacing.sm),
+          if (onOpenArchive != null) ...<Widget>[
+            NeumorphicIconButton(
+              key: const Key('master-bookings-open-archive'),
+              icon: Icons.inventory_2_outlined,
+              semanticLabel: l10n.masterArchiveOpenSemantics,
+              onTap: onOpenArchive!,
+            ),
+            const SizedBox(width: VelvetSpacing.sm),
+          ],
+          BookingsFilterButton(
+            activeCount: activeFilterCount,
+            onTap: onOpenFilters,
+          ),
+          // Phase 329 — the (+) affordance and ITS OWN leading gap are
+          // dropped together when [onAdd] is null. Spreading the
+          // `SizedBox` inside the guard (rather than leaving it above as
+          // an unconditional sibling) is what keeps a read-only header
+          // from ending in 8dp of stray trailing space after the filter
+          // button. With a non-null [onAdd] the emitted child order is
+          // unchanged — gap, then button — so every existing caller
+          // renders byte-identically.
+          if (onAdd != null) ...<Widget>[
+            const SizedBox(width: VelvetSpacing.sm),
+            Semantics(
+              button: true,
+              label:
+                  addSemanticsLabelOverride ?? l10n.masterBookingsAddSemantics,
+              child: GestureDetector(
+                key: const Key('master-bookings-add'),
+                onTap: onAdd,
+                behavior: HitTestBehavior.opaque,
+                child: Container(
+                  height: _kAddButtonExtent,
+                  width: _kAddButtonExtent,
+                  decoration: _addButtonDecoration,
+                  child: const Icon(
+                    Icons.add_rounded,
+                    color: BrandColors.white,
+                    size: 22,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      );
+    }
+
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
@@ -2343,94 +2515,35 @@ class _Header extends StatelessWidget {
           VelvetSpacing.lg,
           VelvetSpacing.sm,
         ),
-        child: Row(
-          children: <Widget>[
-            if (onBack != null) ...<Widget>[
-              NeumorphicIconButton(
-                key: const Key('bookings-discovery-back'),
-                icon: Icons.arrow_back_ios_new_rounded,
-                semanticLabel: l10n.bookingsDiscoveryBackSemantics,
-                onTap: onBack!,
-              ),
-              const SizedBox(width: VelvetSpacing.md),
-            ],
-            Expanded(
-              child: subtitle == null
-                  // The pre-existing shape, untouched — see [subtitle].
-                  ? Text(
-                      title,
-                      style: VelvetText.pageTitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    )
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          title,
-                          style: VelvetText.pageTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          subtitle!,
-                          key: const Key('bookings-discovery-subtitle'),
-                          style: VelvetText.feedbackMutedSm,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            if (onOpenArchive != null) ...<Widget>[
-              NeumorphicIconButton(
-                key: const Key('master-bookings-open-archive'),
-                icon: Icons.inventory_2_outlined,
-                semanticLabel: l10n.masterArchiveOpenSemantics,
-                onTap: onOpenArchive!,
-              ),
-              const SizedBox(width: VelvetSpacing.sm),
-            ],
-            BookingsFilterButton(
-              activeCount: activeFilterCount,
-              onTap: onOpenFilters,
-            ),
-            // Phase 329 — the (+) affordance and ITS OWN leading gap are
-            // dropped together when [onAdd] is null. Spreading the
-            // `SizedBox` inside the guard (rather than leaving it above as
-            // an unconditional sibling) is what keeps a read-only header
-            // from ending in 8dp of stray trailing space after the filter
-            // button. With a non-null [onAdd] the emitted child order is
-            // unchanged — gap, then button — so every existing caller
-            // renders byte-identically.
-            if (onAdd != null) ...<Widget>[
-              const SizedBox(width: VelvetSpacing.sm),
-              Semantics(
-                button: true,
-                label:
-                    addSemanticsLabelOverride ??
-                    l10n.masterBookingsAddSemantics,
-                child: GestureDetector(
-                  key: const Key('master-bookings-add'),
-                  onTap: onAdd,
-                  behavior: HitTestBehavior.opaque,
-                  child: Container(
-                    height: 40,
-                    width: 40,
-                    decoration: _addButtonDecoration,
-                    child: const Icon(
-                      Icons.add_rounded,
-                      color: BrandColors.white,
-                      size: 22,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
+        // Phase 383 — the labelled «‹ Салон» pill competes with four
+        // fixed trailing controls on a 320 dp row; capped at a fraction of
+        // the row so it ellipsizes instead of overflowing. Only the labelled
+        // variant measures — every pre-383 header builds the plain row.
+        //
+        // When even that leaves the title below its readable minimum
+        // (`VelvetTopBar.labelledBackFits`, the shared rule), the pill
+        // collapses to the plain chevron instead.
+        child: backLabel != null && onBack != null
+            ? LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+                  final double pillMaxWidth =
+                      constraints.maxWidth * _kBackPillMaxWidthFraction;
+                  final TextScaler scaler = MediaQuery.textScalerOf(context);
+                  final double pill = VelvetTopBar.labelledPillWidthFor(scaler);
+                  final bool fits = VelvetTopBar.labelledBackFits(
+                    titleRoom:
+                        constraints.maxWidth -
+                        (pill < pillMaxWidth ? pill : pillMaxWidth) -
+                        _trailingWidth(),
+                    title: title,
+                    scaler: scaler,
+                  );
+                  return fits
+                      ? buildRow(pillMaxWidth, label: backLabel)
+                      : buildRow(null);
+                },
+              )
+            : buildRow(null),
       ),
     );
   }

@@ -41,6 +41,8 @@ import '../../helpers/pump_app.dart';
 // Test-supplied label passed INTO the widget under test — not l10n copy.
 const String _kBackLabel = 'Салон';
 
+const String _kBackSemantics = 'Повернутися до салону';
+
 const String _kTitle = 'VTB_TITLE_SENTINEL';
 
 /// The title `Text` inside the bar (scoped, so a same-string label elsewhere in
@@ -465,27 +467,36 @@ void main() {
       expect(backs, 1);
     });
 
-    /// Pumps the owner master-mode bar — longest title, «Салон» pill,
-    /// bell+tune trailing — at 360×640 and [textScale].
-    Future<void> pumpOwnerBar(WidgetTester tester, double textScale) async {
+    /// Pumps the owner master-mode bar — [title] (default: the longest
+    /// title), «Салон» pill, bell+tune trailing unless [withTrailing] is
+    /// `false` — at [width]×800 and [textScale].
+    Future<void> pumpOwnerBar(
+      WidgetTester tester,
+      double textScale, {
+      double width = 360,
+      String title = longestTitle,
+      bool withTrailing = true,
+      VoidCallback? onBack,
+    }) async {
       await tester.pumpApp(
         Scaffold(
           body: SafeArea(
             child: Column(
               children: <Widget>[
                 VelvetTopBar(
-                  title: longestTitle,
+                  title: title,
                   backKey: backKey,
                   backLabel: _kBackLabel,
-                  onBack: () {},
-                  trailing: trailingPair(),
+                  backSemanticLabel: _kBackSemantics,
+                  onBack: onBack ?? () {},
+                  trailing: withTrailing ? trailingPair() : null,
                 ),
               ],
             ),
           ),
         ),
-        width: 360,
-        height: 640,
+        width: width,
+        height: 800,
         textScaleFactor: textScale,
       );
       await tester.pump();
@@ -536,16 +547,35 @@ void main() {
       },
     );
 
-    for (final double scale in <double>[1.3, 2.0]) {
-      testWidgets('360×640 @ $scale× text: the grown pill never overlaps '
-          'the title, no overflow', (tester) async {
-        await pumpOwnerBar(tester, scale);
+    /// Phase 383 — the collapsed shape: the icon-only 48 dp chevron, no
+    /// visible label, the SAME key and semantics, still tappable.
+    Future<void> expectCollapsed(WidgetTester tester) async {
+      expect(tester.getSize(find.byKey(backKey)), const Size(48, 48));
+      expect(
+        find.descendant(
+          of: find.byKey(backKey),
+          matching: find.text(_kBackLabel),
+        ),
+        findsNothing,
+      );
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        tester.getSemantics(find.byKey(backKey)),
+        isSemantics(label: _kBackSemantics, isButton: true),
+      );
+      handle.dispose();
+    }
 
-        // Sanity: the pill really did grow past its 1.0× width (95.6 dp).
-        expect(
-          tester.getSize(find.byKey(backKey)).width,
-          greaterThan(VelvetTopBar.labelledTitleInset - VelvetSpacing.sm),
-        );
+    // Phase 383 (LOW layout) — at 360 dp with ≥1.3× text the labelled pill
+    // would leave the title a glyph or two, so it collapses to the chevron
+    // and the title keeps the 1.0× inset that clears the bell+tune pair.
+    for (final double scale in <double>[1.3, 2.0]) {
+      testWidgets('360×800 @ $scale× text: the pill collapses to the '
+          'icon-only chevron, semantics intact, title clear', (tester) async {
+        var backs = 0;
+        await pumpOwnerBar(tester, scale, onBack: () => backs++);
+
+        await expectCollapsed(tester);
         expectTitleClear(
           tester,
           find.descendant(
@@ -553,8 +583,91 @@ void main() {
             matching: find.text(longestTitle),
           ),
         );
+        await tester.tap(find.byKey(backKey));
+        await tester.pump();
+        expect(backs, 1, reason: 'the collapsed chevron still navigates back');
       });
     }
+
+    testWidgets('414×800 @ 1.3× text: room to spare keeps the grown labelled '
+        'pill, title clear', (tester) async {
+      await pumpOwnerBar(tester, 1.3, width: 414);
+
+      expect(
+        find.descendant(
+          of: find.byKey(backKey),
+          matching: find.text(_kBackLabel),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSize(find.byKey(backKey)).width,
+        greaterThan(VelvetTopBar.labelledTitleInset - VelvetSpacing.sm),
+      );
+      expectTitleClear(
+        tester,
+        find.descendant(
+          of: find.byType(VelvetTopBar),
+          matching: find.text(longestTitle),
+        ),
+      );
+    });
+
+    testWidgets('320×800 @ 1.0× text, no trailing: collapses and the title '
+        'takes the chevron slot inset only', (tester) async {
+      const String title = 'Мій розклад';
+      await pumpOwnerBar(
+        tester,
+        1.0,
+        width: 320,
+        title: title,
+        withTrailing: false,
+      );
+
+      await expectCollapsed(tester);
+      final Finder titleFinder = find.descendant(
+        of: find.byType(VelvetTopBar),
+        matching: find.text(title),
+      );
+      final RenderParagraph paragraph = tester.renderObject(titleFinder);
+      expect(
+        paragraph.constraints.maxWidth,
+        tester.getSize(_stripFinder).width -
+            2 * (NeumorphicIconButton.extent + VelvetSpacing.sm),
+      );
+      expect(
+        tester.getRect(titleFinder).left,
+        greaterThanOrEqualTo(tester.getRect(find.byKey(backKey)).right),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    test('labelledBackFits — the readable minimum is ~8 glyphs (or the '
+        'whole title, if shorter) of the page-title style, text-scaled', () {
+      const TextScaler one = TextScaler.noScaling;
+      final double eight = VelvetTopBar.minTitleRoomFor('12345678901', one);
+      expect(VelvetTopBar.minTitleRoomFor('123', one), lessThan(eight));
+      expect(
+        VelvetTopBar.minTitleRoomFor('12345678901', const TextScaler.linear(2)),
+        closeTo(2 * eight, 0.001),
+      );
+      expect(
+        VelvetTopBar.labelledBackFits(
+          titleRoom: eight,
+          title: 'x' * 11,
+          scaler: one,
+        ),
+        isTrue,
+      );
+      expect(
+        VelvetTopBar.labelledBackFits(
+          titleRoom: eight - 1,
+          title: 'x' * 11,
+          scaler: one,
+        ),
+        isFalse,
+      );
+    });
 
     testWidgets('backLabel with a null onBack renders no pill and does not '
         'inset the title', (tester) async {

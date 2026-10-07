@@ -26,6 +26,14 @@
 // bar, the «‹ Салон» back, and that every schedule read is keyed on the own
 // master row, never `/masters/me`.
 //
+// Phase 383 (24.1f) — the «Записи» tab (`/owner/master/bookings`) and its
+// «Архів» share it too: the mounted [MasterBookingsScreen] /
+// [MasterArchiveScreen] are the owner-row scope (`asOwnerMaster: true`), the
+// tile-1 bar routes all four tiles to `/owner/master/*`, detail/review reuse
+// `/salon/bookings/*`, and every `GET /bookings/me` carries `asMaster: true`.
+// Plus two 381 perf carry-overs: the «Графік» capability skeleton has its own
+// key, and leaving master mode releases the shell's roster keep-alive.
+//
 // Layer: Widget (real appRouterProvider + authRedirect, faked providers).
 
 import 'dart:async';
@@ -33,17 +41,31 @@ import 'dart:async';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
@@ -210,6 +232,15 @@ class _PerUserMasterProfile extends MasterProfile {
 
 class _MockDio extends Mock implements Dio {}
 
+class _MockBookingRepository extends Mock implements BookingRepository {}
+
+class _NoOpScreenProtection extends ScreenProtectionManager {
+  @override
+  void acquire() {}
+  @override
+  void release() {}
+}
+
 class _RouterApp extends StatelessWidget {
   const _RouterApp({required this.router});
 
@@ -263,6 +294,7 @@ void main() {
     SalonManagementProfile Function() roster = _RosterWithOwnRow.new,
     MasterProfile Function() masterProfile = _OwnerMasterProfile.new,
     AuthNotifier Function() auth = _OwnerAuth.new,
+    List<Object> extraOverrides = const <Object>[],
   }) async {
     dio = _MockDio();
     when(() => dio.get<Object?>(any())).thenAnswer((invocation) async {
@@ -290,6 +322,7 @@ void main() {
           (ref) async => const <ServiceCategoryOption>[],
         ),
         salonManagementProfileProvider.overrideWith(roster),
+        ...extraOverrides,
       ],
     );
     final GoRouter router = container.read(appRouterProvider);
@@ -878,4 +911,476 @@ void main() {
       await drainScheduleTtl(tester);
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Phase 381 perf INFO carry-overs (landed in 383).
+  // -------------------------------------------------------------------------
+
+  testWidgets('the «Графік» capability skeleton (mySalons pending) carries '
+      'its OWN key — never the services gate\'s', (tester) async {
+    _GatedMySalons.gate = Completer<List<Salon>>();
+    final GoRouter router = await pumpOwnerRouter(
+      tester,
+      mySalons: _GatedMySalons.new,
+    );
+    stubScheduleReads();
+
+    router.go(RouteNames.ownerMasterSchedule);
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('owner_master_schedule_loading')),
+    );
+    expect(
+      find.byKey(const Key('salon_master_own_services_loading')),
+      findsNothing,
+    );
+    expect(find.byType(MasterScheduleScreen), findsNothing);
+
+    _GatedMySalons.gate.complete(const <Salon>[
+      Salon(id: _kSalonId, name: 'Test Salon', isPrimary: true),
+    ]);
+    await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+    expect(
+      find.byKey(const Key('owner_master_schedule_loading')),
+      findsNothing,
+    );
+    await drainScheduleTtl(tester);
+  });
+
+  /// The salon shell runs a perpetual loading animation in this harness, so
+  /// `pumpAndSettle` never returns there — step a bounded number of frames
+  /// (spans the page transition) instead.
+  Future<void> settleFrames(WidgetTester tester) async {
+    for (int frame = 0; frame < 60; frame++) {
+      // fixed-wait-ok: frame-stepping (one vsync), not a wait for a result.
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+  }
+
+  // MUTATION: replaced the shell's `ref.listen(...)` with a container-level
+  // `ProviderScope.containerOf(context).listen(...)` that is never closed (the
+  // leak class this pins) → `exists` stayed true on the roster-free page,
+  // this test failed. Restored.
+  testWidgets('leaving master mode via «‹ Салон» RELEASES the owner shell\'s '
+      'roster keep-alive: the shell unmounts, and once the salon side is left '
+      'too the roster is disposed', (tester) async {
+    final GoRouter router = await pumpOwnerRouter(tester);
+    stubScheduleReads();
+    final Finder masterShell = find.byWidgetPredicate(
+      (Widget w) => w.runtimeType.toString() == '_SalonMasterTabsShell',
+      skipOffstage: false,
+    );
+    ProviderContainer containerNow() =>
+        ProviderScope.containerOf(tester.element(find.byType(Navigator).first));
+
+    // Master mode on «Профіль» — a tab whose screen never reads the roster,
+    // so the shell's keep-alive listen is what holds it.
+    router.go(RouteNames.ownerMasterProfile);
+    await pumpUntil(
+      tester,
+      () => router.state.matchedLocation == RouteNames.ownerMasterProfile,
+    );
+    await settleFrames(tester);
+    expect(masterShell, findsOneWidget, reason: 'fixture guard');
+    expect(
+      containerNow().exists(salonManagementProfileProvider(_kSalonId)),
+      isTrue,
+      reason: 'fixture guard: the owner shell keeps the roster alive',
+    );
+
+    // «‹ Салон» — the SAME `go(salonHome)` every owner tab's back runs.
+    router.go(RouteNames.salonHome);
+    await pumpUntilFound(tester, find.byType(SalonManagementProfileScreen));
+    await settleFrames(tester);
+    expect(
+      masterShell,
+      findsNothing,
+      reason: 'the master-mode shell (and its listen) must be gone',
+    );
+
+    // The salon profile tab legitimately watches the roster; leave it for a
+    // roster-free owner page. With no leaked holder the autoDispose roster
+    // must now be disposed.
+    router.go(RouteNames.ownerEditPersonal);
+    await pumpUntil(
+      tester,
+      () => router.state.matchedLocation == RouteNames.ownerEditPersonal,
+    );
+    await pumpUntilGone(
+      tester,
+      find.byType(SalonManagementProfileScreen, skipOffstage: false),
+    );
+    await settleFrames(tester);
+    expect(
+      containerNow().exists(salonManagementProfileProvider(_kSalonId)),
+      isFalse,
+      reason: 'nothing may keep the roster alive after master mode is left',
+    );
+    await drainScheduleTtl(tester);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 383 (24.1f) — «Записи» + «Архів».
+  // -------------------------------------------------------------------------
+
+  group('«Записи» (/owner/master/bookings)', () {
+    late _MockBookingRepository bookingRepo;
+    late List<bool> asMasterSeen;
+
+    setUpAll(() {
+      registerFallbackValue(BookingStatus.confirmed);
+      registerFallbackValue(BookingSort.oldest);
+      registerFallbackValue(<BookingStatus>[]);
+      registerFallbackValue(DateTime(2026));
+    });
+
+    setUp(() {
+      bookingRepo = _MockBookingRepository();
+      asMasterSeen = <bool>[];
+      when(
+        () => bookingRepo.getMyBookings(
+          statuses: any(named: 'statuses'),
+          page: any(named: 'page'),
+          size: any(named: 'size'),
+          cancelToken: any(named: 'cancelToken'),
+          sort: any(named: 'sort'),
+          serviceIds: any(named: 'serviceIds'),
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          partition: any(named: 'partition'),
+          asMaster: any(named: 'asMaster'),
+        ),
+      ).thenAnswer((Invocation i) async {
+        asMasterSeen.add(i.namedArguments[#asMaster] as bool? ?? false);
+        return const PageResponse<Booking>(
+          items: <Booking>[],
+          page: 0,
+          totalPages: 1,
+          totalElements: 0,
+        );
+      });
+      when(
+        () => bookingRepo.getMyBookedDays(
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+          asMaster: any(named: 'asMaster'),
+        ),
+      ).thenAnswer((Invocation i) async {
+        asMasterSeen.add(i.namedArguments[#asMaster] as bool? ?? false);
+        return <DateTime>[];
+      });
+    });
+
+    /// The booked-days dots pin themselves for 30 minutes
+    /// (`_bookedDaysWindow`'s keepAlive timer) — longer than the schedule's
+    /// 5-minute TTL, so this drain covers both.
+    Future<void> drainBookingsTtl(WidgetTester tester) =>
+        // fixed-wait-ok: TTL crossing — must exceed the 30-minute keepAlive.
+        tester.pump(const Duration(minutes: 31));
+
+    List<Object> bookingOverrides() => <Object>[
+      bookingRepositoryProvider.overrideWithValue(bookingRepo),
+      screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    ];
+
+    testWidgets('mounts MasterBookingsScreen on the owner-row scope: '
+        'asOwnerMaster, /salon/* detail, owner archive, tile-1 bar with all '
+        'four owner routes, «‹ Салон»; every /bookings/me read is asMaster', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookings);
+      await pumpUntilFound(tester, find.byType(MasterBookingsScreen));
+      await tester.pumpAndSettle();
+
+      expect(router.state.matchedLocation, RouteNames.ownerMasterBookings);
+      final MasterBookingsScreen screen = tester.widget<MasterBookingsScreen>(
+        find.byType(MasterBookingsScreen),
+      );
+      expect(screen.asOwnerMaster, isTrue);
+      expect(screen.detailRouteBuilder?.call('b1'), '/salon/bookings/b1');
+      expect(screen.archiveRoute, RouteNames.ownerMasterBookingsArchive);
+      expect(screen.navScheduleRoute, RouteNames.ownerMasterSchedule);
+      expect(screen.canAddWorkingHours, isTrue);
+      expect(
+        screen.scheduleScope,
+        const ScheduleScope.salonMaster(
+          salonId: _kSalonId,
+          masterId: _kOwnerMasterRowId,
+        ),
+        reason:
+            'the working-hours window must read the owner\'s OWN row, not '
+            'the empty own scope ownScheduleScopeProvider gives an owner',
+      );
+      expect(screen.detailExtra, _kSalonId);
+      expect(
+        recordedUris,
+        contains('/api/v1/masters/$_kOwnerMasterRowId/effective-schedule'),
+      );
+      // The filter sheet's «Послуга» options: the owner-row catalogue via the
+      // shell's scope — never `/independent-masters/me/services`.
+      expect(
+        recordedUris,
+        contains(
+          '/api/v1/salons/$_kSalonId/masters/$_kOwnerMasterRowId/services',
+        ),
+      );
+      for (final String uri in recordedUris) {
+        expect(uri, isNot(contains('/masters/me')));
+      }
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterBookingsScreen)),
+      );
+      expect(screen.backLabel, l10n.ownerMasterModeBack);
+      expect(screen.backSemanticLabel, l10n.ownerMasterModeBackSemantics);
+      expect(find.byKey(const Key('bookings-discovery-back')), findsOneWidget);
+
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.activeIndex, 1);
+      expect(bar.servicesRoute, RouteNames.ownerMasterServices);
+      expect(bar.bookingsRoute, RouteNames.ownerMasterBookings);
+      expect(bar.scheduleRoute, RouteNames.ownerMasterSchedule);
+      expect(bar.profileRoute, RouteNames.ownerMasterProfile);
+
+      expect(asMasterSeen, isNotEmpty);
+      expect(
+        asMasterSeen,
+        everyElement(isTrue),
+        reason: 'owner master mode must never read the salon-wide list/dots',
+      );
+      await drainBookingsTtl(tester);
+    });
+
+    // Phase 383 — decision 2026-10-07: (+) books the owner's OWN row via the
+    // independent master's walk-in chain, mounted inside the owner shell.
+    testWidgets('(+) opens the owner walk-in chain (/owner/master/bookings/'
+        'new) — never the salon wizard (master-pick step) nor /master/*', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookings);
+      await pumpUntilFound(tester, find.byType(MasterBookingsScreen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-bookings-add')));
+      await pumpUntilFound(tester, find.byType(WalkInGuestStepScreen));
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        RouteNames.ownerMasterBookingNew,
+      );
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+      expect(
+        tester
+            .widget<WalkInGuestStepScreen>(find.byType(WalkInGuestStepScreen))
+            .servicesRoute,
+        RouteNames.ownerMasterBookingNewServices,
+      );
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('the owner walk-in service step resolves INSIDE the owner '
+        'row scope: lists /salons/S/masters/M/services (never '
+        '/independent-masters/me/services) and returns to the owner «Записи»', (
+      tester,
+    ) async {
+      ownRows.add(_ownRow('own-svc-1', 'def-1'));
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookings);
+      await pumpUntilFound(tester, find.byType(MasterBookingsScreen));
+      await tester.pumpAndSettle();
+      unawaited(router.push(RouteNames.ownerMasterBookingNew));
+      await pumpUntilFound(tester, find.byType(WalkInGuestStepScreen));
+      unawaited(
+        router.push(
+          RouteNames.ownerMasterBookingNewServices,
+          extra: const WalkInGuest(
+            name: 'Анна',
+            surname: 'Гість',
+            phone: '+380501234567',
+          ),
+        ),
+      );
+      await pumpUntilFound(tester, find.byType(WalkInServiceStepScreen));
+      await tester.pumpAndSettle();
+
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        RouteNames.ownerMasterBookingNewServices,
+      );
+      final Finder step = find.byType(WalkInServiceStepScreen);
+      expect(targetSeenBy(tester, step), _kOwnerTarget);
+      expect(
+        tester.widget<WalkInServiceStepScreen>(step).returnRoute,
+        RouteNames.ownerMasterBookings,
+      );
+      expect(
+        recordedUris,
+        contains(
+          '/api/v1/salons/$_kSalonId/masters/$_kOwnerMasterRowId/services',
+        ),
+      );
+      for (final String uri in recordedUris) {
+        expect(uri, isNot(contains('/independent-masters/me/services')));
+      }
+      // The owner-row catalogue row renders in the step's list.
+      expect(
+        // i18n-finder-ok: server fixture service name (`_ownRow`), not UI copy
+        find.descendant(of: step, matching: find.text('Манікюр')),
+        findsWidgets,
+      );
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('a COLD deep link to the owner services step with no guest '
+        'extra bounces to the owner guest step', (tester) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      router.go(RouteNames.ownerMasterBookingNewServices);
+      await pumpUntilFound(tester, find.byType(WalkInGuestStepScreen));
+      expect(router.state.matchedLocation, RouteNames.ownerMasterBookingNew);
+      expect(find.byType(WalkInServiceStepScreen), findsNothing);
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('the «Мої записи» tile on every other owner tab lands on '
+        '/owner/master/bookings (never the INDEPENDENT_MASTER /master/*)', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      for (final String tab in <String>[
+        RouteNames.ownerMasterServices,
+        RouteNames.ownerMasterSchedule,
+        RouteNames.ownerMasterProfile,
+      ]) {
+        router.go(tab);
+        await pumpUntil(tester, () => router.state.matchedLocation == tab);
+        await pumpUntilFound(tester, find.byType(VelvetBottomNavBar));
+        expect(
+          tester
+              .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+              .bookingsRoute,
+          RouteNames.ownerMasterBookings,
+          reason: '$tab bar must route «Мої записи» to the owner tab',
+        );
+      }
+
+      router.go(RouteNames.ownerMasterProfile);
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.ownerMasterProfile,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await pumpUntilFound(tester, find.byType(MasterBookingsScreen));
+      expect(router.state.matchedLocation, RouteNames.ownerMasterBookings);
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('«Архів» resolves to MasterArchiveScreen on the owner-row '
+        'scope with /salon/* detail + review, and reads asMaster', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookingsArchive);
+      await pumpUntilFound(tester, find.byType(MasterArchiveScreen));
+      await tester.pumpAndSettle();
+
+      expect(
+        router.state.matchedLocation,
+        RouteNames.ownerMasterBookingsArchive,
+      );
+      expect(find.byType(MasterBookingsScreen), findsNothing);
+      final MasterArchiveScreen archive = tester.widget<MasterArchiveScreen>(
+        find.byType(MasterArchiveScreen),
+      );
+      expect(archive.asOwnerMaster, isTrue);
+      expect(archive.salonId, isNull);
+      expect(archive.detailRouteBuilder?.call('b1'), '/salon/bookings/b1');
+      expect(
+        archive.reviewRouteBuilder?.call('b1'),
+        '/salon/bookings/b1/review',
+      );
+      expect(asMasterSeen, isNotEmpty);
+      expect(asMasterSeen, everyElement(isTrue));
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('«‹ Салон» on «Записи» goes to the salon resolver', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterBookings);
+      await pumpUntilFound(tester, find.byType(MasterBookingsScreen));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('bookings-discovery-back')));
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.salonShell(_kSalonId),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(MasterBookingsScreen), findsNothing);
+      await drainBookingsTtl(tester);
+    });
+
+    testWidgets('CONTROL: an INDEPENDENT_MASTER is bounced off '
+        '/owner/master/bookings, its archive and the owner walk-in chain', (
+      tester,
+    ) async {
+      _OwnerAuth.role = UserRole.independentMaster;
+      final GoRouter router = await pumpOwnerRouter(
+        tester,
+        extraOverrides: bookingOverrides(),
+      );
+      for (final String loc in <String>[
+        RouteNames.ownerMasterBookings,
+        RouteNames.ownerMasterBookingsArchive,
+        RouteNames.ownerMasterBookingNew,
+        RouteNames.ownerMasterBookingNewServices,
+      ]) {
+        router.go(loc);
+        await tester.pumpAndSettle();
+        expect(
+          router.state.matchedLocation,
+          isNot(startsWith('/owner/master/')),
+        );
+      }
+      await drainBookingsTtl(tester);
+    });
+  });
 }

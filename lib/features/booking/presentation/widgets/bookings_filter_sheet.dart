@@ -230,6 +230,10 @@ class BookingsFilterButton extends StatelessWidget {
   final int activeCount;
   final VoidCallback onTap;
 
+  /// Square side of the button face. Exposed so a header that budgets its row
+  /// (the labelled back pill in `BookingsDiscoveryView`) reads the real size.
+  static const double extent = 44;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -246,8 +250,8 @@ class BookingsFilterButton extends StatelessWidget {
           clipBehavior: Clip.none,
           children: <Widget>[
             Container(
-              height: 44,
-              width: 44,
+              height: extent,
+              width: extent,
               decoration: BoxDecoration(
                 color: BrandColors.base,
                 borderRadius: BorderRadius.circular(VelvetRadii.field),

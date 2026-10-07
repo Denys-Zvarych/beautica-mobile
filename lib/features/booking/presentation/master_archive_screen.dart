@@ -184,6 +184,8 @@ class MasterArchiveScreen extends ConsumerStatefulWidget {
     this.salonId,
     this.showServiceFilter = true,
     this.showMasterAttribution = false,
+    this.asOwnerMaster = false,
+    this.detailExtra,
   });
 
   /// Builds the booking-detail path from a booking id for a row tap. `null`
@@ -213,6 +215,15 @@ class MasterArchiveScreen extends ConsumerStatefulWidget {
   /// on this must assert on the QUERY the provider was read with, never on a
   /// field of this widget.
   final String? salonId;
+
+  /// Phase 383 (24.1f) — the owner master-mode archive
+  /// (`/owner/master/bookings/archive`): forwarded verbatim into [_query]'s
+  /// `MasterArchiveQuery.of(asOwnerMaster: …)`, so it reads
+  /// `GET /bookings/me?asMaster=true` (own master row only, backend 354) and
+  /// is a DISTINCT cache key from the owner's salon-wide `/bookings/me`.
+  /// `false` (every pre-383 mount) is byte-identical. Never combined with
+  /// [salonId] — `MasterArchiveQuery.of` asserts against that.
+  final bool asOwnerMaster;
 
   /// Phase 343 — whether the filter sheet offers its «Послуга» section.
   /// `true` (the default) on both master hosts; the salon host passes
@@ -246,6 +257,14 @@ class MasterArchiveScreen extends ConsumerStatefulWidget {
   /// data scope, so a future scope wanting one without the other would have
   /// to fork this screen. Two flags, one decision each.
   final bool showMasterAttribution;
+
+  /// Phase 383 — the `extra` a row tap pushes the detail route with. `null`
+  /// (the default, every master/staff mount) pushes with no `extra`, as
+  /// before. The `/salon/*` and owner master-mode mounts pass their salon id
+  /// so a write on `/salon/bookings/:id` also drops that salon's board dots
+  /// (the route's `extra`-carries-the-salon-id contract) — the SAME additive
+  /// param, with the same meaning, as `MasterBookingsScreen.detailExtra`.
+  final Object? detailExtra;
 
   @override
   ConsumerState<MasterArchiveScreen> createState() =>
@@ -396,6 +415,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     statuses: _statuses,
     serviceIds: _serviceIds,
     salonId: widget.salonId,
+    asOwnerMaster: widget.asOwnerMaster,
   );
 
   int get _activeFilterCount => bookingsActiveFilterCount(
@@ -507,6 +527,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   void _openDetail(Booking booking) {
     context.push(
       (widget.detailRouteBuilder ?? RouteNames.masterBookingDetail)(booking.id),
+      extra: widget.detailExtra,
     );
   }
 

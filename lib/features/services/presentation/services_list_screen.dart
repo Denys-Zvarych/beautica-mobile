@@ -598,10 +598,31 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
     // than a no-op, and the two `showBack: false` mounts never reach here.
   }
 
+  bool _labelFits(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    return VelvetTopBar.labelledBackFits(
+      titleRoom:
+          MediaQuery.sizeOf(context).width -
+          (VelvetSpacing.md + VelvetTopBar.labelledTitleInsetFor(scaler)) -
+          NavigationToolbar.kMiddleSpacing,
+      title: title,
+      scaler: scaler,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String? label = showBack ? backLabel : null;
+    final String? requested = showBack ? backLabel : null;
+    // Phase 383 (LOW layout) — the shared collapse rule
+    // ([VelvetTopBar.labelledBackFits]): when the labelled pill would leave
+    // the title below its readable minimum, render the plain chevron (same
+    // key, same semantics) in AppBar's default leading slot. The AppBar is
+    // full-width, so the screen width is the bar width; the title starts
+    // after the leading slot and AppBar's own middle spacing.
+    final String? label = requested != null && _labelFits(context)
+        ? requested
+        : null;
     return AppBar(
       // Phase 380 — the labelled pill is wider than the default 56 dp slot.
       // Sized by the SAME measured pill width [VelvetTopBar] insets its title

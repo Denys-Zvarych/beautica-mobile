@@ -33,6 +33,7 @@ import 'package:beautica_mobile/features/booking/application/booking_detail_noti
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/my_bookings_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/salon_board_refresh_gate.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -2760,6 +2761,98 @@ void main() {
         expect(appointments.requests, hasLength(1));
         expect(bookings.createMasterBookingCalls, isEmpty);
       });
+
+      // Phase 383 (24.1f, decision 2026-10-07) — an owner booking their OWN
+      // master row through this walk-in branch lands on the salon «Записи»
+      // board too, so the board's dot set must drop. The owner is in master
+      // mode (board not the selected salon tab), so the fan-out POSTPONES
+      // it onto the salon board refresh gate — observed on the provider
+      // container, not on a widget field.
+      testWidgets(
+        'should_markSalonBoardStale_when_walkInMasterIsSalonAffiliated — '
+        'the master\'s salonId reaches the create fan-out',
+        (tester) async {
+          const String salonId = 'salon-owner-1';
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          final Master ownerRow = _kMaster.copyWith(
+            type: MasterType.salonOwner,
+            salonId: salonId,
+          );
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs().copyWith(
+              master: ownerRow,
+              returnRoute: RouteNames.ownerMasterBookings,
+            ),
+            appointments: appointments,
+            bookings: bookings,
+          );
+          final ProviderContainer container = ProviderScope.containerOf(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+          expect(
+            container.read(salonBoardRefreshGateProvider).isStale(salonId),
+            isFalse,
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          expect(bookings.createMasterBookingCalls.single.$1, _kMaster.id);
+          expect(
+            container.read(salonBoardRefreshGateProvider).isStale(salonId),
+            isTrue,
+            reason:
+                'the salon board dots must refresh for an owner-row walk-in',
+          );
+          // The owner chain's «Готово» landing rides through to the done
+          // screen.
+          expect(
+            tester
+                .widget<BookingSuccessScreen>(find.byType(BookingSuccessScreen))
+                .args
+                .returnRoute,
+            RouteNames.ownerMasterBookings,
+          );
+        },
+      );
+
+      testWidgets(
+        'CONTROL: an INDEPENDENT master walk-in (no salonId) touches no salon '
+        'board and carries no returnRoute',
+        (tester) async {
+          final appointments = _FakeAppointmentRepository();
+          final bookings = _RecordingRescheduleRepository();
+          await pumpConfirm(
+            tester,
+            _walkInConfirmArgs(),
+            appointments: appointments,
+            bookings: bookings,
+          );
+          final ProviderContainer container = ProviderScope.containerOf(
+            tester.element(find.byType(BookingConfirmScreen)),
+          );
+
+          await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+          await tester.pumpAndSettle();
+
+          expect(bookings.createMasterBookingCalls, hasLength(1));
+          final SalonBoardRefreshGate gate = container.read(
+            salonBoardRefreshGateProvider,
+          );
+          expect(gate.isStale('salon-owner-1'), isFalse);
+          expect(gate.isStale(''), isFalse);
+          expect(
+            tester
+                .widget<BookingSuccessScreen>(find.byType(BookingSuccessScreen))
+                .args
+                .returnRoute,
+            isNull,
+          );
+        },
+      );
 
       testWidgets(
         'should_postAllThreeServiceIds_when_walkInSubmits — order-preserving, '

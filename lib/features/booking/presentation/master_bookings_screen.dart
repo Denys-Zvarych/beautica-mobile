@@ -106,6 +106,7 @@ import 'bookings_discovery_view.dart';
 import '../application/bookings_capability.dart';
 import '../domain/booking.dart';
 import '../domain/bookings_day_query.dart';
+import '../../schedule/domain/schedule_scope.dart';
 
 /// A provider's own booking list. A thin wrapper — see the file header.
 ///
@@ -129,6 +130,14 @@ class MasterBookingsScreen extends ConsumerWidget {
     this.navScheduleRoute,
     this.navProfileRoute,
     this.canAddWorkingHours = true,
+    this.asOwnerMaster = false,
+    this.bottomNavBar,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.onBack,
+    this.scheduleScope,
+    this.onCreateBooking,
+    this.detailExtra,
   });
 
   /// Builds the booking-detail path from a booking id. `null` (the
@@ -171,6 +180,48 @@ class MasterBookingsScreen extends ConsumerWidget {
   /// import of it would be the cross-feature presentation→presentation import
   /// the architecture forbids.
   final bool canAddWorkingHours;
+
+  /// Phase 383 (24.1f) — the SALON_OWNER's master-mode mount
+  /// (`/owner/master/bookings`) reads only the bookings on their OWN master
+  /// row: `BookingsDayQuery.of(asOwnerMaster: true)` seeds the view, which
+  /// carries the flag onto every rebuilt day query and onto the booked-day
+  /// dots (`ownerMasterBookedDaysProvider`) — `GET /bookings/me?asMaster=true`
+  /// (backend 354). `false` (the `/master/bookings` and `/staff/bookings`
+  /// mounts and every existing test) is the pre-383 query exactly.
+  final bool asOwnerMaster;
+
+  /// Phase 383 (24.1f) — optional prebuilt bottom bar that REPLACES [_navBar].
+  /// The owner master-mode mount passes its canonical `const` tile-1 bar
+  /// (`_kOwnerMasterNavBars[1]` in `app_router.dart`) — the same seam
+  /// `ServicesListScreen` / `MasterScheduleScreen` / `OwnerOwnProfileScreen`
+  /// use (phases 379–381). `null` keeps [_navBar] byte-identically.
+  final Widget? bottomNavBar;
+
+  /// Phase 383 (24.1f) — the header back affordance, forwarded verbatim to
+  /// [BookingsDiscoveryView]. [onBack] `null` (every pre-383 mount) keeps
+  /// this a tab root with no back button; the owner master-mode mount passes
+  /// `go(salonHome)` with the «‹ Салон» pill [backLabel].
+  final String? backLabel;
+  final String? backSemanticLabel;
+  final VoidCallback? onBack;
+
+  /// Phase 383 (24.1f) — forwarded to
+  /// [BookingsDiscoveryView.scheduleScope]. `null` (every pre-383 mount)
+  /// keeps the `ownScheduleScopeProvider` working-hours window; the owner
+  /// master-mode mount passes its own row's `ScheduleScope.salonMaster`.
+  final ScheduleScope? scheduleScope;
+
+  /// Phase 383 (24.1f) — forwarded to [BookingsDiscoveryView.onCreateBooking].
+  /// `null` keeps the INDEPENDENT_MASTER wizard (`/master/bookings/new`); the
+  /// owner master-mode mount re-aims (+) at the owner-admitted salon wizard,
+  /// since `/master/*` would bounce a SALON_OWNER.
+  final VoidCallback? onCreateBooking;
+
+  /// Phase 383 (24.1f) — `extra` for the detail push. `null` (every pre-383
+  /// mount) pushes with no `extra`, as before. The owner mount passes its
+  /// salon id so a write on `/salon/bookings/:id` also drops that salon's
+  /// board dots (the route's `extra`-carries-the-salon-id contract).
+  final Object? detailExtra;
 
   /// The bottom bar, kept `const` for the default (`/master/bookings`) mount
   /// so that call site is byte-identical to before phase 330 — the three
@@ -245,16 +296,24 @@ class MasterBookingsScreen extends ConsumerWidget {
         // here would instead read as a master-chosen filter and light up the
         // funnel badge. See that file's "CANCELLED/DECLINED are hidden by
         // default" header section.
-        query: BookingsDayQuery.of(day: kyivToday(ref.read(clockProvider))),
+        query: BookingsDayQuery.of(
+          day: kyivToday(ref.read(clockProvider)),
+          asOwnerMaster: asOwnerMaster,
+        ),
         title: l10n.masterBookingsTitle,
-        // Bottom-nav tab root — no back affordance.
-        onBack: null,
+        // Bottom-nav tab root — no back affordance, except the owner
+        // master-mode mount's «‹ Салон» (phase 383).
+        onBack: onBack,
+        backLabel: backLabel,
+        backSemanticLabel: backSemanticLabel,
         // A single master's own list never offers the teammate filter.
         showMasterFilter: false,
         // The master's own screen is the ONE call site that bounds the
         // timeline by working hours instead of by bookings — see
         // `BookingsDiscoveryView.useScheduleWindow`'s doc.
         useScheduleWindow: true,
+        // Phase 383 — see [scheduleScope].
+        scheduleScope: scheduleScope,
         // The "no working hours" empty state's CTA — routes to the
         // schedule screen with the day it was showing pre-selected
         // (`RouteNames.masterSchedule`'s `?date=` contract), so the master
@@ -274,7 +333,9 @@ class MasterBookingsScreen extends ConsumerWidget {
         // Phase 330 — see [canAddWorkingHours].
         canAddWorkingHours: canAddWorkingHours,
         onBookingTap: (Booking booking) =>
-            context.push(detailRoute(booking.id)),
+            context.push(detailRoute(booking.id), extra: detailExtra),
+        // Phase 383 — see [onCreateBooking].
+        onCreateBooking: onCreateBooking,
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
         onOpenArchive: () =>
@@ -295,7 +356,7 @@ class MasterBookingsScreen extends ConsumerWidget {
       // `/master/*` by default (the bar's own literals, so this stays `const`
       // for the INDEPENDENT_MASTER mount) and at `/staff/*` when the
       // `/staff/bookings` route supplies them.
-      bottomNavigationBar: _navBar,
+      bottomNavigationBar: bottomNavBar ?? _navBar,
     );
   }
 }

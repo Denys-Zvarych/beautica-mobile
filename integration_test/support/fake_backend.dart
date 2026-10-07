@@ -4928,6 +4928,32 @@ final class FakeBackend {
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
 
+  /// Phase 383 (24.1f) — the `asMaster` flag of EVERY `GET /bookings/me` and
+  /// `GET /bookings/me/booked-days` call, in order (`true` iff the request
+  /// carried `asMaster=true`), so a flow can prove the owner master-mode
+  /// tab never once read the salon-wide scope.
+  final List<bool> myBookingsAsMasterFlags = <bool>[];
+  final List<bool> bookedDaysAsMasterFlags = <bool>[];
+
+  /// Phase 383 (24.1f) — backend 354's `asMaster=true` narrowing. When
+  /// non-null, a `GET /bookings/me?asMaster=true` over a seeded
+  /// [seedManyBookingsDataset] is answered from ONLY the rows whose `id` is
+  /// in this set (the owner's OWN master-row bookings); a request WITHOUT
+  /// the flag still sees the whole dataset (every salon booking, as the real
+  /// endpoint returns for a SALON_OWNER). `null` (every pre-383 flow) never
+  /// narrows.
+  Set<String>? ownerMasterRowBookingIds;
+
+  /// Phase 383 (decision 2026-10-07) — opt-in: a walk-in
+  /// `POST /masters/{masterRowId}/bookings` is ALSO appended to
+  /// [salonBoardBookings] (the owner's row carries their salon, so the real
+  /// backend shows it on `GET /bookings/salon/{salonId}`). `false` keeps
+  /// every pre-383 flow byte-identical.
+  bool mirrorWalkInToSalonBoard = false;
+
+  static bool _asMasterFrom(Map<String, dynamic> query) =>
+      _scalarQueryParam(query, 'asMaster') == 'true';
+
   /// The raw `from`/`to` query params of the MOST RECENT
   /// `GET /bookings/me/booked-days` call, as Dio actually sent them.
   ///
@@ -5512,8 +5538,14 @@ final class FakeBackend {
   /// degenerate case where `status` is ALSO absent, which yields NO filter
   /// at all. That degenerate case is deliberate: it is the fake half of the
   /// Phase 227 rollout-safety-valve negative control.
-  Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
-    final List<Map<String, dynamic>> dataset = _bookingsDataset!;
+  Map<String, dynamic> _slicedBookingsPageEnvelope(
+    Map<String, dynamic> query, {
+    Set<String>? onlyIds,
+  }) {
+    final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
+      for (final Map<String, dynamic> row in _bookingsDataset!)
+        if (onlyIds == null || onlyIds.contains(row['id'])) row,
+    ];
     final String? partition = backendSupportsPartition
         ? _scalarQueryParam(query, 'partition')
         : null;
@@ -7968,13 +8000,18 @@ final class FakeBackend {
         bool anyRange = false;
         for (final dynamic rawId in serviceIds) {
           final String assignId = rawId as String;
-          final Map<String, dynamic> assignment = _services.firstWhere(
-            (Map<String, dynamic> s) => s['id'] == assignId,
-            orElse: () => throw StateError(
-              'FakeBackend: unknown masterServiceId "$assignId" in a '
-              'walk-in create — seed it in _services first',
-            ),
-          );
+          // Phase 383 — the owner master-mode walk-in books the owner's OWN
+          // row, whose catalogue is [ownRowServices], not [_services]. Only
+          // ADDS matches: every pre-383 id still resolves from [_services].
+          final Map<String, dynamic> assignment = _services
+              .followedBy(ownRowServices)
+              .firstWhere(
+                (Map<String, dynamic> s) => s['id'] == assignId,
+                orElse: () => throw StateError(
+                  'FakeBackend: unknown masterServiceId "$assignId" in a '
+                  'walk-in create — seed it in _services first',
+                ),
+              );
           final Map<String, dynamic> def =
               (assignment['serviceDefinition'] as Map).cast<String, dynamic>();
           final int duration = assignment['effectiveDurationMinutes'] as int;
@@ -8027,6 +8064,27 @@ final class FakeBackend {
         };
         (_bookingsDataset ??= <Map<String, dynamic>>[]).add(row);
         _lastWalkInBookingRow = row;
+        // Phase 383 — backend 354: a booking on the owner's OWN row is part
+        // of `GET /bookings/me?asMaster=true`. Inert when the narrowing set
+        // is `null` (every pre-383 flow).
+        ownerMasterRowBookingIds?.add(kWalkInBookingId);
+        // Phase 383 — opt-in: the backend stamps the owner's salon_id on an
+        // owner-row walk-in, so it is also on the salon «Записи» board.
+        if (mirrorWalkInToSalonBoard) {
+          salonBoardBookings.add(<String, dynamic>{
+            ...salonBoardBookingRow(
+              id: kWalkInBookingId,
+              masterId: masterRowId,
+              masterFirstName: 'Олена',
+              masterLastName: 'Власенко',
+              startsAt: startsAt,
+              duration: visitEnd.difference(startsAt),
+              clientFirstName: guest['name'] as String,
+              clientLastName: guest['surname'] as String,
+            ),
+            'masterType': 'SALON_OWNER',
+          });
+        }
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -9372,6 +9430,9 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         bookedDaysCalls++;
         lastBookedDaysQuery = Map<String, dynamic>.from(req.queryParameters);
+        bookedDaysAsMasterFlags.add(
+          _asMasterFrom(Map<String, dynamic>.from(req.queryParameters)),
+        );
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
@@ -9396,9 +9457,15 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
         lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        final bool asMaster = _asMasterFrom(
+          Map<String, dynamic>.from(req.queryParameters),
+        );
+        myBookingsAsMasterFlags.add(asMaster);
         if (_bookingsDataset != null) {
+          final Set<String>? ownIds = ownerMasterRowBookingIds;
           return _slicedBookingsPageEnvelope(
             Map<String, dynamic>.from(req.queryParameters),
+            onlyIds: asMaster ? ownIds : null,
           );
         }
         // Parsed with the SAME list-aware reader the dataset branch uses — a

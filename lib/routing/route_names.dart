@@ -612,6 +612,7 @@ abstract final class RouteNames {
   /// | `ownerMasterServices`, `ownerMasterServiceSetup`, `ownerMasterServiceEdit(id)` | `/owner/master/services`, `/owner/master/services/setup`, `/owner/master/services/$id/edit` | 380 |
   /// | `ownerMasterSchedule` | `/owner/master/schedule` | 381 |
   /// | `ownerMasterBookings`, `ownerMasterBookingsArchive` | `/owner/master/bookings`, `/owner/master/bookings/archive` | 383 |
+  /// | `ownerMasterBookingNew`, `ownerMasterBookingNewServices` | `/owner/master/bookings/new`, `/owner/master/bookings/new/services` | 383 |
   ///
   /// Booking detail / client review reuse the owner's existing
   /// [salonStaffBookingDetail] / [salonStaffClientReview] (`/salon/*`,
@@ -645,6 +646,34 @@ abstract final class RouteNames {
   /// [salonManageStaffScheduleWeekly] push, so no sub-route is needed here.
   /// No `?date=` variant (out of scope).
   static const String ownerMasterSchedule = '/owner/master/schedule';
+
+  /// Phase 383 (24.1f) — the owner master-mode «Записи» tab: ONLY the
+  /// bookings on the owner's OWN master row (`GET /bookings/me?asMaster=true`,
+  /// backend 354) in the shipped `MasterBookingsScreen` — never the
+  /// INDEPENDENT_MASTER-only `/master/bookings` (whose gate is not widened)
+  /// and never the salon-wide board. Detail pushes reuse the owner-admitted
+  /// [salonStaffBookingDetail]; no dynamic segment lives under this path.
+  static const String ownerMasterBookings = '/owner/master/bookings';
+
+  /// Phase 383 (24.1f) — the owner master-mode «Архів»: the owner's own-row
+  /// history (`MasterArchiveQuery.of(asOwnerMaster: true)`). A LITERAL with
+  /// no dynamic sibling, so nothing can shadow it.
+  static const String ownerMasterBookingsArchive =
+      '$ownerMasterBookings/archive';
+
+  /// Phase 383 (24.1f, decision 2026-10-07) — owner master mode «Новий
+  /// запис»: the independent master's walk-in chain (guest → services →
+  /// slot → confirm) mounted INSIDE the owner shell, so the service step
+  /// reads the shell's `ServiceTarget.salonMaster(salonId, ownerRowId)`
+  /// scope. Literal only — `/owner/master/bookings/` has no dynamic segment,
+  /// so nothing can shadow it. Admission is the `/owner/master/` prefix gate.
+  static const String ownerMasterBookingNew = '$ownerMasterBookings/new';
+
+  /// Phase 383 — the walk-in service step under [ownerMasterBookingNew],
+  /// pushed by `WalkInGuestStepScreen(servicesRoute:)` with the minted
+  /// `WalkInGuest` in `extra`.
+  static const String ownerMasterBookingNewServices =
+      '$ownerMasterBookingNew/services';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the

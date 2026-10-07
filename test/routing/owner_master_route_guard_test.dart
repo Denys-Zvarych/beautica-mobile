@@ -48,7 +48,12 @@ final List<String> _gatedLocations = <String>[
   RouteNames.ownerMasterServiceEdit('svc-1'),
   // Phase 381 (24.1d) — the «Графік» tab.
   RouteNames.ownerMasterSchedule,
-  '/owner/master/bookings',
+  // Phase 383 (24.1f) — the «Записи» tab and its «Архів».
+  RouteNames.ownerMasterBookings,
+  RouteNames.ownerMasterBookingsArchive,
+  // Phase 383 (decision 2026-10-07) — «Новий запис» walk-in chain.
+  RouteNames.ownerMasterBookingNew,
+  RouteNames.ownerMasterBookingNewServices,
 ];
 
 void main() {
@@ -88,6 +93,24 @@ void main() {
         );
       });
     }
+
+    test('INDEPENDENT_MASTER still reaches its own /master/bookings/new '
+        '(the owner chain added routes, never re-gated the master one)', () {
+      expect(
+        authRedirectForLocation(
+          _sessionFor(UserRole.independentMaster),
+          RouteNames.masterBookingNew,
+        ),
+        isNull,
+      );
+      expect(
+        authRedirectForLocation(
+          _sessionFor(UserRole.independentMaster),
+          RouteNames.masterBookingNewServices,
+        ),
+        isNull,
+      );
+    });
 
     test('the gate is scoped to /owner/master/, NOT /owner/ — '
         '/owner/edit/personal keeps its per-route mySalonsGuard and is not '

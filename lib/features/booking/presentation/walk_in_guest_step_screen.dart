@@ -35,7 +35,13 @@ import 'widgets/booking_wizard_steps.dart' show ClientStep, toE164UaPhone;
 /// «Новий запис» step 1 — collects the walk-in guest's identity
 /// (ім'я/прізвище/телефон) via the shared [ClientStep].
 class WalkInGuestStepScreen extends ConsumerStatefulWidget {
-  const WalkInGuestStepScreen({super.key});
+  const WalkInGuestStepScreen({super.key, this.servicesRoute});
+
+  /// Phase 383 (24.1f) — where «Далі» pushes the service step. `null` (the
+  /// default) keeps [RouteNames.masterBookingNewServices]; the owner
+  /// master-mode mount passes [RouteNames.ownerMasterBookingNewServices] so
+  /// the chain stays inside the owner shell's `serviceTargetProvider` scope.
+  final String? servicesRoute;
 
   @override
   ConsumerState<WalkInGuestStepScreen> createState() =>
@@ -84,7 +90,7 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
     if (firstName.isEmpty || lastName.isEmpty) return;
 
     context.push(
-      RouteNames.masterBookingNewServices,
+      widget.servicesRoute ?? RouteNames.masterBookingNewServices,
       extra: WalkInGuest(name: firstName, surname: lastName, phone: phone),
     );
   }

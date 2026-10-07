@@ -65,13 +65,48 @@ class VelvetTopBar extends StatelessWidget {
   /// scaled by [scaler], capped at [NeumorphicIconButton.labelMaxWidth] (the
   /// pill can never be wider), plus the [VelvetSpacing.sm] gap. Equals
   /// [labelledTitleInset] at 1.0×.
-  static double labelledTitleInsetFor(TextScaler scaler) {
+  static double labelledTitleInsetFor(TextScaler scaler) =>
+      labelledPillWidthFor(scaler) + VelvetSpacing.sm;
+
+  /// The estimated width of the labelled back pill at [scaler]: its fixed part
+  /// plus the label part scaled by [scaler], capped at
+  /// [NeumorphicIconButton.labelMaxWidth] (the pill can never be wider). The
+  /// single estimate every labelled-back host sizes against.
+  static double labelledPillWidthFor(TextScaler scaler) {
     final double pill = _pillFixedWidth + scaler.scale(_pillLabelWidth);
-    final double capped = pill < NeumorphicIconButton.labelMaxWidth
+    return pill < NeumorphicIconButton.labelMaxWidth
         ? pill
         : NeumorphicIconButton.labelMaxWidth;
-    return capped + VelvetSpacing.sm;
   }
+
+  /// Phase 383 (LOW layout) — the readable minimum a labelled back pill must
+  /// leave the title: about [_kMinTitleGlyphs] glyphs of [VelvetText.pageTitle]
+  /// (or the whole title, when it is shorter), each estimated at
+  /// [_kGlyphEms] em and scaled by [scaler]. An estimate, not a layout pass —
+  /// it is consulted only by labelled bars, never by the plain chevron.
+  static double minTitleRoomFor(String title, TextScaler scaler) {
+    final int glyphs = title.characters.length < _kMinTitleGlyphs
+        ? title.characters.length
+        : _kMinTitleGlyphs;
+    final double fontSize = VelvetText.pageTitle.fontSize ?? _kTitleFontSize;
+    return scaler.scale(glyphs * _kGlyphEms * fontSize);
+  }
+
+  /// Whether a labelled back pill may keep its visible label: `true` when
+  /// [titleRoom] (the width left to the title WITH the pill labelled) still
+  /// reaches [minTitleRoomFor]. `false` → the host collapses the pill to the
+  /// icon-only chevron — same key, same [backSemanticLabel], same 48 dp target
+  /// — so a narrow screen / large text scale never squeezes the title down to
+  /// a glyph or two.
+  static bool labelledBackFits({
+    required double titleRoom,
+    required String title,
+    required TextScaler scaler,
+  }) => titleRoom >= minTitleRoomFor(title, scaler);
+
+  static const int _kMinTitleGlyphs = 8;
+  static const double _kGlyphEms = 0.6;
+  static const double _kTitleFontSize = 14;
 
   /// Title rendered centred in the 48 dp strip via `Text(title,
   /// style: VelvetText.pageTitle)` — UNLESS [titleWidget] is supplied, in
@@ -112,10 +147,42 @@ class VelvetTopBar extends StatelessWidget {
   /// — existing call sites are unaffected.
   final Key? backKey;
 
+  /// Phase 383 — the symmetric title inset of a labelled bar COLLAPSED to
+  /// the icon-only chevron: the chevron's 48 dp slot plus the
+  /// [VelvetSpacing.sm] gap — or, when a [trailing] widget is present, the
+  /// 1.0× [labelledTitleInset] the labelled bar was validated against (it
+  /// clears the widest trailing in use, the bell + `tune_rounded` pair, whose
+  /// icons do not text-scale), so a collapsed title never runs under either
+  /// side. Text-scale independent.
+  double get _collapsedTitleInset => trailing == null
+      ? NeumorphicIconButton.extent + VelvetSpacing.sm
+      : labelledTitleInset;
+
   @override
   Widget build(BuildContext context) {
     // The inset applies only when the labelled pill actually renders.
     final bool labelledBack = backLabel != null && onBack != null;
+    final Widget bar = labelledBack
+        // Phase 383 — only a labelled bar measures: it collapses to the plain
+        // chevron when the title would be left below its readable minimum.
+        ? LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final TextScaler scaler = MediaQuery.textScalerOf(context);
+              final bool fits = labelledBackFits(
+                titleRoom:
+                    constraints.maxWidth - 2 * labelledTitleInsetFor(scaler),
+                title: title,
+                scaler: scaler,
+              );
+              return _bar(
+                showLabel: fits,
+                titleInset: fits
+                    ? labelledTitleInsetFor(scaler)
+                    : _collapsedTitleInset,
+              );
+            },
+          )
+        : _bar(showLabel: false, titleInset: null);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         VelvetSpacing.lg,
@@ -123,48 +190,51 @@ class VelvetTopBar extends StatelessWidget {
         VelvetSpacing.lg,
         VelvetSpacing.xs,
       ),
-      child: SizedBox(
-        height: 48,
-        child: Stack(
-          alignment: Alignment.center,
-          children: <Widget>[
-            if (onBack != null)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: NeumorphicIconButton(
-                  key: backKey,
-                  icon: Icons.arrow_back_ios_new_rounded,
-                  semanticLabel: backSemanticLabel,
-                  onTap: onBack!,
-                  label: backLabel,
-                ),
-              ),
-            titleWidget ??
-                (!labelledBack
-                    ? Text(
-                        title,
-                        style: VelvetText.pageTitle,
-                        textAlign: TextAlign.center,
-                      )
-                    : Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: labelledTitleInsetFor(
-                            MediaQuery.textScalerOf(context),
-                          ),
-                        ),
-                        child: Text(
-                          title,
-                          style: VelvetText.pageTitle,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      )),
-            if (trailing != null)
-              Align(alignment: Alignment.centerRight, child: trailing),
-          ],
-        ),
-      ),
+      child: SizedBox(height: 48, child: bar),
+    );
+  }
+
+  /// The bar's content. [titleInset] `null` is the byte-identical pre-24.1a
+  /// tree (plain centred title) every unlabelled bar renders; non-null insets
+  /// the title symmetrically and clamps it to one ellipsised line.
+  /// [showLabel] `false` renders the icon-only chevron — the unlabelled bar,
+  /// or a labelled one collapsed for lack of title room (same key, same
+  /// [backSemanticLabel], same 48 dp target).
+  Widget _bar({required bool showLabel, required double? titleInset}) {
+    return Stack(
+      alignment: Alignment.center,
+      children: <Widget>[
+        if (onBack != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: NeumorphicIconButton(
+              key: backKey,
+              icon: Icons.arrow_back_ios_new_rounded,
+              semanticLabel: backSemanticLabel,
+              onTap: onBack!,
+              label: showLabel ? backLabel : null,
+            ),
+          ),
+        titleWidget ??
+            (titleInset == null
+                ? Text(
+                    title,
+                    style: VelvetText.pageTitle,
+                    textAlign: TextAlign.center,
+                  )
+                : Padding(
+                    padding: EdgeInsets.symmetric(horizontal: titleInset),
+                    child: Text(
+                      title,
+                      style: VelvetText.pageTitle,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  )),
+        if (trailing != null)
+          Align(alignment: Alignment.centerRight, child: trailing),
+      ],
     );
   }
 }

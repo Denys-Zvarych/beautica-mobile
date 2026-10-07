@@ -143,7 +143,7 @@ class _FailingServicesList extends ServicesList {
 /// Captures every `extra` pushed to [RouteNames.bookingSlots].
 final List<Object?> _pushedExtras = <Object?>[];
 
-GoRouter _router() {
+GoRouter _router({String? returnRoute}) {
   _pushedExtras.clear();
   return GoRouter(
     initialLocation: RouteNames.masterBookingNewServices,
@@ -151,7 +151,7 @@ GoRouter _router() {
       GoRoute(
         path: RouteNames.masterBookingNewServices,
         builder: (context, state) =>
-            const WalkInServiceStepScreen(guest: _kGuest),
+            WalkInServiceStepScreen(guest: _kGuest, returnRoute: returnRoute),
       ),
       GoRoute(
         path: RouteNames.bookingSlots,
@@ -174,8 +174,9 @@ Future<GoRouter> _pump(
   MasterProfile Function() masterProfileOverride = _FakeMasterProfile.new,
   ServicesList Function()? servicesListOverride,
   bool settle = true,
+  String? returnRoute,
 }) async {
-  final GoRouter router = _router();
+  final GoRouter router = _router(returnRoute: returnRoute);
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
@@ -315,6 +316,24 @@ void main() {
     expect(args.services.single.id, 'svc-1');
     expect(args.guest, _kGuest);
     expect(args.hideMasterIdentity, isTrue);
+    // Phase 383 — the default keeps the independent master's «Готово».
+    expect(args.returnRoute, isNull);
+  });
+
+  // Phase 383 (24.1f) — the owner master-mode mount seeds the done screen's
+  // landing through the picker args.
+  testWidgets('should_seedReturnRoute_when_ownerChainPassesIt', (tester) async {
+    await _pump(tester, returnRoute: RouteNames.ownerMasterBookings);
+
+    await tester.tap(find.byKey(const Key('mcb_service_card_svc-1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('booking-summary-cta')));
+    await tester.pumpAndSettle();
+
+    final BookingSlotPickerArgs args =
+        _pushedExtras.single! as BookingSlotPickerArgs;
+    expect(args.returnRoute, RouteNames.ownerMasterBookings);
+    expect(args.guest, _kGuest);
   });
 
   testWidgets('should_notRenderStepIndicator_when_serviceStepShown — the 4-dot '

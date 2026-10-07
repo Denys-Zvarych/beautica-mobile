@@ -2210,6 +2210,188 @@ void main() {
               'owner-master day keeps serving the closed booking as CONFIRMED',
         );
       });
+
+      // Phase 383 QA (INFO perf) — FAILING-FIRST spec. `_masterOwnDayKeys`
+      // hand-builds only the UNFILTERED `.dayList` / `.of` keys, so an owner
+      // who filtered «Записи» (e.g. «Скасовано» ticked) and then declined from
+      // detail returns to a FILTERED day list that is never refetched — the
+      // declined booking keeps its pre-write status until the keepAlive TTL.
+      // Observed RED before the fix (1 fetch, expected 2).
+      testWidgets(
+        '${helper.key} refetches a FILTERED asOwnerMaster: true day-list '
+        'member the owner master mode watches',
+        (tester) async {
+          final _CountingBookingRepository repo = _CountingBookingRepository();
+          final ProviderContainer container =
+              await pumpProbe(tester, helper.value, <Object>[
+                bookingRepositoryProvider.overrideWithValue(repo),
+                authProvider.overrideWith(_StubAuthNotifier.new),
+                bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+                ownerMasterBookedDaysProvider.overrideWith(
+                  (ref) async => <DateTime>{},
+                ),
+                nextAppointmentProvider.overrideWith((ref) async => null),
+              ]);
+          await container.read(authProvider.future);
+
+          final BookingsDayQuery filtered = BookingsDayQuery.dayList(
+            day: affected,
+            statuses: const <BookingStatus>{BookingStatus.cancelled},
+            asOwnerMaster: true,
+          );
+          final Set<BookingStatus> wire = (filtered as MasterOwnDayQuery)
+              .statuses
+              .toSet();
+          expect(
+            wire,
+            isNot(BookingStatus.visibleInDayListByDefault),
+            reason:
+                'fixture guard: the filtered member must be a DIFFERENT key '
+                'from the unfiltered one the helper already hand-builds',
+          );
+          final ProviderSubscription<AsyncValue<BookingsDayState>> sub =
+              container.listen(bookingsDayProvider(filtered), (_, _) {});
+          addTearDown(sub.close);
+          await container.read(bookingsDayProvider(filtered).future);
+          expect(
+            repo.callsWithStatusesAndScope(wire, asMaster: true),
+            1,
+            reason: 'sanity: the filtered member fetched once before the tap',
+          );
+
+          await tester.tap(find.byKey(const Key('fire')));
+          await tester.pumpAndSettle();
+          await container.read(bookingsDayProvider(filtered).future);
+
+          expect(
+            repo.callsWithStatusesAndScope(wire, asMaster: true),
+            2,
+            reason:
+                '${helper.key} must drop the FILTERED owner-master day the '
+                'screen is actually watching, not only the default keys',
+          );
+        },
+      );
+
+      // Phase 383 audit cycle 2 (QA LOW) — pins the `!lru.isWatched(...)`
+      // eager-read gate `_invalidateMasterOwnDay` applies to ENUMERATED
+      // (filtered) keys. The test above watches its key, so Riverpod's own
+      // listener rebuild refetches it whether or not the helper eager-reads;
+      // the mutation "skip the eager re-read for filtered keys" stayed green
+      // there. Only a pinned-but-UNWATCHED key (the «Записи» list the owner
+      // navigated away from, kept by the LRU's keepAlive link alone) tells
+      // the two apart: without the eager read its queued disposal wins and
+      // nothing refetches until the screen is revisited — on a cold cache.
+      Future<(ProviderContainer, _CountingBookingRepository)> pumpOwnerProbe(
+        WidgetTester tester,
+      ) async {
+        final _CountingBookingRepository repo = _CountingBookingRepository();
+        final ProviderContainer container =
+            await pumpProbe(tester, helper.value, <Object>[
+              bookingRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
+              bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+              ownerMasterBookedDaysProvider.overrideWith(
+                (ref) async => <DateTime>{},
+              ),
+              nextAppointmentProvider.overrideWith((ref) async => null),
+            ]);
+        await container.read(authProvider.future);
+        return (container, repo);
+      }
+
+      final BookingsDayQuery filteredOwnerDay = BookingsDayQuery.dayList(
+        day: affected,
+        statuses: const <BookingStatus>{BookingStatus.cancelled},
+        asOwnerMaster: true,
+      );
+      final Set<BookingStatus> filteredWire = <BookingStatus>{
+        BookingStatus.cancelled,
+      };
+
+      testWidgets(
+        '${helper.key} EAGER-re-reads a pinned but UNWATCHED filtered '
+        'asOwnerMaster: true day-list member (exactly one refetch, no read '
+        'from the test)',
+        (tester) async {
+          final (ProviderContainer container, _CountingBookingRepository repo) =
+              await pumpOwnerProbe(tester);
+
+          // Build + pin through a subscription, then drop it: the member is
+          // alive in the LRU (`liveQueries`) yet `isWatched == false`.
+          final ProviderSubscription<AsyncValue<BookingsDayState>> sub =
+              container.listen(
+                bookingsDayProvider(filteredOwnerDay),
+                (_, _) {},
+              );
+          await container.read(bookingsDayProvider(filteredOwnerDay).future);
+          sub.close();
+          await tester.pump();
+          final DayKeepAliveLru lru = container.read(dayKeepAliveLruProvider);
+          expect(
+            lru.liveQueries,
+            contains(filteredOwnerDay),
+            reason: 'fixture guard: the filtered member must still be pinned',
+          );
+          expect(
+            lru.isWatched(filteredOwnerDay),
+            isFalse,
+            reason: 'fixture guard: the filtered member must be UNWATCHED',
+          );
+          expect(
+            repo.callsWithStatusesAndScope(filteredWire, asMaster: true),
+            1,
+            reason: 'sanity: one fetch before the tap',
+          );
+
+          await tester.tap(find.byKey(const Key('fire')));
+          await tester.pumpAndSettle();
+
+          // Deliberately NO read here — a read would itself rebuild the
+          // member and hide a missing eager read.
+          expect(
+            repo.callsWithStatusesAndScope(filteredWire, asMaster: true),
+            2,
+            reason:
+                '${helper.key} must eager-read a zero-listener pinned filtered '
+                'member, or its queued disposal drops it unrefreshed',
+          );
+        },
+      );
+
+      // Positive control for the test above, and a request-count ceiling.
+      // NOT a falsifier of the gate's `isWatched` half: forcing the eager
+      // read on for a watched member stays green, because Riverpod coalesces
+      // the read into the listener's single rebuild (verified 2026-10-07).
+      testWidgets('${helper.key} does NOT double-read a WATCHED filtered '
+          'asOwnerMaster: true day-list member (listener rebuild only)', (
+        tester,
+      ) async {
+        final (ProviderContainer container, _CountingBookingRepository repo) =
+            await pumpOwnerProbe(tester);
+
+        final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+            .listen(bookingsDayProvider(filteredOwnerDay), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(bookingsDayProvider(filteredOwnerDay).future);
+        expect(
+          container.read(dayKeepAliveLruProvider).isWatched(filteredOwnerDay),
+          isTrue,
+          reason: 'fixture guard: the filtered member must be WATCHED',
+        );
+
+        await tester.tap(find.byKey(const Key('fire')));
+        await tester.pumpAndSettle();
+        await container.read(bookingsDayProvider(filteredOwnerDay).future);
+
+        expect(
+          repo.callsWithStatusesAndScope(filteredWire, asMaster: true),
+          2,
+          reason:
+              'exactly ONE refetch for a watched member — the listener '
+              'rebuild; an extra eager read must not add a second request',
+        );
+      });
     }
 
     // Runs the literal created-booking helper (takes `Ref`, not `WidgetRef`)

@@ -37,6 +37,22 @@
 // routes (`wireOwnRowSchedule`); the flow pins the POST there and that no
 // hard-wired (`/masters/me`, `user-master-1`, …) schedule route is touched.
 //
+// Phase 383 (24.1f) — the «Записи» tab: profile → tile 1 → ONLY the owner's
+// own-row booking (the FakeBackend's dataset holds an owner-row booking AND
+// another master's, and answers `GET /bookings/me?asMaster=true` with the
+// owner-row one only) → day change + filter keep `asMaster=true` → tap →
+// `/salon/bookings/:id` detail → back → «Архів» (own-row only) → back →
+// «‹ Салон» lands on the salon shell. Every `/bookings/me` and
+// `/booked-days` read is pinned to `asMaster=true`.
+//
+// Phase 383 (decision 2026-10-07) — «Записи» (+): the independent master's
+// walk-in chain mounted under `/owner/master/bookings/new` (guest → own-row
+// service → slot → confirm). The POST must land on `/masters/{ownerRow}/
+// bookings` (the FakeBackend route is keyed on the owner row), «Готово»
+// returns to the owner's «Записи» where the booking is listed, and after
+// «‹ Салон» the same booking is on the salon «Записи» board
+// (`mirrorWalkInToSalonBoard`, the backend stamping the owner's salon_id).
+//
 // NO PATROL FLOW: no OS dialog, permission, notification or WebView is
 // involved; system back is driven through `WidgetsBinding.handlePopRoute`,
 // the same entry point the Android back / predictive-back dispatch calls.
@@ -44,16 +60,30 @@
 import 'dart:convert';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_service_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/walk_in_guest_step_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/slot_picker_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/salon_create_booking_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_confirm_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
-import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart'
+    hide SlotChip;
 import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
@@ -66,7 +96,9 @@ import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/fakes/fake_secure_storage.dart';
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
+import 'support/fake_backend.dart' show kWalkInBookingId;
 
 const String _kOwnerUserId = 'user-owner-1';
 const String _kSalonA = 'salon-owner-1';
@@ -792,6 +824,543 @@ void main() {
       for (int i = 1; i < 7; i++) {
         expect(week[i].working, isFalse, reason: 'weekday ${i + 1} stays off');
       }
+    });
+  });
+
+  testWidgets('SALON_OWNER: «Записи» tile → ONLY the own-row booking (never '
+      'another master\'s); day + filter changes keep asMaster=true; detail '
+      'on /salon/bookings/:id and back; «Архів» own-only and back; «‹ Салон» '
+      '→ salon shell', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowSchedule: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      // The owner row works every day, so no «no working hours» state hides
+      // the timeline whatever weekday kFixedNow lands on.
+      fb.ownRowWeeklySchedule.add(<String, dynamic>{
+        'id': 'own-weekly-1',
+        'validFrom': '2026-01-01',
+        'validTo': null,
+        'days': <Map<String, dynamic>>[
+          for (int dow = 1; dow <= 7; dow++)
+            <String, dynamic>{
+              'dayOfWeek': dow,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{'startTime': '08:00', 'endTime': '20:00'},
+              ],
+            },
+        ],
+      });
+      // Kyiv "today" under the injected kFixedNow (12:00Z) — both rows on it
+      // and both already ended (so both are also archive HISTORY).
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'booking-1',
+            status: 'CONFIRMED',
+            startsAt: DateTime.utc(
+              kFixedNow.year,
+              kFixedNow.month,
+              kFixedNow.day,
+              7,
+            ),
+          ),
+          'masterId': _kOwnerMasterRowId,
+          'masterType': 'SALON_OWNER',
+        },
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'booking-other-master',
+            status: 'CONFIRMED',
+            startsAt: DateTime.utc(
+              kFixedNow.year,
+              kFixedNow.month,
+              kFixedNow.day,
+              9,
+            ),
+          ),
+          'masterId': 'master-other-1',
+          'masterType': 'SALON_MASTER',
+        },
+      ]);
+      fb.ownerMasterRowBookingIds = <String>{'booking-1'};
+
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      // ── 1. Profile → «Записи» (tile 1) ──────────────────────────────────
+      // Only reads made FROM master mode are pinned below.
+      fb.myBookingsAsMasterFlags.clear();
+      fb.bookedDaysAsMasterFlags.clear();
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
+      final Finder ownCard = find.byKey(
+        const Key('master-booking-card-booking-1'),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        ownCard,
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        find.byKey(const Key('master-booking-card-booking-other-master')),
+        findsNothing,
+        reason: 'another master\'s booking must never reach master mode',
+      );
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.activeIndex, 1);
+      expect(bar.bookingsRoute, RouteNames.ownerMasterBookings);
+      expect(bar.servicesRoute, RouteNames.ownerMasterServices);
+      expect(bar.scheduleRoute, RouteNames.ownerMasterSchedule);
+      expect(bar.profileRoute, RouteNames.ownerMasterProfile);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(MasterBookingsScreen)),
+      );
+      final Finder back = find.byKey(const Key('bookings-discovery-back'));
+      expect(
+        find.descendant(
+          of: back,
+          matching: find.text(l10n.ownerMasterModeBack),
+        ),
+        findsOneWidget,
+      );
+
+      // ── 3. Tap → owner-admitted /salon/bookings/:id detail → back ───────
+      await _tapWhenReady(tester, ownCard);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(BookingDetailScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        RouteNames.salonStaffBookingDetail('booking-1'),
+      );
+      // Phase 383 QA — the list's detail push carries the salon id on
+      // `extra`, so a write from detail also drops the salon board dots.
+      // MUTATION: removed `detailExtra: salonId` from the owner mount →
+      // `salonId` was null, this assertion went red. Restored.
+      expect(
+        tester
+            .widget<BookingDetailScreen>(find.byType(BookingDetailScreen))
+            .salonId,
+        _kSalonA,
+      );
+      await tester.binding.handlePopRoute();
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byType(BookingDetailScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
+      expect(ownCard, findsOneWidget);
+
+      // ── 4. «Архів» — own-row history only → back ───────────────────────
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('master-bookings-open-archive')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterArchiveScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-booking-1')),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        RouteNames.ownerMasterBookingsArchive,
+      );
+      expect(
+        find.byKey(const Key('master-booking-card-booking-other-master')),
+        findsNothing,
+        reason: 'the owner archive is own-row only',
+      );
+      await _tapWhenReady(tester, find.byKey(const Key('master-archive-back')));
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byType(MasterArchiveScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
+
+      // ── 4b. Day change + filter keep the own-row scope ───────────────────
+      // The day before Kyiv "today" — kFixedNow is a Sunday, so it is on the
+      // same visible Mon..Sun rail week.
+      await _tapWhenReady(
+        tester,
+        find.byKey(dayChipKey(railDayAt(kyivToday(() => kFixedNow), -1))),
+      );
+      final int beforeDay = fb.getMyBookingsCalls;
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getMyBookingsCalls > beforeDay,
+        description: 'the rail tap to re-fetch the day (after its debounce)',
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('master-bookings-filter-button')),
+      );
+      await AppHarness.settle(tester);
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('master-bookings-filter-status-cancelled')),
+      );
+      await AppHarness.settle(tester);
+      final int beforeFilter = fb.getMyBookingsCalls;
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('master-bookings-filter-apply')),
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getMyBookingsCalls > beforeFilter,
+        description: 'the filter apply to re-fetch',
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      // Every read in master mode was the own-row scope.
+      expect(fb.myBookingsAsMasterFlags, isNotEmpty);
+      expect(
+        fb.myBookingsAsMasterFlags,
+        everyElement(isTrue),
+        reason: 'no GET /bookings/me may drop asMaster=true in master mode',
+      );
+      expect(fb.bookedDaysAsMasterFlags, isNotEmpty);
+      expect(fb.bookedDaysAsMasterFlags, everyElement(isTrue));
+
+      // ── 5. «‹ Салон» → salon shell ──────────────────────────────────────
+      await _tapWhenReady(tester, back);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+      expect(find.byType(SalonShellScreen), findsOneWidget);
+      expect(find.byType(MasterBookingsScreen), findsNothing);
+    });
+  });
+
+  // Phase 383 QA (INFO security/correctness) — FAILING-FIRST spec. The
+  // owner «Записи» list pushes `/salon/bookings/:id` with `extra: salonId`
+  // (pinned above), but `/owner/master/bookings/archive` builds
+  // `MasterArchiveScreen` whose `_openDetail` pushes with NO `extra` — so a
+  // decline/complete from a detail opened via «Архів» never drops the salon
+  // board's dots / day lists. Observed RED before the fix (salonId == null).
+  testWidgets(
+    'SALON_OWNER: «Архів» → detail carries the owner salon id (same contract '
+    'as the «Записи» list push)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb =
+            FakeBackend(
+                masterRowId: _kOwnerMasterRowId,
+                masterSalonId: _kSalonA,
+                wireOwnRowSchedule: true,
+              )
+              ..currentRole = UserRole.salonOwner
+              ..hasMasterProfile = true;
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...fb.datasetBookingRow(
+              id: 'booking-1',
+              status: 'CONFIRMED',
+              startsAt: DateTime.utc(
+                kFixedNow.year,
+                kFixedNow.month,
+                kFixedNow.day,
+                7,
+              ),
+            ),
+            'masterId': _kOwnerMasterRowId,
+            'masterType': 'SALON_OWNER',
+          },
+        ]);
+        fb.ownerMasterRowBookingIds = <String>{'booking-1'};
+
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          storage: FakeSecureStorage(),
+        );
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+        await _enterMasterMode(tester, router);
+
+        await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-1')));
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(MasterBookingsScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+        await _tapWhenReady(
+          tester,
+          find.byKey(const Key('master-bookings-open-archive')),
+        );
+        final Finder archiveCard = find.descendant(
+          of: find.byType(MasterArchiveScreen),
+          matching: find.byKey(const Key('master-booking-card-booking-1')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          archiveCard,
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+
+        await _tapWhenReady(tester, archiveCard);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(BookingDetailScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+
+        expect(
+          router.routerDelegate.currentConfiguration.last.matchedLocation,
+          RouteNames.salonStaffBookingDetail('booking-1'),
+        );
+        expect(
+          tester
+              .widget<BookingDetailScreen>(find.byType(BookingDetailScreen))
+              .salonId,
+          _kSalonA,
+          reason:
+              'a write from an archive-opened detail must drop the salon '
+              'board dots too',
+        );
+      });
+    },
+  );
+
+  // Phase 383 (decision 2026-10-07) — «Записи» (+) books the owner's OWN
+  // master row through the independent master's walk-in chain (no master-pick
+  // step), and the booking also lands on the salon «Записи» board.
+  testWidgets('SALON_OWNER: «Записи» (+) → guest → own-row service → slot → '
+      'confirm POSTs /masters/{ownerRow}/bookings; listed in own «Записи» '
+      '(asMaster) and on the salon board after «‹ Салон»', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowSchedule: true,
+              wireOwnRowServices: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true
+            ..mirrorWalkInToSalonBoard = true;
+      fb.ownRowServices.add(_seededOwnRow());
+      fb.ownRowWeeklySchedule.add(<String, dynamic>{
+        'id': 'own-weekly-1',
+        'validFrom': '2026-01-01',
+        'validTo': null,
+        'days': <Map<String, dynamic>>[
+          for (int dow = 1; dow <= 7; dow++)
+            <String, dynamic>{
+              'dayOfWeek': dow,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{'startTime': '08:00', 'endTime': '20:00'},
+              ],
+            },
+        ],
+      });
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[]);
+      fb.ownerMasterRowBookingIds = <String>{};
+
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      // ── 1. «Записи» → (+) ───────────────────────────────────────────────
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
+      final int independentServiceReads = fb.getServicesCalls;
+      fb.myBookingsAsMasterFlags.clear();
+
+      await _tapWhenReady(tester, find.byKey(const Key('master-bookings-add')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(WalkInGuestStepScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.ownerMasterBookingNew,
+      );
+      expect(find.byType(SalonCreateBookingScreen), findsNothing);
+
+      // ── 2. Guest → «Далі» ───────────────────────────────────────────────
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-first-name')),
+        'Ірина',
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-last-name')),
+        'Шевченко',
+      );
+      await tester.enterText(
+        find.byKey(const Key('master-create-booking-phone')),
+        '0501234567',
+      );
+      await tester.pump();
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('master-create-booking-client-next')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(WalkInServiceStepScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.ownerMasterBookingNewServices,
+      );
+      expect(
+        find.byType(SalonCreateBookingScreen),
+        findsNothing,
+        reason: 'no master-pick step: the owner books their OWN row',
+      );
+
+      // ── 3. Own-row service → date → slot → confirm ──────────────────────
+      final Finder serviceCard = find.byKey(
+        const Key('mcb_service_card_$_kOwnAssignId'),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        serviceCard,
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(tester, serviceCard);
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+
+      final DateTime today = kyivToday(() => kFixedNow);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(Key('booking-calendar-day-${today.day}')),
+        timeout: const Duration(seconds: 20),
+      );
+      await tester.tapCalendarDay(today.day);
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+      expect(find.byType(SlotTimeScreen), findsOneWidget);
+      final Finder availableChip = find
+          .byWidgetPredicate((Widget w) => w is SlotChip && w.available)
+          .first;
+      await _tapWhenReady(tester, availableChip);
+      await AppHarness.settle(tester);
+      await _tapWhenReady(tester, find.byKey(const Key('booking-summary-cta')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('booking-confirm-submit-cta')),
+      );
+      await AppHarness.settle(tester);
+
+      // The route is keyed on the OWNER ROW (`/masters/{ownerRow}/bookings`):
+      // a POST to any other master id is an unmatched route and fails.
+      expect(fb.createStaffBookingCalls, 1);
+      expect(fb.lastStaffBookingRequestBody?['masterServiceIds'], <String>[
+        _kOwnAssignId,
+      ]);
+
+      // ── 4. «Готово» → the owner's own «Записи», booking listed ──────────
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(BookingSuccessScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('booking-success-home-cta')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterBookings);
+      expect(find.byType(WalkInGuestStepScreen), findsNothing);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-$kWalkInBookingId')),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(fb.myBookingsAsMasterFlags, isNotEmpty);
+      expect(fb.myBookingsAsMasterFlags, everyElement(isTrue));
+      expect(
+        fb.getServicesCalls,
+        independentServiceReads,
+        reason:
+            'the owner chain must never list /independent-masters/me/'
+            'services',
+      );
+
+      // ── 5. «‹ Салон» → salon «Записи» board shows the same booking ─────
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('bookings-discovery-back')),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+      await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-1')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(SalonBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const ValueKey<String>('timeline-card-$kWalkInBookingId')),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(fb.getSalonBookingsCalls, greaterThan(0));
     });
   });
 }

@@ -2139,6 +2139,9 @@ GoRouter appRouter(Ref ref) {
           detailRouteBuilder: RouteNames.salonStaffBookingDetail,
           reviewRouteBuilder: RouteNames.salonStaffClientReview,
           salonId: state.extra! as String,
+          // Phase 383 — forward the salon id to `/salon/bookings/:id` so a
+          // write from an archive-opened detail drops this salon's board dots.
+          detailExtra: state.extra,
           showServiceFilter: false,
           showMasterAttribution: true,
         ),
@@ -2554,7 +2557,7 @@ GoRouter appRouter(Ref ref) {
                         return const Scaffold(
                           backgroundColor: BrandColors.base,
                           body: LoadingSkeleton.list(
-                            key: Key('salon_master_own_services_loading'),
+                            key: Key('owner_master_schedule_loading'),
                           ),
                         );
                       }
@@ -2571,6 +2574,150 @@ GoRouter appRouter(Ref ref) {
                     },
               );
             },
+          ),
+          // Phase 383 (24.1f) — «Записи»: ONLY the owner's own master-row
+          // bookings, in the SAME [MasterBookingsScreen] `/master/bookings`
+          // and `/staff/bookings` mount. `asOwnerMaster: true` seeds
+          // `BookingsDayQuery.of(asOwnerMaster: true)` → every day/filter
+          // query and the booked-day dots carry `?asMaster=true` (backend
+          // 354). Detail reuses the owner-admitted `/salon/bookings/:id`
+          // (a root-navigator push, so back returns here).
+          //
+          // Behind [_OwnMasterRowGate] so the screen never mounts while the
+          // shell's `serviceTargetProvider` is still `null`: the filter
+          // sheet's «Послуга» options come from `masterServiceCatalogProvider`
+          // (scoped on `serviceRepository`), which under a null target would
+          // fire the INDEPENDENT_MASTER `/independent-masters/me/services`
+          // for an owner. With the target resolved it lists the owner-row
+          // services, so the filter stays on (no `showServiceFilter: false`).
+          //
+          // `canAddWorkingHours: true` — the owner edits their own row's
+          // schedule (381); the CTA aims at [navScheduleRoute], i.e.
+          // `/owner/master/schedule` (its `?date=` is ignored there).
+          GoRoute(
+            path: RouteNames.ownerMasterBookings,
+            builder: (context, state) {
+              final AppLocalizations l10n = AppLocalizations.of(context);
+              return _OwnMasterRowGate(
+                role: UserRole.salonOwner,
+                builder:
+                    (
+                      BuildContext context,
+                      WidgetRef ref,
+                      String salonId,
+                      String masterId,
+                    ) => MasterBookingsScreen(
+                      asOwnerMaster: true,
+                      // The working-hours window + «no hours» state read the
+                      // owner's OWN row schedule — the same scope «Графік»
+                      // uses — never the empty own scope an owner resolves.
+                      scheduleScope: ScheduleScope.salonMaster(
+                        salonId: salonId,
+                        masterId: masterId,
+                      ),
+                      // (+) — decision 2026-10-07: the independent master's
+                      // walk-in chain on the owner's OWN row (no master-pick
+                      // step), mounted inside this shell below. `/master/*`
+                      // would bounce a SALON_OWNER.
+                      onCreateBooking: () =>
+                          context.push(RouteNames.ownerMasterBookingNew),
+                      detailExtra: salonId,
+                      detailRouteBuilder: RouteNames.salonStaffBookingDetail,
+                      archiveRoute: RouteNames.ownerMasterBookingsArchive,
+                      navServicesRoute: RouteNames.ownerMasterServices,
+                      navScheduleRoute: RouteNames.ownerMasterSchedule,
+                      navProfileRoute: RouteNames.ownerMasterProfile,
+                      bottomNavBar: _kOwnerMasterNavBars[1],
+                      backLabel: l10n.ownerMasterModeBack,
+                      backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+                      onBack: () => context.go(RouteNames.salonHome),
+                    ),
+              );
+            },
+          ),
+          // Phase 383 (24.1f) — the owner's own-row «Архів». A literal with
+          // no dynamic sibling under `/owner/master/bookings/`. Inside the
+          // shell for the same scoped service catalogue as the list above.
+          // Pushed from the list's header, so the screen's own `pop` back
+          // returns to it.
+          GoRoute(
+            path: RouteNames.ownerMasterBookingsArchive,
+            builder: (context, state) => _OwnMasterRowGate(
+              role: UserRole.salonOwner,
+              builder:
+                  (
+                    BuildContext context,
+                    WidgetRef ref,
+                    String salonId,
+                    String masterId,
+                  ) => MasterArchiveScreen(
+                    asOwnerMaster: true,
+                    detailRouteBuilder: RouteNames.salonStaffBookingDetail,
+                    reviewRouteBuilder: RouteNames.salonStaffClientReview,
+                    // Same `extra` contract as the «Записи» list push above:
+                    // an archive-opened detail's write must drop the salon
+                    // board dots too.
+                    detailExtra: salonId,
+                  ),
+            ),
+          ),
+          // Phase 383 (24.1f, decision 2026-10-07) — «Новий запис» on the
+          // owner's OWN master row: the SAME walk-in chain `/master/bookings/
+          // new` mounts (guest → services → `/booking/slots` → confirm →
+          // success), never the salon wizard's master-pick step.
+          //
+          // INSIDE this shell on purpose (no root `parentNavigatorKey`): the
+          // service step lists `servicesListProvider`, scoped on the shell's
+          // `ServiceTarget.salonMaster(salonId, ownerRowId)` override — on the
+          // root navigator it would list `/independent-masters/me/services`.
+          // The slot/confirm/success pages are root routes that take the
+          // master id explicitly, so they need no scope.
+          //
+          // No role guard of its own: the `/owner/master/` prefix gate in
+          // `auth_redirect.dart` (SALON_OWNER only) already covers both, and
+          // `/master/bookings/new` keeps `independentMasterOnlyGuard`.
+          // Literal-only: `/owner/master/bookings/` has no dynamic sibling,
+          // and `ownerMasterBookings` has no children, so `new` is matched
+          // here and `archive` above — `owner_master_bookings_route_
+          // shadowing_test.dart` pins both.
+          GoRoute(
+            path: RouteNames.ownerMasterBookingNew,
+            pageBuilder: (context, state) => const MaterialPage<void>(
+              fullscreenDialog: true,
+              child: WalkInGuestStepScreen(
+                servicesRoute: RouteNames.ownerMasterBookingNewServices,
+              ),
+            ),
+            routes: [
+              // Same `extra` contract as `/master/bookings/new/services`: a
+              // missing/wrong-typed `extra` (a direct deep link) bounces to
+              // the guest step. Behind [_OwnMasterRowGate] so the service
+              // list never builds while the shell's target is still `null`.
+              GoRoute(
+                path: 'services',
+                redirect: (context, state) => state.extra is WalkInGuest
+                    ? null
+                    : RouteNames.ownerMasterBookingNew,
+                builder: (context, state) {
+                  final WalkInGuest guest = state.extra! as WalkInGuest;
+                  return _OwnMasterRowGate(
+                    role: UserRole.salonOwner,
+                    builder:
+                        (
+                          BuildContext context,
+                          WidgetRef ref,
+                          String salonId,
+                          String masterId,
+                        ) => WalkInServiceStepScreen(
+                          guest: guest,
+                          // «Готово» returns to the owner's own «Записи»;
+                          // `go(masterBookings)` would bounce a SALON_OWNER.
+                          returnRoute: RouteNames.ownerMasterBookings,
+                        ),
+                  );
+                },
+              ),
+            ],
           ),
           // Setup + edit are SIBLINGS INSIDE this shell (not root-navigator
           // drill-ins): they must read the SAME `serviceTargetProvider`
@@ -2977,33 +3124,37 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
 /// route override to every entry here.
 ///
 /// Phase 380 adds [VelvetBottomNavBar.servicesRoute], phase 381
-/// [VelvetBottomNavBar.scheduleRoute]; until 383 lands, the «Мої записи»
-/// tile falls to its INDEPENDENT_MASTER default and is bounced by the
-/// `/master/*` gate — acceptable because 384 adds the UI entry last.
+/// [VelvetBottomNavBar.scheduleRoute], phase 383
+/// [VelvetBottomNavBar.bookingsRoute] — every tile now points at
+/// `/owner/master/*`.
 const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
   VelvetBottomNavBar(
     activeIndex: 0,
     servicesRoute: RouteNames.ownerMasterServices,
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
+    bookingsRoute: RouteNames.ownerMasterBookings,
   ),
   VelvetBottomNavBar(
     activeIndex: 1,
     servicesRoute: RouteNames.ownerMasterServices,
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
+    bookingsRoute: RouteNames.ownerMasterBookings,
   ),
   VelvetBottomNavBar(
     activeIndex: 2,
     servicesRoute: RouteNames.ownerMasterServices,
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
+    bookingsRoute: RouteNames.ownerMasterBookings,
   ),
   VelvetBottomNavBar(
     activeIndex: 3,
     servicesRoute: RouteNames.ownerMasterServices,
     scheduleRoute: RouteNames.ownerMasterSchedule,
     profileRoute: RouteNames.ownerMasterProfile,
+    bookingsRoute: RouteNames.ownerMasterBookings,
   ),
 ];
 
