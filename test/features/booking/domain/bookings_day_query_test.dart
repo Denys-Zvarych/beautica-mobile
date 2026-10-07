@@ -360,4 +360,43 @@ void main() {
       );
     });
   });
+
+  // Phase 382 (24.1e) — the owner-as-master scope flag is part of the family
+  // key: default leaves every pre-382 key identical; `true` is a distinct key.
+  group('asOwnerMaster (phase 382)', () {
+    final DateTime day = DateTime(2026, 3, 10);
+
+    test('defaults to false and the default key equals the pre-382 value', () {
+      final BookingsDayQuery q = BookingsDayQuery.of(day: day);
+      expect((q as MasterOwnDayQuery).asOwnerMaster, isFalse);
+      expect(q, BookingsDayQuery.of(day: day, asOwnerMaster: false));
+      expect(
+        q.hashCode,
+        BookingsDayQuery.of(day: day, asOwnerMaster: false).hashCode,
+      );
+    });
+
+    test('asOwnerMaster: true is a DISTINCT key from the default', () {
+      final BookingsDayQuery own = BookingsDayQuery.of(
+        day: day,
+        asOwnerMaster: true,
+      );
+      expect((own as MasterOwnDayQuery).asOwnerMaster, isTrue);
+      expect(own, isNot(BookingsDayQuery.of(day: day)));
+      expect(own, BookingsDayQuery.of(day: day, asOwnerMaster: true));
+    });
+
+    test('dayList forwards the flag, and fetchKey preserves it', () {
+      final BookingsDayQuery own = BookingsDayQuery.dayList(
+        day: day,
+        asOwnerMaster: true,
+      );
+      expect((own as MasterOwnDayQuery).asOwnerMaster, isTrue);
+      expect(own.fetchKey, same(own));
+      expect(
+        (BookingsDayQuery.dayList(day: day) as MasterOwnDayQuery).asOwnerMaster,
+        isFalse,
+      );
+    });
+  });
 }

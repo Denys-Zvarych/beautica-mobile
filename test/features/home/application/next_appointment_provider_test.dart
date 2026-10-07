@@ -103,6 +103,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     callCount++;
     capturedStatuses = statuses;
@@ -131,6 +132,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
@@ -228,6 +230,7 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     callCount++;
     capturedPartition = partition;
@@ -257,6 +260,7 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override

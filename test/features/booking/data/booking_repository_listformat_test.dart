@@ -522,4 +522,73 @@ void main() {
       );
     });
   });
+
+  // Phase 382 (24.1e; backend phase 354) — the owner-as-master scope flag.
+  // Pinned on the REAL-Dio URI (path + full query), so "absent flag sends
+  // nothing" is a byte-level guarantee, not a map-shape one.
+  group('asMaster (phase 382) — sent only when true', () {
+    test('getMyBookings default: NO asMaster param — wire-identical to '
+        'pre-382', () async {
+      await rawQuery(
+        () => repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          page: 0,
+        ),
+      );
+      expect(capturedUri!.path, '/api/v1/bookings/me');
+      expect(capturedUri!.query, 'page=0&size=$kBookingsPageSize');
+    });
+
+    test('getMyBookings asMaster: true appends asMaster=true', () async {
+      await rawQuery(
+        () => repository.getMyBookings(
+          statuses: const <BookingStatus>{},
+          page: 0,
+          asMaster: true,
+        ),
+      );
+      expect(capturedUri!.path, '/api/v1/bookings/me');
+      expect(
+        capturedUri!.query,
+        'page=0&size=$kBookingsPageSize&asMaster=true',
+      );
+    });
+
+    test('getMyBookedDays default: NO asMaster param', () async {
+      await rawQuery(
+        () => repository.getMyBookedDays(
+          from: DateTime(2026, 1, 20),
+          to: DateTime(2026, 2, 5),
+        ),
+      );
+      expect(capturedUri!.path, '/api/v1/bookings/me/booked-days');
+      // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
+      expect(capturedUri!.query, 'from=2026-01-20&to=2026-02-05');
+    });
+
+    test('getMyBookedDays asMaster: true appends asMaster=true', () async {
+      await rawQuery(
+        () => repository.getMyBookedDays(
+          from: DateTime(2026, 1, 20),
+          to: DateTime(2026, 2, 5),
+          asMaster: true,
+        ),
+      );
+      expect(capturedUri!.path, '/api/v1/bookings/me/booked-days');
+      // future-date-ok: pinned INPUT⇄OUTPUT pair, no wall-clock read.
+      expect(capturedUri!.query, 'from=2026-01-20&to=2026-02-05&asMaster=true');
+    });
+
+    test('getSalonBookedDays never carries asMaster (the salon twin shares '
+        '_fetchBookedDays)', () async {
+      final String q = await rawQuery(
+        () => repository.getSalonBookedDays(
+          salonId: 'salon-1',
+          from: DateTime(2026, 1, 20),
+          to: DateTime(2026, 2, 5),
+        ),
+      );
+      expect(q, isNot(contains('asMaster')));
+    });
+  });
 }

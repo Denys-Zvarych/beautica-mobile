@@ -226,6 +226,13 @@ abstract interface class BookingRepository {
   /// **No caller passes this in Phase 226** — added here so its wire wiring
   /// and the behaviour change that consumes it (Phase 227) land as separate,
   /// independently reviewable diffs.
+  ///
+  /// [asMaster] (phase 382 / 24.1e; backend phase 354) — `true` sends
+  /// `asMaster=true`, asking for a `SALON_OWNER` caller's OWN master-row
+  /// bookings instead of every booking of every salon they own. `false` (the
+  /// default) sends NO `asMaster` param at all — wire-identical to every
+  /// pre-382 caller. Backend ignores it for master roles; CLIENT → 400,
+  /// SALON_ADMIN → 403.
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
     required int page,
@@ -236,6 +243,7 @@ abstract interface class BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   });
 
   /// Fetches ONE page of a salon's bookings — the owner/admin salon-wide
@@ -335,10 +343,14 @@ abstract interface class BookingRepository {
   /// rather than leave it running to completion for a result nobody will read.
   /// Disposing the Riverpod element stops the RESULT from landing but does
   /// not, by itself, abort the underlying Dio request.
+  ///
+  /// [asMaster] — same contract as [getMyBookings]' (phase 382): `true` sends
+  /// `asMaster=true`, `false` (the default) sends no param.
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   });
 
   /// [getMyBookedDays]' salon-wide twin — the set of local days on which
@@ -579,6 +591,7 @@ final class HttpBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     // Canonicalised ONCE, here at the serialisation boundary. See the comment
     // on the `status` param below for why this stays despite perf P5, and why
@@ -689,6 +702,9 @@ final class HttpBookingRepository implements BookingRepository {
           // `upcoming`/`past`/`cancelled`/`awaitingClosure`. See
           // [BookingPartition]'s file header for the full reasoning.
           'partition': ?partition?.wireValue,
+          // Phase 382 — sent ONLY when true; omitted otherwise so every
+          // pre-382 caller's request is byte-identical.
+          if (asMaster) 'asMaster': true,
         },
         cancelToken: cancelToken,
       );
@@ -812,12 +828,14 @@ final class HttpBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => _fetchBookedDays(
     path: '/api/v1/bookings/me/booked-days',
     label: 'getMyBookedDays',
     from: from,
     to: to,
     cancelToken: cancelToken,
+    asMaster: asMaster,
   );
 
   @override
@@ -864,6 +882,7 @@ final class HttpBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
@@ -874,6 +893,10 @@ final class HttpBookingRepository implements BookingRepository {
           // `LocalDate` in `Europe/Kyiv`.
           'from': toApiDate(from),
           'to': toApiDate(to),
+          // Phase 382 — `/me/booked-days` only (the salon twin never passes
+          // it); sent ONLY when true so every pre-382 request is
+          // byte-identical.
+          if (asMaster) 'asMaster': true,
         },
         cancelToken: cancelToken,
       );

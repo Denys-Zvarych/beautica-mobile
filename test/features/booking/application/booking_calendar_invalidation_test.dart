@@ -106,6 +106,27 @@ class _StubAuthNotifier extends AuthNotifier {
 class _CountingBookingRepository implements BookingRepository {
   final List<Set<BookingStatus>> statusCalls = <Set<BookingStatus>>[];
 
+  /// Phase 382 — the `asMaster` flag of each call, index-aligned with
+  /// [statusCalls], so an owner-master (`asOwnerMaster: true`) member can be
+  /// told apart from the default `/bookings/me` member with the same statuses.
+  final List<bool> asMasterCalls = <bool>[];
+
+  int callsWithStatusesAndScope(
+    Set<BookingStatus> wanted, {
+    required bool asMaster,
+  }) {
+    int n = 0;
+    for (int i = 0; i < statusCalls.length; i++) {
+      final Set<BookingStatus> s = statusCalls[i];
+      if (asMasterCalls[i] == asMaster &&
+          s.length == wanted.length &&
+          s.containsAll(wanted)) {
+        n++;
+      }
+    }
+    return n;
+  }
+
   int callsWithStatuses(Set<BookingStatus> wanted) => statusCalls
       .where(
         (Set<BookingStatus> s) =>
@@ -124,8 +145,10 @@ class _CountingBookingRepository implements BookingRepository {
     DateTime? to,
     Object? partition,
     Object? cancelToken,
+    bool asMaster = false,
   }) async {
     statusCalls.add(statuses.toSet());
+    asMasterCalls.add(asMaster);
     return const PageResponse<Booking>(
       items: <Booking>[],
       page: 0,
@@ -2016,5 +2039,268 @@ void main() {
         2,
       );
     });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 382 (24.1e) — the OWNER-AS-MASTER scope keys.
+  // ══════════════════════════════════════════════════════════════════════
+  //
+  // Phase 382 added two cache scopes the four fan-out helpers in
+  // `booking_calendar_invalidation.dart` were written before:
+  //   • `bookingsDayProvider(BookingsDayQuery.dayList/of(day:, asOwnerMaster:
+  //     true))` — the owner's OWN master-row day list (a distinct family key);
+  //   • `ownerMasterBookedDaysProvider` — the owner's OWN rail-dot set (a
+  //     separate keepAlive singleton with the same 30-minute TTL).
+  // The three per-date helpers hand-build ONLY the flag-false keys and every
+  // helper drops ONLY `bookedDaysProvider`, so once phase 383 mounts owner
+  // master mode a decline / close / reschedule / create leaves that mode
+  // serving the stale (e.g. cancelled-as-CONFIRMED) booking and stale dots.
+  //
+  // QA FINDING (phase 382 audit, MEDIUM perf + LOW security): these were
+  // FAILING-FIRST regressions (observed RED before the fix, GREEN after) —
+  // the fix routes the three hand-built sites through `_masterOwnDayKeys`
+  // (both scopes) and drops `ownerMasterBookedDaysProvider` beside every
+  // `bookedDaysProvider`. The created-helper day-key test pins the half that
+  // already worked (it enumerates `DayKeepAliveLru.liveQueries`).
+  //
+  // Same technique as every group above: refetch COUNT with a LIVE
+  // subscription held (Riverpod drops an unwatched invalidated provider, and a
+  // seamless reload retains `.value`, so neither "no listener" nor a value
+  // assertion could ever fail).
+  group('phase 382 — owner-master scope keys are dropped by every '
+      'fan-out helper', () {
+    // future-date-ok: an arbitrary calendar-day family key; never read
+    // through BookingDisplayX.isPast — these tests only count refetches.
+    final DateTime affected = DateTime(2026, 7, 20);
+
+    final Map<String, void Function(WidgetRef ref)> perDateHelpers =
+        <String, void Function(WidgetRef ref)>{
+          'invalidateBookingViewsAfterExternalDecline': (WidgetRef ref) =>
+              invalidateBookingViewsAfterExternalDecline(
+                ref,
+                const <String>['booking-1'],
+                affectedDates: <DateTime>[affected],
+              ),
+          'invalidateBookingViewsAfterProviderClose': (WidgetRef ref) =>
+              invalidateBookingViewsAfterProviderClose(
+                ref,
+                'booking-1',
+                affectedDate: affected,
+              ),
+          'invalidateBookingsDayAfterAppointmentItemReschedule':
+              (WidgetRef ref) =>
+                  invalidateBookingsDayAfterAppointmentItemReschedule(
+                    ref,
+                    affectedDays: <DateTime>{affected},
+                  ),
+        };
+
+    Future<ProviderContainer> pumpProbe(
+      WidgetTester tester,
+      void Function(WidgetRef ref) fire,
+      List<Object> overrides,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+              key: const Key('fire'),
+              onPressed: () => fire(ref),
+              child: const Text('fire'),
+            ),
+          ),
+        ),
+        overrides: overrides,
+      );
+      return ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('fire'))),
+        listen: false,
+      );
+    }
+
+    for (final MapEntry<String, void Function(WidgetRef ref)> helper
+        in perDateHelpers.entries) {
+      testWidgets('${helper.key} drops ownerMasterBookedDaysProvider — the '
+          "owner master mode's rail dots", (tester) async {
+        int ownerDotFetches = 0;
+        final ProviderContainer container = await pumpProbe(
+          tester,
+          helper.value,
+          <Object>[
+            // Both overridden: the production bodies park a 30-minute
+            // keepAlive `Timer` flutter_test fails on at teardown.
+            bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+            ownerMasterBookedDaysProvider.overrideWith((ref) async {
+              ownerDotFetches++;
+              return <DateTime>{};
+            }),
+            nextAppointmentProvider.overrideWith((ref) async => null),
+          ],
+        );
+        final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+            .listen(ownerMasterBookedDaysProvider, (_, _) {});
+        addTearDown(sub.close);
+        await container.read(ownerMasterBookedDaysProvider.future);
+        expect(ownerDotFetches, 1, reason: 'sanity: one fetch before the tap');
+
+        await tester.tap(find.byKey(const Key('fire')));
+        await tester.pumpAndSettle();
+        await container.read(ownerMasterBookedDaysProvider.future);
+
+        expect(
+          ownerDotFetches,
+          2,
+          reason:
+              '${helper.key} must drop the owner-as-master dot singleton — '
+              'it is keepAlive (30-min TTL) and nothing else reaches it',
+        );
+      });
+
+      testWidgets('${helper.key} refetches the asOwnerMaster: true DEFAULT '
+          'day-list member the owner master mode watches', (tester) async {
+        final _CountingBookingRepository repo = _CountingBookingRepository();
+        final ProviderContainer container =
+            await pumpProbe(tester, helper.value, <Object>[
+              bookingRepositoryProvider.overrideWithValue(repo),
+              authProvider.overrideWith(_StubAuthNotifier.new),
+              bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+              ownerMasterBookedDaysProvider.overrideWith(
+                (ref) async => <DateTime>{},
+              ),
+              nextAppointmentProvider.overrideWith((ref) async => null),
+            ]);
+        await container.read(authProvider.future);
+
+        final BookingsDayQuery ownQuery = BookingsDayQuery.dayList(
+          day: affected,
+          asOwnerMaster: true,
+        );
+        expect(
+          ownQuery,
+          isNot(BookingsDayQuery.dayList(day: affected)),
+          reason:
+              'the owner-master member must be a DISTINCT family key, or '
+              'this test silently re-tests the flag-false member',
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+            .listen(bookingsDayProvider(ownQuery), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(bookingsDayProvider(ownQuery).future);
+        expect(
+          repo.callsWithStatusesAndScope(
+            BookingStatus.visibleInDayListByDefault,
+            asMaster: true,
+          ),
+          1,
+          reason: 'sanity: the owner-master member fetched once before the tap',
+        );
+
+        await tester.tap(find.byKey(const Key('fire')));
+        await tester.pumpAndSettle();
+        await container.read(bookingsDayProvider(ownQuery).future);
+
+        expect(
+          repo.callsWithStatusesAndScope(
+            BookingStatus.visibleInDayListByDefault,
+            asMaster: true,
+          ),
+          2,
+          reason:
+              '${helper.key} hand-builds only the flag-false keys — the '
+              'owner-master day keeps serving the closed booking as CONFIRMED',
+        );
+      });
+    }
+
+    // Runs the literal created-booking helper (takes `Ref`, not `WidgetRef`)
+    // via `_createdFanOutProvider`, as the KEYED group above does.
+    ProviderContainer createdContainer(List<Object> overrides) {
+      final ProviderContainer container = ProviderContainer(
+        overrides: overrides.cast(),
+      );
+      addTearDown(container.dispose);
+      return container;
+    }
+
+    test('invalidateBookingViewsAfterBookingCreated drops '
+        'ownerMasterBookedDaysProvider', () async {
+      int ownerDotFetches = 0;
+      final ProviderContainer container = createdContainer(<Object>[
+        bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+        ownerMasterBookedDaysProvider.overrideWith((ref) async {
+          ownerDotFetches++;
+          return <DateTime>{};
+        }),
+      ]);
+      final ProviderSubscription<AsyncValue<Set<DateTime>>> sub = container
+          .listen(ownerMasterBookedDaysProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(ownerMasterBookedDaysProvider.future);
+      expect(ownerDotFetches, 1, reason: 'sanity: one fetch before fan-out');
+
+      container.read(_createdFanOutProvider)(null);
+      await container.read(ownerMasterBookedDaysProvider.future);
+
+      expect(
+        ownerDotFetches,
+        2,
+        reason:
+            'a booking the owner creates for themselves must put a dot on '
+            'their own master-mode rail',
+      );
+    });
+
+    // GREEN today — pins the half that already works. The created helper
+    // enumerates `DayKeepAliveLru.liveQueries` instead of hand-building keys,
+    // so the flag-true member is reached for free. A refactor back to
+    // hand-built `dayList/of(day:)` keys (the shape of the three siblings)
+    // must turn this red.
+    test(
+      'invalidateBookingViewsAfterBookingCreated refetches the live '
+      'asOwnerMaster: true day member (LRU enumeration reaches it)',
+      () async {
+        final _CountingBookingRepository repo = _CountingBookingRepository();
+        final ProviderContainer container = createdContainer(<Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+          ownerMasterBookedDaysProvider.overrideWith(
+            (ref) async => <DateTime>{},
+          ),
+        ]);
+        await container.read(authProvider.future);
+
+        final BookingsDayQuery ownQuery = BookingsDayQuery.dayList(
+          day: affected,
+          asOwnerMaster: true,
+        );
+        final ProviderSubscription<AsyncValue<BookingsDayState>> sub = container
+            .listen(bookingsDayProvider(ownQuery), (_, _) {});
+        addTearDown(sub.close);
+        await container.read(bookingsDayProvider(ownQuery).future);
+        expect(
+          repo.callsWithStatusesAndScope(
+            BookingStatus.visibleInDayListByDefault,
+            asMaster: true,
+          ),
+          1,
+          reason: 'sanity: one fetch before the fan-out',
+        );
+
+        container.read(_createdFanOutProvider)(null);
+        await container.read(bookingsDayProvider(ownQuery).future);
+
+        expect(
+          repo.callsWithStatusesAndScope(
+            BookingStatus.visibleInDayListByDefault,
+            asMaster: true,
+          ),
+          2,
+          reason:
+              'the owner-master day member is live in the LRU, so the created '
+              'fan-out must refetch it',
+        );
+      },
+    );
   });
 }

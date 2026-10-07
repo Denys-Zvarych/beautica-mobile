@@ -622,6 +622,7 @@ class BookingsDayNotifier extends _$BookingsDayNotifier {
         page: 0,
         size: 100,
         cancelToken: cancelToken,
+        asMaster: query.asOwnerMaster,
       ),
       // NOTHING status- or service-shaped goes on this wire — the day comes
       // back whole and [_narrowSalonDay] below removes exactly the rows a

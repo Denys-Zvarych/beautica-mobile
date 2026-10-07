@@ -1206,4 +1206,50 @@ void main() {
       sub.close();
     });
   });
+
+  // Phase 382 (24.1e) — the owner-as-master flag on the query reaches the
+  // repository as `asMaster`.
+  group('bookingsDayProvider — asOwnerMaster (phase 382)', () {
+    for (final bool flag in <bool>[false, true]) {
+      test('asOwnerMaster: $flag → getMyBookings(asMaster: $flag)', () async {
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            asMaster: any(named: 'asMaster'),
+          ),
+        ).thenAnswer((_) async => _page(const <Booking>[]));
+
+        await _containerWith(repo).read(
+          bookingsDayProvider(
+            BookingsDayQuery.of(
+              day: DateTime(2026, 7, 20),
+              asOwnerMaster: flag,
+            ),
+          ).future,
+        );
+
+        final List<dynamic> captured = verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            serviceIds: any(named: 'serviceIds'),
+            from: any(named: 'from'),
+            to: any(named: 'to'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            size: any(named: 'size'),
+            cancelToken: any(named: 'cancelToken'),
+            asMaster: captureAny(named: 'asMaster'),
+          ),
+        ).captured;
+        expect(captured, <dynamic>[flag]);
+      });
+    }
+  });
 }

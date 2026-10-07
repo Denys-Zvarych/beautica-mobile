@@ -158,10 +158,7 @@ void invalidateBookingViewsAfterExternalDecline(
   for (final DateTime day in affectedDates.toSet()) {
     // BOTH members — see the doc above. `.dayList` is the one the master's own
     // «Мої записи» watches by default; `.of` is the plain one other hosts use.
-    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-      BookingsDayQuery.dayList(day: day),
-      BookingsDayQuery.of(day: day),
-    ]) {
+    for (final BookingsDayQuery affectedQuery in _masterOwnDayKeys(day)) {
       final bool wasPinned = lru.contains(affectedQuery);
       // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
       // `lru.contains` answers "does an element already exist for this
@@ -179,6 +176,10 @@ void invalidateBookingViewsAfterExternalDecline(
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   ref.invalidate(nextAppointmentProvider);
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
 }
 
 /// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
@@ -343,10 +344,9 @@ void invalidateBookingViewsAfterProviderClose(
   // race) pays for the eager read-back; an untouched query is a genuine no-op
   // either way.
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
-  for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-    BookingsDayQuery.dayList(day: affectedDate),
-    BookingsDayQuery.of(day: affectedDate),
-  ]) {
+  for (final BookingsDayQuery affectedQuery in _masterOwnDayKeys(
+    affectedDate,
+  )) {
     final bool wasPinned = lru.contains(affectedQuery);
     // keepalive-safe: same wasPinned + eager-read idiom as the two sites
     // above — see them for the full reasoning.
@@ -358,6 +358,10 @@ void invalidateBookingViewsAfterProviderClose(
 
   ref.invalidate(masterArchiveProvider);
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     ref.invalidate(salonBookedDaysProvider(salonId));
     _invalidateSalonDayLists(
@@ -597,6 +601,10 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
     }
   }
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     if (boardVisible) {
       ref.invalidate(salonBookedDaysProvider(salonId));
@@ -780,10 +788,7 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
 }) {
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final DateTime day in affectedDays) {
-    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-      BookingsDayQuery.dayList(day: day),
-      BookingsDayQuery.of(day: day),
-    ]) {
+    for (final BookingsDayQuery affectedQuery in _masterOwnDayKeys(day)) {
       final bool wasPinned = lru.contains(affectedQuery);
       // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
       // `lru.contains` answers "does an element already exist for this
@@ -798,6 +803,10 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
     }
   }
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     ref.invalidate(salonBookedDaysProvider(salonId));
     _invalidateSalonDayLists(
@@ -891,3 +900,26 @@ void _invalidateSalonDayLists(
     }
   }
 }
+
+/// The hand-built `/bookings/me` day keys a per-date fan-out helper drops for
+/// [day]: the DEFAULT day-list member (`.dayList`) and the PLAIN member
+/// (`.of`), each in BOTH scopes — the independent master's own
+/// (`asOwnerMaster: false`) and the salon owner's master mode
+/// (`asOwnerMaster: true`, phase 382). The scope flag is part of the freezed
+/// family key, so without the `true` pair the owner master mode keeps serving
+/// a declined / closed / moved booking (client details included) until its
+/// keepAlive TTL lapses.
+///
+/// Single source for all three hand-built sites so the key set cannot drift
+/// between them. Callers keep the `lru.contains` gate: a key nobody built this
+/// session (every `true` key for a non-owner) is a genuine no-op — no element,
+/// no eager read, no request.
+List<BookingsDayQuery> _masterOwnDayKeys(DateTime day) => <BookingsDayQuery>[
+  for (final bool asOwnerMaster in const <bool>[
+    false,
+    true,
+  ]) ...<BookingsDayQuery>[
+    BookingsDayQuery.dayList(day: day, asOwnerMaster: asOwnerMaster),
+    BookingsDayQuery.of(day: day, asOwnerMaster: asOwnerMaster),
+  ],
+];

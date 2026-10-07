@@ -537,6 +537,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
@@ -580,6 +581,7 @@ class _RecordingRescheduleRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     getMyBookingsCalls++;
     return PageResponse<Booking>(

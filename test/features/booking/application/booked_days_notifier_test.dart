@@ -570,4 +570,61 @@ void main() {
       },
     );
   });
+
+  // Phase 382 (24.1e) — the owner-as-master twin sends asMaster=true; the
+  // existing singleton keeps sending the default (no param).
+  group('ownerMasterBookedDaysProvider (phase 382)', () {
+    void stubAnyFlag() {
+      when(
+        () => repo.getMyBookedDays(
+          from: any(named: 'from'),
+          to: any(named: 'to'),
+          cancelToken: any(named: 'cancelToken'),
+          asMaster: any(named: 'asMaster'),
+        ),
+      ).thenAnswer((_) async => <DateTime>[DateTime(2026, 7, 10)]);
+    }
+
+    List<dynamic> capturedFlags() => verify(
+      () => repo.getMyBookedDays(
+        from: any(named: 'from'),
+        to: any(named: 'to'),
+        cancelToken: any(named: 'cancelToken'),
+        asMaster: captureAny(named: 'asMaster'),
+      ),
+    ).captured;
+
+    test(
+      'ownerMasterBookedDaysProvider → getMyBookedDays(asMaster: true)',
+      () async {
+        stubAnyFlag();
+        final result = await _containerWithAuth(
+          repo,
+          const AuthSession.authenticated(
+            user: _master1,
+            accessToken: 'token-1',
+          ),
+        );
+
+        final Set<DateTime> days = await result.container.read(
+          ownerMasterBookedDaysProvider.future,
+        );
+
+        expect(days, <DateTime>{DateTime(2026, 7, 10)});
+        expect(capturedFlags(), <dynamic>[true]);
+      },
+    );
+
+    test('bookedDaysProvider is unchanged → asMaster: false', () async {
+      stubAnyFlag();
+      final result = await _containerWithAuth(
+        repo,
+        const AuthSession.authenticated(user: _master1, accessToken: 'token-1'),
+      );
+
+      await result.container.read(bookedDaysProvider.future);
+
+      expect(capturedFlags(), <dynamic>[false]);
+    });
+  });
 }

@@ -162,6 +162,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async => const PageResponse<Booking>(
     items: <Booking>[],
     page: 0,
@@ -184,6 +185,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override

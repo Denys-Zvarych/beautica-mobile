@@ -137,6 +137,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
@@ -144,6 +145,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
