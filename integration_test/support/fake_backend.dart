@@ -412,6 +412,7 @@ final class FakeBackend {
     this.wireOwnRowServices = false,
     this.ownRowServicesSeed,
     this.wireOwnRowSchedule = false,
+    this.listOwnerRowWhenBookable = false,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
@@ -546,6 +547,67 @@ final class FakeBackend {
               : e.value,
       };
   int _nextOwnRowServiceSeq = 1;
+
+  /// Phase 385 (24.1h) — opt-in: the owner's OWN master row joins the
+  /// [kOwnerSalonId] client roster (`GET /api/v1/salons/{id}/masters`, after
+  /// the static [_salonMasters]) exactly while it is BOOKABLE
+  /// ([ownerRowBookable]), mirroring the backend gate
+  /// `MasterRepository.findBookableIdsBySalonId` +
+  /// `MasterBookabilitySql.BOOKABLE_MASTER_M` (≥1 active service AND hours
+  /// in a weekly template; no `master_type` predicate, so a SALON_OWNER row
+  /// qualifies — pinned server-side by `OwnerMasterSelfServiceIT
+  /// .should_showOwnerEverywhere_when_ownerSetsUpOwnServicesAndSchedule`).
+  /// Spec: `docs/mobile-phases/phase-385-24.1h-owner-bookable-in-client-team-
+  /// e2e.md`.
+  ///
+  /// State is read at REQUEST time from the owner-row writes the fake
+  /// already records — [ownRowServices] ([wireOwnRowServices], phase 380)
+  /// and [ownRowWeeklySchedule] ([wireOwnRowSchedule], phase 381) — so both
+  /// must be on, with [masterSalonId] == [kOwnerSalonId]. Off by default:
+  /// the roster stays the static [_salonMasters] list, byte-identical.
+  final bool listOwnerRowWhenBookable;
+
+  /// Phase 385 — the fake's `BOOKABLE_MASTER_M`: ≥1 ACTIVE own-row service
+  /// AND ≥1 own-row weekly-template day with hours — either explicit-window
+  /// `intervals` or explicit-times `times` (both are accepted by the backend).
+  ///
+  /// NOT modelled (no flow drives them): the template validity window, the
+  /// 180-day horizon, custom-hours overrides, and the service-DEFINITION
+  /// active flag (only the row's own `isActive` is read).
+  bool get ownerRowBookable =>
+      ownRowServices.any((Map<String, dynamic> r) => r['isActive'] != false) &&
+      ownRowWeeklySchedule.any(
+        (Map<String, dynamic> template) =>
+            (template['days'] as List<dynamic>? ?? const <dynamic>[]).any(
+              (dynamic day) =>
+                  _nonEmptyList((day as Map<String, dynamic>)['intervals']) ||
+                  _nonEmptyList(day['times']),
+            ),
+      );
+
+  static bool _nonEmptyList(Object? value) =>
+      value is List<dynamic> && value.isNotEmpty;
+
+  /// Phase 385 — the [kOwnerSalonId] roster body: [_salonMasters] itself
+  /// when [listOwnerRowWhenBookable] is off (byte-identical), else plus the
+  /// owner's `MasterSummaryResponse` while [ownerRowBookable]. Identity
+  /// matches `GET /masters/{masterRowId}` ([_masterDetailEnvelope]), the
+  /// public profile the card opens.
+  List<Map<String, dynamic>> _ownerSalonRoster() {
+    if (!listOwnerRowWhenBookable || !ownerRowBookable) return _salonMasters;
+    return <Map<String, dynamic>>[
+      ..._salonMasters,
+      <String, dynamic>{
+        'masterId': masterRowId,
+        'firstName': masterFirstName,
+        'lastName': masterLastName,
+        'avatarUrl': null,
+        'avgRating': null,
+        'reviewCount': 0,
+        'masterType': 'SALON_OWNER',
+      },
+    ];
+  }
 
   final Dio dio;
   late final DioAdapter _adapter;
@@ -10218,16 +10280,28 @@ final class FakeBackend {
     // The board's ROSTER — `salonMastersRosterProvider`. Serves the SAME
     // [_salonMasters] fixture the `salon-xyz` rail does, so a column header
     // rendered here and a rail card rendered there cannot disagree.
+    // Phase 385 — [_ownerSalonRoster] is [_salonMasters] unless
+    // [listOwnerRowWhenBookable] is on (see its doc).
+    assert(
+      !listOwnerRowWhenBookable ||
+          (wireOwnRowServices &&
+              wireOwnRowSchedule &&
+              masterSalonId == kOwnerSalonId),
+      'listOwnerRowWhenBookable reads the owner-row service/schedule writes: '
+      'it needs wireOwnRowServices + wireOwnRowSchedule and '
+      'masterSalonId == kOwnerSalonId',
+    );
     _adapter.onRoute(
       '/api/v1/salons/$kOwnerSalonId/masters',
       (server) => server.replyCallback(200, (_) {
         getSalonMastersCalls++;
         lastGetSalonMastersId = kOwnerSalonId;
+        final List<Map<String, dynamic>> roster = _ownerSalonRoster();
         return _searchEnvelope(
-          _salonMasters,
+          roster,
           page: 0,
           totalPages: 1,
-          totalElements: _salonMasters.length,
+          totalElements: roster.length,
         );
       }),
       request: const Request(method: RequestMethods.get),

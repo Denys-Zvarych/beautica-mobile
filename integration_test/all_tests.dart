@@ -66,6 +66,8 @@ import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'owner_master_mode_flow_test.dart' as owner_master_mode;
+import 'owner_master_client_visibility_flow_test.dart'
+    as owner_master_client_visibility;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
@@ -257,6 +259,13 @@ void main() {
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
   group('owner_master_mode_flow', owner_master_mode.main);
+  // Phase 385 (24.1h) — decision 7: a bookable owner (service + schedule
+  // set in master mode) appears in the client «Команда»; a non-bookable one
+  // does not.
+  group(
+    'owner_master_client_visibility_flow',
+    owner_master_client_visibility.main,
+  );
   group('admin_own_profile_flow', admin_own_profile.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept
