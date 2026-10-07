@@ -14,8 +14,12 @@
 // must land back on B. A `go(mySalons)` or a first-salon fallback would land
 // on A or the hub and fail.
 //
-// Not reachable from the UI yet (phase 384 adds the salon-shell entry), so
-// master mode is entered with `router.go`, exactly as a deep link would.
+// Phase 384 (24.1g) — master mode is entered through the REAL UI entry in
+// every flow below: the salon shell's «Профіль» nav tile (`salon-nav-tile-3`),
+// which for an OWNER leaves the shell for `/owner/master/profile`
+// (`_enterMasterMode`). The dedicated 384 flow tours all four master-mode
+// tiles from salon B and returns to B with both «‹ Салон» and system back,
+// while «Послуги» still targets the PRIMARY salon's (A's) own master row.
 //
 // Phase 380 (24.1c) — the «Послуги» tab: profile → tile 0 → the owner's OWN
 // master-row catalogue (empty) → «Додати послугу» → setup → save → back on
@@ -72,8 +76,10 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_day_rail.dart';
+import 'package:beautica_mobile/features/salon/application/salon_shell_provider.dart';
 import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
@@ -85,10 +91,12 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -236,10 +244,16 @@ Future<GoRouter> _enterSalonB(
   return router;
 }
 
-/// `router.go`s into master mode and asserts the mount: own profile, the
-/// independent-master nav and the «‹ Салон» pill.
+/// Phase 384 — enters master mode the way the owner does: from the salon
+/// shell they are standing in, tap «Профіль» (`salon-nav-tile-3`). Asserts
+/// the mount: own profile, the independent-master nav and the «‹ Салон» pill.
 Future<void> _enterMasterMode(WidgetTester tester, GoRouter router) async {
-  router.go(RouteNames.ownerMasterProfile);
+  expect(
+    find.byType(SalonShellScreen),
+    findsOneWidget,
+    reason: 'the real entry starts from the salon shell',
+  );
+  await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-3')));
   await AppHarness.settle(tester);
 
   AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
@@ -260,6 +274,39 @@ void _expectBackOnSalonB(GoRouter router) {
   expect(find.byType(SalonShellScreen), findsOneWidget);
   expect(find.byType(VelvetBottomNavBar), findsNothing);
   expect(find.byKey(_masterModeBack), findsNothing);
+}
+
+/// Phase 384 — the salon shell's bottom-nav highlight (a NAV index).
+int _salonNavIndex(WidgetTester tester) => tester
+    .widget<SalonBottomNav>(find.byKey(const Key('salon-shell-bottom-nav')))
+    .currentIndex;
+
+/// Phase 384 — taps master-mode tile [index] and asserts it lands on [path]
+/// with that tile active (the route-builder's `VelvetBottomNavBar`).
+Future<void> _tapMasterTile(
+  WidgetTester tester,
+  GoRouter router,
+  int index,
+  String path,
+) async {
+  await _tapWhenReady(tester, find.byKey(Key('master-nav-tile-$index')));
+  await AppHarness.pumpUntilCondition(
+    tester,
+    () => AppHarness.location(router) == path,
+    description: 'master-mode tile $index to land on $path',
+    timeout: const Duration(seconds: 20),
+  );
+  // Drain the tab transition — mid-fade both tabs' bars are mounted.
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, path);
+  expect(
+    tester
+        .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+        .activeIndex,
+    index,
+    reason: 'tile $index must be the active one on $path',
+  );
+  expect(find.byType(SalonShellScreen), findsNothing);
 }
 
 void main() {
@@ -296,6 +343,207 @@ void main() {
       _expectBackOnSalonB(router);
     });
   });
+
+  testWidgets('Phase 384 — SALON_OWNER in salon B: shell «Профіль» → master '
+      'mode; every tile lands on /owner/master/* with that tile active; '
+      '«‹ Салон» and SYSTEM BACK from a tab root both return to B; «Послуги» '
+      'still targets the PRIMARY salon\'s own master row', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowServices: true,
+              wireOwnRowSchedule: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      _seedSalonB(fb);
+      final FakeSecureStorage storage = FakeSecureStorage();
+      final GoRouter router = await _enterSalonB(tester, fb, storage);
+
+      // ── 1. Salon B shell → «Профіль» (the real entry) ───────────────────
+      await _enterMasterMode(tester, router);
+      expect(
+        tester
+            .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+            .activeIndex,
+        3,
+        reason: 'master mode opens on its «Профіль» tile',
+      );
+
+      // ── 2. Every tile → its /owner/master/* route, tile active ──────────
+      await _tapMasterTile(tester, router, 0, RouteNames.ownerMasterServices);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.ownRowServicesGetCalls >= 1,
+        description:
+            'the «Послуги» list GET to hit the PRIMARY salon (A) own-row '
+            'route even though the owner entered from salon B',
+        timeout: const Duration(seconds: 20),
+      );
+      expect(find.byType(ServicesListScreen), findsOneWidget);
+
+      await _tapMasterTile(tester, router, 1, RouteNames.ownerMasterBookings);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+      await _tapMasterTile(tester, router, 2, RouteNames.ownerMasterSchedule);
+      expect(find.byType(MasterScheduleScreen), findsOneWidget);
+
+      await _tapMasterTile(tester, router, 3, RouteNames.ownerMasterProfile);
+      expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+
+      // ── 3. «‹ Салон» → salon B (last-visited), on «Салон» ──────────────
+      await AppHarness.tapVisible(tester, find.byKey(_masterModeBack));
+      await AppHarness.settle(tester);
+      _expectBackOnSalonB(router);
+      expect(
+        _salonNavIndex(tester),
+        0,
+        reason:
+            'a fresh shell visit opens on «Салон» — the owner\'s «Профіль» '
+            'tap never wrote nav 3 into salonShellProvider',
+      );
+      expect(await _storedSalonId(storage), _kSalonB);
+
+      // ── 4. Re-enter; SYSTEM BACK from a non-profile tab root → B ────────
+      await _enterMasterMode(tester, router);
+      await _tapMasterTile(tester, router, 2, RouteNames.ownerMasterSchedule);
+      await tester.binding.handlePopRoute();
+      await AppHarness.settle(tester);
+      _expectBackOnSalonB(router);
+      expect(_salonNavIndex(tester), 0);
+    });
+  });
+
+  testWidgets('Phase 384 (mobile-qa) — owner parked on «Команда» → «Профіль» '
+      '→ «‹ Салон»: the shell re-opens on «Салон» (nav 0, «Про салон» '
+      'sub-tab), NOT on the tab the owner left from', (tester) async {
+    // Product-accepted landing (2026-10-07): a return from master mode is a
+    // FRESH shell visit — `salonShellProvider` / `salonManageTabProvider` are
+    // autoDispose and die with the shell route. The section-3 assertion of
+    // the test above starts from nav 0, so it cannot tell "reset to 0" from
+    // "left untouched"; parking on «Команда» first makes it load-bearing.
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonOwner
+        ..hasMasterProfile = true;
+      _seedSalonB(fb);
+      final FakeSecureStorage storage = FakeSecureStorage();
+      final GoRouter router = await _enterSalonB(tester, fb, storage);
+
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('salon-nav-tile-$kSalonTeamNavTab')),
+      );
+      await AppHarness.settle(tester);
+      expect(_salonNavIndex(tester), kSalonTeamNavTab);
+
+      await _enterMasterMode(tester, router);
+      await AppHarness.tapVisible(tester, find.byKey(_masterModeBack));
+      await AppHarness.settle(tester);
+
+      _expectBackOnSalonB(router);
+      expect(
+        _salonNavIndex(tester),
+        0,
+        reason:
+            'the shell re-opens on «Салон», not on «Команда» where the '
+            'owner left from (salon_shell_screen.dart:18-21 / :388-391 '
+            'comments claim otherwise — the accepted behaviour is nav 0)',
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(SalonShellScreen)),
+      );
+      expect(
+        container.read(salonManageTabProvider(_kSalonB)),
+        0,
+        reason:
+            'nav 0 must pair with the «Про салон» sub-tab — a stale «Команда» '
+            'sub-tab under a «Салон» highlight is the TAB SYNC desync',
+      );
+    });
+  });
+
+  // Phase 384 perf MEDIUM — `salonManagementProfileProvider`'s timed
+  // keepAlive (mirroring `publicSalonProfileProvider`) keeps the salon
+  // profile cached across the master-mode trip, so «‹ Салон» neither
+  // refetches `GET /salons/{id}` + `GET /salons/{id}/staff` nor paints a
+  // CircularProgressIndicator frame.
+  testWidgets(
+    'SPEC (Phase 384 perf MEDIUM) — «‹ Салон» within the keepAlive window '
+    'does NOT refetch the salon profile / staff and paints NO loading frame',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..hasMasterProfile = true;
+        // Salon A (`kOwnerSalonId`): the only owner salon whose
+        // `GET /salons/{id}` + `/staff` routes the fake backend registers
+        // and counts per id.
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          storage: FakeSecureStorage(),
+        );
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+        AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+        expect(
+          find.descendant(
+            of: find.byType(SalonManagementProfileScreen),
+            matching: find.byType(ErrorState),
+          ),
+          findsNothing,
+          reason: 'precondition: salon A\'s management profile loaded',
+        );
+        expect(
+          fb.getSalonStaffCallsById[_kSalonA] ?? 0,
+          greaterThanOrEqualTo(1),
+          reason: 'precondition: the shell loaded salon A\'s roster',
+        );
+
+        await _enterMasterMode(tester, router);
+        // Snapshot AFTER master mode settled: whatever master mode itself
+        // reads is already counted, so any increment below is the return.
+        final int salonGetsBefore = fb.getSalonByIdCalls;
+        final int staffGetsBefore = fb.getSalonStaffCallsById[_kSalonA] ?? 0;
+
+        await tester.ensureVisible(find.byKey(_masterModeBack));
+        await tester.tap(find.byKey(_masterModeBack));
+        bool sawLoadingFrame = false;
+        for (int frame = 0; frame < 120; frame++) {
+          // fixed-wait-ok: frame-by-frame scan of the return transition — a
+          // settle would skip the one loading frame this test exists to see.
+          await tester.pump(const Duration(milliseconds: 16));
+          final Finder spinner = find.descendant(
+            of: find.byType(SalonManagementProfileScreen),
+            matching: find.byType(CircularProgressIndicator),
+          );
+          if (spinner.evaluate().isNotEmpty) sawLoadingFrame = true;
+        }
+        await AppHarness.settle(tester);
+
+        AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+        expect(
+          sawLoadingFrame,
+          isFalse,
+          reason: 'the cached salon profile must paint on the first frame',
+        );
+        expect(
+          fb.getSalonByIdCalls,
+          salonGetsBefore,
+          reason: 'no GET /salons/{id} refetch inside the keepAlive window',
+        );
+        expect(
+          fb.getSalonStaffCallsById[_kSalonA] ?? 0,
+          staffGetsBefore,
+          reason: 'no GET /salons/{id}/staff refetch inside the window',
+        );
+      });
+    },
+  );
 
   testWidgets('SALON_OWNER: SYSTEM BACK on the master-mode profile does the '
       'same as «‹ Салон» — last-visited salon shell, never an app exit', (

@@ -171,9 +171,17 @@ void main() {
   // patches that cached roster row in place — no `GET …/staff` refetch.
   // The fake roster's GET never learns the new URL, so ONLY the in-place
   // patch can turn this green.
-  testWidgets('SALON_OWNER in the shell: upload from «Профіль», then '
-      '«Команда» — the owner card shows the new photo with no roster '
-      'refetch', (tester) async {
+  //
+  // Phase 384 (24.1g) — the owner's «Профіль» nav tile now LEAVES the shell
+  // for owner master mode (`go`), which drops the roster's last watcher —
+  // the roster then only lingers in its 60 s leave-armed cache window, not as
+  // a live watched entry, so that path is no longer the one this test pins.
+  // The upload is now made from the owner's own-row tap on «Команда»
+  // (`/profile/owner`, a PUSH over the still-mounted shell) — the one owner
+  // path that still uploads while the roster is live — then back to «Команда».
+  testWidgets('SALON_OWNER in the shell: upload from the own «Команда» card '
+      '(/profile/owner), then back — the owner card shows the new photo with '
+      'no roster refetch', (tester) async {
     const String salonId = 'salon-xyz';
     const Key ownerCard = Key('salon-manage-staff-card-user-owner-1');
     final FakeBackend fb = FakeBackend();
@@ -227,9 +235,11 @@ void main() {
     expect(ownerPhoto(), findsNothing);
     final int staffCalls = fb.getSalonStaffCalls;
 
-    // «Профіль» (nav 3): upload from the owner identity card.
-    await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+    // Own card → /profile/owner (pushed over the shell): upload from the
+    // owner identity card.
+    await tester.tap(find.byKey(ownerCard));
     await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.ownerOwnProfile);
     await tapBadgeThen(
       tester,
       const Key('owner-own-profile-avatar-editor'),
@@ -248,9 +258,10 @@ void main() {
       timeout: const Duration(seconds: 15),
     );
 
-    // Back on «Команда»: the SAME live roster now carries the new photo.
-    await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+    // Back (pop) on «Команда»: the SAME live roster now carries the new photo.
+    await tester.binding.handlePopRoute();
     await AppHarness.settle(tester);
+    AppHarness.expectLocation(router, RouteNames.salonShell(salonId));
     await tester.ensureVisible(find.byKey(ownerCard));
     await AppHarness.settle(tester);
     expect(ownerPhoto(), findsOneWidget);

@@ -16,7 +16,9 @@
 //   nav 0 «Салон» ─┬─> stack slot 0 (the one profile host)
 //   nav 2 «Команда»┘
 //   nav 1 «Записи» ──> stack slot 1
-//   nav 3 «Профіль»──> stack slot 2
+//   nav 3 «Профіль»──> stack slot 2 (ADMIN only — Phase 384: an OWNER's
+//                       «Профіль» tap leaves the shell for owner master
+//                       mode, `RouteNames.ownerMasterProfile`)
 //
 // Assertions below therefore distinguish the two index spaces explicitly:
 // `SalonBottomNav.currentIndex` is a NAV index (0..3), `IndexedStack.index`
@@ -121,6 +123,13 @@ class _AdminAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async =>
       const AuthSession.authenticated(user: _stubAdmin, accessToken: 'tok');
+}
+
+/// Auth that never resolves — `authUserRoleOrNull` reads `null` for the whole
+/// test (Phase 384 null-role spec).
+class _PendingAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() => Completer<AuthSession>().future;
 }
 
 /// [MySalons] stub that resolves immediately to a list CONTAINING
@@ -398,6 +407,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(_stack(tester).index, 1);
       expect(_navIndex(tester), 1);
+      // Nav 3 is not a shell destination for an OWNER (Phase 384 — it enters
+      // owner master mode); its nav→slot mapping is pinned on the ADMIN
+      // fixture in the next test.
+    });
+
+    testWidgets('admin: nav 3 «Профіль» renders stack slot 2 — the two '
+        'indices diverge here', (tester) async {
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _adminOverrides(),
+      );
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
       await tester.pumpAndSettle();
@@ -509,13 +530,8 @@ void main() {
       expect(find.byKey(const Key('salon-shell-slot-profile')), findsOneWidget);
       expect(_stack(tester).index, 0);
 
-      // Nav 3 — Профіль (owner suffix, stack slot 2).
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('salon-shell-tab-profile-owner')),
-        findsOneWidget,
-      );
+      // (Nav 3 «Профіль» is not a tab for an OWNER — Phase 384; see the
+      // owner master-mode entry group below.)
 
       // Back to nav 0 — Салон. The point of the lazy-but-never-disposed
       // design: both previously-visited placeholder slots must STILL be
@@ -530,78 +546,10 @@ void main() {
         findsOneWidget,
         reason: 'a previously-visited slot must remain MOUNTED, just offstage',
       );
-      expect(
-        find.byKey(
-          const Key('salon-shell-tab-profile-owner'),
-          skipOffstage: false,
-        ),
-        findsOneWidget,
-        reason: 'a previously-visited slot must remain MOUNTED, just offstage',
-      );
       // …and there is still only the one profile host behind all of it.
       expect(
         find.byType(SalonManagementProfileScreen, skipOffstage: false),
         findsOneWidget,
-      );
-    });
-
-    testWidgets('the owner Профіль slot is told whether it is the VISIBLE '
-        'one', (tester) async {
-      // mobile-perf MEDIUM + LOW (2026-08-31). A raw `IndexedStack` sets
-      // neither `Offstage` nor `TickerMode` on its non-current children, so
-      // the retained slot-2 screen has no way to learn it went off-screen —
-      // it kept ticking its 950 ms entrance on an unpainted subtree (burning
-      // the one-shot guard, so the FIRST REAL VIEW had no entrance) and kept
-      // holding the PII screen-protection refcount across every other salon
-      // tab. The shell owns the index, so the shell passes the signal down.
-      await tester.pumpApp(
-        const SalonShellScreen(salonId: _kSalonId),
-        overrides: _ownerOverrides(),
-      );
-      await tester.pumpAndSettle();
-
-      // Visit Профіль — the slot is built and is the current one.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(const Key('salon-shell-tab-profile-owner')),
-            )
-            .visible,
-        isTrue,
-      );
-
-      // Tab away. The slot stays MOUNTED (never disposed) — and must now be
-      // told it is not the visible one.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(
-                const Key('salon-shell-tab-profile-owner'),
-                skipOffstage: false,
-              ),
-            )
-            .visible,
-        isFalse,
-        reason:
-            'the retained off-screen slot must be told it is off-screen — '
-            'see OwnerOwnProfileScreen.visible for the two defects this '
-            'closes',
-      );
-
-      // …and told again when the user comes back.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(const Key('salon-shell-tab-profile-owner')),
-            )
-            .visible,
-        isTrue,
       );
     });
 
@@ -739,6 +687,145 @@ void main() {
       );
       expect(_stack(tester).index, 0);
     });
+  });
+
+  group('Phase 384 — owner «Профіль» enters owner master mode', () {
+    /// Mounts the shell under a real [GoRouter] (the tap calls `context.go`)
+    /// with a stub master-mode profile route, on a container the test can
+    /// read after the shell route is gone.
+    Future<ProviderContainer> pumpRouted(
+      WidgetTester tester,
+      List<Object> overrides,
+    ) async {
+      final ProviderContainer container = makeTestContainer(
+        overrides: overrides,
+      );
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) =>
+                SalonShellScreen(salonId: state.pathParameters['salonId']!),
+          ),
+          GoRoute(
+            path: RouteNames.ownerMasterProfile,
+            builder: (context, state) =>
+                const Scaffold(key: Key('owner-master-profile-stub')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets('owner tap «Профіль» → router at /owner/master/profile, and '
+        'the shell\'s selected tab is NOT moved to 3', (tester) async {
+      final ProviderContainer container = await pumpRouted(
+        tester,
+        _ownerOverrides(),
+      );
+      // Park the shell on «Команда» first so "unchanged" is distinguishable
+      // from the provider's default 0.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+      await tester.pumpAndSettle();
+      // `salonShellProvider` is autoDispose: hold a listener so its value is
+      // still readable after the shell route is replaced.
+      final ProviderSubscription<int> sub = container.listen<int>(
+        salonShellProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      expect(sub.read(), kSalonTeamNavTab);
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      // The stub is registered ONLY at `RouteNames.ownerMasterProfile`, so
+      // finding it IS the router being there (asserted by widget rather than
+      // a raw `currentConfiguration` read — `forbid_naive_router_location`).
+      expect(
+        find.byKey(const Key('owner-master-profile-stub')),
+        findsOneWidget,
+      );
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(
+        sub.read(),
+        kSalonTeamNavTab,
+        reason:
+            'the owner branch returns BEFORE salonShellProvider.select — the '
+            'shell\'s tab must stay where the owner left it',
+      );
+      expect(find.byType(OwnerOwnProfileScreen), findsNothing);
+    });
+
+    testWidgets('admin tap «Профіль» stays in the shell on the embedded admin '
+        'profile (unchanged)', (tester) async {
+      await pumpRouted(tester, _adminOverrides());
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-shell-tab-profile-admin')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('owner-master-profile-stub')), findsNothing);
+    });
+
+    testWidgets(
+      'SPEC (security INFO) — role not resolved (null) → «Профіль» is a '
+      'no-op: no route change, no slot-2 admin profile, tab unchanged',
+      // Phase 384 security INFO: only `UserRole.salonAdmin` may select the
+      // admin profile slot; a null (unresolved) role is a no-op.
+      (tester) async {
+        final ProviderContainer container = await pumpRouted(tester, <Object>[
+          authProvider.overrideWith(_PendingAuthNotifier.new),
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ]);
+        expect(
+          authUserRoleOrNull(container.read(authProvider)),
+          isNull,
+          reason: 'precondition: the role is genuinely unresolved',
+        );
+
+        await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('owner-master-profile-stub')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(
+            const Key('salon-shell-tab-profile-admin'),
+            skipOffstage: false,
+          ),
+          findsNothing,
+          reason: 'an unresolved role must never mount the admin profile slot',
+        );
+        expect(_navIndex(tester), 0);
+        expect(_stack(tester).index, 0);
+      },
+    );
   });
 
   group('Салон vs Команда controlled sub-tab', () {

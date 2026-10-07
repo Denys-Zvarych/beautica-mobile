@@ -46,7 +46,8 @@
 //   nav 0 «Салон» ─┬─> stack slot 0 (the one profile host)
 //   nav 2 «Команда»┘
 //   nav 1 «Записи» ──> stack slot 1
-//   nav 3 «Профіль»──> stack slot 2
+//   nav 3 «Профіль»──> stack slot 2 (admin; an OWNER's «Профіль» leaves the
+//                       shell for owner master mode — Phase 384)
 //
 // The BEHAVIOURAL assertions in this file are unchanged by that — nav
 // highlight, rendered tab body, the real staff card, and the no-bleed

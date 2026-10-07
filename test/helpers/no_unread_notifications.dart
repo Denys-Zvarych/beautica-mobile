@@ -11,8 +11,10 @@
 // needs nothing. A test can still pin a live/specific count: passing its own
 // `unreadNotificationsProvider` override suppresses the default (see
 // [withDefaultNoUnread]; a double override would trip Riverpod's assert).
-// A test that builds its OWN `ProviderContainer` must still add
-// [kNoUnreadOverride] to that container's overrides.
+// A test that builds its OWN `ProviderContainer` should use
+// `makeTestContainer` (helpers/test_container.dart), which applies this
+// default AND the zero `salonManagementProfileCacheWindowProvider` default
+// (phase 384); a raw container must add [kNoUnreadOverride] itself.
 
 import 'dart:async';
 
