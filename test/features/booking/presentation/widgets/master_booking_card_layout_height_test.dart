@@ -126,6 +126,7 @@ Future<double> _renderedHeight(
           onTap: () {},
           minHeight: floor,
           dense: dense,
+          laneWidth: dense ? laneWidth : null,
         ),
       ),
     ),

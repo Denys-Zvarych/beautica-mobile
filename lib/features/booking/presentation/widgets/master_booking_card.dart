@@ -433,6 +433,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -505,6 +506,7 @@ class MasterBookingCard extends StatefulWidget {
     this.now,
     this.showMasterAttribution = false,
     this.dense = false,
+    this.laneWidth,
   }) : assert(
          onComplete == null || now != null,
          'A caller that offers «Виконано» must also supply `now` (from '
@@ -696,10 +698,10 @@ class MasterBookingCard extends StatefulWidget {
   /// surname ellipsized and the price pill was FittedBox-shrunk. Dense mode
   /// gives every field its own full-width line instead:
   ///
-  ///  * COMPACT — client name (fixed 2-line slot) + status dot / hairline /
+  ///  * COMPACT — client name (fixed 1-line slot) + status dot / hairline /
   ///    service (1 line) / price pill alone on a row. The time range is
   ///    dropped (the board's ruler and gridlines already encode it).
-  ///  * FULL — avatar + client name (fixed 2-line slot) / hairline / service
+  ///  * FULL — avatar + client name (fixed 1-line slot) / hairline / service
   ///    (fixed 2-line slot) / price pill + status dot on a row (the labelled
   ///    badge replaces both when the booking owes nothing). The time range is
   ///    dropped, as in compact: the ruler encodes it, and its row is what
@@ -709,18 +711,45 @@ class MasterBookingCard extends StatefulWidget {
   ///
   /// Heights: [denseCompactNaturalHeight] / [denseFullNaturalHeight] feed
   /// [occupiedHeightFor]`(dense: true)` and are EXACT for any content: the
-  /// client name always occupies a reserved two-line slot ([_FixedLinesText])
+  /// client name always occupies a reserved ONE-line slot ([_FixedLinesText];
+  /// the full name, else the first name only, else ellipsized) and
   /// the full layout's service gets the same slot (the compact service is a
   /// single ellipsized line), so nothing can wrap past the prediction.
   final bool dense;
 
-  /// DENSE compact body natural height at textScaler 1.0 (reserved 2-line name).
-  /// Measured — pinned by `master_booking_card_layout_height_test.dart`.
-  static const double denseCompactNaturalHeight = 81;
+  /// The card's OUTER width in dp, supplied by the caller that already knows it
+  /// (the salon grid's lane width). Read ONLY when [dense]; `null` (default)
+  /// keeps the dense client name as the full name, ellipsized.
+  ///
+  /// It is what lets the dense name pick "full name, else first name only,
+  /// else ellipsis" WITHOUT a `LayoutBuilder` (which would make the card
+  /// illegal under `IntrinsicHeight`): the card subtracts its own border,
+  /// padding and leading/trailing mark from this width and measures the two
+  /// candidates with a `TextPainter` (`_denseDisplayName`).
+  final double? laneWidth;
 
-  /// DENSE full body natural height at textScaler 1.0 (reserved 2-line name and
-  /// service slots). Measured — pinned by the same test.
-  static const double denseFullNaturalHeight = 125;
+  /// Horizontal space a DENSE card spends BESIDE its client name: border,
+  /// padding and the avatar (full) or status dot (compact), gaps included. The
+  /// name's measured width budget is `laneWidth - denseNameChrome`. One source
+  /// of truth for the card and for tests that derive a lane from a measurement.
+  @visibleForTesting
+  static double denseNameChrome({required bool full}) {
+    final EdgeInsets pad = full
+        ? _MasterBookingCardState._denseFullPadding
+        : _MasterBookingCardState._compactPadding;
+    final double mark = full
+        ? _ClientAvatarMark._kSize + VelvetSpacing.xs + 2
+        : VelvetSpacing.xs + TimelineStatusDot.diameter;
+    return 2 * _MasterBookingCardState._kBorderWidth + pad.horizontal + mark;
+  }
+
+  /// DENSE compact body natural height at textScaler 1.0 (reserved 1-line name).
+  /// Measured — pinned by `master_booking_card_layout_height_test.dart`.
+  static const double denseCompactNaturalHeight = 67;
+
+  /// DENSE full body natural height at textScaler 1.0 (reserved 1-line name and
+  /// 2-line service slot). Measured — pinned by the same test.
+  static const double denseFullNaturalHeight = 111;
 
   /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
   /// the derivation below) — the middle of this card's three naturals,
@@ -1019,6 +1048,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// short-circuit in `updateChild`.
   bool? _fullBodyContentCacheAttribution;
   bool? _fullBodyContentCacheDense;
+  double? _fullBodyContentCacheLaneWidth;
+  double? _fullBodyContentCacheScale;
 
   /// The card's two decoration states, hoisted out of [build] (mobile-perf
   /// MEDIUM-4): `build()` reruns on every press
@@ -1343,6 +1374,132 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     );
   }
 
+  /// The dense client-name slot: ONE fixed line showing the full name when it
+  /// fits, else the first name only, else the first name ellipsized. The full
+  /// name always reaches semantics. [leadingMark]/[trailingMark] are the widths
+  /// the row spends beside the name (avatar / status dot, gaps included).
+  Widget _buildDenseName(Booking b, String clientName, TextStyle style) {
+    final double? lane = widget.laneWidth;
+    final double chrome = MasterBookingCard.denseNameChrome(
+      full: _layout == _MasterCardLayout.full,
+    );
+    final String shown = lane == null
+        ? clientName
+        : _chooseDenseName(
+            full: clientName,
+            first: _firstNameOf(b, clientName),
+            style: DefaultTextStyle.of(context).style.merge(style),
+            scaler: MediaQuery.textScalerOf(context),
+            maxWidth: lane - chrome,
+          );
+    return _FixedLinesText(
+      shown,
+      style: style,
+      lines: 1,
+      semanticsLabel: shown == clientName ? null : clientName,
+    );
+  }
+
+  /// Per-State memo of the last full/first choice (so a press `setState` does
+  /// not re-measure). Lives and dies with this card — no global, no PII
+  /// outliving it. Keyed on every measurement input, incl. the text scale.
+  Object? _nameMemoKey;
+  String? _nameMemo;
+
+  String _chooseDenseName({
+    required String full,
+    required String first,
+    required TextStyle style,
+    required TextScaler scaler,
+    required double maxWidth,
+  }) {
+    final Object key = (full, first, style, scaler.scale(1), maxWidth);
+    final String? memo = _nameMemo;
+    if (memo != null && _nameMemoKey == key) return memo;
+    final String result = _denseDisplayName(
+      full: full,
+      first: first,
+      style: style,
+      scaler: scaler,
+      maxWidth: maxWidth,
+    );
+    _nameMemoKey = key;
+    return _nameMemo = result;
+  }
+
+  /// Only a DENSE card with a known [MasterBookingCard.laneWidth] measures
+  /// text, so only it cares about fonts arriving; every other caller never
+  /// listens (and so never rebuilds on a font load).
+  bool get _wantsFontListener => widget.dense && widget.laneWidth != null;
+
+  bool _fontListenerAttached = false;
+  bool _fontRebuildPending = false;
+
+  void _syncFontListener() {
+    final bool want = _wantsFontListener;
+    if (want == _fontListenerAttached) return;
+    final Listenable fonts = PaintingBinding.instance.systemFonts;
+    if (want) {
+      fonts.addListener(_onSystemFontsChanged);
+    } else {
+      fonts.removeListener(_onSystemFontsChanged);
+    }
+    _fontListenerAttached = want;
+  }
+
+  /// Fonts (google_fonts' Comfortaa/Nunito) registering after first paint
+  /// change every measurement. Several loads in a row COALESCE into one
+  /// rebuild on the next frame (a transient frame callback runs before
+  /// build, so `setState` there is never setState-during-build): it drops
+  /// the memo and the body cache and rebuilds once.
+  void _onSystemFontsChanged() {
+    if (_fontRebuildPending) return;
+    _fontRebuildPending = true;
+    SchedulerBinding.instance.scheduleFrameCallback((Duration _) {
+      _fontRebuildPending = false;
+      if (!mounted) return;
+      setState(() {
+        _nameMemo = null;
+        _nameMemoKey = null;
+        _fullBodyContentCache = null;
+      });
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFontListener();
+  }
+
+  @override
+  void didUpdateWidget(MasterBookingCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncFontListener();
+  }
+
+  @override
+  void dispose() {
+    if (_fontListenerAttached) {
+      PaintingBinding.instance.systemFonts.removeListener(
+        _onSystemFontsChanged,
+      );
+      _fontListenerAttached = false;
+    }
+    super.dispose();
+  }
+
+  /// The client's first name: the booking's own field when set, else the part
+  /// of [clientName] before its first space.
+  static String _firstNameOf(Booking b, String clientName) {
+    final String? f = b.clientFirstName?.trim();
+    if (f != null && f.isNotEmpty && clientName.startsWith(f)) {
+      return f;
+    }
+    final int space = clientName.trim().indexOf(' ');
+    return space <= 0 ? clientName : clientName.trim().substring(0, space);
+  }
+
   /// The DENSE compact body (salon board) — see [MasterBookingCard.dense].
   /// Row 1 gives the client name the whole width minus the status dot (the
   /// range label that used to compete for it is dropped: the board's ruler
@@ -1357,10 +1514,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
             Expanded(
-              child: _FixedLinesText(
+              child: _buildDenseName(
+                b,
                 clientName,
-                style: VelvetText.masterCardClientName,
-                lines: 2,
+                VelvetText.masterCardClientName,
               ),
             ),
             const SizedBox(width: VelvetSpacing.xs),
@@ -1403,10 +1560,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             _ClientAvatarMark(avatarUrl: b.clientAvatarUrl),
             const SizedBox(width: VelvetSpacing.xs + 2),
             Expanded(
-              child: _FixedLinesText(
+              child: _buildDenseName(
+                b,
                 clientName,
-                style: VelvetText.masterCardClientNameFull,
-                lines: 2,
+                VelvetText.masterCardClientNameFull,
               ),
             ),
           ],
@@ -1763,7 +1920,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         _fullBodyContentCacheBooking == b &&
         _fullBodyContentCacheClientName == clientName &&
         _fullBodyContentCacheAttribution == attribute &&
-        _fullBodyContentCacheDense == widget.dense) {
+        _fullBodyContentCacheDense == widget.dense &&
+        _fullBodyContentCacheLaneWidth == widget.laneWidth &&
+        _fullBodyContentCacheScale ==
+            MediaQuery.textScalerOf(context).scale(1)) {
       return cached;
     }
     // Phase 343 — the master-attribution row's own text, resolved ONCE here
@@ -2039,6 +2199,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     _fullBodyContentCacheClientName = clientName;
     _fullBodyContentCacheAttribution = attribute;
     _fullBodyContentCacheDense = widget.dense;
+    _fullBodyContentCacheLaneWidth = widget.laneWidth;
+    _fullBodyContentCacheScale = MediaQuery.textScalerOf(context).scale(1);
     return content;
   }
 }
@@ -2066,9 +2228,18 @@ double _fixedLineHeight(BuildContext context, TextStyle style) {
 /// height, which keeps [MasterBookingCard.occupiedHeightFor]`(dense: true)`
 /// exact on every device. Used by the DENSE bodies only.
 class _FixedLinesText extends StatelessWidget {
-  const _FixedLinesText(this.text, {required this.style, this.lines = 1});
+  const _FixedLinesText(
+    this.text, {
+    required this.style,
+    this.lines = 1,
+    this.semanticsLabel,
+  });
 
   final String text;
+
+  /// Overrides what a screen reader announces (the full name when [text] is
+  /// the first name only). `null` announces [text].
+  final String? semanticsLabel;
   final TextStyle style;
   final int lines;
 
@@ -2087,11 +2258,52 @@ class _FixedLinesText extends StatelessWidget {
             height: style.height ?? _kSlotFallbackLineHeight,
             forceStrutHeight: true,
           ),
+          semanticsLabel: semanticsLabel,
           maxLines: lines,
           overflow: TextOverflow.ellipsis,
         ),
       ),
     );
+  }
+}
+
+/// Test seam (Flutter `debug*` convention): when non-null, [_denseDisplayName]
+/// takes the full name's one-line width from it instead of a `TextPainter`.
+/// `null` in production.
+@visibleForTesting
+double Function(String text, TextStyle style, TextScaler scaler)?
+debugDenseNameWidthOverride;
+
+/// [full] if it fits [maxWidth] on one line of [style] (already the exact,
+/// DefaultTextStyle-merged style the `Text` renders, so letterSpacing/height
+/// are honoured) under [scaler], else [first]. [first] is returned even if it
+/// too overflows — the `Text` then ellipsizes it. Pure measurement via
+/// `TextPainter`, so the card stays intrinsic-safe (no `LayoutBuilder`). No
+/// cache here: the caller memoises per card State, so nothing outlives a card.
+String _denseDisplayName({
+  required String full,
+  required String first,
+  required TextStyle style,
+  required TextScaler scaler,
+  required double maxWidth,
+}) {
+  if (first == full) return full;
+  final double Function(String, TextStyle, TextScaler)? override =
+      debugDenseNameWidthOverride;
+  if (override != null) {
+    return override(full, style, scaler) <= maxWidth ? full : first;
+  }
+  final TextPainter painter = TextPainter(
+    text: TextSpan(text: full, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: scaler,
+    maxLines: 1,
+  );
+  try {
+    painter.layout();
+    return painter.width <= maxWidth ? full : first;
+  } finally {
+    painter.dispose();
   }
 }
 

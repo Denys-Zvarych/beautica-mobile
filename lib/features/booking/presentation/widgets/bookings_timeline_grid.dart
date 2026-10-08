@@ -3210,6 +3210,7 @@ class _LaneColumnState extends State<_LaneColumn> {
                     ),
                     minHeight: geo.minHeight,
                     dense: widget.dense,
+                    laneWidth: widget.dense ? cardWidth : null,
                   ),
                 ),
               ),

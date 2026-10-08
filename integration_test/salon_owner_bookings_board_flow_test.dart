@@ -231,14 +231,22 @@ Future<void> _landOnSalonBoard(
 const String _kDenseClientFirst = 'Олександра';
 const String _kDenseClientLast = 'Пономаренко';
 const String _kDenseClientFull = '$_kDenseClientFirst $_kDenseClientLast';
+const String _kShortClientFirst = 'Інна';
+const String _kShortClientLast = 'Ко';
+const String _kShortClientFull = '$_kShortClientFirst $_kShortClientLast';
 const String _kDenseServiceLong = 'Манікюр з гель-покриттям';
 
 /// The `RenderParagraph` of the single [Text] whose data is [data] INSIDE
 /// [card]. Scoped to the card so the same string elsewhere on the board
 /// (e.g. the other lane's card) cannot satisfy it.
 RenderParagraph _paragraphIn(WidgetTester tester, Finder card, String data) =>
+    // Via the RichText underneath: a `Text` with a `semanticsLabel` (the dense
+    // first-name-only slot) wraps its paragraph in a Semantics node.
     tester.renderObject<RenderParagraph>(
-      find.descendant(of: card, matching: find.text(data)),
+      find.descendant(
+        of: find.descendant(of: card, matching: find.text(data)),
+        matching: find.byType(RichText),
+      ),
     );
 
 void main() {
@@ -2074,16 +2082,32 @@ void main() {
             reason: '${e.key}: the salon lane must be the narrow 136-148dp one',
           );
 
-          // Surname: full "first last" text, not ellipsized.
+          // Client name: ONE line, EXACTLY the first name (the long surname
+          // cannot fit ~148dp) — never a two-line wrap, never an ellipsized
+          // surname, and the surname text is absent from the card.
           final RenderParagraph name = _paragraphIn(
             tester,
             card,
-            _kDenseClientFull,
+            _kDenseClientFirst,
           );
           expect(
             name.didExceedMaxLines,
             isFalse,
-            reason: '${e.key}: the surname must not be cut off',
+            reason: '${e.key}: the one-line client name must not be cut off',
+          );
+          expect(
+            find.descendant(of: card, matching: find.text(_kDenseClientFull)),
+            findsNothing,
+            reason: '${e.key}: the full long name must not be rendered',
+          );
+          expect(
+            find.descendant(
+              of: card,
+              matching: find.textContaining(_kDenseClientLast),
+            ),
+            findsNothing,
+            reason:
+                '${e.key}: the surname must be dropped from the visible text',
           );
 
           // Service: present, non-trivial width (was squeezed to 0dp), and
@@ -2148,6 +2172,116 @@ void main() {
             reason: '${e.key}: the card must equal its planned band',
           );
         }
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ── 2026-10-08: dense client-name policy, decisive both ways ──────────────
+  testWidgets(
+    'dense salon board at 360dp: a short name shows in full, a long name '
+    'shows the first name only and the Semantics label keeps the full name',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'name-short',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+            duration: const Duration(minutes: 90),
+            clientFirstName: _kShortClientFirst,
+            clientLastName: _kShortClientLast,
+          ),
+          fb.salonBoardBookingRow(
+            id: 'name-long',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(10, 0),
+            duration: const Duration(minutes: 90),
+            clientFirstName: _kDenseClientFirst,
+            clientLastName: _kDenseClientLast,
+          ),
+        ];
+
+        await _landOnSalonBoard(tester, fb, router);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const ValueKey<String>('timeline-card-name-short')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder shortCard = find.byKey(
+          const ValueKey<String>('timeline-card-name-short'),
+        );
+        final Finder longCard = find.byKey(
+          const ValueKey<String>('timeline-card-name-long'),
+        );
+        expect(longCard, findsOneWidget);
+        expect(
+          tester.getSize(longCard).width,
+          inInclusiveRange(120, 160),
+          reason: 'must be the narrow salon lane',
+        );
+
+        Finder labelled(Finder card, String full) => find.descendant(
+          of: card,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Semantics && (w.properties.label ?? '').contains(full),
+          ),
+        );
+
+        // Short name: rendered in full, one line.
+        expect(
+          find.descendant(
+            of: shortCard,
+            matching: find.text(_kShortClientFull),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          _paragraphIn(tester, shortCard, _kShortClientFull).didExceedMaxLines,
+          isFalse,
+        );
+        expect(labelled(shortCard, _kShortClientFull), findsWidgets);
+
+        // Long name: EXACTLY the first name; surname absent; full name kept in
+        // the semantics label.
+        expect(
+          find.descendant(
+            of: longCard,
+            matching: find.text(_kDenseClientFirst),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: longCard, matching: find.text(_kDenseClientFull)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: longCard,
+            matching: find.textContaining(_kDenseClientLast),
+          ),
+          findsNothing,
+        );
+        expect(
+          _paragraphIn(tester, longCard, _kDenseClientFirst).didExceedMaxLines,
+          isFalse,
+        );
+        expect(labelled(longCard, _kDenseClientFull), findsWidgets);
         expect(tester.takeException(), isNull);
       });
     },

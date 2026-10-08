@@ -1,5 +1,5 @@
-// The DENSE card's height must be a pure function of its floor: a one-line
-// short name and a wrapped long name render the SAME box, and it equals
+// The DENSE card's height must be a pure function of its floor: a short
+// name and a long (first-name-only / ellipsized) name render the SAME box, and it equals
 // `MasterBookingCard.occupiedHeightFor(floor, dense: true)` exactly. Otherwise
 // the grid's culling placeholder (ADDENDUM 5 / 11) drifts and cards below it
 // slide off the hour ruler.
@@ -76,6 +76,7 @@ Future<double> _height(
           onTap: () {},
           minHeight: floor,
           dense: true,
+          laneWidth: lane,
         ),
       ),
     ),
@@ -88,7 +89,7 @@ Future<double> _height(
 void main() {
   for (final int minutes in <int>[45, 60, 85, 90, 120]) {
     for (final double lane in <double>[136, 148]) {
-      testWidgets('$minutes min @${lane}dp: wrapped == short == predicted', (
+      testWidgets('$minutes min @${lane}dp: long == short == predicted', (
         WidgetTester tester,
       ) async {
         final double floor = _floor(minutes);
@@ -120,7 +121,7 @@ void main() {
           lane,
         );
         expect(shortH, closeTo(predicted, 0.01), reason: 'short name');
-        expect(longH, closeTo(predicted, 0.01), reason: 'wrapped name');
+        expect(longH, closeTo(predicted, 0.01), reason: 'long name');
         expect(longH, closeTo(shortH, 0.01));
       });
     }
