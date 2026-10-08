@@ -200,7 +200,8 @@ class MasterBookingsScreen extends ConsumerWidget {
   /// Phase 383 (24.1f) — the header back affordance, forwarded verbatim to
   /// [BookingsDiscoveryView]. [onBack] `null` (every pre-383 mount) keeps
   /// this a tab root with no back button; the owner master-mode mount passes
-  /// `go(salonHome)` with the «‹ Салон» pill [backLabel].
+  /// a pop-or-`go(ownerMasterProfile)` [onBack] with no [backLabel] — the
+  /// plain icon-only arrow (decision 2026-10-08).
   final String? backLabel;
   final String? backSemanticLabel;
   final VoidCallback? onBack;
@@ -302,7 +303,7 @@ class MasterBookingsScreen extends ConsumerWidget {
         ),
         title: l10n.masterBookingsTitle,
         // Bottom-nav tab root — no back affordance, except the owner
-        // master-mode mount's «‹ Салон» (phase 383).
+        // master-mode mount's plain arrow (phase 383, decision 2026-10-08).
         onBack: onBack,
         backLabel: backLabel,
         backSemanticLabel: backSemanticLabel,

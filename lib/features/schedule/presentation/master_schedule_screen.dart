@@ -78,8 +78,8 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
   final Widget? bottomNavBar;
 
   /// Phase 381 (24.1d) — optional VISIBLE text beside the top bar's back
-  /// arrow, forwarded to [VelvetTopBar.backLabel] (the owner master-mode
-  /// «‹ Салон» pill, phase 378). `null` (every pre-existing mount) renders
+  /// arrow, forwarded to [VelvetTopBar.backLabel]. `null` (every mount,
+  /// including the owner master-mode one since decision 2026-10-08) renders
   /// the bare arrow, byte-identical.
   final String? backLabel;
 
@@ -89,8 +89,12 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
 
   /// Phase 381 (24.1d) — optional back action. `null` (every pre-existing
   /// mount) keeps today's pop-or-go(role profile) behaviour; the owner
-  /// master-mode mount passes `go(salonHome)` — a tab root has no stack.
+  /// master-mode mount passes pop-or-`go(ownerMasterProfile)`.
   final VoidCallback? onBack;
+
+  /// Test contract for the top bar's back button (rule C — keys on every
+  /// interactable). A key only; renders byte-identically.
+  static const Key backKey = Key('master-schedule-back');
 
   /// Additive (Phase 312) — `null` (every pre-existing call site: `/schedule`
   /// for an INDEPENDENT_MASTER, `/staff/schedule` for a SALON_MASTER's
@@ -604,6 +608,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
           children: <Widget>[
             VelvetTopBar(
               title: l10n.scheduleTitle,
+              backKey: MasterScheduleScreen.backKey,
               backSemanticLabel:
                   widget.backSemanticLabel ?? l10n.registerBackStep,
               backLabel: widget.backLabel,

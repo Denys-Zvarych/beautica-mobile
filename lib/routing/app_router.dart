@@ -2450,13 +2450,18 @@ GoRouter appRouter(Ref ref) {
       // `/staff/services` does. Admission is the `/owner/master/` prefix gate
       // in `auth_redirect.dart` (SALON_OWNER only).
       //
-      // SYSTEM BACK = «‹ Салон». A tab root here is a `go` target (the nav
-      // tiles and every entry use `context.go`), so the stack under it is
-      // empty and a bare system back / predictive back would EXIT the app.
-      // The [PopScope] makes it do exactly what the top-left «‹ Салон»
-      // button does — `go(salonHome)`, the last-visited-salon resolver.
+      // SYSTEM BACK is TAB-AWARE (decision 2026-10-08). A tab root here is a
+      // `go` target (the nav tiles and every entry use `context.go`), so the
+      // stack under it is empty and a bare system back / predictive back
+      // would EXIT the app. The [PopScope] makes it do exactly what that
+      // tab's top-left back does:
+      //   * «Профіль» (`ownerMasterProfile`) — the labelled «‹ Салон» pill:
+      //     `go(salonHome)`, the last-visited-salon resolver;
+      //   * «Послуги» / «Графік» / «Записи» — the plain icon-only arrow
+      //     ([_ownerMasterTabBack]): pop if possible, else
+      //     `go(ownerMasterProfile)` — never straight to the salon.
       // `canPop` follows the router, so a genuinely pushed page underneath
-      // (should a future entry ever push) still pops normally. Phase 380's
+      // (the archive, should a future entry ever push) still pops normally. Phase 380's
       // services setup/edit drill-ins live INSIDE this shell (they need its
       // service-target scope): pushed onto the shell's own Navigator, so back
       // pops them to the list. Later drill-ins (weekly editor, booking
@@ -2469,7 +2474,12 @@ GoRouter appRouter(Ref ref) {
         builder: (context, state, child) => PopScope<Object?>(
           canPop: GoRouter.of(context).canPop(),
           onPopInvokedWithResult: (bool didPop, Object? _) {
-            if (!didPop) context.go(RouteNames.salonHome);
+            if (didPop) return;
+            context.go(
+              state.uri.path == RouteNames.ownerMasterProfile
+                  ? RouteNames.salonHome
+                  : RouteNames.ownerMasterProfile,
+            );
           },
           child: _SalonMasterTabsShell(role: UserRole.salonOwner, child: child),
         ),
@@ -2495,16 +2505,16 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: RouteNames.ownerMasterServices,
             builder: (context, state) {
-              final AppLocalizations l10n = AppLocalizations.of(context);
               return _SalonMasterOwnServicesRoute(
                 role: UserRole.salonOwner,
                 writableIfCanManage: true,
                 setupRoute: RouteNames.ownerMasterServiceSetup,
                 editRouteBuilder: RouteNames.ownerMasterServiceEdit,
+                // Plain icon-only arrow (decision 2026-10-08): the list's own
+                // `_handleBack` pops if it can, else goes to this fallback —
+                // the same pop-or-profile as [_ownerMasterTabBack].
                 showBack: true,
-                backFallbackRoute: RouteNames.salonHome,
-                backLabel: l10n.ownerMasterModeBack,
-                backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+                backFallbackRoute: RouteNames.ownerMasterProfile,
                 bottomNavBar: _kOwnerMasterNavBars[0],
               );
             },
@@ -2534,7 +2544,6 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: RouteNames.ownerMasterSchedule,
             builder: (context, state) {
-              final AppLocalizations l10n = AppLocalizations.of(context);
               return _OwnMasterRowGate(
                 role: UserRole.salonOwner,
                 builder:
@@ -2567,9 +2576,7 @@ GoRouter appRouter(Ref ref) {
                           masterId: masterId,
                         ),
                         bottomNavBar: _kOwnerMasterNavBars[2],
-                        backLabel: l10n.ownerMasterModeBack,
-                        backSemanticLabel: l10n.ownerMasterModeBackSemantics,
-                        onBack: () => context.go(RouteNames.salonHome),
+                        onBack: () => _ownerMasterTabBack(context),
                       );
                     },
               );
@@ -2597,7 +2604,6 @@ GoRouter appRouter(Ref ref) {
           GoRoute(
             path: RouteNames.ownerMasterBookings,
             builder: (context, state) {
-              final AppLocalizations l10n = AppLocalizations.of(context);
               return _OwnMasterRowGate(
                 role: UserRole.salonOwner,
                 builder:
@@ -2628,9 +2634,7 @@ GoRouter appRouter(Ref ref) {
                       navScheduleRoute: RouteNames.ownerMasterSchedule,
                       navProfileRoute: RouteNames.ownerMasterProfile,
                       bottomNavBar: _kOwnerMasterNavBars[1],
-                      backLabel: l10n.ownerMasterModeBack,
-                      backSemanticLabel: l10n.ownerMasterModeBackSemantics,
-                      onBack: () => context.go(RouteNames.salonHome),
+                      onBack: () => _ownerMasterTabBack(context),
                     ),
               );
             },
@@ -3127,6 +3131,20 @@ _OwnMasterIds _selectOwnMasterIds(AsyncValue<Master> async) {
 /// [VelvetBottomNavBar.scheduleRoute], phase 383
 /// [VelvetBottomNavBar.bookingsRoute] — every tile now points at
 /// `/owner/master/*`.
+/// The plain icon-only back of the owner master-mode «Послуги» / «Графік» /
+/// «Записи» tabs (decision 2026-10-08): return to the previous page — `pop`
+/// when the router can, otherwise `go(ownerMasterProfile)`. Only the
+/// «Профіль» tab carries the labelled «‹ Салон» pill to `salonHome`. The
+/// shell's [PopScope] routes system back on these tabs the same way.
+void _ownerMasterTabBack(BuildContext context) {
+  final GoRouter router = GoRouter.of(context);
+  if (router.canPop()) {
+    router.pop();
+  } else {
+    router.go(RouteNames.ownerMasterProfile);
+  }
+}
+
 const List<VelvetBottomNavBar> _kOwnerMasterNavBars = <VelvetBottomNavBar>[
   VelvetBottomNavBar(
     activeIndex: 0,
@@ -3296,8 +3314,6 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
     this.editRouteBuilder,
     this.showBack = false,
     this.backFallbackRoute,
-    this.backLabel,
-    this.backSemanticLabel,
     this.bottomNavBar,
   });
 
@@ -3315,8 +3331,6 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
   final String Function(String serviceId)? editRouteBuilder;
   final bool showBack;
   final String? backFallbackRoute;
-  final String? backLabel;
-  final String? backSemanticLabel;
   final Widget? bottomNavBar;
 
   /// Every forwarded parameter at its `/staff/services` default — the one
@@ -3327,8 +3341,6 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
       editRouteBuilder == null &&
       !showBack &&
       backFallbackRoute == null &&
-      backLabel == null &&
-      backSemanticLabel == null &&
       bottomNavBar == null;
 
   @override
@@ -3368,8 +3380,6 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
           editRouteBuilder: editRouteBuilder,
           showBack: showBack,
           backFallbackRoute: backFallbackRoute,
-          backLabel: backLabel,
-          backSemanticLabel: backSemanticLabel,
           // Ignored when non-null: the owner mount's canonical
           // `_kOwnerMasterNavBars[0]` replaces the whole bar.
           bottomNavBar: bottomNavBar,

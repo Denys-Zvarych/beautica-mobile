@@ -10,15 +10,19 @@
 // so its «‹ Салон» destination is a single stubbed salon. Here the exit runs
 // the real `/salons/home` resolver over a real stored last-visited pointer:
 // with TWO salons, the owner opens salon B (not the server-first A), enters
-// master mode, and both exits — the «‹ Салон» pill AND the system back —
-// must land back on B. A `go(mySalons)` or a first-salon fallback would land
+// master mode, and both exits from «Профіль» — the «‹ Салон» pill AND the
+// system back — must land back on B. Decision 2026-10-08: only «Профіль»
+// carries «‹ Салон»; «Послуги»/«Графік»/«Записи» show the plain arrow, and
+// their arrow AND system back return to the previous page (nothing to pop →
+// the master-mode «Профіль»), never straight to the salon. A `go(mySalons)` or a first-salon fallback would land
 // on A or the hub and fail.
 //
 // Phase 384 (24.1g) — master mode is entered through the REAL UI entry in
 // every flow below: the salon shell's «Профіль» nav tile (`salon-nav-tile-3`),
 // which for an OWNER leaves the shell for `/owner/master/profile`
 // (`_enterMasterMode`). The dedicated 384 flow tours all four master-mode
-// tiles from salon B and returns to B with both «‹ Салон» and system back,
+// tiles from salon B and returns to B with both «‹ Салон» and system back
+// (via «Профіль» — a non-profile tab's arrow/system back lands there first),
 // while «Послуги» still targets the PRIMARY salon's (A's) own master row.
 //
 // Phase 380 (24.1c) — the «Послуги» tab: profile → tile 0 → the owner's OWN
@@ -46,7 +50,8 @@
 // another master's, and answers `GET /bookings/me?asMaster=true` with the
 // owner-row one only) → day change + filter keep `asMaster=true` → tap →
 // `/salon/bookings/:id` detail → back → «Архів» (own-row only) → back →
-// «‹ Салон» lands on the salon shell. Every `/bookings/me` and
+// the plain arrow → master-mode «Профіль» → «‹ Салон» lands on the salon
+// shell. Every `/bookings/me` and
 // `/booked-days` read is pinned to `asMaster=true`.
 //
 // Phase 383 (decision 2026-10-07) — «Записи» (+): the independent master's
@@ -54,7 +59,7 @@
 // service → slot → confirm). The POST must land on `/masters/{ownerRow}/
 // bookings` (the FakeBackend route is keyed on the owner row), «Готово»
 // returns to the owner's «Записи» where the booking is listed, and after
-// «‹ Салон» the same booking is on the salon «Записи» board
+// arrow → «Профіль» → «‹ Салон» the same booking is on the salon «Записи» board
 // (`mirrorWalkInToSalonBoard`, the backend stamping the owner's salon_id).
 //
 // NO PATROL FLOW: no OS dialog, permission, notification or WebView is
@@ -269,6 +274,10 @@ Future<void> _enterMasterMode(WidgetTester tester, GoRouter router) async {
 }
 
 /// Asserts the owner is back on salon B's shell and master mode is gone.
+/// The app's UA strings, read off the mounted master-mode nav bar.
+AppLocalizations _l10n(WidgetTester tester) =>
+    AppLocalizations.of(tester.element(find.byType(VelvetBottomNavBar)));
+
 void _expectBackOnSalonB(GoRouter router) {
   AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonB));
   expect(find.byType(SalonShellScreen), findsOneWidget);
@@ -346,7 +355,8 @@ void main() {
 
   testWidgets('Phase 384 — SALON_OWNER in salon B: shell «Профіль» → master '
       'mode; every tile lands on /owner/master/* with that tile active; '
-      '«‹ Салон» and SYSTEM BACK from a tab root both return to B; «Послуги» '
+      '«‹ Салон» and SYSTEM BACK from «Профіль» both return to B, while the '
+      'arrow / SYSTEM BACK on «Послуги»/«Графік» land on «Профіль»; «Послуги» '
       'still targets the PRIMARY salon\'s own master row', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb =
@@ -406,9 +416,33 @@ void main() {
       );
       expect(await _storedSalonId(storage), _kSalonB);
 
-      // ── 4. Re-enter; SYSTEM BACK from a non-profile tab root → B ────────
+      // ── 4. Re-enter; «Графік»'s plain ARROW → master-mode «Профіль» ─────
+      // Decision 2026-10-08 — no «Салон» label off the profile tab.
       await _enterMasterMode(tester, router);
       await _tapMasterTile(tester, router, 2, RouteNames.ownerMasterSchedule);
+      expect(find.text(_l10n(tester).ownerMasterModeBack), findsNothing);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(MasterScheduleScreen.backKey),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+      expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
+      expect(find.byType(SalonShellScreen), findsNothing);
+
+      // ── 5. SYSTEM BACK on «Послуги» → «Профіль», NOT the salon ──────────
+      await _tapMasterTile(tester, router, 0, RouteNames.ownerMasterServices);
+      expect(find.text(_l10n(tester).ownerMasterModeBack), findsNothing);
+      await tester.binding.handlePopRoute();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+      expect(find.byType(SalonShellScreen), findsNothing);
+
+      // ── 6. SYSTEM BACK on «Графік» → «Профіль»; again → salon B ─────────
+      await _tapMasterTile(tester, router, 2, RouteNames.ownerMasterSchedule);
+      await tester.binding.handlePopRoute();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
       await tester.binding.handlePopRoute();
       await AppHarness.settle(tester);
       _expectBackOnSalonB(router);
@@ -906,13 +940,15 @@ void main() {
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(MasterScheduleScreen)),
       );
+      // Decision 2026-10-08 — the schedule tab shows the plain arrow; the
+      // «‹ Салон» pill lives on «Профіль» only.
+      expect(find.byKey(MasterScheduleScreen.backKey), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(VelvetTopBar),
           matching: find.text(l10n.ownerMasterModeBack),
         ),
-        findsOneWidget,
-        reason: 'the «‹ Салон» pill is the schedule tab\'s top-left exit',
+        findsNothing,
       );
       final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
         find.byType(VelvetBottomNavBar),
@@ -1184,12 +1220,14 @@ void main() {
         tester.element(find.byType(MasterBookingsScreen)),
       );
       final Finder back = find.byKey(const Key('bookings-discovery-back'));
+      // Decision 2026-10-08 — plain arrow, no «Салон» label off «Профіль».
+      expect(back, findsOneWidget);
       expect(
         find.descendant(
           of: back,
           matching: find.text(l10n.ownerMasterModeBack),
         ),
-        findsOneWidget,
+        findsNothing,
       );
 
       // ── 3. Tap → owner-admitted /salon/bookings/:id detail → back ───────
@@ -1305,8 +1343,12 @@ void main() {
       expect(fb.bookedDaysAsMasterFlags, isNotEmpty);
       expect(fb.bookedDaysAsMasterFlags, everyElement(isTrue));
 
-      // ── 5. «‹ Салон» → salon shell ──────────────────────────────────────
+      // ── 5. Arrow → master-mode «Профіль» → «‹ Салон» → salon shell ─────
       await _tapWhenReady(tester, back);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+      expect(find.byType(SalonShellScreen), findsNothing);
+      await _tapWhenReady(tester, find.byKey(_masterModeBack));
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
       expect(find.byType(SalonShellScreen), findsOneWidget);
@@ -1412,7 +1454,9 @@ void main() {
   // step), and the booking also lands on the salon «Записи» board.
   testWidgets('SALON_OWNER: «Записи» (+) → guest → own-row service → slot → '
       'confirm POSTs /masters/{ownerRow}/bookings; listed in own «Записи» '
-      '(asMaster) and on the salon board after «‹ Салон»', (tester) async {
+      '(asMaster) and on the salon board after arrow → «Профіль» → «‹ Салон»', (
+    tester,
+  ) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb =
           FakeBackend(
@@ -1590,11 +1634,14 @@ void main() {
             'services',
       );
 
-      // ── 5. «‹ Салон» → salon «Записи» board shows the same booking ─────
+      // ── 5. Arrow → «Профіль» → «‹ Салон» → salon «Записи» board ─────────
       await _tapWhenReady(
         tester,
         find.byKey(const Key('bookings-discovery-back')),
       );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+      await _tapWhenReady(tester, find.byKey(_masterModeBack));
       await AppHarness.settle(tester);
       AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
       await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-1')));

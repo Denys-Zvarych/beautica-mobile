@@ -2,7 +2,8 @@
 // «Графік» tab: [MasterScheduleScreen] mounted exactly as the
 // `RouteNames.ownerMasterSchedule` route mounts it — the owner's OWN-row
 // `ScheduleScope.salonMaster`, the owner tile-2 [VelvetBottomNavBar] and the
-// top-left labelled «‹ Салон» back pill (phase 378's `VelvetTopBar.backLabel`).
+// app's standard icon-only back arrow (decision 2026-10-08: the labelled
+// «‹ Салон» pill lives on the master-mode «Профіль» tab only).
 //
 // The all-null default (every pre-existing mount) is pinned byte-identical by
 // the unchanged `test/features/schedule/presentation/goldens/schedule_*.png`
@@ -39,9 +40,6 @@ const String _kOwnerRowId = 'master-row-owner-golden';
 /// Fixed Kyiv DATE TOKEN — a Saturday, so the visible week is Mon 8 .. Sun 14
 /// June 2026 regardless of the run day.
 final DateTime _today = DateTime(2026, 6, 13);
-
-/// Visible label of the back pill — the l10n value of `ownerMasterModeBack`.
-const String _kBackLabel = 'Салон';
 
 WorkInterval _interval(int sh, int eh) => WorkInterval(
   start: TimeOfDay(hour: sh, minute: 0),
@@ -157,7 +155,7 @@ void main() {
             scheduleRoute: RouteNames.ownerMasterSchedule,
             profileRoute: RouteNames.ownerMasterProfile,
           ),
-          backLabel: _kBackLabel,
+          // No `backLabel` — the route passes only a pop-or-profile `onBack`.
           onBack: () {},
         ),
       );

@@ -23,7 +23,8 @@
 // this harness: it pins the mounted [MasterScheduleScreen]'s scope (the
 // owner's OWN row in the primary salon — never the empty
 // `ownScheduleScopeProvider` id an owner would get), the canonical tile-2
-// bar, the «‹ Салон» back, and that every schedule read is keyed on the own
+// bar, the plain icon-only back (decision 2026-10-08: «‹ Салон» lives on
+// «Профіль» only), and that every schedule read is keyed on the own
 // master row, never `/masters/me`.
 //
 // Phase 383 (24.1f) — the «Записи» tab (`/owner/master/bookings`) and its
@@ -643,7 +644,7 @@ void main() {
       tester.pump(const Duration(minutes: 6));
 
   testWidgets('/owner/master/schedule mounts MasterScheduleScreen on the '
-      'owner\'s OWN row (primary salon), tile-2 owner bar, «‹ Салон» back, '
+      'owner\'s OWN row (primary salon), tile-2 owner bar, plain back, '
       'editable; every schedule read is keyed on the own master row', (
     tester,
   ) async {
@@ -672,12 +673,18 @@ void main() {
           'a null scope resolves through ownScheduleScopeProvider, which is '
           'EMPTY for SALON_OWNER — the owner tab must pass its own row',
     );
-    final AppLocalizations l10n = AppLocalizations.of(
-      tester.element(find.byType(MasterScheduleScreen)),
-    );
-    expect(screen.backLabel, l10n.ownerMasterModeBack);
-    expect(screen.backSemanticLabel, l10n.ownerMasterModeBackSemantics);
+    // Decision 2026-10-08 — the app's standard icon-only arrow, no label.
+    expect(screen.backLabel, isNull);
+    expect(screen.backSemanticLabel, isNull);
     expect(screen.onBack, isNotNull);
+    expect(
+      find.text(
+        AppLocalizations.of(
+          tester.element(find.byType(MasterScheduleScreen)),
+        ).ownerMasterModeBack,
+      ),
+      findsNothing,
+    );
 
     final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
       find.byType(VelvetBottomNavBar),
@@ -702,9 +709,8 @@ void main() {
     await drainScheduleTtl(tester);
   });
 
-  testWidgets('«‹ Салон» on the schedule tab goes to the salon resolver', (
-    tester,
-  ) async {
+  testWidgets('the schedule tab\'s plain back with nothing to pop goes to '
+      'the master-mode «Профіль» — never the salon', (tester) async {
     final GoRouter router = await pumpOwnerRouter(tester);
     stubScheduleReads();
 
@@ -720,10 +726,9 @@ void main() {
     );
     await pumpUntilGone(tester, find.byType(MasterScheduleScreen));
     await tester.pumpAndSettle();
-    expect(router.state.matchedLocation, isNot(startsWith('/owner/master/')));
-    // Phase 381 QA — pin the DESTINATION, not just "left master mode": the
-    // salon resolver lands on the owner's primary salon shell.
-    expect(router.state.matchedLocation, RouteNames.salonShell(_kSalonId));
+    // Pin the DESTINATION: the pre-2026-10-08 `go(salonHome)` would also
+    // have left the tab.
+    expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
     await drainScheduleTtl(tester);
   });
 
@@ -988,7 +993,7 @@ void main() {
       reason: 'fixture guard: the owner shell keeps the roster alive',
     );
 
-    // «‹ Салон» — the SAME `go(salonHome)` every owner tab's back runs.
+    // «‹ Салон» — the SAME `go(salonHome)` the «Профіль» tab's back runs.
     router.go(RouteNames.salonHome);
     await pumpUntilFound(tester, find.byType(SalonManagementProfileScreen));
     await settleFrames(tester);
@@ -1086,7 +1091,7 @@ void main() {
 
     testWidgets('mounts MasterBookingsScreen on the owner-row scope: '
         'asOwnerMaster, /salon/* detail, owner archive, tile-1 bar with all '
-        'four owner routes, «‹ Салон»; every /bookings/me read is asMaster', (
+        'four owner routes, plain back; every /bookings/me read is asMaster', (
       tester,
     ) async {
       final GoRouter router = await pumpOwnerRouter(
@@ -1134,12 +1139,19 @@ void main() {
       for (final String uri in recordedUris) {
         expect(uri, isNot(contains('/masters/me')));
       }
-      final AppLocalizations l10n = AppLocalizations.of(
-        tester.element(find.byType(MasterBookingsScreen)),
-      );
-      expect(screen.backLabel, l10n.ownerMasterModeBack);
-      expect(screen.backSemanticLabel, l10n.ownerMasterModeBackSemantics);
+      // Decision 2026-10-08 — the plain icon-only arrow, no «Салон» label.
+      expect(screen.backLabel, isNull);
+      expect(screen.backSemanticLabel, isNull);
+      expect(screen.onBack, isNotNull);
       expect(find.byKey(const Key('bookings-discovery-back')), findsOneWidget);
+      expect(
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byType(MasterBookingsScreen)),
+          ).ownerMasterModeBack,
+        ),
+        findsNothing,
+      );
 
       final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
         find.byType(VelvetBottomNavBar),
@@ -1336,9 +1348,8 @@ void main() {
       await drainBookingsTtl(tester);
     });
 
-    testWidgets('«‹ Салон» on «Записи» goes to the salon resolver', (
-      tester,
-    ) async {
+    testWidgets('the plain back on «Записи» with nothing to pop goes to the '
+        'master-mode «Профіль»', (tester) async {
       final GoRouter router = await pumpOwnerRouter(
         tester,
         extraOverrides: bookingOverrides(),
@@ -1351,9 +1362,10 @@ void main() {
       await tester.tap(find.byKey(const Key('bookings-discovery-back')));
       await pumpUntil(
         tester,
-        () => router.state.matchedLocation == RouteNames.salonShell(_kSalonId),
+        () => router.state.matchedLocation != RouteNames.ownerMasterBookings,
       );
       await tester.pumpAndSettle();
+      expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
       expect(find.byType(MasterBookingsScreen), findsNothing);
       await drainBookingsTtl(tester);
     });
@@ -1381,6 +1393,112 @@ void main() {
         );
       }
       await drainBookingsTtl(tester);
+    });
+
+    testWidgets('the schedule tab\'s plain back POPS when there is a previous '
+        'page: pushed over «Послуги», it returns to «Послуги»', (tester) async {
+      final GoRouter router = await pumpOwnerRouter(tester);
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.ownerMasterServices,
+      );
+      await settleFrames(tester);
+      unawaited(router.push(RouteNames.ownerMasterSchedule));
+      await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+      expect(router.canPop(), isTrue, reason: 'fixture guard: a stacked page');
+
+      tester
+          .widget<MasterScheduleScreen>(find.byType(MasterScheduleScreen))
+          .onBack
+          ?.call();
+      await pumpUntilGone(tester, find.byType(MasterScheduleScreen));
+      await settleFrames(tester);
+      expect(router.state.matchedLocation, RouteNames.ownerMasterServices);
+      await drainScheduleTtl(tester);
+    });
+
+    // mobile-qa (Security INFO, 2026-10-08) — the shell's PopScope reads
+    // `canPop` at shell build. A page PUSHED inside the shell must still POP
+    // on SYSTEM back (→ the page below), never fall through to the fixed
+    // `go(ownerMasterProfile)` target.
+    testWidgets('SYSTEM back on a schedule tab pushed over «Послуги» POPS '
+        'back to «Послуги» — not the fixed «Профіль» fallback', (tester) async {
+      final GoRouter router = await pumpOwnerRouter(tester);
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.ownerMasterServices,
+      );
+      await settleFrames(tester);
+      unawaited(router.push(RouteNames.ownerMasterSchedule));
+      await pumpUntilFound(tester, find.byType(MasterScheduleScreen));
+      expect(router.canPop(), isTrue, reason: 'fixture guard: a stacked page');
+
+      await tester.binding.handlePopRoute();
+      await pumpUntilGone(tester, find.byType(MasterScheduleScreen));
+      await settleFrames(tester);
+      expect(router.state.matchedLocation, RouteNames.ownerMasterServices);
+      await drainScheduleTtl(tester);
+    });
+
+    // Decision 2026-10-08 — the owner shell's PopScope is TAB-AWARE: system back
+    // on «Послуги»/«Графік»/«Записи» does what their plain arrow does
+    // (nothing to pop → master-mode «Профіль»); only «Профіль» goes to the
+    // salon, like its «‹ Салон» pill.
+    //
+    // MUTATION: restoring the old unconditional `go(salonHome)` in the shell's
+    // `onPopInvokedWithResult` fails the three non-profile cases below.
+    for (final String tab in <String>[
+      RouteNames.ownerMasterServices,
+      RouteNames.ownerMasterSchedule,
+      RouteNames.ownerMasterBookings,
+    ]) {
+      testWidgets('SYSTEM back on $tab lands on the master-mode «Профіль» — '
+          'never the salon', (tester) async {
+        final GoRouter router = await pumpOwnerRouter(
+          tester,
+          extraOverrides: bookingOverrides(),
+        );
+        stubScheduleReads();
+
+        router.go(tab);
+        await pumpUntil(tester, () => router.state.matchedLocation == tab);
+        await settleFrames(tester);
+        expect(router.canPop(), isFalse, reason: 'fixture guard: a tab root');
+
+        await tester.binding.handlePopRoute();
+        await pumpUntil(tester, () => router.state.matchedLocation != tab);
+        await settleFrames(tester);
+        expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
+        await drainBookingsTtl(tester);
+      });
+    }
+
+    testWidgets('SYSTEM back on the master-mode «Профіль» still goes to the '
+        'salon resolver (unchanged)', (tester) async {
+      final GoRouter router = await pumpOwnerRouter(tester);
+      stubScheduleReads();
+
+      router.go(RouteNames.ownerMasterProfile);
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.ownerMasterProfile,
+      );
+      await settleFrames(tester);
+
+      await tester.binding.handlePopRoute();
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation == RouteNames.salonShell(_kSalonId),
+      );
+      await settleFrames(tester);
+      expect(router.state.matchedLocation, RouteNames.salonShell(_kSalonId));
+      await drainScheduleTtl(tester);
     });
   });
 }

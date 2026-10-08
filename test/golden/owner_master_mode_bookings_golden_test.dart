@@ -2,15 +2,17 @@
 // «Записи» tab: [MasterBookingsScreen] mounted exactly as the
 // `RouteNames.ownerMasterBookings` route mounts it — `asOwnerMaster: true`,
 // the owner's OWN-row working-hours window, the owner tile-1
-// [VelvetBottomNavBar] and the labelled «‹ Салон» back pill in the shared
-// `BookingsDiscoveryView` header (phase 378's `NeumorphicIconButton.label`).
+// [VelvetBottomNavBar] and the plain icon-only back arrow in the shared
+// `BookingsDiscoveryView` header (decision 2026-10-08: the labelled «‹ Салон»
+// pill lives on the master-mode «Профіль» tab only; the pill + collapse rule
+// stay pinned by `master_bookings_owner_master_scope_test.dart`).
 //
 // The all-null default (every pre-existing mount) is unchanged: the header
-// only grows the pill when `onBack` is non-null, which no pre-383 host
+// only grows the arrow when `onBack` is non-null, which no pre-383 host
 // passes, and the existing bookings goldens stay byte-identical.
 //
 // Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} = 6 golden PNGs. The
-// 320 × 1.3 cell is the overflow canary for the pill + title + archive +
+// 320 × 1.3 cell is the overflow canary for the arrow + title + archive +
 // filter + (+) header row.
 
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -47,9 +49,6 @@ const String _kOwnerRowId = 'master-row-owner-golden';
 /// Fixed Kyiv DATE TOKEN — a Saturday, so the visible week is Mon 8 .. Sun 14
 /// June 2026 regardless of the run day.
 final DateTime _today = DateTime(2026, 6, 13);
-
-/// Visible label of the back pill — the l10n value of `ownerMasterModeBack`.
-const String _kBackLabel = 'Салон';
 
 class _OwnerAuth extends AuthNotifier {
   @override
@@ -178,7 +177,7 @@ void main() {
             profileRoute: RouteNames.ownerMasterProfile,
             bookingsRoute: RouteNames.ownerMasterBookings,
           ),
-          backLabel: _kBackLabel,
+          // No `backLabel` — the route passes only a pop-or-profile `onBack`.
           onBack: () {},
           onCreateBooking: () {},
         ),

@@ -21,7 +21,7 @@
 // --------------------------
 // The two halves meet on ONE wire endpoint across TWO sessions in ONE app
 // run: the owner's master-mode writes (real «Профіль» entry → «Послуги» →
-// «Графік» → «‹ Салон») and the client's public roster read. The public
+// «Графік» → plain arrow → «Профіль» → «‹ Салон») and the client's public roster read. The public
 // salon cache (`publicSalonProfileProvider`, 5-min keepAlive) is evicted by
 // the session flip, so the client's second visit is a fresh read — a cache
 // that survived logout would show the stale, owner-less roster and fail here.
@@ -407,28 +407,35 @@ Future<void> _ownerSetsMondayHours(
   AppHarness.expectLocation(router, RouteNames.ownerMasterSchedule);
 }
 
-/// The «Графік» tab's «‹ Салон» pill — no dedicated key, so found by its
-/// l10n label inside the master-mode [VelvetTopBar].
-Finder _scheduleBackPill(WidgetTester tester) {
-  final AppLocalizations l10n = AppLocalizations.of(
-    tester.element(find.byType(MasterScheduleScreen)),
-  );
-  return find.descendant(
-    of: find.byType(VelvetTopBar),
-    matching: find.text(l10n.ownerMasterModeBack),
-  );
-}
-
-/// «‹ Салон» via [back] (the pill of the master-mode tab the owner stands
-/// on), then sign out through the salon settings hub.
+/// Leaves master mode from «Графік» the way the UI allows since decision
+/// 2026-10-08: the tab's plain arrow (no «Салон» label) → master-mode
+/// «Профіль» → its «‹ Салон» pill → salon shell; then signs out through the
+/// salon settings hub.
 Future<void> _ownerLeavesAndLogsOut(
   WidgetTester tester,
   GoRouter router,
-  Finder back,
   FakeBackend fb,
   FakeSecureStorage storage,
 ) async {
-  await AppHarness.tapVisible(tester, back);
+  final AppLocalizations l10n = AppLocalizations.of(
+    tester.element(find.byType(MasterScheduleScreen)),
+  );
+  expect(
+    find.descendant(
+      of: find.byType(VelvetTopBar),
+      matching: find.text(l10n.ownerMasterModeBack),
+    ),
+    findsNothing,
+    reason: '«‹ Салон» lives on the master-mode «Профіль» tab only',
+  );
+  await AppHarness.tapVisible(tester, find.byKey(MasterScheduleScreen.backKey));
+  await AppHarness.settle(tester);
+  AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+
+  await AppHarness.tapVisible(
+    tester,
+    find.byKey(const Key('owner-master-mode-back')),
+  );
   await AppHarness.settle(tester);
   AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonId));
   expect(find.byType(SalonShellScreen), findsOneWidget);
@@ -482,13 +489,7 @@ void main() {
       expect(fb.ownerRowBookable, isFalse);
       await _ownerSetsMondayHours(tester, router, fb);
       expect(fb.ownerRowBookable, isTrue);
-      await _ownerLeavesAndLogsOut(
-        tester,
-        router,
-        _scheduleBackPill(tester),
-        fb,
-        storage,
-      );
+      await _ownerLeavesAndLogsOut(tester, router, fb, storage);
 
       // ── 3. Client: owner present, typed salonOwner, tappable ────────────
       await AppHarness.loginAs(tester, fb, UserRole.client);

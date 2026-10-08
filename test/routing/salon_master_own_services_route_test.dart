@@ -920,8 +920,8 @@ void main() {
 
     testWidgets('SALON_OWNER at /owner/master/services: writable, scoped to '
         'the owner\'s OWN row (/salons/S/masters/M/services, never '
-        '/masters/me/services), owner nav with tile 0 active and «‹ Салон» '
-        'back', (tester) async {
+        '/masters/me/services), owner nav with tile 0 active and the plain '
+        'icon-only back', (tester) async {
       _MutableAuthNotifier.seed = _kSalonOwnerUser;
 
       final container = makeContainer();
@@ -946,8 +946,19 @@ void main() {
         RouteNames.ownerMasterServiceEdit('svc-1'),
       );
       expect(screen.showBack, isTrue);
-      expect(screen.backFallbackRoute, RouteNames.salonHome);
-      expect(screen.backLabel, 'Салон');
+      // Decision 2026-10-08 — only «Профіль» carries «‹ Салон»; this tab
+      // shows the app's standard arrow (no label) back to the profile tab.
+      expect(screen.backFallbackRoute, RouteNames.ownerMasterProfile);
+      expect(screen.backLabel, isNull);
+      expect(screen.backSemanticLabel, isNull);
+      expect(
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byType(ServicesListScreen)),
+          ).ownerMasterModeBack,
+        ),
+        findsNothing,
+      );
       expect(find.byKey(const Key('btn-create-service')), findsOneWidget);
 
       final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
@@ -968,8 +979,35 @@ void main() {
       );
     });
 
+    testWidgets('SALON_OWNER: the plain back with nothing to pop goes to the '
+        'master-mode «Профіль» tab — never the salon', (tester) async {
+      _MutableAuthNotifier.seed = _kSalonOwnerUser;
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      await tester.tap(find.byKey(ServicesListScreen.backKey));
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation != RouteNames.ownerMasterServices,
+      );
+
+      expect(
+        router.state.matchedLocation,
+        isNot(RouteNames.ownerMasterServices),
+        reason: 'go(ownerMasterProfile) must leave the services tab',
+      );
+      // mobile-qa: pin the DESTINATION, not merely "left the tab" — the
+      // pre-2026-10-08 fallback (salonHome) would satisfy the line above.
+      expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
+    });
+
     testWidgets(
-      'SALON_OWNER: «‹ Салон» with nothing to pop goes to salonHome',
+      'SALON_OWNER: SYSTEM back on «Послуги» does what the arrow does — '
+      'master-mode «Профіль», never the salon',
       (tester) async {
         _MutableAuthNotifier.seed = _kSalonOwnerUser;
 
@@ -979,21 +1017,13 @@ void main() {
         router.go(RouteNames.ownerMasterServices);
         await pumpUntilFound(tester, countHeader());
 
-        await tester.tap(find.byKey(ServicesListScreen.backKey));
+        await tester.binding.handlePopRoute();
         await pumpUntil(
           tester,
           () => router.state.matchedLocation != RouteNames.ownerMasterServices,
         );
 
-        expect(
-          router.state.matchedLocation,
-          isNot(RouteNames.ownerMasterServices),
-          reason: 'go(salonHome) must leave the master-mode tab',
-        );
-        // mobile-qa: pin the DESTINATION, not merely "left the tab" — a
-        // fallback pointed at mySalons / the hub would satisfy the line above.
-        // The first hop is the last-visited-salon resolver itself.
-        expect(router.state.matchedLocation, RouteNames.salonHome);
+        expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
       },
     );
 
