@@ -701,6 +701,11 @@ final class FakeBackend {
   // OPTIONAL for a CLIENT, so a null city must persist as a valid save.
   String clientFirstName = 'Дмитро';
   String clientLastName = 'Клієнт';
+
+  /// Opt-in: the booking CLIENT's avatar URL as the PROVIDER's booking detail
+  /// sees it (`clientAvatarUrl` on the seeded `booking-1`). Null (default) =
+  /// the key is omitted, so every other flow sees exactly the pre-knob wire.
+  String? bookingClientAvatarUrl;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
   // saved-location PREFILL can resolve the saved locality cascade (the prefill
@@ -5129,6 +5134,8 @@ final class FakeBackend {
     'clientId': 'client-1',
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
+    if (bookingClientAvatarUrl != null)
+      'clientAvatarUrl': bookingClientAvatarUrl,
     // The booked service's id MUST match one of `master-aaa`'s PUBLIC
     // catalogue services (`_publicMasterServices`) so the reschedule helper
     // (`startBookingReschedule`) can resolve the booked `MasterService` by id

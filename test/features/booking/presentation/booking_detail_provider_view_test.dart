@@ -8,6 +8,8 @@
 // detail (Phase 14.4) must be behaviourally unchanged, so every provider-view
 // assertion here has a client-view twin.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -26,6 +28,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +36,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/dim_probe.dart';
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy. They are
@@ -73,6 +77,7 @@ Booking _booking({
   String? providerComment,
   String? clientComment,
   String? clientCancellationNote,
+  String? clientAvatarUrl,
   String? salonName,
   DateTime? startAt,
 }) {
@@ -87,6 +92,7 @@ Booking _booking({
     clientId: clientId,
     clientFirstName: clientFirstName,
     clientLastName: clientLastName,
+    clientAvatarUrl: clientAvatarUrl,
     serviceId: 's1',
     serviceName: _serviceName,
     categoryName: 'NAIL_SERVICE',
@@ -1060,5 +1066,93 @@ void main() {
       'a COMPLETED client strip is NOT dimmed (ratio 1.0)',
       (tester) => probe(tester, status: BookingStatus.completed, expected: 1.0),
     );
+  });
+
+  group('client strip photo (provider viewer)', () {
+    const String host = 'cdn.example.com';
+    const String photoUrl = 'https://$host/avatars/client-1.png';
+    const Key photoKey = Key('booking-detail-client-avatar-photo');
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+    late FakeMediaCacheManager fake;
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{host};
+      fake = FakeMediaCacheManager(mediaLoadingForever);
+      debugMediaCacheManager = fake;
+    });
+
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+      imageCache.clear();
+      imageCache.clearLiveImages();
+    });
+
+    testWidgets('an allowlisted https clientAvatarUrl renders the photo from '
+        'that exact URL, not the monogram', (tester) async {
+      fake.responder = mediaLoaded;
+      final Booking b = _booking(clientAvatarUrl: photoUrl);
+      await _pump(tester, b, role: UserRole.independentMaster);
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
+
+      final Finder img = find.descendant(
+        of: find.byKey(photoKey),
+        matching: find.byType(Image),
+      );
+      expect(img, findsOneWidget);
+      final ImageProvider<Object> provider = tester.widget<Image>(img).image;
+      expect(provider, isA<ResizeImage>());
+      final ImageProvider<Object> inner =
+          (provider as ResizeImage).imageProvider;
+      expect(inner, isA<CachedNetworkImageProvider>());
+      expect((inner as CachedNetworkImageProvider).url, photoUrl);
+      expect(fake.getFileStreamCalls, greaterThan(0));
+      expect(
+        find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+        findsNothing,
+        reason: 'a loaded photo replaces the monogram',
+      );
+    });
+
+    testWidgets('a null clientAvatarUrl shows the monogram and no network '
+        'image', (tester) async {
+      final Booking b = _booking();
+      await _pump(tester, b, role: UserRole.independentMaster);
+
+      expect(b.clientInitials, isNotEmpty);
+      expect(
+        find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byType(Image)),
+        findsNothing,
+      );
+      expect(fake.getFileStreamCalls, 0);
+    });
+
+    for (final String bad in <String>[
+      'http://$host/avatars/client-1.png',
+      'https://evil.example.net/avatars/client-1.png',
+    ]) {
+      testWidgets('a rejected URL ($bad) shows the monogram and never '
+          'fetches', (tester) async {
+        final Booking b = _booking(clientAvatarUrl: bad);
+        await _pump(tester, b, role: UserRole.independentMaster);
+
+        expect(
+          find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: strip, matching: find.byType(Image)),
+          findsNothing,
+        );
+        expect(fake.getFileStreamCalls, 0);
+      });
+    }
   });
 }

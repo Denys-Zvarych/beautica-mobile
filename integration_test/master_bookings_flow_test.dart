@@ -67,6 +67,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -90,6 +91,7 @@ import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -97,6 +99,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
@@ -347,6 +350,16 @@ void main() {
     'the booking in the PROVIDER view',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Provider-view client photo: seed an allowlisted https avatar and serve
+      // its bytes through the injected media cache (no real network).
+      const String clientPhoto = 'https://media.test/avatars/client-1.png';
+      fb.bookingClientAvatarUrl = clientPhoto;
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       // Phase 244 fixture gap: publish hours for both the landing day
@@ -575,6 +588,28 @@ void main() {
         find.text('${fb.clientFirstName} ${fb.clientLastName}'),
         findsWidgets,
       );
+
+      // The client's PHOTO (not just the monogram) shows in the strip, loaded
+      // from the exact URL the wire carried: JSON `clientAvatarUrl` -> DTO ->
+      // Booking -> RemoteImage.
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
+      final Finder photo = find.descendant(
+        of: find.byKey(const Key('booking-detail-client-avatar-photo')),
+        matching: find.byType(Image),
+      );
+      expect(
+        photo,
+        findsOneWidget,
+        reason: 'the provider detail strip must render the client photo',
+      );
+      final ImageProvider<Object> shown = tester.widget<Image>(photo).image;
+      expect(shown, isA<ResizeImage>());
+      final ImageProvider<Object> source = (shown as ResizeImage).imageProvider;
+      expect(source, isA<CachedNetworkImageProvider>());
+      expect((source as CachedNetworkImageProvider).url, clientPhoto);
 
       // …and NONE of the client action footer. These are the client's own
       // affordances over their own booking; a master must never be offered

@@ -30,6 +30,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -163,9 +164,20 @@ class _ClientStrip extends StatelessWidget {
       child: Row(
         key: const Key('booking-detail-client-strip'),
         children: <Widget>[
-          _ClientAvatar(
-            initials: booking.clientInitials,
-            diameter: _avatarDiameter,
+          // RemoteImage falls back to the monogram for a null / disallowed URL
+          // (guests, clients without a photo) and on decode error, so those
+          // render exactly as before.
+          RemoteImage(
+            key: const Key('booking-detail-client-avatar-photo'),
+            url: booking.clientAvatarUrl,
+            width: _avatarDiameter,
+            height: _avatarDiameter,
+            shape: RemoteImageShape.circle,
+            excludeFromSemantics: true,
+            fallback: _ClientAvatar(
+              initials: booking.clientInitials,
+              diameter: _avatarDiameter,
+            ),
           ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
