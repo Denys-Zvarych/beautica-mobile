@@ -2520,6 +2520,9 @@ GoRouter appRouter(Ref ref) {
                 showBack: true,
                 backFallbackRoute: RouteNames.ownerMasterProfile,
                 bottomNavBar: _kOwnerMasterNavBars[0],
+                // Phase 388 (24.5a) — same `?expandCategory=` contract as
+                // `/services`, through the ONE shared parser.
+                initialExpandCategory: _expandCategoryParam(state),
               );
             },
           ),
@@ -2919,13 +2922,9 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.services,
         builder: (context, state) {
-          final raw = state.uri.queryParameters['expandCategory']
-              ?.trim()
-              .toUpperCase();
-          final expandCategory = (raw != null && isValidCategorySlug(raw))
-              ? raw
-              : null;
-          return ServicesListScreen(initialExpandCategory: expandCategory);
+          return ServicesListScreen(
+            initialExpandCategory: _expandCategoryParam(state),
+          );
         },
       ),
       // Service setup (INDEPENDENT_MASTER) — the ONE "add services" surface,
@@ -3303,6 +3302,14 @@ class _SalonMasterTabsShell extends ConsumerWidget {
   }
 }
 
+/// Phase 388 (24.5a) — the ONE `?expandCategory=` parser, shared by
+/// `/services` and `/owner/master/services`: trimmed, upper-cased, and only
+/// returned when [isValidCategorySlug]; otherwise `null`.
+String? _expandCategoryParam(GoRouterState state) {
+  final raw = state.uri.queryParameters['expandCategory']?.trim().toUpperCase();
+  return (raw != null && isValidCategorySlug(raw)) ? raw : null;
+}
+
 /// The `/staff/services` and (phase 380) `/owner/master/services` leaf.
 ///
 /// Phase 380 (24.1c) — WIDENED additively rather than duplicated for the
@@ -3319,10 +3326,15 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
     this.showBack = false,
     this.backFallbackRoute,
     this.bottomNavBar,
+    this.initialExpandCategory,
   });
 
   /// The ONE role admitted — see [_OwnMasterRowGate.role].
   final UserRole role;
+
+  /// Phase 388 (24.5a) — pre-expanded category slug (already validated by
+  /// [_expandCategoryParam]); `null` = [ServicesListScreen]'s default.
+  final String? initialExpandCategory;
 
   /// `false` (the `/staff/*` default) = read-only, exactly as phase 321.
   /// `true` = writable iff [canManageSalonProvider] holds for the RESOLVED
@@ -3345,7 +3357,8 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
       editRouteBuilder == null &&
       !showBack &&
       backFallbackRoute == null &&
-      bottomNavBar == null;
+      bottomNavBar == null &&
+      initialExpandCategory == null;
 
   @override
   Widget build(BuildContext context) {
@@ -3387,6 +3400,7 @@ class _SalonMasterOwnServicesRoute extends StatelessWidget {
           // Ignored when non-null: the owner mount's canonical
           // `_kOwnerMasterNavBars[0]` replaces the whole bar.
           bottomNavBar: bottomNavBar,
+          initialExpandCategory: initialExpandCategory,
           // 2026-09-13 audit (M6) — the nav bar's «Графік»/«Профіль» tiles
           // are pointed at this role's OWN `/staff/*` roots. Left at their
           // defaults they targeted `/master/schedule` and `/master/profile`,

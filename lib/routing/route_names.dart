@@ -1,3 +1,5 @@
+import '../features/services/domain/category_slug.dart';
+
 /// Route path constants for `go_router`.
 ///
 /// Raw path strings must never appear elsewhere in `lib/` — always reference
@@ -626,6 +628,22 @@ abstract final class RouteNames {
   /// shipped `ServicesListScreen` behind the owner shell's
   /// `ServiceTarget.salonMaster(primarySalonId, ownerMasterId)` scope.
   static const String ownerMasterServices = '/owner/master/services';
+
+  /// Phase 388 (24.5a) — [ownerMasterServices] with [slug]'s category
+  /// pre-expanded. Built with [Uri] so the slug is query-encoded.
+  ///
+  /// Callers MUST pass a wire category slug (upper-case, e.g. `NAILS`);
+  /// debug builds assert [isValidCategorySlug].
+  static String ownerMasterServicesExpanded(String slug) {
+    assert(
+      isValidCategorySlug(slug),
+      'ownerMasterServicesExpanded expects a wire category slug, got: $slug',
+    );
+    return Uri(
+      path: ownerMasterServices,
+      queryParameters: <String, String>{'expandCategory': slug},
+    ).toString();
+  }
 
   /// Phase 380 (24.1c) — «Додати послуги» for the owner's own row. LITERAL
   /// peer of [ownerMasterServiceEdit]'s `:serviceId` segment, so it is

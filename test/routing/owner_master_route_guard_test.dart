@@ -44,6 +44,9 @@ final List<String> _gatedLocations = <String>[
   RouteNames.ownerMasterProfile,
   // Phase 380 (24.1c) — the «Послуги» tab and its two drill-ins.
   RouteNames.ownerMasterServices,
+  // Phase 388 (24.5a) — the deep-link form: the gate keys on the PATH, so a
+  // query string must not slip a non-owner past it.
+  RouteNames.ownerMasterServicesExpanded('NAILS'),
   RouteNames.ownerMasterServiceSetup,
   RouteNames.ownerMasterServiceEdit('svc-1'),
   // Phase 381 (24.1d) — the «Графік» tab.

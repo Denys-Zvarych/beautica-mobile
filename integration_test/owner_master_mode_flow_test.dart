@@ -766,6 +766,43 @@ void main() {
       );
       expect(newCard, findsOneWidget);
       expect(find.byKey(const Key('btn-create-service')), findsOneWidget);
+
+      // ── 5. Phase 388 (24.5a): ?expandCategory= pre-expands the section ──
+      // COLD mount first: leave the tab, re-enter WITHOUT the param, and pin
+      // that the section is collapsed — otherwise the step-4 tap could leave
+      // it expanded and the deep link would be vacuous (mutation-probed:
+      // dropping the forwarding was green before this control).
+      router.go(RouteNames.ownerMasterProfile);
+      await AppHarness.settle(tester);
+      router.go(RouteNames.ownerMasterServices);
+      await AppHarness.settle(tester);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('category_section_NAILS')),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(
+        newCard,
+        findsNothing,
+        reason: 'control: a plain cold mount must start collapsed',
+      );
+
+      router.go(RouteNames.ownerMasterProfile);
+      await AppHarness.settle(tester);
+      router.go(RouteNames.ownerMasterServicesExpanded('NAILS'));
+      await AppHarness.settle(tester);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('category_section_NAILS')),
+        timeout: const Duration(seconds: 20),
+      );
+      // No tap: the deep link alone must leave the added service visible.
+      await AppHarness.pumpUntilFound(
+        tester,
+        newCard,
+        timeout: const Duration(seconds: 20),
+      );
+      expect(newCard, findsOneWidget);
     });
   });
 

@@ -31,6 +31,12 @@ import 'package:beautica_mobile/features/salon/application/owner_own_profile_not
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'dart:async';
+import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -88,6 +94,13 @@ class _SettledMySalons extends MySalons {
   ];
 }
 
+/// Stays in AsyncLoading — the expand-category cases only need the screen.
+class _LoadingServicesList extends ServicesList {
+  @override
+  Future<List<MasterService>> build() =>
+      Completer<List<MasterService>>().future;
+}
+
 class _RouterApp extends StatelessWidget {
   const _RouterApp({required this.router});
 
@@ -125,6 +138,7 @@ void main() {
         approvedCategoriesProvider.overrideWith(
           (ref) async => const <ServiceCategoryOption>[],
         ),
+        servicesListProvider.overrideWith(_LoadingServicesList.new),
       ],
     );
     final GoRouter router = container.read(appRouterProvider);
@@ -177,5 +191,105 @@ void main() {
 
     expect(find.byType(OwnerOwnProfileScreen), findsOneWidget);
     expect(targetSeenByProfile(tester), isNot(isA<SalonMasterTarget>()));
+  });
+
+  // Phase 388 (24.5a) — `/owner/master/services?expandCategory=` shares the
+  // `/services` parser.
+  Future<ServicesListScreen> servicesScreenAt(
+    WidgetTester tester,
+    String location,
+  ) async {
+    final GoRouter router = await pumpOwnerRouter(tester);
+    router.go(location);
+    // The loading skeleton animates forever — pump explicitly, never settle.
+    for (int i = 0; i < 20; i++) {
+      // fixed-wait-ok: the never-settling skeleton rules out pumpAndSettle.
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.byType(ServicesListScreen), findsOneWidget);
+    return tester.widget<ServicesListScreen>(find.byType(ServicesListScreen));
+  }
+
+  testWidgets('/owner/master/services?expandCategory=NAILS: the list '
+      'receives NAILS and «Послуги» stays the active nav tab', (tester) async {
+    final ServicesListScreen screen = await servicesScreenAt(
+      tester,
+      RouteNames.ownerMasterServicesExpanded('NAILS'),
+    );
+
+    expect(screen.initialExpandCategory, 'NAILS');
+    expect(
+      tester
+          .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+          .servicesRoute,
+      RouteNames.ownerMasterServices,
+    );
+  });
+
+  // Invalid values must resolve to null (never reach the list as a seed).
+  final Map<String, String> invalidSlugs = <String, String>{
+    '../x': '../x',
+    'space inside': 'a b',
+    'over-length': 'A' * (kCategorySlugMaxLength + 1),
+    'blank': '   ',
+  };
+  for (final MapEntry<String, String> e in invalidSlugs.entries) {
+    testWidgets('/owner/master/services?expandCategory=<${e.key}>: '
+        'initialExpandCategory is null', (tester) async {
+      final ServicesListScreen screen = await servicesScreenAt(
+        tester,
+        '${RouteNames.ownerMasterServices}'
+        '?expandCategory=${Uri.encodeQueryComponent(e.value)}',
+      );
+
+      expect(screen.initialExpandCategory, isNull);
+    });
+  }
+
+  testWidgets('/owner/master/services?expandCategory=%20nails%20 (padded, '
+      'lower-case): trimmed and upper-cased to NAILS', (tester) async {
+    final ServicesListScreen screen = await servicesScreenAt(
+      tester,
+      '${RouteNames.ownerMasterServices}?expandCategory=%20nails%20',
+    );
+
+    expect(screen.initialExpandCategory, 'NAILS');
+  });
+
+  testWidgets('/owner/master/services (no param): initialExpandCategory is '
+      'null', (tester) async {
+    final ServicesListScreen screen = await servicesScreenAt(
+      tester,
+      RouteNames.ownerMasterServices,
+    );
+
+    expect(screen.initialExpandCategory, isNull);
+  });
+
+  test('ownerMasterServicesExpanded builds via Uri (encodes the slug)', () {
+    expect(
+      RouteNames.ownerMasterServicesExpanded('NAILS'),
+      '/owner/master/services?expandCategory=NAILS',
+    );
+    // Valid slugs need no escaping, so prove the Uri(queryParameters:)
+    // encoding the builder relies on directly.
+    expect(
+      Uri(
+        path: RouteNames.ownerMasterServices,
+        queryParameters: <String, String>{'expandCategory': 'a&b=c'},
+      ).toString(),
+      '/owner/master/services?expandCategory=a%26b%3Dc',
+    );
+  });
+
+  test('ownerMasterServicesExpanded asserts on a non-wire slug (debug)', () {
+    expect(
+      () => RouteNames.ownerMasterServicesExpanded('a b'),
+      throwsA(isA<AssertionError>()),
+    );
+    expect(
+      () => RouteNames.ownerMasterServicesExpanded('nails'),
+      throwsA(isA<AssertionError>()),
+    );
   });
 }
