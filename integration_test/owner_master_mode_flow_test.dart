@@ -86,6 +86,7 @@ import 'package:beautica_mobile/features/salon/presentation/my_salons_screen.dar
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/weekly_template_editor_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart'
@@ -1721,6 +1722,130 @@ void main() {
       expect(
         tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
         isFalse,
+      );
+    });
+  });
+
+  // Phase 371 (24.2) — the owner's OWN staff row is a normal master row.
+  // Deep link (the roster does not route the viewer's own row to settings —
+  // `_openStaffMember` sends it to the personal profile) to
+  // `/salons/:salonId/manage/staff/<ownUserId>/settings`: the standard
+  // «Послуги» / «Графік» tiles replace the old «ask the owner» notice, there
+  // is NO remove row, and each tile opens its WRITABLE destination.
+  testWidgets('Phase 371 — SALON_OWNER deep-links to own staff-settings row: '
+      '«Послуги» tile opens the WRITABLE list (add FAB), '
+      '«Графік» tile opens the editable schedule, no remove row', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowServices: true,
+              ownRowServicesSeed: <Map<String, dynamic>>[_seededOwnRow()],
+              wireOwnRowSchedule: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true
+            ..ownRowWeeklySchedule = <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'own-row-schedule-seed',
+                'validFrom': '2026-01-01',
+                'validTo': null,
+                'days': <Map<String, dynamic>>[
+                  for (int d = 1; d <= 5; d++)
+                    <String, dynamic>{
+                      'dayOfWeek': d,
+                      'intervals': <Map<String, dynamic>>[
+                        <String, dynamic>{
+                          'startTime': '09:00',
+                          'endTime': '17:00',
+                        },
+                      ],
+                    },
+                ],
+              },
+            ];
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+
+      router.go(RouteNames.salonManageStaffSettings(_kSalonA, _kOwnerUserId));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('row-master-services')),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(StaffSettingsScreen), findsOneWidget);
+      expect(find.byKey(const Key('row-master-schedule')), findsOneWidget);
+      // Absence checks are guarded by the positive tiles above (M14).
+      expect(find.byKey(const Key('row-master-remove')), findsNothing);
+      expect(
+        find.byKey(const Key('staff-settings-master-owner-only')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('staff-settings-owner-row-read-only')),
+        findsNothing,
+      );
+
+      // ── «Послуги» → writable list ───────────────────────────────────────
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('row-master-services')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('btn-create-service')),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(ServicesListScreen), findsOneWidget);
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.salonManageStaffServices(_kSalonA, _kOwnerUserId),
+      );
+      expect(
+        tester
+            .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+            .writable,
+        isTrue,
+      );
+      expect(fb.ownRowServicesGetCalls, greaterThanOrEqualTo(1));
+      expect(find.byKey(const Key('services_error_state')), findsNothing);
+
+      // ── back → «Графік» → editable schedule ─────────────────────────────
+      router.go(RouteNames.salonManageStaffSettings(_kSalonA, _kOwnerUserId));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('row-master-schedule')),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('row-master-schedule')),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterScheduleScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('schedule-weekly-card')),
+        timeout: const Duration(seconds: 20),
+      );
+      AppHarness.expectNestedPushLocation(
+        router,
+        RouteNames.salonManageStaffSchedule(_kSalonA, _kOwnerUserId),
       );
     });
   });

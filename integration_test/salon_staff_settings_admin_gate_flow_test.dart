@@ -82,6 +82,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/move_admin_salon_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -282,6 +286,115 @@ bool _rowAbsorbing(WidgetTester tester, Key key) => tester
     )
     .absorbing;
 
+// ── Phase 371 (+377 §1 pulled forward) — the OWNER's row, seen by an admin ──
+//
+// Backend 345: the salon owner's master row is owner-only; an admin gets 403
+// on its services/schedule writes. The app pre-empts that — a notice, no edit
+// entry, read-only deep links. Fixture: the owner's row is appended to
+// `salon-admin-1`'s roster (test-local, `salonAdminOneStaff` is mutable), with
+// a distinct `userId` / `masterId` so a route built off the wrong id misses.
+const String _kOwnerRowUserId = 'user-owner-of-admin-salon';
+const String _kOwnerRowMasterId = 'master-owner-of-admin-salon';
+const String _kOwnerRowAssignId = 'owner-row-assign-1';
+
+FakeBackend _adminWithOwnerRow() {
+  final FakeBackend fb =
+      FakeBackend(
+          masterRowId: _kOwnerRowMasterId,
+          masterSalonId: _kSalonId,
+          wireOwnRowServices: true,
+          ownRowServicesSeed: <Map<String, dynamic>>[
+            <String, dynamic>{
+              'id': _kOwnerRowAssignId,
+              'masterId': _kOwnerRowMasterId,
+              'isActive': true,
+              'priceType': 'FIXED',
+              'priceMin': 500,
+              'priceMax': null,
+              'priceDisplay': '500 ₴',
+              'effectiveDurationMinutes': 60,
+              'serviceDefinition': <String, dynamic>{
+                'id': 'owner-row-def-1',
+                'name': 'Послуга власника',
+                'description': null,
+                'category': 'NAILS',
+                'baseDurationMinutes': 60,
+                'bufferMinutesAfter': 0,
+                'isActive': true,
+                'priceType': 'FIXED',
+                'priceMin': 500,
+                'priceMax': null,
+                'priceDisplay': '500 ₴',
+                'photoUrl': null,
+              },
+            },
+          ],
+          wireOwnRowSchedule: true,
+        )
+        ..currentRole = UserRole.salonAdmin
+        ..ownRowWeeklySchedule = <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': 'owner-row-schedule-seed',
+            'validFrom': '2026-01-01',
+            'validTo': null,
+            'days': <Map<String, dynamic>>[
+              for (int d = 1; d <= 5; d++)
+                <String, dynamic>{
+                  'dayOfWeek': d,
+                  'intervals': <Map<String, dynamic>>[
+                    <String, dynamic>{'startTime': '09:00', 'endTime': '17:00'},
+                  ],
+                },
+            ],
+          },
+        ];
+  fb.salonAdminOneStaff.add(<String, dynamic>{
+    'userId': _kOwnerRowUserId,
+    'masterId': _kOwnerRowMasterId,
+    'role': 'SALON_OWNER',
+    'firstName': 'Олена',
+    'lastName': 'Власниця',
+    'professionalTitle': null,
+    'avatarUrl': null,
+    'phoneNumber': null,
+    'instagram': null,
+    'bio': null,
+    'avgRating': null,
+    'reviewCount': 0,
+    'serviceCount': 1,
+  });
+  return fb;
+}
+
+/// Real admin login -> shell landing, ready for deep links.
+Future<GoRouter> _bootAdminSession(WidgetTester tester, FakeBackend fb) async {
+  final GoRouter router = await AppHarness.boot(tester, fb);
+  await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+  // fixed-wait-ok: settles the real async login/route-transition step.
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(SalonShellScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  return router;
+}
+
+Future<void> _goAndSettle(
+  WidgetTester tester,
+  GoRouter router,
+  String route,
+  Finder landed,
+) async {
+  router.go(route);
+  await AppHarness.pumpUntilFound(
+    tester,
+    landed,
+    timeout: const Duration(seconds: 20),
+  );
+  await AppHarness.settle(tester);
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -454,6 +567,215 @@ void main() {
         );
         await AppHarness.settle(tester);
         expect(find.byKey(const Key('remove-admin-dialog')), findsOneWidget);
+      });
+    },
+  );
+
+  testWidgets(
+    'Phase 371 — SALON_ADMIN on the OWNER\'s row: roster card -> profile shows '
+    'the read-only notice and neither management card; settings shows the '
+    'notice with no tiles and no remove row',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _adminWithOwnerRow();
+        final GoRouter router = await _bootAdminSession(tester, fb);
+
+        // Real UI path: «Команда» tile -> the owner's roster card.
+        final Finder teamTile = find.byKey(const Key('salon-nav-tile-2'));
+        await AppHarness.pumpUntilFound(
+          tester,
+          teamTile.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(teamTile);
+        await AppHarness.settle(tester);
+        final Finder ownerCard = find.byKey(
+          const Key('salon-manage-staff-card-$_kOwnerRowUserId'),
+        );
+        await AppHarness.revealRosterCard(tester, ownerCard);
+        await AppHarness.tapVisible(tester, ownerCard);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byType(SalonStaffProfileScreen),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+
+        // Positive: the notice. Negatives are guarded by it (M14).
+        final Finder profileNotice = find.byKey(
+          const Key('salon-staff-profile-owner-row-read-only'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          profileNotice,
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-schedule-row')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('salon-staff-profile-services-row')),
+          findsNothing,
+        );
+
+        // Settings (deep link — the profile button's own target).
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffSettings(_kSalonId, _kOwnerRowUserId),
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+        );
+        expect(find.byType(StaffSettingsScreen), findsOneWidget);
+        expect(find.byKey(const Key('row-master-services')), findsNothing);
+        expect(find.byKey(const Key('row-master-schedule')), findsNothing);
+        expect(find.byKey(const Key('row-master-remove')), findsNothing);
+        expect(
+          find.byKey(const Key('staff-settings-master-owner-only')),
+          findsNothing,
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'Phase 371 / 377 §1 — SALON_ADMIN deep links on the OWNER\'s row are '
+    'read-only: schedule (no editor entry), services list (no FAB, no edit), '
+    'edit (no delete), setup redirects to the read-only list; a normal '
+    'master\'s list stays writable (control)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _adminWithOwnerRow();
+        final GoRouter router = await _bootAdminSession(tester, fb);
+
+        // ── schedule: loaded template, no edit affordance ───────────────
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffSchedule(_kSalonId, _kOwnerRowUserId),
+          find.byType(MasterScheduleScreen),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith(
+                  'schedule-weekly-pills-',
+                ),
+          ),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(find.byKey(const Key('schedule-weekly-card')), findsNothing);
+        expect(find.byKey(const Key('schedule-day-pencil')), findsNothing);
+        expect(find.byKey(const Key('no-schedule-add-hours')), findsNothing);
+        expect(find.byKey(const Key('schedule-retry')), findsNothing);
+
+        // ── services list: card rendered, no FAB, no edit entry ─────────
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffServices(_kSalonId, _kOwnerRowUserId),
+          find.byType(ServicesListScreen),
+        );
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.ownRowServicesGetCalls >= 1,
+          description: 'the owner-row services GET',
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('services_count_header')),
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+        expect(
+          tester
+              .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+              .writable,
+          isFalse,
+        );
+        // The widget flag alone is a configured value, not behaviour: tap the
+        // real card and prove it does NOT open the edit screen.
+        final Finder ownerCard = find.byKey(
+          const Key('service_card_$_kOwnerRowAssignId'),
+        );
+        if (ownerCard.evaluate().isEmpty) {
+          await AppHarness.tapVisible(
+            tester,
+            find.byKey(const Key('category_section_NAILS')),
+          );
+          await AppHarness.settle(tester);
+        }
+        await AppHarness.pumpUntilFound(
+          tester,
+          ownerCard.hitTestable(),
+          timeout: const Duration(seconds: 20),
+        );
+        await tester.tap(ownerCard);
+        await AppHarness.settle(tester);
+        expect(find.byType(ServiceEditScreen), findsNothing);
+        expect(find.byType(ServicesListScreen), findsOneWidget);
+
+        // ── edit: form shown, delete hidden ─────────────────────────────
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffServiceEdit(
+            _kSalonId,
+            _kOwnerRowUserId,
+            _kOwnerRowAssignId,
+          ),
+          find.byKey(const Key('service-edit-form-$_kOwnerRowAssignId')),
+        );
+        expect(find.byType(ServiceEditScreen), findsOneWidget);
+        expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+        expect(
+          tester
+              .widget<ServiceEditScreen>(find.byType(ServiceEditScreen))
+              .writable,
+          isFalse,
+        );
+
+        // ── setup: lands on the read-only list, never the form ──────────
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffServiceSetup(_kSalonId, _kOwnerRowUserId),
+          find.byType(ServicesListScreen),
+        );
+        expect(find.byType(ServiceSetupScreen), findsNothing);
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_redirect')),
+          findsNothing,
+        );
+        expect(
+          tester
+              .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+              .writable,
+          isFalse,
+        );
+        expect(find.byKey(const Key('btn-create-service')), findsNothing);
+        expect(fb.ownRowBulkCreateCalls, 0);
+
+        // ── CONTROL: same admin, a NORMAL master -> writable FAB ────────
+        await _goAndSettle(
+          tester,
+          router,
+          RouteNames.salonManageStaffServices(
+            _kSalonId,
+            'user-master-under-admin',
+          ),
+          find.byKey(const Key('btn-create-service')),
+        );
+        expect(
+          tester
+              .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+              .writable,
+          isTrue,
+        );
       });
     },
   );

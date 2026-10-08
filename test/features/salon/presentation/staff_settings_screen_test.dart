@@ -52,6 +52,9 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart'
+    show MasterType;
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -118,6 +121,18 @@ const SalonStaffMember _kMaster = SalonStaffMember(
   lastName: 'Литвин',
 );
 
+/// The salon OWNER's own master row (Phase 371) — `masterType: salonOwner`,
+/// the discriminator the read-only gate keys on. Same user id as
+/// [_kOwnerAsMaster], so the owner-viewer case is a genuine own row.
+const SalonStaffMember _kOwnerMasterRow = SalonStaffMember(
+  userId: _kMasterUserId,
+  masterId: _kMasterRowId,
+  role: SalonStaffRole.master,
+  masterType: MasterType.salonOwner,
+  firstName: 'Марина',
+  lastName: 'Литвин',
+);
+
 /// This screen's own route for the MASTER fixture — the location every
 /// "we did not navigate" assertion in the remove-master group compares
 /// against.
@@ -168,6 +183,16 @@ const User _kOwnerAsAdmin = User(
   firstName: 'Олена',
   lastName: 'Ковальчук',
 );
+
+/// A `mySalonsProvider` the test releases by hand (cold-window driver). The
+/// gate is created INSIDE the test body (FakeAsync zone) — see the writable
+/// route test's note.
+class _GatedMySalons extends MySalons {
+  static Completer<List<Salon>> gate = Completer<List<Salon>>();
+
+  @override
+  Future<List<Salon>> build() => gate.future;
+}
 
 class _StubAuthNotifier extends AuthNotifier {
   _StubAuthNotifier(this._user);
@@ -258,6 +283,22 @@ GoRouter _router({String initial = ''}) => GoRouter(
       builder: (context, state) => StaffSettingsScreen(
         salonId: state.pathParameters['salonId']!,
         memberId: state.pathParameters['memberId']!,
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId/services',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-staff-services-${state.pathParameters['memberId']}'),
+        ),
+      ),
+    ),
+    GoRoute(
+      path: '/salons/:salonId/manage/staff/:memberId/schedule',
+      builder: (context, state) => Scaffold(
+        body: SizedBox(
+          key: Key('stub-staff-schedule-${state.pathParameters['memberId']}'),
+        ),
       ),
     ),
     GoRoute(
@@ -1456,11 +1497,11 @@ void main() {
     );
 
     testWidgets(
-      'the owner viewing their OWN master row sees the notice card, no '
-      'remove row',
+      'the owner viewing their OWN master row sees both tiles, no remove row '
+      'and no notice',
       (tester) async {
         final FakeSalonRepository repo = _repo(
-          staff: const <SalonStaffMember>[_kMaster],
+          staff: const <SalonStaffMember>[_kOwnerMasterRow],
         );
         await _pump(
           tester,
@@ -1469,47 +1510,152 @@ void main() {
           extraOverrides: _masterViewerOverrides(_kOwnerAsMaster),
         );
 
+        expect(find.byKey(const Key('row-master-services')), findsOneWidget);
+        expect(find.byKey(const Key('row-master-schedule')), findsOneWidget);
+        expect(find.byKey(const Key('row-master-remove')), findsNothing);
         expect(
           find.byKey(const Key('staff-settings-master-owner-only')),
-          findsOneWidget,
+          findsNothing,
         );
-        expect(find.byKey(const Key('row-master-remove')), findsNothing);
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+          findsNothing,
+        );
       },
     );
 
-    // mobile-security LOW fix (2026-09-05) — the notice card above renders
-    // for TWO distinct reasons (a non-owner viewer; the owner's own row),
-    // and the "ask the owner" copy is factually wrong for the second one —
-    // there is nobody else for the owner to ask. This proves the copy
-    // actually DIFFERS between the two cases, not merely that the same card
-    // renders for both. Asserted against literal l10n getters (never one
-    // getter compared to itself, which was the CRITICAL shape flagged on
-    // Phase 291) so a regression that collapses both cases back onto one
-    // string goes red here.
-    testWidgets("the owner's own-row copy is the SELF variant, never the "
-        '"ask the owner" one', (tester) async {
-      final FakeSalonRepository repo = _repo(
-        staff: const <SalonStaffMember>[_kMaster],
-      );
-      await _pump(
-        tester,
-        repo,
-        initial: _kMasterSettingsPath,
-        extraOverrides: _masterViewerOverrides(_kOwnerAsMaster),
-      );
-      final AppLocalizations l10n = _settingsL10n(tester);
+    testWidgets(
+      "the own-row tiles route with the roster userId (the route's memberId), "
+      'never the master row id',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kOwnerMasterRow],
+        );
+        final GoRouter router = await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwnerAsMaster),
+        );
 
-      expect(find.text(l10n.staffSettingsMasterSelfTitle), findsOneWidget);
-      expect(find.text(l10n.staffSettingsMasterSelfBody), findsOneWidget);
-      expect(
-        find.text(l10n.staffSettingsMasterOwnerOnlyTitle),
-        findsNothing,
-        reason:
-            'the "ask the owner" title must not appear when the viewer IS '
-            'the owner — there is nobody else to ask',
-      );
-      expect(find.text(l10n.staffSettingsMasterOwnerOnlyBody), findsNothing);
-    });
+        await tester.tap(find.byKey(const Key('row-master-services')));
+        await tester.pumpAndSettle();
+        expect(
+          _lastMatchedLocation(router),
+          RouteNames.salonManageStaffServices(_kSalonId, _kMasterUserId),
+        );
+        router.pop();
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('row-master-schedule')));
+        await tester.pumpAndSettle();
+        expect(
+          _lastMatchedLocation(router),
+          RouteNames.salonManageStaffSchedule(_kSalonId, _kMasterUserId),
+        );
+      },
+    );
+
+    testWidgets(
+      'cold window: owner on their OWN row while mySalons is pending sees a '
+      'loading placeholder, NEVER the read-only notice; once resolved, the '
+      'tiles',
+      (tester) async {
+        _GatedMySalons.gate = Completer<List<Salon>>();
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kOwnerMasterRow],
+        );
+        final GoRouter router = _router(initial: _kMasterSettingsPath);
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            salonRepositoryProvider.overrideWithValue(repo),
+            ..._masterViewerOverrides(_kOwnerAsMaster),
+            mySalonsProvider.overrideWith(_GatedMySalons.new),
+          ],
+          retry: (_, _) => null,
+        );
+        await tester.pumpUntilFound(
+          find.byKey(const Key('staff-settings-owner-row-pending')),
+        );
+
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-pending')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+          findsNothing,
+          reason: 'pending is not a verdict — no flash of the notice',
+        );
+
+        _GatedMySalons.gate.complete(const <Salon>[_kSalon]);
+        await tester.pumpUntilFound(
+          find.byKey(const Key('row-master-services')),
+        );
+        expect(find.byKey(const Key('row-master-services')), findsOneWidget);
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      "an ADMIN viewing the OWNER's row sees the read-only notice: no tiles, "
+      'no remove row',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kOwnerMasterRow],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kAdminViewer),
+        );
+        final AppLocalizations l10n = _settingsL10n(tester);
+
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+          findsOneWidget,
+        );
+        expect(find.text(l10n.staffOwnerRowReadOnlyTitle), findsOneWidget);
+        expect(find.text(l10n.staffOwnerRowReadOnlyBody), findsOneWidget);
+        expect(find.byKey(const Key('row-master-services')), findsNothing);
+        expect(find.byKey(const Key('row-master-schedule')), findsNothing);
+        expect(find.byKey(const Key('row-master-remove')), findsNothing);
+        expect(
+          find.text(l10n.staffSettingsMasterOwnerOnlyTitle),
+          findsNothing,
+          reason: 'the owner-row notice replaces the generic owner-only one',
+        );
+      },
+    );
+
+    testWidgets(
+      'a normal master row never shows the owner-row tiles or notice',
+      (tester) async {
+        final FakeSalonRepository repo = _repo(
+          staff: const <SalonStaffMember>[_kMaster],
+        );
+        await _pump(
+          tester,
+          repo,
+          initial: _kMasterSettingsPath,
+          extraOverrides: _masterViewerOverrides(_kOwner),
+        );
+
+        expect(find.byKey(const Key('row-master-services')), findsNothing);
+        expect(find.byKey(const Key('row-master-schedule')), findsNothing);
+        expect(
+          find.byKey(const Key('staff-settings-owner-row-read-only')),
+          findsNothing,
+        );
+        expect(find.byKey(const Key('row-master-remove')), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'a genuinely non-owner viewer gets the "ask the owner" copy, never '
@@ -1531,10 +1677,9 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.text(l10n.staffSettingsMasterSelfTitle),
+          find.text(l10n.staffOwnerRowReadOnlyTitle),
           findsNothing,
-          reason:
-              'a genuinely non-owner viewer must never see the self-row copy',
+          reason: 'a normal master row never gets the owner-row notice',
         );
       },
     );

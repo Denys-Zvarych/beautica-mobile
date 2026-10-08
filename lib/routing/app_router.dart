@@ -1537,6 +1537,7 @@ GoRouter appRouter(Ref ref) {
             // defense-in-depth reasoning as the list route above.
             builder: (context, state) => _SalonManageServiceEditRoute(
               salonId: state.pathParameters['salonId'] ?? '',
+              memberId: state.pathParameters['memberId'] ?? '',
               serviceId: state.pathParameters['serviceId'] ?? '',
             ),
           ),
@@ -3534,7 +3535,19 @@ class _SalonManageServicesListRoute extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool writable = ref.watch(canManageSalonProvider(salonId));
+    // Phase 371 (377 §1 pulled forward) — the owner's row is owner-only on
+    // the backend (345), so an admin deep link opens it read-only.
+    // Cold-window (cycle 3): while `mySalonsProvider` is unresolved the
+    // fail-closed `writable == false` is "not known yet" — hold a loading
+    // state instead of a flash of read-only list.
+    if (ref.watch(canManageSalonPendingProvider)) {
+      return const _SalonManagePendingScaffold(
+        key: Key('salon_manage_services_pending'),
+      );
+    }
+    final bool writable =
+        ref.watch(canManageSalonProvider(salonId)) &&
+        !ref.watch(ownerRowLockedForMemberProvider(salonId, memberId));
     return ServicesListScreen(
       writable: writable,
       // 2026-09-13 audit (M6) — a SALON_OWNER / SALON_ADMIN gets NO master
@@ -3604,20 +3617,29 @@ class _SalonManageServiceSetupRoute extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Cold-window (cycle 3): `mySalonsProvider` resolves AFTER the first
+    // frame, and until then `viewerOwnsSalonProvider` is fail-closed `false`
+    // — "not known yet", NOT "denied". So PENDING is checked FIRST and shows
+    // the loading skeleton; the lock/redirect below is irreversible and must
+    // only run on a RESOLVED verdict. (Both mounts — salon-manage and owner
+    // master mode — share this leaf.)
+    if (ref.watch(canManageSalonPendingProvider)) {
+      return const Scaffold(
+        backgroundColor: BrandColors.base,
+        body: LoadingSkeleton.card(
+          key: Key('salon_manage_service_setup_loading'),
+        ),
+      );
+    }
+    // Phase 371 — the bulk-create form has no read-only rendering, so a
+    // locked (owner's) row for a non-owner is redirected to the read-only
+    // list; `memberId` is '' on the owner master-mode mount (never locked).
+    if (ref.watch(ownerRowLockedForMemberProvider(salonId, memberId))) {
+      return _RedirectToServicesList(
+        route: RouteNames.salonManageStaffServices(salonId, memberId),
+      );
+    }
     if (!ref.watch(canManageSalonProvider(salonId))) {
-      // Phase 380 (perf INFO) — a cold deep link resolves `mySalonsProvider`
-      // AFTER the first frame; the fail-closed predicate's `false` during
-      // that window is "not known yet", not "denied". Rendering the denied
-      // state there flashed «Unauthorized» before the form. Both mounts
-      // (salon-manage and owner master mode) share this leaf.
-      if (ref.watch(canManageSalonPendingProvider)) {
-        return const Scaffold(
-          backgroundColor: BrandColors.base,
-          body: LoadingSkeleton.card(
-            key: Key('salon_manage_service_setup_loading'),
-          ),
-        );
-      }
       return const Scaffold(
         backgroundColor: BrandColors.base,
         body: ErrorState(
@@ -3643,16 +3665,86 @@ class _SalonManageServiceEditRoute extends ConsumerWidget {
   const _SalonManageServiceEditRoute({
     required this.salonId,
     required this.serviceId,
+    this.memberId = '',
   });
 
   final String salonId;
   final String serviceId;
 
+  /// The `:memberId` path segment of the salon-manage mount (the leaf's
+  /// `pathParameters` are the same ones the shell resolves its member from);
+  /// '' on the owner master-mode mount, which is never locked.
+  final String memberId;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool writable = ref.watch(canManageSalonProvider(salonId));
+    // Phase 371 (377 §1) — read-only on the owner's row for a non-owner.
+    //
+    // serviceId <-> memberId tie (cycle-2 LOW): the lock keys on `memberId`,
+    // and the service is bound to the SAME member without a model field
+    // (`MasterService` carries no masterId): this leaf sits inside
+    // `_SalonManageStaffServicesShell`, whose `ProviderScope` points
+    // `serviceTargetProvider` at the route member's master, so
+    // `serviceByIdProvider` (cache `servicesListProvider` + `getMyService`
+    // -> `listMyServices`) can only resolve a service of THAT master. A
+    // serviceId belonging to another master (e.g. the owner's, under an
+    // admin member's link) is a `NotFoundFailure` -> the error state, never
+    // a form. Pinned in `salon_manage_services_writable_route_test.dart`.
+    // Cold-window (cycle 3) — see `_SalonManageServicesListRoute`.
+    if (ref.watch(canManageSalonPendingProvider)) {
+      return const _SalonManagePendingScaffold(
+        key: Key('salon_manage_service_edit_pending'),
+      );
+    }
+    final bool writable =
+        ref.watch(canManageSalonProvider(salonId)) &&
+        !ref.watch(ownerRowLockedForMemberProvider(salonId, memberId));
     return ServiceEditScreen(id: serviceId, writable: writable);
   }
+}
+
+/// Cycle 3 — the loading placeholder a salon-manage leaf holds while the
+/// capability predicate is still PENDING (`mySalonsProvider` unresolved).
+class _SalonManagePendingScaffold extends StatelessWidget {
+  const _SalonManagePendingScaffold({super.key});
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    backgroundColor: BrandColors.base,
+    body: LoadingSkeleton.list(),
+  );
+}
+
+/// Phase 371 — replaces a locked screen with a one-shot `go` to [route]
+/// after the first frame — ALWAYS lands on [route] (the read-only list),
+/// whichever page pushed the setup route: `pushReplacement` swaps only this
+/// screen, so the stack beneath it is untouched (the bulk-setup form cannot
+/// render read-only).
+class _RedirectToServicesList extends StatefulWidget {
+  const _RedirectToServicesList({required this.route});
+
+  final String route;
+
+  @override
+  State<_RedirectToServicesList> createState() =>
+      _RedirectToServicesListState();
+}
+
+class _RedirectToServicesListState extends State<_RedirectToServicesList> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.pushReplacement(widget.route);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => const Scaffold(
+    key: Key('salon_manage_service_setup_redirect'),
+    backgroundColor: BrandColors.base,
+  );
 }
 
 class _SalonMasterScheduleRoute extends ConsumerWidget {

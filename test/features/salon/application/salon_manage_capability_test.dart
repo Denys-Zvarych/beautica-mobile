@@ -35,7 +35,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_manage_capability.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart'
+    show MasterType;
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -127,6 +130,89 @@ ProviderContainer _makeContainerFor(
 }
 
 void main() {
+  group('owner-row lock (Phase 371)', () {
+    const SalonStaffMember ownerRow = SalonStaffMember(
+      userId: 'u-owner',
+      masterId: 'm-owner',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonOwner,
+      firstName: 'О',
+      lastName: 'В',
+    );
+    const SalonStaffMember normal = SalonStaffMember(
+      userId: 'u-m',
+      masterId: 'm-1',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonMaster,
+      firstName: 'М',
+      lastName: 'Н',
+    );
+    const SalonStaffMember unknownType = SalonStaffMember(
+      userId: 'u-x',
+      masterId: 'm-x',
+      role: SalonStaffRole.master,
+      firstName: 'Х',
+      lastName: 'Х',
+    );
+
+    test('owner row + viewer is NOT the salon owner (admin) → locked', () {
+      expect(
+        isOwnerRowLockedForViewer(member: ownerRow, viewerOwnsSalon: false),
+        isTrue,
+      );
+    });
+    test('owner row + viewer owns the salon → not locked', () {
+      expect(
+        isOwnerRowLockedForViewer(member: ownerRow, viewerOwnsSalon: true),
+        isFalse,
+      );
+    });
+    test('a normal master is never locked, for any viewer', () {
+      expect(
+        isOwnerRowLockedForViewer(member: normal, viewerOwnsSalon: false),
+        isFalse,
+      );
+    });
+    test(
+      'null masterType is documented fail-open; null member is not locked',
+      () {
+        expect(
+          isOwnerRowLockedForViewer(
+            member: unknownType,
+            viewerOwnsSalon: false,
+          ),
+          isFalse,
+        );
+        expect(
+          isOwnerRowLockedForViewer(member: null, viewerOwnsSalon: false),
+          isFalse,
+        );
+      },
+    );
+
+    test('viewerOwnsSalonProvider: owner of THIS salon → true; owner of '
+        'ANOTHER salon → false; admin → false', () async {
+      final owner = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+        extraOverrides: [
+          mySalonsProvider.overrideWith(
+            () => _SettledMySalons(const [_kSalon]),
+          ),
+        ],
+      );
+      await owner.read(authProvider.future);
+      await owner.read(mySalonsProvider.future);
+      expect(owner.read(viewerOwnsSalonProvider(_kSalonId)), isTrue);
+      expect(owner.read(viewerOwnsSalonProvider('other-salon')), isFalse);
+
+      final admin = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonAdmin, salonId: _kSalonId)),
+      );
+      await admin.read(authProvider.future);
+      expect(admin.read(viewerOwnsSalonProvider(_kSalonId)), isFalse);
+    });
+  });
+
   group('canManageSalonProvider — phase 322 five-row role matrix', () {
     // -----------------------------------------------------------------
     // Row 1 — SALON_OWNER of this salon → true.

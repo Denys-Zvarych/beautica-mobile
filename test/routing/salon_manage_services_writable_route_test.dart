@@ -57,7 +57,10 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart'
+    show MasterType;
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/services/presentation/service_setup_screen.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -149,12 +152,34 @@ class _MutableAuthNotifier extends AuthNotifier {
 /// `salon_manage_staff_services_route_test.dart`'s `_ControlledRoster` minus
 /// its loading/failure gates — this file needs only the settled case.
 class _StubRoster extends SalonManagementProfile {
+  /// The roster row under test — [_kMasterEntry] unless a Phase 371 case
+  /// swaps in the owner's row.
+  static SalonStaffMember entry = _kMasterEntry;
+
   @override
-  Future<SalonManagementProfileData> build(String salonId) async => (
-    const Salon(id: _kSalonId, name: 'Салон'),
-    const <SalonStaffMember>[_kMasterEntry],
-  );
+  Future<SalonManagementProfileData> build(String salonId) async =>
+      (const Salon(id: _kSalonId, name: 'Салон'), <SalonStaffMember>[entry]);
 }
+
+/// A SETTLED `mySalonsProvider` containing [_kSalonId] — the owner who
+/// provably owns this salon (Phase 371 owner-writable case).
+class _SettledMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: _kSalonId, name: 'Салон'),
+  ];
+}
+
+/// The salon owner's own master row (Phase 371) — same ids as
+/// [_kMasterEntry] so the routes resolve it, `masterType: salonOwner`.
+const SalonStaffMember _kOwnerRow = SalonStaffMember(
+  userId: _kMemberUserId,
+  masterId: _kMasterRowId,
+  role: SalonStaffRole.master,
+  masterType: MasterType.salonOwner,
+  firstName: 'Власник',
+  lastName: 'Салону',
+);
 
 /// Mirrors `salon_manage_capability_test.dart`'s `_UnresolvedMySalons` and
 /// `salon_manage_route_guard_test.dart`'s own "leave `mySalonsProvider`
@@ -180,6 +205,18 @@ class _StubRoster extends SalonManagementProfile {
 class _UnresolvedMySalons extends MySalons {
   @override
   Future<List<Salon>> build() => Completer<List<Salon>>().future;
+}
+
+/// A `mySalonsProvider` the test RELEASES by hand — the cold-window driver:
+/// pending until [release] runs, then settled to [_kSalonId].
+class _GatedMySalons extends MySalons {
+  static Completer<List<Salon>> gate = Completer<List<Salon>>();
+
+  static void release() =>
+      gate.complete(const <Salon>[Salon(id: _kSalonId, name: 'Салон')]);
+
+  @override
+  Future<List<Salon>> build() => gate.future;
 }
 
 class _MockDio extends Mock implements Dio {}
@@ -215,6 +252,7 @@ void main() {
       DateTime.now().subtract(const Duration(seconds: 5)),
     );
     _MutableAuthNotifier.seed = _kAdminSameSalon;
+    _StubRoster.entry = _kMasterEntry;
     salonRows = <Map<String, Object?>>[
       _serviceRow(assignmentId: 'svc-1', defId: 'def-1', name: 'Манікюр'),
     ];
@@ -307,40 +345,34 @@ void main() {
     },
   );
 
-  testWidgets('FALSE — a SALON_OWNER admitted via the guard\'s cold-deep-link '
-      'fallback (mySalonsProvider still UNRESOLVED) has no FAB, while the '
-      'list itself keeps rendering', (tester) async {
-    _MutableAuthNotifier.seed = _kOwner;
-    final container = makeContainer(
-      extraOverrides: [mySalonsProvider.overrideWith(_UnresolvedMySalons.new)],
-    );
-    final router = await pumpRouter(tester, container);
+  testWidgets(
+    'PENDING — a SALON_OWNER admitted via the guard\'s cold-deep-link '
+    'fallback (mySalonsProvider still UNRESOLVED) sees the loading '
+    'placeholder, never a read-only list (no FAB, no ServicesListScreen)',
+    (tester) async {
+      _MutableAuthNotifier.seed = _kOwner;
+      final container = makeContainer(
+        extraOverrides: [
+          mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+        ],
+      );
+      final router = await pumpRouter(tester, container);
 
-    router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
-    await pumpUntilFound(tester, countHeader());
+      router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+      await pumpUntilFound(
+        tester,
+        find.byKey(const Key('salon_manage_services_pending')),
+      );
 
-    expect(
-      countHeader(),
-      findsOneWidget,
-      reason:
-          'positive pairing — the route was reached and the list '
-          'rendered; only the WRITE affordance must be gone, not the '
-          'screen',
-    );
-    expect(
-      find.byKey(const Key('btn-create-service')),
-      findsNothing,
-      reason:
-          'canManageSalonProvider(salonId) == false — mySalonsProvider is '
-          'not a settled AsyncData, so ownership of salon-S is NOT proven',
-    );
-    expect(
-      tester
-          .widget<ServicesListScreen>(find.byType(ServicesListScreen))
-          .writable,
-      isFalse,
-    );
-  });
+      expect(
+        find.byKey(const Key('salon_manage_services_pending')),
+        findsOneWidget,
+        reason: 'cycle 3 — pending is "not known yet", not a read-only verdict',
+      );
+      expect(find.byType(ServicesListScreen), findsNothing);
+      expect(find.byKey(const Key('btn-create-service')), findsNothing);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // EDIT leaf — `_SalonManageServiceEditRoute`.
@@ -385,9 +417,8 @@ void main() {
     },
   );
 
-  testWidgets('FALSE — a SALON_OWNER admitted via the guard\'s cold-deep-link '
-      'fallback (mySalonsProvider still UNRESOLVED) has no delete affordance '
-      'on the edit leaf, while the form itself keeps rendering', (
+  testWidgets('PENDING — a SALON_OWNER on the cold-deep-link fallback sees the '
+      'loading placeholder on the edit leaf, never a read-only form', (
     tester,
   ) async {
     _MutableAuthNotifier.seed = _kOwner;
@@ -403,29 +434,243 @@ void main() {
         'svc-1',
       ),
     );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('salon_manage_service_edit_pending')),
+    );
+
+    expect(
+      find.byKey(const Key('salon_manage_service_edit_pending')),
+      findsOneWidget,
+    );
+    expect(find.byType(ServiceEditScreen), findsNothing);
+    expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 371 (377 §1) — the OWNER's row is owner-only: an admin deep link
+  // gets a read-only list / form and no bulk-setup form. Owner → writable;
+  // admin on a normal master → writable (the TRUE cases above).
+  // -------------------------------------------------------------------------
+
+  testWidgets('admin deep link to the OWNER\'s services list → read-only: '
+      'no FAB, no per-row edit (onEdit == null path), list still renders', (
+    tester,
+  ) async {
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer();
+    final router = await pumpRouter(tester, container);
+
+    router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+    await pumpUntilFound(tester, countHeader());
+
+    expect(countHeader(), findsOneWidget);
+    expect(find.byKey(const Key('btn-create-service')), findsNothing);
+    expect(
+      tester
+          .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+          .writable,
+      isFalse,
+    );
+  });
+
+  testWidgets('admin deep link to the OWNER\'s services/setup → the bulk form '
+      'is never shown; lands on the read-only list', (tester) async {
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer();
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+    );
+    await pumpUntilFound(tester, countHeader());
+
+    expect(find.byType(ServiceSetupScreen), findsNothing);
+    expect(
+      tester
+          .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+          .writable,
+      isFalse,
+    );
+  });
+
+  testWidgets('admin deep link to the OWNER\'s service edit → read-only form '
+      '(no delete)', (tester) async {
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer();
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-1',
+      ),
+    );
     await pumpUntilFound(tester, find.byType(ServiceEditScreen));
     await pumpUntilFound(
       tester,
       find.byKey(const Key('service-edit-form-svc-1')),
     );
 
-    expect(
-      find.byKey(const Key('service-edit-form-svc-1')),
-      findsOneWidget,
-      reason:
-          'positive pairing — the form itself must still render; only '
-          'the WRITE affordance is gone',
-    );
-    expect(
-      find.byKey(const Key('btn-delete-service')),
-      findsNothing,
-      reason:
-          'canManageSalonProvider(salonId) == false — mySalonsProvider is '
-          'not a settled AsyncData, so ownership of salon-S is NOT proven',
-    );
+    expect(find.byKey(const Key('btn-delete-service')), findsNothing);
     expect(
       tester.widget<ServiceEditScreen>(find.byType(ServiceEditScreen)).writable,
       isFalse,
     );
+  });
+
+  testWidgets('the OWNER (settled mySalons) on their own row → list and edit '
+      'stay writable', (tester) async {
+    _MutableAuthNotifier.seed = _kOwner;
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer(
+      extraOverrides: [mySalonsProvider.overrideWith(_SettledMySalons.new)],
+    );
+    await container.read(mySalonsProvider.future);
+    final router = await pumpRouter(tester, container);
+
+    router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+    await pumpUntilFound(tester, countHeader());
+
+    expect(find.byKey(const Key('btn-create-service')), findsOneWidget);
+    expect(
+      tester
+          .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+          .writable,
+      isTrue,
+    );
+  });
+
+  testWidgets('setup pushed from a DIFFERENT page (the edit form) still lands '
+      "on the owner's read-only list, and the page beneath stays intact", (
+    tester,
+  ) async {
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer();
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-1',
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-svc-1')),
+    );
+
+    unawaited(
+      router.push(
+        RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+      ),
+    );
+    await pumpUntilFound(tester, countHeader());
+
+    expect(find.byType(ServiceSetupScreen), findsNothing);
+    expect(
+      tester
+          .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+          .writable,
+      isFalse,
+    );
+
+    // Back-stack sanity: popping the list reveals the page setup was pushed
+    // from — the redirect replaced only the setup screen.
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(ServicesListScreen), findsNothing);
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+  });
+
+  testWidgets('mismatched member/service edit link (a serviceId that is not '
+      "this member's) → error state: no form, no save, no delete", (
+    tester,
+  ) async {
+    // The member under test is a normal master; `salonRows` is THEIR
+    // catalogue. 'svc-owner-only' belongs to someone else (the owner).
+    final container = makeContainer();
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-owner-only',
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service_edit_error_state')),
+    );
+
+    expect(
+      find.byKey(const Key('service_edit_error_state')),
+      findsOneWidget,
+      reason: 'positive: the not-found error state, not a stuck spinner',
+    );
+    expect(
+      find.byKey(const Key('service-edit-form-svc-owner-only')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('btn-delete-service')), findsNothing);
+    expect(find.byKey(const Key('btn-submit-service')), findsNothing);
+
+    // Positive pairing: the SAME link with a serviceId that IS the member's
+    // renders the form.
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-1',
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-svc-1')),
+    );
+  });
+
+  testWidgets('cold owner at /services/setup on their OWN row: skeleton while '
+      'mySalons is pending, NO redirect; once it resolves the bulk form '
+      'appears', (tester) async {
+    _MutableAuthNotifier.seed = _kOwner;
+    _StubRoster.entry = _kOwnerRow;
+    // Created INSIDE the test body so it lives in the FakeAsync zone — a
+    // setUp-created Completer's microtasks would never flush on tester.pump.
+    _GatedMySalons.gate = Completer<List<Salon>>();
+    final container = makeContainer(
+      extraOverrides: [mySalonsProvider.overrideWith(_GatedMySalons.new)],
+    );
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('salon_manage_service_setup_loading')),
+    );
+    // fixed-wait-ok: absence proof — gives a would-be post-frame redirect
+    // time to fire; there is no condition to pump until for a non-event.
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.byKey(const Key('salon_manage_service_setup_loading')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('salon_manage_service_setup_redirect')),
+      findsNothing,
+    );
+    expect(find.byType(ServicesListScreen), findsNothing);
+    expect(find.byType(ServiceSetupScreen), findsNothing);
+
+    _GatedMySalons.release();
+    await pumpUntilFound(tester, find.byType(ServiceSetupScreen));
+    expect(find.byType(ServiceSetupScreen), findsOneWidget);
+    expect(find.byType(ServicesListScreen), findsNothing);
   });
 }
