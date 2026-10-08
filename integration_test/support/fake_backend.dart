@@ -706,6 +706,17 @@ final class FakeBackend {
   /// sees it (`clientAvatarUrl` on the seeded `booking-1`). Null (default) =
   /// the key is omitted, so every other flow sees exactly the pre-knob wire.
   String? bookingClientAvatarUrl;
+
+  /// Opt-in: the booking CLIENT's rating as the PROVIDER's booking detail sees
+  /// it (`clientAvgRating` / `clientReviewCount` on the seeded `booking-1`).
+  /// Null (default) = the keys are omitted (the unreviewed / guest wire), so
+  /// every other flow sees exactly the pre-knob payload.
+  double? bookingClientAvgRating;
+
+  /// Opt-in: serve the seeded `booking-1` as a GUEST booking (`clientId: null`,
+  /// no account behind it). False (default) = the registered `client-1`.
+  bool bookingClientIsGuest = false;
+  int? bookingClientReviewCount;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
   // saved-location PREFILL can resolve the saved locality cascade (the prefill
@@ -5131,11 +5142,15 @@ final class FakeBackend {
     // so the master's booking detail shows the client whose session the client
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
-    'clientId': 'client-1',
+    'clientId': bookingClientIsGuest ? null : 'client-1',
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
     if (bookingClientAvatarUrl != null)
       'clientAvatarUrl': bookingClientAvatarUrl,
+    if (bookingClientAvgRating != null)
+      'clientAvgRating': bookingClientAvgRating,
+    if (bookingClientReviewCount != null)
+      'clientReviewCount': bookingClientReviewCount,
     // The booked service's id MUST match one of `master-aaa`'s PUBLIC
     // catalogue services (`_publicMasterServices`) so the reschedule helper
     // (`startBookingReschedule`) can resolve the booked `MasterService` by id

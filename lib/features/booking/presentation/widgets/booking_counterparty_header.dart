@@ -3,7 +3,8 @@
 // A booking has two sides. The detail screen shows the viewer the OTHER one:
 //   * a CLIENT viewer sees the master / salon  → the shipped `MasterStrip`
 //     (via `MasterStrip.fromBooking`, `_MasterStrip` below).
-//   * a PROVIDER viewer sees the CLIENT       → `_ClientStrip`, below.
+//   * a PROVIDER viewer sees the CLIENT       → `_ClientStrip`, below, on the
+//     same `MasterStripShell` card (photo + name + ★ rating).
 //
 // This widget is the whole of the header half of locked decision D5's
 // "branch ONLY the counterparty header and the footer slot". It is a switch,
@@ -30,9 +31,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:beautica_mobile/core/media/beautica_image.dart';
-import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -42,6 +40,7 @@ import '../../domain/booking.dart';
 import '../../domain/booking_display_x.dart';
 import '../../domain/booking_status.dart';
 import 'master_strip.dart';
+import 'master_strip_shell.dart';
 
 /// The other side of [booking], as seen by a [viewer].
 class BookingCounterpartyHeader extends StatelessWidget {
@@ -128,126 +127,86 @@ class _MasterStrip extends StatelessWidget {
   }
 }
 
-/// The CLIENT as the provider sees them — a monogram avatar, the name, and a
-/// «Гість» marker when the booking has no registered account behind it.
+/// The CLIENT as the provider sees them — the SAME [MasterStripShell] card the
+/// client viewer sees the master in: photo (monogram fallback), name, a muted
+/// «Запис за посиланням» qualifier on a guest booking, and the client's ★
+/// rating (em-dash when unreviewed; none at all for a guest, who has no
+/// account to be rated).
 ///
-/// Deliberately mirrors `MasterStrip`'s geometry (a 52dp leading avatar, name
-/// on the first line, a muted qualifier on the second) so the provider view
-/// and the client view of the same screen have the same visual rhythm — only
-/// the identity in the slot changes.
+/// Reuses the shell directly rather than [MasterStrip]: that widget is
+/// master-shaped (a [MasterType] role sub-line, the «Запис до майстра» caption,
+/// master-worded semantics), whereas the shell is the data-agnostic frame the
+/// task needs. Everything it adds is additive and null-by-default.
 class _ClientStrip extends StatelessWidget {
   const _ClientStrip({required this.booking});
 
   final Booking booking;
-
-  /// Matches `MasterStrip`'s avatar diameter so the two strips are swappable
-  /// in the recap card without shifting the rows beside them.
-  static const double _avatarDiameter = 52;
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
 
     // A cancelled/declined booking's counterparty is dimmed — the same
-    // `Opacity(0.7)` treatment `MasterStripFromBooking` gives the master
-    // strip, so the two branches read as one screen.
+    // `Opacity(0.7)` treatment the master strip gets, so the two branches read
+    // as one screen.
     final bool isDead =
         booking.status == BookingStatus.cancelled ||
         booking.status == BookingStatus.declined;
 
-    final String? name = booking.clientName;
-    final String displayName = name ?? l10n.bookingDetailGuestClient;
+    final String displayName =
+        booking.clientName ?? l10n.bookingDetailGuestClient;
+    // The guest marker is shown ONLY for an actual guest booking
+    // (`client_id IS NULL`) — never merely because a name is missing.
+    final bool isGuest = booking.isGuestBooking;
+    final double? rating = booking.clientDisplayRating;
+    final int reviewCount = booking.clientReviewCount ?? 0;
+    final String? qualifier = isGuest
+        ? l10n.bookingDetailGuestBookingLabel
+        : null;
+
+    final String semantics;
+    if (isGuest) {
+      semantics = <String>[
+        l10n.bookingDetailClientSemantics(displayName),
+        ?qualifier,
+      ].join(', ');
+    } else if (rating == null) {
+      // Unreviewed: spoken as plain "no reviews yet", never «Рейтинг —». The
+      // visible readout keeps its em-dash.
+      semantics = <String>[
+        l10n.bookingDetailClientSemantics(displayName),
+        l10n.masterReviewsEmpty,
+      ].join('. ');
+    } else {
+      semantics = l10n.bookingDetailClientRatedSemantics(
+        displayName,
+        rating.toStringAsFixed(1),
+        l10n.salonReviewCountLabel(reviewCount),
+      );
+    }
 
     // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
     return Opacity(
       opacity: isDead ? 0.7 : 1,
-      child: Row(
+      child: MasterStripShell(
         key: const Key('booking-detail-client-strip'),
-        children: <Widget>[
-          // RemoteImage falls back to the monogram for a null / disallowed URL
-          // (guests, clients without a photo) and on decode error, so those
-          // render exactly as before.
-          RemoteImage(
-            key: const Key('booking-detail-client-avatar-photo'),
-            url: booking.clientAvatarUrl,
-            width: _avatarDiameter,
-            height: _avatarDiameter,
-            shape: RemoteImageShape.circle,
-            excludeFromSemantics: true,
-            fallback: _ClientAvatar(
-              initials: booking.clientInitials,
-              diameter: _avatarDiameter,
-            ),
-          ),
-          const SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: VelvetText.subheading(),
-                ),
-                // The guest marker is shown ONLY for an actual guest booking
-                // (`client_id IS NULL`) — never merely because a name is
-                // missing. Conflating the two would label a registered client
-                // with an incomplete profile as a guest, which is a claim
-                // about their account status that the app cannot support.
-                if (booking.isGuestBooking) ...<Widget>[
-                  const SizedBox(height: 2),
-                  Text(
-                    l10n.bookingDetailGuestBookingLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: VelvetText.feedback(BrandColors.textSecondary),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A raised monogram avatar. Falls back to a person glyph when the booking
-/// carries no name to derive initials from.
-class _ClientAvatar extends StatelessWidget {
-  const _ClientAvatar({required this.initials, required this.diameter});
-
-  final String? initials;
-  final double diameter;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: diameter,
-      width: diameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: BrandColors.accent.withValues(alpha: 0.18),
-        border: Border.all(
-          color: BrandColors.accent.withValues(alpha: 0.35),
-          width: 1,
-        ),
-      ),
-      alignment: Alignment.center,
-      child: initials == null
-          ? const Icon(
-              Icons.person_rounded,
-              size: 24,
-              color: BrandColors.accentDeep,
-            )
-          : Text(
-              initials!,
-              style: VelvetText.subheading().copyWith(
-                color: BrandColors.accentDeep,
+        semanticsLabel: semantics,
+        name: displayName,
+        avatarImageUrl: booking.clientAvatarUrl,
+        avatarInitials: booking.clientInitials,
+        avatarImageKey: const Key('booking-detail-client-avatar-photo'),
+        middleLine: qualifier == null
+            ? null
+            : Text(
+                qualifier,
+                style: VelvetText.feedbackMutedSm,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
+        trailing: isGuest
+            ? null
+            : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
+      ),
     );
   }
 }

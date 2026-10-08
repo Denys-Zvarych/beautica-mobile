@@ -78,6 +78,8 @@ Booking _booking({
   String? clientComment,
   String? clientCancellationNote,
   String? clientAvatarUrl,
+  double? clientAvgRating,
+  int? clientReviewCount,
   String? salonName,
   DateTime? startAt,
 }) {
@@ -93,6 +95,8 @@ Booking _booking({
     clientFirstName: clientFirstName,
     clientLastName: clientLastName,
     clientAvatarUrl: clientAvatarUrl,
+    clientAvgRating: clientAvgRating,
+    clientReviewCount: clientReviewCount,
     serviceId: 's1',
     serviceName: _serviceName,
     categoryName: 'NAIL_SERVICE',
@@ -1154,5 +1158,82 @@ void main() {
         expect(fake.getFileStreamCalls, 0);
       });
     }
+  });
+
+  group('client strip rating readout (provider viewer)', () {
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+
+    testWidgets('a rated registered client shows ★ 4.7 and the review count', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _booking(clientAvgRating: 4.7, clientReviewCount: 12),
+        role: UserRole.independentMaster,
+      );
+      expect(find.descendant(of: strip, matching: find.text('4.7')), findsOne);
+      expect(find.descendant(of: strip, matching: find.text('(12)')), findsOne);
+      final double figureX = tester
+          .getTopLeft(find.descendant(of: strip, matching: find.text('4.7')))
+          .dx;
+      final double countX = tester
+          .getTopLeft(find.descendant(of: strip, matching: find.text('(12)')))
+          .dx;
+      expect(
+        figureX,
+        lessThan(countX),
+        reason: 'the figure precedes the count: «★ 4.7 (12)»',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsOne,
+      );
+    });
+
+    testWidgets(
+      'an unreviewed registered client shows the em-dash, never 0.0',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(clientAvgRating: 0, clientReviewCount: 0),
+          role: UserRole.independentMaster,
+        );
+        expect(find.descendant(of: strip, matching: find.text('—')), findsOne);
+        expect(
+          find.descendant(of: strip, matching: find.text('0.0')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('an unreviewed client\'s semantics say "no reviews yet", not '
+        '«Рейтинг —»', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        _booking(clientAvgRating: null, clientReviewCount: 0),
+        role: UserRole.independentMaster,
+      );
+      final String label = tester.getSemantics(strip).label;
+      expect(label, contains(_l10n(tester).masterReviewsEmpty));
+      expect(label, isNot(contains('Рейтинг')));
+      handle.dispose();
+    });
+
+    testWidgets('a guest booking shows NO rating at all', (tester) async {
+      await _pump(
+        tester,
+        _booking(clientId: null),
+        role: UserRole.independentMaster,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('—')),
+        findsNothing,
+      );
+    });
   });
 }

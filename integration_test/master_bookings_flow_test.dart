@@ -339,11 +339,78 @@ Future<void> _applyStatusFilter(
   await AppHarness.settle(tester);
 }
 
+const String _kClientRating = '4.5';
+const String _kClientCount = '(12)';
+const String _kEmDash = '—';
+const String _kZeroRating = '0.0';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
+
+  // ── Provider-view client strip: UNREVIEWED and GUEST wire shapes ───────────
+  //
+  // The rated path is pinned in the flow below. Here the same screen is fed a
+  // real GET /bookings/{id} with (a) a registered client who has no reviews
+  // (`clientReviewCount: 0`, avg omitted) and (b) a guest (`clientId: null`).
+  Future<Finder> openProviderDetail(WidgetTester tester, FakeBackend fb) async {
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+    expect(strip, findsOneWidget);
+    return strip;
+  }
+
+  testWidgets(
+    'PROVIDER view of an UNREVIEWED registered client: the strip shows the '
+    'em-dash and never 0.0',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingClientReviewCount = 0;
+      final Finder strip = await openProviderDetail(tester, fb);
+
+      expect(
+        find.descendant(of: strip, matching: find.text(_kEmDash)),
+        findsOneWidget,
+        reason: 'an unreviewed client reads «★ —»',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kZeroRating)),
+        findsNothing,
+        reason: 'a zero rating must never be printed',
+      );
+    },
+  );
+
+  testWidgets(
+    'PROVIDER view of a GUEST booking: the strip shows no ★ and no em-dash',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingClientIsGuest = true;
+      final Finder strip = await openProviderDetail(tester, fb);
+
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsNothing,
+        reason: 'a guest has no account to be rated',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kEmDash)),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets(
     'INDEPENDENT_MASTER opens «Мої записи», narrows by a rail day, and opens '
@@ -354,6 +421,10 @@ void main() {
       // its bytes through the injected media cache (no real network).
       const String clientPhoto = 'https://media.test/avatars/client-1.png';
       fb.bookingClientAvatarUrl = clientPhoto;
+      // Provider-view client rating: JSON `clientAvgRating`/`clientReviewCount`
+      // -> DTO -> Booking -> MasterRatingReadout inside the client strip.
+      fb.bookingClientAvgRating = 4.5;
+      fb.bookingClientReviewCount = 12;
       MediaConfig.debugAllowedHosts = <String>{'media.test'};
       debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
       addTearDown(() {
@@ -610,6 +681,37 @@ void main() {
       final ImageProvider<Object> source = (shown as ResizeImage).imageProvider;
       expect(source, isA<CachedNetworkImageProvider>());
       expect((source as CachedNetworkImageProvider).url, clientPhoto);
+
+      // The client's ★ rating + review count render INSIDE the same strip
+      // that carries the photo (both at once — one card).
+      final Finder clientStrip = find.byKey(
+        const Key('booking-detail-client-strip'),
+      );
+      expect(
+        find.descendant(of: clientStrip, matching: find.text(_kClientRating)),
+        findsOneWidget,
+        reason: 'the client strip must show the rating figure off the wire',
+      );
+      expect(
+        find.descendant(of: clientStrip, matching: find.text(_kClientCount)),
+        findsOneWidget,
+        reason: 'the client strip must show the review count off the wire',
+      );
+      expect(
+        find.descendant(
+          of: clientStrip,
+          matching: find.byIcon(Icons.star_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: clientStrip,
+          matching: find.byKey(const Key('booking-detail-client-avatar-photo')),
+        ),
+        findsOneWidget,
+        reason: 'the photo is still shown alongside the rating',
+      );
 
       // …and NONE of the client action footer. These are the client's own
       // affordances over their own booking; a master must never be offered

@@ -5791,6 +5791,22 @@
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
   },
+  "bookingDetailClientSemantics": "Клієнт: {name}",
+  "@bookingDetailClientSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when no rating is shown (guest booking).",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "bookingDetailClientRatedSemantics": "Клієнт: {name}. Рейтинг {rating}, {reviews}",
+  "@bookingDetailClientRatedSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when the ★ rating readout is shown (rating is an em-dash when the client has no reviews).",
+    "placeholders": {
+      "name": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
   "masterBookingsTitle": "Мої записи",
   "@masterBookingsTitle": {
     "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."

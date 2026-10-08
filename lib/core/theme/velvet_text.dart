@@ -1704,6 +1704,12 @@ abstract final class VelvetText {
     color: BrandColors.accentDeep,
   );
 
+  /// Monogram inside a default 48dp [MasterAvatarBadge] when there is no photo
+  /// (the provider's client card). Fixed 16 = the 48dp default side / 3.
+  static final TextStyle avatarMonogram = _subheadingStyle.copyWith(
+    fontSize: 16,
+  );
+
   /// The master booking card's OWN price-pill figure — [PriceTag]'s `pill()`
   /// verbatim, stepped down 0.8 sp (11 -> 10.2 sp, ~7.3%) for the 2026-08-15
   /// font-size pass (see [masterCardClientName]'s doc).

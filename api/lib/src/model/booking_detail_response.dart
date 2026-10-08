@@ -52,6 +52,8 @@ part 'booking_detail_response.g.dart';
 /// * [salonId] - The salon this booking was made AT, as snapshotted on the booking row (bookings.salon_id). NULL for an INDEPENDENT_MASTER booking. Exists so a client can invalidate its own salon-scoped caches after leaving a review: ReviewService#createReview stamps the review with booking.getSalon() and ReviewEventListener recalculates THAT salon's avg_rating/review_count, so this is the id whose aggregates moved. As of phase 242 salonName and the street/buildingNo/locationNote/cityLabel/districtLabel block are resolved from this SAME booking snapshot, so salonId != null and salonName != null are one predicate and the id always identifies the premises whose address is displayed alongside it. (Before 242 the address block came from the master's LIVE salon and the two could disagree after a rotation — that divergence is gone.)
 /// * [categoryKey] - Stable machine key for the client-side category-icon resolver — the uppercase slug of the service's category (e.g. \"NAIL_SERVICE\"), or null when the service has no category. Mirrors ClientAggregationRepository#findTimeline's categoryKey/categoryName pair (Beauty Timeline). Prefer this over categoryName for icon resolution — categoryName is for display only. Never a fallback/placeholder value: a null here must render no icon, not a guessed one.
 /// * [reviewByClient] - The review THIS booking's client left about the master — rating plus the full comment (phase 317 D2: the text is already world-readable through the permitAll GET /masters/{id}/reviews listing, so withholding it here would be theatre). Null when the booking carries no review. SERVED ONLY BY GET /bookings/{id}: every listing surface — the provider and CLIENT branches of GET /bookings/me, GET /bookings/salon/{salonId}, and the create/reschedule mutation responses — sends null unconditionally, because a booking CARD renders no review body and paying a per-page review fetch for a field nothing draws is not worth the statement. Do NOT read a null on a list row as 'this booking has no review'; re-read the booking through GET /bookings/{id} to learn that. This is the same explicitly-surface-scoped contract providerCanReviewClient already documents on this DTO.
+/// * [clientAvgRating] - The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
+/// * [clientReviewCount] - How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -189,6 +191,14 @@ abstract class BookingDetailResponse
   /// The review THIS booking's client left about the master — rating plus the full comment (phase 317 D2: the text is already world-readable through the permitAll GET /masters/{id}/reviews listing, so withholding it here would be theatre). Null when the booking carries no review. SERVED ONLY BY GET /bookings/{id}: every listing surface — the provider and CLIENT branches of GET /bookings/me, GET /bookings/salon/{salonId}, and the create/reschedule mutation responses — sends null unconditionally, because a booking CARD renders no review body and paying a per-page review fetch for a field nothing draws is not worth the statement. Do NOT read a null on a list row as 'this booking has no review'; re-read the booking through GET /bookings/{id} to learn that. This is the same explicitly-surface-scoped contract providerCanReviewClient already documents on this DTO.
   @BuiltValueField(wireName: r'reviewByClient')
   ClientAuthoredReviewResponse? get reviewByClient;
+
+  /// The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
+  @BuiltValueField(wireName: r'clientAvgRating')
+  num? get clientAvgRating;
+
+  /// How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
+  @BuiltValueField(wireName: r'clientReviewCount')
+  int? get clientReviewCount;
 
   BookingDetailResponse._();
 
@@ -490,6 +500,20 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.reviewByClient,
         specifiedType: const FullType(ClientAuthoredReviewResponse),
+      );
+    }
+    if (object.clientAvgRating != null) {
+      yield r'clientAvgRating';
+      yield serializers.serialize(
+        object.clientAvgRating,
+        specifiedType: const FullType.nullable(num),
+      );
+    }
+    if (object.clientReviewCount != null) {
+      yield r'clientReviewCount';
+      yield serializers.serialize(
+        object.clientReviewCount,
+        specifiedType: const FullType.nullable(int),
       );
     }
   }
@@ -802,6 +826,22 @@ class _$BookingDetailResponseSerializer
             specifiedType: const FullType(ClientAuthoredReviewResponse),
           ) as ClientAuthoredReviewResponse;
           result.reviewByClient.replace(valueDes);
+          break;
+        case r'clientAvgRating':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(num),
+          ) as num?;
+          if (valueDes == null) continue;
+          result.clientAvgRating = valueDes;
+          break;
+        case r'clientReviewCount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.clientReviewCount = valueDes;
           break;
         default:
           unhandled.add(key);
