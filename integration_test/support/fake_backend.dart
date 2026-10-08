@@ -4316,6 +4316,12 @@ final class FakeBackend {
         ],
       });
 
+  /// Shared with integration assertions on the rendered row (mr-1).
+  static const String kMasterReview1ClientName = 'Іра К.';
+  static const String kMasterReview1Comment =
+      'Найкращий майстер, дуже задоволена!';
+  static const int kMasterReview1Rating = 5;
+
   /// Master received-reviews fixture — three reviews with DISTINCT ids, ratings
   /// and dates so the per-sort reordering below is observable. `serviceName`
   /// (backend `92280c3`) deliberately covers all three wire shapes the mapper
@@ -4328,9 +4334,9 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'id': 'mr-1',
-          'clientDisplayName': 'Іра К.',
-          'rating': 5,
-          'comment': 'Найкращий майстер, дуже задоволена!',
+          'clientDisplayName': kMasterReview1ClientName,
+          'rating': kMasterReview1Rating,
+          'comment': kMasterReview1Comment,
           'createdAt': '2026-06-10T10:00:00Z',
           'serviceName': 'Манікюр',
         },

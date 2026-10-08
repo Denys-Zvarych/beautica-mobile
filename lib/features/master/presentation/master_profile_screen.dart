@@ -55,6 +55,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -247,6 +248,10 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       // (the profile screen displays live service counts and category cards).
       // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
       onRefresh: () async {
+        final String? masterId = ref.read(masterProfileProvider).value?.id;
+        if (masterId != null) {
+          invalidateMasterReviewSurfaces(ref, masterId);
+        }
         ref.invalidate(masterProfileProvider);
         invalidateMasterServiceCatalogues(ref);
         await Future.wait([

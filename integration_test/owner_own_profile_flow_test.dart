@@ -65,12 +65,14 @@
 // admin case below asserts on the RESOLVED role's rendered slot, never on the
 // login credentials.
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -86,6 +88,35 @@ const String _kOwnerSalonId = 'salon-owner-1';
 
 /// `SalonBottomNav.ownerAdminItems` — «Профіль» is destination 3.
 const int _navProfile = 3;
+
+/// Phase 389 — the owner's master-row id and one own-row NAILS service, so the
+/// master-mode «Послуги» tab has a category to expand.
+const String _kOwnerMasterRowId = 'master-row-owner-1';
+
+Map<String, dynamic> _seededOwnRow() => <String, dynamic>{
+  'id': 'own-assign-1',
+  'masterId': _kOwnerMasterRowId,
+  'isActive': true,
+  'priceType': 'FIXED',
+  'priceMin': 400,
+  'priceMax': null,
+  'priceDisplay': '400 ₴',
+  'effectiveDurationMinutes': 60,
+  'serviceDefinition': <String, dynamic>{
+    'id': 'own-def-1',
+    'name': 'Манікюр класичний',
+    'description': null,
+    'category': 'NAILS',
+    'baseDurationMinutes': 60,
+    'bufferMinutesAfter': 0,
+    'isActive': true,
+    'priceType': 'FIXED',
+    'priceMin': 400,
+    'priceMax': null,
+    'priceDisplay': '400 ₴',
+    'photoUrl': null,
+  },
+};
 
 /// …and for an ADMIN it renders `IndexedStack` SLOT 2 (an owner leaves the
 /// shell instead — Phase 384). Deliberately a separate constant from
@@ -147,9 +178,17 @@ void main() {
     'PRESENT when hasMasterProfile is true',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        final fb = FakeBackend()
-          ..currentRole = UserRole.salonOwner
-          ..hasMasterProfile = true;
+        // Phase 389 — the owner's own-row catalogue is seeded so the
+        // «Послуги» tab (reached by the category tap below) has NAILS to show.
+        final fb =
+            FakeBackend(
+                masterRowId: _kOwnerMasterRowId,
+                masterSalonId: _kOwnerSalonId,
+                wireOwnRowServices: true,
+                ownRowServicesSeed: <Map<String, dynamic>>[_seededOwnRow()],
+              )
+              ..currentRole = UserRole.salonOwner
+              ..hasMasterProfile = true;
         final GoRouter router = await _enterShellAs(
           tester,
           fb,
@@ -232,7 +271,22 @@ void main() {
           find.byKey(const Key('owner-own-profile-stats')),
           findsOneWidget,
         );
+        // Phase 389 — the independent master's tab bar. Tab 0 («Про майстра»)
+        // is the default: bio + contacts (asserted above) are on it, the
+        // services body is not built yet.
+        for (final int i in <int>[0, 1, 2]) {
+          expect(find.byKey(Key('owner-own-profile-tab-$i')), findsOneWidget);
+        }
         expect(find.byKey(const Key('owner-own-profile-bio')), findsOneWidget);
+        expect(
+          find.byKey(const Key('owner-own-profile-categories')),
+          findsNothing,
+        );
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('owner-own-profile-tab-1')),
+        );
+        await AppHarness.settle(tester);
         expect(
           find.byKey(const Key('owner-own-profile-categories')),
           findsOneWidget,
@@ -268,6 +322,93 @@ void main() {
               'the catalogue is keyed on the MASTER-ROW id from '
               'GET /masters/me, never on session.user.id.',
         );
+
+        // A category tap routes WITHIN master mode: «Послуги» tab, NAILS
+        // expanded, nav tile 0 active.
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('owner-profile-category-NAILS')),
+        );
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () =>
+              AppHarness.location(router) ==
+              RouteNames.ownerMasterServicesExpanded('NAILS'),
+          description: 'the category tap to land on the expanded services tab',
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('category_section_NAILS')),
+          timeout: const Duration(seconds: 20),
+        );
+        expect(
+          tester
+              .widget<VelvetBottomNavBar>(find.byType(VelvetBottomNavBar))
+              .activeIndex,
+          0,
+          reason: '«Послуги» is the active master-mode nav tile',
+        );
+
+        // Back to «Профіль» via the nav, then the «Відгуки» tab.
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('master-nav-tile-3')),
+        );
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => AppHarness.location(router) == RouteNames.ownerMasterProfile,
+          description: 'nav «Профіль» to land on the master-mode profile',
+          timeout: const Duration(seconds: 20),
+        );
+        await AppHarness.settle(tester);
+        await AppHarness.tapVisible(
+          tester,
+          find.byKey(const Key('owner-own-profile-tab-2')),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const Key('master-review-mr-1')),
+          timeout: const Duration(seconds: 20),
+        );
+        // The rendered row content, not just its key: author, comment, and
+        // the ★ rating (filled stars == the fixture rating).
+        final Finder reviewRow = find.byKey(const Key('master-review-mr-1'));
+        expect(
+          find.descendant(
+            of: reviewRow,
+            matching: find.text(FakeBackend.kMasterReview1ClientName),
+          ),
+          findsOneWidget,
+          reason: 'the review row renders the client display name',
+        );
+        expect(
+          find.descendant(
+            of: reviewRow,
+            matching: find.text(FakeBackend.kMasterReview1Comment),
+          ),
+          findsOneWidget,
+          reason: 'the review row renders the comment body',
+        );
+        expect(
+          find.descendant(
+            of: reviewRow,
+            matching: find.byWidgetPredicate(
+              (Widget w) =>
+                  w is Icon &&
+                  w.icon == Icons.star_rounded &&
+                  w.color == BrandColors.accentDeep,
+            ),
+          ),
+          findsNWidgets(FakeBackend.kMasterReview1Rating),
+          reason: 'filled stars equal the fixture rating',
+        );
+        expect(
+          find.byKey(const Key('owner-own-profile-bio')),
+          findsNothing,
+          reason: 'tab 2 replaces the tab-0 body',
+        );
       });
     },
   );
@@ -294,10 +435,9 @@ void main() {
 
         expect(find.byKey(const Key('owner-own-profile-stats')), findsNothing);
         expect(find.byKey(const Key('owner-own-profile-bio')), findsNothing);
-        expect(
-          find.byKey(const Key('owner-own-profile-categories')),
-          findsNothing,
-        );
+        for (final int i in <int>[0, 1, 2]) {
+          expect(find.byKey(Key('owner-own-profile-tab-$i')), findsNothing);
+        }
         expect(
           fb.getPublicMasterServicesCalls,
           equals(0),
@@ -335,7 +475,7 @@ void main() {
               'COMMON case.',
         );
         expect(
-          find.byKey(const Key('owner-own-profile-categories')),
+          find.byKey(const Key('owner-own-profile-tab-0')),
           findsOneWidget,
         );
       });
@@ -377,10 +517,9 @@ void main() {
           reason: 'the identity the screen exists to show is still rendered',
         );
         expect(find.byKey(const Key('owner-own-profile-stats')), findsNothing);
-        expect(
-          find.byKey(const Key('owner-own-profile-categories')),
-          findsNothing,
-        );
+        for (final int i in <int>[0, 1, 2]) {
+          expect(find.byKey(Key('owner-own-profile-tab-$i')), findsNothing);
+        }
         expect(
           fb.getPublicMasterServicesCalls,
           equals(0),

@@ -43,7 +43,11 @@ import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/salon/application/owner_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -270,6 +274,7 @@ void main() {
   _identityAvatarTests();
   _masterModeTests();
   _avatarUploadNoReloadTests();
+  _profileTabsTests();
   // Phase 365 addendum — the global notification bell, left of the tune button.
   group('notification bell in the header (phase 365 addendum)', () {
     GoRouter bellRouter() => GoRouter(
@@ -382,15 +387,13 @@ void main() {
       find.byKey(const Key('owner-own-profile-rating-value')),
       findsOneWidget,
     );
+    for (final int i in <int>[0, 1, 2]) {
+      expect(find.byKey(Key('owner-own-profile-tab-$i')), findsOneWidget);
+    }
+    // Tab 0 («Про майстра») is the default: bio + contacts; the services tab
+    // body is not built until tab 1.
     expect(find.byKey(const Key('owner-own-profile-bio')), findsOneWidget);
-    expect(
-      find.byKey(const Key('owner-own-profile-categories')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const Key('owner-profile-category-NAILS')),
-      findsOneWidget,
-    );
+    expect(find.byKey(const Key('owner-own-profile-categories')), findsNothing);
     expect(
       find.byKey(const Key('owner-own-profile-contact-phone')),
       findsOneWidget,
@@ -420,6 +423,9 @@ void main() {
     expect(find.byKey(const Key('owner-own-profile-stats')), findsNothing);
     expect(find.byKey(const Key('owner-own-profile-bio')), findsNothing);
     expect(find.byKey(const Key('owner-own-profile-categories')), findsNothing);
+    for (final int i in <int>[0, 1, 2]) {
+      expect(find.byKey(Key('owner-own-profile-tab-$i')), findsNothing);
+    }
     expect(
       find.byKey(const Key('owner-own-profile-professional-title')),
       findsNothing,
@@ -896,8 +902,8 @@ void main() {
       expect(find.byType(ErrorState), findsNothing);
     });
 
-    testWidgets('empty catalogue — the categories section renders its own '
-        'empty line, not a silently collapsed section', (tester) async {
+    testWidgets('empty catalogue — tab 1 shows the add-services CTA, not a '
+        'silently collapsed section', (tester) async {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(embedded: true),
         overrides: _overrides((
@@ -906,26 +912,19 @@ void main() {
         )),
       );
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
 
       expect(
         find.byKey(const Key('owner-own-profile-categories')),
         findsOneWidget,
       );
-      expect(
-        find.byKey(const Key('owner-own-profile-categories-empty')),
-        findsOneWidget,
-        reason:
-            'an owner who works as a master but has published no services must '
-            'be told so. `ServiceCategoryCardList` short-circuits to '
-            'SizedBox.shrink() on an empty list, so without this branch the '
-            'section header would sit above nothing at all.',
-      );
+      expect(find.byKey(const Key('btn-master-add-services')), findsOneWidget);
       expect(
         find.byKey(const Key('owner-profile-category-NAILS')),
         findsNothing,
       );
-      // The rest of the master section is unaffected — an empty catalogue is
-      // not an absent master row.
+      // An empty catalogue is not an absent master row.
       expect(find.byKey(const Key('owner-own-profile-stats')), findsOneWidget);
     });
   });
@@ -1513,6 +1512,270 @@ void _masterModeTests() {
 
       expect(find.byType(OwnerOwnProfileScreen), findsNothing);
       expect(locationOf(router), isNot(RouteNames.ownerMasterProfile));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 389 (24.5b) — the master tabs on the owner's own profile.
+// ---------------------------------------------------------------------------
+
+final _tabsReview = MasterReviewItem(
+  id: 'r-1',
+  clientDisplayName: 'Ірина К.',
+  rating: 5,
+  comment: 'Чудова робота',
+  createdAt: DateTime(2026, 9, 1),
+);
+
+List<Object> _tabsOverrides(
+  OwnerOwnProfileData data, {
+  required String reviewsMasterId,
+}) => <Object>[
+  ..._overrides(data),
+  masterReviewSummaryProvider(reviewsMasterId).overrideWith(
+    (Ref ref) async => const MasterReviewSummary(
+      avgRating: 5,
+      reviewCount: 1,
+      distribution: <int>[1, 0, 0, 0, 0],
+    ),
+  ),
+  masterReviewsProvider(
+    reviewsMasterId,
+    MasterReviewSort.newest,
+  ).overrideWith((Ref ref) async => <MasterReviewItem>[_tabsReview]),
+];
+
+/// The screen mounted at `/` with stub sibling destinations, so `context.go`
+/// is observable via the router location.
+GoRouter _tabsRouter() => GoRouter(
+  routes: <RouteBase>[
+    GoRoute(
+      path: '/',
+      builder: (_, _) => const OwnerOwnProfileScreen(embedded: true),
+    ),
+    GoRoute(
+      path: RouteNames.ownerMasterServices,
+      builder: (_, _) => const Scaffold(key: Key('stub-owner-services')),
+      routes: <RouteBase>[
+        GoRoute(
+          path: 'setup',
+          builder: (_, _) => const Scaffold(key: Key('stub-owner-setup')),
+        ),
+      ],
+    ),
+  ],
+);
+
+String _loc(GoRouter r) =>
+    // router-location-ok: `.go` only in this group — no imperative match.
+    r.routerDelegate.currentConfiguration.uri.toString();
+
+void _profileTabsTests() {
+  group('master tabs (phase 389)', () {
+    late GoRouter router;
+
+    Future<void> pumpTabs(
+      WidgetTester tester, {
+      List<MasterService> services = _services,
+      String? reviewsMasterId,
+    }) async {
+      router = _tabsRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _tabsOverrides((
+          owner: _owner,
+          master: (_master, services),
+        ), reviewsMasterId: reviewsMasterId ?? _master.id),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('tab 0 default shows bio + contacts; services/reviews absent', (
+      tester,
+    ) async {
+      await pumpTabs(tester);
+      expect(find.byKey(const Key('owner-own-profile-bio')), findsOneWidget);
+      expect(
+        find.byKey(const Key('owner-own-profile-contact-phone')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('owner-own-profile-categories')),
+        findsNothing,
+      );
+      expect(find.byType(MasterReviewsBody), findsNothing);
+    });
+
+    testWidgets('tab 1 renders interactive categories; a card tap goes to the '
+        'expanded master-mode services tab', (tester) async {
+      await pumpTabs(tester);
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('owner-own-profile-bio')), findsNothing);
+      final Finder card = find.byKey(const Key('owner-profile-category-NAILS'));
+      expect(card, findsOneWidget);
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+
+      expect(
+        _loc(router),
+        '${RouteNames.ownerMasterServices}?expandCategory=NAILS',
+      );
+    });
+
+    testWidgets('tab 1 «all services» link goes to the master-mode services '
+        'tab', (tester) async {
+      await pumpTabs(tester);
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('profile-services-all-link')));
+      await tester.pumpAndSettle();
+
+      expect(_loc(router), RouteNames.ownerMasterServices);
+    });
+
+    testWidgets('tab 1 empty list: add CTA goes to master-mode setup', (
+      tester,
+    ) async {
+      await pumpTabs(tester, services: const <MasterService>[]);
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('btn-master-add-services')));
+      await tester.pumpAndSettle();
+
+      expect(_loc(router), RouteNames.ownerMasterServiceSetup);
+    });
+
+    testWidgets('tab 2 shows the owner master\'s reviews (keyed on '
+        'master.id)', (tester) async {
+      await pumpTabs(tester);
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-2')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('master-review-r-1')), findsOneWidget);
+    });
+
+    testWidgets('tab 1: an INVALID backend category slug falls back to the '
+        'plain services route, with no assert', (tester) async {
+      await pumpTabs(
+        tester,
+        services: const <MasterService>[
+          MasterService(
+            id: 's-bad',
+            serviceDefId: 'd-bad',
+            name: 'Bad',
+            durationMinutes: 30,
+            priceMin: 100,
+            priceDisplay: '100 ₴',
+            category: 'bad slug',
+          ),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('owner-profile-category-BAD SLUG')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(_loc(router), RouteNames.ownerMasterServices);
+    });
+
+    testWidgets('pull-to-refresh on tab 2 re-fetches the reviews + summary', (
+      tester,
+    ) async {
+      int reviewCalls = 0;
+      int summaryCalls = 0;
+      router = _tabsRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides((owner: _owner, master: (_master, _services))),
+          masterReviewSummaryProvider(_master.id).overrideWith((Ref ref) async {
+            summaryCalls++;
+            return const MasterReviewSummary(
+              avgRating: 5,
+              reviewCount: 1,
+              distribution: <int>[1, 0, 0, 0, 0],
+            );
+          }),
+          masterReviewsProvider(
+            _master.id,
+            MasterReviewSort.newest,
+          ).overrideWith((Ref ref) async {
+            reviewCalls++;
+            return <MasterReviewItem>[_tabsReview];
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-2')));
+      await tester.pumpAndSettle();
+      expect(reviewCalls, 1);
+      expect(summaryCalls, 1);
+
+      await tester.fling(
+        find.byType(SingleChildScrollView).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(reviewCalls, 2);
+      expect(summaryCalls, 2);
+      expect(find.byKey(const Key('master-review-r-1')), findsOneWidget);
+    });
+
+    testWidgets('only the ACTIVE tab body is built — 0 -> 1 -> 2 -> 0 round '
+        'trip', (tester) async {
+      await pumpTabs(tester);
+      final Finder bio = find.byKey(const Key('owner-own-profile-bio'));
+      final Finder cats = find.byKey(const Key('owner-own-profile-categories'));
+      final Finder reviews = find.byType(MasterReviewsBody);
+
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-1')));
+      await tester.pumpAndSettle();
+      expect(cats, findsOneWidget);
+      expect(bio, findsNothing);
+      expect(reviews, findsNothing);
+
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-2')));
+      await tester.pumpAndSettle();
+      expect(reviews, findsOneWidget);
+      expect(cats, findsNothing);
+      expect(bio, findsNothing);
+
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-0')));
+      await tester.pumpAndSettle();
+      expect(bio, findsOneWidget);
+      expect(
+        find.byKey(const Key('owner-own-profile-contact-phone')),
+        findsOneWidget,
+      );
+      expect(cats, findsNothing);
+      expect(reviews, findsNothing);
+    });
+
+    testWidgets('stat cards are display-only — a tap leaves the tab '
+        'unchanged', (tester) async {
+      await pumpTabs(tester);
+      await tester.tap(
+        find.byKey(const Key('owner-own-profile-reviews-value')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const Key('owner-own-profile-services-value')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('owner-own-profile-bio')), findsOneWidget);
+      expect(find.byType(MasterReviewsBody), findsNothing);
     });
   });
 }

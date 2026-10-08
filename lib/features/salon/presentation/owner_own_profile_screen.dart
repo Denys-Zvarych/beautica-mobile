@@ -17,21 +17,22 @@
 //     stays the owner's own even when they also work as a master; the rating
 //     surfaces in the stats row below instead (the preview passes
 //     `hasReviews: false` here for exactly this reason).
-//   2 stats  ┐
-//   3 bio    ├─ MASTER ONLY — rendered only when the owner also performs
-//   4 categories ┘ services. See THE MASTER GATE.
-//   5 contacts — phone always, Instagram only when set. There is deliberately
-//     NO salon-affiliation card: an owner can own several salons, so no single
-//     salon represents them; those live in the «Мої салони» hub instead.
+//   2 stats — MASTER ONLY (see THE MASTER GATE).
+//   3 tabs — MASTER ONLY. The SAME tab bar as the independent master's own
+//     profile: «Про майстра» (bio + contacts) / «Послуги»
+//     ([ProfileServicesTab], editable, routing within owner master mode) /
+//     «Відгуки» ([MasterReviewsBody]). Without a master row there are no tabs:
+//     the page is identity + contacts, as before.
 //
 // ── REUSE ─────────────────────────────────────────────────────────────────
 // Every leaf here is an already-shipped widget, used verbatim, exactly as
 // `salon_staff_profile_screen.dart` (Phase 21.5) established for this screen
 // family: [ProfileScaffold] chrome, [ProfileAvatar], [RoleChip], [StatTile],
 // [ServicesStatTile], [RatingStar], [NeumorphicInset], [ContactTile],
-// [ServiceCategoryCardList], [SkeletonShimmerScope]/[SkeletonBlock]. Nothing
-// was forked, copied, or promoted for this screen — the shared set already
-// covered it.
+// [ProfileTabBar]/[ProfileTabSelection]/[ProfileTabSection],
+// [ProfileServicesTab], [MasterReviewsBody], [SkeletonShimmerScope]/
+// [SkeletonBlock]. Nothing was forked, copied, or promoted for this screen —
+// the shared set already covered it.
 //
 // ── THREE STAT TILES, NOT FOUR ────────────────────────────────────────────
 // The preview's stats row has a fourth «Досвід» tile. There is no tenure /
@@ -45,16 +46,10 @@
 // rhythm as every other stats row in the app — the width freed by the dropped
 // tile goes into the TILES, not into the gutters.
 //
-// ── NO «УСІ ПОСЛУГИ» LINK, NO INTERACTIVE CATEGORY CARDS ──────────────────
-// The preview's category section carries an «Усі послуги» link, and the
-// master's own profile passes `interactive: true` so a card deep-links to
-// `/services`. Both are omitted here because both resolve to the
-// INDEPENDENT_MASTER's own service-management screen, which reads
-// `GET /independent-masters/me/services` —
-// `@PreAuthorize("hasRole('INDEPENDENT_MASTER')")`, i.e. a guaranteed 403 for
-// a `SALON_OWNER`. A dead affordance is worse than an absent one, so the
-// section renders as a read-only summary (`interactive: false`), matching
-// `salon_staff_profile_screen.dart`'s own reasoning for the same call.
+// ── «ПОСЛУГИ» TAB ─────────────────────────────────────────────────────────
+// The owner self-edits like an independent master (phase 380 gave them
+// `/owner/master/services`), so the tab is interactive. Every tap `go`es to a
+// sibling master-mode tab rather than stacking a screen.
 //
 // ── THE MASTER GATE ───────────────────────────────────────────────────────
 // Owned entirely by [ownerOwnProfileProvider] — see that file for the
@@ -71,6 +66,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -83,17 +79,24 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
+import 'package:beautica_mobile/features/services/domain/category_slug.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/shared/widgets/staff_identity_card.dart';
 
 import '../../master/presentation/widgets/profile_avatar.dart';
 import '../../master/presentation/widgets/profile_scaffold.dart';
-import '../../master/presentation/widgets/service_category_cards.dart';
+import '../../master/presentation/widgets/master_profile_tabs.dart';
+import '../../master/presentation/widgets/master_reviews_body.dart';
+import '../../master/presentation/widgets/profile_services_tab.dart';
 import '../../master/presentation/widgets/services_stat_tile.dart';
 import '../application/owner_own_profile_notifier.dart';
 
@@ -170,13 +173,15 @@ class OwnerOwnProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
-    with SingleTickerProviderStateMixin {
+    with
+        SingleTickerProviderStateMixin,
+        ProfileTabSelection<OwnerOwnProfileScreen> {
   late final AnimationController _controller;
 
   // Pre-built staggered-entrance animations (the shipped mobile-perf pattern —
   // see `master_profile_screen.dart`'s own note) so build() never allocates a
-  // CurvedAnimation/Tween per frame. Five sections: identity / stats / bio /
-  // categories / contacts.
+  // CurvedAnimation/Tween per frame. Five reveal slots: identity / stats / tab
+  // bar / tab body / contacts (no-master degrade).
   late final CurvedAnimation _anim0;
   late final CurvedAnimation _anim1;
   late final CurvedAnimation _anim2;
@@ -301,6 +306,7 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
     // manager itself floors at zero, but relying on that would let a real
     // imbalance hide.)
     if (_protectionHeld) _screenProtection.release();
+    disposeProfileTabSelection();
     _anim0.dispose();
     _anim1.dispose();
     _anim2.dispose();
@@ -378,6 +384,18 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
       // stays on screen through the refetch — never gate this UI on
       // `value == null`.
       onRefresh: () async {
+        // Review providers are `keepAlive` (5 min) families keyed on the
+        // master id, so a pull on «Відгуки» would otherwise show stale rows.
+        // Read the id BEFORE invalidating; null (no master row) → nothing to do.
+        final String? masterId = ref
+            .read(ownerOwnProfileProvider)
+            .value
+            ?.master
+            ?.$1
+            .id;
+        if (masterId != null) {
+          invalidateMasterReviewSurfaces(ref, masterId);
+        }
         ref.invalidate(clientEditProfileProvider);
         ref.invalidate(masterProfileProvider);
         await ref.read(ownerOwnProfileProvider.future);
@@ -418,6 +436,8 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
               slide2: _slide2,
               slide3: _slide3,
               slide4: _slide4,
+              tabNotifier: profileTabNotifier,
+              onSelectTab: selectProfileTab,
             );
           },
         ),
@@ -444,6 +464,8 @@ class _OwnerProfileBody extends StatelessWidget {
     required this.slide2,
     required this.slide3,
     required this.slide4,
+    required this.tabNotifier,
+    required this.onSelectTab,
   });
 
   final User owner;
@@ -463,6 +485,12 @@ class _OwnerProfileBody extends StatelessWidget {
   final Animation<Offset> slide2;
   final Animation<Offset> slide3;
   final Animation<Offset> slide4;
+
+  /// [ProfileTabSelection.profileTabNotifier] — the active tab index.
+  final ValueNotifier<int> tabNotifier;
+
+  /// [ProfileTabSelection.selectProfileTab] — [ProfileTabBar]'s `onSelect`.
+  final ValueChanged<int> onSelectTab;
 
   @override
   Widget build(BuildContext context) {
@@ -522,8 +550,8 @@ class _OwnerProfileBody extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // 2/3/4 — the owner-as-master sections. Absent entirely when the owner
-        // performs no services.
+        // 2/3 — the owner-as-master sections: stats + tabs. Absent entirely
+        // when the owner performs no services (identity + contacts only).
         if (section != null) ...<Widget>[
           RevealTransition(
             key: const Key('owner-own-profile-reveal-1'),
@@ -532,58 +560,109 @@ class _OwnerProfileBody extends StatelessWidget {
             child: _OwnerStatsRow(master: section.$1, services: section.$2),
           ),
           const SizedBox(height: VelvetSpacing.xl),
-          ..._buildBio(context, l10n, section.$1),
-          RevealTransition(
-            key: const Key('owner-own-profile-reveal-3'),
-            fade: anim3,
-            slide: slide3,
-            child: _OwnerCategoriesSection(services: section.$2),
-          ),
-          const SizedBox(height: VelvetSpacing.xl),
-        ],
-
-        // 5 — contacts. Phone always (em-dash when unset, matching every other
-        // profile screen); Instagram only when the owner set one.
-        RevealTransition(
-          key: const Key('owner-own-profile-reveal-4'),
-          fade: anim4,
-          slide: slide4,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
+          // Tab bar + body behind ONE `ProfileTabSection` — same structure as
+          // `master_profile_screen.dart`; a tab switch rebuilds only this.
+          ProfileTabSection(
+            notifier: tabNotifier,
+            builder: (BuildContext context, int tab) => Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                RevealTransition(
+                  key: const Key('owner-own-profile-reveal-2'),
+                  fade: anim2,
+                  slide: slide2,
+                  child: ProfileTabBar(
+                    tabs: masterProfileTabLabels(l10n),
+                    selected: tab,
+                    onSelect: onSelectTab,
+                    keyPrefix: 'owner-own-profile',
+                  ),
                 ),
-                child: Text(
-                  l10n.masterContactsLabel,
-                  style: VelvetText.sectionLabel(),
-                ),
-              ),
-              ContactTile(
-                key: const Key('owner-own-profile-contact-phone'),
-                icon: Icons.phone_outlined,
-                value: owner.phoneNumber ?? StatTile.noDataGlyph,
-                semanticLabel: l10n.masterPhoneSemantics,
-                // Dialling out is not in this phase's scope — mirrors the
-                // identical phone tile on `salon_staff_profile_screen.dart`.
-                onTap: () {},
-              ),
-              if (instagramValue != null) ...<Widget>[
-                const SizedBox(height: VelvetSpacing.sm),
-                ContactTile(
-                  key: const Key('owner-own-profile-contact-instagram'),
-                  icon: Icons.alternate_email,
-                  label: l10n.masterInstagramLabel,
-                  value: instagramValue,
-                  semanticLabel: l10n.masterInstagramLabel,
-                  onTap: () {},
+                const SizedBox(height: VelvetSpacing.lg),
+                RevealTransition(
+                  key: const Key('owner-own-profile-reveal-3'),
+                  fade: anim3,
+                  slide: slide3,
+                  child: KeyedSubtree(
+                    key: ValueKey<int>(tab),
+                    child: switch (tab) {
+                      0 => Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          ..._buildBio(context, l10n, section.$1),
+                          _buildContacts(l10n, instagramValue),
+                        ],
+                      ),
+                      1 => ProfileServicesTab(
+                        key: const Key('owner-own-profile-categories'),
+                        services: AsyncData<List<MasterService>>(section.$2),
+                        keyPrefix: 'owner-profile-category',
+                        onAllServices: () =>
+                            context.go(RouteNames.ownerMasterServices),
+                        onAddServices: () =>
+                            context.go(RouteNames.ownerMasterServiceSetup),
+                        onCategoryTap: (BuildContext ctx, String? slug) =>
+                            ctx.go(
+                              slug == null || !isValidCategorySlug(slug)
+                                  ? RouteNames.ownerMasterServices
+                                  : RouteNames.ownerMasterServicesExpanded(
+                                      slug,
+                                    ),
+                            ),
+                      ),
+                      _ => MasterReviewsBody(masterId: section.$1.id),
+                    },
+                  ),
                 ),
               ],
-            ],
+            ),
+          ),
+        ] else
+          // No master row: identity + contacts, no tab bar (nothing to show in
+          // «Послуги»/«Відгуки»).
+          RevealTransition(
+            key: const Key('owner-own-profile-reveal-4'),
+            fade: anim4,
+            slide: slide4,
+            child: _buildContacts(l10n, instagramValue),
+          ),
+      ],
+    );
+  }
+
+  /// Contacts — phone always (em-dash when unset, matching every other
+  /// profile screen); Instagram only when the owner set one.
+  Widget _buildContacts(AppLocalizations l10n, String? instagramValue) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+          child: Text(
+            l10n.masterContactsLabel,
+            style: VelvetText.sectionLabel(),
           ),
         ),
+        ContactTile(
+          key: const Key('owner-own-profile-contact-phone'),
+          icon: Icons.phone_outlined,
+          value: owner.phoneNumber ?? StatTile.noDataGlyph,
+          semanticLabel: l10n.masterPhoneSemantics,
+          // Dialling out is not in this phase's scope — mirrors the
+          // identical phone tile on `salon_staff_profile_screen.dart`.
+          onTap: () {},
+        ),
+        if (instagramValue != null) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.sm),
+          ContactTile(
+            key: const Key('owner-own-profile-contact-instagram'),
+            icon: Icons.alternate_email,
+            label: l10n.masterInstagramLabel,
+            value: instagramValue,
+            semanticLabel: l10n.masterInstagramLabel,
+            onTap: () {},
+          ),
+        ],
       ],
     );
   }
@@ -600,30 +679,25 @@ class _OwnerProfileBody extends StatelessWidget {
     final String? raw = master.bio?.trim();
     if (raw == null || raw.isEmpty) return const <Widget>[];
     return <Widget>[
-      RevealTransition(
-        key: const Key('owner-own-profile-reveal-2'),
-        fade: anim2,
-        slide: slide2,
-        child: Column(
-          key: const Key('owner-own-profile-bio'),
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-              child: Text(
-                l10n.ownerOwnProfileBioLabel,
-                style: VelvetText.sectionLabel(),
-              ),
+      Column(
+        key: const Key('owner-own-profile-bio'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
+            child: Text(
+              l10n.ownerOwnProfileBioLabel,
+              style: VelvetText.sectionLabel(),
             ),
-            NeumorphicInset(
-              radius: VelvetRadii.card,
-              child: Padding(
-                padding: const EdgeInsets.all(VelvetSpacing.md + 2),
-                child: Text(raw, style: VelvetText.bodyStrong()),
-              ),
+          ),
+          NeumorphicInset(
+            radius: VelvetRadii.card,
+            child: Padding(
+              padding: const EdgeInsets.all(VelvetSpacing.md + 2),
+              child: Text(raw, style: VelvetText.bodyStrong()),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
       const SizedBox(height: VelvetSpacing.xl),
     ];
@@ -698,56 +772,6 @@ class _OwnerStatsRow extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// _OwnerCategoriesSection
-// ---------------------------------------------------------------------------
-
-/// «Мої категорії» — the owner's services grouped by category, read-only.
-///
-/// The empty state is rendered HERE rather than delegated: [ServiceCategoryCardList]
-/// short-circuits to `SizedBox.shrink()` on an empty list, so a section that
-/// leaned on it would silently lose its own header too.
-class _OwnerCategoriesSection extends StatelessWidget {
-  const _OwnerCategoriesSection({required this.services});
-
-  final List<MasterService> services;
-
-  @override
-  Widget build(BuildContext context) {
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    return Column(
-      key: const Key('owner-own-profile-categories'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-          child: Text(
-            l10n.ownerOwnProfileCategoriesLabel,
-            style: VelvetText.sectionLabel(),
-          ),
-        ),
-        if (services.isEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: VelvetSpacing.xs, left: 4),
-            child: Text(
-              l10n.ownerOwnProfileNoServices,
-              key: const Key('owner-own-profile-categories-empty'),
-              style: VelvetText.feedbackMutedXs,
-            ),
-          )
-        else
-          // `interactive: false` — see the file header: the interactive
-          // destination is INDEPENDENT_MASTER-only and 403s for an owner.
-          ServiceCategoryCardList(
-            services: services,
-            keyPrefix: 'owner-profile-category',
-            interactive: false,
-          ),
-      ],
     );
   }
 }

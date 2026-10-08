@@ -4,16 +4,24 @@
 // [VelvetBottomNavBar] («Профіль» active) plus the top-left labelled «‹ Салон»
 // back pill (phase 378's `ProfileScaffold.backLabel`).
 //
-// No golden rendered [OwnerOwnProfileScreen] before this file, so there is no
-// existing owner-profile baseline that could move; the defaults-unchanged
+// Phase 389 INTENTIONALLY re-baselined the 6 default-tab cells (flat page →
+// tabbed page). Before phase 379 no golden rendered [OwnerOwnProfileScreen]; the defaults-unchanged
 // proof is the widget test's `defaults (embedded: …)` cases plus the
 // unchanged phase 378 `velvet_top_bar_*` goldens.
 //
-// Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} = 6 golden PNGs.
+// Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} = 6 golden PNGs of the
+// default tab («Про майстра»), plus 360 dp x1.0 and 414 dp x1.3 «Відгуки» cells (phase 389 —
+// the owner page now carries the independent master's tab bar).
+
+import 'package:flutter/widgets.dart' show Key;
+import 'package:flutter_test/flutter_test.dart' show find;
 
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/salon/application/owner_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -74,6 +82,56 @@ List<Object> _overrides() => withDefaultNoUnread(<Object>[
 ]);
 
 void main() {
+  goldenTest(
+    'owner_master_mode_profile reviews tab 360dp x1.0',
+    fileName: 'owner_master_mode_profile_reviews_360_1x',
+    constraints: BoxConstraints.tight(const Size(360, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    whilePerforming: (tester) async {
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-2')));
+      await tester.pumpAndSettle();
+      return null;
+    },
+    pumpWidget: goldenPumpWidget(
+      overrides: <Object>[..._overrides(), ..._reviewOverrides],
+      width: 360,
+    ),
+    builder: () => OwnerOwnProfileScreen(
+      embedded: true,
+      bottomNavBar: const VelvetBottomNavBar(
+        activeIndex: 3,
+        profileRoute: RouteNames.ownerMasterProfile,
+      ),
+      backLabel: _kBackLabel,
+      onBack: () {},
+    ),
+  );
+
+  goldenTest(
+    'owner_master_mode_profile reviews tab 414dp x1.3',
+    fileName: 'owner_master_mode_profile_reviews_414_1_3x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.3,
+    whilePerforming: (tester) async {
+      await tester.tap(find.byKey(const Key('owner-own-profile-tab-2')));
+      await tester.pumpAndSettle();
+      return null;
+    },
+    pumpWidget: goldenPumpWidget(
+      overrides: <Object>[..._overrides(), ..._reviewOverrides],
+      width: 414,
+    ),
+    builder: () => OwnerOwnProfileScreen(
+      embedded: true,
+      bottomNavBar: const VelvetBottomNavBar(
+        activeIndex: 3,
+        profileRoute: RouteNames.ownerMasterProfile,
+      ),
+      backLabel: _kBackLabel,
+      onBack: () {},
+    ),
+  );
+
   for (final double width in kGoldenWidths) {
     for (final double scale in kGoldenTextScales) {
       final String suffix = widthScaleSuffix(width, scale);
@@ -97,3 +155,24 @@ void main() {
     }
   }
 }
+
+final List<Object> _reviewOverrides = <Object>[
+  masterReviewSummaryProvider(_master.id).overrideWith(
+    (ref) async => const MasterReviewSummary(
+      avgRating: 4.8,
+      reviewCount: 1,
+      distribution: <int>[1, 0, 0, 0, 0],
+    ),
+  ),
+  masterReviewsProvider(_master.id, MasterReviewSort.newest).overrideWith(
+    (ref) async => <MasterReviewItem>[
+      MasterReviewItem(
+        id: 'r-1',
+        clientDisplayName: 'Ірина К.',
+        rating: 5,
+        comment: 'Чудова робота',
+        createdAt: DateTime(2026, 9, 1),
+      ),
+    ],
+  ),
+];
