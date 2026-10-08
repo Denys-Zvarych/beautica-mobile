@@ -9863,6 +9863,10 @@ final class FakeBackend {
   /// the whole point of a salon-wide board and the one field
   /// `SalonBookingsScreen.columnsFor` partitions on.
   ///
+  /// [serviceName] and [priceMaxAtBooking] are ADDITIVE opt-in knobs (dense
+  /// salon card, 2026-10-08): a long service name and a price band, defaulting
+  /// to the values every earlier caller already got («Манікюр», no band).
+  ///
   /// [providerCanReviewClient] and [awaitingClosure] are ADDITIVE (phase 345
   /// D3) and both default to the value every pre-345 caller already got
   /// (`false`), so no existing board fixture changes shape. They exist for the
@@ -9895,6 +9899,8 @@ final class FakeBackend {
     String clientLastName = 'Іванюк',
     bool providerCanReviewClient = false,
     bool awaitingClosure = false,
+    String serviceName = 'Манікюр',
+    num? priceMaxAtBooking,
   }) => <String, dynamic>{
     'id': id,
     'masterId': masterId,
@@ -9906,7 +9912,7 @@ final class FakeBackend {
     'clientLastName': clientLastName,
     'salonName': 'Салон Оксани',
     'masterServiceId': 'pub-assign-1',
-    'serviceName': 'Манікюр',
+    'serviceName': serviceName,
     'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
@@ -9914,7 +9920,7 @@ final class FakeBackend {
     'buildingNo': '12',
     'durationMinutesAtBooking': duration.inMinutes,
     'priceAtBooking': bookingPrice,
-    'priceMaxAtBooking': null,
+    'priceMaxAtBooking': priceMaxAtBooking,
     'startsAt': startsAt.toIso8601String(),
     'endsAt': startsAt.add(duration).toIso8601String(),
     'status': status,

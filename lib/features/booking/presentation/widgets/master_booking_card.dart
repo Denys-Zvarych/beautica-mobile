@@ -504,10 +504,16 @@ class MasterBookingCard extends StatefulWidget {
     this.onReview,
     this.now,
     this.showMasterAttribution = false,
+    this.dense = false,
   }) : assert(
          onComplete == null || now != null,
          'A caller that offers «Виконано» must also supply `now` (from '
          'clockProvider) — the start-time gate cannot be evaluated without it.',
+       ),
+       assert(
+         !(dense && showMasterAttribution),
+         'The dense (salon-board) layout has no master-attribution row — the '
+         'board\'s columns are already per master.',
        );
 
   final Booking booking;
@@ -677,6 +683,44 @@ class MasterBookingCard extends StatefulWidget {
   /// that leaves this `false` — which is every timeline/declared-times
   /// caller, i.e. every caller whose layout math reads them.
   final bool showMasterAttribution;
+
+  /// The DENSE layout, for the salon «Записи» board (`TimelineDensity.salon`,
+  /// 136-148dp lanes — `BookingsTimelineGrid` passes
+  /// `TimelineDensity.denseCards`). `false` (the default, and every other
+  /// call site) renders the card exactly as before.
+  ///
+  /// A plain bool, deliberately NOT a `LayoutBuilder` on the lane width: the
+  /// card must stay intrinsic-safe (see [_MasterBookingCardState
+  /// ._buildCompactBody]'s row 2 note). The standard rows were budgeted for
+  /// 203-272dp lanes; at ~113dp of inner width the service name got ~0dp, the
+  /// surname ellipsized and the price pill was FittedBox-shrunk. Dense mode
+  /// gives every field its own full-width line instead:
+  ///
+  ///  * COMPACT — client name (fixed 2-line slot) + status dot / hairline /
+  ///    service (1 line) / price pill alone on a row. The time range is
+  ///    dropped (the board's ruler and gridlines already encode it).
+  ///  * FULL — avatar + client name (fixed 2-line slot) / hairline / service
+  ///    (fixed 2-line slot) / price pill + status dot on a row (the labelled
+  ///    badge replaces both when the booking owes nothing). The time range is
+  ///    dropped, as in compact: the ruler encodes it, and its row is what
+  ///    keeps a 90-minute card (126dp floor) from outgrowing its band. Horizontal padding is 10dp, not 16.
+  ///  * The price uses [VelvetText.masterCardPricePillDense] (12 sp).
+  ///  * MICRO is unchanged (it has no name or price by design).
+  ///
+  /// Heights: [denseCompactNaturalHeight] / [denseFullNaturalHeight] feed
+  /// [occupiedHeightFor]`(dense: true)` and are EXACT for any content: the
+  /// client name always occupies a reserved two-line slot ([_FixedLinesText])
+  /// the full layout's service gets the same slot (the compact service is a
+  /// single ellipsized line), so nothing can wrap past the prediction.
+  final bool dense;
+
+  /// DENSE compact body natural height at textScaler 1.0 (reserved 2-line name).
+  /// Measured — pinned by `master_booking_card_layout_height_test.dart`.
+  static const double denseCompactNaturalHeight = 81;
+
+  /// DENSE full body natural height at textScaler 1.0 (reserved 2-line name and
+  /// service slots). Measured — pinned by the same test.
+  static const double denseFullNaturalHeight = 125;
 
   /// The COMPACT body's EXACT natural rendered height at textScaler 1.0 (see
   /// the derivation below) — the middle of this card's three naturals,
@@ -893,14 +937,17 @@ class MasterBookingCard extends StatefulWidget {
   /// forbids) — it predicts, it never constrains.
   ///
   /// Valid at textScaler 1.0 only — see [fullLayoutNaturalHeight].
-  static double occupiedHeightFor(double minHeight) {
+  ///
+  /// [dense] selects the salon-board naturals ([denseFullNaturalHeight] /
+  /// [denseCompactNaturalHeight]); the layout THRESHOLDS are shared.
+  static double occupiedHeightFor(double minHeight, {bool dense = false}) {
     final double natural;
     if (minHeight >= fullLayoutMinHeight) {
-      natural = fullLayoutNaturalHeight;
+      natural = dense ? denseFullNaturalHeight : fullLayoutNaturalHeight;
     } else if (minHeight < microLayoutMaxHeight) {
       natural = microLayoutNaturalHeight;
     } else {
-      natural = estimatedNaturalHeight;
+      natural = dense ? denseCompactNaturalHeight : estimatedNaturalHeight;
     }
     return math.max(minHeight, natural);
   }
@@ -971,6 +1018,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// subtree AND have it skipped wholesale by Flutter's `identical()`
   /// short-circuit in `updateChild`.
   bool? _fullBodyContentCacheAttribution;
+  bool? _fullBodyContentCacheDense;
 
   /// The card's two decoration states, hoisted out of [build] (mobile-perf
   /// MEDIUM-4): `build()` reruns on every press
@@ -1109,6 +1157,23 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
   /// file transcribes literally per the design-source-of-truth rule.
   static const EdgeInsets _fullPadding = EdgeInsets.all(VelvetSpacing.md);
 
+  /// DENSE full padding — 10dp horizontally (the compact padding's value),
+  /// buying 12dp of inner width on a 136-148dp lane.
+  static const EdgeInsets _denseFullPadding = EdgeInsets.symmetric(
+    horizontal: VelvetSpacing.sm + 2,
+    vertical: VelvetSpacing.sm + 2,
+  );
+
+  /// Dense compact gaps: 3dp around the hairline, 2dp above the price row —
+  /// what keeps the compact body at or under a 60-minute salon floor (84dp),
+  /// so back-to-back hourly cards do not drift off the ruler.
+  static const double _kDenseGap = 3;
+
+  /// Dense full gaps around the hairline (5dp) — keeps the full body at or
+  /// under a 90-minute salon floor (126dp).
+  static const double _kDenseFullGap = 5;
+  static const double _kDenseTightGap = 2;
+
   /// Compact layout padding — unchanged from the pre-adaptive-pass card.
   static const EdgeInsets _compactPadding = EdgeInsets.symmetric(
     horizontal: VelvetSpacing.sm + 2,
@@ -1198,7 +1263,7 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
             // rather than the box's resolved `BoxConstraints` at build
             // time.
             padding: layout == _MasterCardLayout.full
-                ? _fullPadding
+                ? (widget.dense ? _denseFullPadding : _fullPadding)
                 : _compactPadding,
             child: switch (layout) {
               // `l10n` is passed down rather than re-resolved inside: the
@@ -1207,7 +1272,10 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
               // this method already did — twice on a row that stacks both
               // (mobile-perf INFO, 2026-08-17).
               _MasterCardLayout.full => _buildFullBody(b, clientName, l10n),
-              _MasterCardLayout.compact => _buildCompactBody(b, clientName),
+              _MasterCardLayout.compact =>
+                widget.dense
+                    ? _buildDenseCompactBody(b, clientName)
+                    : _buildCompactBody(b, clientName),
               _MasterCardLayout.micro => _buildMicroBody(b),
             },
           ),
@@ -1271,6 +1339,126 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
         ),
         const SizedBox(width: VelvetSpacing.xs),
         TimelineStatusDot(booking: b),
+      ],
+    );
+  }
+
+  /// The DENSE compact body (salon board) — see [MasterBookingCard.dense].
+  /// Row 1 gives the client name the whole width minus the status dot (the
+  /// range label that used to compete for it is dropped: the board's ruler
+  /// already says when); the hairline; the service on its own line; the price
+  /// pill on its own row at 12 sp so it is never FittedBox-shrunk.
+  Widget _buildDenseCompactBody(Booking b, String clientName) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(
+              child: _FixedLinesText(
+                clientName,
+                style: VelvetText.masterCardClientName,
+                lines: 2,
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.xs),
+            TimelineStatusDot(booking: b),
+          ],
+        ),
+        const SizedBox(height: _kDenseGap),
+        Container(
+          key: Key('master-booking-card-compact-divider-${b.id}'),
+          height: 1,
+          color: BrandColors.faint,
+        ),
+        const SizedBox(height: _kDenseGap),
+        _FixedLinesText(b.serviceName, style: VelvetText.masterCardService),
+        const SizedBox(height: _kDenseTightGap),
+        _DenseFixedRow(
+          style: VelvetText.masterCardPricePillDense,
+          extra: 2 * _kCompactPriceVPad,
+          child: b.showsPrice
+              ? PriceTag(
+                  price: b.priceLabel,
+                  verticalPadding: _kCompactPriceVPad,
+                  style: VelvetText.masterCardPricePillDense,
+                )
+              : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+
+  /// The DENSE full body (salon board) — see [MasterBookingCard.dense].
+  Widget _buildDenseFullColumn(Booking b, String clientName) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            _ClientAvatarMark(avatarUrl: b.clientAvatarUrl),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(
+              child: _FixedLinesText(
+                clientName,
+                style: VelvetText.masterCardClientNameFull,
+                lines: 2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: _kDenseFullGap),
+        Container(
+          key: Key('master-booking-card-divider-${b.id}'),
+          height: 1,
+          color: BrandColors.faint,
+        ),
+        const SizedBox(height: _kDenseFullGap),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            const Icon(Icons.spa_outlined, size: 16, color: BrandColors.accent),
+            const SizedBox(width: VelvetSpacing.xs + 2),
+            Expanded(
+              child: _FixedLinesText(
+                b.serviceName,
+                style: VelvetText.masterCardServiceFull,
+                lines: 2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: VelvetSpacing.xs),
+        _DenseFixedRow(
+          style: VelvetText.masterCardPricePillDense,
+          extra: 2 * PriceTag.defaultVerticalPadding,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  // The labelled badge replaces the price when the booking
+                  // owes nothing, so the status is never doubled by the dot.
+                  child: b.showsPrice
+                      ? PriceTag(
+                          price: b.priceLabel,
+                          style: VelvetText.masterCardPricePillDense,
+                        )
+                      : TimelineStatusBadge(booking: b, verticalPadding: 3),
+                ),
+              ),
+              if (b.showsPrice) ...<Widget>[
+                const SizedBox(width: VelvetSpacing.xs),
+                TimelineStatusDot(booking: b),
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -1574,7 +1762,8 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     if (cached != null &&
         _fullBodyContentCacheBooking == b &&
         _fullBodyContentCacheClientName == clientName &&
-        _fullBodyContentCacheAttribution == attribute) {
+        _fullBodyContentCacheAttribution == attribute &&
+        _fullBodyContentCacheDense == widget.dense) {
       return cached;
     }
     // Phase 343 — the master-attribution row's own text, resolved ONCE here
@@ -1591,259 +1780,342 @@ class _MasterBookingCardState extends State<MasterBookingCard> {
     // it would spend 17dp of a card whose budget is already exact.
     final String masterName = b.masterName;
     final bool showAttribution = attribute && masterName.isNotEmpty;
-    final Widget content = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        // Row 1 — client identity: a `person_outlined` glyph leading the
-        // client's name.
-        //
-        // THE GLYPH TAKES THE 16dp/ACCENT REGISTER, NOT THE 12dp/MUTED ONE
-        // (2026-07-24)
-        // ---------------------------------------------------------------
-        // This body runs a TWO-TIER glyph system, and the tiers are about
-        // a field's RANK, not its row: 16dp in [BrandColors.accent] marks the
-        // field that OPENS a row and owns it (row 2's `spa_outlined` + the
-        // service name), 12dp in [BrandColors.muted] marks a trailing
-        // metadata cluster (row 2's `schedule_outlined` + the time range).
-        // The client name is this card's PRIMARY identity field — the whole
-        // reason the master is reading the row — so the muted register would
-        // have inverted the hierarchy outright, printing a fainter mark on
-        // the name than on the service below it. A third size (14dp, which
-        // would have fitted inside the name's 15dp line box and dodged the
-        // 1dp growth below) was rejected for the same reason it is tempting:
-        // three sizes across three fields stop reading as a system at all,
-        // and "it saves a constant bump" is not a design argument.
-        //
-        // IT ALSO BUYS A LEFT RAIL — the real gain, and not decoration.
-        // Rows 1 and 2 now open with a 16dp glyph at the same x, so their
-        // TEXT starts on one column (`16 + VelvetSpacing.sm` in from the
-        // padding edge) instead of the ragged left this body had, where the
-        // client name began hard against the padding and the service name
-        // 24dp inside it. The hairline now cuts across a two-column grid
-        // rather than a full-bleed block.
-        //
-        // COST, MEASURED: the glyph is 1dp taller than
-        // [VelvetText.masterCardClientNameFull]'s 15dp line box at textScaler
-        // 1.0, so it becomes this row's tallest child and moved
-        // [MasterBookingCard.fullLayoutNaturalHeight] 117 -> 118. `Icon` does
-        // NOT scale with `textScaler`, so at 1.15 (17dp line box) and 1.3
-        // (20dp) the text still wins and those two naturals are UNCHANGED at
-        // 124 / 132. See that constant's doc for the timeline consequence.
-        //
-        // The glyph is DECORATIVE: the client name is already announced by
-        // the card's `Semantics(label:)` (`masterBookingCardSemantics`), so
-        // `semanticLabel` is deliberately left null — naming it here would
-        // announce the same person twice.
-        //
-        // THE GLYPH IS NOW THE FALLBACK, NOT THE ONLY STATE (2026-07-24)
-        // ---------------------------------------------------------------
-        // The backend ships `clientAvatarUrl` on `BookingDetailResponse`, so
-        // when the booking's client has a photo it renders HERE, inside the
-        // very same 16dp box, and the `person_outlined` glyph above becomes
-        // the fallback for the four cases that have no usable photo. See
-        // [_ClientAvatarMark] for the size invariant, the https guard and the
-        // four states — the one thing that must never change is that this
-        // slot measures 16 × 16dp in EVERY state, because
-        // [MasterBookingCard.fullLayoutNaturalHeight] (118) has zero
-        // clearance at 59 minutes and only 2dp at 60.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            _ClientAvatarMark(avatarUrl: b.clientAvatarUrl),
-            const SizedBox(width: VelvetSpacing.sm),
-            // `Expanded`, because this is a `Row` now: an unbounded child
-            // would make `maxLines: 1` + `ellipsis` inert and let a long
-            // client name overflow instead of truncating.
-            Expanded(
-              child: Text(
-                clientName,
-                style: VelvetText.masterCardClientNameFull,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        // ROW 1b — WHICH MASTER PERFORMED IT (phase 343, opt-in). See
-        // [MasterBookingCard.showMasterAttribution].
-        //
-        // THIS IS THE DESIGN'S OWN ROW, NOT AN INVENTION. This file's
-        // "WHAT DID NOT COME BACK" header section records that the design's
-        // `BookingCard` (`docs/signup-designs/SalonManagementDesign/lib/
-        // widgets/booking_widgets.dart:226-248`, its "Row 1b") opens with a
-        // 42dp client avatar row AND a master-name row under it, and that
-        // NEITHER returns here because this card rendered the INDEPENDENT
-        // master's own bookings — "naming which teammate served the client
-        // (the master-name row's whole purpose) is meaningless". The salon
-        // archive is the first host that DOES have teammates, so this is
-        // that row arriving for its stated purpose, gated so the hosts the
-        // original reasoning covered are untouched. The 42dp avatar ROW
-        // still does not come back, and neither does a master avatar.
-        //
-        // TRANSCRIBED FROM THE DESIGN, WITH TWO DELIBERATE SUBSTITUTIONS:
-        //   * INDENT — the design offsets by its own `46 + VelvetSpacing.sm
-        //     + 2` (its 42dp avatar plus that card's wider gap). Ours is
-        //     `_ClientAvatarMark._kSize + VelvetSpacing.sm`, the identical
-        //     intent against THIS card's 16dp mark: the master's name starts
-        //     on the same x as the client's, so it reads as subordinate to
-        //     that name rather than as a new row of its own.
-        //   * GLYPH SIZE — the design's is 13dp. This body runs a documented
-        //     TWO-TIER glyph system (see row 1's comment): 16dp/accent for
-        //     the field that OWNS a row, 12dp/muted for a trailing metadata
-        //     cluster. A third size is exactly what that comment rejects, so
-        //     the design's glyph IDENTITY (`person_outline_rounded`) is kept
-        //     and its size is snapped to this card's muted tier.
-        //
-        // MUTED, NOT ACCENT, AND THAT IS THE WHOLE POINT. The card's primary
-        // identity field is the CLIENT — the person the master is scanning
-        // the row for. Rendering the performing master in the same register
-        // would give the row two competing identities. It is answering
-        // "whose booking was this", which is metadata about the row, so it
-        // takes [VelvetText.masterCardDateFull] — the FULL layout's existing
-        // muted caption recipe, the same one row 2's time range uses. No new
-        // token: a fourth 10sp muted recipe would be three tokens that must
-        // be kept in sync by hand.
-        //
-        // NOT LOCALIZED, and `no_raw_ui_strings` is unaffected: an
-        // interpolated first+last name is DATA, the same shape the salon
-        // board's own column strip already prints.
-        if (showAttribution) ...<Widget>[
-          const SizedBox(height: _kAttributionGap),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+    final Widget content = widget.dense
+        ? _buildDenseFullColumn(b, clientName)
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              const SizedBox(
-                width: _ClientAvatarMark._kSize + VelvetSpacing.sm,
+              // Row 1 — client identity: a `person_outlined` glyph leading the
+              // client's name.
+              //
+              // THE GLYPH TAKES THE 16dp/ACCENT REGISTER, NOT THE 12dp/MUTED ONE
+              // (2026-07-24)
+              // ---------------------------------------------------------------
+              // This body runs a TWO-TIER glyph system, and the tiers are about
+              // a field's RANK, not its row: 16dp in [BrandColors.accent] marks the
+              // field that OPENS a row and owns it (row 2's `spa_outlined` + the
+              // service name), 12dp in [BrandColors.muted] marks a trailing
+              // metadata cluster (row 2's `schedule_outlined` + the time range).
+              // The client name is this card's PRIMARY identity field — the whole
+              // reason the master is reading the row — so the muted register would
+              // have inverted the hierarchy outright, printing a fainter mark on
+              // the name than on the service below it. A third size (14dp, which
+              // would have fitted inside the name's 15dp line box and dodged the
+              // 1dp growth below) was rejected for the same reason it is tempting:
+              // three sizes across three fields stop reading as a system at all,
+              // and "it saves a constant bump" is not a design argument.
+              //
+              // IT ALSO BUYS A LEFT RAIL — the real gain, and not decoration.
+              // Rows 1 and 2 now open with a 16dp glyph at the same x, so their
+              // TEXT starts on one column (`16 + VelvetSpacing.sm` in from the
+              // padding edge) instead of the ragged left this body had, where the
+              // client name began hard against the padding and the service name
+              // 24dp inside it. The hairline now cuts across a two-column grid
+              // rather than a full-bleed block.
+              //
+              // COST, MEASURED: the glyph is 1dp taller than
+              // [VelvetText.masterCardClientNameFull]'s 15dp line box at textScaler
+              // 1.0, so it becomes this row's tallest child and moved
+              // [MasterBookingCard.fullLayoutNaturalHeight] 117 -> 118. `Icon` does
+              // NOT scale with `textScaler`, so at 1.15 (17dp line box) and 1.3
+              // (20dp) the text still wins and those two naturals are UNCHANGED at
+              // 124 / 132. See that constant's doc for the timeline consequence.
+              //
+              // The glyph is DECORATIVE: the client name is already announced by
+              // the card's `Semantics(label:)` (`masterBookingCardSemantics`), so
+              // `semanticLabel` is deliberately left null — naming it here would
+              // announce the same person twice.
+              //
+              // THE GLYPH IS NOW THE FALLBACK, NOT THE ONLY STATE (2026-07-24)
+              // ---------------------------------------------------------------
+              // The backend ships `clientAvatarUrl` on `BookingDetailResponse`, so
+              // when the booking's client has a photo it renders HERE, inside the
+              // very same 16dp box, and the `person_outlined` glyph above becomes
+              // the fallback for the four cases that have no usable photo. See
+              // [_ClientAvatarMark] for the size invariant, the https guard and the
+              // four states — the one thing that must never change is that this
+              // slot measures 16 × 16dp in EVERY state, because
+              // [MasterBookingCard.fullLayoutNaturalHeight] (118) has zero
+              // clearance at 59 minutes and only 2dp at 60.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  _ClientAvatarMark(avatarUrl: b.clientAvatarUrl),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  // `Expanded`, because this is a `Row` now: an unbounded child
+                  // would make `maxLines: 1` + `ellipsis` inert and let a long
+                  // client name overflow instead of truncating.
+                  Expanded(
+                    child: Text(
+                      clientName,
+                      style: VelvetText.masterCardClientNameFull,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
-              const Icon(
-                Icons.person_outline_rounded,
-                size: 12,
-                color: BrandColors.muted,
-              ),
-              const SizedBox(width: VelvetSpacing.xs),
-              // `Expanded` for the same reason row 1's name has it: an
-              // unbounded child makes `maxLines: 1` + `ellipsis` inert and
-              // lets a long name overflow instead of truncating.
-              Expanded(
-                child: Text(
-                  masterName,
-                  key: Key('master-booking-card-master-${b.id}'),
-                  style: VelvetText.masterCardDateFull,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        ],
-        const SizedBox(height: VelvetSpacing.sm + 2),
-        // The hairline divider — its canonical role in the design is
-        // separating the client-identity row above from the service/booking
-        // detail below.
-        Container(
-          key: Key('master-booking-card-divider-${b.id}'),
-          height: 1,
-          color: BrandColors.faint,
-        ),
-        const SizedBox(height: VelvetSpacing.sm + 2),
-        // Row 2 — service name (below the divider, per design) + the booking's
-        // start–end time range (via the shared `formatSlotTimeRange`
-        // formatter — never hand-rolled, see
-        // `shared/formatters/booking_date_labels.dart`). NO DATE: this screen
-        // is day-scoped (`bookingsDayProvider` fetches exactly one Kyiv day)
-        // and the day rail above the timeline already names the day, so a
-        // per-card date was redundant chrome. The range reads NARROWER than
-        // the "12 лип, 14:30" caption it replaced, so this row gained margin.
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            const Icon(Icons.spa_outlined, size: 16, color: BrandColors.accent),
-            const SizedBox(width: VelvetSpacing.sm),
-            Expanded(
-              child: Text(
-                b.serviceName,
-                style: VelvetText.masterCardServiceFull,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: VelvetSpacing.sm),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(
-                  Icons.schedule_outlined,
-                  size: 12,
-                  color: BrandColors.muted,
-                ),
-                const SizedBox(width: 3),
-                Text(
-                  formatSlotTimeRange(b.startAt, b.endAt),
-                  style: VelvetText.masterCardDateFull,
+              // ROW 1b — WHICH MASTER PERFORMED IT (phase 343, opt-in). See
+              // [MasterBookingCard.showMasterAttribution].
+              //
+              // THIS IS THE DESIGN'S OWN ROW, NOT AN INVENTION. This file's
+              // "WHAT DID NOT COME BACK" header section records that the design's
+              // `BookingCard` (`docs/signup-designs/SalonManagementDesign/lib/
+              // widgets/booking_widgets.dart:226-248`, its "Row 1b") opens with a
+              // 42dp client avatar row AND a master-name row under it, and that
+              // NEITHER returns here because this card rendered the INDEPENDENT
+              // master's own bookings — "naming which teammate served the client
+              // (the master-name row's whole purpose) is meaningless". The salon
+              // archive is the first host that DOES have teammates, so this is
+              // that row arriving for its stated purpose, gated so the hosts the
+              // original reasoning covered are untouched. The 42dp avatar ROW
+              // still does not come back, and neither does a master avatar.
+              //
+              // TRANSCRIBED FROM THE DESIGN, WITH TWO DELIBERATE SUBSTITUTIONS:
+              //   * INDENT — the design offsets by its own `46 + VelvetSpacing.sm
+              //     + 2` (its 42dp avatar plus that card's wider gap). Ours is
+              //     `_ClientAvatarMark._kSize + VelvetSpacing.sm`, the identical
+              //     intent against THIS card's 16dp mark: the master's name starts
+              //     on the same x as the client's, so it reads as subordinate to
+              //     that name rather than as a new row of its own.
+              //   * GLYPH SIZE — the design's is 13dp. This body runs a documented
+              //     TWO-TIER glyph system (see row 1's comment): 16dp/accent for
+              //     the field that OWNS a row, 12dp/muted for a trailing metadata
+              //     cluster. A third size is exactly what that comment rejects, so
+              //     the design's glyph IDENTITY (`person_outline_rounded`) is kept
+              //     and its size is snapped to this card's muted tier.
+              //
+              // MUTED, NOT ACCENT, AND THAT IS THE WHOLE POINT. The card's primary
+              // identity field is the CLIENT — the person the master is scanning
+              // the row for. Rendering the performing master in the same register
+              // would give the row two competing identities. It is answering
+              // "whose booking was this", which is metadata about the row, so it
+              // takes [VelvetText.masterCardDateFull] — the FULL layout's existing
+              // muted caption recipe, the same one row 2's time range uses. No new
+              // token: a fourth 10sp muted recipe would be three tokens that must
+              // be kept in sync by hand.
+              //
+              // NOT LOCALIZED, and `no_raw_ui_strings` is unaffected: an
+              // interpolated first+last name is DATA, the same shape the salon
+              // board's own column strip already prints.
+              if (showAttribution) ...<Widget>[
+                const SizedBox(height: _kAttributionGap),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: <Widget>[
+                    const SizedBox(
+                      width: _ClientAvatarMark._kSize + VelvetSpacing.sm,
+                    ),
+                    const Icon(
+                      Icons.person_outline_rounded,
+                      size: 12,
+                      color: BrandColors.muted,
+                    ),
+                    const SizedBox(width: VelvetSpacing.xs),
+                    // `Expanded` for the same reason row 1's name has it: an
+                    // unbounded child makes `maxLines: 1` + `ellipsis` inert and
+                    // lets a long name overflow instead of truncating.
+                    Expanded(
+                      child: Text(
+                        masterName,
+                        key: Key('master-booking-card-master-${b.id}'),
+                        style: VelvetText.masterCardDateFull,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ),
-          ],
-        ),
-        const SizedBox(height: VelvetSpacing.xs + 2),
-        // Row 3 — price (left) + status badge (right). See
-        // `BookingDisplayX.showsPrice`: a cancelled, declined or missed
-        // appointment owes nothing, so printing a sum on it would assert a
-        // debt that does not exist — the badge alone still renders, pushed
-        // right by the `Spacer` in that branch.
-        //
-        // THE PRICE IS `Expanded` + LEFT-ALIGNED, NOT A NON-FLEX PILL BESIDE
-        // A `Spacer` (226dp narrow-lane pass, 2026-07-21)
-        // ---------------------------------------------------------------
-        // This row used to be `PriceTag` + `Spacer` + badge, i.e. TWO
-        // non-flex children either side of the flex. A `Row` lays non-flex
-        // children out unbounded, so neither could ever see how little room
-        // the row had: on the narrowest real lane (226dp → 191dp of inner
-        // width here, this layout's padding being 16 not 10) a capped 112dp
-        // band plus the badge overflowed by 6.6px at textScaler 1.0, 16px at
-        // 1.15 and 26px at 1.3. Hiding the pill cleared it; shrinking the
-        // service name above did not — so it is the pill's non-flex contract
-        // that had to give, NOT the type scale.
-        //
-        // `Expanded` + `Align` is what gives it: the badge (short, and the
-        // one thing on this row that must stay fully legible) keeps its
-        // intrinsic width, the price then gets ALL the remaining width as a
-        // real bounded constraint, and [PriceTag]'s inner `Flexible` scales
-        // the band into it. `Align(centerLeft)` reproduces the retired
-        // `Spacer`'s visual result exactly — pill hard left, badge hard
-        // right — with the leftover living inside the `Expanded` instead of
-        // in a sibling. No reserve is needed here — nothing else on this row
-        // competes for that space (and the compact row's own reserve is gone
-        // too; see the note where it used to be declared).
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: <Widget>[
-            if (b.showsPrice)
-              Expanded(
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: PriceTag(
-                    price: b.priceLabel,
-                    style: VelvetText.masterCardPricePill,
+              const SizedBox(height: VelvetSpacing.sm + 2),
+              // The hairline divider — its canonical role in the design is
+              // separating the client-identity row above from the service/booking
+              // detail below.
+              Container(
+                key: Key('master-booking-card-divider-${b.id}'),
+                height: 1,
+                color: BrandColors.faint,
+              ),
+              const SizedBox(height: VelvetSpacing.sm + 2),
+              // Row 2 — service name (below the divider, per design) + the booking's
+              // start–end time range (via the shared `formatSlotTimeRange`
+              // formatter — never hand-rolled, see
+              // `shared/formatters/booking_date_labels.dart`). NO DATE: this screen
+              // is day-scoped (`bookingsDayProvider` fetches exactly one Kyiv day)
+              // and the day rail above the timeline already names the day, so a
+              // per-card date was redundant chrome. The range reads NARROWER than
+              // the "12 лип, 14:30" caption it replaced, so this row gained margin.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  const Icon(
+                    Icons.spa_outlined,
+                    size: 16,
+                    color: BrandColors.accent,
                   ),
-                ),
-              )
-            else
-              const Spacer(),
-            // v-pad 3dp per the design's own `BookingStatusBadge` — the
-            // compact timeline row keeps the tighter 2dp default (its own
-            // budget is far smaller); see [TimelineStatusBadge.verticalPadding].
-            TimelineStatusBadge(booking: b, verticalPadding: 3),
-          ],
-        ),
-      ],
-    );
+                  const SizedBox(width: VelvetSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      b.serviceName,
+                      style: VelvetText.masterCardServiceFull,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: VelvetSpacing.sm),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(
+                        Icons.schedule_outlined,
+                        size: 12,
+                        color: BrandColors.muted,
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        formatSlotTimeRange(b.startAt, b.endAt),
+                        style: VelvetText.masterCardDateFull,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: VelvetSpacing.xs + 2),
+              // Row 3 — price (left) + status badge (right). See
+              // `BookingDisplayX.showsPrice`: a cancelled, declined or missed
+              // appointment owes nothing, so printing a sum on it would assert a
+              // debt that does not exist — the badge alone still renders, pushed
+              // right by the `Spacer` in that branch.
+              //
+              // THE PRICE IS `Expanded` + LEFT-ALIGNED, NOT A NON-FLEX PILL BESIDE
+              // A `Spacer` (226dp narrow-lane pass, 2026-07-21)
+              // ---------------------------------------------------------------
+              // This row used to be `PriceTag` + `Spacer` + badge, i.e. TWO
+              // non-flex children either side of the flex. A `Row` lays non-flex
+              // children out unbounded, so neither could ever see how little room
+              // the row had: on the narrowest real lane (226dp → 191dp of inner
+              // width here, this layout's padding being 16 not 10) a capped 112dp
+              // band plus the badge overflowed by 6.6px at textScaler 1.0, 16px at
+              // 1.15 and 26px at 1.3. Hiding the pill cleared it; shrinking the
+              // service name above did not — so it is the pill's non-flex contract
+              // that had to give, NOT the type scale.
+              //
+              // `Expanded` + `Align` is what gives it: the badge (short, and the
+              // one thing on this row that must stay fully legible) keeps its
+              // intrinsic width, the price then gets ALL the remaining width as a
+              // real bounded constraint, and [PriceTag]'s inner `Flexible` scales
+              // the band into it. `Align(centerLeft)` reproduces the retired
+              // `Spacer`'s visual result exactly — pill hard left, badge hard
+              // right — with the leftover living inside the `Expanded` instead of
+              // in a sibling. No reserve is needed here — nothing else on this row
+              // competes for that space (and the compact row's own reserve is gone
+              // too; see the note where it used to be declared).
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  if (b.showsPrice)
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: PriceTag(
+                          price: b.priceLabel,
+                          style: VelvetText.masterCardPricePill,
+                        ),
+                      ),
+                    )
+                  else
+                    const Spacer(),
+                  // v-pad 3dp per the design's own `BookingStatusBadge` — the
+                  // compact timeline row keeps the tighter 2dp default (its own
+                  // budget is far smaller); see [TimelineStatusBadge.verticalPadding].
+                  TimelineStatusBadge(booking: b, verticalPadding: 3),
+                ],
+              ),
+            ],
+          );
     _fullBodyContentCache = content;
     _fullBodyContentCacheBooking = b;
     _fullBodyContentCacheClientName = clientName;
     _fullBodyContentCacheAttribution = attribute;
+    _fullBodyContentCacheDense = widget.dense;
     return content;
+  }
+}
+
+/// Line-height multiple used when a slot's style carries no explicit `height`
+/// (the client-name tokens inherit the font's own metrics, which cannot be
+/// computed without a layout pass).
+const double _kSlotFallbackLineHeight = 1.15;
+
+/// One line box of [style] under the ambient text scaler, in WHOLE dp:
+/// `ceil(scaledFontSize x lineHeight)`. Font-independent: it reads only the
+/// style's size and (explicit or fallback) height multiple, never the font's
+/// ascent/descent. Whole dp so a dense card's height is never fractional.
+double _fixedLineHeight(BuildContext context, TextStyle style) {
+  final double fontSize = style.fontSize ?? 14;
+  final double lineHeight = style.height ?? _kSlotFallbackLineHeight;
+  return (MediaQuery.textScalerOf(context).scale(fontSize) * lineHeight)
+      .ceilToDouble();
+}
+
+/// A text that ALWAYS occupies exactly [lines] lines of [style]: `maxLines:
+/// lines` + ellipsis inside a fixed `SizedBox` of `lines x _fixedLineHeight`,
+/// with a forced strut so every line box is exactly that tall whatever font
+/// renders. A one-line name and a wrapped one therefore render the SAME
+/// height, which keeps [MasterBookingCard.occupiedHeightFor]`(dense: true)`
+/// exact on every device. Used by the DENSE bodies only.
+class _FixedLinesText extends StatelessWidget {
+  const _FixedLinesText(this.text, {required this.style, this.lines = 1});
+
+  final String text;
+  final TextStyle style;
+  final int lines;
+
+  @override
+  Widget build(BuildContext context) {
+    final double line = _fixedLineHeight(context, style);
+    return SizedBox(
+      height: line * lines,
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: style,
+          strutStyle: StrutStyle.fromTextStyle(
+            style,
+            height: style.height ?? _kSlotFallbackLineHeight,
+            forceStrutHeight: true,
+          ),
+          maxLines: lines,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+}
+
+/// A dense row of FIXED height, `_fixedLineHeight(style) + extra`, so the
+/// price/status row never depends on the font that renders the pill. [extra]
+/// is the pill's own vertical padding (2 x `PriceTag` v-pad). The child is
+/// left-aligned and centred vertically inside it.
+class _DenseFixedRow extends StatelessWidget {
+  const _DenseFixedRow({
+    required this.style,
+    required this.extra,
+    required this.child,
+  });
+
+  final TextStyle style;
+  final double extra;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _fixedLineHeight(context, style) + extra,
+      child: Align(alignment: Alignment.centerLeft, child: child),
+    );
   }
 }
 

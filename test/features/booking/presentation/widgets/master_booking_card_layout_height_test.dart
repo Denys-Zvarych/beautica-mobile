@@ -52,7 +52,7 @@ import '../../../../helpers/pump_app.dart';
 /// would still be a needless source of run-to-run variance (the rendered
 /// «09:00–10:00» range is 1-2 glyphs wider or narrower depending on the hour
 /// it lands on, and the compact layout's row 1 is width-sensitive).
-Booking _booking({required int durationMinutes}) {
+Booking _booking({required int durationMinutes, String? serviceName}) {
   // This file measures HEIGHTS only, and `MasterBookingCard` renders nothing
   // off `BookingDisplayX.isPast` (the status indicator maps from
   // `booking.status` alone, `showsPrice` is a pure status predicate), so
@@ -73,7 +73,8 @@ Booking _booking({required int durationMinutes}) {
     // band. If the card's height were content-sensitive at all, this is the
     // fixture that would expose it — and the whole prediction would be
     // unsound, not merely mis-tuned.
-    serviceName: 'Комплексний догляд за волоссям з ботоксом та укладкою',
+    serviceName:
+        serviceName ?? 'Комплексний догляд за волоссям з ботоксом та укладкою',
     durationMinutes: durationMinutes,
     price: 12500,
     priceMax: 25000,
@@ -88,8 +89,8 @@ Booking _booking({required int durationMinutes}) {
 /// hands the card. Duplicated rather than exported: the grid's copy is a
 /// private implementation detail, and a test that silently followed a change
 /// to it would stop pinning the pairing this file exists for.
-double _floorFor(int durationMinutes) {
-  const double hourHeight = 120; // `BookingsTimelineGrid._kHourH` (ADDENDUM 8)
+double _floorFor(int durationMinutes, {double hourHeight = 120}) {
+  // `BookingsTimelineGrid._kHourH` (ADDENDUM 8)
   final double proportional = durationMinutes / 60.0 * hourHeight;
   // Floored at the MICRO layout's natural height, DECOUPLED from the
   // 30-minute gridline slot — mirrors production `_cardMinHeightFor`.
@@ -110,15 +111,21 @@ Future<double> _renderedHeight(
   required double floor,
   required double laneWidth,
   double textScale = 1.0,
+  bool dense = false,
+  String? serviceName,
 }) async {
   await tester.pumpApp(
     Center(
       child: SizedBox(
         width: laneWidth,
         child: MasterBookingCard(
-          booking: _booking(durationMinutes: durationMinutes),
+          booking: _booking(
+            durationMinutes: durationMinutes,
+            serviceName: serviceName,
+          ),
           onTap: () {},
           minHeight: floor,
+          dense: dense,
         ),
       ),
     ),
@@ -328,6 +335,55 @@ void main() {
                 'that change on this test alone.',
           );
         },
+      );
+    },
+  );
+
+  group('dense (salon board) prediction matches the rendered box', () {
+    // Salon hour height: 120 * TimelineDensity.salonScale.
+    const double salonHour = 84;
+    for (final int durationMinutes in <int>[10, 30, 45, 60, 85, 90, 120]) {
+      for (final double laneWidth in <double>[136, 148]) {
+        testWidgets('$durationMinutes min at ${laneWidth}dp', (
+          WidgetTester tester,
+        ) async {
+          final double floor = _floorFor(
+            durationMinutes,
+            hourHeight: salonHour,
+          );
+          final double rendered = await _renderedHeight(
+            tester,
+            durationMinutes: durationMinutes,
+            floor: floor,
+            laneWidth: laneWidth,
+            dense: true,
+            // One-line content: the dense prediction is exact for it. A
+            // wrapped service/name grows the box (never clips) — covered below.
+            serviceName: 'Манікюр',
+          );
+          expect(
+            MasterBookingCard.occupiedHeightFor(floor, dense: true),
+            closeTo(rendered, 0.01),
+          );
+        });
+      }
+    }
+  });
+
+  testWidgets(
+    'dense: a long (wrapping) service name does not change the predicted box',
+    (WidgetTester tester) async {
+      final double floor = _floorFor(90, hourHeight: 84);
+      final double rendered = await _renderedHeight(
+        tester,
+        durationMinutes: 90,
+        floor: floor,
+        laneWidth: 136,
+        dense: true,
+      );
+      expect(
+        rendered,
+        closeTo(MasterBookingCard.occupiedHeightFor(floor, dense: true), 0.01),
       );
     },
   );

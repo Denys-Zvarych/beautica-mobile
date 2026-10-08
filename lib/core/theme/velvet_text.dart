@@ -1721,6 +1721,19 @@ abstract final class VelvetText {
     fontSize: 10.2,
   );
 
+  /// The price figure on the DENSE salon-board card ([MasterBookingCard.dense],
+  /// `TimelineDensity.salon`). 12 sp — [masterCardPricePill]'s 10.2 sp was
+  /// unreadable on a 136-148dp lane, where the dense layout gives the pill a
+  /// row of its own so it no longer has to share (and shrink for) the status
+  /// badge. A separate token, not a bump of [masterCardPricePill], so every
+  /// non-dense card renders byte-identically.
+  static final TextStyle masterCardPricePillDense = _pillStyle.copyWith(
+    fontSize: 12,
+    // Explicit, so the pill's line box (and the dense card's price row, which
+    // is sized from it) does not depend on the font's own metrics.
+    height: 1.2,
+  );
+
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
   // pass above): `MasterBookingCard` now renders a FULLER layout (client
   // name → divider → service+date → price+status) whenever its box is tall

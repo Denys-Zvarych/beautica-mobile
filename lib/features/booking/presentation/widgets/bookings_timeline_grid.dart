@@ -1847,6 +1847,7 @@ class _BookingsTimelineGridState extends State<BookingsTimelineGrid> {
           originMinute: originMinute,
           hourHeight: hourHeight,
           maxTopPx: maxTopPx,
+          dense: widget.density.denseCards,
         ),
     ];
     for (int i = 0; i < _columnModels.length; i++) {
@@ -3014,6 +3015,7 @@ class _BoardStackState extends State<_BoardStack> {
                             visibleTop: band.$1,
                             visibleBottom: band.$2,
                             onBookingTap: widget.onBookingTap,
+                            dense: widget.density.denseCards,
                           );
                         },
                   ),
@@ -3042,6 +3044,7 @@ class _LaneColumn extends StatefulWidget {
     required this.onBookingTap,
     super.key,
     this.visibleTop = double.negativeInfinity,
+    this.dense = false,
   });
 
   /// The FULL day's bookings — [geometry] selects this lane's subset by
@@ -3070,6 +3073,10 @@ class _LaneColumn extends StatefulWidget {
   final double visibleTop;
 
   final ValueChanged<Booking> onBookingTap;
+
+  /// Hands [MasterBookingCard.dense] to every card (the salon board only);
+  /// its height is deterministic, so [_CardGeometry.occupiedHeight] stays exact.
+  final bool dense;
 
   @override
   State<_LaneColumn> createState() => _LaneColumnState();
@@ -3202,6 +3209,7 @@ class _LaneColumnState extends State<_LaneColumn> {
                           () => widget.onBookingTap(booking),
                     ),
                     minHeight: geo.minHeight,
+                    dense: widget.dense,
                   ),
                 ),
               ),
@@ -3296,6 +3304,7 @@ List<_CardGeometry> _geometryForLane({
   required int originMinute,
   required double hourHeight,
   required double maxTopPx,
+  bool dense = false,
 }) {
   final List<_CardGeometry> geometry = <_CardGeometry>[];
   double plannedBottom = 0;
@@ -3313,6 +3322,7 @@ List<_CardGeometry> _geometryForLane({
     );
     final double occupiedHeight = MasterBookingCard.occupiedHeightFor(
       minHeight,
+      dense: dense,
     );
 
     // `max(0, ...)`, NOT `max(<some cosmetic gap>, ...)` — see the note where
@@ -3390,6 +3400,7 @@ _ColumnModel _modelForColumn({
   required int originMinute,
   required double hourHeight,
   required double maxTopPx,
+  bool dense = false,
 }) {
   final List<Booking> bookings = column.bookings;
   final List<int> startMinutes = <int>[
@@ -3413,6 +3424,7 @@ _ColumnModel _modelForColumn({
         originMinute: originMinute,
         hourHeight: hourHeight,
         maxTopPx: maxTopPx,
+        dense: dense,
       ),
   ];
   double bottom = 0;
