@@ -420,6 +420,7 @@ final class FakeBackend {
     this.deleteServiceDelay,
     this.forgotPasswordFailureStatusCode,
     this.mediaAvatarUploadStatus,
+    this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -2347,6 +2348,64 @@ final class FakeBackend {
   /// actually dispatched against `salon-xyz`/`master-removable`.
   int getSalonAdminMasterServicesCalls = 0;
   String? lastSalonAdminMasterServicesPath;
+
+  // ── Phase 377 (24.4) — owner-performed service identity lock (opt-in) ─────
+  //
+  // Backend 345: a SALON_ADMIN gets 403 on the shared-definition PATCH for a
+  // definition the salon OWNER actively performs. The app learns the owner's
+  // set from the `/staff` roster (the `SALON_OWNER` row's `masterId`) plus the
+  // owner's PUBLIC `GET /masters/{ownerMasterId}/services`. By DEFAULT the
+  // `salon-admin-1` roster has NO owner row and this catalogue is empty, so
+  // every existing flow resolves `unlocked` exactly as before.
+  // [seedAdminOwnerPerforms] is the ONLY way to opt in (call BEFORE login —
+  // the roster is read at request time).
+
+  /// The owner's `masters` row id on the opt-in roster row.
+  static const String adminOwnerMasterId = 'master-admin-owner';
+
+  /// Definition ids the opted-in owner ACTIVELY performs (public read).
+  final Set<String> _adminOwnerPerformedDefIds = <String>{};
+
+  /// `GET /api/v1/masters/master-admin-owner/services` calls.
+  int getAdminOwnerServicesCalls = 0;
+
+  /// Audit-fix cycle 2 — opt-in (DEFAULT OFF) "fail-open then 403" knob; pass
+  /// it to the constructor (routes are wired once there). When `true`: the
+  /// opted-in owner's catalogue read answers 404 (the lock verdict FAILS OPEN
+  /// to unlocked) AND the shared-definition `PATCH /api/v1/services/{defId}`
+  /// answers 403 without changing state (what backend 345 does to an admin for
+  /// an owner-performed definition). No existing flow sets it.
+  final bool adminOwnerCatalogueErrorsAndDefinitionPatch403;
+
+  /// Opts the `salon-admin-1` fixture into "the owner performs [defIds]":
+  /// appends a `SALON_OWNER` roster row (masterId [adminOwnerMasterId]) and
+  /// makes the owner's public catalogue return one ACTIVE assignment per id.
+  /// Idempotent on the roster row. Defaults stay untouched until called.
+  void seedAdminOwnerPerforms(Set<String> defIds) {
+    final bool listed = salonAdminOneStaff.any(
+      (Map<String, dynamic> r) => r['masterId'] == adminOwnerMasterId,
+    );
+    if (!listed) {
+      salonAdminOneStaff.add(<String, dynamic>{
+        'userId': 'user-owner-of-admin-salon',
+        'masterId': adminOwnerMasterId,
+        'role': 'SALON_OWNER',
+        'firstName': 'Олена',
+        'lastName': 'Власниця',
+        'professionalTitle': null,
+        'avatarUrl': null,
+        'phoneNumber': '+380501112233',
+        'instagram': null,
+        'bio': null,
+        'avgRating': null,
+        'reviewCount': 0,
+        'serviceCount': defIds.length,
+      });
+    }
+    _adminOwnerPerformedDefIds
+      ..clear()
+      ..addAll(defIds);
+  }
 
   /// `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
   /// per-master UNASSIGN. GENUINELY STATEFUL, mirroring [deleteServiceCalls]:
@@ -5885,27 +5944,38 @@ final class FakeBackend {
     for (final String defId in defIds) {
       _adapter.onRoute(
         '/api/v1/services/$defId',
-        (server) => server.replyCallback(200, (req) {
-          patchSharedDefinitionCalls++;
-          final Map<String, dynamic> body = _decodeBody(req.data);
-          lastSharedDefinitionPatchBody = body;
-          // EVERY spelling either endpoint uses for money or time. A
-          // regression that picked the other name must still be counted, or
-          // the "priced writes stayed at zero" assertion would be satisfied
-          // by the very bug it exists to catch.
-          const List<String> moneyOrTime = <String>[
-            'price',
-            'priceMin',
-            'priceMax',
-            'priceType',
-            'baseDurationMinutes',
-            'durationMinutes',
-            'durationOverrideMinutes',
-          ];
-          final bool priced = moneyOrTime.any(body.containsKey);
-          if (priced) patchSharedDefinitionPricedCalls++;
-          return _ok(_applySharedDefinitionPatch(defId, body, priced: priced));
-        }),
+        (server) => server.replyCallback(
+          adminOwnerCatalogueErrorsAndDefinitionPatch403 ? 403 : 200,
+          (req) {
+            patchSharedDefinitionCalls++;
+            final Map<String, dynamic> body = _decodeBody(req.data);
+            lastSharedDefinitionPatchBody = body;
+            if (adminOwnerCatalogueErrorsAndDefinitionPatch403) {
+              return <String, dynamic>{
+                'success': false,
+                'message': 'Access denied',
+              };
+            }
+            // EVERY spelling either endpoint uses for money or time. A
+            // regression that picked the other name must still be counted, or
+            // the "priced writes stayed at zero" assertion would be satisfied
+            // by the very bug it exists to catch.
+            const List<String> moneyOrTime = <String>[
+              'price',
+              'priceMin',
+              'priceMax',
+              'priceType',
+              'baseDurationMinutes',
+              'durationMinutes',
+              'durationOverrideMinutes',
+            ];
+            final bool priced = moneyOrTime.any(body.containsKey);
+            if (priced) patchSharedDefinitionPricedCalls++;
+            return _ok(
+              _applySharedDefinitionPatch(defId, body, priced: priced),
+            );
+          },
+        ),
         request: const Request(
           method: RequestMethods.patch,
           data: Matchers.any,
@@ -6387,7 +6457,69 @@ final class FakeBackend {
         }),
         request: const Request(method: RequestMethods.delete),
       );
+
+      // Phase 377 — PATCH on the SAME path: the PER-MASTER band write an admin
+      // price edit lands on (shared counters with the owner pair: only one
+      // pair is driven per test, and [lastBandPatchPath] names which).
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          updateMasterBandCalls++;
+          lastBandPatchPath = path;
+          lastBandPatchedServiceDefId = defId;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastBandPatchBody = body;
+          return _ok(_applySalonBand('master-admin-target', defId, body));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
     }
+
+    // Phase 377 — the opted-in owner's PUBLIC catalogue. Empty unless
+    // [seedAdminOwnerPerforms] ran (request-time read).
+    _adapter.onRoute(
+      '/api/v1/masters/$adminOwnerMasterId/services',
+      (server) => server.replyCallback(
+        adminOwnerCatalogueErrorsAndDefinitionPatch403 ? 404 : 200,
+        (_) {
+          getAdminOwnerServicesCalls++;
+          if (adminOwnerCatalogueErrorsAndDefinitionPatch403) {
+            return <String, dynamic>{'success': false, 'message': 'Not found'};
+          }
+          return _okList(<Map<String, dynamic>>[
+            for (final String id in _adminOwnerPerformedDefIds)
+              <String, dynamic>{
+                'id': 'owner-assign-$id',
+                'masterId': adminOwnerMasterId,
+                'isActive': true,
+                'priceType': 'FIXED',
+                'priceMin': 400,
+                'priceMax': null,
+                'priceDisplay': '400 ₴',
+                'effectiveDurationMinutes': 40,
+                'serviceDefinition': <String, dynamic>{
+                  'id': id,
+                  'name': 'Owner-performed $id',
+                  'description': null,
+                  'category': 'NAILS',
+                  'baseDurationMinutes': 40,
+                  'bufferMinutesAfter': 0,
+                  'isActive': true,
+                  'priceType': 'FIXED',
+                  'priceMin': 400,
+                  'priceMax': null,
+                  'priceDisplay': '400 ₴',
+                  'photoUrl': null,
+                },
+              },
+          ]);
+        },
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
   }
 
   /// Phase 322 (mobile-qa) — `POST /api/v1/salons/salon-admin-1/masters/

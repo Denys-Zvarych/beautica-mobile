@@ -6805,5 +6805,9 @@
         "type": "int"
       }
     }
+  },
+  "serviceEditOwnerPerformedHint": "Цю послугу виконує власник салону, тому назву й категорію може змінити лише він.",
+  "@serviceEditOwnerPerformedHint": {
+    "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
   }
 }

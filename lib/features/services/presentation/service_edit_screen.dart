@@ -28,6 +28,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
+import 'package:dio/dio.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
 import 'package:beautica_mobile/features/services/presentation/service_by_id_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/delete_service_dialog.dart';
@@ -36,6 +38,7 @@ import 'package:beautica_mobile/features/services/presentation/widgets/unsaved_c
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +61,18 @@ void _popServiceEditScreen(BuildContext context) {
   Navigator.maybePop(context);
 }
 
+/// `true` for a backend 403 (a [ServerFailure] with status 403, or a failure
+/// whose [DioException] cause carries one — the salon-master write paths map a
+/// 403 through the generic fallbacks).
+bool _isForbidden(Object e) {
+  if (e is ServerFailure && e.statusCode == 403) return true;
+  if (e is Failure) {
+    final Object? cause = e.cause;
+    return cause is DioException && cause.response?.statusCode == 403;
+  }
+  return false;
+}
+
 void _showServiceEditFailureSnackbar(
   BuildContext context,
   Object failure,
@@ -77,7 +92,12 @@ void _showServiceEditFailureSnackbar(
 ///
 /// Receives [id] from the `/services/:id/edit` path parameter via [app_router].
 class ServiceEditScreen extends ConsumerStatefulWidget {
-  const ServiceEditScreen({super.key, required this.id, this.writable = true});
+  const ServiceEditScreen({
+    super.key,
+    required this.id,
+    this.writable = true,
+    this.identityLocked = false,
+  });
 
   /// Backend UUID for the master-service assignment record.
   final String id;
@@ -87,6 +107,14 @@ class ServiceEditScreen extends ConsumerStatefulWidget {
   /// action, and renders the form's fields read-only (D3). No route passes
   /// `false` yet — that lands in phase 321.
   final bool writable;
+
+  /// Phase 377 (24.4) — additive, defaults to `false` so every existing caller
+  /// renders exactly as today. `true` (a salon admin on a shared service the
+  /// OWNER also performs — backend 345 403s the shared-definition PATCH) makes
+  /// name / category / service type read-only and shows a hint above the form;
+  /// price, duration and the unassign action stay live. [writable]`=false`
+  /// takes precedence (fully read-only, no hint).
+  final bool identityLocked;
 
   @override
   ConsumerState<ServiceEditScreen> createState() => _ServiceEditScreenState();
@@ -262,21 +290,28 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
         service: service,
         l10n: l10n,
         writable: widget.writable,
+        identityLocked: widget.identityLocked && widget.writable,
         onSave: (MasterServiceCreate input) async {
           // Build the pricing patch block — all four price fields must be
           // sent together when the price is being updated (backend rule).
+          //
+          // Phase 377: with [identityLocked] the three identity fields are left
+          // `null` ("no change"), so `_updateSalonMasterBand` sees no identity
+          // and never issues the shared-definition PATCH (the owner-performed
+          // definition would 403 it) — only the per-master band PATCH is sent.
+          final bool lockIdentity = widget.identityLocked && widget.writable;
           final patch = MasterServiceUpdate(
-            name: input.name,
+            name: lockIdentity ? null : input.name,
             durationMinutes: input.durationMinutes,
             priceType: input.priceType,
             price: input.price,
             priceMin: input.priceMin,
             priceMax: input.priceMax,
-            category: input.category,
+            category: lockIdentity ? null : input.category,
             // Thread the chosen service type through the PATCH so a type change
             // actually persists. Previously this was dropped, so the picker was
             // editable in the UI but silently lost on save (M4 API-contract).
-            serviceTypeId: input.serviceTypeId,
+            serviceTypeId: lockIdentity ? null : input.serviceTypeId,
           );
           // Every update endpoint keys on the service-DEFINITION id, so that
           // is what is passed; the assignment id (service.id) is threaded
@@ -324,9 +359,18 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
               level: 900,
             );
           }
-          if (context.mounted) {
-            _showServiceEditFailureSnackbar(context, e, l10n);
+          if (!context.mounted) return;
+          // Phase 377 — the identity lock fails OPEN while the owner's set is
+          // unresolved (error), so an admin can still reach a save the backend
+          // 403s because the owner performs the service. Scoped to the
+          // salon-master edit (never the independent master): explain it in the
+          // owner-performed copy instead of the generic server error.
+          if (_isForbidden(e) &&
+              ref.read(serviceTargetProvider) is SalonMasterTarget) {
+            showErrorSnack(context, l10n.serviceEditOwnerPerformedHint);
+            return;
           }
+          _showServiceEditFailureSnackbar(context, e, l10n);
         },
         onDelete: (MasterService svc) => _onDelete(context, ref, svc, l10n),
       ),
@@ -346,6 +390,7 @@ class _EditBody extends StatefulWidget {
     required this.onError,
     required this.onDelete,
     this.writable = true,
+    this.identityLocked = false,
   });
 
   final MasterService service;
@@ -361,6 +406,10 @@ class _EditBody extends StatefulWidget {
   /// Phase 320 (D1/D3) — additive, defaults to `true`. `false` hides the
   /// delete icon (not disabled — D3) and renders [ServiceForm] read-only.
   final bool writable;
+
+  /// Phase 377 — see [ServiceEditScreen.identityLocked] (already combined with
+  /// [writable] by the caller).
+  final bool identityLocked;
 
   @override
   State<_EditBody> createState() => _EditBodyState();
@@ -539,6 +588,15 @@ class _EditBodyState extends State<_EditBody>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
+                      if (widget.identityLocked) ...<Widget>[
+                        SalonNoticeCard(
+                          key: const Key('service-edit-identity-locked-hint'),
+                          icon: Icons.lock_outline,
+                          title: l10n.staffSettingsMasterOwnerOnlyTitle,
+                          body: l10n.serviceEditOwnerPerformedHint,
+                        ),
+                        const SizedBox(height: VelvetSpacing.lg),
+                      ],
                       // ServiceForm with pre-populated values + dirty-state badge.
                       _reveal(
                         _formCurve,
@@ -548,6 +606,7 @@ class _EditBodyState extends State<_EditBody>
                           initial: widget.service,
                           submitLabel: l10n.servicesSaveChanges,
                           readOnly: !widget.writable,
+                          identityLocked: widget.identityLocked,
                           // Qase defect #26 — the form owns the dirty state; the
                           // screen owns the exit. This is the only wire between
                           // them.

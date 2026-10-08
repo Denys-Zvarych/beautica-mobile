@@ -50,6 +50,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/app_start_time.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -64,6 +65,7 @@ import 'package:beautica_mobile/features/services/presentation/service_setup_scr
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
+import 'package:beautica_mobile/features/services/application/owner_performed_services_provider.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
@@ -156,9 +158,15 @@ class _StubRoster extends SalonManagementProfile {
   /// swaps in the owner's row.
   static SalonStaffMember entry = _kMasterEntry;
 
+  /// Extra roster rows (the real-chain identity-lock cases add the owner's
+  /// row beside [entry]).
+  static List<SalonStaffMember> extra = const <SalonStaffMember>[];
+
   @override
-  Future<SalonManagementProfileData> build(String salonId) async =>
-      (const Salon(id: _kSalonId, name: 'Салон'), <SalonStaffMember>[entry]);
+  Future<SalonManagementProfileData> build(String salonId) async => (
+    const Salon(id: _kSalonId, name: 'Салон'),
+    <SalonStaffMember>[entry, ...extra],
+  );
 }
 
 /// A SETTLED `mySalonsProvider` containing [_kSalonId] — the owner who
@@ -253,6 +261,7 @@ void main() {
     );
     _MutableAuthNotifier.seed = _kAdminSameSalon;
     _StubRoster.entry = _kMasterEntry;
+    _StubRoster.extra = const <SalonStaffMember>[];
     salonRows = <Map<String, Object?>>[
       _serviceRow(assignmentId: 'svc-1', defId: 'def-1', name: 'Манікюр'),
     ];
@@ -631,6 +640,281 @@ void main() {
       tester,
       find.byKey(const Key('service-edit-form-svc-1')),
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 377 (24.4) — identityLocked on the edit leaf.
+  // -------------------------------------------------------------------------
+
+  Future<void> openEditLeaf(WidgetTester tester, GoRouter router) async {
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-1',
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-svc-1')),
+    );
+  }
+
+  ServiceEditScreen editScreen(WidgetTester tester) =>
+      tester.widget<ServiceEditScreen>(find.byType(ServiceEditScreen));
+
+  final Finder hint = find.byKey(
+    const Key('service-edit-identity-locked-hint'),
+  );
+
+  testWidgets('admin on a NON-owner master\'s service the owner also performs '
+      '-> identityLocked true, hint shown, still writable', (tester) async {
+    final container = makeContainer(
+      extraOverrides: [
+        serviceIdentityLockProvider(
+          _kSalonId,
+          'def-1',
+        ).overrideWithValue(ServiceIdentityLock.locked),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isTrue);
+    expect(editScreen(tester).writable, isTrue);
+    expect(hint, findsOneWidget);
+    expect(find.byKey(const Key('btn-submit-service')), findsOneWidget);
+    expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+  });
+
+  testWidgets('a service the owner does NOT perform -> identityLocked false, '
+      'no hint', (tester) async {
+    final container = makeContainer(
+      extraOverrides: [
+        serviceIdentityLockProvider(
+          _kSalonId,
+          'def-1',
+        ).overrideWithValue(ServiceIdentityLock.unlocked),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isFalse);
+    expect(hint, findsNothing);
+  });
+
+  testWidgets('the OWNER viewer on a service the owner performs -> '
+      'identityLocked false (salon-scoped viewerOwnsSalon)', (tester) async {
+    _MutableAuthNotifier.seed = _kOwner;
+    _StubRoster.extra = const <SalonStaffMember>[
+      SalonStaffMember(
+        userId: 'user-owner',
+        masterId: 'master-owner',
+        role: SalonStaffRole.master,
+        masterType: MasterType.salonOwner,
+        firstName: 'Власник',
+        lastName: 'Салону',
+      ),
+    ];
+    final container = makeContainer(
+      extraOverrides: [
+        mySalonsProvider.overrideWith(_SettledMySalons.new),
+        ownerMasterServiceDefIdsProvider(
+          'master-owner',
+        ).overrideWith((_) async => const <String>{'def-1'}),
+      ],
+    );
+    await container.read(mySalonsProvider.future);
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isFalse);
+    expect(editScreen(tester).writable, isTrue);
+    expect(hint, findsNothing);
+  });
+
+  testWidgets('admin on the OWNER\'s own row (fully read-only) wins over '
+      'identityLocked: no hint, no save', (tester) async {
+    _StubRoster.entry = _kOwnerRow;
+    final container = makeContainer(
+      extraOverrides: [
+        serviceIdentityLockProvider(
+          _kSalonId,
+          'def-1',
+        ).overrideWithValue(ServiceIdentityLock.locked),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).writable, isFalse);
+    expect(hint, findsNothing);
+    expect(find.byKey(const Key('btn-submit-service')), findsNothing);
+  });
+
+  // Audit-fix 1 — the REAL derived chain (roster + owner catalogue), with the
+  // owner catalogue gated by hand.
+  const SalonStaffMember ownerRowElsewhere = SalonStaffMember(
+    userId: 'user-owner',
+    masterId: 'master-owner',
+    role: SalonStaffRole.master,
+    masterType: MasterType.salonOwner,
+    firstName: 'Власник',
+    lastName: 'Салону',
+  );
+
+  testWidgets('admin with the owner set still PENDING -> loading scaffold, '
+      'NO form; once it resolves the form is locked', (tester) async {
+    _StubRoster.extra = const <SalonStaffMember>[ownerRowElsewhere];
+    // Created INSIDE the test body so it lives in the FakeAsync zone.
+    final Completer<Set<String>> gate = Completer<Set<String>>();
+    final container = makeContainer(
+      extraOverrides: [
+        ownerMasterServiceDefIdsProvider(
+          'master-owner',
+        ).overrideWith((_) => gate.future),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+
+    router.go(
+      RouteNames.salonManageStaffServiceEdit(
+        _kSalonId,
+        _kMemberUserId,
+        'svc-1',
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('salon_manage_service_edit_identity_pending')),
+    );
+
+    expect(
+      find.byKey(const Key('salon_manage_service_edit_identity_pending')),
+      findsOneWidget,
+      reason: 'positive pairing for the absence asserts below',
+    );
+    expect(find.byType(ServiceEditScreen), findsNothing);
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsNothing);
+
+    gate.complete(<String>{'def-1'});
+    await pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-svc-1')),
+    );
+
+    expect(editScreen(tester).identityLocked, isTrue);
+    expect(hint, findsOneWidget);
+    expect(
+      find.byKey(const Key('salon_manage_service_edit_identity_pending')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('REAL chain — admin, owner performs def-1 -> identityLocked '
+      'true (verdict computed from roster + owner catalogue)', (tester) async {
+    _StubRoster.extra = const <SalonStaffMember>[ownerRowElsewhere];
+    final container = makeContainer(
+      extraOverrides: [
+        ownerMasterServiceDefIdsProvider(
+          'master-owner',
+        ).overrideWith((_) async => const <String>{'def-1'}),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isTrue);
+    expect(hint, findsOneWidget);
+  });
+
+  testWidgets('REAL chain — admin, owner performs only another def -> '
+      'identityLocked false', (tester) async {
+    _StubRoster.extra = const <SalonStaffMember>[ownerRowElsewhere];
+    final container = makeContainer(
+      extraOverrides: [
+        ownerMasterServiceDefIdsProvider(
+          'master-owner',
+        ).overrideWith((_) async => const <String>{'def-other'}),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isFalse);
+    expect(hint, findsNothing);
+  });
+
+  testWidgets('a mid-edit owner-catalogue REFRESH keeps the form mounted and '
+      'the typed text intact (never the loading scaffold)', (tester) async {
+    _StubRoster.extra = const <SalonStaffMember>[ownerRowElsewhere];
+    // Created INSIDE the test body so it lives in the FakeAsync zone.
+    final Completer<Set<String>> refresh = Completer<Set<String>>();
+    int calls = 0;
+    final container = makeContainer(
+      extraOverrides: [
+        ownerMasterServiceDefIdsProvider('master-owner').overrideWith((_) {
+          calls++;
+          return calls == 1
+              ? Future<Set<String>>.value(const <String>{'def-other'})
+              : refresh.future;
+        }),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+    // Keep the autoDispose owner-catalogue provider alive across the refresh.
+    final sub = container.listen(
+      serviceIdentityLockProvider(_kSalonId, 'def-1'),
+      (_, _) {},
+    );
+    addTearDown(sub.close);
+
+    final Finder nameField = find.descendant(
+      of: find.byKey(const Key('field-service-name')),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(nameField, 'Набрана назва');
+    await tester.pump();
+
+    container.invalidate(ownerMasterServiceDefIdsProvider('master-owner'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(calls, 2, reason: 'positive: the refresh really started');
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(
+      find.byKey(const Key('salon_manage_service_edit_identity_pending')),
+      findsNothing,
+    );
+    expect(
+      tester.widget<TextField>(nameField).controller?.text,
+      'Набрана назва',
+    );
+  });
+
+  testWidgets('owner catalogue read ERRORS -> fail-open: form shown, not '
+      'locked', (tester) async {
+    _StubRoster.extra = const <SalonStaffMember>[ownerRowElsewhere];
+    final container = makeContainer(
+      extraOverrides: [
+        ownerMasterServiceDefIdsProvider(
+          'master-owner',
+        ).overrideWith((_) async => throw const NotFoundFailure()),
+      ],
+    );
+    final router = await pumpRouter(tester, container);
+    await openEditLeaf(tester, router);
+
+    expect(find.byKey(const Key('service-edit-form-svc-1')), findsOneWidget);
+    expect(editScreen(tester).identityLocked, isFalse);
   });
 
   testWidgets('cold owner at /services/setup on their OWN row: skeleton while '

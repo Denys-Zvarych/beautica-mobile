@@ -6805,5 +6805,9 @@
         "type": "int"
       }
     }
+  },
+  "serviceEditOwnerPerformedHint": "The salon owner performs this service, so only they can change its name and category.",
+  "@serviceEditOwnerPerformedHint": {
+    "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
   }
 }

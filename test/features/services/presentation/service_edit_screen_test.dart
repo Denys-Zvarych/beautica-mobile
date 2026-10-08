@@ -26,6 +26,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/domain/service_type_option.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/presentation/service_edit_screen.dart';
 import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
@@ -196,6 +197,9 @@ Future<void> _pumpEdit(
   // Phase 320 (D1) — additive, defaults to `true` so every existing caller
   // (below) renders exactly as before.
   bool writable = true,
+  // Phase 377 (24.4) — additive, defaults to `false` like the widget.
+  bool identityLocked = false,
+  List<Object> extraOverrides = const <Object>[],
 }) async {
   // The seeded service has a category, so the form mounts the second-level
   // _ServiceTypeChips section and grows taller. Use a roomy viewport so the
@@ -206,7 +210,11 @@ Future<void> _pumpEdit(
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  Widget screen = ServiceEditScreen(id: id, writable: writable);
+  Widget screen = ServiceEditScreen(
+    id: id,
+    writable: writable,
+    identityLocked: identityLocked,
+  );
 
   if (watcherStates != null) {
     screen = _ListWatcher(states: watcherStates, child: screen);
@@ -218,11 +226,14 @@ Future<void> _pumpEdit(
   await tester.pumpWidget(
     ProviderScope(
       retry: beauticaProviderRetry,
-      overrides: _overrides(
-        repo,
-        includeMasterProfile: masterProfileStates != null,
-        categories: categories,
-      ).cast(),
+      overrides: <Object>[
+        ..._overrides(
+          repo,
+          includeMasterProfile: masterProfileStates != null,
+          categories: categories,
+        ),
+        ...extraOverrides,
+      ].cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
@@ -1646,6 +1657,239 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('hacked name'), findsNothing);
+    });
+  });
+
+  // ── Phase 377 (24.4) — identityLocked ─────────────────────────────────────
+  //
+  // A salon admin on a shared service the OWNER also performs: name / category
+  // / type read-only, price + duration + unassign live, hint above the form,
+  // and the save sends NO identity (so the repository never PATCHes the shared
+  // definition — pinned in service_repository_test 'a patch with no identity
+  // field skips the shared-definition PATCH').
+
+  group('Phase 377 — identityLocked: true locks identity only', () {
+    final Finder hint = find.byKey(
+      const Key('service-edit-identity-locked-hint'),
+    );
+
+    testWidgets('hint shown; name is plain text; price/duration editable; '
+        'save + delete present', (tester) async {
+      await _pumpEdit(tester, repo, identityLocked: true);
+
+      expect(hint, findsOneWidget);
+      expect(
+        find.text(_l10n(tester).serviceEditOwnerPerformedHint),
+        findsOneWidget,
+      );
+      // Name: value rendered, no editor.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.text(_stubService.name),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        findsNothing,
+      );
+      // Duration + price stay editable TextFields.
+      for (final String k in <String>[
+        'field-service-duration',
+        'pricing-fixed-amount',
+      ]) {
+        final TextField f = tester.widget<TextField>(
+          find.descendant(
+            of: find.byKey(Key(k)),
+            matching: find.byType(TextField),
+          ),
+        );
+        expect(f.enabled, isNot(false), reason: '$k stays editable');
+      }
+      expect(find.byKey(const Key('btn-submit-service')), findsOneWidget);
+      expect(find.byKey(const Key('btn-delete-service')), findsOneWidget);
+    });
+
+    testWidgets('category and service-type menus do not open', (tester) async {
+      await _pumpEdit(tester, repo, identityLocked: true);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('select-category-field')),
+      );
+      await tester.tap(find.byKey(const Key('select-category-field')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('chip-category-MANICURE')), findsNothing);
+
+      await tester.ensureVisible(
+        find.byKey(const Key('select-service-type-field')),
+      );
+      await tester.tap(find.byKey(const Key('select-service-type-field')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('chip-service-type-suggest')), findsNothing);
+    });
+
+    testWidgets('control — the SAME taps DO open both menus when not locked', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo);
+
+      await openCategoryMenu(tester);
+      expect(find.byKey(const Key('chip-category-MANICURE')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('chip-category-MANICURE')));
+      await tester.pumpAndSettle();
+      await openServiceTypeMenu(tester);
+      expect(
+        find.byKey(const Key('chip-service-type-suggest')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a price change saves with NO identity fields in the patch '
+        '(no shared-definition PATCH)', (tester) async {
+      await _pumpEdit(tester, repo, identityLocked: true);
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('pricing-fixed-amount')),
+          matching: find.byType(TextField),
+        ),
+        '900',
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pumpAndSettle();
+
+      final MasterServiceUpdate patch =
+          verify(
+                () => repo.update(
+                  _stubService.serviceDefId,
+                  captureAny(),
+                  assignmentId: _stubService.id,
+                ),
+              ).captured.single
+              as MasterServiceUpdate;
+      expect(patch.name, isNull);
+      expect(patch.category, isNull);
+      expect(patch.serviceTypeId, isNull);
+      expect(patch.price, 900);
+      expect(patch.durationMinutes, _stubService.durationMinutes);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('control — unlocked save DOES carry the identity fields', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo);
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pumpAndSettle();
+
+      final MasterServiceUpdate patch =
+          verify(
+                () => repo.update(
+                  _stubService.serviceDefId,
+                  captureAny(),
+                  assignmentId: _stubService.id,
+                ),
+              ).captured.single
+              as MasterServiceUpdate;
+      expect(patch.name, _stubService.name);
+      expect(patch.category, _stubService.category);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a 403 on save (salon-master edit, fail-open window) shows '
+        'the owner-performed hint copy, not the generic server error', (
+      tester,
+    ) async {
+      when(
+        () => repo.update(
+          _stubService.serviceDefId,
+          any(),
+          assignmentId: _stubService.id,
+        ),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
+      await _pumpEdit(
+        tester,
+        repo,
+        extraOverrides: <Object>[
+          serviceTargetProvider.overrideWithValue(
+            const ServiceTarget.salonMaster(salonId: 's1', masterId: 'm1'),
+          ),
+        ],
+      );
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = _l10n(tester);
+      expectVelvetSnack(
+        l10n.serviceEditOwnerPerformedHint,
+        variant: VelvetSnackVariant.error,
+      );
+      expect(find.text(l10n.errServer), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('control — the SAME 403 for the independent master keeps the '
+        'generic server message', (tester) async {
+      when(
+        () => repo.update(
+          _stubService.serviceDefId,
+          any(),
+          assignmentId: _stubService.id,
+        ),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
+      await _pumpEdit(tester, repo);
+      await tester.ensureVisible(find.byKey(const Key('btn-submit-service')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-submit-service')));
+      await tester.pumpAndSettle();
+
+      final AppLocalizations l10n = _l10n(tester);
+      expectVelvetSnack(l10n.errServer, variant: VelvetSnackVariant.error);
+      expect(find.text(l10n.serviceEditOwnerPerformedHint), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('writable: false wins — fully read-only, no hint', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo, writable: false, identityLocked: true);
+
+      expect(hint, findsNothing);
+      expect(find.byKey(const Key('btn-submit-service')), findsNothing);
+      expect(
+        find.byKey(const Key('service-edit-form-svc-edit-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the widget default (identityLocked omitted) shows no hint', (
+      tester,
+    ) async {
+      await _pumpEdit(tester, repo);
+
+      expect(hint, findsNothing);
+      expect(
+        find.byKey(const Key('service-edit-form-svc-edit-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('field-service-name')),
+          matching: find.byType(TextField),
+        ),
+        findsOneWidget,
+      );
     });
   });
 

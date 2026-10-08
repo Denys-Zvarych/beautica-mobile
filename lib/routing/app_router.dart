@@ -140,6 +140,9 @@ import '../features/schedule/presentation/master_schedule_screen.dart';
 import '../features/schedule/presentation/schedule_editor_stubs.dart';
 import '../features/schedule/presentation/weekly_template_editor_screen.dart';
 import '../features/services/domain/category_slug.dart';
+import '../features/services/application/owner_performed_services_provider.dart';
+import '../features/services/domain/master_service.dart' show MasterService;
+import '../features/services/presentation/service_by_id_notifier.dart';
 import '../shared/formatters/api_date.dart';
 import 'auth_redirect.dart';
 import 'auth_refresh_notifier.dart';
@@ -3699,7 +3702,32 @@ class _SalonManageServiceEditRoute extends ConsumerWidget {
     final bool writable =
         ref.watch(canManageSalonProvider(salonId)) &&
         !ref.watch(ownerRowLockedForMemberProvider(salonId, memberId));
-    return ServiceEditScreen(id: serviceId, writable: writable);
+    // Phase 377 (24.4) — a non-owner (admin) editing a shared service the
+    // OWNER also performs: backend 345 403s the shared-definition PATCH, so the
+    // identity fields lock. ONE derived provider ([serviceIdentityLockProvider],
+    // salon-scoped, never the raw role). The service is watched through
+    // `.select` so only its def id (not unrelated service data) rebuilds this
+    // route. While the verdict is PENDING (roster / owner catalogue loading) a
+    // writable viewer gets the loading scaffold — never an editable form that
+    // would 403 on save. ERROR fails open (the save maps the 403 to the hint).
+    final String? defId = ref.watch(
+      serviceByIdProvider(
+        serviceId,
+      ).select((AsyncValue<MasterService> s) => s.value?.serviceDefId),
+    );
+    final ServiceIdentityLock lock = defId == null
+        ? ServiceIdentityLock.unlocked
+        : ref.watch(serviceIdentityLockProvider(salonId, defId));
+    if (writable && lock == ServiceIdentityLock.pending) {
+      return const _SalonManagePendingScaffold(
+        key: Key('salon_manage_service_edit_identity_pending'),
+      );
+    }
+    return ServiceEditScreen(
+      id: serviceId,
+      writable: writable,
+      identityLocked: lock == ServiceIdentityLock.locked,
+    );
   }
 }
 
