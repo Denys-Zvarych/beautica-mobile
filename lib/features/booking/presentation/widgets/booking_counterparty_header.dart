@@ -31,6 +31,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -48,16 +49,32 @@ class BookingCounterpartyHeader extends StatelessWidget {
     super.key,
     required this.booking,
     required this.viewer,
+    this.showPerformingMaster = false,
   });
 
   final Booking booking;
   final BookingViewerRole viewer;
 
+  /// Provider branch only: also shows the master who PERFORMS the booking
+  /// (inert, under the client strip). Set for a salon owner/admin viewing a
+  /// booking performed by another master; default `false` changes nothing.
+  final bool showPerformingMaster;
+
   @override
   Widget build(BuildContext context) {
-    return viewer.isProvider
-        ? _ClientStrip(booking: booking)
-        : _MasterStrip(booking: booking);
+    if (!viewer.isProvider) return _MasterStrip(booking: booking);
+    if (!showPerformingMaster || booking.masterId.isEmpty) {
+      return _ClientStrip(booking: booking);
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _ClientStrip(booking: booking),
+        const SizedBox(height: VelvetSpacing.sm),
+        _PerformingMasterStrip(booking: booking),
+      ],
+    );
   }
 }
 
@@ -124,6 +141,30 @@ class _MasterStrip extends StatelessWidget {
     // header while a splash runs; mobile-perf retracted the finding.
     // dim-gated: test/features/booking/presentation/booking_detail_screen_test.dart
     return Opacity(opacity: 0.7, child: strip);
+  }
+}
+
+/// The master who PERFORMS the booking, as a salon owner/admin sees them —
+/// the shipped [MasterStrip] (label «Запис до майстра», role, ★), inert, dimmed on a
+/// dead booking like its [_ClientStrip] sibling.
+class _PerformingMasterStrip extends StatelessWidget {
+  const _PerformingMasterStrip({required this.booking});
+
+  final Booking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isDead =
+        booking.status == BookingStatus.cancelled ||
+        booking.status == BookingStatus.declined;
+    // dim-gated: test/features/booking/presentation/booking_detail_provider_view_test.dart
+    return Opacity(
+      opacity: isDead ? 0.7 : 1,
+      child: MasterStrip.fromBooking(
+        booking,
+        key: const Key('booking-detail-performing-master-strip'),
+      ),
+    );
   }
 }
 

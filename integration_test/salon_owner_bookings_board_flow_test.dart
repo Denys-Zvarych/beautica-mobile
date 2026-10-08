@@ -249,6 +249,91 @@ RenderParagraph _paragraphIn(WidgetTester tester, Finder card, String data) =>
       ),
     );
 
+// ── Performing-master strip on «Деталі запису» (debug fix 2026-10-08) ────────
+//
+// Fixture DATA (the seeded booking's master), not UI copy.
+const String _kPerformingMasterFull = 'Софія Бондар';
+const String _kSeededSalonName = 'Салон Камелія';
+const Key _kPerformingMasterStrip = Key(
+  'booking-detail-performing-master-strip',
+);
+
+/// Login as [role] → the salon board → drill into `booking-1` (performed by
+/// `master-aaa`, a SALON booking) → the real [BookingDetailScreen].
+Future<void> _openSalonBookingDetailAs(
+  WidgetTester tester,
+  FakeBackend fb,
+  GoRouter router,
+  UserRole role,
+) async {
+  final DateTime start = _atKyivHour(16, 0);
+  fb.bookingStartsAt = start.toIso8601String();
+  fb.bookingEndsAt = start.add(const Duration(minutes: 60)).toIso8601String();
+  fb.salonBoardBookings = <Map<String, dynamic>>[
+    fb.salonBoardBookingRow(
+      id: 'booking-1',
+      masterId: 'master-aaa',
+      masterFirstName: 'Софія',
+      masterLastName: 'Бондар',
+      startsAt: start,
+    ),
+  ];
+  await AppHarness.loginAs(tester, fb, role);
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(SalonShellScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+  await AppHarness.pumpUntilFound(
+    tester,
+    bookingsTab.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(bookingsTab);
+  await tester.pump();
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(BookingsTimelineGrid),
+    timeout: const Duration(seconds: 20),
+  );
+  final Finder card = find.byKey(
+    const ValueKey<String>('timeline-card-booking-1'),
+  );
+  await AppHarness.pumpUntilFound(
+    tester,
+    card.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(card);
+  await tester.pump();
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(BookingDetailScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  AppHarness.expectLocation(
+    router,
+    RouteNames.salonStaffBookingDetail('booking-1'),
+  );
+  // The client strip is the positive control: the header rendered at all.
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byKey(const Key('booking-detail-client-strip')),
+    timeout: const Duration(seconds: 20),
+  );
+  await AppHarness.settle(tester);
+}
+
+FakeBackend _salonBookingBackend(UserRole role, {String? ownMasterRowId}) =>
+    (ownMasterRowId == null
+          ? FakeBackend()
+          : FakeBackend(masterRowId: ownMasterRowId))
+      ..currentRole = role
+      ..bookingMasterType = 'SALON_MASTER'
+      ..bookingSalonName = _kSeededSalonName
+      ..bookingProviderCanReviewClient = false;
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -2282,6 +2367,108 @@ void main() {
           isFalse,
         );
         expect(labelled(longCard, _kDenseClientFull), findsWidgets);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-10-08 — «Деталі запису» names the PERFORMING master to a salon
+  // owner/admin (Step 2.7 Rule 3b). Joins what the unit tier cannot: the real
+  // `GET /masters/me` (own master-row id) vs the real `GET /bookings/{id}`
+  // `masterId`, through the real router. No Patrol flow: no native surface.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'owner opening ANOTHER master\'s salon booking sees the performing-master '
+    'strip with that master\'s name',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _salonBookingBackend(UserRole.salonOwner);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonOwner,
+        );
+
+        final Finder strip = find.byKey(_kPerformingMasterStrip);
+        expect(strip, findsOneWidget);
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+          reason: 'the strip names the PERFORMING master, read off the render',
+        );
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(AppLocalizationsUk().bookingMasterStripLabel),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'an ADMIN opening a salon booking sees the performing-master strip',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _salonBookingBackend(UserRole.salonAdmin);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonAdmin,
+        );
+
+        expect(find.byKey(_kPerformingMasterStrip), findsOneWidget);
+        expect(
+          fb.getMasterCalls,
+          0,
+          reason: 'an admin never reads GET /masters/me (it 403s for them)',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(_kPerformingMasterStrip),
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'owner opening their OWN booking (own master-row id == booking.masterId) '
+    'sees NO performing-master strip',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // `GET /masters/me` reports `master-aaa` — the seeded booking's master.
+        final FakeBackend fb = _salonBookingBackend(
+          UserRole.salonOwner,
+          ownMasterRowId: 'master-aaa',
+        );
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonOwner,
+        );
+
+        expect(
+          fb.getMasterCalls,
+          greaterThan(0),
+          reason: 'ANTI-VACUITY: the own-id lookup really went to the wire',
+        );
+        expect(find.byKey(_kPerformingMasterStrip), findsNothing);
         expect(tester.takeException(), isNull);
       });
     },

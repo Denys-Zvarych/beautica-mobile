@@ -85,6 +85,14 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
+import '../../auth/domain/user_role.dart';
+import '../../auth/presentation/auth_notifier.dart';
+import '../../master/domain/master.dart';
+import '../../master/presentation/master_profile_notifier.dart';
+import '../../salon/application/salon_management_profile_notifier.dart';
+import '../../salon/application/salon_staff_member_notifier.dart'
+    show findSalonStaffMember;
+import '../../salon/domain/salon_staff_member.dart';
 import '../application/booking_calendar_invalidation.dart';
 import '../application/booking_detail_notifier.dart';
 import '../application/booking_reschedule_in_flight_notifier.dart';
@@ -523,6 +531,28 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     // `booking_viewer_role.dart` for why a widget parameter would be unsafe.
     final BookingViewerRole viewer = ref.watch(bookingViewerRoleProvider);
 
+    // A SALON viewer (owner/admin) must see WHICH master performs the visit.
+    // `viewer.isProvider` cannot tell them from a master looking at their own
+    // booking, so the role is read through the narrowed selector. Only the
+    // OWNER can also be the performing master; `GET /masters/me` 403s for an
+    // admin, so `masterProfileProvider` is touched for the owner ONLY.
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final bool salonViewer =
+        role == UserRole.salonOwner || role == UserRole.salonAdmin;
+    final (
+      String? ownMasterId,
+      bool ownMasterLoading,
+      bool ownMasterFailed,
+    ) = role == UserRole.salonOwner
+        ? ref.watch(
+            masterProfileProvider.select(
+              (AsyncValue<Master> s) => (s.value?.id, s.isLoading, s.hasError),
+            ),
+          )
+        : (null, false, false);
+    // Narrowed to the id (a silent token refresh must not rebuild the screen).
+    final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
+
     // Phase 331 — WHICH provider actions the provider footer is allowed to
     // offer. `bookingViewerRole.dart:71-76` already maps `SALON_MASTER` onto
     // `BookingViewerRole.provider`, so the provider footer renders for that
@@ -556,25 +586,56 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
               ref.invalidate(bookingDetailProvider(widget.bookingId)),
         );
       },
-      data: (Booking booking) => _DetailBody(
-        booking: booking,
-        viewer: viewer,
-        transitionsEnabled: transitionsEnabled,
-        // Injected clock seam — the PROVIDER footer's start-time gate reads
-        // this instead of the device clock so tests can pin it. `watch` (not
-        // `read`): a future ticking override must be able to rebuild the
-        // footer. See `core/time/clock_provider.dart`.
-        now: ref.watch(clockProvider)(),
-        rescheduleLoading: rescheduleLoading,
-        onReschedule: () => _onReschedule(context, booking),
-        onCancel: () => _confirmCancel(context, booking),
-        onDecline: () => _confirmDecline(context, booking),
-        onComplete: () => _confirmComplete(context, booking),
-        onRebook: () => _onRebook(booking),
-        onLeaveReview: () => _onLeaveReview(booking),
-        onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
-        onAddToCalendar: () => _onAddToCalendar(context, booking),
-      ),
+      data: (Booking booking) {
+        // FALLBACK when `GET /masters/me` ERRORED (so `ownMasterId` is null):
+        // resolve the owner's own master-row id from the salon roster — the
+        // `salonOwner` member whose `userId` is the signed-in user. Watched
+        // for an OWNER with a failed profile ONLY (never an admin). If the
+        // roster is ALSO unavailable the id stays null and the strip shows on
+        // the owner's own booking — a redundant (never wrong, never leaking)
+        // row; we accept that rather than hide the performing master from an
+        // owner whose lookups are both failing.
+        String? ownId = ownMasterId;
+        final String? salonId = booking.salonId;
+        if (ownId == null &&
+            ownMasterFailed &&
+            userId != null &&
+            salonId != null) {
+          final SalonStaffMember? self = findSalonStaffMember(
+            ref.watch(salonManagementProfileProvider(salonId)).value?.$2 ??
+                const <SalonStaffMember>[],
+            userId,
+          );
+          if (self?.masterType == MasterType.salonOwner) ownId = self?.masterId;
+        }
+        return _DetailBody(
+          booking: booking,
+          viewer: viewer,
+          // Fail closed while the owner's own master id is unresolved, so their
+          // own booking never flashes a redundant "performed by you" strip.
+          showPerformingMaster:
+              salonViewer &&
+              !ownMasterLoading &&
+              booking.atSalon &&
+              booking.masterId.isNotEmpty &&
+              booking.masterId != ownId,
+          transitionsEnabled: transitionsEnabled,
+          // Injected clock seam — the PROVIDER footer's start-time gate reads
+          // this instead of the device clock so tests can pin it. `watch` (not
+          // `read`): a future ticking override must be able to rebuild the
+          // footer. See `core/time/clock_provider.dart`.
+          now: ref.watch(clockProvider)(),
+          rescheduleLoading: rescheduleLoading,
+          onReschedule: () => _onReschedule(context, booking),
+          onCancel: () => _confirmCancel(context, booking),
+          onDecline: () => _confirmDecline(context, booking),
+          onComplete: () => _confirmComplete(context, booking),
+          onRebook: () => _onRebook(booking),
+          onLeaveReview: () => _onLeaveReview(booking),
+          onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
+          onAddToCalendar: () => _onAddToCalendar(context, booking),
+        );
+      },
     );
   }
 }
@@ -585,6 +646,7 @@ class _DetailBody extends StatelessWidget {
   const _DetailBody({
     required this.booking,
     required this.viewer,
+    required this.showPerformingMaster,
     required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
@@ -600,6 +662,10 @@ class _DetailBody extends StatelessWidget {
 
   final Booking booking;
   final BookingViewerRole viewer;
+
+  /// Salon owner/admin viewing a salon booking performed by SOMEONE ELSE —
+  /// adds the performing-master strip under the client strip.
+  final bool showPerformingMaster;
 
   /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
   /// (complete / decline / reschedule / not-complete). Sourced from
@@ -723,6 +789,7 @@ class _DetailBody extends StatelessWidget {
           masterCard: BookingCounterpartyHeader(
             booking: booking,
             viewer: viewer,
+            showPerformingMaster: showPerformingMaster,
           ),
           salonName: booking.salonName,
           addressLine: addressValue,
