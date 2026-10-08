@@ -6,6 +6,7 @@
 
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -110,6 +111,33 @@ void main() {
     expect(find.bySemanticsLabel('Назад до салону'), findsOneWidget);
 
     handle.dispose();
+  });
+
+  testWidgets('fitWholeTitle reaches the VelvetTopBar (default false)', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      () => ProfileScaffold(
+        title: 'Профіль',
+        backLabel: _kBackLabel,
+        onBack: () {},
+        fitWholeTitle: true,
+        child: const SizedBox(),
+      ),
+    );
+    expect(
+      tester.widget<VelvetTopBar>(find.byType(VelvetTopBar)).fitWholeTitle,
+      isTrue,
+    );
+    await _open(
+      tester,
+      () => const ProfileScaffold(title: 'Профіль', child: SizedBox()),
+    );
+    expect(
+      tester.widget<VelvetTopBar>(find.byType(VelvetTopBar)).fitWholeTitle,
+      isFalse,
+    );
   });
 
   testWidgets('null backSemanticLabel keeps the bar default «Назад»', (

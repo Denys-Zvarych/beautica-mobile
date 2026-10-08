@@ -39,6 +39,7 @@ Widget _trailingPair() => Row(
 );
 
 void main() {
+  _fitTitleGolden();
   const double width = 360;
 
   goldenTest(
@@ -65,6 +66,30 @@ void main() {
         backLabel: 'Салон',
         backSemanticLabel: 'Назад до салону',
         trailing: _trailingPair(),
+      ),
+    ),
+  );
+}
+
+// Opt-in `fitWholeTitle` bar at 320 dp: the pill collapses to the chevron and
+// «Мій профіль» stays whole beside the bell + tune pair.
+void _fitTitleGolden() {
+  const double width = 320;
+  goldenTest(
+    'velvet_top_bar fitWholeTitle 320 chevron + whole title',
+    fileName: 'velvet_top_bar_fit_title_320_1x',
+    constraints: BoxConstraints.tight(const Size(width, 120)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(width: width),
+    builder: () => _host(
+      width,
+      VelvetTopBar(
+        title: 'Мій профіль',
+        onBack: () {},
+        backLabel: 'Салон',
+        backSemanticLabel: 'Назад до салону',
+        trailing: _trailingPair(),
+        fitWholeTitle: true,
       ),
     ),
   );

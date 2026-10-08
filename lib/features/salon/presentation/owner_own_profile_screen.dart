@@ -342,6 +342,7 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
       showBack: widget.onBack != null || !widget.embedded,
       bottomNavBar: widget.bottomNavBar,
       backLabel: widget.backLabel,
+      fitWholeTitle: widget.backLabel != null,
       backSemanticLabel: widget.backSemanticLabel,
       onBack: widget.onBack,
       backKey: widget.onBack == null

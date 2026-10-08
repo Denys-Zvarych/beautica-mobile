@@ -26,6 +26,7 @@
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/rendering.dart';
@@ -426,11 +427,11 @@ void main() {
     Widget trailingPair() => Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        NotificationBellButton(onTap: () {}, semanticLabel: 'Сповіщення'),
+        NotificationBellButton(onTap: () {}, semanticLabel: 'Notifications'),
         const SizedBox(width: VelvetSpacing.sm + 4),
         NeumorphicIconButton(
           icon: Icons.tune_rounded,
-          semanticLabel: 'Налаштування',
+          semanticLabel: 'Settings',
           onTap: () {},
         ),
       ],
@@ -752,6 +753,316 @@ void main() {
             }),
         isEmpty,
       );
+    });
+  });
+
+  // ── fitWholeTitle — master-mode «Мій профіль» header ──────────────────────
+
+  group('VelvetTopBar — fitWholeTitle', () {
+    const Key backKey = Key('vtb_fit_back');
+    // Real UA strings via the generated lookup (no widget context needed), so
+    // the widths under test are the production ones, with no Cyrillic literal.
+    final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+    final String fitTitle = l10n.ownerOwnProfileTitle;
+    final String fitLabel = l10n.ownerMasterModeBack;
+
+    Widget trailingPair() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        NotificationBellButton(onTap: () {}, semanticLabel: 'Notifications'),
+        const SizedBox(width: VelvetSpacing.sm + 4),
+        NeumorphicIconButton(
+          icon: Icons.tune_rounded,
+          semanticLabel: 'Settings',
+          onTap: () {},
+        ),
+      ],
+    );
+
+    Future<void> pumpFit(
+      WidgetTester tester,
+      double width,
+      double scale, {
+      bool fit = true,
+      bool omitFlag = false,
+      bool withTrailing = true,
+      Widget? titleWidget,
+      TextDirection? direction,
+      VoidCallback? onBack,
+    }) async {
+      final Widget bar = omitFlag
+          ? VelvetTopBar(
+              title: fitTitle,
+              backKey: backKey,
+              backLabel: fitLabel,
+              backSemanticLabel: _kBackSemantics,
+              onBack: onBack ?? () {},
+              trailing: withTrailing ? trailingPair() : null,
+            )
+          : VelvetTopBar(
+              title: fitTitle,
+              titleWidget: titleWidget,
+              backKey: backKey,
+              backLabel: fitLabel,
+              backSemanticLabel: _kBackSemantics,
+              onBack: onBack ?? () {},
+              trailing: withTrailing ? trailingPair() : null,
+              fitWholeTitle: fit,
+            );
+      Widget body = Scaffold(
+        body: SafeArea(child: Column(children: <Widget>[bar])),
+      );
+      if (direction != null) {
+        body = Directionality(textDirection: direction, child: body);
+      }
+      await tester.pumpApp(
+        body,
+        width: width,
+        height: 800,
+        textScaleFactor: scale,
+      );
+      await tester.pump();
+    }
+
+    Rect trailingTune(WidgetTester tester) => tester.getRect(
+      find.ancestor(
+        of: find.byIcon(Icons.tune_rounded),
+        matching: find.byType(NeumorphicIconButton),
+      ),
+    );
+
+    final Finder title = find.descendant(
+      of: find.byType(VelvetTopBar),
+      matching: find.text(fitTitle),
+    );
+    final Finder label = find.descendant(
+      of: find.byKey(backKey),
+      matching: find.text(fitLabel),
+    );
+
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets('320 x $scale: full title, chevron, no overlap', (
+        tester,
+      ) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        int backs = 0;
+        await pumpFit(tester, 320, scale, onBack: () => backs++);
+
+        final RenderParagraph p = tester.renderObject(title);
+        expect(p.didExceedMaxLines, isFalse);
+        final Rect t = tester.getRect(title);
+        expect(
+          t.right,
+          lessThanOrEqualTo(
+            tester.getRect(find.byType(NotificationBellButton)).left,
+          ),
+        );
+        expect(
+          t.left,
+          greaterThanOrEqualTo(tester.getRect(find.byKey(backKey)).right),
+        );
+        expect(label, findsNothing);
+        expect(find.text(fitLabel), findsNothing);
+        expect(find.bySemanticsLabel(_kBackSemantics), findsOneWidget);
+        await tester.tap(find.byKey(backKey));
+        expect(backs, 1);
+        handle.dispose();
+      });
+    }
+
+    testWidgets('414 x 1.0: labelled pill, title centred within 0.5 dp', (
+      tester,
+    ) async {
+      await pumpFit(tester, 414, 1.0);
+      expect(label, findsOneWidget);
+      expect(
+        (tester.getCenter(title).dx - tester.getCenter(_stripFinder).dx).abs(),
+        lessThan(0.5),
+      );
+    });
+
+    testWidgets('360 x 1.0 pill, 360 x 1.3 chevron, 414 x 1.3 pill', (
+      tester,
+    ) async {
+      await pumpFit(tester, 360, 1.0);
+      expect(label, findsOneWidget);
+      await pumpFit(tester, 360, 1.3);
+      expect(label, findsNothing);
+      expect(find.byKey(backKey), findsOneWidget);
+      await pumpFit(tester, 414, 1.3);
+      expect(label, findsOneWidget);
+    });
+
+    for (final double scale in <double>[1.0, 1.3]) {
+      testWidgets('labelledPillWidthFor >= the measured pill at $scale', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          Center(
+            child: NeumorphicIconButton(
+              key: backKey,
+              icon: Icons.arrow_back_ios_new_rounded,
+              semanticLabel: _kBackSemantics,
+              onTap: () {},
+              label: fitLabel,
+            ),
+          ),
+          textScaleFactor: scale,
+        );
+        await tester.pump();
+        final double real = tester.getSize(find.byKey(backKey)).width;
+        final double estimate = VelvetTopBar.labelledPillWidthFor(
+          TextScaler.linear(scale),
+        );
+        expect(estimate, greaterThanOrEqualTo(real));
+      });
+    }
+
+    testWidgets('fitWholeTitle bar: 48 dp height intrinsic; width intrinsics '
+        'are unsupported (documented constraint)', (tester) async {
+      await pumpFit(tester, 360, 1.0);
+      final RenderBox strip = tester.renderObject(_stripFinder);
+      expect(strip.getMinIntrinsicHeight(300), 48);
+      expect(strip.getMaxIntrinsicHeight(300), 48);
+      // CustomMultiChildLayout answers 0 for width: the bar must be given a
+      // bounded width, never sized by IntrinsicWidth. If this ever changes,
+      // revisit the delegate's doc comment.
+      expect(strip.getMinIntrinsicWidth(48), 0);
+    });
+
+    // Legacy rendering pinned as LITERAL rects recorded with the flag off
+    // (default path) at 1.0x. 320 dp is the discriminating width: the legacy
+    // title is ellipsised to 64 dp at x=128, whereas the fit delegate gives
+    // 94.8 dp at x=76. At 360/414 the two paths coincide by design.
+    final Map<double, List<Rect>> legacy = <double, List<Rect>>{
+      // title, back, bell, tune
+      320: <Rect>[
+        const Rect.fromLTRB(128, 30, 192, 50),
+        const Rect.fromLTRB(24, 16, 72, 64),
+        const Rect.fromLTRB(204, 24, 236, 56),
+        const Rect.fromLTRB(248, 16, 296, 64),
+      ],
+      360: <Rect>[
+        const Rect.fromLTRB(132.6, 30, 227.4, 50),
+        const Rect.fromLTRB(24, 16, 119.6, 64),
+        const Rect.fromLTRB(244, 24, 276, 56),
+        const Rect.fromLTRB(288, 16, 336, 64),
+      ],
+      414: <Rect>[
+        const Rect.fromLTRB(159.6, 30, 254.4, 50),
+        const Rect.fromLTRB(24, 16, 119.6, 64),
+        const Rect.fromLTRB(298, 24, 330, 56),
+        const Rect.fromLTRB(342, 16, 390, 64),
+      ],
+    };
+
+    for (final bool omit in <bool>[true, false]) {
+      testWidgets(
+        'flag ${omit ? 'omitted' : 'false'}: legacy rects (title, back, '
+        'bell, tune) at 320/360/414 x 1.0',
+        (tester) async {
+          for (final MapEntry<double, List<Rect>> e in legacy.entries) {
+            await pumpFit(tester, e.key, 1.0, fit: false, omitFlag: omit);
+            final List<Rect> got = <Rect>[
+              tester.getRect(title),
+              tester.getRect(find.byKey(backKey)),
+              tester.getRect(find.byType(NotificationBellButton)),
+              trailingTune(tester),
+            ];
+            for (int i = 0; i < got.length; i++) {
+              expect(
+                got[i],
+                rectMoreOrLessEquals(e.value[i], epsilon: 0.5),
+                reason: 'w=${e.key} element #$i',
+              );
+            }
+          }
+        },
+      );
+    }
+
+    testWidgets('320 x 1.0: title sits exactly VelvetSpacing.xs right of the '
+        'back button', (tester) async {
+      await pumpFit(tester, 320, 1.0);
+      final double gap =
+          tester.getRect(title).left -
+          tester.getRect(find.byKey(backKey)).right;
+      expect(gap, closeTo(VelvetSpacing.xs, 0.5));
+    });
+
+    for (final double w in <double>[320, 360, 414]) {
+      testWidgets('no trailing, $w x 1.0: title fits, clears the back button '
+          'and ${w >= 360 ? 'is centred' : 'sits right of it'}', (
+        tester,
+      ) async {
+        await pumpFit(tester, w, 1.0, withTrailing: false);
+        expect(
+          tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
+          isFalse,
+        );
+        final double backRight = tester.getRect(find.byKey(backKey)).right;
+        expect(tester.getRect(title).left, greaterThanOrEqualTo(backRight));
+        if (w >= 360) {
+          expect(
+            (tester.getCenter(title).dx - tester.getCenter(_stripFinder).dx)
+                .abs(),
+            lessThan(0.5),
+          );
+        } else {
+          // The labelled pill leaves no room to centre at 320: the title
+          // takes the right-of-back slot, exactly xs away.
+          expect(
+            tester.getRect(title).left - backRight,
+            closeTo(VelvetSpacing.xs, 0.5),
+          );
+        }
+      });
+    }
+
+    testWidgets('titleWidget + fitWholeTitle: the widget is laid out and '
+        'centred, the plain title is not built', (tester) async {
+      const Key custom = Key('vtb_fit_custom_title');
+      await pumpFit(
+        tester,
+        414,
+        1.0,
+        titleWidget: const SizedBox(key: custom, width: 80, height: 20),
+      );
+      expect(find.byKey(custom), findsOneWidget);
+      expect(title, findsNothing);
+      expect(
+        (tester.getCenter(find.byKey(custom)).dx -
+                tester.getCenter(_stripFinder).dx)
+            .abs(),
+        lessThan(0.5),
+      );
+    });
+
+    // INFO: the delegate positions with absolute x offsets and never reads
+    // `textDirection`, so it is NOT mirrored in RTL: back stays on the left,
+    // trailing block on the right (its Row children swap internally), title
+    // and back rects identical to LTR. The app is UA-only; this
+    // pins the current behaviour so a future mirroring change is deliberate.
+    testWidgets('RTL: not mirrored — rects identical to LTR (current '
+        'behaviour)', (tester) async {
+      await pumpFit(tester, 414, 1.0);
+      Rect extent() => tester
+          .getRect(find.byType(NotificationBellButton))
+          .expandToInclude(trailingTune(tester));
+      final List<Rect> ltr = <Rect>[
+        tester.getRect(title),
+        tester.getRect(find.byKey(backKey)),
+        extent(),
+      ];
+      await pumpFit(tester, 414, 1.0, direction: TextDirection.rtl);
+      final List<Rect> rtl = <Rect>[
+        tester.getRect(title),
+        tester.getRect(find.byKey(backKey)),
+        extent(),
+      ];
+      for (int i = 0; i < ltr.length; i++) {
+        expect(rtl[i], rectMoreOrLessEquals(ltr[i], epsilon: 0.5));
+      }
     });
   });
 }

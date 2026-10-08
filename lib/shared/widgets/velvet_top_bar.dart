@@ -30,6 +30,7 @@ class VelvetTopBar extends StatelessWidget {
     this.backKey,
     this.titleWidget,
     this.backLabel,
+    this.fitWholeTitle = false,
   });
 
   /// Optional VISIBLE text beside the back chevron (additive, Phase 24.1a —
@@ -40,6 +41,15 @@ class VelvetTopBar extends StatelessWidget {
   /// run under the pill, at any text scale. `null` (every pre-existing call site)
   /// renders the byte-identical tree.
   final String? backLabel;
+
+  /// Opt-in (default `false` = the symmetric-inset layout, untouched). When
+  /// `true` AND [backLabel] + [onBack] are set, the bar lays out with a
+  /// [_FitTitleBarDelegate]: the [trailing] row is measured first, the title
+  /// gets everything left of it (never truncated in normal cases), and the
+  /// «‹ Салон» pill collapses to the bare chevron BEFORE the title is cut. The
+  /// title stays centred when it clears both sides, else it shifts to just
+  /// right of the back button.
+  final bool fitWholeTitle;
 
   /// Symmetric horizontal inset of the centred title when [backLabel] is set
   /// at 1.0× text scale: the pill measured once with the longest label in use
@@ -162,7 +172,9 @@ class VelvetTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     // The inset applies only when the labelled pill actually renders.
     final bool labelledBack = backLabel != null && onBack != null;
-    final Widget bar = labelledBack
+    final Widget bar = labelledBack && fitWholeTitle
+        ? _fitBar()
+        : labelledBack
         // Phase 383 — only a labelled bar measures: it collapses to the plain
         // chevron when the title would be left below its readable minimum.
         ? LayoutBuilder(
@@ -191,6 +203,51 @@ class VelvetTopBar extends StatelessWidget {
         VelvetSpacing.xs,
       ),
       child: SizedBox(height: 48, child: bar),
+    );
+  }
+
+  /// The `fitWholeTitle` bar: back / title / trailing in a
+  /// [CustomMultiChildLayout] (see [_FitTitleBarDelegate]).
+  Widget _fitBar() {
+    final Widget titleChild =
+        titleWidget ??
+        Text(
+          title,
+          style: VelvetText.pageTitle,
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+        );
+    return CustomMultiChildLayout(
+      delegate: trailing != null
+          ? _FitTitleBarDelegate.withTrailing
+          : _FitTitleBarDelegate.withoutTrailing,
+      children: <Widget>[
+        LayoutId(
+          id: _FitTitleBarDelegate.backId,
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              // The ESTIMATE is the safe direction: it is pinned (see the
+              // `labelledPillWidthFor` test) to be >= the measured pill at
+              // 1.0x and 1.3x, so a labelled pill never overflows its slot.
+              final bool labelled =
+                  constraints.maxWidth >=
+                  labelledPillWidthFor(MediaQuery.textScalerOf(context));
+              return NeumorphicIconButton(
+                key: backKey,
+                icon: Icons.arrow_back_ios_new_rounded,
+                semanticLabel: backSemanticLabel,
+                onTap: onBack!,
+                label: labelled ? backLabel : null,
+              );
+            },
+          ),
+        ),
+        LayoutId(id: _FitTitleBarDelegate.titleId, child: titleChild),
+        if (trailing != null)
+          LayoutId(id: _FitTitleBarDelegate.trailingId, child: trailing!),
+      ],
     );
   }
 
@@ -237,4 +294,72 @@ class VelvetTopBar extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Layout for the `fitWholeTitle` bar. Order: trailing (loose) → title (all the
+/// room left of trailing and a chevron slot) → back (what the title left).
+/// The title is centred in the full bar when it clears both neighbours, else it
+/// sits [VelvetSpacing.xs] right of the back button.
+class _FitTitleBarDelegate extends MultiChildLayoutDelegate {
+  _FitTitleBarDelegate._(this.hasTrailing);
+
+  static const Object backId = 'back';
+  static const Object titleId = 'title';
+  static const Object trailingId = 'trailing';
+
+  final bool hasTrailing;
+
+  /// Shared instances (a `MultiChildLayoutDelegate` cannot be `const`): a
+  /// rebuild with unchanged inputs hands the render object the SAME delegate,
+  /// so `shouldRelayout` is never even consulted.
+  static final _FitTitleBarDelegate withTrailing = _FitTitleBarDelegate._(true);
+  static final _FitTitleBarDelegate withoutTrailing = _FitTitleBarDelegate._(
+    false,
+  );
+
+  /// INTRINSICS: `MultiChildLayoutDelegate` has no intrinsic hooks, so the
+  /// render box answers 0 for width. Height is fine (the strip is a fixed
+  /// 48 dp `SizedBox` above it). Width intrinsics are unsupported — the back
+  /// slot's `LayoutBuilder` throws on them anyway — so never wrap a
+  /// `fitWholeTitle` bar in `IntrinsicWidth`; give it a bounded width. Pinned
+  /// by a test in `velvet_top_bar_test.dart`.
+  @override
+  void performLayout(Size size) {
+    // xs, not sm: at 320 dp x 1.3 the full title needs 123.2 dp and only
+    // 124 dp remain with 4 dp gaps (116 dp with 8 dp ones would ellipsise).
+    const double gap = VelvetSpacing.xs;
+    final double w = size.width;
+    final double h = size.height;
+
+    double tw = 0;
+    if (hasTrailing && hasChild(trailingId)) {
+      final Size t = layoutChild(trailingId, BoxConstraints.loose(Size(w, h)));
+      tw = t.width;
+      positionChild(trailingId, Offset(w - tw, (h - t.height) / 2));
+    }
+
+    final double titleMax = (w - tw - NeumorphicIconButton.extent - 2 * gap)
+        .clamp(0.0, w);
+    final Size title = layoutChild(
+      titleId,
+      BoxConstraints(maxWidth: titleMax, maxHeight: h),
+    );
+
+    final double backMax = (w - tw - title.width - 2 * gap).clamp(0.0, w);
+    final Size back = layoutChild(
+      backId,
+      BoxConstraints(maxWidth: backMax, maxHeight: h),
+    );
+    positionChild(backId, Offset(0, (h - back.height) / 2));
+
+    final double centred = (w - title.width) / 2;
+    final bool clearsBack = centred >= back.width + gap;
+    final bool clearsTrailing = centred + title.width <= w - tw - gap;
+    final double x = clearsBack && clearsTrailing ? centred : back.width + gap;
+    positionChild(titleId, Offset(x, (h - title.height) / 2));
+  }
+
+  @override
+  bool shouldRelayout(_FitTitleBarDelegate old) =>
+      old.hasTrailing != hasTrailing;
 }

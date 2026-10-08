@@ -63,6 +63,7 @@ import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_scaffold.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1380,6 +1381,38 @@ void _masterModeTests() {
       await tester.tap(find.byKey(_masterModeBack));
       await tester.pumpAndSettle();
       expect(backs, 1);
+    });
+
+    testWidgets('fitWholeTitle is true in master mode (backLabel), false '
+        'otherwise', (tester) async {
+      await tester.pumpApp(
+        OwnerOwnProfileScreen(
+          embedded: true,
+          backLabel: l10n.ownerMasterModeBack,
+          backSemanticLabel: l10n.ownerMasterModeBackSemantics,
+          onBack: () {},
+        ),
+        overrides: data,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ProfileScaffold>(find.byType(ProfileScaffold))
+            .fitWholeTitle,
+        isTrue,
+      );
+
+      await tester.pumpApp(
+        const OwnerOwnProfileScreen(embedded: true),
+        overrides: data,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ProfileScaffold>(find.byType(ProfileScaffold))
+            .fitWholeTitle,
+        isFalse,
+      );
     });
   });
 

@@ -100,6 +100,7 @@ import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1656,6 +1657,71 @@ void main() {
         timeout: const Duration(seconds: 20),
       );
       expect(fb.getSalonBookingsCalls, greaterThan(0));
+    });
+  });
+
+  // Fit-whole-title: on the owner's master-mode «Мій профіль» the title must
+  // never ellipsise beside the «‹ Салон» pill + bell/tune icons. At 320 dp the
+  // pill collapses to the chevron (back key still present, label gone); at
+  // 414 dp there is room and the label stays.
+  testWidgets('SALON_OWNER: master-mode «Профіль» title is NOT truncated at '
+      '320 dp (pill collapses to the chevron, still returns to the salon); at '
+      '414 dp the «Салон» label shows', (tester) async {
+    await mockNetworkImagesFor(() async {
+      tester.view.physicalSize = const Size(320, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      final FakeBackend fb = FakeBackend()
+        ..currentRole = UserRole.salonOwner
+        ..hasMasterProfile = true;
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(OwnerOwnProfileScreen)),
+      );
+      final String backLabel = l10n.ownerMasterModeBack;
+      final Finder title = find.descendant(
+        of: find.byType(VelvetTopBar),
+        matching: find.text(l10n.ownerOwnProfileTitle),
+      );
+      Finder label() => find.descendant(
+        of: find.byKey(_masterModeBack),
+        matching: find.text(backLabel),
+      );
+
+      // ── 320 dp: whole title, chevron only ───────────────────────────────
+      expect(title, findsOneWidget);
+      expect(
+        tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
+        isFalse,
+        reason: 'the whole title must fit at 320 dp (fitWholeTitle)',
+      );
+      expect(label(), findsNothing, reason: 'pill collapsed to the chevron');
+      expect(find.byKey(_masterModeBack), findsOneWidget);
+
+      await AppHarness.tapVisible(tester, find.byKey(_masterModeBack));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+      expect(find.byType(SalonShellScreen), findsOneWidget);
+
+      // ── 414 dp: room for the label ──────────────────────────────────────
+      tester.view.physicalSize = const Size(414, 800);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+      expect(label(), findsOneWidget, reason: 'label shows when it clears');
+      expect(
+        tester.renderObject<RenderParagraph>(title).didExceedMaxLines,
+        isFalse,
+      );
     });
   });
 }
