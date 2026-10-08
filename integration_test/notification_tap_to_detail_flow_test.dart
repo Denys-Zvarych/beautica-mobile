@@ -63,6 +63,9 @@ const String _kSalonB = 'salon-xyz';
 const Key _clientBell = Key('home_hub_bell_button');
 const Key _coverBell = Key('salon-manage-notifications');
 
+/// Fixture DATA: the seeded `booking-1` master's display name.
+const String _kOwnMasterName = 'Софія Бондар';
+
 /// Bottom-nav destination of «Команда» (`SalonBottomNav.ownerAdminItems`).
 const int _navTeam = 2;
 
@@ -285,6 +288,57 @@ void main() {
         findsOneWidget,
         reason: 'exactly one (salon A) shell is on screen',
       );
+    });
+  });
+
+  testWidgets('SALON_OWNER taps a notification for a booking they PERFORM '
+      'themselves: the detail shows the performing-master strip with their '
+      'master name and never reads /masters/me', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final _FeedRepo repo = _FeedRepo(<AppNotification>[
+        _notif(
+          'own1',
+          age: const Duration(hours: 1),
+          target: const NotificationTarget.booking(
+            bookingId: _kBookingId,
+            salonId: FakeBackend.kOwnerSalonId,
+          ),
+        ),
+      ]);
+      // The owner's own master row id == the seeded booking's `masterId`.
+      final fb = FakeBackend(masterRowId: 'master-aaa')
+        ..currentRole = UserRole.salonOwner
+        ..bookingMasterType = 'SALON_MASTER'
+        ..bookingSalonName = 'Салон Камелія'
+        ..bookingProviderCanReviewClient = false;
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: _repo(repo),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+
+      await _openFeed(tester, router, _coverBell);
+      await tester.tap(_tile('own1'));
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(
+        router,
+        RouteNames.salonStaffBookingDetail(_kBookingId),
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      final Finder strip = find.byKey(
+        const Key('booking-detail-performing-master-strip'),
+      );
+      expect(strip, findsOneWidget);
+      expect(
+        find.descendant(of: strip, matching: find.text(_kOwnMasterName)),
+        findsOneWidget, // i18n-finder-ok: seeded fixture name, not UI copy
+        reason: 'the strip names the performing master — here the owner',
+      );
+      expect(fb.getMasterCalls, 0);
+      expect(tester.takeException(), isNull);
     });
   });
 

@@ -2375,8 +2375,8 @@ void main() {
   // ══════════════════════════════════════════════════════════════════════
   // 2026-10-08 — «Деталі запису» names the PERFORMING master to a salon
   // owner/admin (Step 2.7 Rule 3b). Joins what the unit tier cannot: the real
-  // `GET /masters/me` (own master-row id) vs the real `GET /bookings/{id}`
-  // `masterId`, through the real router. No Patrol flow: no native surface.
+  // `GET /bookings/{id}` `masterId`, through the real router (an owner
+  // viewing their OWN booking still sees the strip; no `/masters/me` read). No Patrol flow: no native surface.
   // ══════════════════════════════════════════════════════════════════════
   testWidgets(
     'owner opening ANOTHER master\'s salon booking sees the performing-master '
@@ -2447,10 +2447,11 @@ void main() {
 
   testWidgets(
     'owner opening their OWN booking (own master-row id == booking.masterId) '
-    'sees NO performing-master strip',
+    'STILL sees the performing-master strip, with no GET /masters/me',
     (tester) async {
       await mockNetworkImagesFor(() async {
-        // `GET /masters/me` reports `master-aaa` — the seeded booking's master.
+        // `GET /masters/me` would report `master-aaa` — the seeded booking's
+        // master. The screen must not even ask.
         final FakeBackend fb = _salonBookingBackend(
           UserRole.salonOwner,
           ownMasterRowId: 'master-aaa',
@@ -2463,12 +2464,21 @@ void main() {
           UserRole.salonOwner,
         );
 
+        final Finder strip = find.byKey(_kPerformingMasterStrip);
+        expect(strip, findsOneWidget);
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+        );
         expect(
           fb.getMasterCalls,
-          greaterThan(0),
-          reason: 'ANTI-VACUITY: the own-id lookup really went to the wire',
+          0,
+          reason:
+              'no own-master comparison: this screen never reads /masters/me',
         );
-        expect(find.byKey(_kPerformingMasterStrip), findsNothing);
         expect(tester.takeException(), isNull);
       });
     },

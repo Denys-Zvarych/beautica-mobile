@@ -1,5 +1,3 @@
-import 'dart:async';
-
 // Phase 7.2 — the PROVIDER view of «Деталі запису».
 //
 // One screen, role-branched off the session (locked decision D5). This suite
@@ -21,9 +19,6 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
-import 'package:beautica_mobile/features/salon/domain/salon.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -140,10 +135,7 @@ Future<void> _pump(
   WidgetTester tester,
   Booking booking, {
   required UserRole role,
-  String? ownMasterId,
-  bool profileFails = false,
-  List<SalonStaffMember>? roster,
-  Completer<Master>? profileGate,
+  MasterMeCallCounter? masterMeCalls,
 }) async {
   await tester.pumpApp(
     BookingDetailScreen(bookingId: booking.id),
@@ -151,17 +143,10 @@ Future<void> _pump(
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
       bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
-      if (profileFails)
-        masterProfileProvider.overrideWith(_FailingMasterProfile.new),
-      if (profileFails)
-        salonManagementProfileProvider.overrideWith(() => _StubRoster(roster)),
-      if (profileGate != null)
+      // Spy: `GET /masters/me` must never be read by this screen.
+      if (masterMeCalls != null)
         masterProfileProvider.overrideWith(
-          () => _GatedMasterProfile(profileGate),
-        ),
-      if (ownMasterId != null)
-        masterProfileProvider.overrideWith(
-          () => _StubMasterProfile(ownMasterId),
+          () => _CountingMasterProfile(masterMeCalls),
         ),
       authProvider.overrideWith(
         () => _StubAuth(
@@ -173,48 +158,27 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-class _FailingMasterProfile extends MasterProfile {
-  @override
-  Future<Master> build() async => throw StateError('masters/me down');
+/// Counts `GET /masters/me` builds — the screen must make none.
+class MasterMeCallCounter {
+  int builds = 0;
 }
 
-class _StubRoster extends SalonManagementProfile {
-  _StubRoster(this._staff);
+class _CountingMasterProfile extends MasterProfile {
+  _CountingMasterProfile(this._counter);
 
-  /// `null` = the roster read itself fails.
-  final List<SalonStaffMember>? _staff;
+  final MasterMeCallCounter _counter;
 
   @override
-  Future<SalonManagementProfileData> build(String salonId) async {
-    final List<SalonStaffMember>? staff = _staff;
-    if (staff == null) throw StateError('roster down');
-    return (const Salon(id: 'salon-1', name: 'Салон', isPrimary: true), staff);
+  Future<Master> build() async {
+    _counter.builds++;
+    return const Master(
+      id: 'owner-master',
+      firstName: 'Власна',
+      lastName: 'Майстриня',
+      reviewCount: 0,
+      type: MasterType.salonOwner,
+    );
   }
-}
-
-/// `GET /masters/me` held PENDING until the test completes [_gate].
-class _GatedMasterProfile extends MasterProfile {
-  _GatedMasterProfile(this._gate);
-
-  final Completer<Master> _gate;
-
-  @override
-  Future<Master> build() => _gate.future;
-}
-
-class _StubMasterProfile extends MasterProfile {
-  _StubMasterProfile(this._id);
-
-  final String _id;
-
-  @override
-  Future<Master> build() async => Master(
-    id: _id,
-    firstName: 'Власна',
-    lastName: 'Майстриня',
-    reviewCount: 0,
-    type: MasterType.salonMaster,
-  );
 }
 
 class _StubAuth extends AuthNotifier {
@@ -1316,7 +1280,6 @@ void main() {
         tester,
         _booking(salonName: 'Салон'),
         role: UserRole.salonOwner,
-        ownMasterId: 'owner-master',
       );
       expect(find.byKey(strip), findsOne);
       expect(
@@ -1329,89 +1292,39 @@ void main() {
       expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
     });
 
-    testWidgets('an ADMIN sees the strip', (tester) async {
-      await _pump(
-        tester,
-        _booking(salonName: 'Салон'),
-        role: UserRole.salonAdmin,
-      );
-      expect(find.byKey(strip), findsOne);
-    });
-
-    testWidgets('an OWNER viewing their OWN booking sees no strip', (
-      tester,
-    ) async {
+    testWidgets('an OWNER sees the strip on a booking whose master row is '
+        'their own, and makes NO /masters/me call', (tester) async {
+      final MasterMeCallCounter calls = MasterMeCallCounter();
       await _pump(
         tester,
         _booking(salonName: 'Салон', masterId: 'owner-master'),
         role: UserRole.salonOwner,
-        ownMasterId: 'owner-master',
-      );
-      expect(find.byKey(strip), findsNothing);
-      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
-    });
-
-    testWidgets('profile ERROR + roster owner row (userId == me) hides the '
-        'strip on the owner\'s OWN booking', (tester) async {
-      await _pump(
-        tester,
-        _booking(
-          salonName: 'Салон',
-          salonId: 'salon-1',
-          masterId: 'owner-master',
-        ),
-        role: UserRole.salonOwner,
-        profileFails: true,
-        roster: const <SalonStaffMember>[
-          SalonStaffMember(
-            userId: 'u1',
-            masterId: 'owner-master',
-            role: SalonStaffRole.master,
-            masterType: MasterType.salonOwner,
-            firstName: 'Власна',
-            lastName: 'Майстриня',
-          ),
-        ],
-      );
-      expect(find.byKey(strip), findsNothing);
-    });
-
-    testWidgets('profile ERROR + roster owner row still shows the strip on '
-        'ANOTHER master\'s booking', (tester) async {
-      await _pump(
-        tester,
-        _booking(salonName: 'Салон', salonId: 'salon-1'),
-        role: UserRole.salonOwner,
-        profileFails: true,
-        roster: const <SalonStaffMember>[
-          SalonStaffMember(
-            userId: 'u1',
-            masterId: 'owner-master',
-            role: SalonStaffRole.master,
-            masterType: MasterType.salonOwner,
-            firstName: 'Власна',
-            lastName: 'Майстриня',
-          ),
-        ],
+        masterMeCalls: calls,
       );
       expect(find.byKey(strip), findsOne);
+      expect(
+        find.descendant(
+          of: find.byKey(strip),
+          matching: find.text(_masterFull),
+        ),
+        findsOne,
+      ); // i18n-finder-ok: test fixture name, not app copy
+      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+      expect(calls.builds, 0);
     });
 
-    testWidgets('profile ERROR + roster ALSO unavailable: documented '
-        'fail-open — the strip shows even on the owner\'s own booking', (
+    testWidgets('an ADMIN sees the strip, and makes NO /masters/me call', (
       tester,
     ) async {
+      final MasterMeCallCounter calls = MasterMeCallCounter();
       await _pump(
         tester,
-        _booking(
-          salonName: 'Салон',
-          salonId: 'salon-1',
-          masterId: 'owner-master',
-        ),
-        role: UserRole.salonOwner,
-        profileFails: true,
+        _booking(salonName: 'Салон'),
+        role: UserRole.salonAdmin,
+        masterMeCalls: calls,
       );
       expect(find.byKey(strip), findsOne);
+      expect(calls.builds, 0);
     });
 
     testWidgets('a SALON_MASTER never sees the strip', (tester) async {
@@ -1430,43 +1343,8 @@ void main() {
 
     testWidgets('an OWNER viewing an INDEPENDENT-master (non-salon) booking '
         'sees no strip', (tester) async {
-      await _pump(
-        tester,
-        _booking(),
-        role: UserRole.salonOwner,
-        ownMasterId: 'owner-master',
-      );
+      await _pump(tester, _booking(), role: UserRole.salonOwner);
       expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
-      expect(find.byKey(strip), findsNothing);
-    });
-
-    testWidgets('while the owner\'s /masters/me is PENDING the strip stays '
-        'hidden on their own booking (fail closed), and stays hidden once it '
-        'resolves', (tester) async {
-      final Completer<Master> gate = Completer<Master>();
-      await _pump(
-        tester,
-        _booking(salonName: 'Салон', masterId: 'owner-master'),
-        role: UserRole.salonOwner,
-        profileGate: gate,
-      );
-      expect(
-        find.byKey(const Key('booking-detail-client-strip')),
-        findsOne,
-        reason: 'positive control: the header rendered while pending',
-      );
-      expect(find.byKey(strip), findsNothing);
-
-      gate.complete(
-        const Master(
-          id: 'owner-master',
-          firstName: 'Власна',
-          lastName: 'Майстриня',
-          reviewCount: 0,
-          type: MasterType.salonOwner,
-        ),
-      );
-      await tester.pumpAndSettle();
       expect(find.byKey(strip), findsNothing);
     });
 
