@@ -175,6 +175,7 @@ abstract final class NotificationMapper {
       salonName: _nonBlank(dto.salonName),
       subjectName: _nonBlank(dto.subjectName),
       subjectRole: knownEnumName(dto.subjectRole),
+      masterName: _nonBlank(dto.masterName),
     );
   }
 

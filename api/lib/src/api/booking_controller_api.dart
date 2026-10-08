@@ -321,8 +321,8 @@ class BookingControllerApi {
     return _response;
   }
 
-  /// getBooking
-  ///
+  /// Get a booking
+  /// 200 for the owning client, the performing master, the salon owner, or an assigned, active salon admin of the booking&#39;s salon. 403 for anyone else (also when the booking does not exist).
   ///
   /// Parameters:
   /// * [bookingId]

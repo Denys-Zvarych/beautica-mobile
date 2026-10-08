@@ -617,7 +617,18 @@ final class FakeBackend {
 
   /// The role currently "logged in" for this fake instance.
   /// Call [setCurrentRole] before asserting role-specific behaviour.
-  UserRole currentRole = UserRole.independentMaster;
+  UserRole get currentRole => _currentRole;
+  set currentRole(UserRole value) {
+    _currentRole = value;
+    // Phase 386: the SALON_MASTER 403s are registration-time statuses.
+    if (_roleRoutesReady) {
+      _wireClientReviews();
+      _wireBookingComplete();
+    }
+  }
+
+  UserRole _currentRole = UserRole.independentMaster;
+  bool _roleRoutesReady = false;
 
   String masterFirstName = 'Олена';
   String masterLastName = 'Ковальчук';
@@ -5234,7 +5245,9 @@ final class FakeBackend {
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
     'canReview': bookingCanReview,
-    'providerCanReviewClient': bookingProviderCanReviewClient,
+    'providerCanReviewClient': providerCanReviewClientFor(
+      bookingProviderCanReviewClient,
+    ),
     // Phase 334. Emitted ONLY on a detail payload AND only when seeded, so the
     // default keeps the pre-334 shape (key absent entirely) — same idiom as
     // `masterAvgRating` below.
@@ -9833,46 +9846,7 @@ final class FakeBackend {
     // — the exact visual shape this whole fix chain exists to prevent, just
     // reproduced by fake-fidelity drift instead of a mapper/widget bug. See
     // `master_archive_review_flow_test.dart`'s scenario 9.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/complete',
-      (server) => server.replyCallback(200, (_) {
-        completeBookingCalls++;
-        bookingStatus = 'COMPLETED';
-        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
-        if (dataset != null) {
-          final int idx = dataset.indexWhere(
-            (Map<String, dynamic> row) => row['id'] == 'booking-1',
-          );
-          if (idx != -1) {
-            dataset[idx] = <String, dynamic>{
-              ...dataset[idx],
-              'status': 'COMPLETED',
-              'awaitingClosure': false,
-            };
-          }
-        }
-        // Phase 345 — the SAME mutation on the SALON archive list, for
-        // exactly the reason the two paragraphs above give for the
-        // `/bookings/me` dataset. The salon archive re-reads
-        // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
-        // this, that re-read would hand back the unchanged CONFIRMED row and
-        // "the closed row left the «Підтверджено» filter" would be
-        // unprovable at the salon host while passing at the master host —
-        // a fake-fidelity divergence between two callers of one write.
-        final int salonIdx = salonArchiveBookings.indexWhere(
-          (Map<String, dynamic> row) => row['id'] == 'booking-1',
-        );
-        if (salonIdx != -1) {
-          salonArchiveBookings[salonIdx] = <String, dynamic>{
-            ...salonArchiveBookings[salonIdx],
-            'status': 'COMPLETED',
-            'awaitingClosure': false,
-          };
-        }
-        return _okVoid;
-      }),
-      request: const Request(method: RequestMethods.patch),
-    );
+    _wireBookingComplete();
 
     // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the
     // submitted bookingId/rating/comment and flips [bookingCanReview] false so a
@@ -10083,7 +10057,9 @@ final class FakeBackend {
     // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
     // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
     // the owner-as-master rows — see the constructor doc above.
-    'providerCanReviewClient': providerCanReviewClient,
+    'providerCanReviewClient': providerCanReviewClientFor(
+      providerCanReviewClient,
+    ),
     // Phase 345 D3 — see the constructor doc. `false` (the default) is
     // semantically identical to omitting the key, which is what every pre-345
     // board row did (`BookingMapper` reads `dto.awaitingClosure ?? false`).
@@ -11033,6 +11009,79 @@ final class FakeBackend {
     );
   }
 
+  /// `PATCH /bookings/booking-1/complete`. Own method so [currentRole]'s setter
+  /// can RE-REGISTER it: `replyCallback` captures its status at registration
+  /// time (see [clientReviewRejectDuplicate]), and the SALON_MASTER 403 depends
+  /// on the role chosen AFTER construction.
+  void _wireBookingComplete() {
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/complete',
+      (server) => server.replyCallback(
+        currentRole == UserRole.salonMaster ? 403 : 200,
+        (_) {
+          completeBookingCalls++;
+          if (currentRole == UserRole.salonMaster) return _forbiddenEnvelope();
+          bookingStatus = 'COMPLETED';
+          final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+          if (dataset != null) {
+            final int idx = dataset.indexWhere(
+              (Map<String, dynamic> row) => row['id'] == 'booking-1',
+            );
+            if (idx != -1) {
+              dataset[idx] = <String, dynamic>{
+                ...dataset[idx],
+                'status': 'COMPLETED',
+                'awaitingClosure': false,
+              };
+            }
+          }
+          // Phase 345 — the SAME mutation on the SALON archive list, for
+          // exactly the reason the two paragraphs above give for the
+          // `/bookings/me` dataset. The salon archive re-reads
+          // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
+          // this, that re-read would hand back the unchanged CONFIRMED row and
+          // "the closed row left the «Підтверджено» filter" would be
+          // unprovable at the salon host while passing at the master host —
+          // a fake-fidelity divergence between two callers of one write.
+          final int salonIdx = salonArchiveBookings.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (salonIdx != -1) {
+            salonArchiveBookings[salonIdx] = <String, dynamic>{
+              ...salonArchiveBookings[salonIdx],
+              'status': 'COMPLETED',
+              'awaitingClosure': false,
+            };
+          }
+          return _okVoid;
+        },
+      ),
+      request: const Request(method: RequestMethods.patch),
+    );
+  }
+
+  /// Phase 386 (backend 355) — the single place that models who may see
+  /// `providerCanReviewClient == true`: only the SALON_OWNER / SALON_ADMIN of
+  /// the salon and an INDEPENDENT_MASTER on their own booking. A SALON_MASTER
+  /// (even on a booking they performed) and a CLIENT always read `false`.
+  /// Used by BOTH the detail serializer and the salon board / archive row
+  /// builder so the two can never disagree.
+  bool providerCanReviewClientFor(bool seeded) =>
+      seeded &&
+      (currentRole == UserRole.salonOwner ||
+          currentRole == UserRole.salonAdmin ||
+          currentRole == UserRole.independentMaster);
+
+  /// Phase 386 (backend 355) — a SALON_MASTER may neither complete a booking
+  /// nor rate the client; the real server answers 403 and mutates nothing.
+  Map<String, dynamic> _forbiddenEnvelope() => <String, dynamic>{
+    'success': false,
+    'message': 'Access denied',
+    'data': null,
+  };
+
+  // Phase 386 (backend 356): `GET /bookings/{id}` answers 200 for the salon's
+  // assigned admin too, so the role-blind 200 below is the post-356 contract.
   void _wireBookingDetail() {
     final int? failStatus = _bookingDetailFailStatus;
     _adapter.onRoute(
@@ -11073,28 +11122,37 @@ final class FakeBackend {
   /// [clientReviewRejectDuplicate]'s setter can RE-REGISTER the route with a
   /// different status — see that field's doc for why a plain field cannot work.
   void _wireClientReviews() {
+    _roleRoutesReady = true;
     _adapter.onRoute(
       '/api/v1/client-reviews',
-      (server) =>
-          server.replyCallback(_clientReviewRejectDuplicate ? 409 : 200, (req) {
-            createClientReviewCalls++;
-            final body = _decodeBody(req.data);
-            lastClientReviewBookingId = body['bookingId'] as String?;
-            lastClientReviewRating = body['rating'] as int?;
-            lastClientReviewComment = body['comment'] as String?;
-            if (_clientReviewRejectDuplicate) {
-              // Deliberately does NOT flip [bookingProviderCanReviewClient].
-              // The screen's 409 branch invalidates `bookingDetailProvider`,
-              // so the refetch that follows still answers `true` — which means
-              // the `_NotReviewable` state a flow then observes can ONLY have
-              // come from the screen's own `_alreadyReviewed` flag, never from
-              // a conveniently-agreeing server. Flipping it here would make
-              // that assertion pass for the wrong reason.
-              return _okVoid;
-            }
-            bookingProviderCanReviewClient = false;
+      (server) => server.replyCallback(
+        currentRole == UserRole.salonMaster
+            ? 403
+            : (_clientReviewRejectDuplicate ? 409 : 200),
+        (req) {
+          createClientReviewCalls++;
+          if (currentRole == UserRole.salonMaster) {
+            // Phase 386 (backend 355): counted, never flips the flag.
+            return _forbiddenEnvelope();
+          }
+          final body = _decodeBody(req.data);
+          lastClientReviewBookingId = body['bookingId'] as String?;
+          lastClientReviewRating = body['rating'] as int?;
+          lastClientReviewComment = body['comment'] as String?;
+          if (_clientReviewRejectDuplicate) {
+            // Deliberately does NOT flip [bookingProviderCanReviewClient].
+            // The screen's 409 branch invalidates `bookingDetailProvider`,
+            // so the refetch that follows still answers `true` — which means
+            // the `_NotReviewable` state a flow then observes can ONLY have
+            // come from the screen's own `_alreadyReviewed` flag, never from
+            // a conveniently-agreeing server. Flipping it here would make
+            // that assertion pass for the wrong reason.
             return _okVoid;
-          }),
+          }
+          bookingProviderCanReviewClient = false;
+          return _okVoid;
+        },
+      ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
@@ -11151,6 +11209,9 @@ final class FakeBackend {
     String? salonId,
     String? targetKind,
     String? salonName,
+    // Opt-in (default off, so every existing flow keeps its payload): the
+    // performing master's name the backend adds for owner / admin recipients.
+    String? masterName,
     bool read = false,
     Duration age = const Duration(hours: 1),
   }) {
@@ -11184,6 +11245,7 @@ final class FakeBackend {
             .toUtc()
             .toIso8601String(),
         'salonName': ?salonName,
+        'masterName': ?masterName,
       },
     });
     _adapter.onRoute(

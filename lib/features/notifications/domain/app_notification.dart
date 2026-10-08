@@ -78,6 +78,11 @@ abstract class NotificationParams with _$NotificationParams {
     /// Wire role name of the subject (`CLIENT`, `SALON_MASTER`, …); `null`
     /// when absent or unrecognised.
     String? subjectRole,
+
+    /// Performing master's name — set by the backend only for salon
+    /// owner/admin recipients of booking created / cancelled-by-client /
+    /// rescheduled; `null` otherwise (never an error).
+    String? masterName,
   }) = _NotificationParams;
 
   const NotificationParams._();

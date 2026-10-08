@@ -17,6 +17,7 @@ part 'notification_params.g.dart';
 /// * [serviceCount]
 /// * [startsAt]
 /// * [salonName]
+/// * [masterName]
 /// * [subjectName]
 /// * [subjectRole]
 @BuiltValue()
@@ -36,6 +37,9 @@ abstract class NotificationParams
 
   @BuiltValueField(wireName: r'salonName')
   String? get salonName;
+
+  @BuiltValueField(wireName: r'masterName')
+  String? get masterName;
 
   @BuiltValueField(wireName: r'subjectName')
   String? get subjectName;
@@ -102,6 +106,13 @@ class _$NotificationParamsSerializer
       yield r'salonName';
       yield serializers.serialize(
         object.salonName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.masterName != null) {
+      yield r'masterName';
+      yield serializers.serialize(
+        object.masterName,
         specifiedType: const FullType.nullable(String),
       );
     }
@@ -183,6 +194,14 @@ class _$NotificationParamsSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.salonName = valueDes;
+          break;
+        case r'masterName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.masterName = valueDes;
           break;
         case r'subjectName':
           final valueDes = serializers.deserialize(

@@ -51,6 +51,7 @@ class NotificationTile extends StatefulWidget {
     super.key,
     required this.item,
     required this.isClient,
+    this.showMaster = false,
     this.onOpen,
     this.onMarkRead,
   });
@@ -62,6 +63,9 @@ class NotificationTile extends StatefulWidget {
 
   /// Whether the viewer is a client (decides audience-specific copy).
   final bool isClient;
+
+  /// Owner / admin viewer: the body may name the performing master.
+  final bool showMaster;
 
   /// Row-body tap.
   final VoidCallback? onOpen;
@@ -154,7 +158,12 @@ class _NotificationTileState extends State<NotificationTile> {
       item.type,
       isClient: isClient,
     );
-    final String? body = NotificationCopy.body(l10n, item, isClient: isClient);
+    final String? body = NotificationCopy.body(
+      l10n,
+      item,
+      isClient: isClient,
+      showMaster: widget.showMaster,
+    );
     // Rendered whenever the backend sent one: it is null for independent-master
     // and client-side items, present on owner / admin rows.
     final String? salon = NotificationCopy.sanitize(item.params.salonName);

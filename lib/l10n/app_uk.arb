@@ -3416,6 +3416,26 @@
       "dateTime": { "type": "String" }
     }
   },
+  "notificationBodyProviderWithMaster": "{counterpart} — {service}, {dateTime} · майстер {master}",
+  "@notificationBodyProviderWithMaster": {
+    "description": "Owner/admin body line naming the performing master (booking created / cancelled by client); mirrors the push copy.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduledWithMaster": "{counterpart} — {service}, новий час: {dateTime} · майстер {master}",
+  "@notificationBodyProviderRescheduledWithMaster": {
+    "description": "Rescheduled variant of notificationBodyProviderWithMaster.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
   "notificationBodyClient": "{service}, {dateTime} — {counterpart}",
   "@notificationBodyClient": {
     "description": "Phase 363 — body line for a client: service and time first, then who provides it.",

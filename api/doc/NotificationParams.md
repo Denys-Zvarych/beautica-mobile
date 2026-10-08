@@ -13,6 +13,7 @@ Name | Type | Description | Notes
 **serviceCount** | **int** |  | [optional] 
 **startsAt** | [**DateTime**](DateTime.md) |  | [optional] 
 **salonName** | **String** |  | [optional] 
+**masterName** | **String** |  | [optional] 
 **subjectName** | **String** |  | [optional] 
 **subjectRole** | **String** |  | [optional] 
 

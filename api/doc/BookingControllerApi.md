@@ -13,7 +13,7 @@ Method | HTTP request | Description
 [**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
-[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | Get a booking
 [**getSalonBookings**](BookingControllerApi.md#getsalonbookings) | **GET** /api/v1/bookings/salon/{salonId} | List salon bookings (owner/admin)
 [**getUnclosedCount**](BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
@@ -193,7 +193,9 @@ No authorization required
 # **getBooking**
 > ApiResponseBookingDetailResponse getBooking(bookingId)
 
+Get a booking
 
+200 for the owning client, the performing master, the salon owner, or an assigned, active salon admin of the booking's salon. 403 for anyone else (also when the booking does not exist).
 
 ### Example
 ```dart
