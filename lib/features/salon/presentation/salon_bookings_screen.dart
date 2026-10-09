@@ -98,7 +98,9 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
+import '../../booking/application/booking_calendar_invalidation.dart';
 import '../../booking/application/bookings_capability.dart';
+import '../../booking/application/pending_booking_actions_count.dart';
 import '../../booking/domain/booking.dart';
 import '../../booking/domain/bookings_day_query.dart';
 import '../../booking/presentation/bookings_discovery_view.dart';
@@ -840,9 +842,18 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         // depends on. The salon id rides `extra` because nothing on
         // `/salon/bookings/archive` carries it — the same contract
         // `/salon/bookings/new` already uses from this very screen.
-        onOpenArchive: () => context.push(
-          RouteNames.salonStaffBookingsArchive,
-          extra: widget.salonId,
+        onOpenArchive: () => context
+            .push(RouteNames.salonStaffBookingsArchive, extra: widget.salonId)
+            .then((_) {
+              // Phase 395 — the archive is where rows get closed / rated.
+              if (mounted) invalidatePendingBookingActionsCount(ref);
+            }),
+        // Phase 395 — red pending-actions badge on the archive icon (this
+        // board is reachable only past the `canManageSalonProvider` gate).
+        archiveBadgeCount: ref.watch(
+          pendingBookingActionsCountProvider(
+            PendingActionsScope.salon(widget.salonId),
+          ).select(pendingActionsBadgeCount),
         ),
         // Phase 336 — the builder receives the SELECTED day (the same one
         // `boardWindowBuilder` below gets), which is what lets a master who is

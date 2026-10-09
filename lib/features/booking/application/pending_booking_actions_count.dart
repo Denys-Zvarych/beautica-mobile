@@ -79,3 +79,10 @@ Future<int> pendingBookingActionsCount(
     rethrow;
   }
 }
+
+/// Phase 395 — the number the «Архів» badge shows for [count]: the settled
+/// value, or `null` (no badge) while the first load is pending and on ANY
+/// error. A refresh keeps the previous value (`isLoading` with data); a failed
+/// refresh shows nothing rather than a stale number.
+int? pendingActionsBadgeCount(AsyncValue<int> count) =>
+    count.hasError ? null : count.value;

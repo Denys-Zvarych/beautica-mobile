@@ -154,6 +154,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/shared/widgets/count_badge.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -293,6 +294,7 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
     this.onAddWorkingHours,
     required this.onBookingTap,
     this.onOpenArchive,
+    this.archiveBadgeCount,
     this.canCreateBooking = true,
     this.canAddWorkingHours = true,
     this.subtitle,
@@ -429,6 +431,13 @@ class BookingsDiscoveryView extends ConsumerStatefulWidget {
   /// header behaviour changed. Navigation is the HOST's concern, same as
   /// [onBookingTap]/[onBack] — no `Navigator`/`context.push` in this file.
   final VoidCallback? onOpenArchive;
+
+  /// Phase 395 (24.7c) — number of bookings awaiting a provider action
+  /// (close / rate the client), shown as a red [CountBadgeAnchor] pill on the
+  /// archive button. `null` (default) or `0` renders the header exactly as
+  /// before. Provider-free on purpose: the HOST watches the count and passes
+  /// it. Ignored when [onOpenArchive] is `null`.
+  final int? archiveBadgeCount;
 
   /// Phase 329 — whether the header's manual add-booking (+) button is
   /// rendered at all. `false` makes it ABSENT, not disabled: the invited
@@ -1578,6 +1587,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
               onAdd: widget.canCreateBooking ? _openCreateBooking : null,
               addSemanticsLabelOverride: widget.addSemanticsLabelOverride,
               onOpenArchive: widget.onOpenArchive,
+              archiveBadgeCount: widget.archiveBadgeCount,
             ),
             // Phase 21.12 — skipped entirely on a scope with no «Послуга»
             // section, so the salon board never subscribes to the signed-in
@@ -2310,6 +2320,7 @@ class _Header extends StatelessWidget {
     this.onAdd,
     this.addSemanticsLabelOverride,
     this.onOpenArchive,
+    this.archiveBadgeCount,
   });
 
   final String title;
@@ -2352,6 +2363,9 @@ class _Header extends StatelessWidget {
   /// Phase 231 — the archive button. `null` hides it entirely; see
   /// [BookingsDiscoveryView.onOpenArchive]'s doc.
   final VoidCallback? onOpenArchive;
+
+  /// Phase 395 — see [BookingsDiscoveryView.archiveBadgeCount].
+  final int? archiveBadgeCount;
 
   // Hoisted — `Color.withValues` and `BorderRadius.circular` are not const,
   // so this can't be `static const`, but resolving once at class-load time
@@ -2452,11 +2466,19 @@ class _Header extends StatelessWidget {
           ),
           const SizedBox(width: VelvetSpacing.sm),
           if (onOpenArchive != null) ...<Widget>[
-            NeumorphicIconButton(
-              key: const Key('master-bookings-open-archive'),
-              icon: Icons.inventory_2_outlined,
-              semanticLabel: l10n.masterArchiveOpenSemantics,
-              onTap: onOpenArchive!,
+            CountBadgeAnchor(
+              count: archiveBadgeCount ?? 0,
+              badgeColor: BrandColors.notificationBadge,
+              maxCount: 99,
+              badgeKey: const Key('master-bookings-archive-badge'),
+              child: NeumorphicIconButton(
+                key: const Key('master-bookings-open-archive'),
+                icon: Icons.inventory_2_outlined,
+                semanticLabel: (archiveBadgeCount ?? 0) > 0
+                    ? l10n.masterArchiveOpenSemanticsPending(archiveBadgeCount!)
+                    : l10n.masterArchiveOpenSemantics,
+                onTap: onOpenArchive!,
+              ),
             ),
             const SizedBox(width: VelvetSpacing.sm),
           ],

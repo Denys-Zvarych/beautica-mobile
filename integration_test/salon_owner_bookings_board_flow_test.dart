@@ -2483,4 +2483,117 @@ void main() {
       });
     },
   );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 395 (24.7c) — the red pending-actions badge on the board's «Архів»
+  // icon, for SALON_OWNER and SALON_ADMIN (Step 2.7 Rule 3b). The count comes
+  // off GET /bookings/salon/{id}/pending-actions/count, computed by the fake
+  // from its OWN seeded board + archive rows (never a settable integer).
+  // ══════════════════════════════════════════════════════════════════════
+  for (final UserRole role in <UserRole>[
+    UserRole.salonOwner,
+    UserRole.salonAdmin,
+  ]) {
+    testWidgets(
+      '$role board: a salon-master ended CONFIRMED booking lights «1» on the '
+      '«Архів» icon; closing it from the drill-in clears the badge',
+      (tester) async {
+        await mockNetworkImagesFor(() async {
+          final FakeBackend fb = _salonBookingBackend(role);
+          final DateTime start = _atKyivHour(10, 0);
+          fb.bookingStartsAt = start.toIso8601String();
+          fb.bookingEndsAt = start
+              .add(const Duration(minutes: 60))
+              .toIso8601String();
+          fb.salonBoardBookings = <Map<String, dynamic>>[
+            // Ended (10:00-11:00 Kyiv vs the 15:00 injected now) -> counts.
+            fb.salonBoardBookingRow(
+              id: 'booking-1',
+              masterId: 'master-aaa',
+              masterFirstName: 'Софія',
+              masterLastName: 'Бондар',
+              startsAt: start,
+            ),
+            // Upcoming -> must not count.
+            fb.salonBoardBookingRow(
+              id: 'board-upcoming',
+              masterId: 'master-ccc',
+              masterFirstName: 'Марія',
+              masterLastName: 'Гриценко',
+              startsAt: _atKyivHour(18, 0),
+            ),
+          ];
+          await AppHarness.boot(tester, fb);
+          await AppHarness.loginAs(tester, fb, role);
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(SalonShellScreen),
+            timeout: const Duration(seconds: 20),
+          );
+          final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+          await AppHarness.pumpUntilFound(
+            tester,
+            bookingsTab.hitTestable(),
+            timeout: const Duration(seconds: 20),
+          );
+          await tester.tap(bookingsTab);
+          await tester.pump();
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(BookingsTimelineGrid),
+            timeout: const Duration(seconds: 20),
+          );
+
+          final Finder badge = find.byKey(
+            const Key('master-bookings-archive-badge'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.descendant(of: badge, matching: find.text('1')),
+            timeout: const Duration(seconds: 20),
+          );
+          expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
+
+          // ── Close it from the drill-in. ──────────────────────────────────
+          final Finder card = find.byKey(
+            const ValueKey<String>('timeline-card-booking-1'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            card.hitTestable(),
+            timeout: const Duration(seconds: 20),
+          );
+          await tester.tap(card);
+          await tester.pump();
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byKey(const Key('booking-detail-complete')),
+            timeout: const Duration(seconds: 20),
+          );
+          await AppHarness.tapVisible(
+            tester,
+            find.byKey(const Key('booking-detail-complete')),
+          );
+          await AppHarness.settle(tester);
+          await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+          await AppHarness.settle(tester);
+          expect(fb.completeBookingCalls, 1);
+
+          await tester.tap(find.byKey(const Key('booking-detail-back')));
+          await AppHarness.settle(tester);
+          expect(find.byType(SalonBookingsScreen), findsOneWidget);
+          await AppHarness.pumpUntilCondition(
+            tester,
+            () => badge.evaluate().isEmpty,
+            description: 'the archive badge to clear after the close',
+          );
+          expect(
+            find.byKey(const Key('master-bookings-open-archive')),
+            findsOneWidget,
+            reason: 'anti-vacuity: the icon stays, only the badge left',
+          );
+        });
+      },
+    );
+  }
 }

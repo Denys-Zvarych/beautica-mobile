@@ -1886,4 +1886,146 @@ void main() {
       );
     });
   });
+
+  // Phase 395 (24.7c) — the «Архів» icon badge: master mode counts ONLY the
+  // owner's own-row pending rows (`.me(asMaster: true)`), the salon board the
+  // whole salon's (`.salon(id)`). Seeded: 1 owner-row + 2 salon-master ended
+  // CONFIRMED bookings -> master mode `1`, salon board `3`.
+  testWidgets('SALON_OWNER: master-mode «Записи» badge counts only the '
+      'owner-performed pending rows («1»), the salon board counts all three '
+      '(«3»)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb =
+          FakeBackend(
+              masterRowId: _kOwnerMasterRowId,
+              masterSalonId: _kSalonA,
+              wireOwnRowSchedule: true,
+            )
+            ..currentRole = UserRole.salonOwner
+            ..hasMasterProfile = true;
+      fb.ownRowWeeklySchedule.add(<String, dynamic>{
+        'id': 'own-weekly-1',
+        'validFrom': '2026-01-01',
+        'validTo': null,
+        'days': <Map<String, dynamic>>[
+          for (int dow = 1; dow <= 7; dow++)
+            <String, dynamic>{
+              'dayOfWeek': dow,
+              'intervals': <Map<String, dynamic>>[
+                <String, dynamic>{'startTime': '08:00', 'endTime': '20:00'},
+              ],
+            },
+        ],
+      });
+      // Ended (07:00-09:00Z on the injected day, now is 12:00Z).
+      DateTime at(int hourUtc) =>
+          DateTime.utc(kFixedNow.year, kFixedNow.month, kFixedNow.day, hourUtc);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'own-1',
+            status: 'CONFIRMED',
+            startsAt: at(7),
+          ),
+          'masterId': _kOwnerMasterRowId,
+          'masterType': 'SALON_OWNER',
+        },
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'other-1',
+            status: 'CONFIRMED',
+            startsAt: at(8),
+          ),
+          'masterId': 'master-other-1',
+          'masterType': 'SALON_MASTER',
+        },
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'other-2',
+            status: 'CONFIRMED',
+            startsAt: at(9),
+          ),
+          'masterId': 'master-other-1',
+          'masterType': 'SALON_MASTER',
+        },
+      ]);
+      fb.ownerMasterRowBookingIds = <String>{'own-1'};
+      // The salon-wide view of the same three bookings.
+      fb.salonBoardBookings = <Map<String, dynamic>>[
+        fb.salonBoardBookingRow(
+          id: 'own-1',
+          masterId: _kOwnerMasterRowId,
+          masterFirstName: 'Олена',
+          masterLastName: 'Ковальчук',
+          startsAt: at(7),
+        ),
+        fb.salonBoardBookingRow(
+          id: 'other-1',
+          masterId: 'master-other-1',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: at(8),
+        ),
+        fb.salonBoardBookingRow(
+          id: 'other-2',
+          masterId: 'master-other-1',
+          masterFirstName: 'Софія',
+          masterLastName: 'Бондар',
+          startsAt: at(9),
+        ),
+      ];
+
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        storage: FakeSecureStorage(),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+      await _enterMasterMode(tester, router);
+
+      final Finder badge = find.byKey(
+        const Key('master-bookings-archive-badge'),
+      );
+      Finder badgeText(String t) =>
+          find.descendant(of: badge, matching: find.text(t));
+
+      // ── Master mode: only the owner's own row. ──────────────────────────
+      await _tapWhenReady(tester, find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(MasterBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        badgeText('1'),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(badgeText('3'), findsNothing);
+
+      // ── Back to the salon board: the whole salon's three. ───────────────
+      await _tapWhenReady(
+        tester,
+        find.byKey(const Key('bookings-discovery-back')),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.ownerMasterProfile);
+      await _tapWhenReady(tester, find.byKey(_masterModeBack));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.salonShell(_kSalonA));
+      await _tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-1')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byType(SalonBookingsScreen),
+        timeout: const Duration(seconds: 20),
+      );
+      await AppHarness.pumpUntilFound(
+        tester,
+        badgeText('3'),
+        timeout: const Duration(seconds: 20),
+      );
+      expect(badgeText('1'), findsNothing);
+    });
+  });
 }

@@ -46,6 +46,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
@@ -110,6 +111,21 @@ class _SettledAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async =>
       const AuthSession.authenticated(user: _owner, accessToken: 'token');
+}
+
+const User _admin = User(
+  id: 'user-admin-1',
+  email: 'admin@beautica.ua',
+  role: UserRole.salonAdmin,
+  firstName: 'Ірина',
+  lastName: 'Адмін',
+  salonId: _salonId,
+);
+
+class _SettledAdminAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async =>
+      const AuthSession.authenticated(user: _admin, accessToken: 'token');
 }
 
 /// Kyiv 2026-06-15 10:00 — the clock the screen's seed query is anchored to.
@@ -198,6 +214,7 @@ final Provider<void Function(String)> _createdFanOutProvider =
 void main() {
   setUpAll(() {
     registerFallbackValue(BookingSort.oldest);
+    registerFallbackValue(const PendingActionsScope.me(asMaster: false));
     registerFallbackValue(DateTime.utc(2026));
   });
 
@@ -335,11 +352,11 @@ void main() {
     ).thenAnswer((_) async => <DateTime>[DateTime(2026, 6, 15)]);
   });
 
-  List<Object> overrides() => <Object>[
+  List<Object> overrides({AuthNotifier Function()? auth}) => <Object>[
     bookingRepositoryProvider.overrideWithValue(bookingRepo),
     salonRepositoryProvider.overrideWithValue(salonRepo),
     salonRosterScheduleRepositoryProvider.overrideWithValue(rosterScheduleRepo),
-    authProvider.overrideWith(_SettledAuthNotifier.new),
+    authProvider.overrideWith(auth ?? _SettledAuthNotifier.new),
     clockProvider.overrideWithValue(() => _now),
   ];
 
@@ -2113,6 +2130,156 @@ void main() {
             'un-keyed family invalidate would refetch every salon an owner '
             'manages — a full ±180-day sweep each — for a booking that '
             'cannot have moved any of their dots',
+      );
+    });
+  });
+
+  // Phase 395 (24.7c) — the red pending-actions badge on the «Архів» icon.
+  group('archive pending-actions badge (phase 395)', () {
+    void stubCount(Future<int> Function() answer) {
+      when(
+        () => bookingRepo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) => answer());
+    }
+
+    Future<void> mount(WidgetTester tester) async {
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[]);
+      await pumpScreen(tester);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('SALON_OWNER board asks the .salon(salonId) scope and shows '
+        'the count', (WidgetTester tester) async {
+      stubCount(() async => 3);
+      await mount(tester);
+
+      verify(
+        () => bookingRepo.getPendingActionsCount(
+          const PendingActionsScope.salon(_salonId),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-bookings-archive-badge')),
+          matching: find.text('3'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('SALON_ADMIN board asks the same .salon(salonId) scope and '
+        'shows the count', (WidgetTester tester) async {
+      stubCount(() async => 4);
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[]);
+      await tester.pumpApp(
+        const SalonBookingsScreen(salonId: _salonId),
+        overrides: overrides(auth: _SettledAdminAuthNotifier.new),
+        width: 360,
+        height: 720,
+        retry: beauticaProviderRetry,
+      );
+      await tester.pumpAndSettle();
+
+      verify(
+        () => bookingRepo.getPendingActionsCount(
+          const PendingActionsScope.salon(_salonId),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-bookings-archive-badge')),
+          matching: find.text('4'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    // FALSIFY: dropping the `.then(invalidate...)` on the archive push leaves
+    // the stale «3» after the pop. The archive is a stub, so ONLY the
+    // return-path invalidation can refresh.
+    testWidgets('returning from the archive refetches the count and clears '
+        'the badge', (WidgetTester tester) async {
+      int server = 3;
+      stubCount(() async => server);
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[]);
+
+      await tester.pumpRoutedApp(
+        GoRouter(
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/',
+              builder: (_, GoRouterState s) =>
+                  const SalonBookingsScreen(salonId: _salonId),
+            ),
+            GoRoute(
+              path: RouteNames.salonStaffBookingsArchive,
+              builder: (BuildContext c, GoRouterState s) => Scaffold(
+                body: TextButton(
+                  key: const Key('stub-archive-back'),
+                  onPressed: () => c.pop(),
+                  child: const SizedBox(width: 48, height: 48),
+                ),
+              ),
+            ),
+          ],
+        ),
+        overrides: overrides(),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-bookings-archive-badge')),
+          matching: find.text('3'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const Key('master-bookings-open-archive')));
+      await tester.pumpAndSettle();
+      server = 0;
+      await tester.tap(find.byKey(const Key('stub-archive-back')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-bookings-archive-badge')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a count of 0 shows no badge', (WidgetTester tester) async {
+      stubCount(() async => 0);
+      await mount(tester);
+
+      expect(
+        find.byKey(const Key('master-bookings-archive-badge')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('master-bookings-open-archive')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a FAILED count shows no badge (never a fake number)', (
+      WidgetTester tester,
+    ) async {
+      stubCount(() async => throw const ServerFailure(statusCode: 500));
+      await mount(tester);
+
+      expect(
+        find.byKey(const Key('master-bookings-archive-badge')),
+        findsNothing,
       );
     });
   });

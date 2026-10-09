@@ -5947,6 +5947,15 @@
   "@masterArchiveOpenSemantics": {
     "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
   },
+  "masterArchiveOpenSemanticsPending": "Відкрити архів записів, потребують дії: {count}",
+  "@masterArchiveOpenSemanticsPending": {
+    "description": "Archive button accessibility label when {count} bookings await a provider action (close or rate the client) — Phase 395. The red count badge itself is excluded from semantics; this label announces it.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "masterArchiveTitle": "Архів",
   "@masterArchiveTitle": {
     "description": "Screen title of the master «Архів» page (Phase 231) — a paginated, filterable list of the master's PAST bookings."

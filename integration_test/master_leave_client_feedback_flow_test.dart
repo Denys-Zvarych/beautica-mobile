@@ -215,8 +215,8 @@ void main() {
       await AppHarness.settle(tester);
       expect(find.byType(MasterArchiveScreen), findsOneWidget);
 
-      // Nothing watches the count yet (the badge is 395): hold it live, as the
-      // «Записи» screen will.
+      // The «Записи» screen (395) watches the count; also hold it live here, as the
+      // archive test needs a handle on it.
       final ProviderContainer container = ProviderScope.containerOf(
         tester.element(find.byType(MasterArchiveScreen)),
       );

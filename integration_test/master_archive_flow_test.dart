@@ -71,6 +71,7 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 void main() {
@@ -676,6 +677,124 @@ void main() {
         reason:
             'the newer Kyiv day\'s header must render ABOVE the older '
             'one — newest-first, matching the server-ordered list',
+      );
+    },
+  );
+
+  // ==========================================================================
+  // 5. PHASE 395 — the red pending-actions badge on the «Архів» icon
+  // ==========================================================================
+  testWidgets(
+    'MASTER «Записи»: the «Архів» icon badge reads the pending-actions count '
+    '(ended CONFIRMED + rate-able COMPLETED = 2; guest and future rows do not '
+    'count), and clears once both clients are rated',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..clientReviewClearsDatasetFlag = true;
+      final DateTime ended = elapsedStart(2);
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        // Ended CONFIRMED — counts (to close). The list flag is what makes it
+        // count again under the rate-the-client leg once «Виконано» flips it.
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'booking-1',
+            status: 'CONFIRMED',
+            startsAt: ended,
+            providerCanReviewClient: true,
+          ),
+          'awaitingClosure': true,
+        },
+        // COMPLETED, real client, not yet rated — counts (to rate).
+        fb.datasetBookingRow(
+          id: 'booking-2',
+          status: 'COMPLETED',
+          startsAt: ended.subtract(const Duration(days: 1)),
+          providerCanReviewClient: true,
+        ),
+        // COMPLETED guest — never counts.
+        <String, dynamic>{
+          ...fb.datasetBookingRow(
+            id: 'guest-1',
+            status: 'COMPLETED',
+            startsAt: ended.subtract(const Duration(days: 2)),
+            providerCanReviewClient: true,
+          ),
+          'clientId': null,
+        },
+        // Future CONFIRMED — never counts.
+        fb.datasetBookingRow(
+          id: 'future-1',
+          status: 'CONFIRMED',
+          startsAt: kFixedNow.add(const Duration(days: 2)),
+        ),
+      ]);
+      fb.bookingStartsAt = ended.toIso8601String();
+      fb.bookingEndsAt = ended
+          .add(const Duration(minutes: 60))
+          .toIso8601String();
+      fb.bookingProviderCanReviewClient = true;
+      // `booking-2`'s detail (the sibling route) must offer the rating too.
+      fb.siblingBookingStatus = 'COMPLETED';
+      fb.siblingProviderCanReviewClient = true;
+
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.masterBookings);
+
+      final Finder badge = find.byKey(
+        const Key('master-bookings-archive-badge'),
+      );
+      Finder badgeText(String t) =>
+          find.descendant(of: badge, matching: find.text(t));
+
+      await AppHarness.pumpUntilFound(tester, badgeText('2'));
+      expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
+
+      // ── Archive: complete booking-1 (2 -> 2), rate both clients. ─────────
+      await tester.tap(find.byKey(const Key('master-bookings-open-archive')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterArchiveScreen), findsOneWidget);
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+      );
+      await tester.tap(
+        find.byKey(const Key('master-booking-card-complete-booking-1')),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await AppHarness.settle(tester);
+      expect(fb.completeBookingCalls, 1);
+
+      for (final String id in <String>['booking-1', 'booking-2']) {
+        final Finder cta = find.byKey(Key('master-booking-card-review-$id'));
+        await AppHarness.pumpUntilFound(tester, cta);
+        await tester.tap(cta);
+        await AppHarness.settle(tester);
+        await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+        await AppHarness.settle(tester);
+        await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+        await AppHarness.settle(tester);
+        await pumpPastVelvetSnack(tester);
+      }
+      expect(fb.createClientReviewCalls, 2);
+
+      // ── Back to «Записи»: the badge is gone. ─────────────────────────────
+      await tester.tap(find.byKey(const Key('master-archive-back')));
+      await AppHarness.settle(tester);
+      expect(find.byType(MasterBookingsScreen), findsOneWidget);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => badge.evaluate().isEmpty,
+        description: 'the archive badge to clear after everything is closed',
+      );
+      expect(
+        find.byKey(const Key('master-bookings-open-archive')),
+        findsOneWidget,
+        reason: 'anti-vacuity: the icon is still there, only the badge left',
       );
     },
   );

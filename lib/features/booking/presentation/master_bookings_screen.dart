@@ -103,7 +103,11 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 
 import 'bookings_discovery_view.dart';
+import '../../auth/domain/user_role.dart';
+import '../../auth/presentation/auth_notifier.dart';
+import '../application/booking_calendar_invalidation.dart';
 import '../application/bookings_capability.dart';
+import '../application/pending_booking_actions_count.dart';
 import '../domain/booking.dart';
 import '../domain/bookings_day_query.dart';
 import '../../schedule/domain/schedule_scope.dart';
@@ -273,6 +277,37 @@ class MasterBookingsScreen extends ConsumerWidget {
     final String Function(String) detailRoute =
         detailRouteBuilder ?? RouteNames.masterBookingDetail;
 
+    // Phase 395 — the badge scope is picked by the SESSION ROLE (strict,
+    // narrowed selector — never a bare `authProvider` watch), not by
+    // [archiveRoute] nor by `bookingTransitionsEnabledProvider` (also true for
+    // SALON_OWNER / SALON_ADMIN, who must not hit the `.me` endpoint here):
+    //   INDEPENDENT_MASTER            -> `.me(asMaster: false)`
+    //   SALON_OWNER + [asOwnerMaster] -> `.me(asMaster: true)` (own bookings)
+    //   anything else                 -> null: no badge, no request.
+    final UserRole? role = ref.watch(
+      authProvider.select(authUserRoleSettledOrNull),
+    );
+    final PendingActionsScope? badgeScope = switch (role) {
+      UserRole.independentMaster => const PendingActionsScope.me(
+        asMaster: false,
+      ),
+      UserRole.salonOwner when asOwnerMaster => const PendingActionsScope.me(
+        asMaster: true,
+      ),
+      _ => null,
+    };
+    // `.select(pendingActionsBadgeCount)`: the screen rebuilds only when the
+    // DISPLAYED `int?` changes. The helper is pure over the same AsyncValue, so
+    // semantics are unchanged (null while loading / on error; a refresh keeps
+    // the previous value because `isLoading`+data still yields `.value`).
+    final int? archiveBadgeCount = badgeScope == null
+        ? null
+        : ref.watch(
+            pendingBookingActionsCountProvider(
+              badgeScope,
+            ).select(pendingActionsBadgeCount),
+          );
+
     // Outer Scaffold exists ONLY to host the bottom nav bar — see the file
     // header for why it wraps rather than modifies `BookingsDiscoveryView`.
     return Scaffold(
@@ -339,8 +374,14 @@ class MasterBookingsScreen extends ConsumerWidget {
         onCreateBooking: onCreateBooking,
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
-        onOpenArchive: () =>
-            context.push(archiveRoute ?? RouteNames.masterBookingsArchive),
+        onOpenArchive: () => context
+            .push(archiveRoute ?? RouteNames.masterBookingsArchive)
+            .then((_) {
+              // Phase 395 — the archive is where rows get closed / rated.
+              if (context.mounted) invalidatePendingBookingActionsCount(ref);
+            }),
+        // Phase 395 — red pending-actions badge on the archive icon.
+        archiveBadgeCount: archiveBadgeCount,
         // Phase 329 — the (+) add-booking button is HIDDEN (not disabled)
         // for a viewer who may not create bookings, i.e. the invited,
         // read-only `SALON_MASTER`. `watch`, not `read`: the capability is

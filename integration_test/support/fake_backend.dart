@@ -5291,6 +5291,12 @@ final class FakeBackend {
   /// can tell the two children apart; same master/window as `booking-1` so its
   /// provider footer offers the same CONFIRMED affordances until (and only if)
   /// it is itself declined.
+  /// Phase 395 — opt-in (default `false`, every existing flow untouched): the
+  /// sibling `booking-2` detail offers «rate the client» (`providerCanReviewClient`)
+  /// until a `POST /client-reviews` for `booking-2` clears it. Lets a flow rate
+  /// TWO bookings through the real detail + review screens.
+  bool siblingProviderCanReviewClient = false;
+
   Map<String, dynamic> _seededSiblingBookingJson() => <String, dynamic>{
     'id': 'booking-2',
     'masterId': 'master-aaa',
@@ -5316,7 +5322,7 @@ final class FakeBackend {
     'endsAt': siblingBookingEndsAt,
     'status': siblingBookingStatus,
     'canReview': false,
-    'providerCanReviewClient': false,
+    'providerCanReviewClient': siblingProviderCanReviewClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': null,
@@ -11144,6 +11150,19 @@ final class FakeBackend {
               };
             }
           }
+          // Phase 395 — and on the SALON BOARD's own day list, so the
+          // salon pending-actions count (board + archive rows, de-duplicated)
+          // drops after a close made from the board's drill-in.
+          final int boardIdx = salonBoardBookings.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (boardIdx != -1) {
+            salonBoardBookings[boardIdx] = <String, dynamic>{
+              ...salonBoardBookings[boardIdx],
+              'status': 'COMPLETED',
+              'awaitingClosure': false,
+            };
+          }
           // Phase 345 — the SAME mutation on the SALON archive list, for
           // exactly the reason the two paragraphs above give for the
           // `/bookings/me` dataset. The salon archive re-reads
@@ -11257,6 +11276,9 @@ final class FakeBackend {
             // a conveniently-agreeing server. Flipping it here would make
             // that assertion pass for the wrong reason.
             return _okVoid;
+          }
+          if (lastClientReviewBookingId == 'booking-2') {
+            siblingProviderCanReviewClient = false;
           }
           bookingProviderCanReviewClient = false;
           final List<Map<String, dynamic>>? dataset = _bookingsDataset;
