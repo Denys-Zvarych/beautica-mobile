@@ -29,6 +29,8 @@
 // the generated ARB (`l10n.notificationsBookingUnavailable`), never a literal.
 // Fixtures anchor to [kFixedNow], the clock the harness injects (M15).
 
+import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart'
+    show resetNotificationNavigationStateForTest;
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/client_review_section.dart';
@@ -40,6 +42,7 @@ import 'package:beautica_mobile/features/notifications/presentation/widgets/noti
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter/material.dart';
@@ -61,6 +64,9 @@ const String _kBookingId = 'booking-1';
 /// landing shell (`FakeBackend.kOwnerSalonId`).
 const String _kSalonB = 'salon-xyz';
 
+/// The SALON_ADMIN persona's own salon (`_adminUserJson.salonId`).
+const String _kAdminSalonId = 'salon-admin-1';
+
 const Key _clientBell = Key('home_hub_bell_button');
 const Key _coverBell = Key('salon-manage-notifications');
 
@@ -73,6 +79,11 @@ const int _navTeam = 2;
 /// Phase 390 — wire comment of the client's review; must NEVER render for a
 /// salon owner/admin (they read it in the salon «Відгуки» tab).
 const String _kReviewComment = 'Чудовий майстер, дякую!';
+
+/// Phase 391 — comment of the first review the fake serves for salon B
+/// (`salon-xyz`, `FakeBackend._salonReviews`). Fixture data, not UI copy.
+const String _kSalonBReviewComment =
+    'Чудовий сервіс, дуже задоволена результатом!';
 
 Future<void> _expectNoClientReview(WidgetTester tester) async {
   expect(find.byType(BookingDetailScreen), findsOneWidget);
@@ -186,11 +197,18 @@ int _navIndex(WidgetTester tester) => tester
     .widget<SalonBottomNav>(find.byKey(const Key('salon-shell-bottom-nav')))
     .currentIndex;
 
+/// The ON-STAGE salon sub-tab row's selected index (`salon-tab-<i>`).
+int _selectedSalonSubTab(WidgetTester tester) =>
+    tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected;
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  tearDown(() {
+    resetNotificationNavigationStateForTest();
+    AppHarness.tearDownHarness();
+  });
 
   testWidgets('CLIENT taps a booking item: the detail opens on the feed-scoped '
       'alias, the item is read and the count drops; Back returns to the feed '
@@ -432,6 +450,192 @@ void main() {
       expect(find.byType(SalonShellScreen), findsOneWidget);
       expect(_navIndex(tester), _navTeam, reason: 'shell opened on «Команда»');
       expect(repo.markedRead, <String>['t1']);
+    });
+  });
+
+  testWidgets('SALON_OWNER taps a «Новий відгук» item (salon B): the salon '
+      'shell opens on «Відгуки», the review is listed, no booking detail', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final _FeedRepo repo = _FeedRepo(<AppNotification>[
+        _notif(
+          'rv1',
+          age: const Duration(hours: 1),
+          type: AppNotificationType.reviewReceived,
+          target: const NotificationTarget.booking(
+            bookingId: _kBookingId,
+            salonId: _kSalonB,
+          ),
+        ),
+      ]);
+      final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+      _seedSalonB(fb);
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: _repo(repo),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      await AppHarness.settle(tester);
+
+      await _openFeed(tester, router, _coverBell);
+      await tester.tap(_tile('rv1'));
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(
+        router,
+        RouteNames.salonShell(_kSalonB, openReviews: true),
+      );
+      expect(
+        AppHarness.location(router),
+        '/salons/$_kSalonB/shell?tab=reviews',
+        reason: 'no from=notification clobbering the tab query',
+      );
+      expect(_selectedSalonSubTab(tester), 3, reason: 'salon-tab-3 selected');
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(
+        // i18n-finder-ok: seeded backend review body, not UI copy.
+        find.text(_kSalonBReviewComment),
+        findsOneWidget,
+      );
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(find.byType(ClientReviewSection), findsNothing);
+      expect(repo.markedRead, <String>['rv1']);
+      expect(_count(tester), 0, reason: 'bell count decremented on tap');
+
+      router.pop();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.notifications);
+      expect(find.byType(NotificationsScreen), findsOneWidget);
+    });
+  });
+
+  testWidgets('SALON_ADMIN taps a «Новий відгук» item: their salon shell '
+      'opens on «Відгуки» (salon-tab-3 selected)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final _FeedRepo repo = _FeedRepo(<AppNotification>[
+        _notif(
+          'rva1',
+          age: const Duration(hours: 1),
+          type: AppNotificationType.reviewReceived,
+          target: const NotificationTarget.booking(
+            bookingId: _kBookingId,
+            salonId: _kAdminSalonId,
+          ),
+        ),
+      ]);
+      final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: _repo(repo),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+      await AppHarness.settle(tester);
+
+      await _openFeed(tester, router, _coverBell);
+      await tester.tap(_tile('rva1'));
+      await AppHarness.settle(tester);
+
+      expect(
+        AppHarness.location(router),
+        '/salons/$_kAdminSalonId/shell?tab=reviews',
+      );
+      expect(_selectedSalonSubTab(tester), 3);
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(repo.markedRead, <String>['rva1']);
+    });
+  });
+
+  for (final String? badSalonId in <String?>[null, '', '   ']) {
+    testWidgets('SALON_OWNER taps a «Новий відгук» item with salonId '
+        '"${badSalonId ?? 'null'}": falls back to the booking detail with '
+        'from=notification', (tester) async {
+      await mockNetworkImagesFor(() async {
+        final _FeedRepo repo = _FeedRepo(<AppNotification>[
+          _notif(
+            'rvf1',
+            age: const Duration(hours: 1),
+            type: AppNotificationType.reviewReceived,
+            target: NotificationTarget.booking(
+              bookingId: _kBookingId,
+              salonId: badSalonId,
+            ),
+          ),
+        ]);
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        final GoRouter router = await AppHarness.boot(
+          tester,
+          fb,
+          extraOverrides: _repo(repo),
+        );
+        await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+        await AppHarness.settle(tester);
+
+        await _openFeed(tester, router, _coverBell);
+        await tester.tap(_tile('rvf1'));
+        await AppHarness.settle(tester);
+
+        expect(
+          AppHarness.location(router),
+          startsWith(RouteNames.salonStaffBookingDetail(_kBookingId)),
+        );
+        expect(AppHarness.location(router), contains('from=notification'));
+        expect(find.byType(BookingDetailScreen), findsOneWidget);
+        expect(find.byType(ProfileTabBar), findsNothing);
+      });
+    });
+  }
+
+  testWidgets('SALON_MASTER taps a «Новий відгук» item: the staff booking '
+      'detail still opens (unchanged route)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final _FeedRepo repo = _FeedRepo(<AppNotification>[
+        _notif(
+          'rvm1',
+          age: const Duration(hours: 1),
+          type: AppNotificationType.reviewReceived,
+          target: const NotificationTarget.booking(
+            bookingId: _kBookingId,
+            salonId: _kSalonB,
+          ),
+        ),
+      ]);
+      final fb = FakeBackend(
+        masterRowId: 'master-removable',
+        masterSalonId: _kSalonB,
+      );
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: _repo(repo),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+      await AppHarness.settle(tester);
+
+      await _openFeed(
+        tester,
+        router,
+        const Key('salon_master_profile_bell_button'),
+      );
+      await tester.tap(_tile('rvm1'));
+      await AppHarness.settle(tester);
+
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.salonMasterBookingDetail(_kBookingId)),
+      );
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(repo.markedRead, <String>['rvm1']);
     });
   });
 

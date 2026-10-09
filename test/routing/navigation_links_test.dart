@@ -430,6 +430,9 @@ void main() {
       'ownerMasterServices': RouteNames.ownerMasterServices,
       'ownerMasterServiceSetup': RouteNames.ownerMasterServiceSetup,
       'ownerMasterServiceEdit()': RouteNames.ownerMasterServiceEdit(kSampleId),
+      'ownerMasterServicesExpanded()': RouteNames.ownerMasterServicesExpanded(
+        'NAILS',
+      ),
       // Phase 381 (24.1d) — the owner master-mode «Графік» tab.
       'ownerMasterSchedule': RouteNames.ownerMasterSchedule,
       // Phase 383 (24.1f) — the owner master-mode «Записи» tab + «Архів».

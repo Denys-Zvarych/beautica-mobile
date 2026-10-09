@@ -78,6 +78,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.d
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -1934,4 +1935,355 @@ void main() {
       expect(decoded['userId'], equals(_stubAdmin.id));
     });
   });
+
+  // -------------------------------------------------------------------
+  // Phase 391 (+ audit-fix cycle 1) — the «Відгуки» landing.
+  // -------------------------------------------------------------------
+  group('openReviewsTab (phase 391)', () {
+    /// Mounts [home] under a plain Navigator on a fresh container.
+    Future<ProviderContainer> pump(
+      WidgetTester tester,
+      Widget home, {
+      List<Object>? overrides,
+      bool warmProfile = false,
+    }) async {
+      final container = makeTestContainer(
+        overrides: overrides ?? <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      if (warmProfile) {
+        await container.read(salonManagementProfileProvider(_kSalonId).future);
+      }
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: home,
+          ),
+        ),
+      );
+      return container;
+    }
+
+    int selectedSubTab(WidgetTester tester) =>
+        tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected;
+
+    Future<void> drainReviewTimers(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      // fixed-wait-ok: crosses the providers' 5-minute keepAlive TTL so no timer outlives the test
+      await tester.pump(const Duration(minutes: 6));
+    }
+
+    test('kSalonReviewsSubTab indexes the «reviews» tab key', () {
+      expect(kSalonManageTabKeys[kSalonReviewsSubTab], 'reviews');
+      expect(kSalonReviewsSubTab, 3);
+    });
+
+    testWidgets('should_showReviewsOnTheFIRSTFrame_neverBuildingAbout', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId, openReviewsTab: true),
+        warmProfile: true,
+      );
+      // ONE built frame (pumpWidget), no further pump: perf MEDIUM 2.
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-about')),
+        findsNothing,
+        reason: 'the throwaway «Про салон» first frame must never be built',
+      );
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 3, reason: 'salon-tab-3 selected');
+      expect(_navIndex(tester), 0, reason: 'nav highlight stays «Салон»');
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('anti-vacuity: the default shell DOES build «Про салон» on '
+        'its first frame with the same warm profile', (tester) async {
+      await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId),
+        warmProfile: true,
+      );
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-about')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 0);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('should_openTeam_when_initialNavTabTeam', (tester) async {
+      final container = await pump(
+        tester,
+        const SalonShellScreen(
+          salonId: _kSalonId,
+          initialNavTab: kSalonTeamNavTab,
+        ),
+      );
+      await tester.pump();
+      expect(container.read(salonShellProvider(_kSalonId)), kSalonTeamNavTab);
+      expect(
+        container.read(salonManageTabProvider(_kSalonId)),
+        kSalonStaffSubTab,
+      );
+    });
+
+    testWidgets('should_leaveSharedStateUntouched_when_landing', (
+      tester,
+    ) async {
+      final container = await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId, openReviewsTab: true),
+      );
+      await tester.pump();
+      expect(container.read(salonShellProvider(_kSalonId)), 0);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('perf MEDIUM 3: popping a pushed reviews landing leaves the '
+        'underlying shell of the SAME salon on «Записи»', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navKey,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: const SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-1')));
+      await tester.pumpAndSettle();
+      expect(_navIndex(tester), 1, reason: 'underlying shell is on «Записи»');
+      expect(container.read(salonShellProvider(_kSalonId)), 1);
+
+      unawaited(
+        navKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const SalonShellScreen(
+              salonId: _kSalonId,
+              openReviewsTab: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 3);
+      expect(
+        container.read(salonShellProvider(_kSalonId)),
+        1,
+        reason: 'the pushed landing must not write the shared nav index',
+      );
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+
+      navKey.currentState!.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-shell-tab-bookings')), findsOneWidget);
+      expect(
+        _navIndex(tester),
+        1,
+        reason: 'back on the underlying shell: still «Записи»',
+      );
+      expect(container.read(salonShellProvider(_kSalonId)), 1);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+      await tester.pumpWidget(const SizedBox());
+      // fixed-wait-ok: crosses the board providers' 30-minute keepAlive TTL so no timer outlives the test
+      await tester.pump(const Duration(minutes: 31));
+    });
+
+    testWidgets('perf LOW 4: false -> true on the SAME element re-seeds on '
+        '«Відгуки»; true -> false returns to the shared state', (tester) async {
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      Widget app({required bool reviews}) => UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: SalonShellScreen(salonId: _kSalonId, openReviewsTab: reviews),
+        ),
+      );
+
+      await tester.pumpWidget(app(reviews: false));
+      await tester.pumpAndSettle();
+      final Element before = tester.element(
+        find.byKey(const Key('salon-shell-screen')),
+      );
+      expect(selectedSubTab(tester), 0);
+
+      await tester.pumpWidget(app(reviews: true));
+      await tester.pumpAndSettle();
+      expect(
+        identical(
+          tester.element(find.byKey(const Key('salon-shell-screen'))),
+          before,
+        ),
+        isTrue,
+        reason: 'must exercise didUpdateWidget on the SAME element',
+      );
+      expect(selectedSubTab(tester), 3);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+
+      // An unchanged rebuild does not re-seed: move off «Відгуки», re-pump.
+      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 2);
+      await tester.pumpWidget(app(reviews: true));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 2);
+
+      await tester.pumpWidget(app(reviews: false));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 0, reason: 'shared state again');
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('security MEDIUM: an owner whose mySalons RESOLVES without the '
+        'route salon id is redirected to role home', (tester) async {
+      final Completer<List<Salon>> salons = Completer<List<Salon>>();
+      final container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(_OwnerAuthNotifier.new),
+          mySalonsProvider.overrideWith(() => _CompleterMySalons(salons)),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      await container.read(authProvider.future);
+      final router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId, openReviews: true),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) => SalonShellScreen(
+              salonId: state.pathParameters['salonId']!,
+              openReviewsTab: true,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.salonHome,
+            builder: (context, state) =>
+                const Scaffold(key: Key('shell-bounce-target')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(SalonShellScreen), findsOneWidget, reason: 'admitted');
+
+      salons.complete(const <Salon>[
+        Salon(id: _kOtherSalonId, name: 'Not the route salon'),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(find.byKey(const Key('shell-bounce-target')), findsOneWidget);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('security MEDIUM: mySalons already resolved WITHOUT the id '
+        'before the first build is also redirected (post-frame check)', (
+      tester,
+    ) async {
+      final container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(_OwnerAuthNotifier.new),
+          mySalonsProvider.overrideWith(_OtherOnlyMySalons.new),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      await container.read(authProvider.future);
+      await container.read(mySalonsProvider.future);
+      final router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId, openReviews: true),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) => SalonShellScreen(
+              salonId: state.pathParameters['salonId']!,
+              openReviewsTab: true,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.salonHome,
+            builder: (context, state) =>
+                const Scaffold(key: Key('shell-bounce-target')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(find.byKey(const Key('shell-bounce-target')), findsOneWidget);
+      await drainReviewTimers(tester);
+    });
+  });
+}
+
+/// [MySalons] that stays unresolved until [salons] completes.
+class _CompleterMySalons extends MySalons {
+  _CompleterMySalons(this._salons);
+  final Completer<List<Salon>> _salons;
+  @override
+  Future<List<Salon>> build() => _salons.future;
+}
+
+/// [MySalons] resolved to a list NOT containing [_kSalonId].
+class _OtherOnlyMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: _kOtherSalonId, name: 'Not the route salon'),
+  ];
 }

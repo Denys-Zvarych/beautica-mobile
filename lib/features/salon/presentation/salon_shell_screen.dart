@@ -126,6 +126,7 @@ class SalonShellScreen extends ConsumerStatefulWidget {
     super.key,
     required this.salonId,
     this.initialNavTab,
+    this.openReviewsTab = false,
   });
 
   /// Backend Salon-row UUID this shell is scoped to.
@@ -136,6 +137,12 @@ class SalonShellScreen extends ConsumerStatefulWidget {
   /// code a nav-bar tap runs). `null` (every existing caller) = today's
   /// behaviour. Route state, NOT provider state: nothing outlives this widget.
   final int? initialNavTab;
+
+  /// Phase 391 — opens «Салон» on its «Відгуки» sub-tab. The shell is SEEDED
+  /// there before its first build (route state, like [initialNavTab]) and keeps
+  /// route-local tab state, so it never touches an underlying shell of the same
+  /// salon. A false -> true change (or a salon change) re-seeds. `false` = today.
+  final bool openReviewsTab;
 
   @override
   ConsumerState<SalonShellScreen> createState() => _SalonShellScreenState();
@@ -152,9 +159,36 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   List<SalonNavItem>? _navItemsCache;
   AppLocalizations? _navItemsCacheL10n;
 
+  /// Phase 391 — source of route-local state instances. Never `0` (that is the
+  /// shared per-salon state every other caller addresses).
+  static int _nextLandingInstance = 1;
+
+  /// `0` = the shared per-salon tab state (every ordinary shell). Non-zero = a
+  /// «Відгуки» landing shell, which owns a ROUTE-LOCAL copy of both indices.
+  ///
+  /// WHY: `salonShellProvider(salonId)` / `salonManageTabProvider(salonId)` are
+  /// keyed by salon only. A landing is pushed on top of an already-mounted
+  /// shell for the SAME salon (the bell → feed → tap path, or a push tap while
+  /// on the shell), so writing the shared state flipped the underlying shell's
+  /// nav + sub-tab and, after Back, the user landed on a different tab. The
+  /// local copy leaves the underlying shell untouched. It is also seeded with
+  /// the «Відгуки» sub-tab BEFORE the first build, so no throwaway «Про салон»
+  /// frame is built. See phase 391 `## Decisions`.
+  int _instance = 0;
+
+  SalonShellProvider get _navProvider =>
+      salonShellProvider(widget.salonId, instance: _instance);
+
+  SalonManageTabProvider get _subTabProvider => salonManageTabProvider(
+    widget.salonId,
+    instance: _instance,
+    initial: _instance == 0 ? 0 : kSalonReviewsSubTab,
+  );
+
   @override
   void initState() {
     super.initState();
+    if (widget.openReviewsTab) _instance = _nextLandingInstance++;
     // Phase 287 D2 — the write happens AFTER the first frame, unawaited, so
     // a Keystore write is never on the critical path of paint; the shell
     // must render at exactly the speed it renders today. A `!mounted` guard
@@ -173,6 +207,12 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
         if (mounted) _onNavSelected(initialNavTab);
       });
     }
+    // The listener in build() only fires on a CHANGE: an owner list that
+    // resolved between the route guard and this first build would otherwise
+    // never be checked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _bounceIfSalonNotOwned();
+    });
   }
 
   @override
@@ -185,6 +225,16 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     // the classic bug: switch salons, kill the app, reopen the previous one.
     if (widget.salonId != oldWidget.salonId) {
       unawaited(_writeLastSalon(widget.salonId));
+    }
+    // Phase 391 — a `go` can hand this element a (new) «Відгуки» landing, or
+    // take it away: give it a fresh route-local state (seeded on «Відгуки»),
+    // or return to the shared state. build() follows, so no setState.
+    if (widget.openReviewsTab) {
+      if (!oldWidget.openReviewsTab || widget.salonId != oldWidget.salonId) {
+        _instance = _nextLandingInstance++;
+      }
+    } else if (oldWidget.openReviewsTab) {
+      _instance = 0;
     }
     // Phase 364 — a `go` can hand this same element a new salon / tab: apply
     // the new tab ONCE through the same post-frame path as initState. Unchanged
@@ -283,20 +333,30 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// synchronous `User.salonId` check with no unresolved window to close.
   void _bounceIfNotOwned(UserRole? role) {
     if (role != UserRole.salonOwner) return;
-    ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
-      AsyncValue<List<Salon>>? previous,
-      AsyncValue<List<Salon>> next,
-    ) {
-      // Concrete-subtype gate — `copyWithPrevious` keeps a stale `.value`
-      // attached to a LATER `AsyncLoading`/`AsyncError` (e.g. mid-retry, or
-      // right after a cross-account login on the same device), so only a
-      // genuinely resolved `AsyncData` is ever trusted here — mirrors
-      // `salonManageGuard`'s own gate in `app_router.dart`.
-      if (next is! AsyncData<List<Salon>>) return;
-      final List<Salon> salons = next.value;
-      if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
-      if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
-    });
+    ref.listen<AsyncValue<List<Salon>>>(
+      mySalonsProvider,
+      (AsyncValue<List<Salon>>? previous, AsyncValue<List<Salon>> next) =>
+          _bounceIfSalonNotOwned(next),
+    );
+  }
+
+  /// The decision half of [_bounceIfNotOwned], also run once post-frame on
+  /// mount (phase 391: a cold push tap can name a salon the owner does not
+  /// own while `mySalonsProvider` was still unresolved at the route guard).
+  void _bounceIfSalonNotOwned([AsyncValue<List<Salon>>? resolved]) {
+    if (authUserRoleOrNull(ref.read(authProvider)) != UserRole.salonOwner) {
+      return;
+    }
+    final AsyncValue<List<Salon>> next = resolved ?? ref.read(mySalonsProvider);
+    // Concrete-subtype gate — `copyWithPrevious` keeps a stale `.value`
+    // attached to a LATER `AsyncLoading`/`AsyncError` (e.g. mid-retry, or
+    // right after a cross-account login on the same device), so only a
+    // genuinely resolved `AsyncData` is ever trusted here — mirrors
+    // `salonManageGuard`'s own gate in `app_router.dart`.
+    if (next is! AsyncData<List<Salon>>) return;
+    final List<Salon> salons = next.value;
+    if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
+    if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
   }
 
   /// Renders [build] only once stack [slot] has been reached; otherwise a
@@ -370,9 +430,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// Both destinations map to stack slot 0, so this never changes
   /// `IndexedStack.index` — only the nav highlight and the sub-tab move.
   void _onSubTabSelected(int subTab) {
-    ref.read(salonManageTabProvider(widget.salonId).notifier).select(subTab);
+    ref.read(_subTabProvider.notifier).select(subTab);
     ref
-        .read(salonShellProvider(widget.salonId).notifier)
+        .read(_navProvider.notifier)
         .select(subTab == _staffSubTab ? _navTeam : _navSalon);
   }
 
@@ -407,7 +467,7 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       }
       if (role != UserRole.salonAdmin) return;
     }
-    ref.read(salonShellProvider(widget.salonId).notifier).select(navIndex);
+    ref.read(_navProvider.notifier).select(navIndex);
     if (navIndex == _navBookings) {
       // AUDIT LOW-4 — «Записи» just became the selected tab, so replay any
       // board refresh `invalidateBookingViewsAfterBookingCreated` deferred
@@ -424,13 +484,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       drainSalonBoardRefresh(ref, widget.salonId);
     }
     if (navIndex == _navSalon) {
-      ref
-          .read(salonManageTabProvider(widget.salonId).notifier)
-          .select(_aboutSubTab);
+      ref.read(_subTabProvider.notifier).select(_aboutSubTab);
     } else if (navIndex == _navTeam) {
-      ref
-          .read(salonManageTabProvider(widget.salonId).notifier)
-          .select(_staffSubTab);
+      ref.read(_subTabProvider.notifier).select(_staffSubTab);
     }
   }
 
@@ -447,11 +503,11 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
     _bounceIfNotOwned(role);
 
-    final int navIndex = ref.watch(salonShellProvider(widget.salonId));
+    final int navIndex = ref.watch(_navProvider);
     // The SHARED in-screen sub-tab index. The one hosted profile screen below
     // is driven from it, which is what keeps the in-screen row and the bottom
     // nav one selection instead of two.
-    final int subTab = ref.watch(salonManageTabProvider(widget.salonId));
+    final int subTab = ref.watch(_subTabProvider);
     final int stackSlot = _stackSlotFor(navIndex);
     _visitedSlots.add(stackSlot);
 

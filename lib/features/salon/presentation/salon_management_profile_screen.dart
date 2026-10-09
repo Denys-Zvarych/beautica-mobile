@@ -495,6 +495,11 @@ const List<String> kSalonManageTabKeys = <String>[
 /// «Про салон».
 const int kSalonStaffSubTab = 1;
 
+/// The «Відгуки» sub-tab index of [SalonManagementProfileScreen] (phase 391).
+/// Pinned like [kSalonStaffSubTab]: `salon_shell_screen_test.dart` asserts
+/// `kSalonManageTabKeys[kSalonReviewsSubTab] == 'reviews'`.
+const int kSalonReviewsSubTab = 3;
+
 /// The visible tab-bar labels, in [kSalonManageTabKeys] order.
 ///
 /// A function (not a `const` list) because the labels come from

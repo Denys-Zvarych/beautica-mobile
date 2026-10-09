@@ -1598,14 +1598,15 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: '/salons/:salonId/shell',
         redirect: salonManageGuard,
-        builder: (context, state) => SalonShellScreen(
-          salonId: state.pathParameters['salonId'] ?? '',
-          initialNavTab:
-              state.uri.queryParameters[kSalonShellTabQuery] ==
-                  kSalonShellTabTeam
-              ? kSalonTeamNavTab
-              : null,
-        ),
+        builder: (context, state) {
+          // Allow-list: unknown `tab` values are ignored.
+          final String? tab = state.uri.queryParameters[kSalonShellTabQuery];
+          return SalonShellScreen(
+            salonId: state.pathParameters['salonId'] ?? '',
+            initialNavTab: tab == kSalonShellTabTeam ? kSalonTeamNavTab : null,
+            openReviewsTab: tab == kSalonShellTabReviews,
+          );
+        },
       ),
       // Phase 14.1 — booking flow Step 1 (service selection). The public
       // master profile's «Записатись до майстра» CTA pushes here with

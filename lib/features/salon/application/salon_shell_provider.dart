@@ -17,8 +17,13 @@ part 'salon_shell_provider.g.dart';
 /// target salon id, e.g. `salonShellProvider(salonId)`).
 @riverpod
 class SalonShell extends _$SalonShell {
+  /// [instance] (phase 391) — `0` (every existing caller) is THE shared
+  /// per-salon state. A non-zero value addresses a ROUTE-LOCAL copy: the
+  /// «Відгуки» landing shell is pushed ON TOP of an already-mounted shell for
+  /// the same salon, and must not flip that underlying shell's tab (see
+  /// `SalonShellScreen`). Part of the family key, so it never aliases `0`.
   @override
-  int build(String salonId) => 0;
+  int build(String salonId, {int instance = 0}) => 0;
 
   /// Selects tab [index]. Called by [SalonBottomNav]'s `onSelect`.
   void select(int index) => state = index;
@@ -42,8 +47,11 @@ class SalonShell extends _$SalonShell {
 /// exactly — a different salon, or a fresh shell visit, starts on 0.
 @riverpod
 class SalonManageTab extends _$SalonManageTab {
+  /// [instance] — see [SalonShell.build]. [initial] (phase 391) seeds the
+  /// sub-tab BEFORE the first read, so a «Відгуки» landing never builds a
+  /// throwaway «Про салон» frame; `0` (every existing caller) = today.
   @override
-  int build(String salonId) => 0;
+  int build(String salonId, {int instance = 0, int initial = 0}) => initial;
 
   /// Selects sub-tab [index].
   void select(int index) => state = index;

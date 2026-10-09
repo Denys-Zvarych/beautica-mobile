@@ -48,7 +48,10 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart'
-    show kFromNotificationQuery, kFromNotificationValue;
+    show
+        kFromNotificationQuery,
+        kFromNotificationValue,
+        resetNotificationNavigationStateForTest;
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -249,7 +252,10 @@ void main() {
       DateTime.now().subtract(const Duration(seconds: 5)),
     ),
   );
-  tearDown(AppStartTime.resetForTest);
+  tearDown(() {
+    AppStartTime.resetForTest();
+    resetNotificationNavigationStateForTest();
+  });
 
   group('BookingDetailScreen.onUnavailable', () {
     Future<_BookingRepo> pumpDetail(

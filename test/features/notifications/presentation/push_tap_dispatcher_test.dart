@@ -4,11 +4,14 @@
 // `errorBuilder`, which records the pushed LOCATION). The pending tap is a
 // scripted stub; its real filling is covered by pending_push_tap_notifier_test.
 
+import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/notifications/data/notification_repository.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/domain/notifications_feed_state.dart';
 import 'package:beautica_mobile/features/notifications/domain/push_tap.dart';
@@ -52,6 +55,13 @@ class _FeedWithRow extends NotificationsFeed {
     marked.add(id);
     return true;
   }
+}
+
+class _Mys extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: 'S1', name: 'Salon 1'),
+  ];
 }
 
 class _Anon extends AuthNotifier {
@@ -107,6 +117,7 @@ class _Rig {
           () => _role == null ? _Anon() : FixedRoleAuth(_role),
         ),
         pendingPushTapProvider.overrideWith(_Pending.new),
+        mySalonsProvider.overrideWith(_Mys.new),
         notificationRepositoryProvider.overrideWithValue(repo),
         unreadNotificationsProvider.overrideWith(() => unread),
         if (feedAlive) notificationsFeedProvider.overrideWith(_FeedWithRow.new),
@@ -144,6 +155,8 @@ class _Rig {
 }
 
 void main() {
+  tearDown(resetNotificationNavigationStateForTest);
+
   testWidgets('should_markReadAndOpenRouteForOutput_when_authenticated', (
     tester,
   ) async {
@@ -203,6 +216,43 @@ void main() {
     expect(rig.repo.markedRead, <String>[_id]);
     expect(rig.seen.length, 1);
     expect(rig.seen.single, contains(RouteNames.masterBookingDetail(_bk)));
+  });
+
+  testWidgets('should_openSalonReviews_when_ownerReviewReceivedPush', (
+    tester,
+  ) async {
+    final _Rig rig = _Rig(role: UserRole.salonOwner);
+    final ProviderContainer c = await rig.pump(tester);
+    rig
+        .pending(c)
+        .put(
+          const PushTap(
+            notificationId: _id,
+            type: AppNotificationType.reviewReceived,
+            target: NotificationTarget.booking(bookingId: _bk, salonId: 'S1'),
+          ),
+        );
+    await tester.pumpAndSettle();
+    expect(rig.seen, <String>['/salons/S1/shell?tab=reviews']);
+    expect(rig.repo.markedRead, <String>[_id]);
+  });
+
+  testWidgets('should_openStaffDetail_when_ownerBookingCreatedPush', (
+    tester,
+  ) async {
+    final _Rig rig = _Rig(role: UserRole.salonOwner);
+    final ProviderContainer c = await rig.pump(tester);
+    rig
+        .pending(c)
+        .put(
+          const PushTap(
+            notificationId: _id,
+            type: AppNotificationType.bookingCreated,
+            target: NotificationTarget.booking(bookingId: _bk, salonId: 'S1'),
+          ),
+        );
+    await tester.pumpAndSettle();
+    expect(rig.seen.single, contains(RouteNames.salonStaffBookingDetail(_bk)));
   });
 
   testWidgets('should_openFeed_when_targetLeadsNowhere', (tester) async {

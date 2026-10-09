@@ -445,8 +445,23 @@ abstract final class RouteNames {
   /// none is a literal that a dynamic sibling could shadow — only [mySalons]
   /// and [salonHome] have that concern, both literals under the shorter
   /// `/salons/` prefix).
-  static String salonShell(String salonId, {bool openTeam = false}) =>
-      '${salonPublicProfile(salonId)}/shell${openTeam ? '?$kSalonShellTabQuery=$kSalonShellTabTeam' : ''}';
+  ///
+  /// Phase 391 — `openReviews` opens it on «Відгуки» (`?tab=reviews`);
+  /// mutually exclusive with `openTeam`.
+  static String salonShell(
+    String salonId, {
+    bool openTeam = false,
+    bool openReviews = false,
+  }) {
+    assert(
+      !(openTeam && openReviews),
+      'openTeam and openReviews are exclusive',
+    );
+    final String? tab = openTeam
+        ? kSalonShellTabTeam
+        : (openReviews ? kSalonShellTabReviews : null);
+    return '${salonPublicProfile(salonId)}/shell${tab != null ? '?$kSalonShellTabQuery=$tab' : ''}';
+  }
 
   /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
   /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
@@ -1291,3 +1306,6 @@ abstract final class RouteNames {
 /// on «Команда». Route state consumed once by the shell on its first frame.
 const String kSalonShellTabQuery = 'tab';
 const String kSalonShellTabTeam = 'team';
+
+/// Phase 391 — `?tab=reviews` opens the shell on «Відгуки».
+const String kSalonShellTabReviews = 'reviews';
