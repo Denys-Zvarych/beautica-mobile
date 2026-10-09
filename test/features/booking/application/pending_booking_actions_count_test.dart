@@ -7,33 +7,79 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockBookingRepository extends Mock implements BookingRepository {}
 
+const User _u1 = User(
+  id: 'u1',
+  email: 'u1@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Оля',
+  lastName: 'Коваль',
+);
+const User _u2 = User(
+  id: 'u2',
+  email: 'u2@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Ірина',
+  lastName: 'Бондар',
+);
+const AuthSession _as1 = AuthSession.authenticated(
+  user: _u1,
+  accessToken: 't1',
+);
+const AuthSession _as2 = AuthSession.authenticated(
+  user: _u2,
+  accessToken: 't2',
+);
+
+class _MutableAuthNotifier extends AuthNotifier {
+  _MutableAuthNotifier(this._initial);
+  final AuthSession _initial;
+
+  @override
+  Future<AuthSession> build() async => _initial;
+
+  void setSession(AuthSession s) => state = AsyncData<AuthSession>(s);
+}
+
 void main() {
   late _MockBookingRepository repo;
   late ProviderContainer container;
+  late _MutableAuthNotifier auth;
 
   setUpAll(() {
     registerFallbackValue(const PendingActionsScope.me(asMaster: false));
   });
 
-  setUp(() {
+  setUp(() async {
     repo = _MockBookingRepository();
+    auth = _MutableAuthNotifier(_as1);
     container = ProviderContainer(
       // Riverpod 3 retries a failing provider; a test asserting the error
       // state must opt out or it waits out the backoff.
       retry: (_, _) => null,
-      overrides: [bookingRepositoryProvider.overrideWithValue(repo)],
+      overrides: [
+        bookingRepositoryProvider.overrideWithValue(repo),
+        authProvider.overrideWith(() => auth),
+      ],
     );
     addTearDown(container.dispose);
+    // Settle auth first: build() watches the user id.
+    await container.read(authProvider.future);
   });
 
   Future<int> read(PendingActionsScope scope) =>
@@ -273,5 +319,146 @@ void main() {
       reason: 'a cancelled superseded request must not leak AsyncData(0)',
     );
     expect(events.last, const AsyncData<int>(5));
+  });
+
+  // Phase 394 (24.7b) — app-resume refetch with a 15 s minimum gap.
+  group('resume refetch', () {
+    const scope = PendingActionsScope.me(asMaster: false);
+    late DateTime now;
+    late ProviderContainer c;
+    late _MutableAuthNotifier auth;
+
+    // Drives a background→foreground cycle on the test binding.
+    void resume(WidgetTester tester) {
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    }
+
+    // New fetches since the previous call (own counter: mocktail's verify
+    // fails on zero matches).
+    int fetches = 0;
+    int fetchCount() {
+      final int n = fetches;
+      fetches = 0;
+      return n;
+    }
+
+    setUp(() async {
+      // future-date-ok: injected clock; nothing reads the wall clock here
+      now = DateTime.utc(2026, 10, 9, 12);
+      fetches = 0;
+      auth = _MutableAuthNotifier(_as1);
+      when(
+        () => repo.getPendingActionsCount(
+          scope,
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async {
+        fetches++;
+        return 1;
+      });
+      c = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          bookingRepositoryProvider.overrideWithValue(repo),
+          clockProvider.overrideWithValue(() => now),
+          authProvider.overrideWith(() => auth),
+        ],
+      );
+      addTearDown(c.dispose);
+      await c.read(authProvider.future);
+    });
+
+    testWidgets('resume before 15 s does not refetch; at/after 15 s does', (
+      tester,
+    ) async {
+      final sub = c.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1);
+
+      now = now.add(const Duration(seconds: 14));
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 0, reason: '14 s < gap: no new fetch');
+
+      now = now.add(const Duration(seconds: 1)); // exactly 15 s since build
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1, reason: '15 s == gap: refetch');
+
+      // The refetch rebuilt the provider, restarting the gap window.
+      now = now.add(const Duration(seconds: 5));
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 0, reason: '5 s since the rebuild: throttled');
+    });
+
+    testWidgets('disposing removes the listener: no refetch after dispose', (
+      tester,
+    ) async {
+      final sub = c.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1);
+
+      sub.close();
+      await tester.pump(Duration.zero); // autoDispose
+      now = now.add(const Duration(minutes: 5));
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 0);
+    });
+
+    testWidgets('logout: element rebuilds signed-out; resume makes no call', (
+      tester,
+    ) async {
+      final sub = c.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1);
+
+      auth.setSession(const AuthSession.unauthenticated());
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 0, reason: 'signed out: no request');
+      expect(sub.read(), const AsyncData<int>(0));
+
+      now = now.add(const Duration(minutes: 5));
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 0, reason: 'resume after logout must not fetch');
+    });
+
+    testWidgets('account switch: resume never uses the old scope\'s user', (
+      tester,
+    ) async {
+      final sub = c.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1);
+
+      auth.setSession(_as2);
+      await tester.pump(Duration.zero);
+      // The switch rebuilds the element for the NEW user exactly once.
+      expect(fetchCount(), 1, reason: 'rebuild for the new identity');
+
+      // Only the new build's listener is alive: one resume = one refetch,
+      // not two (the old build's listener must be gone/guarded).
+      now = now.add(const Duration(minutes: 5));
+      resume(tester);
+      await tester.pump(Duration.zero);
+      expect(fetchCount(), 1, reason: 'single refetch, new user only');
+    });
   });
 }

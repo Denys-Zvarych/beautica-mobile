@@ -4742,6 +4742,15 @@ final class FakeBackend {
 
   bool _clientReviewRejectDuplicate = false;
 
+  /// Phase 394 — opt-in (default `false`, so every existing flow is
+  /// untouched). When `true`, a successful `POST /client-reviews` also clears
+  /// `providerCanReviewClient` on the matching [_bookingsDataset] row, the way
+  /// the real backend stops counting a reviewed booking in the pending-actions
+  /// count. Off by default because other flows prove the archive's in-memory
+  /// `markClientReviewed` patch precisely BECAUSE the list endpoint keeps
+  /// answering `true`.
+  bool clientReviewClearsDatasetFlag = false;
+
   /// `POST /client-reviews` call count + the last rating/comment/bookingId
   /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
   /// mirror of [createReviewCalls] above). Asserted by the
@@ -11250,6 +11259,19 @@ final class FakeBackend {
             return _okVoid;
           }
           bookingProviderCanReviewClient = false;
+          final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+          if (clientReviewClearsDatasetFlag && dataset != null) {
+            final int idx = dataset.indexWhere(
+              (Map<String, dynamic> row) =>
+                  row['id'] == lastClientReviewBookingId,
+            );
+            if (idx != -1) {
+              dataset[idx] = <String, dynamic>{
+                ...dataset[idx],
+                'providerCanReviewClient': false,
+              };
+            }
+          }
           return _okVoid;
         },
       ),

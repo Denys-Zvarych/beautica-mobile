@@ -40,7 +40,25 @@ import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
 import 'master_archive_notifier.dart';
 import 'my_bookings_notifier.dart';
+import 'pending_booking_actions_count.dart';
 import 'salon_board_refresh_gate.dart';
+
+/// Phase 394 (24.7b) — drops the WHOLE [pendingBookingActionsCountProvider]
+/// family. Cheap: an autoDispose family, so only the 1–2 scopes whose
+/// «Записи» screen is mounted refetch; an unwatched member is simply dropped.
+///
+/// The ONE entry point every booking-mutation helper below (and the review /
+/// archive-refresh call sites) routes through — never `ref.invalidate` the
+/// family directly elsewhere.
+void invalidatePendingBookingActionsCount(WidgetRef ref) {
+  ref.invalidate(pendingBookingActionsCountProvider);
+}
+
+/// [invalidatePendingBookingActionsCount] for a provider-side [Ref] caller
+/// (e.g. [invalidateBookingViewsAfterBookingCreated]).
+void invalidatePendingBookingActionsCountFromRef(Ref ref) {
+  ref.invalidate(pendingBookingActionsCountProvider);
+}
 
 /// Invalidates every cached master-facing booking view after an external
 /// write declined [declinedBookingIds], scoped to the calendar days
@@ -170,6 +188,7 @@ void invalidateBookingViewsAfterExternalDecline(
   // 30-min TTL). Unwatched for every non-owner session, so this only marks a
   // nonexistent / idle element dirty — no request.
   ref.invalidate(ownerMasterBookedDaysProvider);
+  invalidatePendingBookingActionsCount(ref);
 }
 
 /// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
@@ -353,6 +372,7 @@ void invalidateBookingViewsAfterProviderClose(
       affectedDays: <DateTime>{affectedDate},
     );
   }
+  invalidatePendingBookingActionsCount(ref);
 }
 
 /// Invalidates every master-facing booking cache the CREATION of a booking on
@@ -595,6 +615,7 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
       ref.read(salonBoardRefreshGateProvider).markStale(salonId);
     }
   }
+  invalidatePendingBookingActionsCountFromRef(ref);
 }
 
 /// Replays the board-scoped invalidations that

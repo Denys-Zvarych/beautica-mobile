@@ -31,6 +31,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -2484,5 +2485,137 @@ void main() {
         );
       },
     );
+  });
+
+  // Phase 394 (24.7b) — every booking-mutation fan-out also drops the
+  // pending-actions count family. Asserted by repository call COUNT (seamless
+  // reload retains `.value`), with a LIVE listener (an unwatched member is
+  // dropped, not refetched).
+  group('phase 394 — pending-actions count is invalidated by', () {
+    const PendingActionsScope scope = PendingActionsScope.me(asMaster: false);
+
+    _MockBookingRepository countRepo() {
+      final _MockBookingRepository repo = _MockBookingRepository();
+      when(
+        () => repo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => 2);
+      return repo;
+    }
+
+    // mocktail marks matched calls verified, so each check counts only the
+    // calls made SINCE the previous one: pass 1 = exactly one new fetch.
+    void expectOneRefetch(_MockBookingRepository repo, int n) => verify(
+      () => repo.getPendingActionsCount(
+        scope,
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).called(n);
+
+    setUpAll(() {
+      registerFallbackValue(scope);
+    });
+
+    Future<void> runWidgetHelper(
+      WidgetTester tester,
+      void Function(WidgetRef ref) call,
+    ) async {
+      final _MockBookingRepository repo = countRepo();
+      await tester.pumpApp(
+        Scaffold(
+          body: Consumer(
+            builder: (BuildContext context, WidgetRef ref, _) => TextButton(
+              key: const Key('go'),
+              onPressed: () => call(ref),
+              child: const Text('go'),
+            ),
+          ),
+        ),
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          // The count provider watches the signed-in user id (phase 394
+          // MASVS-AUTH fix): signed-out builds return 0 without a request.
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+        ],
+      );
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byKey(const Key('go'))),
+        listen: false,
+      );
+      await container.read(authProvider.future);
+      final ProviderSubscription<AsyncValue<int>> sub = container.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(pendingBookingActionsCountProvider(scope).future);
+      expectOneRefetch(repo, 1);
+
+      await tester.tap(find.byKey(const Key('go')));
+      await tester.pump();
+      await container.read(pendingBookingActionsCountProvider(scope).future);
+      await tester.pump();
+      expectOneRefetch(repo, 1);
+    }
+
+    // MUTATION: deleting the call from invalidateBookingViewsAfterProviderClose
+    // turns this case red.
+    testWidgets('invalidateBookingViewsAfterProviderClose', (tester) async {
+      await runWidgetHelper(
+        tester,
+        (WidgetRef ref) => invalidateBookingViewsAfterProviderClose(
+          ref,
+          'booking-1',
+          // future-date-ok: arbitrary, only the count is asserted
+          affectedDate: DateTime.utc(2026, 7, 20),
+        ),
+      );
+    });
+
+    testWidgets('invalidateBookingViewsAfterExternalDecline', (tester) async {
+      await runWidgetHelper(
+        tester,
+        (WidgetRef ref) => invalidateBookingViewsAfterExternalDecline(
+          ref,
+          const <String>['booking-1'],
+          // future-date-ok: arbitrary, only the count is asserted
+          affectedDates: <DateTime>[DateTime.utc(2026, 7, 20)],
+        ),
+      );
+    });
+
+    testWidgets('invalidatePendingBookingActionsCount (the helper itself)', (
+      tester,
+    ) async {
+      await runWidgetHelper(tester, invalidatePendingBookingActionsCount);
+    });
+
+    test('invalidateBookingViewsAfterBookingCreated', () async {
+      final _MockBookingRepository repo = countRepo();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+      final ProviderSubscription<AsyncValue<int>> sub = container.listen(
+        pendingBookingActionsCountProvider(scope),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(pendingBookingActionsCountProvider(scope).future);
+      expectOneRefetch(repo, 1);
+
+      container.read(_createdFanOutProvider)(null);
+      await Future<void>.delayed(Duration.zero);
+      await container.read(pendingBookingActionsCountProvider(scope).future);
+      expectOneRefetch(repo, 1);
+    });
   });
 }

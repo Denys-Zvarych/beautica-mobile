@@ -473,6 +473,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   Future<void> _refresh() {
     // A fresh page 0 gets a fresh auto-continue budget.
     _autoContinueAttempts = 0;
+    invalidatePendingBookingActionsCount(ref);
     return ref.read(masterArchiveProvider(_query).notifier).refresh();
   }
 
@@ -652,6 +653,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     ref
         .read(masterArchiveProvider(_query).notifier)
         .markClientReviewed(booking.id);
+    invalidatePendingBookingActionsCount(ref);
   }
 
   /// NON-ADJACENT-PATH patch — the other half of the pair described in
@@ -716,6 +718,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       ref
           .read(masterArchiveProvider(_query).notifier)
           .markClientsReviewed(pending);
+      invalidatePendingBookingActionsCount(ref);
     });
   }
 
