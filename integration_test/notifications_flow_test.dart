@@ -32,6 +32,8 @@ import 'package:beautica_mobile/features/notifications/presentation/notification
 import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_feed_parts.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -44,6 +46,33 @@ import 'support/app_harness.dart';
 import 'support/notification_flow_support.dart';
 
 const Key _clientBell = Key('home_hub_bell_button');
+const Key _ownerBell = Key('salon-manage-notifications');
+const Key _salonMasterBell = Key('salon_master_profile_bell_button');
+
+const String _kMasterName = 'Ірина Мельник';
+final AppLocalizations _uk = AppLocalizationsUk();
+
+/// The «· майстер NAME» tail, derived from the l10n template (never a
+/// Cyrillic literal): render with a sentinel, cut from the separator, then
+/// substitute the bidi-isolated name the tile shows.
+String _masterTail() {
+  const String sentinel = '\u0001';
+  final String probe = _uk.notificationBodyProviderWithMaster(
+    '',
+    '',
+    '',
+    sentinel,
+  );
+  final String tail = probe.substring(probe.indexOf('·'));
+  final String iso =
+      '${String.fromCharCode(0x2068)}$_kMasterName${String.fromCharCode(0x2069)}';
+  return tail.replaceAll(sentinel, iso);
+}
+
+Finder _tileBodyWithMaster(String id) => find.descendant(
+  of: notificationTile(id),
+  matching: find.textContaining(_masterTail()),
+);
 
 Finder _markRead(String id) => find.byKey(NotificationTile.markReadKey(id));
 Finder _markAll() => find.byKey(NotificationsMarkAllBar.actionKey);
@@ -226,6 +255,53 @@ void main() {
     expect(
       bellAsset(tester, _clientBell),
       BeauticaAssetIcons.notificationUnread,
+    );
+  });
+
+  // Backend 354-356 / mobile feed: the performing master's name rides only on
+  // owner / admin rows. The same payload is seeded for both viewers; only the
+  // viewer's role decides whether the suffix renders.
+  testWidgets('SALON_OWNER: a BOOKING_CREATED row carrying masterName shows '
+      'the «· майстер <name>» suffix', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+    final String id = fb.seedNotification(
+      type: 'BOOKING_CREATED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      masterName: _kMasterName,
+    );
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+    await AppHarness.settle(tester);
+
+    await openFeed(tester, router, _ownerBell);
+
+    expect(notificationTile(id), findsOneWidget);
+    expect(_tileBodyWithMaster(id), findsOneWidget);
+  });
+
+  testWidgets('SALON_MASTER: the same payload (masterName present) renders '
+      'NO master suffix', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.salonMaster;
+    final String id = fb.seedNotification(
+      type: 'BOOKING_CREATED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      masterName: _kMasterName,
+    );
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+    await AppHarness.settle(tester);
+
+    await openFeed(tester, router, _salonMasterBell);
+
+    expect(notificationTile(id), findsOneWidget, reason: 'positive control');
+    expect(_tileBodyWithMaster(id), findsNothing);
+    expect(
+      find.descendant(
+        of: notificationTile(id),
+        matching: find.textContaining(_kMasterName),
+      ),
+      findsNothing,
+      reason: 'the master name must not appear anywhere in the tile',
     );
   });
 }

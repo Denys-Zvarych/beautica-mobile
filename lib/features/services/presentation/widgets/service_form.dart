@@ -87,6 +87,7 @@ class ServiceForm extends StatefulWidget {
     this.submitLabel,
     required this.onSubmit,
     this.readOnly = false,
+    this.identityLocked = false,
     this.onDirtyChanged,
   });
 
@@ -128,6 +129,15 @@ class ServiceForm extends StatefulWidget {
   /// values stay visible, opening their menus or focusing their fields is
   /// suppressed.
   final bool readOnly;
+
+  /// Phase 377 (24.4) — additive, defaults to `false` so every existing caller
+  /// renders exactly as before.
+  ///
+  /// `true` makes ONLY the identity fields (category, service type, name)
+  /// non-interactive — the name renders as plain text, the pickers are
+  /// disabled. Duration, pricing and the submit CTA stay live (unlike
+  /// [readOnly], which locks everything and hides the CTA).
+  final bool identityLocked;
 
   /// Pre-fill rule for the service name when a service type is selected
   /// (Phase 16.3). Pure helper — given the current name text and the value this
@@ -456,13 +466,45 @@ class _ServiceFormState extends State<ServiceForm> {
     // it. `_readOnlyNameValue` below sources its value from `_baselineName`
     // directly rather than the controller, so this is a pure no-op removal —
     // the writable path attaches the listener exactly as before.
-    if (!widget.readOnly) {
+    if (!_identityReadOnly) {
       _nameCtrl.addListener(_onNameChanged);
     }
     _durationCtrl.addListener(() => _onChanged('baseDurationMinutes'));
     _priceFixedCtrl.addListener(() => _onChanged('price'));
     _priceMinCtrl.addListener(() => _onChanged('priceMin'));
     _priceMaxCtrl.addListener(() => _onChanged('priceMax'));
+  }
+
+  /// Phase 377 audit-fix 2 — the identity lock can flip after `initState`
+  /// (e.g. the owner's set resolves late). Re-evaluate the name listener and,
+  /// when the identity becomes read-only mid-edit, restore the loaded identity
+  /// values so no edit is silently dropped behind a now-read-only field.
+  @override
+  void didUpdateWidget(ServiceForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final bool wasLocked = oldWidget.readOnly || oldWidget.identityLocked;
+    final bool isLocked = _identityReadOnly;
+    if (wasLocked == isLocked) return;
+    if (isLocked) {
+      _nameCtrl.removeListener(_onNameChanged);
+      setState(() {
+        _nameCtrl.text = _baselineName;
+        _lastAutoFilledName = null;
+        _selectedCategory = _baselineCategory;
+        _selectedServiceTypeId = _baselineServiceTypeId;
+        _selectedServiceTypeNameUk = widget.initial?.serviceTypeNameUk;
+        _selectedServiceTypeCategory = _baselineServiceTypeId != null
+            ? _baselineCategory
+            : null;
+        _clearServerError('name');
+        _clearServerError('category');
+        _clearServerError('serviceTypeId');
+      });
+      _wasDirty = _isDirty;
+      _dirtyNotifier.value = _wasDirty;
+    } else {
+      _nameCtrl.addListener(_onNameChanged);
+    }
   }
 
   /// Re-renders on field change. [serverFieldName] is the backend wire name of
@@ -977,6 +1019,10 @@ class _ServiceFormState extends State<ServiceForm> {
     );
   }
 
+  /// Identity fields (category / service type / name) are non-interactive when
+  /// the whole form is read-only OR only its identity is locked (phase 377).
+  bool get _identityReadOnly => widget.readOnly || widget.identityLocked;
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -1019,7 +1065,7 @@ class _ServiceFormState extends State<ServiceForm> {
         //      previously-selected service type below.
         _CategoryDropdown(
           selected: _selectedCategory,
-          disabled: _submitting || widget.readOnly,
+          disabled: _submitting || _identityReadOnly,
           label: l10n.serviceCategoryLabel,
           errorText: _categoryError(l10n),
           // Phase 16.5 edit-flow hardening: route the category change through
@@ -1056,7 +1102,7 @@ class _ServiceFormState extends State<ServiceForm> {
             // the closed field is never blank while the type list is still
             // fetching. Once options resolve, the matched option's label wins.
             selectedFallbackLabel: _selectedServiceTypeNameUk,
-            disabled: _submitting || widget.readOnly,
+            disabled: _submitting || _identityReadOnly,
             label: l10n.serviceTypeLabel,
             onSelect: onServiceTypeSelected,
           ),
@@ -1081,7 +1127,7 @@ class _ServiceFormState extends State<ServiceForm> {
         // Falls back to the platform service-type name (mirrors
         // ServiceCard's `primaryLabel` rule), then the shared unavailable
         // dash, so the row is never blank.
-        widget.readOnly
+        _identityReadOnly
             ? _ReadOnlyValueField(
                 fieldKey: const Key('field-service-name'),
                 label: l10n.serviceNameOptionalLabel,

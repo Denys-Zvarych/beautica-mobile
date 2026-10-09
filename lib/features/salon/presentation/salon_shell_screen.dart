@@ -15,9 +15,14 @@
 //   1 Записи   — placeholder (`/salon/bookings` has no screen — Phase 21.12)
 //   2 Команда  — the SAME screen instance as destination 0, on its staff
 //                sub-tab (see NAV INDEX vs STACK SLOT below)
-//   3 Профіль  — owner: REAL: `OwnerOwnProfileScreen(embedded: true)`
-//                (Phase 21.14); admin: REAL:
-//                `AdminOwnProfileScreen(embedded: true)` (Phase 21.16)
+//   3 Профіль  — owner: NOT a tab — Phase 384 (24.1g) routes the tap to
+//                owner master mode (`RouteNames.ownerMasterProfile`) with
+//                `go`, which leaves this shell route; «‹ Салон»
+//                (`RouteNames.salonHome`) is a FRESH shell visit and opens on
+//                «Салон» (tab 0) — accepted product behaviour, pinned by
+//                `owner_master_mode_flow_test.dart`;
+//                admin: REAL: `AdminOwnProfileScreen(embedded: true)`
+//                (Phase 21.16); any other / unresolved role: no-op
 //
 // NAV INDEX vs STACK SLOT (mobile-perf LOW follow-up, 2026-08-30) — these two
 // indices are NOT the same number and must never be conflated; the mapping is
@@ -28,8 +33,8 @@
 //                    ├─> stack slot 0 — the ONE hosted profile screen
 //   nav 2 «Команда» ─┘
 //   nav 1 «Записи»  ───> stack slot 1 — bookings placeholder
-//   nav 3 «Профіль» ───> stack slot 2 — own profile (owner and admin each
-//                        get their own real screen)
+//   nav 3 «Профіль» ───> stack slot 2 — admin own profile (an owner never
+//                        reaches this slot: the tap leaves the shell)
 //
 // Destinations 0 and 2 were previously two SEPARATE children of the same
 // `IndexedStack`, built from byte-identical configurations (same `salonId`,
@@ -61,10 +66,10 @@
 // `StatefulShellRoute`, so the four sub-tabs get no sub-routes of their own.
 //
 // `salonId` comes from the go_router PATH PARAM (the caller,
-// `app_router.dart`); `isOwner` is derived from `authProvider`'s role, never
-// from `extra` — an `extra` is null on a cold deep link (e.g. `SALON_ADMIN`
-// arriving straight from `SalonHomeResolverScreen`, or any bookmarked URL),
-// so reading role from the extra would silently misclassify that path.
+// `app_router.dart`); the owner/admin split is derived from `authProvider`'s
+// role, never from `extra` — an `extra` is null on a cold deep link (e.g.
+// `SALON_ADMIN` arriving straight from `SalonHomeResolverScreen`, or any
+// bookmarked URL), so reading role from the extra would silently misclassify that path.
 //
 // LAZY SLOTS (mobile-perf MEDIUM follow-up, 2026-08-28) — `IndexedStack` lays
 // out ALL of its children on every parent rebuild, not just the visible one,
@@ -104,6 +109,7 @@ import 'package:beautica_mobile/features/booking/application/booking_calendar_in
     show drainSalonBoardRefresh;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 
 import '../application/my_salons_notifier.dart';
@@ -111,7 +117,6 @@ import '../application/salon_shell_provider.dart';
 import '../domain/last_visited_salon.dart';
 import '../domain/salon.dart';
 import 'admin_own_profile_screen.dart';
-import 'owner_own_profile_screen.dart';
 import 'salon_bookings_screen.dart';
 import 'salon_management_profile_screen.dart';
 
@@ -121,6 +126,7 @@ class SalonShellScreen extends ConsumerStatefulWidget {
     super.key,
     required this.salonId,
     this.initialNavTab,
+    this.openReviewsTab = false,
   });
 
   /// Backend Salon-row UUID this shell is scoped to.
@@ -131,6 +137,12 @@ class SalonShellScreen extends ConsumerStatefulWidget {
   /// code a nav-bar tap runs). `null` (every existing caller) = today's
   /// behaviour. Route state, NOT provider state: nothing outlives this widget.
   final int? initialNavTab;
+
+  /// Phase 391 — opens «Салон» on its «Відгуки» sub-tab. The shell is SEEDED
+  /// there before its first build (route state, like [initialNavTab]) and keeps
+  /// route-local tab state, so it never touches an underlying shell of the same
+  /// salon. A false -> true change (or a salon change) re-seeds. `false` = today.
+  final bool openReviewsTab;
 
   @override
   ConsumerState<SalonShellScreen> createState() => _SalonShellScreenState();
@@ -147,9 +159,36 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   List<SalonNavItem>? _navItemsCache;
   AppLocalizations? _navItemsCacheL10n;
 
+  /// Phase 391 — source of route-local state instances. Never `0` (that is the
+  /// shared per-salon state every other caller addresses).
+  static int _nextLandingInstance = 1;
+
+  /// `0` = the shared per-salon tab state (every ordinary shell). Non-zero = a
+  /// «Відгуки» landing shell, which owns a ROUTE-LOCAL copy of both indices.
+  ///
+  /// WHY: `salonShellProvider(salonId)` / `salonManageTabProvider(salonId)` are
+  /// keyed by salon only. A landing is pushed on top of an already-mounted
+  /// shell for the SAME salon (the bell → feed → tap path, or a push tap while
+  /// on the shell), so writing the shared state flipped the underlying shell's
+  /// nav + sub-tab and, after Back, the user landed on a different tab. The
+  /// local copy leaves the underlying shell untouched. It is also seeded with
+  /// the «Відгуки» sub-tab BEFORE the first build, so no throwaway «Про салон»
+  /// frame is built. See phase 391 `## Decisions`.
+  int _instance = 0;
+
+  SalonShellProvider get _navProvider =>
+      salonShellProvider(widget.salonId, instance: _instance);
+
+  SalonManageTabProvider get _subTabProvider => salonManageTabProvider(
+    widget.salonId,
+    instance: _instance,
+    initial: _instance == 0 ? 0 : kSalonReviewsSubTab,
+  );
+
   @override
   void initState() {
     super.initState();
+    if (widget.openReviewsTab) _instance = _nextLandingInstance++;
     // Phase 287 D2 — the write happens AFTER the first frame, unawaited, so
     // a Keystore write is never on the critical path of paint; the shell
     // must render at exactly the speed it renders today. A `!mounted` guard
@@ -168,6 +207,12 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
         if (mounted) _onNavSelected(initialNavTab);
       });
     }
+    // The listener in build() only fires on a CHANGE: an owner list that
+    // resolved between the route guard and this first build would otherwise
+    // never be checked.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _bounceIfSalonNotOwned();
+    });
   }
 
   @override
@@ -180,6 +225,16 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     // the classic bug: switch salons, kill the app, reopen the previous one.
     if (widget.salonId != oldWidget.salonId) {
       unawaited(_writeLastSalon(widget.salonId));
+    }
+    // Phase 391 — a `go` can hand this element a (new) «Відгуки» landing, or
+    // take it away: give it a fresh route-local state (seeded on «Відгуки»),
+    // or return to the shared state. build() follows, so no setState.
+    if (widget.openReviewsTab) {
+      if (!oldWidget.openReviewsTab || widget.salonId != oldWidget.salonId) {
+        _instance = _nextLandingInstance++;
+      }
+    } else if (oldWidget.openReviewsTab) {
+      _instance = 0;
     }
     // Phase 364 — a `go` can hand this same element a new salon / tab: apply
     // the new tab ONCE through the same post-frame path as initState. Unchanged
@@ -278,20 +333,30 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// synchronous `User.salonId` check with no unresolved window to close.
   void _bounceIfNotOwned(UserRole? role) {
     if (role != UserRole.salonOwner) return;
-    ref.listen<AsyncValue<List<Salon>>>(mySalonsProvider, (
-      AsyncValue<List<Salon>>? previous,
-      AsyncValue<List<Salon>> next,
-    ) {
-      // Concrete-subtype gate — `copyWithPrevious` keeps a stale `.value`
-      // attached to a LATER `AsyncLoading`/`AsyncError` (e.g. mid-retry, or
-      // right after a cross-account login on the same device), so only a
-      // genuinely resolved `AsyncData` is ever trusted here — mirrors
-      // `salonManageGuard`'s own gate in `app_router.dart`.
-      if (next is! AsyncData<List<Salon>>) return;
-      final List<Salon> salons = next.value;
-      if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
-      if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
-    });
+    ref.listen<AsyncValue<List<Salon>>>(
+      mySalonsProvider,
+      (AsyncValue<List<Salon>>? previous, AsyncValue<List<Salon>> next) =>
+          _bounceIfSalonNotOwned(next),
+    );
+  }
+
+  /// The decision half of [_bounceIfNotOwned], also run once post-frame on
+  /// mount (phase 391: a cold push tap can name a salon the owner does not
+  /// own while `mySalonsProvider` was still unresolved at the route guard).
+  void _bounceIfSalonNotOwned([AsyncValue<List<Salon>>? resolved]) {
+    if (authUserRoleOrNull(ref.read(authProvider)) != UserRole.salonOwner) {
+      return;
+    }
+    final AsyncValue<List<Salon>> next = resolved ?? ref.read(mySalonsProvider);
+    // Concrete-subtype gate — `copyWithPrevious` keeps a stale `.value`
+    // attached to a LATER `AsyncLoading`/`AsyncError` (e.g. mid-retry, or
+    // right after a cross-account login on the same device), so only a
+    // genuinely resolved `AsyncData` is ever trusted here — mirrors
+    // `salonManageGuard`'s own gate in `app_router.dart`.
+    if (next is! AsyncData<List<Salon>>) return;
+    final List<Salon> salons = next.value;
+    if (salons.any((Salon salon) => salon.id == widget.salonId)) return;
+    if (context.mounted) context.go(roleHomePath(UserRole.salonOwner));
   }
 
   /// Renders [build] only once stack [slot] has been reached; otherwise a
@@ -336,6 +401,10 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// SAME constant to decide whether the board is worth refreshing.
   static const int _navBookings = kSalonBookingsNavTab;
 
+  /// «Профіль». For an owner this destination leaves the shell (Phase 384) —
+  /// see [_onNavSelected].
+  static const int _navProfile = 3;
+
   /// The in-screen sub-tab index that the bottom-nav destination implies.
   /// [_navTeam] IS the profile screen's staff sub-tab (1); [_navSalon] is its
   /// «Про салон» sub-tab (0). Any other destination hosts no profile screen
@@ -361,9 +430,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// Both destinations map to stack slot 0, so this never changes
   /// `IndexedStack.index` — only the nav highlight and the sub-tab move.
   void _onSubTabSelected(int subTab) {
-    ref.read(salonManageTabProvider(widget.salonId).notifier).select(subTab);
+    ref.read(_subTabProvider.notifier).select(subTab);
     ref
-        .read(salonShellProvider(widget.salonId).notifier)
+        .read(_navProvider.notifier)
         .select(subTab == _staffSubTab ? _navTeam : _navSalon);
   }
 
@@ -377,8 +446,28 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// This is also what makes the shared host safe: since one instance serves
   /// both destinations, the sub-tab write below is the ONLY thing that
   /// distinguishes them.
+  ///
+  /// Phase 384 (24.1g) — an OWNER's «Профіль» is not a shell destination: it
+  /// enters owner master mode and returns BEFORE the index write. `go`, not
+  /// `push`: master mode is a separate top-level surface with its own nav,
+  /// never stacked on the shell, so the shell route is left. «‹ Салон»
+  /// (`RouteNames.salonHome`, the last-visited salon) is therefore a FRESH
+  /// shell visit and opens on «Салон» (tab 0) — accepted product behaviour,
+  /// pinned by `owner_master_mode_flow_test.dart`. Only `UserRole.salonAdmin`
+  /// selects the admin profile slot; any other role — including one not yet
+  /// resolved (null) — is a no-op, so the admin slot is never built for a
+  /// session not known to be an admin. The role is read at tap time
+  /// (`ref.read`) — a user callback, outside build.
   void _onNavSelected(int navIndex) {
-    ref.read(salonShellProvider(widget.salonId).notifier).select(navIndex);
+    if (navIndex == _navProfile) {
+      final UserRole? role = authUserRoleOrNull(ref.read(authProvider));
+      if (role == UserRole.salonOwner) {
+        context.go(RouteNames.ownerMasterProfile);
+        return;
+      }
+      if (role != UserRole.salonAdmin) return;
+    }
+    ref.read(_navProvider.notifier).select(navIndex);
     if (navIndex == _navBookings) {
       // AUDIT LOW-4 — «Записи» just became the selected tab, so replay any
       // board refresh `invalidateBookingViewsAfterBookingCreated` deferred
@@ -395,13 +484,9 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       drainSalonBoardRefresh(ref, widget.salonId);
     }
     if (navIndex == _navSalon) {
-      ref
-          .read(salonManageTabProvider(widget.salonId).notifier)
-          .select(_aboutSubTab);
+      ref.read(_subTabProvider.notifier).select(_aboutSubTab);
     } else if (navIndex == _navTeam) {
-      ref
-          .read(salonManageTabProvider(widget.salonId).notifier)
-          .select(_staffSubTab);
+      ref.read(_subTabProvider.notifier).select(_staffSubTab);
     }
   }
 
@@ -415,15 +500,14 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
     // exactly as the old `authAsync.value` did, so a sign-out (role → null)
     // still rebuilds it.
     final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
-    final bool isOwner = role == UserRole.salonOwner;
 
     _bounceIfNotOwned(role);
 
-    final int navIndex = ref.watch(salonShellProvider(widget.salonId));
+    final int navIndex = ref.watch(_navProvider);
     // The SHARED in-screen sub-tab index. The one hosted profile screen below
     // is driven from it, which is what keeps the in-screen row and the bottom
     // nav one selection instead of two.
-    final int subTab = ref.watch(salonManageTabProvider(widget.salonId));
+    final int subTab = ref.watch(_subTabProvider);
     final int stackSlot = _stackSlotFor(navIndex);
     _visitedSlots.add(stackSlot);
 
@@ -480,21 +564,20 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
         ),
       ),
 
-      // Slot 2 — «Профіль» (nav 3). Phase 21.14 shipped the OWNER host and
-      // Phase 21.16 the ADMIN one; both branches are now real screens.
+      // Slot 2 — «Профіль» (nav 3), ADMIN only. Phase 21.16 shipped the
+      // admin host. The owner branch (Phase 21.14) was removed in Phase 384
+      // (24.1g): an owner's «Профіль» tap leaves the shell for owner master
+      // mode in [_onNavSelected] and never selects this slot.
       //
-      // Both branches keep their existing `Key`s
-      // (`salon-shell-tab-profile-owner` / `-admin`) — those are the handles
-      // the shell's own tests use to assert WHICH role's profile a slot
-      // renders, and they stayed stable across the placeholder swap so the
-      // admin case is still distinguishable from the owner case by key alone.
+      // The `Key` (`salon-shell-tab-profile-admin`) is the handle the shell's
+      // own tests use to assert this slot's screen.
       //
-      // `onSalonTap:` (admin only) — the affiliation card's "take me to this
-      // salon" destination is a NAV MOVE inside this shell, not a route, so
-      // the shell hands down [_onNavSelected]. Reusing that method rather than
-      // writing `salonShellProvider(...).select(0)` inline is what keeps the
-      // sub-tab reconciliation attached to it (see [_onNavSelected]'s doc): a
-      // raw index write would land on «Салон» while leaving the shared
+      // `onSalonTap:` — the affiliation card's "take me to this salon"
+      // destination is a NAV MOVE inside this shell, not a route, so the shell
+      // hands down [_onNavSelected]. Reusing that method rather than writing
+      // `salonShellProvider(...).select(0)` inline is what keeps the sub-tab
+      // reconciliation attached to it (see [_onNavSelected]'s doc): a raw
+      // index write would land on «Салон» while leaving the shared
       // `salonManageTabProvider` parked on whatever sub-tab an earlier
       // in-screen tap chose — the exact desync the TAB SYNC note above exists
       // to prevent.
@@ -505,37 +588,30 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       // `visible:` (mobile-perf MEDIUM + LOW follow-up, 2026-08-31) — a raw
       // `IndexedStack` sets neither `Offstage` nor `TickerMode` on its
       // non-current children (see the LAZY SLOTS note above), so an
-      // off-screen slot has no way to know it is off-screen. BOTH of this
-      // slot's screens need that signal for two things — spending its one-shot
-      // entrance animation on a VISIBLE frame, and holding the PII
-      // screen-protection refcount only while its own phone/Instagram is
-      // actually on screen — so the shell, which owns the index, passes it
-      // down. See `OwnerOwnProfileScreen.visible` for the two defects.
+      // off-screen slot has no way to know it is off-screen. The screen needs
+      // that signal for two things — spending its one-shot entrance animation
+      // on a VISIBLE frame, and holding the PII screen-protection refcount
+      // only while its own phone/Instagram is actually on screen — so the
+      // shell, which owns the index, passes it down. See
+      // `AdminOwnProfileScreen.visible`.
       _lazySlot(
         2,
-        () => isOwner
-            ? OwnerOwnProfileScreen(
-                key: const Key('salon-shell-tab-profile-owner'),
-                embedded: true,
-                visible: stackSlot == 2,
-              )
-            : AdminOwnProfileScreen(
-                key: const Key('salon-shell-tab-profile-admin'),
-                embedded: true,
-                visible: stackSlot == 2,
-                // `hostSalonId:` (mobile-perf LOW, 2026-09-05) — the admin
-                // profile's «Салон» card reads
-                // `salonManagementProfileProvider`, the SAME family slot 0
-                // above is keyed on. It used to derive that key itself from
-                // `User.salonId` (a `GET /users/me` field); any casing or
-                // formatting divergence from this PATH PARAM resolved a
-                // DIFFERENT family element and cold-started a second copy of
-                // the salon + staff-roster reads inside a shell where the
-                // correct cost is zero. Handing down the shell's own key
-                // makes the two provably the same element.
-                hostSalonId: widget.salonId,
-                onSalonTap: () => _onNavSelected(_navSalon),
-              ),
+        () => AdminOwnProfileScreen(
+          key: const Key('salon-shell-tab-profile-admin'),
+          embedded: true,
+          visible: stackSlot == 2,
+          // `hostSalonId:` (mobile-perf LOW, 2026-09-05) — the admin profile's
+          // «Салон» card reads `salonManagementProfileProvider`, the SAME
+          // family slot 0 above is keyed on. It used to derive that key itself
+          // from `User.salonId` (a `GET /users/me` field); any casing or
+          // formatting divergence from this PATH PARAM resolved a DIFFERENT
+          // family element and cold-started a second copy of the salon +
+          // staff-roster reads inside a shell where the correct cost is zero.
+          // Handing down the shell's own key makes the two provably the same
+          // element.
+          hostSalonId: widget.salonId,
+          onSalonTap: () => _onNavSelected(_navSalon),
+        ),
       ),
     ];
 

@@ -13,8 +13,10 @@ Method | HTTP request | Description
 [**completeBooking**](BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
 [**createBooking**](BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [**declineBooking**](BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
-[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | 
+[**getBooking**](BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | Get a booking
+[**getMyPendingActionsCount**](BookingControllerApi.md#getmypendingactionscount) | **GET** /api/v1/bookings/me/pending-actions/count | Bookings awaiting provider action (close or rate client) — archive badge
 [**getSalonBookings**](BookingControllerApi.md#getsalonbookings) | **GET** /api/v1/bookings/salon/{salonId} | List salon bookings (owner/admin)
+[**getSalonPendingActionsCount**](BookingControllerApi.md#getsalonpendingactionscount) | **GET** /api/v1/bookings/salon/{salonId}/pending-actions/count | Bookings awaiting provider action (close or rate client) — archive badge
 [**getUnclosedCount**](BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [**listMyBookedDays**](BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [**listMyBookings**](BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
@@ -193,7 +195,9 @@ No authorization required
 # **getBooking**
 > ApiResponseBookingDetailResponse getBooking(bookingId)
 
+Get a booking
 
+200 for the owning client, the performing master, the salon owner, or an assigned, active salon admin of the booking's salon. 403 for anyone else (also when the booking does not exist).
 
 ### Example
 ```dart
@@ -219,6 +223,47 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**ApiResponseBookingDetailResponse**](ApiResponseBookingDetailResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **getMyPendingActionsCount**
+> ApiResponsePendingBookingActionsCountResponse getMyPendingActionsCount(asMaster)
+
+Bookings awaiting provider action (close or rate client) — archive badge
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final bool asMaster = true; // bool | SALON_OWNER only: true counts the owner's own master-row bookings. Without it a SALON_OWNER is 403 (use the salon endpoint).
+
+try {
+    final response = api.getMyPendingActionsCount(asMaster);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->getMyPendingActionsCount: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **asMaster** | **bool**| SALON_OWNER only: true counts the owner's own master-row bookings. Without it a SALON_OWNER is 403 (use the salon endpoint). | [optional] 
+
+### Return type
+
+[**ApiResponsePendingBookingActionsCountResponse**](ApiResponsePendingBookingActionsCountResponse.md)
 
 ### Authorization
 
@@ -286,6 +331,47 @@ No authorization required
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
+# **getSalonPendingActionsCount**
+> ApiResponsePendingBookingActionsCountResponse getSalonPendingActionsCount(salonId)
+
+Bookings awaiting provider action (close or rate client) — archive badge
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getBookingControllerApi();
+final String salonId = 38400000-8cf0-11bd-b23e-10b96e4ef00d; // String | 
+
+try {
+    final response = api.getSalonPendingActionsCount(salonId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling BookingControllerApi->getSalonPendingActionsCount: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **salonId** | **String**|  | 
+
+### Return type
+
+[**ApiResponsePendingBookingActionsCountResponse**](ApiResponsePendingBookingActionsCountResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
 # **getUnclosedCount**
 > ApiResponseUnclosedCountResponse getUnclosedCount()
 
@@ -324,7 +410,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **listMyBookedDays**
-> ApiResponseListLocalDate listMyBookedDays(from, to)
+> ApiResponseListLocalDate listMyBookedDays(from, to, asMaster)
 
 
 
@@ -335,9 +421,10 @@ import 'package:beautica_api/api.dart';
 final api = BeauticaApi().getBookingControllerApi();
 final Date from = 2013-10-20; // Date | Range start (inclusive), local Europe/Kyiv day. Required.
 final Date to = 2013-10-20; // Date | Range end (inclusive), local Europe/Kyiv day. Required.
+final bool asMaster = true; // bool | SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour.
 
 try {
-    final response = api.listMyBookedDays(from, to);
+    final response = api.listMyBookedDays(from, to, asMaster);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->listMyBookedDays: $e\n');
@@ -350,6 +437,7 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
  **from** | **Date**| Range start (inclusive), local Europe/Kyiv day. Required. | 
  **to** | **Date**| Range end (inclusive), local Europe/Kyiv day. Required. | 
+ **asMaster** | **bool**| SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour. | [optional] 
 
 ### Return type
 
@@ -367,7 +455,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **listMyBookings**
-> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status, from, to, serviceId, partition)
+> ApiResponsePageResponseBookingDetailResponse listMyBookings(pageable, status, from, to, serviceId, partition, asMaster)
 
 
 
@@ -382,9 +470,10 @@ final Date from = 2013-10-20; // Date | Bookings starting on/after the start of 
 final Date to = 2013-10-20; // Date | Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
 final BuiltList<String> serviceId = ; // BuiltList<String> | Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
 final String partition = partition_example; // String | Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for an \"archive\"/history list that must include cancelled and declined bookings alongside finished ones. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-28 behaviour.
+final bool asMaster = true; // bool | SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour.
 
 try {
-    final response = api.listMyBookings(pageable, status, from, to, serviceId, partition);
+    final response = api.listMyBookings(pageable, status, from, to, serviceId, partition, asMaster);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling BookingControllerApi->listMyBookings: $e\n');
@@ -401,6 +490,7 @@ Name | Type | Description  | Notes
  **to** | **Date**| Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window. | [optional] 
  **serviceId** | [**BuiltList&lt;String&gt;**](String.md)| Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate. | [optional] 
  **partition** | **String**| Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for an \"archive\"/history list that must include cancelled and declined bookings alongside finished ones. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-28 behaviour. | [optional] 
+ **asMaster** | **bool**| SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour. | [optional] 
 
 ### Return type
 

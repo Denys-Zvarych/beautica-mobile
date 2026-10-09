@@ -3416,6 +3416,26 @@
       "dateTime": { "type": "String" }
     }
   },
+  "notificationBodyProviderWithMaster": "{counterpart} — {service}, {dateTime} · майстер {master}",
+  "@notificationBodyProviderWithMaster": {
+    "description": "Owner/admin body line naming the performing master (booking created / cancelled by client); mirrors the push copy.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduledWithMaster": "{counterpart} — {service}, новий час: {dateTime} · майстер {master}",
+  "@notificationBodyProviderRescheduledWithMaster": {
+    "description": "Rescheduled variant of notificationBodyProviderWithMaster.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
   "notificationBodyClient": "{service}, {dateTime} — {counterpart}",
   "@notificationBodyClient": {
     "description": "Phase 363 — body line for a client: service and time first, then who provides it.",
@@ -5791,6 +5811,22 @@
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
   },
+  "bookingDetailClientSemantics": "Клієнт: {name}",
+  "@bookingDetailClientSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when no rating is shown (guest booking).",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "bookingDetailClientRatedSemantics": "Клієнт: {name}. Рейтинг {rating}, {reviews}",
+  "@bookingDetailClientRatedSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when the ★ rating readout is shown (rating is an em-dash when the client has no reviews).",
+    "placeholders": {
+      "name": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
   "masterBookingsTitle": "Мої записи",
   "@masterBookingsTitle": {
     "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."
@@ -5910,6 +5946,15 @@
   "masterArchiveOpenSemantics": "Відкрити архів записів",
   "@masterArchiveOpenSemantics": {
     "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
+  },
+  "masterArchiveOpenSemanticsPending": "Відкрити архів записів, потребують дії: {count}",
+  "@masterArchiveOpenSemanticsPending": {
+    "description": "Archive button accessibility label when {count} bookings await a provider action (close or rate the client) — Phase 395. The red count badge itself is excluded from semantics; this label announces it.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "masterArchiveTitle": "Архів",
   "@masterArchiveTitle": {
@@ -6419,19 +6464,19 @@
   },
   "staffSettingsMasterOwnerOnlyTitle": "Лише власник салону",
   "@staffSettingsMasterOwnerOnlyTitle": {
-    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row gets staffSettingsMasterSelfTitle/Body instead — this pair is now only for a genuinely non-owner viewer."
+    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row is no longer shown this pair (Phase 371) — it is only for a genuinely non-owner viewer."
   },
   "staffSettingsMasterOwnerOnlyBody": "Керувати майстрами може лише власник салону. Зверніться до власника, якщо потрібно вилучити цього майстра.",
   "@staffSettingsMasterOwnerOnlyBody": {
-    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row (see staffSettingsMasterSelfBody) — its 'ask the owner' phrasing is factually wrong for that viewer."
+    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row — its 'ask the owner' phrasing is factually wrong for that viewer."
   },
-  "staffSettingsMasterSelfTitle": "Власний профіль майстра",
-  "@staffSettingsMasterSelfTitle": {
-    "description": "mobile-security LOW fix, Phase 307 (2026-09-05) — SalonNoticeCard title shown when the SALON OWNER views their OWN master row on StaffSettingsScreen. Distinct from staffSettingsMasterOwnerOnlyTitle, whose 'ask the owner' framing is nonsensical when the viewer IS the owner."
+  "staffOwnerRowReadOnlyTitle": "Профіль власника салону",
+  "@staffOwnerRowReadOnlyTitle": {
+    "description": "Phase 371 — SalonNoticeCard title shown instead of the services/schedule entries when a non-owner (a salon admin) views the salon OWNER's master row (staff settings + staff profile). Backend 345 403s every write on that row."
   },
-  "staffSettingsMasterSelfBody": "Ви не можете видалити власний профіль майстра з цього екрана. Зверніться до служби підтримки, якщо потрібно це змінити.",
-  "@staffSettingsMasterSelfBody": {
-    "description": "mobile-security LOW fix, Phase 307 (2026-09-05); reworded 2026-09-05 (second LOW pass) — paired with staffSettingsMasterSelfTitle. States plainly that the owner cannot remove their own master profile from THIS SCREEN and names no button/screen/self-service path — the earlier wording implied an in-app flow ('you manage that separately, in your own account') that does not exist; wiring one is Phase 297, PLANNED and currently blocked. Points to support instead, which stays true regardless of whether Phase 297 ever ships an in-app toggle."
+  "staffOwnerRowReadOnlyBody": "Послуги та графік власника змінює лише власник салону.",
+  "@staffOwnerRowReadOnlyBody": {
+    "description": "Phase 371 — body paired with staffOwnerRowReadOnlyTitle."
   },
   "moveAdminSalonTitle": "Інший салон",
   "@moveAdminSalonTitle": {
@@ -6507,6 +6552,14 @@
   "@ownerOwnProfileTitle": {
     "description": "Phase 21.14 — top-bar title of the salon owner's own first-person profile screen."
   },
+  "ownerMasterModeBack": "Салон",
+  "@ownerMasterModeBack": {
+    "description": "Phase 379 (24.1b) — visible label of the top-left back pill («‹ Салон») on the salon owner's master-mode profile; returns to the salon shell."
+  },
+  "ownerMasterModeBackSemantics": "Повернутися до салону",
+  "@ownerMasterModeBackSemantics": {
+    "description": "Phase 379 (24.1b) — screen-reader label of the owner master-mode back pill that returns to the salon shell."
+  },
   "ownerOwnProfileSettingsSemanticLabel": "Налаштування акаунта",
   "@ownerOwnProfileSettingsSemanticLabel": {
     "description": "Phase 21.14 — screen-reader label for the trailing tune action on the owner's own profile. Rendered disabled until the Phase 21.15 Owner Settings Hub ships."
@@ -6514,14 +6567,6 @@
   "ownerOwnProfileBioLabel": "Про мене",
   "@ownerOwnProfileBioLabel": {
     "description": "Phase 21.14 — section label above the owner-as-master bio block on the owner's own profile."
-  },
-  "ownerOwnProfileCategoriesLabel": "Мої категорії",
-  "@ownerOwnProfileCategoriesLabel": {
-    "description": "Phase 21.14 — section label above the owner-as-master service categories on the owner's own profile."
-  },
-  "ownerOwnProfileNoServices": "У вас поки немає послуг",
-  "@ownerOwnProfileNoServices": {
-    "description": "Phase 21.14 — empty state under the owner's «Мої категорії» section when the owner works as a master but has configured no services yet."
   },
   "adminOwnProfileTitle": "Мій профіль",
   "@adminOwnProfileTitle": {
@@ -6781,5 +6826,9 @@
         "type": "int"
       }
     }
+  },
+  "serviceEditOwnerPerformedHint": "Цю послугу виконує власник салону, тому назву й категорію може змінити лише він.",
+  "@serviceEditOwnerPerformedHint": {
+    "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
   }
 }

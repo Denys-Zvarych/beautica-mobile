@@ -416,6 +416,108 @@ void main() {
     });
   });
 
+  group('master suffix', () {
+    final NotificationParams withMaster = NotificationParams(
+      counterpartName: 'Олена Коваль',
+      serviceName: 'Манікюр',
+      serviceCount: 1,
+      startsAt: DateTime.utc(2026, 10, 3, 11, 30),
+      masterName: 'Ірина Мельник',
+    );
+    final String withSuffix = uk.notificationBodyProviderWithMaster(
+      iso('Олена Коваль'),
+      iso('Манікюр'),
+      'сб, 3 жовтня, 14:30',
+      iso('Ірина Мельник'),
+    );
+    final String plain = uk.notificationBodyProvider(
+      iso('Олена Коваль'),
+      iso('Манікюр'),
+      'сб, 3 жовтня, 14:30',
+    );
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('should_showMasterSuffix_when_viewerIs_${role.name}', (
+        WidgetTester tester,
+      ) async {
+        await _pumpFeed(
+          tester,
+          _repoOf(<AppNotification>[notif('m1', params: withMaster)]),
+          role: role,
+          width: 800,
+        );
+
+        expect(find.text(withSuffix), findsOneWidget);
+        expect(find.text(plain), findsNothing);
+      });
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonMaster,
+      UserRole.independentMaster,
+    ]) {
+      testWidgets('should_hideMasterSuffix_when_viewerIs_${role.name}', (
+        WidgetTester tester,
+      ) async {
+        await _pumpFeed(
+          tester,
+          _repoOf(<AppNotification>[notif('m1', params: withMaster)]),
+          role: role,
+          width: 800,
+        );
+
+        expect(find.text(plain), findsOneWidget);
+        expect(find.text(withSuffix), findsNothing);
+      });
+    }
+
+    testWidgets('should_hideMasterSuffix_when_viewerIsClient', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[notif('m1', params: withMaster)]),
+        role: UserRole.client,
+        width: 800,
+      );
+
+      expect(find.textContaining(iso('Ірина Мельник')), findsNothing);
+      expect(find.text(withSuffix), findsNothing);
+    });
+
+    testWidgets('should_showRescheduledMasterSuffix_when_ownerViewer', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[
+          notif(
+            'm2',
+            type: AppNotificationType.bookingRescheduled,
+            params: withMaster,
+          ),
+        ]),
+        role: UserRole.salonOwner,
+        width: 800,
+      );
+
+      expect(
+        find.text(
+          uk.notificationBodyProviderRescheduledWithMaster(
+            iso('Олена Коваль'),
+            iso('Манікюр'),
+            'сб, 3 жовтня, 14:30',
+            iso('Ірина Мельник'),
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
   group('states', () {
     testWidgets('should_showSkeleton_whileLoading', (
       WidgetTester tester,

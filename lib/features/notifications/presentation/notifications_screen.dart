@@ -296,8 +296,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
   }
 
   Widget _list(NotificationsFeedState feed, _Layout layout) {
-    final bool isClient =
-        ref.watch(authProvider.select(authUserRoleOrNull)) == UserRole.client;
+    final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final bool isClient = role == UserRole.client;
+    final bool showMaster =
+        role == UserRole.salonOwner || role == UserRole.salonAdmin;
     final DateTime Function() clock = ref.watch(clockProvider);
     final NotificationsFeed notifier = ref.read(
       notificationsFeedProvider.notifier,
@@ -335,7 +337,7 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
                       label: entry.label!,
                     );
                   }
-                  return _rowFor(entry, item, isClient, notifier);
+                  return _rowFor(entry, item, isClient, showMaster, notifier);
                 },
                 childCount: entries.length + (footer ? 1 : 0),
                 findChildIndexCallback: (Key key) => layout.indexByKey[key],
@@ -354,12 +356,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
     _Entry entry,
     AppNotification item,
     bool isClient,
+    bool showMaster,
     NotificationsFeed notifier,
   ) {
     final _CachedRow? cached = _rows[item.id];
     if (cached != null &&
         identical(cached.item, item) &&
-        cached.isClient == isClient) {
+        cached.isClient == isClient &&
+        cached.showMaster == showMaster) {
       return cached.widget;
     }
     final Widget widget = Padding(
@@ -369,11 +373,12 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         key: Key('notification-tile-${item.id}'),
         item: item,
         isClient: isClient,
+        showMaster: showMaster,
         onOpen: () => _open(notifier, item),
         onMarkRead: () => _markRead(notifier, item.id),
       ),
     );
-    _rows[item.id] = _CachedRow(item, isClient, widget);
+    _rows[item.id] = _CachedRow(item, isClient, showMaster, widget);
     return widget;
   }
 
@@ -555,10 +560,11 @@ final class _Layout {
 
 /// One row widget plus what it was built from.
 final class _CachedRow {
-  const _CachedRow(this.item, this.isClient, this.widget);
+  const _CachedRow(this.item, this.isClient, this.showMaster, this.widget);
 
   final AppNotification item;
   final bool isClient;
+  final bool showMaster;
   final Widget widget;
 }
 

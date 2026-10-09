@@ -41,6 +41,7 @@ import 'package:beautica_mobile/features/booking/application/booking_viewer_role
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/client_review_signal_provider.dart';
 import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/client_review_repository.dart';
@@ -2567,8 +2568,9 @@ void main() {
     /// no `MasterArchiveScreen` exists yet.
     Future<void> pumpWithSeededSignal(
       WidgetTester tester,
-      void Function(ProviderContainer container) beforeOpen,
-    ) async {
+      void Function(ProviderContainer container) beforeOpen, {
+      List<Object> extraOverrides = const <Object>[],
+    }) async {
       final GoRouter router = GoRouter(
         initialLocation: '/from',
         routes: <RouteBase>[
@@ -2608,6 +2610,7 @@ void main() {
           masterServiceCatalogProvider.overrideWith(
             (ref) async => const <MasterService>[],
           ),
+          ...extraOverrides,
         ],
       );
       await tester.pump();
@@ -2705,6 +2708,121 @@ void main() {
             'the signal alone — no navigation, no refetch, no other state '
             'change — must be enough to drop the CTA',
       );
+    });
+
+    // Phase 394 (24.7b) — the archive's two review-patch sites must refresh
+    // the pending-actions count (a review mutates no booking status, so no
+    // other helper covers it).
+    testWidgets('a signalled review patched at build time refetches the '
+        'pending-actions count (_scheduleClientReviewSignalPatch)', (
+      WidgetTester tester,
+    ) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'sig',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      ]);
+      int countFetches = 0;
+      await pumpWithSeededSignal(
+        tester,
+        (ProviderContainer container) {
+          // A live count listener BEFORE the archive builds, as «Записи» is.
+          final sub = container.listen(
+            pendingBookingActionsCountProvider(
+              const PendingActionsScope.me(asMaster: false),
+            ),
+            (_, _) {},
+          );
+          addTearDown(sub.close);
+          container
+              .read(clientReviewSignalProvider.notifier)
+              .markReviewed('sig');
+        },
+        extraOverrides: <Object>[
+          pendingBookingActionsCountProvider.overrideWith((ref, scope) async {
+            countFetches++;
+            return 1;
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const Key('master-booking-card-review-sig')),
+        findsNothing,
+        reason: 'precondition — the patch ran',
+      );
+      expect(countFetches, 2, reason: 'initial fetch + one invalidation');
+    });
+
+    testWidgets('a row «Відгук» tap that pops true refetches the '
+        'pending-actions count (_openReview)', (WidgetTester tester) async {
+      stubList(<Booking>[
+        _booking(
+          id: 'row',
+          status: BookingStatus.completed,
+          providerCanReviewClient: true,
+        ),
+      ]);
+      int countFetches = 0;
+      final GoRouter router = GoRouter(
+        initialLocation: '/archive',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/archive',
+            builder: (BuildContext context, GoRouterState state) =>
+                MasterArchiveScreen(reviewRouteBuilder: (_) => '/review-stub'),
+          ),
+          GoRoute(
+            path: '/review-stub',
+            builder: (BuildContext context, GoRouterState state) => Scaffold(
+              body: TextButton(
+                key: const Key('review-stub-pop'),
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('done'),
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          bookingRepositoryProvider.overrideWithValue(repo),
+          masterServiceCatalogProvider.overrideWith(
+            (ref) async => const <MasterService>[],
+          ),
+          pendingBookingActionsCountProvider.overrideWith((ref, scope) async {
+            countFetches++;
+            return 1;
+          }),
+        ],
+      );
+      await tester.pumpUntilFound(
+        find.byKey(const Key('master-archive-screen')),
+      );
+      final sub =
+          ProviderScope.containerOf(
+            tester.element(find.byType(MasterArchiveScreen)),
+          ).listen(
+            pendingBookingActionsCountProvider(
+              const PendingActionsScope.me(asMaster: false),
+            ),
+            (_, _) {},
+          );
+      addTearDown(sub.close);
+      await tester.pumpAndSettle();
+      expect(countFetches, 1, reason: 'precondition — one initial fetch');
+
+      await tester.tap(find.byKey(const Key('master-booking-card-review-row')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('review-stub-pop')));
+      await tester.pumpAndSettle();
+
+      expect(countFetches, 2);
     });
 
     testWidgets('TERMINATION — applying the patch does not spin the frame '

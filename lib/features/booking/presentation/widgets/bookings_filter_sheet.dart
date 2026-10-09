@@ -62,6 +62,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/count_badge.dart';
 
 import '../../domain/booking_status.dart';
 
@@ -230,6 +231,10 @@ class BookingsFilterButton extends StatelessWidget {
   final int activeCount;
   final VoidCallback onTap;
 
+  /// Square side of the button face. Exposed so a header that budgets its row
+  /// (the labelled back pill in `BookingsDiscoveryView`) reads the real size.
+  static const double extent = 44;
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -242,68 +247,31 @@ class BookingsFilterButton extends StatelessWidget {
         key: const Key('master-bookings-filter-button'),
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: <Widget>[
-            Container(
-              height: 44,
-              width: 44,
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.field),
-                boxShadow: VelvetShadows.borderedButton,
-                border: Border.all(
-                  color: active
-                      ? BrandColors.accent
-                      : BrandColors.accent.withValues(alpha: 0.18),
-                  width: active ? 1.5 : 1,
-                ),
-              ),
-              child: Icon(
-                Icons.tune_rounded,
+        child: CountBadgeAnchor(
+          count: activeCount,
+          child: Container(
+            height: extent,
+            width: extent,
+            decoration: BoxDecoration(
+              color: BrandColors.base,
+              borderRadius: BorderRadius.circular(VelvetRadii.field),
+              boxShadow: VelvetShadows.borderedButton,
+              border: Border.all(
                 color: active
-                    ? BrandColors.accentDeep
-                    : BrandColors.textSecondary,
-                size: 22,
+                    ? BrandColors.accent
+                    : BrandColors.accent.withValues(alpha: 0.18),
+                width: active ? 1.5 : 1,
               ),
             ),
-            if (active)
-              Positioned(
-                top: -4,
-                right: -4,
-                child: _CountBadge(count: activeCount),
-              ),
-          ],
+            child: Icon(
+              Icons.tune_rounded,
+              color: active
+                  ? BrandColors.accentDeep
+                  : BrandColors.textSecondary,
+              size: 22,
+            ),
+          ),
         ),
-      ),
-    );
-  }
-}
-
-/// The camel count pill on the filter button. Excluded from semantics — the
-/// button already announces the count as its `value`, and a bare digit read out
-/// twice is worse than once.
-class _CountBadge extends StatelessWidget {
-  const _CountBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    return ExcludeSemantics(
-      child: Container(
-        key: const Key('master-bookings-filter-badge'),
-        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.xs),
-        decoration: BoxDecoration(
-          // Mocha, not the design's camel dot — see `VelvetText.filterBadge`
-          // for the contrast reason (a dot carries no digit).
-          color: BrandColors.accentDeep,
-          borderRadius: BorderRadius.circular(VelvetRadii.pill),
-          border: Border.all(color: BrandColors.base, width: 1.5),
-        ),
-        child: Text('$count', style: VelvetText.filterBadge),
       ),
     );
   }

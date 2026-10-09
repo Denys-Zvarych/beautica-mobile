@@ -1406,6 +1406,98 @@ void main() {
         },
       );
 
+      testWidgets('phase 391: ?tab=reviews is parsed onto openReviewsTab', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/shell?tab=reviews'),
+        );
+        final SalonShellScreen shell = tester.widget(
+          find.byType(SalonShellScreen),
+        );
+        expect(shell.openReviewsTab, isTrue);
+        expect(shell.initialNavTab, isNull);
+        await tester.pumpWidget(const SizedBox());
+        // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+        await tester.pump(const Duration(minutes: 6));
+      });
+
+      // `?tab` parse (allow-list, EXACT-match, case-sensitive). Documented
+      // outcomes: `Reviews` (wrong case), empty and unknown values are ignored
+      // -> «Про салон» (no tab flags). A DUPLICATE key resolves to the LAST
+      // value (`Uri.queryParameters`), so `tab=reviews&tab=team` is the team
+      // landing and `tab=team&tab=reviews` the reviews landing.
+      for (final ({String query, bool reviews, int? navTab}) c
+          in <({String query, bool reviews, int? navTab})>[
+            (query: 'tab=bogus', reviews: false, navTab: null),
+            (query: 'tab=Reviews', reviews: false, navTab: null),
+            (query: 'tab=', reviews: false, navTab: null),
+            (query: 'tab', reviews: false, navTab: null),
+            (query: 'tab=reviews&tab=team', reviews: false, navTab: 2),
+            (query: 'tab=team&tab=reviews', reviews: true, navTab: null),
+          ]) {
+        testWidgets('phase 391: ?${c.query} -> openReviewsTab=${c.reviews}, '
+            'initialNavTab=${c.navTab}', (tester) async {
+          final router = await pumpRouterAs(
+            tester,
+            _ownerSession,
+            mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+          );
+
+          router.go('/salons/$_kSalonId/shell?${c.query}');
+          await tester.pumpAndSettle();
+
+          final SalonShellScreen shell = tester.widget(
+            find.byType(SalonShellScreen),
+          );
+          expect(shell.openReviewsTab, c.reviews);
+          expect(shell.initialNavTab, c.navTab);
+          await tester.pumpWidget(const SizedBox());
+          // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+          await tester.pump(const Duration(minutes: 6));
+        });
+      }
+
+      testWidgets('phase 391: SALON_ADMIN on their own salon with '
+          '?tab=reviews is admitted with openReviewsTab', (tester) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+        await tester.pumpAndSettle();
+
+        final SalonShellScreen shell = tester.widget(
+          find.byType(SalonShellScreen),
+        );
+        expect(shell.openReviewsTab, isTrue);
+        expect(shell.salonId, _kSalonId);
+        await tester.pumpWidget(const SizedBox());
+        // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+        await tester.pump(const Duration(minutes: 6));
+      });
+
+      testWidgets(
+        'phase 391: SALON_MASTER with ?tab=reviews is still bounced',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SalonShellScreen), findsNothing);
+          expect(locationOf(router), isNot(contains('/shell')));
+        },
+      );
+
       testWidgets('SALON_ADMIN is ADMITTED on their OWN salonId', (
         tester,
       ) async {

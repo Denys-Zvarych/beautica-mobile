@@ -422,6 +422,26 @@ void main() {
       'adminEditContacts': RouteNames.adminEditContacts,
       // Phase 367 — the owner's «Особисті дані» (same reused screen).
       'ownerEditPersonal': RouteNames.ownerEditPersonal,
+      // Phase 379 (24.1b) — the owner «master mode» «Профіль» tab, the first
+      // literal under the owner-only `/owner/master/*` ShellRoute.
+      'ownerMasterProfile': RouteNames.ownerMasterProfile,
+      // Phase 380 (24.1c) — the owner master-mode «Послуги» tab and its
+      // setup (literal, declared first) / edit (dynamic) drill-ins.
+      'ownerMasterServices': RouteNames.ownerMasterServices,
+      'ownerMasterServiceSetup': RouteNames.ownerMasterServiceSetup,
+      'ownerMasterServiceEdit()': RouteNames.ownerMasterServiceEdit(kSampleId),
+      'ownerMasterServicesExpanded()': RouteNames.ownerMasterServicesExpanded(
+        'NAILS',
+      ),
+      // Phase 381 (24.1d) — the owner master-mode «Графік» tab.
+      'ownerMasterSchedule': RouteNames.ownerMasterSchedule,
+      // Phase 383 (24.1f) — the owner master-mode «Записи» tab + «Архів».
+      'ownerMasterBookings': RouteNames.ownerMasterBookings,
+      'ownerMasterBookingsArchive': RouteNames.ownerMasterBookingsArchive,
+      // Phase 383 (decision 2026-10-07) — owner master-mode «Новий запис»
+      // walk-in chain (guest → services) inside the owner shell.
+      'ownerMasterBookingNew': RouteNames.ownerMasterBookingNew,
+      'ownerMasterBookingNewServices': RouteNames.ownerMasterBookingNewServices,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,

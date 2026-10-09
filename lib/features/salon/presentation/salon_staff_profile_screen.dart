@@ -91,6 +91,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_manage_capability.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
@@ -102,9 +103,11 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/weekly_schedule_summary.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/loading_skeleton.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
+import 'package:beautica_mobile/shared/widgets/salon_notice_card.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../../master/presentation/widgets/management_action_card.dart';
@@ -287,6 +290,12 @@ class _SalonStaffProfileScreenState
       orElse: () => null,
     );
     final bool isOwner = ref.watch(isSalonOwnerProvider);
+    final bool viewerOwnsSalon = ref.watch(
+      viewerOwnsSalonProvider(widget.salonId),
+    );
+    final bool ownerCapabilityPending = ref.watch(
+      canManageSalonPendingProvider,
+    );
     // NARROWED to the id (Phase 367 audit, mobile-perf LOW): the whole
     // `currentUserProvider` User renotified on every own-avatar patch.
     final String? currentUserId = ref.watch(
@@ -348,6 +357,8 @@ class _SalonStaffProfileScreenState
             memberId: widget.memberId,
             member: data.$1,
             services: data.$2,
+            viewerOwnsSalon: viewerOwnsSalon,
+            ownerCapabilityPending: ownerCapabilityPending,
             tabNotifier: profileTabNotifier,
             onSelectTab: selectProfileTab,
             anim0: _anim0,
@@ -379,6 +390,8 @@ class _StaffProfileBody extends StatelessWidget {
     required this.memberId,
     required this.member,
     required this.services,
+    required this.viewerOwnsSalon,
+    required this.ownerCapabilityPending,
     required this.tabNotifier,
     required this.onSelectTab,
     required this.anim0,
@@ -402,6 +415,17 @@ class _StaffProfileBody extends StatelessWidget {
   final String memberId;
 
   final SalonStaffMember member;
+
+  /// Phase 371 — [viewerOwnsSalonProvider] for [salonId], watched ONCE in the
+  /// screen's build scope (never inside the animated Consumer builders) and
+  /// fed to [isOwnerRowLockedForViewer].
+  final bool viewerOwnsSalon;
+
+  /// Cycle 3 — [canManageSalonPendingProvider], hoisted with
+  /// [viewerOwnsSalon]: while `true` the owner-row lock is not yet a verdict,
+  /// so the notice is replaced by a loading placeholder (no flash at the
+  /// owner).
+  final bool ownerCapabilityPending;
 
   /// The master's active services (empty for an admin entry — see
   /// [SalonStaffMemberProfileData]'s own header doc). Drives both the
@@ -437,6 +461,12 @@ class _StaffProfileBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final bool isAdmin = member.role == SalonStaffRole.admin;
+    // Phase 371 — owner's row seen by a non-owner: display-only (tab cards)
+    // and the management pair is replaced by a notice.
+    final bool ownerRowLocked = isOwnerRowLockedForViewer(
+      member: member,
+      viewerOwnsSalon: viewerOwnsSalon,
+    );
     final String displayName = '${member.firstName} ${member.lastName}'.trim();
     // Admins are administrative staff, not service-providing masters — no
     // service rating, reviews, service count, bio, tabs, or management pair.
@@ -632,8 +662,12 @@ class _StaffProfileBody extends StatelessWidget {
                                 builder: (BuildContext context, WidgetRef ref, _) {
                                   final String staffMasterId =
                                       member.masterId ?? '';
+                                  // Phase 371 — the owner's row is owner-only:
+                                  // for a non-owner the cards are display-only
+                                  // (no tap → no 403 path).
                                   final bool staffHasMasterId =
-                                      staffMasterId.isNotEmpty;
+                                      staffMasterId.isNotEmpty &&
+                                      !ownerRowLocked;
                                   return Column(
                                     key: const Key(
                                       'salon-staff-profile-service-categories',
@@ -707,6 +741,22 @@ class _StaffProfileBody extends StatelessWidget {
             slide: slide5,
             child: Consumer(
               builder: (BuildContext context, WidgetRef ref, _) {
+                // Phase 371 — an admin (any non-owner viewer) on the OWNER's
+                // row: backend 345 403s every services/schedule write, so
+                // neither card is drawn — only the explanation.
+                if (ownerRowLocked) {
+                  if (ownerCapabilityPending) {
+                    return const LoadingSkeleton.card(
+                      key: Key('salon-staff-profile-owner-row-pending'),
+                    );
+                  }
+                  return SalonNoticeCard(
+                    key: const Key('salon-staff-profile-owner-row-read-only'),
+                    icon: Icons.lock_outline,
+                    title: l10n.staffOwnerRowReadOnlyTitle,
+                    body: l10n.staffOwnerRowReadOnlyBody,
+                  );
+                }
                 final String masterId = member.masterId ?? '';
                 final bool hasMasterId = masterId.isNotEmpty;
                 final ScheduleScope scope = ScheduleScope.salonMaster(

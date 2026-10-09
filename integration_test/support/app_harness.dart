@@ -582,6 +582,40 @@ abstract final class AppHarness {
     await tester.pump();
   }
 
+  /// Phase 9.7 — brings a «Майстри» grid card on screen before it is asserted.
+  /// The grid is a lazy `SliverGrid` in the screen's one `CustomScrollView`
+  /// (phase 368), so a card below the 800x600 fold may not be built yet: it is
+  /// first dragged into existence along that outer scrollable, then scrolled
+  /// fully into view.
+  ///
+  /// Promoted from `public_salon_profile_flow_test.dart` (phase 385) — the
+  /// owner-visibility flow drives the same grid; one copy, REUSE-FIRST.
+  ///
+  /// The search always starts from the top, so a card ABOVE an already-scrolled
+  /// viewport (disposed by the lazy grid) is found too, not just one below it.
+  static Future<void> revealPublicMasterCard(
+    WidgetTester tester,
+    Finder card,
+  ) async {
+    if (card.evaluate().isEmpty) {
+      tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position
+          .jumpTo(0);
+      await tester.pumpAndSettle();
+    }
+    if (card.evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        card,
+        200,
+        scrollable: find.byType(Scrollable).first,
+        maxScrolls: 20,
+      );
+    }
+    await tester.ensureVisible(card);
+    await tester.pumpAndSettle();
+  }
+
   // ── Boot ──────────────────────────────────────────────────────────────────
 
   /// Pumps the REAL app with the fake backend and fixed-clock overrides.

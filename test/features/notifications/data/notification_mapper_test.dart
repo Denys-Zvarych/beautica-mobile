@@ -241,6 +241,21 @@ void main() {
       expect(n.params.subjectRole, 'SALON_MASTER');
     });
 
+    test('should_mapMasterName_and_nullBlank', () {
+      expect(
+        _one(_row(params: {'masterName': 'Ірина'})).params.masterName,
+        'Ірина',
+      );
+      expect(
+        _one(_row(params: {'masterName': '  '})).params.masterName,
+        isNull,
+      );
+      expect(
+        _one(_row(params: {'subjectName': 'Іра'})).params.masterName,
+        isNull,
+      );
+    });
+
     test('should_emitParamsEmpty_when_paramsAbsent', () {
       expect(_one(_row()).params, NotificationParams.empty);
     });

@@ -146,6 +146,8 @@ abstract final class BookingMapper {
       // `Booking.clientAvatarUrl` — null here is "no photo", never "not
       // permitted to see it".
       clientAvatarUrl: dto.clientAvatarUrl,
+      clientAvgRating: dto.clientAvgRating?.toDouble(),
+      clientReviewCount: dto.clientReviewCount,
       serviceId: dto.masterServiceId ?? '',
       serviceName: dto.serviceName ?? '',
       categoryName: dto.categoryName,

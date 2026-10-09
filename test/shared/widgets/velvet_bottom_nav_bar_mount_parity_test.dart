@@ -77,7 +77,10 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
+import 'package:beautica_mobile/features/salon/application/owner_own_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -256,6 +259,46 @@ void main() {
       effectiveScheduleProvider.overrideWith(_LoadingEffectiveSchedule.new),
       weeklyScheduleProvider.overrideWith(_LoadingWeeklySchedule.new),
     ],
+  );
+
+  // Phase 379 (24.1b) — the owner «master mode» profile mounts the SAME bar
+  // through `OwnerOwnProfileScreen.bottomNavBar` → `ProfileScaffold`. It must
+  // land on the identical Rect as the four INDEPENDENT_MASTER tab screens —
+  // the owner sees the same nav, so the same mounting convention.
+  Future<void> pumpOwnerMasterProfile(WidgetTester tester) =>
+      _pumpWithBottomInset(
+        tester,
+        const OwnerOwnProfileScreen(
+          bottomNavBar: VelvetBottomNavBar(
+            activeIndex: 3,
+            profileRoute: RouteNames.ownerMasterProfile,
+          ),
+        ),
+        overrides: <Object>[
+          ownerOwnProfileProvider.overrideWith(
+            (ref) => Completer<OwnerOwnProfileData>().future,
+          ),
+        ],
+      );
+
+  testWidgets(
+    'the owner master-mode profile (phase 379) mounts the bar at the IDENTICAL '
+    'Rect as MasterProfileScreen under a non-zero bottom inset',
+    (tester) async {
+      await pumpMasterProfile(tester);
+      final Rect profileRect = tester.getRect(find.byType(VelvetBottomNavBar));
+
+      await pumpOwnerMasterProfile(tester);
+      expect(find.byType(VelvetBottomNavBar), findsOneWidget);
+      expect(
+        tester.getRect(find.byType(VelvetBottomNavBar)),
+        profileRect,
+        reason:
+            'OwnerOwnProfileScreen must forward bottomNavBar to '
+            'ProfileScaffold\'s Scaffold.bottomNavigationBar slot, exactly as '
+            'MasterProfileScreen does.',
+      );
+    },
   );
 
   testWidgets(

@@ -64,6 +64,7 @@
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/widgets/price_tag.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/master_archive_screen.dart';
@@ -71,6 +72,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/bookings_t
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_booking_card.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_column_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_density.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/timeline_hour_ruler.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_bookings_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
@@ -78,6 +80,7 @@ import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -221,6 +224,115 @@ Future<void> _landOnSalonBoard(
     timeout: const Duration(seconds: 20),
   );
 }
+
+// Fixture DATA (a registered client's name, a service name), not UI copy: the
+// long-name / long-service shape that was truncated on the 136-148dp salon
+// lanes (dense salon card fix, 2026-10-08).
+const String _kDenseClientFirst = 'Олександра';
+const String _kDenseClientLast = 'Пономаренко';
+const String _kDenseClientFull = '$_kDenseClientFirst $_kDenseClientLast';
+const String _kShortClientFirst = 'Інна';
+const String _kShortClientLast = 'Ко';
+const String _kShortClientFull = '$_kShortClientFirst $_kShortClientLast';
+const String _kDenseServiceLong = 'Манікюр з гель-покриттям';
+
+/// The `RenderParagraph` of the single [Text] whose data is [data] INSIDE
+/// [card]. Scoped to the card so the same string elsewhere on the board
+/// (e.g. the other lane's card) cannot satisfy it.
+RenderParagraph _paragraphIn(WidgetTester tester, Finder card, String data) =>
+    // Via the RichText underneath: a `Text` with a `semanticsLabel` (the dense
+    // first-name-only slot) wraps its paragraph in a Semantics node.
+    tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.descendant(of: card, matching: find.text(data)),
+        matching: find.byType(RichText),
+      ),
+    );
+
+// ── Performing-master strip on «Деталі запису» (debug fix 2026-10-08) ────────
+//
+// Fixture DATA (the seeded booking's master), not UI copy.
+const String _kPerformingMasterFull = 'Софія Бондар';
+const String _kSeededSalonName = 'Салон Камелія';
+const Key _kPerformingMasterStrip = Key(
+  'booking-detail-performing-master-strip',
+);
+
+/// Login as [role] → the salon board → drill into `booking-1` (performed by
+/// `master-aaa`, a SALON booking) → the real [BookingDetailScreen].
+Future<void> _openSalonBookingDetailAs(
+  WidgetTester tester,
+  FakeBackend fb,
+  GoRouter router,
+  UserRole role,
+) async {
+  final DateTime start = _atKyivHour(16, 0);
+  fb.bookingStartsAt = start.toIso8601String();
+  fb.bookingEndsAt = start.add(const Duration(minutes: 60)).toIso8601String();
+  fb.salonBoardBookings = <Map<String, dynamic>>[
+    fb.salonBoardBookingRow(
+      id: 'booking-1',
+      masterId: 'master-aaa',
+      masterFirstName: 'Софія',
+      masterLastName: 'Бондар',
+      startsAt: start,
+    ),
+  ];
+  await AppHarness.loginAs(tester, fb, role);
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(SalonShellScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+  await AppHarness.pumpUntilFound(
+    tester,
+    bookingsTab.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(bookingsTab);
+  await tester.pump();
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(BookingsTimelineGrid),
+    timeout: const Duration(seconds: 20),
+  );
+  final Finder card = find.byKey(
+    const ValueKey<String>('timeline-card-booking-1'),
+  );
+  await AppHarness.pumpUntilFound(
+    tester,
+    card.hitTestable(),
+    timeout: const Duration(seconds: 20),
+  );
+  await tester.tap(card);
+  await tester.pump();
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byType(BookingDetailScreen),
+    timeout: const Duration(seconds: 20),
+  );
+  AppHarness.expectLocation(
+    router,
+    RouteNames.salonStaffBookingDetail('booking-1'),
+  );
+  // The client strip is the positive control: the header rendered at all.
+  await AppHarness.pumpUntilFound(
+    tester,
+    find.byKey(const Key('booking-detail-client-strip')),
+    timeout: const Duration(seconds: 20),
+  );
+  await AppHarness.settle(tester);
+}
+
+FakeBackend _salonBookingBackend(UserRole role, {String? ownMasterRowId}) =>
+    (ownMasterRowId == null
+          ? FakeBackend()
+          : FakeBackend(masterRowId: ownMasterRowId))
+      ..currentRole = role
+      ..bookingMasterType = 'SALON_MASTER'
+      ..bookingSalonName = _kSeededSalonName
+      ..bookingProviderCanReviewClient = false;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -1831,6 +1943,23 @@ void main() {
           AppHarness.location(router),
           isNot(equals(RouteNames.masterBookingDetail('booking-1'))),
         );
+        // ── PHASE 383 — THE SALON ID RIDES THE DRILL-IN ───────────────────
+        //
+        // `/salon/bookings/:bookingId` has no salon id on its path, so the
+        // detail screen's `salonId` comes ONLY from the push's `extra`. The
+        // archive route forwards it as `detailExtra`; dropped (at the route
+        // or in `MasterArchiveScreen._openDetail`), a write from this detail
+        // never invalidates this salon's board dot set — the board renders a
+        // stale rail with nothing visibly wrong on the detail itself.
+        expect(
+          tester
+              .widget<BookingDetailScreen>(find.byType(BookingDetailScreen))
+              .salonId,
+          FakeBackend.kOwnerSalonId,
+          reason:
+              'an archive-opened salon detail must carry the salon id on '
+              '`extra`, exactly like a board-opened one',
+        );
         // The archive stays MOUNTED underneath — a push, not a go, so
         // swipe-back returns to the still-scrolled list.
         expect(
@@ -1950,4 +2079,521 @@ void main() {
       });
     },
   );
+
+  // ── 2026-10-08: DENSE salon card on a real 360dp phone surface ────────────
+  //
+  // Bug: on the salon board's 136-148dp lanes a registered client's card lost
+  // the surname (ellipsis), drew the price at an unreadable 10.2sp (shrunk
+  // further by a FittedBox) and squeezed the service name to 0dp. The widget
+  // tier (`master_booking_card_dense_test.dart`) pins the card in isolation;
+  // only this tier proves the REAL board (TimelineDensity.salon -> denseCards
+  // -> _LaneColumn -> MasterBookingCard.dense) actually wires it, at the real
+  // lane width, from a real GET /bookings/salon/{id}.
+  testWidgets(
+    'dense salon board at 360dp: a 60-min and a 90-min card show the full '
+    'surname, the service and a >=12sp un-shrunk price',
+    (tester) async {
+      // A real narrow phone: 2 columns per viewport => ~136-148dp lanes.
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false
+          // Four-digit low end: the widest realistic band (`1250–2500 ₴`).
+          ..bookingPrice = 1250;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        // Seeded after boot — see the first flow's comment on [_atKyivHour].
+        // 60 min => compact dense body (84dp); 90 min => full dense body
+        // (126dp). Two different masters, same start, so both are in the
+        // culling band at rest without a scroll.
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'dense-60',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+            clientFirstName: _kDenseClientFirst,
+            clientLastName: _kDenseClientLast,
+            serviceName: _kDenseServiceLong,
+            priceMaxAtBooking: 2500,
+          ),
+          fb.salonBoardBookingRow(
+            id: 'dense-90',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(10, 0),
+            duration: const Duration(minutes: 90),
+            clientFirstName: _kDenseClientFirst,
+            clientLastName: _kDenseClientLast,
+            serviceName: _kDenseServiceLong,
+            priceMaxAtBooking: 2500,
+          ),
+        ];
+
+        await _landOnSalonBoard(tester, fb, router);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const ValueKey<String>('timeline-card-dense-60')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        // The board really is in dense mode (the wiring under test).
+        expect(TimelineDensity.salon.denseCards, isTrue);
+
+        // 60-min => compact body in its 84dp band; 90-min => full body in its
+        // 126dp band.
+        final Map<String, double> expectedHeight = <String, double>{
+          'dense-60': TimelineDensity.salon.hourHeight,
+          'dense-90': TimelineDensity.salon.hourHeight * 1.5,
+        };
+        for (final MapEntry<String, double> e in expectedHeight.entries) {
+          final Finder card = find.byKey(
+            ValueKey<String>('timeline-card-${e.key}'),
+          );
+          expect(card, findsOneWidget, reason: '${e.key} must be on the board');
+
+          // Precondition: we are in the bug's lane regime, not a wide lane
+          // that would hide the truncation.
+          final double lane = tester.getSize(card).width;
+          expect(
+            lane,
+            inInclusiveRange(120, 160),
+            reason: '${e.key}: the salon lane must be the narrow 136-148dp one',
+          );
+
+          // Client name: ONE line, EXACTLY the first name (the long surname
+          // cannot fit ~148dp) — never a two-line wrap, never an ellipsized
+          // surname, and the surname text is absent from the card.
+          final RenderParagraph name = _paragraphIn(
+            tester,
+            card,
+            _kDenseClientFirst,
+          );
+          expect(
+            name.didExceedMaxLines,
+            isFalse,
+            reason: '${e.key}: the one-line client name must not be cut off',
+          );
+          expect(
+            find.descendant(of: card, matching: find.text(_kDenseClientFull)),
+            findsNothing,
+            reason: '${e.key}: the full long name must not be rendered',
+          );
+          expect(
+            find.descendant(
+              of: card,
+              matching: find.textContaining(_kDenseClientLast),
+            ),
+            findsNothing,
+            reason:
+                '${e.key}: the surname must be dropped from the visible text',
+          );
+
+          // Service: present, non-trivial width (was squeezed to 0dp), and
+          // not ellipsized.
+          final RenderParagraph service = _paragraphIn(
+            tester,
+            card,
+            _kDenseServiceLong,
+          );
+          expect(
+            service.size.width,
+            greaterThan(40),
+            reason: '${e.key}: the service name must keep real width',
+          );
+          // The compact body gives the service ONE line by design (ellipsis
+          // is legitimate there); the full body's two-line slot must hold it.
+          if (e.key == 'dense-90') {
+            expect(
+              service.didExceedMaxLines,
+              isFalse,
+              reason: 'dense-90: the 2-line service slot must hold the name',
+            );
+          }
+
+          // Price: >= 12sp as actually laid out, and not scaled down by the
+          // pill's FittedBox.
+          final Finder priceTag = find.descendant(
+            of: card,
+            matching: find.byType(PriceTag),
+          );
+          expect(priceTag, findsOneWidget);
+          final Finder priceText = find.descendant(
+            of: priceTag,
+            matching: find.textContaining('1250'),
+          );
+          expect(priceText, findsOneWidget);
+          final RenderParagraph price = tester.renderObject<RenderParagraph>(
+            priceText,
+          );
+          expect(
+            price.text.style?.fontSize ?? 0,
+            greaterThanOrEqualTo(12),
+            reason: '${e.key}: the price must be >=12sp (was 10.2sp)',
+          );
+          final Finder fitted = find.descendant(
+            of: priceTag,
+            matching: find.byType(FittedBox),
+          );
+          expect(
+            tester.getSize(fitted.first).width,
+            greaterThanOrEqualTo(price.size.width - 0.1),
+            reason: '${e.key}: the price must not be FittedBox-shrunk',
+          );
+
+          // Height: EXACTLY the band the grid plans on. The dense card's
+          // rows are sized from style metrics (not the font's), so this holds
+          // even in this tier, which runs WITHOUT the bundled fonts that
+          // `test/flutter_test_config.dart` loads.
+          expect(
+            tester.getSize(card).height,
+            closeTo(e.value, 0.01),
+            reason: '${e.key}: the card must equal its planned band',
+          );
+        }
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ── 2026-10-08: dense client-name policy, decisive both ways ──────────────
+  testWidgets(
+    'dense salon board at 360dp: a short name shows in full, a long name '
+    'shows the first name only and the Semantics label keeps the full name',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = FakeBackend()
+          ..currentRole = UserRole.salonOwner
+          ..bookingProviderCanReviewClient = false;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        fb.salonBoardBookings = <Map<String, dynamic>>[
+          fb.salonBoardBookingRow(
+            id: 'name-short',
+            masterId: 'master-aaa',
+            masterFirstName: 'Софія',
+            masterLastName: 'Бондар',
+            startsAt: _atKyivHour(10, 0),
+            duration: const Duration(minutes: 90),
+            clientFirstName: _kShortClientFirst,
+            clientLastName: _kShortClientLast,
+          ),
+          fb.salonBoardBookingRow(
+            id: 'name-long',
+            masterId: 'master-ccc',
+            masterFirstName: 'Марія',
+            masterLastName: 'Гриценко',
+            startsAt: _atKyivHour(10, 0),
+            duration: const Duration(minutes: 90),
+            clientFirstName: _kDenseClientFirst,
+            clientLastName: _kDenseClientLast,
+          ),
+        ];
+
+        await _landOnSalonBoard(tester, fb, router);
+        await AppHarness.pumpUntilFound(
+          tester,
+          find.byKey(const ValueKey<String>('timeline-card-name-short')),
+          timeout: const Duration(seconds: 20),
+        );
+
+        final Finder shortCard = find.byKey(
+          const ValueKey<String>('timeline-card-name-short'),
+        );
+        final Finder longCard = find.byKey(
+          const ValueKey<String>('timeline-card-name-long'),
+        );
+        expect(longCard, findsOneWidget);
+        expect(
+          tester.getSize(longCard).width,
+          inInclusiveRange(120, 160),
+          reason: 'must be the narrow salon lane',
+        );
+
+        Finder labelled(Finder card, String full) => find.descendant(
+          of: card,
+          matching: find.byWidgetPredicate(
+            (Widget w) =>
+                w is Semantics && (w.properties.label ?? '').contains(full),
+          ),
+        );
+
+        // Short name: rendered in full, one line.
+        expect(
+          find.descendant(
+            of: shortCard,
+            matching: find.text(_kShortClientFull),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          _paragraphIn(tester, shortCard, _kShortClientFull).didExceedMaxLines,
+          isFalse,
+        );
+        expect(labelled(shortCard, _kShortClientFull), findsWidgets);
+
+        // Long name: EXACTLY the first name; surname absent; full name kept in
+        // the semantics label.
+        expect(
+          find.descendant(
+            of: longCard,
+            matching: find.text(_kDenseClientFirst),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: longCard, matching: find.text(_kDenseClientFull)),
+          findsNothing,
+        );
+        expect(
+          find.descendant(
+            of: longCard,
+            matching: find.textContaining(_kDenseClientLast),
+          ),
+          findsNothing,
+        );
+        expect(
+          _paragraphIn(tester, longCard, _kDenseClientFirst).didExceedMaxLines,
+          isFalse,
+        );
+        expect(labelled(longCard, _kDenseClientFull), findsWidgets);
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // 2026-10-08 — «Деталі запису» names the PERFORMING master to a salon
+  // owner/admin (Step 2.7 Rule 3b). Joins what the unit tier cannot: the real
+  // `GET /bookings/{id}` `masterId`, through the real router (an owner
+  // viewing their OWN booking still sees the strip; no `/masters/me` read). No Patrol flow: no native surface.
+  // ══════════════════════════════════════════════════════════════════════
+  testWidgets(
+    'owner opening ANOTHER master\'s salon booking sees the performing-master '
+    'strip with that master\'s name',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _salonBookingBackend(UserRole.salonOwner);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonOwner,
+        );
+
+        final Finder strip = find.byKey(_kPerformingMasterStrip);
+        expect(strip, findsOneWidget);
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+          reason: 'the strip names the PERFORMING master, read off the render',
+        );
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(AppLocalizationsUk().bookingMasterStripLabel),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'an ADMIN opening a salon booking sees the performing-master strip',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final FakeBackend fb = _salonBookingBackend(UserRole.salonAdmin);
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonAdmin,
+        );
+
+        expect(find.byKey(_kPerformingMasterStrip), findsOneWidget);
+        expect(
+          fb.getMasterCalls,
+          0,
+          reason: 'an admin never reads GET /masters/me (it 403s for them)',
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(_kPerformingMasterStrip),
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  testWidgets(
+    'owner opening their OWN booking (own master-row id == booking.masterId) '
+    'STILL sees the performing-master strip, with no GET /masters/me',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // `GET /masters/me` would report `master-aaa` — the seeded booking's
+        // master. The screen must not even ask.
+        final FakeBackend fb = _salonBookingBackend(
+          UserRole.salonOwner,
+          ownMasterRowId: 'master-aaa',
+        );
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        await _openSalonBookingDetailAs(
+          tester,
+          fb,
+          router,
+          UserRole.salonOwner,
+        );
+
+        final Finder strip = find.byKey(_kPerformingMasterStrip);
+        expect(strip, findsOneWidget);
+        expect(
+          find.descendant(
+            of: strip,
+            matching: find.text(_kPerformingMasterFull),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          fb.getMasterCalls,
+          0,
+          reason:
+              'no own-master comparison: this screen never reads /masters/me',
+        );
+        expect(tester.takeException(), isNull);
+      });
+    },
+  );
+
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 395 (24.7c) — the red pending-actions badge on the board's «Архів»
+  // icon, for SALON_OWNER and SALON_ADMIN (Step 2.7 Rule 3b). The count comes
+  // off GET /bookings/salon/{id}/pending-actions/count, computed by the fake
+  // from its OWN seeded board + archive rows (never a settable integer).
+  // ══════════════════════════════════════════════════════════════════════
+  for (final UserRole role in <UserRole>[
+    UserRole.salonOwner,
+    UserRole.salonAdmin,
+  ]) {
+    testWidgets(
+      '$role board: a salon-master ended CONFIRMED booking lights «1» on the '
+      '«Архів» icon; closing it from the drill-in clears the badge',
+      (tester) async {
+        await mockNetworkImagesFor(() async {
+          final FakeBackend fb = _salonBookingBackend(role);
+          final DateTime start = _atKyivHour(10, 0);
+          fb.bookingStartsAt = start.toIso8601String();
+          fb.bookingEndsAt = start
+              .add(const Duration(minutes: 60))
+              .toIso8601String();
+          fb.salonBoardBookings = <Map<String, dynamic>>[
+            // Ended (10:00-11:00 Kyiv vs the 15:00 injected now) -> counts.
+            fb.salonBoardBookingRow(
+              id: 'booking-1',
+              masterId: 'master-aaa',
+              masterFirstName: 'Софія',
+              masterLastName: 'Бондар',
+              startsAt: start,
+            ),
+            // Upcoming -> must not count.
+            fb.salonBoardBookingRow(
+              id: 'board-upcoming',
+              masterId: 'master-ccc',
+              masterFirstName: 'Марія',
+              masterLastName: 'Гриценко',
+              startsAt: _atKyivHour(18, 0),
+            ),
+          ];
+          await AppHarness.boot(tester, fb);
+          await AppHarness.loginAs(tester, fb, role);
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(SalonShellScreen),
+            timeout: const Duration(seconds: 20),
+          );
+          final Finder bookingsTab = find.byKey(const Key('salon-nav-tile-1'));
+          await AppHarness.pumpUntilFound(
+            tester,
+            bookingsTab.hitTestable(),
+            timeout: const Duration(seconds: 20),
+          );
+          await tester.tap(bookingsTab);
+          await tester.pump();
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byType(BookingsTimelineGrid),
+            timeout: const Duration(seconds: 20),
+          );
+
+          final Finder badge = find.byKey(
+            const Key('master-bookings-archive-badge'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.descendant(of: badge, matching: find.text('1')),
+            timeout: const Duration(seconds: 20),
+          );
+          expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
+
+          // ── Close it from the drill-in. ──────────────────────────────────
+          final Finder card = find.byKey(
+            const ValueKey<String>('timeline-card-booking-1'),
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            card.hitTestable(),
+            timeout: const Duration(seconds: 20),
+          );
+          await tester.tap(card);
+          await tester.pump();
+          await AppHarness.pumpUntilFound(
+            tester,
+            find.byKey(const Key('booking-detail-complete')),
+            timeout: const Duration(seconds: 20),
+          );
+          await AppHarness.tapVisible(
+            tester,
+            find.byKey(const Key('booking-detail-complete')),
+          );
+          await AppHarness.settle(tester);
+          await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+          await AppHarness.settle(tester);
+          expect(fb.completeBookingCalls, 1);
+
+          await tester.tap(find.byKey(const Key('booking-detail-back')));
+          await AppHarness.settle(tester);
+          expect(find.byType(SalonBookingsScreen), findsOneWidget);
+          await AppHarness.pumpUntilCondition(
+            tester,
+            () => badge.evaluate().isEmpty,
+            description: 'the archive badge to clear after the close',
+          );
+          expect(
+            find.byKey(const Key('master-bookings-open-archive')),
+            findsOneWidget,
+            reason: 'anti-vacuity: the icon stays, only the badge left',
+          );
+        });
+      },
+    );
+  }
 }

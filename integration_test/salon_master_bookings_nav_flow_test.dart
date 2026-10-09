@@ -115,6 +115,24 @@ void main() {
               'be drawn at all.',
         );
 
+        // ── Phase 395: NO pending-actions badge, and the 403 endpoint is
+        //    never called — a salon master can neither complete nor rate. ──
+        expect(
+          find.byKey(const Key('master-bookings-open-archive')),
+          findsOneWidget,
+          reason:
+              'ANTI-VACUITY — the archive icon is drawn; only the badge is not.',
+        );
+        expect(
+          find.byKey(const Key('master-bookings-archive-badge')),
+          findsNothing,
+        );
+        expect(
+          fb.getPendingActionsCountCalls,
+          0,
+          reason: 'SALON_MASTER must never reach the pending-actions endpoint',
+        );
+
         // ── Phase 332: the archive is reachable from here ───────────────
         await AppHarness.tapVisible(
           tester,

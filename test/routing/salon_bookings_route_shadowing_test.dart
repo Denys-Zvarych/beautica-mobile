@@ -451,6 +451,16 @@ void main() {
       );
       expect(screen.detailRouteBuilder, isNotNull);
       expect(screen.reviewRouteBuilder, isNotNull);
+      // Phase 383 — the salon id is forwarded to `/salon/bookings/:id` as
+      // `extra`; that path holds no salon id, so null here means an
+      // archive-opened detail never drops this salon's board dots. The row
+      // tap itself is driven end to end in
+      // `integration_test/salon_owner_bookings_board_flow_test.dart`.
+      expect(
+        screen.detailExtra,
+        'salon-1',
+        reason: 'the archive must forward its salon id to the detail push',
+      );
     });
 
     testWidgets('the salon archive AppBar reuses masterArchiveTitle («Архів») '

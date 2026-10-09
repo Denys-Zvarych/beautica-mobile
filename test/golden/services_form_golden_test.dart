@@ -177,4 +177,23 @@ void main() {
       onSubmit: (_) async {},
     ),
   );
+
+  // Phase 377 (24.4) — ONE identity-locked EDIT baseline (a salon admin on a
+  // service the owner also performs): category / type / name read-only, the
+  // duration + price wells and the submit CTA stay live. The hint card lives
+  // on the SCREEN (service_edit_screen), not the form. Adds a new baseline; no
+  // existing one is touched.
+  goldenTest(
+    'service_form EDIT IDENTITY-LOCKED 414dp text-1x',
+    fileName: 'service_form_edit_identity_locked_414_1x',
+    constraints: BoxConstraints.tight(const Size(414, kGoldenHeight)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(overrides: _overrides(), width: 414),
+    builder: () => ServiceForm(
+      initial: _editSeed,
+      submitLabel: 'Зберегти зміни',
+      identityLocked: true,
+      onSubmit: (_) async {},
+    ),
+  );
 }

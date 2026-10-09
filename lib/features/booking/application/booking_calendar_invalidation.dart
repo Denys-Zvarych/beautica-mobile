@@ -40,7 +40,25 @@ import 'booking_detail_notifier.dart';
 import 'bookings_day_notifier.dart';
 import 'master_archive_notifier.dart';
 import 'my_bookings_notifier.dart';
+import 'pending_booking_actions_count.dart';
 import 'salon_board_refresh_gate.dart';
+
+/// Phase 394 (24.7b) — drops the WHOLE [pendingBookingActionsCountProvider]
+/// family. Cheap: an autoDispose family, so only the 1–2 scopes whose
+/// «Записи» screen is mounted refetch; an unwatched member is simply dropped.
+///
+/// The ONE entry point every booking-mutation helper below (and the review /
+/// archive-refresh call sites) routes through — never `ref.invalidate` the
+/// family directly elsewhere.
+void invalidatePendingBookingActionsCount(WidgetRef ref) {
+  ref.invalidate(pendingBookingActionsCountProvider);
+}
+
+/// [invalidatePendingBookingActionsCount] for a provider-side [Ref] caller
+/// (e.g. [invalidateBookingViewsAfterBookingCreated]).
+void invalidatePendingBookingActionsCountFromRef(Ref ref) {
+  ref.invalidate(pendingBookingActionsCountProvider);
+}
 
 /// Invalidates every cached master-facing booking view after an external
 /// write declined [declinedBookingIds], scoped to the calendar days
@@ -158,27 +176,19 @@ void invalidateBookingViewsAfterExternalDecline(
   for (final DateTime day in affectedDates.toSet()) {
     // BOTH members — see the doc above. `.dayList` is the one the master's own
     // «Мої записи» watches by default; `.of` is the plain one other hosts use.
-    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-      BookingsDayQuery.dayList(day: day),
-      BookingsDayQuery.of(day: day),
-    ]) {
-      final bool wasPinned = lru.contains(affectedQuery);
-      // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
-      // `lru.contains` answers "does an element already exist for this
-      // hand-built key" BEFORE the invalidate, and the conditional
-      // `ref.read` below re-touches the keepAlive link synchronously, so the
-      // disposal `invalidateSelf()` queues against a zero-listener pinned
-      // element is cancelled before the scheduler can run it.
-      ref.invalidate(bookingsDayProvider(affectedQuery));
-      if (wasPinned) {
-        ref.read(bookingsDayProvider(affectedQuery));
-      }
-    }
+    // Phase 383 — the hand-built default keys AND every live FILTERED
+    // `/bookings/me` member of [day]; see [_invalidateMasterOwnDay].
+    _invalidateMasterOwnDay(ref, lru: lru, day: day);
   }
   ref.invalidate(myBookingsProvider(BookingTab.upcoming));
   ref.invalidate(myBookingsProvider(BookingTab.cancelled));
   ref.invalidate(nextAppointmentProvider);
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
+  invalidatePendingBookingActionsCount(ref);
 }
 
 /// Invalidates every master-facing booking cache a PROVIDER-INITIATED close
@@ -343,21 +353,16 @@ void invalidateBookingViewsAfterProviderClose(
   // race) pays for the eager read-back; an untouched query is a genuine no-op
   // either way.
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
-  for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-    BookingsDayQuery.dayList(day: affectedDate),
-    BookingsDayQuery.of(day: affectedDate),
-  ]) {
-    final bool wasPinned = lru.contains(affectedQuery);
-    // keepalive-safe: same wasPinned + eager-read idiom as the two sites
-    // above — see them for the full reasoning.
-    ref.invalidate(bookingsDayProvider(affectedQuery));
-    if (wasPinned) {
-      ref.read(bookingsDayProvider(affectedQuery));
-    }
-  }
+  // Phase 383 — the hand-built default keys AND every live FILTERED
+  // `/bookings/me` member of the day; see [_invalidateMasterOwnDay].
+  _invalidateMasterOwnDay(ref, lru: lru, day: affectedDate);
 
   ref.invalidate(masterArchiveProvider);
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     ref.invalidate(salonBookedDaysProvider(salonId));
     _invalidateSalonDayLists(
@@ -367,6 +372,7 @@ void invalidateBookingViewsAfterProviderClose(
       affectedDays: <DateTime>{affectedDate},
     );
   }
+  invalidatePendingBookingActionsCount(ref);
 }
 
 /// Invalidates every master-facing booking cache the CREATION of a booking on
@@ -597,6 +603,10 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
     }
   }
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     if (boardVisible) {
       ref.invalidate(salonBookedDaysProvider(salonId));
@@ -605,6 +615,7 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
       ref.read(salonBoardRefreshGateProvider).markStale(salonId);
     }
   }
+  invalidatePendingBookingActionsCountFromRef(ref);
 }
 
 /// Replays the board-scoped invalidations that
@@ -780,24 +791,15 @@ void invalidateBookingsDayAfterAppointmentItemReschedule(
 }) {
   final DayKeepAliveLru lru = ref.read(dayKeepAliveLruProvider);
   for (final DateTime day in affectedDays) {
-    for (final BookingsDayQuery affectedQuery in <BookingsDayQuery>[
-      BookingsDayQuery.dayList(day: day),
-      BookingsDayQuery.of(day: day),
-    ]) {
-      final bool wasPinned = lru.contains(affectedQuery);
-      // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
-      // `lru.contains` answers "does an element already exist for this
-      // hand-built key" BEFORE the invalidate, and the conditional
-      // `ref.read` below re-touches the keepAlive link synchronously, so the
-      // disposal `invalidateSelf()` queues against a zero-listener pinned
-      // element is cancelled before the scheduler can run it.
-      ref.invalidate(bookingsDayProvider(affectedQuery));
-      if (wasPinned) {
-        ref.read(bookingsDayProvider(affectedQuery));
-      }
-    }
+    // Phase 383 — the hand-built default keys AND every live FILTERED
+    // `/bookings/me` member of [day]; see [_invalidateMasterOwnDay].
+    _invalidateMasterOwnDay(ref, lru: lru, day: day);
   }
   ref.invalidate(bookedDaysProvider);
+  // Phase 382 — the owner master mode's own dot singleton (keepAlive,
+  // 30-min TTL). Unwatched for every non-owner session, so this only marks a
+  // nonexistent / idle element dirty — no request.
+  ref.invalidate(ownerMasterBookedDaysProvider);
   if (salonId != null) {
     ref.invalidate(salonBookedDaysProvider(salonId));
     _invalidateSalonDayLists(
@@ -888,6 +890,77 @@ void _invalidateSalonDayLists(
     ref.invalidate(bookingsDayProvider(liveQuery));
     if (isGenuinelyOrphaned) {
       ref.read(bookingsDayProvider(liveQuery));
+    }
+  }
+}
+
+/// The hand-built `/bookings/me` day keys a per-date fan-out helper drops for
+/// [day]: the DEFAULT day-list member (`.dayList`) and the PLAIN member
+/// (`.of`), each in BOTH scopes — the independent master's own
+/// (`asOwnerMaster: false`) and the salon owner's master mode
+/// (`asOwnerMaster: true`, phase 382). The scope flag is part of the freezed
+/// family key, so without the `true` pair the owner master mode keeps serving
+/// a declined / closed / moved booking (client details included) until its
+/// keepAlive TTL lapses.
+///
+/// Single source for the hand-built half of [_invalidateMasterOwnDay] (which
+/// all three per-date sites call) so the key set cannot drift. That helper
+/// keeps the `lru.contains` gate for these keys: a key nobody built this
+/// session (every `true` key for a non-owner) is a genuine no-op — no element,
+/// no eager read, no request.
+List<BookingsDayQuery> _masterOwnDayKeys(DateTime day) => <BookingsDayQuery>[
+  for (final bool asOwnerMaster in const <bool>[
+    false,
+    true,
+  ]) ...<BookingsDayQuery>[
+    BookingsDayQuery.dayList(day: day, asOwnerMaster: asOwnerMaster),
+    BookingsDayQuery.of(day: day, asOwnerMaster: asOwnerMaster),
+  ],
+];
+
+/// Phase 383 (perf INFO) — drops every `/bookings/me` day-list member of
+/// [day] a per-date fan-out owes, in BOTH scopes:
+///
+/// 1. the hand-built UNFILTERED keys from [_masterOwnDayKeys], gated on
+///    [DayKeepAliveLru.contains] (a key nobody built this session — every
+///    `asOwnerMaster: true` key for a non-owner — is a genuine no-op: no
+///    element, no eager read, no request); and
+/// 2. every LIVE FILTERED [MasterOwnDayQuery] of [day] (a «Записи» list with
+///    a status / service filter applied is a DIFFERENT family key the
+///    hand-built set can never name), enumerated from
+///    [DayKeepAliveLru.liveQueries]. Enumerated keys are gated on
+///    [DayKeepAliveLru.isWatched] instead of `contains` — `contains` is
+///    tautological for a key drawn from `liveQueries` — exactly the
+///    [_invalidateSalonDayLists] idiom. Only members that already exist are
+///    touched, so a session with no filtered list pays nothing.
+///
+/// Every eager-read decision is taken BEFORE the first invalidate, so one
+/// key's invalidation can never change another key's gate.
+void _invalidateMasterOwnDay(
+  WidgetRef ref, {
+  required DayKeepAliveLru lru,
+  required DateTime day,
+}) {
+  final List<BookingsDayQuery> handBuilt = _masterOwnDayKeys(day);
+  final List<(BookingsDayQuery, bool)> targets = <(BookingsDayQuery, bool)>[
+    for (final BookingsDayQuery query in handBuilt)
+      (query, lru.contains(query)),
+    for (final BookingsDayQuery liveQuery in lru.liveQueries)
+      if (liveQuery is MasterOwnDayQuery &&
+          liveQuery.day == day &&
+          !handBuilt.contains(liveQuery))
+        (liveQuery, !lru.isWatched(liveQuery)),
+  ];
+  for (final (BookingsDayQuery query, bool eagerRead) in targets) {
+    // keepalive-safe: the proven wasPinned + eager-read idiom (FIX A/B) —
+    // the gate (`contains` for a hand-built key, `!isWatched` for an
+    // enumerated one) is read BEFORE the invalidate, and the conditional
+    // `ref.read` below re-touches the keepAlive link synchronously, so the
+    // disposal `invalidateSelf()` queues against a zero-listener pinned
+    // element is cancelled before the scheduler can run it.
+    ref.invalidate(bookingsDayProvider(query));
+    if (eagerRead) {
+      ref.read(bookingsDayProvider(query));
     }
   }
 }

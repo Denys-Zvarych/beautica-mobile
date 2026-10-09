@@ -210,5 +210,13 @@ abstract class BookingSlotPickerArgs with _$BookingSlotPickerArgs {
     String? venueBuildingNo,
     String? venueCity,
     String? venueLocationNote,
+
+    /// Phase 383 (24.1f) — where the walk-in done screen's «Готово» lands.
+    /// Forwarded unchanged picker → `BookingConfirmArgs.returnRoute` →
+    /// `BookingSuccessArgs.returnRoute`. `null` (the default) keeps today's
+    /// `RouteNames.masterBookings`; the owner master-mode walk-in chain sets
+    /// `RouteNames.ownerMasterBookings`, since `/master/*` would bounce a
+    /// SALON_OWNER. Inert on every non-walk-in path.
+    String? returnRoute,
   }) = _BookingSlotPickerArgs;
 }

@@ -80,6 +80,7 @@ import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
 import '../domain/create_master_booking_request.dart';
+import '../domain/pending_actions_scope.dart';
 import 'booking_mapper.dart';
 
 /// Default page size for the "my bookings" list (Phase 14.3).
@@ -226,6 +227,13 @@ abstract interface class BookingRepository {
   /// **No caller passes this in Phase 226** — added here so its wire wiring
   /// and the behaviour change that consumes it (Phase 227) land as separate,
   /// independently reviewable diffs.
+  ///
+  /// [asMaster] (phase 382 / 24.1e; backend phase 354) — `true` sends
+  /// `asMaster=true`, asking for a `SALON_OWNER` caller's OWN master-row
+  /// bookings instead of every booking of every salon they own. `false` (the
+  /// default) sends NO `asMaster` param at all — wire-identical to every
+  /// pre-382 caller. Backend ignores it for master roles; CLIENT → 400,
+  /// SALON_ADMIN → 403.
   Future<PageResponse<Booking>> getMyBookings({
     required Iterable<BookingStatus> statuses,
     required int page,
@@ -236,6 +244,7 @@ abstract interface class BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   });
 
   /// Fetches ONE page of a salon's bookings — the owner/admin salon-wide
@@ -335,10 +344,14 @@ abstract interface class BookingRepository {
   /// rather than leave it running to completion for a result nobody will read.
   /// Disposing the Riverpod element stops the RESULT from landing but does
   /// not, by itself, abort the underlying Dio request.
+  ///
+  /// [asMaster] — same contract as [getMyBookings]' (phase 382): `true` sends
+  /// `asMaster=true`, `false` (the default) sends no param.
   Future<List<DateTime>> getMyBookedDays({
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   });
 
   /// [getMyBookedDays]' salon-wide twin — the set of local days on which
@@ -365,6 +378,21 @@ abstract interface class BookingRepository {
     required String salonId,
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
+  });
+
+  /// Number of bookings awaiting a provider action for [scope] (Phase 393).
+  ///
+  /// Wraps `GET /bookings/me/pending-actions/count` / `GET
+  /// /bookings/salon/{salonId}/pending-actions/count` and returns only
+  /// `data.count` (the `toClose` / `toRateClient` breakdown is ignored).
+  /// Throws a [Failure] on error.
+  ///
+  /// [cancelToken] (phase 393 audit) aborts the in-flight request when the
+  /// owning provider is disposed. Optional so every existing implementer and
+  /// fake keeps compiling.
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
     CancelToken? cancelToken,
   });
 
@@ -579,6 +607,7 @@ final class HttpBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     // Canonicalised ONCE, here at the serialisation boundary. See the comment
     // on the `status` param below for why this stays despite perf P5, and why
@@ -689,6 +718,9 @@ final class HttpBookingRepository implements BookingRepository {
           // `upcoming`/`past`/`cancelled`/`awaitingClosure`. See
           // [BookingPartition]'s file header for the full reasoning.
           'partition': ?partition?.wireValue,
+          // Phase 382 — sent ONLY when true; omitted otherwise so every
+          // pre-382 caller's request is byte-identical.
+          if (asMaster) 'asMaster': true,
         },
         cancelToken: cancelToken,
       );
@@ -812,12 +844,14 @@ final class HttpBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => _fetchBookedDays(
     path: '/api/v1/bookings/me/booked-days',
     label: 'getMyBookedDays',
     from: from,
     to: to,
     cancelToken: cancelToken,
+    asMaster: asMaster,
   );
 
   @override
@@ -864,6 +898,7 @@ final class HttpBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
@@ -874,6 +909,10 @@ final class HttpBookingRepository implements BookingRepository {
           // `LocalDate` in `Europe/Kyiv`.
           'from': toApiDate(from),
           'to': toApiDate(to),
+          // Phase 382 — `/me/booked-days` only (the salon twin never passes
+          // it); sent ONLY when true so every pre-382 request is
+          // byte-identical.
+          if (asMaster) 'asMaster': true,
         },
         cancelToken: cancelToken,
       );
@@ -914,6 +953,55 @@ final class HttpBookingRepository implements BookingRepository {
       if (kDebugMode) {
         log(
           '$label failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      final int? count = switch (scope) {
+        PendingActionsScopeMe(:final asMaster) =>
+          (await _bookingApi.getMyPendingActionsCount(
+            asMaster: asMaster,
+            cancelToken: cancelToken,
+          )).data?.data?.count,
+        PendingActionsScopeSalon(:final salonId) =>
+          (await _bookingApi.getSalonPendingActionsCount(
+            // The generated client interpolates this raw into the path (it
+            // does no encoding). Reject anything that is not a plain id
+            // token BEFORE any request, then route it through the shared
+            // segment encoder as defence in depth.
+            salonId: encodePathSegment(
+              requirePathIdToken(salonId, 'salonId'),
+              'salonId',
+              logTag: _tag,
+            ),
+            cancelToken: cancelToken,
+          )).data?.data?.count,
+      };
+      if (count == null) {
+        if (kDebugMode) {
+          log('getPendingActionsCount: count is null', name: _tag, level: 1000);
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return count;
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      // A routine cancel (provider disposed / superseded) is not a failure.
+      if (kDebugMode && e.type != DioExceptionType.cancel) {
+        log(
+          'getPendingActionsCount failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

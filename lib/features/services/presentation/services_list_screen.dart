@@ -52,6 +52,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/services_empty_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import 'services_list_notifier.dart';
 
@@ -87,6 +88,9 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.navScheduleRoute,
     this.navProfileRoute,
     this.navBookingsRoute,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.bottomNavBar,
   });
 
   /// Optional upper-cased wire slug. When set, the matching category section
@@ -208,6 +212,25 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// mount at [RouteNames.salonMasterBookings], so that tile no longer
   /// bounces — see [VelvetBottomNavBar.bookingsRoute].
   final String? navBookingsRoute;
+
+  /// Phase 380 (24.1c) — optional VISIBLE text beside [showBack]'s arrow,
+  /// forwarded to [NeumorphicIconButton.label] (the owner master-mode
+  /// «‹ Салон» pill). Non-null also widens `AppBar.leadingWidth` so the pill
+  /// fits. Only meaningful when [showBack] is `true`. `null` (every
+  /// pre-existing caller) renders the byte-identical app bar.
+  final String? backLabel;
+
+  /// Phase 380 (24.1c) — optional screen-reader label for [showBack]'s
+  /// button. `null` keeps `servicesListBackSemanticLabel` («Назад»).
+  final String? backSemanticLabel;
+
+  /// Phase 380 (24.1c) — optional prebuilt bottom bar that REPLACES the
+  /// default `VelvetBottomNavBar(activeIndex: 0, …)` built from
+  /// [navScheduleRoute] / [navProfileRoute] / [navBookingsRoute]. The owner
+  /// master-mode mount passes its canonical `const` tile-0 bar, so every
+  /// owner tab reads its routes from ONE table. Ignored when [showBottomNav]
+  /// is `false`. `null` (every pre-existing caller) keeps today's bar.
+  final Widget? bottomNavBar;
 
   /// Resolved setup destination — the parameter, or today's literal.
   String get resolvedSetupRoute => setupRoute ?? RouteNames.serviceSetup;
@@ -381,18 +404,21 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         title: l10n.servicesTitle,
         showBack: widget.showBack,
         backFallbackRoute: widget.backFallbackRoute,
+        backLabel: widget.backLabel,
+        backSemanticLabel: widget.backSemanticLabel,
       ),
       // Tile 0 ("Послуги") — this screen IS that destination. Hosted via
       // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
       // identically to the other three master tab screens — see
       // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
       bottomNavigationBar: widget.showBottomNav
-          ? VelvetBottomNavBar(
-              activeIndex: 0,
-              scheduleRoute: widget.navScheduleRoute,
-              profileRoute: widget.navProfileRoute,
-              bookingsRoute: widget.navBookingsRoute,
-            )
+          ? widget.bottomNavBar ??
+                VelvetBottomNavBar(
+                  activeIndex: 0,
+                  scheduleRoute: widget.navScheduleRoute,
+                  profileRoute: widget.navProfileRoute,
+                  bookingsRoute: widget.navBookingsRoute,
+                )
           : null,
       floatingActionButton: asyncServices.maybeWhen(
         data: (list) => (list.isEmpty || !widget.writable)
@@ -518,6 +544,8 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.title,
     this.showBack = false,
     this.backFallbackRoute,
+    this.backLabel,
+    this.backSemanticLabel,
   });
 
   final String title;
@@ -531,6 +559,12 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   /// See [ServicesListScreen.backFallbackRoute].
   final String? backFallbackRoute;
+
+  /// See [ServicesListScreen.backLabel].
+  final String? backLabel;
+
+  /// See [ServicesListScreen.backSemanticLabel].
+  final String? backSemanticLabel;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -564,10 +598,43 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
     // than a no-op, and the two `showBack: false` mounts never reach here.
   }
 
+  bool _labelFits(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    return VelvetTopBar.labelledBackFits(
+      titleRoom:
+          MediaQuery.sizeOf(context).width -
+          (VelvetSpacing.md + VelvetTopBar.labelledTitleInsetFor(scaler)) -
+          NavigationToolbar.kMiddleSpacing,
+      title: title,
+      scaler: scaler,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final String? requested = showBack ? backLabel : null;
+    // Phase 383 (LOW layout) — the shared collapse rule
+    // ([VelvetTopBar.labelledBackFits]): when the labelled pill would leave
+    // the title below its readable minimum, render the plain chevron (same
+    // key, same semantics) in AppBar's default leading slot. The AppBar is
+    // full-width, so the screen width is the bar width; the title starts
+    // after the leading slot and AppBar's own middle spacing.
+    final String? label = requested != null && _labelFits(context)
+        ? requested
+        : null;
     return AppBar(
+      // Phase 380 — the labelled pill is wider than the default 56 dp slot.
+      // Sized by the SAME measured pill width [VelvetTopBar] insets its title
+      // by (text-scale aware, capped at the pill's own max), plus a left
+      // inset so the pill clears the screen edge. `null` (no label) keeps
+      // AppBar's default — byte-identical for every pre-existing mount.
+      leadingWidth: label == null
+          ? null
+          : VelvetSpacing.md +
+                VelvetTopBar.labelledTitleInsetFor(
+                  MediaQuery.textScalerOf(context),
+                ),
       backgroundColor: BrandColors.base,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
@@ -583,14 +650,33 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
       // whose left edge already sits at x = 0, so it IS clipped horizontally.
       // ACCEPTED for parity with `schedule_editor_stubs.dart:51`, which puts
       // the same button in the same `AppBar.leading` slot.
-      leading: showBack
+      leading: !showBack
+          ? null
+          : label == null
           ? NeumorphicIconButton(
               key: ServicesListScreen.backKey,
               icon: Icons.arrow_back_ios_new_rounded,
-              semanticLabel: l10n.servicesListBackSemanticLabel,
+              semanticLabel:
+                  backSemanticLabel ?? l10n.servicesListBackSemanticLabel,
               onTap: () => _handleBack(context),
             )
-          : null,
+          // Loose-aligned so AppBar's TIGHT leading constraints do not stretch
+          // the pill to the whole slot; the left inset keeps its light shadow
+          // off the screen edge.
+          : Padding(
+              padding: const EdgeInsets.only(left: VelvetSpacing.md),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: NeumorphicIconButton(
+                  key: ServicesListScreen.backKey,
+                  icon: Icons.arrow_back_ios_new_rounded,
+                  semanticLabel:
+                      backSemanticLabel ?? l10n.servicesListBackSemanticLabel,
+                  onTap: () => _handleBack(context),
+                  label: label,
+                ),
+              ),
+            ),
       title: Text(title, style: VelvetText.pageTitle),
     );
   }

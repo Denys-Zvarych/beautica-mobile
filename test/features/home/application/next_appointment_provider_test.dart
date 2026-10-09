@@ -29,6 +29,7 @@
 // test hand back whatever page it wants without matcher gymnastics over an
 // `Iterable<BookingStatus>` parameter.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
@@ -59,6 +60,12 @@ import '../../../helpers/booking_fixture_dates.dart';
 // ---------------------------------------------------------------------------
 
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   _FakeBookingRepository(this._page);
 
   final PageResponse<Booking> _page;
@@ -103,6 +110,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     callCount++;
     capturedStatuses = statuses;
@@ -131,6 +139,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override
@@ -191,6 +200,12 @@ class _FakeBookingRepository implements BookingRepository {
 /// fake is the unit-tier half of the phase doc's "Sanity-check RED" —
 /// the cross-the-wire half is `client_home_hub_flow_test.dart`'s Test 4c.
 class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   _PartitionSensitiveFakeBookingRepository({
     required this.upcoming,
     required this.elapsed,
@@ -228,6 +243,7 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async {
     callCount++;
     capturedPartition = partition;
@@ -257,6 +273,7 @@ class _PartitionSensitiveFakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError('not used by nextAppointmentProvider');
 
   @override

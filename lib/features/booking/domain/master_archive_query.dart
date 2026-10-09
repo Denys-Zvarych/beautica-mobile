@@ -42,6 +42,9 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
     required List<BookingStatus> statuses,
     required List<String> serviceIds,
     required String? salonId,
+
+    /// Phase 382 (24.1e) — see [MasterArchiveQuery.of]'s `asOwnerMaster`.
+    @Default(false) bool asOwnerMaster,
   }) = _MasterArchiveQuery;
 
   const MasterArchiveQuery._();
@@ -88,6 +91,15 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
   /// does not exist and the test VM always runs with asserts enabled, so the
   /// assert form was structurally unpinnable).
   ///
+  /// [asOwnerMaster] (phase 382 / 24.1e) asks the `salonId == null` arm for
+  /// the caller's OWN master-row history as a `SALON_OWNER`
+  /// (`GET /bookings/me?asMaster=true`, backend phase 354). Like [salonId]
+  /// it lives on the family key so the owner's own archive never shares a
+  /// cache entry with any other scope; `false` (the default) sends no
+  /// `asMaster` param, byte-identically to every pre-382 caller. Rejected
+  /// together with a non-null [salonId] — the salon endpoint has no such
+  /// param, so the combination cannot reach the wire.
+  ///
   /// [MasterArchiveQuery.raw] is deliberately NOT guarded — it is the freezed
   /// pass-through documented above as "build through [MasterArchiveQuery.of]
   /// instead", and every caller in `lib/` does.
@@ -95,7 +107,17 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
     String? salonId,
+    bool asOwnerMaster = false,
   }) {
+    if (salonId != null && asOwnerMaster) {
+      throw ArgumentError.value(
+        asOwnerMaster,
+        'asOwnerMaster',
+        'A salon-scoped MasterArchiveQuery cannot ask for the owner\'s own '
+            'master-row history — GET /bookings/salon/{salonId} has no '
+            'asMaster param. Use salonId: null for the own-bookings scope.',
+      );
+    }
     if (salonId != null && serviceIds.isNotEmpty) {
       throw ArgumentError.value(
         serviceIds,
@@ -118,6 +140,7 @@ sealed class MasterArchiveQuery with _$MasterArchiveQuery {
       statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
       serviceIds: List<String>.unmodifiable(sortedServiceIds),
       salonId: salonId,
+      asOwnerMaster: asOwnerMaster,
     );
   }
 

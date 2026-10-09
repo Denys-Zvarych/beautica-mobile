@@ -67,6 +67,7 @@ abstract final class NotificationCopy {
     AppLocalizations l10n,
     AppNotification item, {
     required bool isClient,
+    bool showMaster = false,
   }) {
     final NotificationParams p = item.params;
     if (item.type == AppNotificationType.unknown) return null;
@@ -99,6 +100,25 @@ abstract final class NotificationCopy {
       return rescheduled
           ? l10n.notificationBodyClientRescheduled(counterpart, service, when)
           : l10n.notificationBodyClient(counterpart, service, when);
+    }
+    // Optional suffix: a missing master is never «params gone».
+    // Defense in depth: only a salon owner / admin viewer ever sees the master
+    // suffix, whatever the wire carries.
+    final String? master = showMaster ? sanitize(p.masterName) : null;
+    if (master != null) {
+      return rescheduled
+          ? l10n.notificationBodyProviderRescheduledWithMaster(
+              counterpart,
+              service,
+              when,
+              master,
+            )
+          : l10n.notificationBodyProviderWithMaster(
+              counterpart,
+              service,
+              when,
+              master,
+            );
     }
     return rescheduled
         ? l10n.notificationBodyProviderRescheduled(counterpart, service, when)

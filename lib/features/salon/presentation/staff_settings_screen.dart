@@ -38,14 +38,12 @@
 // correctness (the server remains the real gate — see D3's own doc):
 //
 //   * not the owner              → [SalonNoticeCard] (`staffSettingsMasterOwnerOnlyTitle`/`Body`), no row at all;
-//   * the owner's OWN master row → the SAME card (same key), but DISTINCT
-//     copy (`staffSettingsMasterSelfTitle`/`Body`, mobile-security LOW fix,
-//     2026-09-05) — the "ask the owner" phrasing on the not-owner branch is
-//     factually wrong when the viewer IS the owner: there is nobody else to
-//     ask. Backend 297 409s/403s a self-target regardless; this card's copy
-//     honestly points the owner at the separate `DELETE
-//     /salons/{salonId}/master` owner-toggle instead of just saying "no".
-//     `isOwnRow` in `build()` is the switch between the two bodies.
+//   * the OWNER's master row, viewed by a non-owner (Phase 371) →
+//     [SalonNoticeCard] (`staffOwnerRowReadOnlyTitle`/`Body`): backend 345
+//     403s every service/schedule write on it, so no tile and no remove;
+//   * the owner's OWN master row (Phase 371) → the standard «Послуги» /
+//     «Графік» [SettingsRow] tiles (`salonManageStaffServices`/`Schedule`,
+//     keyed by the roster `userId`), and still NO remove row.
 //
 // D2 — THE ID TRAP: the row acts on `member.masterId`, NEVER
 // `widget.memberId`/`member.userId`. See [SalonRepository.removeMaster]'s
@@ -91,7 +89,10 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart'
+    show MasterType;
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/loading_skeleton.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart'
@@ -106,6 +107,7 @@ import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../master/presentation/widgets/settings_row.dart';
 import '../application/admin_settings_notifier.dart';
 import '../application/public_salon_profile_notifier.dart';
+import '../application/salon_manage_capability.dart';
 import '../application/salon_management_profile_notifier.dart';
 import '../application/salon_shell_provider.dart';
 import '../application/salon_staff_member_notifier.dart';
@@ -611,6 +613,12 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
     final bool isOwnRow =
         isNotAdmin && isOwner && member.userId == currentUserId;
 
+    // Phase 371 — the OWNER's master row, seen by anyone but the owner.
+    final bool ownerRowLockedForViewer = isOwnerRowLockedForViewer(
+      member: member,
+      viewerOwnsSalon: ref.watch(viewerOwnsSalonProvider(widget.salonId)),
+    );
+
     final Widget body;
     if (member == null || member.role == SalonStaffRole.admin) {
       body = Column(
@@ -686,22 +694,72 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
           ],
         ],
       );
+    } else if (ownerRowLockedForViewer &&
+        member.masterType == MasterType.salonOwner &&
+        ref.watch(canManageSalonPendingProvider)) {
+      // Cold window (cycle 3): `mySalonsProvider` is still loading, so the
+      // owner-row lock is "not known yet", not a verdict — hold a loading
+      // placeholder rather than flash the read-only notice at the owner.
+      body = const LoadingSkeleton.list(
+        key: Key('staff-settings-owner-row-pending'),
+      );
+    } else if (ownerRowLockedForViewer) {
+      // Phase 371 — a non-owner viewer (an admin) on the OWNER's row: the
+      // backend 345 403s every service/schedule write on it, so no tile and
+      // no remove row is drawn, only the explanation.
+      body = SalonNoticeCard(
+        key: const Key('staff-settings-owner-row-read-only'),
+        icon: Icons.lock_outline,
+        title: l10n.staffOwnerRowReadOnlyTitle,
+        body: l10n.staffOwnerRowReadOnlyBody,
+      );
+    } else if (isOwnRow) {
+      // Phase 371 — the owner's OWN master row: the standard «Послуги» /
+      // «Графік» tiles, no remove action (self-removal stays absent). Routed
+      // to the salon-side staff routes with `widget.memberId` — the roster
+      // `userId` those routes document, NOT `member.masterId`.
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _reveal(
+            _anim0,
+            SettingsRow(
+              key: const Key('row-master-services'),
+              icon: Icons.design_services_rounded,
+              label: l10n.masterServicesLabel,
+              onTap: () => context.push(
+                RouteNames.salonManageStaffServices(
+                  widget.salonId,
+                  widget.memberId,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(
+            _anim1,
+            SettingsRow(
+              key: const Key('row-master-schedule'),
+              icon: Icons.calendar_month_rounded,
+              label: l10n.scheduleTitle,
+              onTap: () => context.push(
+                RouteNames.salonManageStaffSchedule(
+                  widget.salonId,
+                  widget.memberId,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
     } else if (!canManageMaster) {
-      // D3/D4 — not the owner, or the owner's own master row. `member` is
-      // promoted non-null here (the `if` above ruled out both `null` and
-      // `admin`). The outer key stays the same for both sub-cases (only the
-      // copy differs) — every existing "the notice renders" assertion keys
-      // off `staff-settings-master-owner-only` regardless of which sentence
-      // is showing.
+      // D3/D4 — not the owner. `member` is promoted non-null here (the `if`
+      // above ruled out both `null` and `admin`).
       body = SalonNoticeCard(
         key: const Key('staff-settings-master-owner-only'),
         icon: Icons.lock_outline,
-        title: isOwnRow
-            ? l10n.staffSettingsMasterSelfTitle
-            : l10n.staffSettingsMasterOwnerOnlyTitle,
-        body: isOwnRow
-            ? l10n.staffSettingsMasterSelfBody
-            : l10n.staffSettingsMasterOwnerOnlyBody,
+        title: l10n.staffSettingsMasterOwnerOnlyTitle,
+        body: l10n.staffSettingsMasterOwnerOnlyBody,
       );
     } else {
       // The one master action this screen has today (D1) — single row, no

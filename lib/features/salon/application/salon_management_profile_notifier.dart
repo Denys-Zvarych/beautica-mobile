@@ -132,17 +132,34 @@ typedef SalonManagementProfileData = (
   List<SalonStaffMember> staff,
 );
 
+/// How long [salonManagementProfileProvider] stays cached once its LAST
+/// watcher leaves — the countdown starts on leave (not on load) and a
+/// returning watcher cancels it (phase 384 — owner «Профіль» → master mode →
+/// «‹ Салон»).
+const Duration kSalonManagementProfileCacheWindow = Duration(seconds: 60);
+
+/// The cache window [SalonManagementProfile.build] arms. Production uses
+/// [kSalonManagementProfileCacheWindow]; `makeTestContainer` defaults it to
+/// [Duration.zero] (no timer) unless a test overrides it itself. Mirrors
+/// `pollIntervalProvider`.
+@riverpod
+Duration salonManagementProfileCacheWindow(Ref ref) =>
+    kSalonManagementProfileCacheWindow;
+
 /// Loads + mutates the owner/admin salon profile for [salonId].
 ///
-/// Generated provider name: `salonManagementProfileProvider` (a family — call
-/// it with the target salon id, e.g. `salonManagementProfileProvider(salonId)`).
+/// Generated provider name: `salonManagementProfileProvider` (a family —
+/// call it with the target salon id, e.g.
+/// `salonManagementProfileProvider(salonId)`).
 @riverpod
 class SalonManagementProfile extends _$SalonManagementProfile {
   @override
   Future<SalonManagementProfileData> build(String salonId) async {
     // Auth-boundary eviction, mirrors `publicSalonProfileProvider` — this
-    // keepAlive-free family is torn down on logout / session change so a
-    // stale owner/admin salon never survives into the next signed-in user.
+    // family is torn down on logout / session change so a
+    // stale owner/admin salon never survives into the next signed-in user
+    // (the timed keepAlive below is armed AFTER this watch, so a rebuild on
+    // an identity change still evicts the cached entry).
     //
     // NARROWED to the user id (mobile-perf LOW, 2026-09-01). What this watch
     // means is "rebuild when the signed-in IDENTITY changes"; a bare
@@ -156,6 +173,57 @@ class SalonManagementProfile extends _$SalonManagementProfile {
     // that screen reads the role from `authProvider` itself), so nothing but
     // a different signed-in user can invalidate this data.
     ref.watch(authProvider.select(authUserIdOrNull));
+
+    // Phase 384 perf MEDIUM — 60-second cache window measured from when the
+    // LAST WATCHER LEAVES (not from load). An owner's «Профіль» tap LEAVES the
+    // salon shell for owner master mode, dropping this family's only watcher;
+    // without the window «‹ Салон» refetched `GET /salons/{id}` + `GET
+    // …/staff` behind a full loading frame. The link is held for as long as
+    // anyone watches; `onCancel` (last watcher gone) arms the countdown,
+    // `onResume` (a watcher is back) disarms it, so an owner who sat in the
+    // shell for minutes still gets the cache on return.
+    // A bare `ref.read(….notifier)` (e.g. `MySalonsScreen`'s swipe-to-delete)
+    // is a listen-then-close in Riverpod 3, so it too fires `onCancel` and is
+    // released after the window — the link never pins an unwatched element.
+    // `ref.keepAlive()` is illegal inside life-cycle callbacks, so the link
+    // is taken here; if a PAUSED (offstage) shell outlives the window the
+    // link closes, and `onResume` re-takes it in a microtask so a later
+    // leave still gets the full window (phase 384 cycle 3, perf LOW).
+    // Placed AFTER the user-id watch so an account switch still rebuilds:
+    // the rebuild runs `onDispose` (cancelling any pending timer) and drops
+    // the old link; the new build takes a fresh link + listeners.
+    // The window comes from [salonManagementProfileCacheWindowProvider] so
+    // the shared test container can default it to zero (no live 60 s timer
+    // outliving flutter_test's pending-timer check); a zero window arms
+    // neither the link nor the timer.
+    final Duration window = ref.read(salonManagementProfileCacheWindowProvider);
+    if (window > Duration.zero) {
+      KeepAliveLink? link = ref.keepAlive();
+      async.Timer? timer;
+      bool disposed = false;
+      ref.onCancel(() {
+        timer?.cancel();
+        timer = async.Timer(window, () {
+          link?.close();
+          link = null;
+        });
+      });
+      ref.onResume(() {
+        timer?.cancel();
+        timer = null;
+        // A paused (offstage) shell that outlived the window lost its link;
+        // re-take it. `keepAlive()` asserts outside life-cycle callbacks, so
+        // defer to a microtask; `disposed` guards a rebuild/dispose in between
+        // (the element-level `ref.mounted` stays true across a rebuild).
+        async.scheduleMicrotask(() {
+          if (!disposed && ref.mounted && link == null) link = ref.keepAlive();
+        });
+      });
+      ref.onDispose(() {
+        disposed = true;
+        timer?.cancel();
+      });
+    }
 
     final SalonRepository repo = ref.read(salonRepositoryProvider);
     // Load both in parallel — neither read depends on the other. Unwraps
@@ -475,8 +543,10 @@ class SalonManagementProfile extends _$SalonManagementProfile {
   /// `runDeleteSalonFlow`'s doc for why that moved to the caller. Two
   /// independent Riverpod gotchas made doing it here unreliable:
   ///
-  /// 1. `salonManagementProfileProvider` is `@riverpod`: autoDispose, no
-  ///    `ref.keepAlive()`. `MySalonsScreen`'s swipe-to-delete never watches
+  /// 1. `salonManagementProfileProvider` is `@riverpod`: autoDispose, with
+  ///    only a 60 s cache window that starts when the last watcher leaves
+  ///    (Phase 384) — never a permanent `ref.keepAlive()`.
+  ///    `MySalonsScreen`'s swipe-to-delete never watches
   ///    this family at all (unlike `SettingsScreen`/`SalonSettingsScreen`,
   ///    which incidentally keep it alive by watching it for display), so
   ///    the element can be disposed mid-await.

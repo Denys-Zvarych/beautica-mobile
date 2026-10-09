@@ -110,6 +110,8 @@ class _$NotificationParams extends NotificationParams {
   @override
   final String? salonName;
   @override
+  final String? masterName;
+  @override
   final String? subjectName;
   @override
   final NotificationParamsSubjectRoleEnum? subjectRole;
@@ -124,6 +126,7 @@ class _$NotificationParams extends NotificationParams {
       this.serviceCount,
       this.startsAt,
       this.salonName,
+      this.masterName,
       this.subjectName,
       this.subjectRole})
       : super._();
@@ -145,6 +148,7 @@ class _$NotificationParams extends NotificationParams {
         serviceCount == other.serviceCount &&
         startsAt == other.startsAt &&
         salonName == other.salonName &&
+        masterName == other.masterName &&
         subjectName == other.subjectName &&
         subjectRole == other.subjectRole;
   }
@@ -157,6 +161,7 @@ class _$NotificationParams extends NotificationParams {
     _$hash = $jc(_$hash, serviceCount.hashCode);
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, salonName.hashCode);
+    _$hash = $jc(_$hash, masterName.hashCode);
     _$hash = $jc(_$hash, subjectName.hashCode);
     _$hash = $jc(_$hash, subjectRole.hashCode);
     _$hash = $jf(_$hash);
@@ -171,6 +176,7 @@ class _$NotificationParams extends NotificationParams {
           ..add('serviceCount', serviceCount)
           ..add('startsAt', startsAt)
           ..add('salonName', salonName)
+          ..add('masterName', masterName)
           ..add('subjectName', subjectName)
           ..add('subjectRole', subjectRole))
         .toString();
@@ -202,6 +208,10 @@ class NotificationParamsBuilder
   String? get salonName => _$this._salonName;
   set salonName(String? salonName) => _$this._salonName = salonName;
 
+  String? _masterName;
+  String? get masterName => _$this._masterName;
+  set masterName(String? masterName) => _$this._masterName = masterName;
+
   String? _subjectName;
   String? get subjectName => _$this._subjectName;
   set subjectName(String? subjectName) => _$this._subjectName = subjectName;
@@ -223,6 +233,7 @@ class NotificationParamsBuilder
       _serviceCount = $v.serviceCount;
       _startsAt = $v.startsAt;
       _salonName = $v.salonName;
+      _masterName = $v.masterName;
       _subjectName = $v.subjectName;
       _subjectRole = $v.subjectRole;
       _$v = null;
@@ -251,6 +262,7 @@ class NotificationParamsBuilder
           serviceCount: serviceCount,
           startsAt: startsAt,
           salonName: salonName,
+          masterName: masterName,
           subjectName: subjectName,
           subjectRole: subjectRole,
         );

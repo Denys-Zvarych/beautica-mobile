@@ -43,7 +43,7 @@ part 'booking_detail_response.g.dart';
 /// * [locationNote] - The provider's free-text arrival hint (e.g. \"3-й поверх, код 1234\", \"вхід з двору, дзвонити двічі\"). Resolved by the identical salon-vs-independent rule as street/buildingNo, against the salon THIS BOOKING was made at (bookings.salon_id): a salon booking surfaces that salon's own note — never the master's current salon's, should the master have moved since — and an independent-master booking surfaces the master's own note. Nullable — most providers never set one.
 /// * [categoryName] - The RAW category slug (e.g. \"NAIL_SERVICE\"), sourced directly from service_definitions.category — NOT a human-readable display name, despite the field name. The Ukrainian display text lives in platform_categories.display_name, which no booking read path joins. Kept for backward compatibility with existing consumers; do not rename or repoint it to the display name without a coordinated client migration — that would silently change every current consumer's rendered value. New code that needs a stable machine key for icon/category resolution should prefer categoryKey below.
 /// * [canReview]
-/// * [providerCanReviewClient] - TRUE only for the CURRENT authenticated viewer, and only on GET /bookings/{id}: the viewer has provider review-authority over this booking, the booking is COMPLETED (strictly — unlike the client-side canReview flag, an elapsed-but-unclosed CONFIRMED booking does NOT qualify here; see BookingClosureRule#isProviderReviewEligible), it has a real (non-guest) client, and no ClientReview exists for it yet. A SALON_MASTER reads TRUE only on a booking they themselves performed (phase 316) and FALSE on a colleague's; this is the ONLY booking write that role holds — decline/not-complete/complete/reschedule still 403 for them. FALSE for a CLIENT viewer, an unauthorized provider, or any row of the CLIENT listing path of GET /bookings/me (which hardcodes false). The PROVIDER rows of GET /bookings/me carry the real per-row value — see BookingDetailResponse's class javadoc. Gates the \"Залишити відгук про клієнта\" CTA; the write endpoint (POST /client-reviews) re-checks the same conditions server-side regardless of this value.
+/// * [providerCanReviewClient] - TRUE only for the CURRENT authenticated viewer, and only on GET /bookings/{id}: the viewer has provider review-authority over this booking, the booking is COMPLETED (strictly — unlike the client-side canReview flag, an elapsed-but-unclosed CONFIRMED booking does NOT qualify here; see BookingClosureRule#isProviderReviewEligible), it has a real (non-guest) client, and no ClientReview exists for it yet. Phase 355: TRUE for the salon owner/admin of the booking's salon and for an independent master on their own booking; ALWAYS FALSE for a SALON_MASTER (even on a booking they performed). FALSE for a CLIENT viewer, an unauthorized provider, or any row of the CLIENT listing path of GET /bookings/me (which hardcodes false). The PROVIDER rows of GET /bookings/me carry the real per-row value — see BookingDetailResponse's class javadoc. Gates the \"Залишити відгук про клієнта\" CTA; the write endpoint (POST /client-reviews) re-checks the same conditions server-side regardless of this value.
 /// * [appointmentId] - The multi-service visit (BE-5) this booking belongs to, or null for a legacy single-service booking (appointment_id IS NULL). Strictly additive; when non-null the client can fetch the full visit via GET /appointments/{appointmentId}. Both mapper paths (entity + CLIENT projection) read the SAME appointment_id column, so they never diverge.
 /// * [clientAvatarUrl] - The booking client's profile photo — the same already-public Cloudflare R2 object URL served by masterAvatarUrl and every other avatar field in this API (never a signed URL, never a raw storage key). Lets a provider timeline render the client's photo instead of a generic glyph. NULL in two cases, both of which must render the fallback glyph: (1) a guest (LINK) booking, which has no registered account at all (client_id IS NULL, V89 chk_bookings_guest_fields) and therefore no photo and no fallback — unlike clientFirstName/clientLastName, which do fall back to the OTP-verified guest name; (2) a registered client who has never uploaded one. Do not distinguish the two client-side. Both causes mean strictly 'this booking has no client photo' — NULL here never encodes who is asking. The value depends only on the booking, so the same booking yields the same value on GET /bookings/{id} and on every row of GET /bookings/me, for a provider and for the client themselves alike; a client reading their own booking sees their own photo. Safe to cache by booking id across both endpoints.
 /// * [awaitingClosure] - Derived, read-time-only (Phase 29.1/29.2) — TRUE when this booking's status is still CONFIRMED but its endsAt has already elapsed: no scheduled job ever transitions such a booking to a terminal state, so this flags the ones the provider still needs to close via /complete, /not-complete or /decline. NEVER persisted, NEVER cached — recomputed on every read from (status, endsAt, the current instant). NOT orthogonal to canReview since the review-eligibility widening: an elapsed-but-unclosed CONFIRMED booking reads TRUE here AND (when it has a registered client and no existing review) TRUE for canReview too — closure-awaiting and review-eligible now deliberately overlap for exactly this row shape, by locked product decision (a booking that entered the client's Past tab by elapsed time is reviewable even before the provider closes it — see BookingClosureRule#isReviewEligible). The same for every row of GET /bookings/me and for GET /bookings/{id} — a pure function of the booking, not of the viewer.
@@ -52,6 +52,8 @@ part 'booking_detail_response.g.dart';
 /// * [salonId] - The salon this booking was made AT, as snapshotted on the booking row (bookings.salon_id). NULL for an INDEPENDENT_MASTER booking. Exists so a client can invalidate its own salon-scoped caches after leaving a review: ReviewService#createReview stamps the review with booking.getSalon() and ReviewEventListener recalculates THAT salon's avg_rating/review_count, so this is the id whose aggregates moved. As of phase 242 salonName and the street/buildingNo/locationNote/cityLabel/districtLabel block are resolved from this SAME booking snapshot, so salonId != null and salonName != null are one predicate and the id always identifies the premises whose address is displayed alongside it. (Before 242 the address block came from the master's LIVE salon and the two could disagree after a rotation — that divergence is gone.)
 /// * [categoryKey] - Stable machine key for the client-side category-icon resolver — the uppercase slug of the service's category (e.g. \"NAIL_SERVICE\"), or null when the service has no category. Mirrors ClientAggregationRepository#findTimeline's categoryKey/categoryName pair (Beauty Timeline). Prefer this over categoryName for icon resolution — categoryName is for display only. Never a fallback/placeholder value: a null here must render no icon, not a guessed one.
 /// * [reviewByClient] - The review THIS booking's client left about the master — rating plus the full comment (phase 317 D2: the text is already world-readable through the permitAll GET /masters/{id}/reviews listing, so withholding it here would be theatre). Null when the booking carries no review. SERVED ONLY BY GET /bookings/{id}: every listing surface — the provider and CLIENT branches of GET /bookings/me, GET /bookings/salon/{salonId}, and the create/reschedule mutation responses — sends null unconditionally, because a booking CARD renders no review body and paying a per-page review fetch for a field nothing draws is not worth the statement. Do NOT read a null on a list row as 'this booking has no review'; re-read the booking through GET /bookings/{id} to learn that. This is the same explicitly-surface-scoped contract providerCanReviewClient already documents on this DTO.
+/// * [clientAvgRating] - The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
+/// * [clientReviewCount] - How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -154,7 +156,7 @@ abstract class BookingDetailResponse
   @BuiltValueField(wireName: r'canReview')
   bool? get canReview;
 
-  /// TRUE only for the CURRENT authenticated viewer, and only on GET /bookings/{id}: the viewer has provider review-authority over this booking, the booking is COMPLETED (strictly — unlike the client-side canReview flag, an elapsed-but-unclosed CONFIRMED booking does NOT qualify here; see BookingClosureRule#isProviderReviewEligible), it has a real (non-guest) client, and no ClientReview exists for it yet. A SALON_MASTER reads TRUE only on a booking they themselves performed (phase 316) and FALSE on a colleague's; this is the ONLY booking write that role holds — decline/not-complete/complete/reschedule still 403 for them. FALSE for a CLIENT viewer, an unauthorized provider, or any row of the CLIENT listing path of GET /bookings/me (which hardcodes false). The PROVIDER rows of GET /bookings/me carry the real per-row value — see BookingDetailResponse's class javadoc. Gates the \"Залишити відгук про клієнта\" CTA; the write endpoint (POST /client-reviews) re-checks the same conditions server-side regardless of this value.
+  /// TRUE only for the CURRENT authenticated viewer, and only on GET /bookings/{id}: the viewer has provider review-authority over this booking, the booking is COMPLETED (strictly — unlike the client-side canReview flag, an elapsed-but-unclosed CONFIRMED booking does NOT qualify here; see BookingClosureRule#isProviderReviewEligible), it has a real (non-guest) client, and no ClientReview exists for it yet. Phase 355: TRUE for the salon owner/admin of the booking's salon and for an independent master on their own booking; ALWAYS FALSE for a SALON_MASTER (even on a booking they performed). FALSE for a CLIENT viewer, an unauthorized provider, or any row of the CLIENT listing path of GET /bookings/me (which hardcodes false). The PROVIDER rows of GET /bookings/me carry the real per-row value — see BookingDetailResponse's class javadoc. Gates the \"Залишити відгук про клієнта\" CTA; the write endpoint (POST /client-reviews) re-checks the same conditions server-side regardless of this value.
   @BuiltValueField(wireName: r'providerCanReviewClient')
   bool? get providerCanReviewClient;
 
@@ -189,6 +191,14 @@ abstract class BookingDetailResponse
   /// The review THIS booking's client left about the master — rating plus the full comment (phase 317 D2: the text is already world-readable through the permitAll GET /masters/{id}/reviews listing, so withholding it here would be theatre). Null when the booking carries no review. SERVED ONLY BY GET /bookings/{id}: every listing surface — the provider and CLIENT branches of GET /bookings/me, GET /bookings/salon/{salonId}, and the create/reschedule mutation responses — sends null unconditionally, because a booking CARD renders no review body and paying a per-page review fetch for a field nothing draws is not worth the statement. Do NOT read a null on a list row as 'this booking has no review'; re-read the booking through GET /bookings/{id} to learn that. This is the same explicitly-surface-scoped contract providerCanReviewClient already documents on this DTO.
   @BuiltValueField(wireName: r'reviewByClient')
   ClientAuthoredReviewResponse? get reviewByClient;
+
+  /// The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
+  @BuiltValueField(wireName: r'clientAvgRating')
+  num? get clientAvgRating;
+
+  /// How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
+  @BuiltValueField(wireName: r'clientReviewCount')
+  int? get clientReviewCount;
 
   BookingDetailResponse._();
 
@@ -490,6 +500,20 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.reviewByClient,
         specifiedType: const FullType(ClientAuthoredReviewResponse),
+      );
+    }
+    if (object.clientAvgRating != null) {
+      yield r'clientAvgRating';
+      yield serializers.serialize(
+        object.clientAvgRating,
+        specifiedType: const FullType.nullable(num),
+      );
+    }
+    if (object.clientReviewCount != null) {
+      yield r'clientReviewCount';
+      yield serializers.serialize(
+        object.clientReviewCount,
+        specifiedType: const FullType.nullable(int),
       );
     }
   }
@@ -802,6 +826,22 @@ class _$BookingDetailResponseSerializer
             specifiedType: const FullType(ClientAuthoredReviewResponse),
           ) as ClientAuthoredReviewResponse;
           result.reviewByClient.replace(valueDes);
+          break;
+        case r'clientAvgRating':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(num),
+          ) as num?;
+          if (valueDes == null) continue;
+          result.clientAvgRating = valueDes;
+          break;
+        case r'clientReviewCount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(int),
+          ) as int?;
+          if (valueDes == null) continue;
+          result.clientReviewCount = valueDes;
           break;
         default:
           unhandled.add(key);

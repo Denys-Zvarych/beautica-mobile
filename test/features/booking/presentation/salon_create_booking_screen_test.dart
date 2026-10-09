@@ -13,6 +13,7 @@
 // laziness, etc.) is already covered by `master_create_booking_screen_test
 // .dart` against the SAME widgets and is not re-proven here.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -345,6 +346,12 @@ class _FakeSlotRepository implements SlotRepository {
 }
 
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   _FakeBookingRepository({this.errorToThrow, this.hold, this.responseOverride});
 
   Object? errorToThrow;
@@ -422,6 +429,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
@@ -462,6 +470,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override

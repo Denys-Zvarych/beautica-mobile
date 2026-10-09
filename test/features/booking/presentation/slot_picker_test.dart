@@ -100,6 +100,7 @@ BookingSlotPickerArgs _args({
   bool hideMasterIdentity = false,
   bool returnSlotToCaller = false,
   List<DateTimeRange> excludeWindows = const <DateTimeRange>[],
+  String? returnRoute,
 }) => BookingSlotPickerArgs(
   masterId: _kMaster.id,
   master: _kMaster,
@@ -109,6 +110,7 @@ BookingSlotPickerArgs _args({
   hideMasterIdentity: hideMasterIdentity,
   returnSlotToCaller: returnSlotToCaller,
   excludeWindows: excludeWindows,
+  returnRoute: returnRoute,
 );
 
 const WalkInGuest _kGuest = WalkInGuest(
@@ -274,7 +276,7 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
             'confirm-stub:${args.masterId}:${args.services.first.id}:'
             '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}:'
             'guest=${args.guest?.phone}:hideMasterIdentity='
-            '${args.hideMasterIdentity}',
+            '${args.hideMasterIdentity}:returnRoute=${args.returnRoute}',
           ),
         );
       },
@@ -1815,6 +1817,35 @@ void main() {
 
       expect(find.textContaining('guest=${_kGuest.phone}'), findsOneWidget);
       expect(find.textContaining('hideMasterIdentity=true'), findsOneWidget);
+      expect(find.textContaining('returnRoute=null'), findsOneWidget);
+    });
+
+    // Phase 383 (24.1f) — the owner walk-in chain's «Готово» landing is
+    // forwarded verbatim onto the confirm args.
+    testWidgets('should_forwardReturnRoute_when_ownerWalkInConfirms', (
+      tester,
+    ) async {
+      await pumpTimeScreen(
+        tester,
+        args: _args(
+          guest: _kGuest,
+          hideMasterIdentity: true,
+          returnRoute: RouteNames.ownerMasterBookings,
+        ),
+      );
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('returnRoute=${RouteNames.ownerMasterBookings}'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('should_forwardNulls_when_clientPathConfirms', (tester) async {

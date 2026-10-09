@@ -89,6 +89,20 @@ extension BookingDisplayX on Booking {
     return avg;
   }
 
+  /// The CLIENT's rating as the provider should see it — the client-side twin
+  /// of [masterDisplayRating], folding the same "no rating yet" shapes onto one
+  /// `null`: an absent average, a stale `<= 0` average, and a KNOWN zero
+  /// [Booking.clientReviewCount]. A guest booking (null average and count)
+  /// also lands on `null`; the caller decides whether that renders «—» or
+  /// nothing via [isGuestBooking].
+  double? get clientDisplayRating {
+    final double? avg = clientAvgRating;
+    if (avg == null || avg <= 0) return null;
+    final int? count = clientReviewCount;
+    if (count != null && count <= 0) return null;
+    return avg;
+  }
+
   /// A salon booking (`salonName != null`) was acted on BY THE SALON; an
   /// independent-master booking was acted on BY THE MASTER. The cancelled /
   /// declined LABEL no longer varies on this (both read the neutral

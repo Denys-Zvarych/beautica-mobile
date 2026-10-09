@@ -64,12 +64,16 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/domain/service_target.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -104,6 +108,18 @@ const User _kSalonMasterUser = User(
   firstName: 'Майстер',
   lastName: 'Салону',
   salonId: _kSalonId,
+);
+
+/// Phase 380 (24.1c) — a SALON_OWNER whose `/masters/me` row is the same
+/// [_kViewerMasterRowId] in [_kSalonId] (the owner-as-master row). Session
+/// userId again distinct from the row id.
+const User _kSalonOwnerUser = User(
+  id: 'user-owner-O',
+  email: 'owner@beautica.ua',
+  role: UserRole.salonOwner,
+  firstName: 'Власниця',
+  lastName: 'Салону',
+  hasMasterProfile: true,
 );
 
 const User _kIndependentMasterUser = User(
@@ -187,6 +203,17 @@ class _ControlledMasterProfile extends MasterProfile {
   }
 }
 
+/// Phase 380 — the owner's salons, read by [canManageSalonProvider]. Static
+/// so a case can drop [_kSalonId] to prove `writable` follows the predicate.
+class _SettledMySalons extends MySalons {
+  static List<Salon> salons = const <Salon>[
+    Salon(id: _kSalonId, name: 'Test Salon', isPrimary: true),
+  ];
+
+  @override
+  Future<List<Salon>> build() async => salons;
+}
+
 class _MockDio extends Mock implements Dio {}
 
 class _MockServiceApi extends Mock implements ServiceControllerApi {}
@@ -228,6 +255,9 @@ void main() {
     _ControlledMasterProfile.failNext = false;
     _ControlledMasterProfile.salonId = _kSalonId;
     _ControlledMasterProfile.builds = 0;
+    _SettledMySalons.salons = const <Salon>[
+      Salon(id: _kSalonId, name: 'Test Salon', isPrimary: true),
+    ];
     recordedUris = <String>[];
     salonRows = <Map<String, Object?>>[
       _serviceRow(assignmentId: 'svc-1', defId: 'def-1', name: 'Манікюр'),
@@ -296,6 +326,7 @@ void main() {
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         masterProfileProvider.overrideWith(_ControlledMasterProfile.new),
+        mySalonsProvider.overrideWith(_SettledMySalons.new),
         dioProvider.overrideWithValue(mockDio),
         serviceApiProvider.overrideWithValue(mockServiceApi),
         categoryRequestApiProvider.overrideWithValue(mockCategoryApi),
@@ -832,4 +863,192 @@ void main() {
       );
     },
   );
+
+  // -------------------------------------------------------------------------
+  // Phase 380 (24.1c) — the WIDENED leaf. `/staff/services` must be exactly
+  // what it was; the owner mount at `/owner/master/services` is the same
+  // builder with the owner's additive params.
+  // -------------------------------------------------------------------------
+
+  group('phase 380 — _SalonMasterOwnServicesRoute widening', () {
+    testWidgets('REGRESSION PIN: /staff/services is still read-only with the '
+        '/staff/* nav, no back, no label, no replacement bar', (tester) async {
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.salonMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      final ServicesListScreen screen = tester.widget<ServicesListScreen>(
+        find.byType(ServicesListScreen),
+      );
+      expect(screen.writable, isFalse);
+      expect(screen.navScheduleRoute, RouteNames.salonMasterSchedule);
+      expect(screen.navProfileRoute, RouteNames.salonMasterProfile);
+      expect(screen.navBookingsRoute, RouteNames.salonMasterBookings);
+      expect(screen.showBack, isFalse);
+      expect(screen.backLabel, isNull);
+      expect(screen.bottomNavBar, isNull);
+      expect(screen.setupRoute, isNull);
+      expect(screen.editRouteBuilder, isNull);
+      expect(find.byKey(const Key('btn-create-service')), findsNothing);
+      // Phase 380 perf LOW — the `/staff` mount builds a `const`
+      // ServicesListScreen, so a rebuild of the owning gate hands Flutter the
+      // SAME instance and the list subtree short-circuits. (Comparing against
+      // a `const` written here cannot prove it: `flutter test` tracks widget
+      // creation, which makes each const call-site a distinct instance.)
+      // Force the gate to rebuild and require the identical widget back; a
+      // non-const `ServicesListScreen(...)` yields a fresh instance.
+      final Finder gate = find.ancestor(
+        of: find.byType(ServicesListScreen),
+        matching: find.byWidgetPredicate(
+          (Widget w) => w.runtimeType.toString() == '_OwnMasterRowGate',
+        ),
+      );
+      expect(gate, findsOneWidget);
+      tester.element(gate).markNeedsBuild();
+      await tester.pump();
+      expect(
+        identical(
+          tester.widget<ServicesListScreen>(find.byType(ServicesListScreen)),
+          screen,
+        ),
+        isTrue,
+        reason: '/staff/services must mount the const ServicesListScreen',
+      );
+    });
+
+    testWidgets('SALON_OWNER at /owner/master/services: writable, scoped to '
+        'the owner\'s OWN row (/salons/S/masters/M/services, never '
+        '/masters/me/services), owner nav with tile 0 active and the plain '
+        'icon-only back', (tester) async {
+      _MutableAuthNotifier.seed = _kSalonOwnerUser;
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      expect(recordedUris, contains(salonServicesUri(_kViewerMasterRowId)));
+      for (final String uri in recordedUris) {
+        expect(uri, isNot(contains('user-owner-O')));
+      }
+      verifyNever(() => mockServiceApi.getMyServices());
+
+      final ServicesListScreen screen = tester.widget<ServicesListScreen>(
+        find.byType(ServicesListScreen),
+      );
+      expect(screen.writable, isTrue, reason: 'backend 345: owner row 2xx');
+      expect(screen.setupRoute, RouteNames.ownerMasterServiceSetup);
+      expect(
+        screen.editRouteBuilder?.call('svc-1'),
+        RouteNames.ownerMasterServiceEdit('svc-1'),
+      );
+      expect(screen.showBack, isTrue);
+      // Decision 2026-10-08 — only «Профіль» carries «‹ Салон»; this tab
+      // shows the app's standard arrow (no label) back to the profile tab.
+      expect(screen.backFallbackRoute, RouteNames.ownerMasterProfile);
+      expect(screen.backLabel, isNull);
+      expect(screen.backSemanticLabel, isNull);
+      expect(
+        find.text(
+          AppLocalizations.of(
+            tester.element(find.byType(ServicesListScreen)),
+          ).ownerMasterModeBack,
+        ),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('btn-create-service')), findsOneWidget);
+
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.activeIndex, 0);
+      expect(bar.servicesRoute, RouteNames.ownerMasterServices);
+      expect(bar.profileRoute, RouteNames.ownerMasterProfile);
+
+      expect(
+        ProviderScope.containerOf(
+          tester.element(find.byType(ServicesListScreen)),
+        ).read(serviceTargetProvider),
+        const ServiceTarget.salonMaster(
+          salonId: _kSalonId,
+          masterId: _kViewerMasterRowId,
+        ),
+      );
+    });
+
+    testWidgets('SALON_OWNER: the plain back with nothing to pop goes to the '
+        'master-mode «Профіль» tab — never the salon', (tester) async {
+      _MutableAuthNotifier.seed = _kSalonOwnerUser;
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      await tester.tap(find.byKey(ServicesListScreen.backKey));
+      await pumpUntil(
+        tester,
+        () => router.state.matchedLocation != RouteNames.ownerMasterServices,
+      );
+
+      expect(
+        router.state.matchedLocation,
+        isNot(RouteNames.ownerMasterServices),
+        reason: 'go(ownerMasterProfile) must leave the services tab',
+      );
+      // mobile-qa: pin the DESTINATION, not merely "left the tab" — the
+      // pre-2026-10-08 fallback (salonHome) would satisfy the line above.
+      expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
+    });
+
+    testWidgets(
+      'SALON_OWNER: SYSTEM back on «Послуги» does what the arrow does — '
+      'master-mode «Профіль», never the salon',
+      (tester) async {
+        _MutableAuthNotifier.seed = _kSalonOwnerUser;
+
+        final container = makeContainer();
+        final router = await pumpRouter(tester, container);
+
+        router.go(RouteNames.ownerMasterServices);
+        await pumpUntilFound(tester, countHeader());
+
+        await tester.binding.handlePopRoute();
+        await pumpUntil(
+          tester,
+          () => router.state.matchedLocation != RouteNames.ownerMasterServices,
+        );
+
+        expect(router.state.matchedLocation, RouteNames.ownerMasterProfile);
+      },
+    );
+
+    testWidgets('SALON_OWNER: `writable` follows canManageSalonProvider for '
+        'the RESOLVED row\'s salon — a salon not in mySalons is read-only', (
+      tester,
+    ) async {
+      _MutableAuthNotifier.seed = _kSalonOwnerUser;
+      _SettledMySalons.salons = const <Salon>[
+        Salon(id: 'some-other-salon', name: 'Other', isPrimary: true),
+      ];
+
+      final container = makeContainer();
+      final router = await pumpRouter(tester, container);
+
+      router.go(RouteNames.ownerMasterServices);
+      await pumpUntilFound(tester, countHeader());
+
+      expect(
+        tester
+            .widget<ServicesListScreen>(find.byType(ServicesListScreen))
+            .writable,
+        isFalse,
+      );
+      expect(find.byKey(const Key('btn-create-service')), findsNothing);
+    });
+  });
 }

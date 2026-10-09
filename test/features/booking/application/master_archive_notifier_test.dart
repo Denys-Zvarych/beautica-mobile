@@ -2061,4 +2061,42 @@ void main() {
       ).called(2);
     });
   });
+
+  // Phase 382 (24.1e) — the owner-as-master flag reaches the repository.
+  group('asOwnerMaster (phase 382) reaches getMyBookings.asMaster', () {
+    for (final bool flag in <bool>[false, true]) {
+      test('asOwnerMaster: $flag → asMaster: $flag', () async {
+        final repo = _MockBookingRepository();
+        when(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            asMaster: any(named: 'asMaster'),
+          ),
+        ).thenAnswer((_) async => _page(const <Booking>[]));
+        final c = _container(repo);
+
+        await c.read(
+          masterArchiveProvider(
+            MasterArchiveQuery.of(asOwnerMaster: flag),
+          ).future,
+        );
+
+        final List<dynamic> captured = verify(
+          () => repo.getMyBookings(
+            statuses: any(named: 'statuses'),
+            partition: any(named: 'partition'),
+            serviceIds: any(named: 'serviceIds'),
+            sort: any(named: 'sort'),
+            page: any(named: 'page'),
+            asMaster: captureAny(named: 'asMaster'),
+          ),
+        ).captured;
+        expect(captured, <dynamic>[flag]);
+      });
+    }
+  });
 }

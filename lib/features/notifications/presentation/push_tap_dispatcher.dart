@@ -92,6 +92,8 @@ void pushTapDispatcher(Ref ref) {
           context: ctx,
           target: tap.target,
           role: role,
+          type: tap.type,
+          notificationId: tap.notificationId,
           fallbackRoute: RouteNames.notifications,
         ),
       );

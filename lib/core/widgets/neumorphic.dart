@@ -1121,6 +1121,7 @@ class NeumorphicIconButton extends StatelessWidget {
     required this.semanticLabel,
     this.enabled = true,
     this.faceSize,
+    this.label,
   }) : assert(
          icon != null || iconWidget != null,
          'NeumorphicIconButton: supply either an `icon` (IconData) or an '
@@ -1129,7 +1130,23 @@ class NeumorphicIconButton extends StatelessWidget {
        assert(
          faceSize == null || (faceSize > 0 && faceSize <= extent),
          'NeumorphicIconButton.faceSize must be in (0, extent].',
+       ),
+       assert(
+         label == null || faceSize == null,
+         'NeumorphicIconButton: `label` (the wide pill) and `faceSize` (the '
+         'dense reduced face) are mutually exclusive.',
        );
+
+  /// Optional VISIBLE text rendered beside the glyph (additive, Phase 24.1a —
+  /// the owner master-mode «‹ Салон» back affordance). Non-null turns the
+  /// square face into a pill: the same raised decoration, [extent] high, width
+  /// intrinsic (icon + [VelvetSpacing.xs] + label, padded [VelvetSpacing.md]
+  /// horizontally). The visible text is excluded from semantics — the screen
+  /// reader announces [semanticLabel] once.
+  ///
+  /// `null` (every pre-existing call site) emits the byte-identical square
+  /// tree this button shipped with.
+  final String? label;
 
   /// Visible diameter of the raised face, for a DENSE row that cannot afford a
   /// 48 dp button (additive, Phase 363 notification row). The TAP TARGET stays
@@ -1181,6 +1198,12 @@ class NeumorphicIconButton extends StatelessWidget {
   /// avoid a vertical jump when the burger is conditionally absent.
   static const double extent = 48;
 
+  /// Maximum width of the labelled pill face ([label] non-null): three
+  /// [extent]s. A longer label ellipsises instead of overflowing. Sized so the
+  /// longest label in use («Салон», ≈ 132 dp at 2.0× text scale) never
+  /// truncates.
+  static const double labelMaxWidth = 3 * extent;
+
   // Hoisted: VelvetRadii.field is a compile-time constant so the BorderRadius
   // can be static const, avoiding an allocation per build.
   static const BorderRadius _buttonRadius = BorderRadius.all(
@@ -1190,17 +1213,21 @@ class NeumorphicIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double? small = faceSize;
-    final Widget raised = Container(
-      height: small ?? extent,
-      width: small ?? extent,
-      decoration: const BoxDecoration(
-        color: BrandColors.base,
-        borderRadius: _buttonRadius,
-        boxShadow: VelvetShadows.extrudedSmall,
-      ),
-      child:
-          iconWidget ?? Icon(icon, color: BrandColors.textSecondary, size: 22),
-    );
+    final String? text = label;
+    final Widget raised = text != null
+        ? _labelledFace(text)
+        : Container(
+            height: small ?? extent,
+            width: small ?? extent,
+            decoration: const BoxDecoration(
+              color: BrandColors.base,
+              borderRadius: _buttonRadius,
+              boxShadow: VelvetShadows.extrudedSmall,
+            ),
+            child:
+                iconWidget ??
+                Icon(icon, color: BrandColors.textSecondary, size: 22),
+          );
     // A reduced face keeps the full 48 dp hit box. The transparent
     // `ColoredBox` is hit-opaque, so the margin around the face is tappable
     // too (the GestureDetector below defers to its child).
@@ -1237,6 +1264,40 @@ class NeumorphicIconButton extends StatelessWidget {
           opacity: 0.6,
           child: GestureDetector(onTap: onTap, child: face),
         ),
+      ),
+    );
+  }
+
+  /// The labelled pill face — same raised decoration as the square face,
+  /// [extent] high, intrinsic width capped at [labelMaxWidth] (the label
+  /// ellipsises past that).
+  Widget _labelledFace(String text) {
+    return Container(
+      height: extent,
+      constraints: const BoxConstraints(maxWidth: labelMaxWidth),
+      padding: const EdgeInsets.symmetric(horizontal: VelvetSpacing.md),
+      decoration: const BoxDecoration(
+        color: BrandColors.base,
+        borderRadius: _buttonRadius,
+        boxShadow: VelvetShadows.extrudedSmall,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          iconWidget ?? Icon(icon, color: BrandColors.textSecondary, size: 22),
+          const SizedBox(width: VelvetSpacing.xs),
+          Flexible(
+            child: ExcludeSemantics(
+              child: Text(
+                text,
+                style: VelvetText.bodyStrong(),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

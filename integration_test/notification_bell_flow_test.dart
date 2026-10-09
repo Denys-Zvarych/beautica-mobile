@@ -267,17 +267,37 @@ void main() {
 
   // Phase 365 addendum — the «Профіль» tab of the salon shell (nav tile 3)
   // carries the bell for SALON_OWNER and SALON_ADMIN, left of the tune button.
-  for (final ({UserRole role, String salonId, Key bell, Key tune}) c
-      in <({UserRole role, String salonId, Key bell, Key tune})>[
+  // Phase 384 (24.1g) — for the OWNER that tile leaves the shell for owner
+  // master mode (`/owner/master/profile`), so the profile — and the bell's
+  // return location — is there; the admin stays on the shell's slot.
+  for (final ({
+        UserRole role,
+        String salonId,
+        String profileLocation,
+        Key bell,
+        Key tune,
+      })
+      c
+      in <
+        ({
+          UserRole role,
+          String salonId,
+          String profileLocation,
+          Key bell,
+          Key tune,
+        })
+      >[
         (
           role: UserRole.salonOwner,
           salonId: 'salon-owner-1',
+          profileLocation: RouteNames.ownerMasterProfile,
           bell: const Key('owner-profile-bell'),
           tune: const Key('btn-owner-own-profile-settings'),
         ),
         (
           role: UserRole.salonAdmin,
           salonId: 'salon-admin-1',
+          profileLocation: RouteNames.salonShell('salon-admin-1'),
           bell: const Key('admin-profile-bell'),
           tune: const Key('btn-admin-own-profile-settings'),
         ),
@@ -297,6 +317,7 @@ void main() {
 
         await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
         await AppHarness.settle(tester);
+        AppHarness.expectLocation(router, c.profileLocation);
 
         expect(find.byKey(c.bell), findsOneWidget);
         expect(
@@ -313,7 +334,7 @@ void main() {
           tester,
           router,
           find.byKey(c.bell),
-          RouteNames.salonShell(c.salonId),
+          c.profileLocation,
         );
         expect(find.byKey(c.bell), findsOneWidget);
       });

@@ -57,6 +57,7 @@ doc/ApiResponsePageResponseSalonReviewResponse.md
 doc/ApiResponsePageResponseSalonSearchResult.md
 doc/ApiResponsePageResponseTimelineItemResponse.md
 doc/ApiResponsePassportResponse.md
+doc/ApiResponsePendingBookingActionsCountResponse.md
 doc/ApiResponsePlatformCategoryResponse.md
 doc/ApiResponsePublicSalonResponse.md
 doc/ApiResponseRegistrationResponse.md
@@ -186,6 +187,7 @@ doc/PageResponseTimelineItemResponse.md
 doc/Pageable.md
 doc/PageableObject.md
 doc/PassportResponse.md
+doc/PendingBookingActionsCountResponse.md
 doc/PhoneOtpControllerApi.md
 doc/PhoneOtpSendRequest.md
 doc/PhoneOtpVerifyRequest.md
@@ -360,6 +362,7 @@ lib/src/model/api_response_page_response_salon_review_response.dart
 lib/src/model/api_response_page_response_salon_search_result.dart
 lib/src/model/api_response_page_response_timeline_item_response.dart
 lib/src/model/api_response_passport_response.dart
+lib/src/model/api_response_pending_booking_actions_count_response.dart
 lib/src/model/api_response_platform_category_response.dart
 lib/src/model/api_response_public_salon_response.dart
 lib/src/model/api_response_registration_response.dart
@@ -475,6 +478,7 @@ lib/src/model/page_response_timeline_item_response.dart
 lib/src/model/pageable.dart
 lib/src/model/pageable_object.dart
 lib/src/model/passport_response.dart
+lib/src/model/pending_booking_actions_count_response.dart
 lib/src/model/phone_otp_send_request.dart
 lib/src/model/phone_otp_verify_request.dart
 lib/src/model/platform_category_response.dart
@@ -543,3 +547,5 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_pending_booking_actions_count_response_test.dart
+test/pending_booking_actions_count_response_test.dart

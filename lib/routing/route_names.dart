@@ -1,3 +1,5 @@
+import '../features/services/domain/category_slug.dart';
+
 /// Route path constants for `go_router`.
 ///
 /// Raw path strings must never appear elsewhere in `lib/` — always reference
@@ -443,8 +445,23 @@ abstract final class RouteNames {
   /// none is a literal that a dynamic sibling could shadow — only [mySalons]
   /// and [salonHome] have that concern, both literals under the shorter
   /// `/salons/` prefix).
-  static String salonShell(String salonId, {bool openTeam = false}) =>
-      '${salonPublicProfile(salonId)}/shell${openTeam ? '?$kSalonShellTabQuery=$kSalonShellTabTeam' : ''}';
+  ///
+  /// Phase 391 — `openReviews` opens it on «Відгуки» (`?tab=reviews`);
+  /// mutually exclusive with `openTeam`.
+  static String salonShell(
+    String salonId, {
+    bool openTeam = false,
+    bool openReviews = false,
+  }) {
+    assert(
+      !(openTeam && openReviews),
+      'openTeam and openReviews are exclusive',
+    );
+    final String? tab = openTeam
+        ? kSalonShellTabTeam
+        : (openReviews ? kSalonShellTabReviews : null);
+    return '${salonPublicProfile(salonId)}/shell${tab != null ? '?$kSalonShellTabQuery=$tab' : ''}';
+  }
 
   /// Phase 21.1 — My Salons Hub, the `SALON_OWNER` landing (see
   /// `role_home.dart`'s `roleHomePath`): every salon the owner holds, listed
@@ -588,6 +605,108 @@ abstract final class RouteNames {
   /// row this is the target of). The owner's avatar itself is already live
   /// on the own-profile identity card.
   static const String ownerEditPersonal = '/owner/edit/personal';
+
+  /// Phase 379 (24.1b) — the SALON_OWNER's «master mode» «Профіль» tab: the
+  /// owner's own profile ([OwnerOwnProfileScreen], reused verbatim) mounted
+  /// with the INDEPENDENT_MASTER bottom nav («Профіль» active) and a
+  /// top-left «‹ Салон» back that `go`es to [salonHome] (the last-visited
+  /// salon resolver), so the owner returns to the salon they came from.
+  ///
+  /// THE `/owner/master/*` NAMESPACE. Owner-only, enforced by a prefix gate
+  /// in `auth_redirect.dart` (every other role → `roleHomePath`). A separate
+  /// subtree rather than a widened `/master/*` (INDEPENDENT_MASTER-only),
+  /// `/staff/*` (SALON_MASTER-only) or `/salon/*` (owner + admin) fence —
+  /// widening any of those would leak surfaces across roles. All literals;
+  /// no dynamic `/owner/:x` sibling exists to shadow them. The one dynamic
+  /// segment (380's `services/:serviceId/edit`) sits UNDER the literal
+  /// `services/setup`, which is declared first. Each phase adds
+  /// only its own constants, so `navigation_links_test` NL-R01 never sees an
+  /// unregistered one:
+  ///
+  /// | Constant | Path | Phase |
+  /// |---|---|---|
+  /// | `ownerMasterProfile` | `/owner/master/profile` | 379 |
+  /// | `ownerMasterServices`, `ownerMasterServiceSetup`, `ownerMasterServiceEdit(id)` | `/owner/master/services`, `/owner/master/services/setup`, `/owner/master/services/$id/edit` | 380 |
+  /// | `ownerMasterSchedule` | `/owner/master/schedule` | 381 |
+  /// | `ownerMasterBookings`, `ownerMasterBookingsArchive` | `/owner/master/bookings`, `/owner/master/bookings/archive` | 383 |
+  /// | `ownerMasterBookingNew`, `ownerMasterBookingNewServices` | `/owner/master/bookings/new`, `/owner/master/bookings/new/services` | 383 |
+  ///
+  /// Booking detail / client review reuse the owner's existing
+  /// [salonStaffBookingDetail] / [salonStaffClientReview] (`/salon/*`,
+  /// owner-admitted) — no new dynamic segment.
+  ///
+  /// Not yet reachable from the UI — phase 384 adds the salon-shell entry.
+  static const String ownerMasterProfile = '/owner/master/profile';
+
+  /// Phase 380 (24.1c) — the owner master-mode «Послуги» tab: the owner's
+  /// OWN master-row services (primary salon), writable, rendered by the
+  /// shipped `ServicesListScreen` behind the owner shell's
+  /// `ServiceTarget.salonMaster(primarySalonId, ownerMasterId)` scope.
+  static const String ownerMasterServices = '/owner/master/services';
+
+  /// Phase 388 (24.5a) — [ownerMasterServices] with [slug]'s category
+  /// pre-expanded. Built with [Uri] so the slug is query-encoded.
+  ///
+  /// Callers MUST pass a wire category slug (upper-case, e.g. `NAILS`);
+  /// debug builds assert [isValidCategorySlug].
+  static String ownerMasterServicesExpanded(String slug) {
+    assert(
+      isValidCategorySlug(slug),
+      'ownerMasterServicesExpanded expects a wire category slug, got: $slug',
+    );
+    return Uri(
+      path: ownerMasterServices,
+      queryParameters: <String, String>{'expandCategory': slug},
+    ).toString();
+  }
+
+  /// Phase 380 (24.1c) — «Додати послуги» for the owner's own row. LITERAL
+  /// peer of [ownerMasterServiceEdit]'s `:serviceId` segment, so it is
+  /// declared BEFORE it in `app_router.dart` (literal-before-dynamic).
+  static const String ownerMasterServiceSetup = '$ownerMasterServices/setup';
+
+  /// Phase 380 (24.1c) — «Редагувати послугу» for the owner's own row.
+  /// [id] is percent-encoded (it is the only dynamic segment).
+  static String ownerMasterServiceEdit(String id) =>
+      '$ownerMasterServices/${Uri.encodeComponent(id)}/edit';
+
+  /// Phase 381 (24.1d) — the owner master-mode «Графік» tab: the owner's OWN
+  /// master-row weekly schedule + overrides (primary salon), owner-editable,
+  /// rendered by the shipped `MasterScheduleScreen` with a
+  /// `ScheduleScope.salonMaster(primarySalonId, ownerMasterId)` scope — never
+  /// the INDEPENDENT_MASTER-only `/schedule` (whose gate is not widened). The
+  /// weekly editor is the owner-admitted
+  /// [salonManageStaffScheduleWeekly] push, so no sub-route is needed here.
+  /// No `?date=` variant (out of scope).
+  static const String ownerMasterSchedule = '/owner/master/schedule';
+
+  /// Phase 383 (24.1f) — the owner master-mode «Записи» tab: ONLY the
+  /// bookings on the owner's OWN master row (`GET /bookings/me?asMaster=true`,
+  /// backend 354) in the shipped `MasterBookingsScreen` — never the
+  /// INDEPENDENT_MASTER-only `/master/bookings` (whose gate is not widened)
+  /// and never the salon-wide board. Detail pushes reuse the owner-admitted
+  /// [salonStaffBookingDetail]; no dynamic segment lives under this path.
+  static const String ownerMasterBookings = '/owner/master/bookings';
+
+  /// Phase 383 (24.1f) — the owner master-mode «Архів»: the owner's own-row
+  /// history (`MasterArchiveQuery.of(asOwnerMaster: true)`). A LITERAL with
+  /// no dynamic sibling, so nothing can shadow it.
+  static const String ownerMasterBookingsArchive =
+      '$ownerMasterBookings/archive';
+
+  /// Phase 383 (24.1f, decision 2026-10-07) — owner master mode «Новий
+  /// запис»: the independent master's walk-in chain (guest → services →
+  /// slot → confirm) mounted INSIDE the owner shell, so the service step
+  /// reads the shell's `ServiceTarget.salonMaster(salonId, ownerRowId)`
+  /// scope. Literal only — `/owner/master/bookings/` has no dynamic segment,
+  /// so nothing can shadow it. Admission is the `/owner/master/` prefix gate.
+  static const String ownerMasterBookingNew = '$ownerMasterBookings/new';
+
+  /// Phase 383 — the walk-in service step under [ownerMasterBookingNew],
+  /// pushed by `WalkInGuestStepScreen(servicesRoute:)` with the minted
+  /// `WalkInGuest` in `extra`.
+  static const String ownerMasterBookingNewServices =
+      '$ownerMasterBookingNew/services';
 
   /// Phase 14.1 — booking flow Step 1 (service selection), opened from the
   /// public master profile's «Записатись до майстра» CTA with the
@@ -1187,3 +1306,6 @@ abstract final class RouteNames {
 /// on «Команда». Route state consumed once by the shell on its first frame.
 const String kSalonShellTabQuery = 'tab';
 const String kSalonShellTabTeam = 'team';
+
+/// Phase 391 — `?tab=reviews` opens the shell on «Відгуки».
+const String kSalonShellTabReviews = 'reviews';

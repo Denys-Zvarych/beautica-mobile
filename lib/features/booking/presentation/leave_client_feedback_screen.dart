@@ -95,6 +95,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 
+import '../application/booking_calendar_invalidation.dart'
+    show invalidatePendingBookingActionsCount;
 import '../application/booking_detail_notifier.dart';
 import '../application/client_review_signal_provider.dart';
 import '../application/leave_client_feedback_notifier.dart';
@@ -261,6 +263,9 @@ class _LeaveClientFeedbackScreenState
     if (widget.entry == ClientReviewEntry.bookingDetail) {
       ref.invalidate(bookingDetailProvider(widget.bookingId));
     }
+    // Phase 394 — a review removes the booking from the pending-actions count
+    // on EVERY entry (detail or archive); no status changes, so only the count.
+    invalidatePendingBookingActionsCount(ref);
     // BOTH mechanisms fire, and that is deliberate — they cover DIFFERENT
     // journeys and cannot conflict (mobile-perf MEDIUM, 2026-08-17 cycle 2):
     //

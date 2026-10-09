@@ -72,34 +72,6 @@ import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
 
-/// Phase 9.7 — brings a «Майстри» grid card on screen before it is asserted.
-/// The grid is a lazy `SliverGrid` in the screen's one `CustomScrollView`
-/// (phase 368), so a card below the 800x600 fold may not be built yet: it is
-/// first dragged into existence along that outer scrollable, then scrolled
-/// fully into view.
-///
-/// The search always starts from the top, so a card ABOVE an already-scrolled
-/// viewport (disposed by the lazy grid) is found too, not just one below it.
-Future<void> _revealPublicMasterCard(WidgetTester tester, Finder card) async {
-  if (card.evaluate().isEmpty) {
-    tester
-        .state<ScrollableState>(find.byType(Scrollable).first)
-        .position
-        .jumpTo(0);
-    await tester.pumpAndSettle();
-  }
-  if (card.evaluate().isEmpty) {
-    await tester.scrollUntilVisible(
-      card,
-      200,
-      scrollable: find.byType(Scrollable).first,
-      maxScrolls: 20,
-    );
-  }
-  await tester.ensureVisible(card);
-  await tester.pumpAndSettle();
-}
-
 /// Brings a control in the salon header (a tab, the favourite heart) back
 /// into view. The screen is one lazy
 /// `CustomScrollView` (phase 368), so once a long tab body has scrolled the
@@ -377,19 +349,19 @@ void main() {
       // carries an avatarUrl for master-aaa), asserted on the rendered image
       // provider; master-ddd has none and keeps the gradient glyph. Each card
       // is revealed first so this survives the grid becoming lazy.
-      await _revealPublicMasterCard(tester, masterAaaCard);
+      await AppHarness.revealPublicMasterCard(tester, masterAaaCard);
       expect(renderedImageUrls(tester, within: masterAaaCard), <String>[
         'https://media.test/avatars/master-aaa.png',
       ]);
       final Finder masterDddCard = find.byKey(
         const Key('salon-master-card-master-ddd'),
       );
-      await _revealPublicMasterCard(tester, masterDddCard);
+      await AppHarness.revealPublicMasterCard(tester, masterDddCard);
       expectAvatarFallback(tester, masterDddCard);
       // Master display names below are real-wire fixture data from
       // FakeBackend (proving the actual roster decode), not translated copy.
       // Each is asserted inside its own card, revealed first (lazy grid).
-      await _revealPublicMasterCard(tester, masterAaaCard);
+      await AppHarness.revealPublicMasterCard(tester, masterAaaCard);
       expect(
         // i18n-finder-ok: master display name is fixture data, not UI copy.
         find.descendant(of: masterAaaCard, matching: find.text('Софія')),
@@ -398,7 +370,7 @@ void main() {
       final Finder masterCccCard = find.byKey(
         const Key('salon-master-card-master-ccc'),
       );
-      await _revealPublicMasterCard(tester, masterCccCard);
+      await AppHarness.revealPublicMasterCard(tester, masterCccCard);
       expect(masterCccCard, findsOneWidget);
       expect(
         // i18n-finder-ok: master display name is fixture data, not UI copy.
@@ -449,7 +421,7 @@ void main() {
       final Finder masterHhhCard = find.byKey(
         const Key('salon-master-card-master-hhh'),
       );
-      await _revealPublicMasterCard(tester, masterHhhCard);
+      await AppHarness.revealPublicMasterCard(tester, masterHhhCard);
       expect(
         masterHhhCard,
         findsOneWidget,
@@ -460,7 +432,7 @@ void main() {
       final Finder masterIiiCard = find.byKey(
         const Key('salon-master-card-master-iii'),
       );
-      await _revealPublicMasterCard(tester, masterIiiCard);
+      await AppHarness.revealPublicMasterCard(tester, masterIiiCard);
       expect(
         // i18n-finder-ok: master display name is real-wire fixture data.
         find.descendant(of: masterIiiCard, matching: find.text('Вікторія')),
@@ -652,7 +624,7 @@ void main() {
       final Finder masterAaaCardAgain = find.byKey(
         const Key('salon-master-card-master-aaa'),
       );
-      await _revealPublicMasterCard(tester, masterAaaCardAgain);
+      await AppHarness.revealPublicMasterCard(tester, masterAaaCardAgain);
       await tester.tap(masterAaaCardAgain);
       // fixed-wait-ok: settles the real async route-push step after the tap.
       await tester.pumpAndSettle(const Duration(seconds: 1));
@@ -826,12 +798,12 @@ void main() {
         final Finder aaaCard = find.byKey(
           const Key('salon-master-card-master-aaa'),
         );
-        await _revealPublicMasterCard(tester, aaaCard);
+        await AppHarness.revealPublicMasterCard(tester, aaaCard);
         expect(aaaCard, findsOneWidget);
         final Finder cccCard = find.byKey(
           const Key('salon-master-card-master-ccc'),
         );
-        await _revealPublicMasterCard(tester, cccCard);
+        await AppHarness.revealPublicMasterCard(tester, cccCard);
         expect(cccCard, findsOneWidget);
 
         // D3 — admin-zzz genuinely exists for salon-xyz (on `/staff`, the

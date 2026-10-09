@@ -45,9 +45,19 @@ import 'widgets/service_catalogue_accordion.dart'
 /// «Новий запис» step 2 — the guest's service multi-selection, seeded with
 /// the [guest] identity collected by [WalkInGuestStepScreen].
 class WalkInServiceStepScreen extends ConsumerStatefulWidget {
-  const WalkInServiceStepScreen({super.key, required this.guest});
+  const WalkInServiceStepScreen({
+    super.key,
+    required this.guest,
+    this.returnRoute,
+  });
 
   final WalkInGuest guest;
+
+  /// Phase 383 (24.1f) — the done screen's «Готово» landing, seeded onto
+  /// [BookingSlotPickerArgs.returnRoute]. `null` (the default) keeps
+  /// `RouteNames.masterBookings`; the owner master-mode mount passes
+  /// `RouteNames.ownerMasterBookings`.
+  final String? returnRoute;
 
   @override
   ConsumerState<WalkInServiceStepScreen> createState() =>
@@ -127,6 +137,7 @@ class _WalkInServiceStepScreenState
         services: List<MasterService>.unmodifiable(_selected),
         guest: widget.guest,
         hideMasterIdentity: true,
+        returnRoute: widget.returnRoute,
       ),
     );
   }

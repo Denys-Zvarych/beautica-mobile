@@ -67,6 +67,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -90,6 +91,7 @@ import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/uk_calendar.dart';
 import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -97,6 +99,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 
+import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
@@ -336,17 +339,98 @@ Future<void> _applyStatusFilter(
   await AppHarness.settle(tester);
 }
 
+const String _kClientRating = '4.5';
+const String _kClientCount = '(12)';
+const String _kEmDash = '—';
+const String _kZeroRating = '0.0';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
 
+  // ── Provider-view client strip: UNREVIEWED and GUEST wire shapes ───────────
+  //
+  // The rated path is pinned in the flow below. Here the same screen is fed a
+  // real GET /bookings/{id} with (a) a registered client who has no reviews
+  // (`clientReviewCount: 0`, avg omitted) and (b) a guest (`clientId: null`).
+  Future<Finder> openProviderDetail(WidgetTester tester, FakeBackend fb) async {
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+    expect(strip, findsOneWidget);
+    return strip;
+  }
+
+  testWidgets(
+    'PROVIDER view of an UNREVIEWED registered client: the strip shows the '
+    'em-dash and never 0.0',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingClientReviewCount = 0;
+      final Finder strip = await openProviderDetail(tester, fb);
+
+      expect(
+        find.descendant(of: strip, matching: find.text(_kEmDash)),
+        findsOneWidget,
+        reason: 'an unreviewed client reads «★ —»',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kZeroRating)),
+        findsNothing,
+        reason: 'a zero rating must never be printed',
+      );
+    },
+  );
+
+  testWidgets(
+    'PROVIDER view of a GUEST booking: the strip shows no ★ and no em-dash',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingClientIsGuest = true;
+      final Finder strip = await openProviderDetail(tester, fb);
+
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsNothing,
+        reason: 'a guest has no account to be rated',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text(_kEmDash)),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets(
     'INDEPENDENT_MASTER opens «Мої записи», narrows by a rail day, and opens '
     'the booking in the PROVIDER view',
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Provider-view client photo: seed an allowlisted https avatar and serve
+      // its bytes through the injected media cache (no real network).
+      const String clientPhoto = 'https://media.test/avatars/client-1.png';
+      fb.bookingClientAvatarUrl = clientPhoto;
+      // Provider-view client rating: JSON `clientAvgRating`/`clientReviewCount`
+      // -> DTO -> Booking -> MasterRatingReadout inside the client strip.
+      fb.bookingClientAvgRating = 4.5;
+      fb.bookingClientReviewCount = 12;
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
       final GoRouter router = await AppHarness.boot(tester, fb);
 
       // Phase 244 fixture gap: publish hours for both the landing day
@@ -574,6 +658,59 @@ void main() {
       expect(
         find.text('${fb.clientFirstName} ${fb.clientLastName}'),
         findsWidgets,
+      );
+
+      // The client's PHOTO (not just the monogram) shows in the strip, loaded
+      // from the exact URL the wire carried: JSON `clientAvatarUrl` -> DTO ->
+      // Booking -> RemoteImage.
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
+      final Finder photo = find.descendant(
+        of: find.byKey(const Key('booking-detail-client-avatar-photo')),
+        matching: find.byType(Image),
+      );
+      expect(
+        photo,
+        findsOneWidget,
+        reason: 'the provider detail strip must render the client photo',
+      );
+      final ImageProvider<Object> shown = tester.widget<Image>(photo).image;
+      expect(shown, isA<ResizeImage>());
+      final ImageProvider<Object> source = (shown as ResizeImage).imageProvider;
+      expect(source, isA<CachedNetworkImageProvider>());
+      expect((source as CachedNetworkImageProvider).url, clientPhoto);
+
+      // The client's ★ rating + review count render INSIDE the same strip
+      // that carries the photo (both at once — one card).
+      final Finder clientStrip = find.byKey(
+        const Key('booking-detail-client-strip'),
+      );
+      expect(
+        find.descendant(of: clientStrip, matching: find.text(_kClientRating)),
+        findsOneWidget,
+        reason: 'the client strip must show the rating figure off the wire',
+      );
+      expect(
+        find.descendant(of: clientStrip, matching: find.text(_kClientCount)),
+        findsOneWidget,
+        reason: 'the client strip must show the review count off the wire',
+      );
+      expect(
+        find.descendant(
+          of: clientStrip,
+          matching: find.byIcon(Icons.star_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: clientStrip,
+          matching: find.byKey(const Key('booking-detail-client-avatar-photo')),
+        ),
+        findsOneWidget,
+        reason: 'the photo is still shown alongside the rating',
       );
 
       // …and NONE of the client action footer. These are the client's own
@@ -886,6 +1023,32 @@ void main() {
         find.byKey(const ValueKey<String>('timeline-card-filter-completed')),
         findsOneWidget,
         reason: 'the COMPLETED booking must remain visible',
+      );
+
+      // ── Phase 392 (24.7) — the shared `CountBadge` on the real filter
+      //      button: 2 active filters (status + service) show '2'; resetting
+      //      them and re-applying removes the badge entirely. ────────────────
+      final Finder badge = find.byKey(
+        const Key('master-bookings-filter-badge'),
+      );
+      expect(badge, findsOneWidget);
+      expect(
+        find.descendant(of: badge, matching: find.text('2')),
+        findsOneWidget,
+        reason: 'two applied filters (status + service) must read «2»',
+      );
+
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-filter-reset')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await AppHarness.settle(tester);
+
+      expect(
+        badge,
+        findsNothing,
+        reason: 'clearing every filter must remove the count badge',
       );
     },
   );

@@ -16,7 +16,9 @@
 //   nav 0 «Салон» ─┬─> stack slot 0 (the one profile host)
 //   nav 2 «Команда»┘
 //   nav 1 «Записи» ──> stack slot 1
-//   nav 3 «Профіль»──> stack slot 2
+//   nav 3 «Профіль»──> stack slot 2 (ADMIN only — Phase 384: an OWNER's
+//                       «Профіль» tap leaves the shell for owner master
+//                       mode, `RouteNames.ownerMasterProfile`)
 //
 // Assertions below therefore distinguish the two index spaces explicitly:
 // `SalonBottomNav.currentIndex` is a NAV index (0..3), `IndexedStack.index`
@@ -76,6 +78,7 @@ import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.d
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -121,6 +124,13 @@ class _AdminAuthNotifier extends AuthNotifier {
   @override
   Future<AuthSession> build() async =>
       const AuthSession.authenticated(user: _stubAdmin, accessToken: 'tok');
+}
+
+/// Auth that never resolves — `authUserRoleOrNull` reads `null` for the whole
+/// test (Phase 384 null-role spec).
+class _PendingAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() => Completer<AuthSession>().future;
 }
 
 /// [MySalons] stub that resolves immediately to a list CONTAINING
@@ -398,6 +408,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(_stack(tester).index, 1);
       expect(_navIndex(tester), 1);
+      // Nav 3 is not a shell destination for an OWNER (Phase 384 — it enters
+      // owner master mode); its nav→slot mapping is pinned on the ADMIN
+      // fixture in the next test.
+    });
+
+    testWidgets('admin: nav 3 «Профіль» renders stack slot 2 — the two '
+        'indices diverge here', (tester) async {
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: _adminOverrides(),
+      );
+      await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
       await tester.pumpAndSettle();
@@ -509,13 +531,8 @@ void main() {
       expect(find.byKey(const Key('salon-shell-slot-profile')), findsOneWidget);
       expect(_stack(tester).index, 0);
 
-      // Nav 3 — Профіль (owner suffix, stack slot 2).
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(const Key('salon-shell-tab-profile-owner')),
-        findsOneWidget,
-      );
+      // (Nav 3 «Профіль» is not a tab for an OWNER — Phase 384; see the
+      // owner master-mode entry group below.)
 
       // Back to nav 0 — Салон. The point of the lazy-but-never-disposed
       // design: both previously-visited placeholder slots must STILL be
@@ -530,78 +547,10 @@ void main() {
         findsOneWidget,
         reason: 'a previously-visited slot must remain MOUNTED, just offstage',
       );
-      expect(
-        find.byKey(
-          const Key('salon-shell-tab-profile-owner'),
-          skipOffstage: false,
-        ),
-        findsOneWidget,
-        reason: 'a previously-visited slot must remain MOUNTED, just offstage',
-      );
       // …and there is still only the one profile host behind all of it.
       expect(
         find.byType(SalonManagementProfileScreen, skipOffstage: false),
         findsOneWidget,
-      );
-    });
-
-    testWidgets('the owner Профіль slot is told whether it is the VISIBLE '
-        'one', (tester) async {
-      // mobile-perf MEDIUM + LOW (2026-08-31). A raw `IndexedStack` sets
-      // neither `Offstage` nor `TickerMode` on its non-current children, so
-      // the retained slot-2 screen has no way to learn it went off-screen —
-      // it kept ticking its 950 ms entrance on an unpainted subtree (burning
-      // the one-shot guard, so the FIRST REAL VIEW had no entrance) and kept
-      // holding the PII screen-protection refcount across every other salon
-      // tab. The shell owns the index, so the shell passes the signal down.
-      await tester.pumpApp(
-        const SalonShellScreen(salonId: _kSalonId),
-        overrides: _ownerOverrides(),
-      );
-      await tester.pumpAndSettle();
-
-      // Visit Профіль — the slot is built and is the current one.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(const Key('salon-shell-tab-profile-owner')),
-            )
-            .visible,
-        isTrue,
-      );
-
-      // Tab away. The slot stays MOUNTED (never disposed) — and must now be
-      // told it is not the visible one.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-0')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(
-                const Key('salon-shell-tab-profile-owner'),
-                skipOffstage: false,
-              ),
-            )
-            .visible,
-        isFalse,
-        reason:
-            'the retained off-screen slot must be told it is off-screen — '
-            'see OwnerOwnProfileScreen.visible for the two defects this '
-            'closes',
-      );
-
-      // …and told again when the user comes back.
-      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
-      await tester.pumpAndSettle();
-      expect(
-        tester
-            .widget<OwnerOwnProfileScreen>(
-              find.byKey(const Key('salon-shell-tab-profile-owner')),
-            )
-            .visible,
-        isTrue,
       );
     });
 
@@ -739,6 +688,145 @@ void main() {
       );
       expect(_stack(tester).index, 0);
     });
+  });
+
+  group('Phase 384 — owner «Профіль» enters owner master mode', () {
+    /// Mounts the shell under a real [GoRouter] (the tap calls `context.go`)
+    /// with a stub master-mode profile route, on a container the test can
+    /// read after the shell route is gone.
+    Future<ProviderContainer> pumpRouted(
+      WidgetTester tester,
+      List<Object> overrides,
+    ) async {
+      final ProviderContainer container = makeTestContainer(
+        overrides: overrides,
+      );
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) =>
+                SalonShellScreen(salonId: state.pathParameters['salonId']!),
+          ),
+          GoRoute(
+            path: RouteNames.ownerMasterProfile,
+            builder: (context, state) =>
+                const Scaffold(key: Key('owner-master-profile-stub')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets('owner tap «Профіль» → router at /owner/master/profile, and '
+        'the shell\'s selected tab is NOT moved to 3', (tester) async {
+      final ProviderContainer container = await pumpRouted(
+        tester,
+        _ownerOverrides(),
+      );
+      // Park the shell on «Команда» first so "unchanged" is distinguishable
+      // from the provider's default 0.
+      await tester.tap(find.byKey(const Key('salon-nav-tile-2')));
+      await tester.pumpAndSettle();
+      // `salonShellProvider` is autoDispose: hold a listener so its value is
+      // still readable after the shell route is replaced.
+      final ProviderSubscription<int> sub = container.listen<int>(
+        salonShellProvider(_kSalonId),
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      expect(sub.read(), kSalonTeamNavTab);
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      // The stub is registered ONLY at `RouteNames.ownerMasterProfile`, so
+      // finding it IS the router being there (asserted by widget rather than
+      // a raw `currentConfiguration` read — `forbid_naive_router_location`).
+      expect(
+        find.byKey(const Key('owner-master-profile-stub')),
+        findsOneWidget,
+      );
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(
+        sub.read(),
+        kSalonTeamNavTab,
+        reason:
+            'the owner branch returns BEFORE salonShellProvider.select — the '
+            'shell\'s tab must stay where the owner left it',
+      );
+      expect(find.byType(OwnerOwnProfileScreen), findsNothing);
+    });
+
+    testWidgets('admin tap «Профіль» stays in the shell on the embedded admin '
+        'profile (unchanged)', (tester) async {
+      await pumpRouted(tester, _adminOverrides());
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-shell-tab-profile-admin')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('owner-master-profile-stub')), findsNothing);
+    });
+
+    testWidgets(
+      'SPEC (security INFO) — role not resolved (null) → «Профіль» is a '
+      'no-op: no route change, no slot-2 admin profile, tab unchanged',
+      // Phase 384 security INFO: only `UserRole.salonAdmin` may select the
+      // admin profile slot; a null (unresolved) role is a no-op.
+      (tester) async {
+        final ProviderContainer container = await pumpRouted(tester, <Object>[
+          authProvider.overrideWith(_PendingAuthNotifier.new),
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ]);
+        expect(
+          authUserRoleOrNull(container.read(authProvider)),
+          isNull,
+          reason: 'precondition: the role is genuinely unresolved',
+        );
+
+        await tester.tap(find.byKey(const Key('salon-nav-tile-3')));
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+        expect(
+          find.byKey(const Key('owner-master-profile-stub')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(
+            const Key('salon-shell-tab-profile-admin'),
+            skipOffstage: false,
+          ),
+          findsNothing,
+          reason: 'an unresolved role must never mount the admin profile slot',
+        );
+        expect(_navIndex(tester), 0);
+        expect(_stack(tester).index, 0);
+      },
+    );
   });
 
   group('Салон vs Команда controlled sub-tab', () {
@@ -1847,4 +1935,355 @@ void main() {
       expect(decoded['userId'], equals(_stubAdmin.id));
     });
   });
+
+  // -------------------------------------------------------------------
+  // Phase 391 (+ audit-fix cycle 1) — the «Відгуки» landing.
+  // -------------------------------------------------------------------
+  group('openReviewsTab (phase 391)', () {
+    /// Mounts [home] under a plain Navigator on a fresh container.
+    Future<ProviderContainer> pump(
+      WidgetTester tester,
+      Widget home, {
+      List<Object>? overrides,
+      bool warmProfile = false,
+    }) async {
+      final container = makeTestContainer(
+        overrides: overrides ?? <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      if (warmProfile) {
+        await container.read(salonManagementProfileProvider(_kSalonId).future);
+      }
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: home,
+          ),
+        ),
+      );
+      return container;
+    }
+
+    int selectedSubTab(WidgetTester tester) =>
+        tester.widget<ProfileTabBar>(find.byType(ProfileTabBar)).selected;
+
+    Future<void> drainReviewTimers(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      // fixed-wait-ok: crosses the providers' 5-minute keepAlive TTL so no timer outlives the test
+      await tester.pump(const Duration(minutes: 6));
+    }
+
+    test('kSalonReviewsSubTab indexes the «reviews» tab key', () {
+      expect(kSalonManageTabKeys[kSalonReviewsSubTab], 'reviews');
+      expect(kSalonReviewsSubTab, 3);
+    });
+
+    testWidgets('should_showReviewsOnTheFIRSTFrame_neverBuildingAbout', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId, openReviewsTab: true),
+        warmProfile: true,
+      );
+      // ONE built frame (pumpWidget), no further pump: perf MEDIUM 2.
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-about')),
+        findsNothing,
+        reason: 'the throwaway «Про салон» first frame must never be built',
+      );
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 3, reason: 'salon-tab-3 selected');
+      expect(_navIndex(tester), 0, reason: 'nav highlight stays «Салон»');
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('anti-vacuity: the default shell DOES build «Про салон» on '
+        'its first frame with the same warm profile', (tester) async {
+      await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId),
+        warmProfile: true,
+      );
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-about')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 0);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('should_openTeam_when_initialNavTabTeam', (tester) async {
+      final container = await pump(
+        tester,
+        const SalonShellScreen(
+          salonId: _kSalonId,
+          initialNavTab: kSalonTeamNavTab,
+        ),
+      );
+      await tester.pump();
+      expect(container.read(salonShellProvider(_kSalonId)), kSalonTeamNavTab);
+      expect(
+        container.read(salonManageTabProvider(_kSalonId)),
+        kSalonStaffSubTab,
+      );
+    });
+
+    testWidgets('should_leaveSharedStateUntouched_when_landing', (
+      tester,
+    ) async {
+      final container = await pump(
+        tester,
+        const SalonShellScreen(salonId: _kSalonId, openReviewsTab: true),
+      );
+      await tester.pump();
+      expect(container.read(salonShellProvider(_kSalonId)), 0);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('perf MEDIUM 3: popping a pushed reviews landing leaves the '
+        'underlying shell of the SAME salon on «Записи»', (tester) async {
+      final navKey = GlobalKey<NavigatorState>();
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            navigatorKey: navKey,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+            home: const SalonShellScreen(salonId: _kSalonId),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('salon-nav-tile-1')));
+      await tester.pumpAndSettle();
+      expect(_navIndex(tester), 1, reason: 'underlying shell is on «Записи»');
+      expect(container.read(salonShellProvider(_kSalonId)), 1);
+
+      unawaited(
+        navKey.currentState!.push(
+          MaterialPageRoute<void>(
+            builder: (_) => const SalonShellScreen(
+              salonId: _kSalonId,
+              openReviewsTab: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('salon-manage-tab-body-reviews')),
+        findsOneWidget,
+      );
+      expect(selectedSubTab(tester), 3);
+      expect(
+        container.read(salonShellProvider(_kSalonId)),
+        1,
+        reason: 'the pushed landing must not write the shared nav index',
+      );
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+
+      navKey.currentState!.pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('salon-shell-tab-bookings')), findsOneWidget);
+      expect(
+        _navIndex(tester),
+        1,
+        reason: 'back on the underlying shell: still «Записи»',
+      );
+      expect(container.read(salonShellProvider(_kSalonId)), 1);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+      await tester.pumpWidget(const SizedBox());
+      // fixed-wait-ok: crosses the board providers' 30-minute keepAlive TTL so no timer outlives the test
+      await tester.pump(const Duration(minutes: 31));
+    });
+
+    testWidgets('perf LOW 4: false -> true on the SAME element re-seeds on '
+        '«Відгуки»; true -> false returns to the shared state', (tester) async {
+      final container = makeTestContainer(
+        overrides: <Object>[..._ownerOverridesMultiSalon()],
+      );
+      await container.read(authProvider.future);
+      Widget app({required bool reviews}) => UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: SalonShellScreen(salonId: _kSalonId, openReviewsTab: reviews),
+        ),
+      );
+
+      await tester.pumpWidget(app(reviews: false));
+      await tester.pumpAndSettle();
+      final Element before = tester.element(
+        find.byKey(const Key('salon-shell-screen')),
+      );
+      expect(selectedSubTab(tester), 0);
+
+      await tester.pumpWidget(app(reviews: true));
+      await tester.pumpAndSettle();
+      expect(
+        identical(
+          tester.element(find.byKey(const Key('salon-shell-screen'))),
+          before,
+        ),
+        isTrue,
+        reason: 'must exercise didUpdateWidget on the SAME element',
+      );
+      expect(selectedSubTab(tester), 3);
+      expect(container.read(salonManageTabProvider(_kSalonId)), 0);
+
+      // An unchanged rebuild does not re-seed: move off «Відгуки», re-pump.
+      await tester.tap(find.byKey(const Key('salon-tab-2')));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 2);
+      await tester.pumpWidget(app(reviews: true));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 2);
+
+      await tester.pumpWidget(app(reviews: false));
+      await tester.pumpAndSettle();
+      expect(selectedSubTab(tester), 0, reason: 'shared state again');
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('security MEDIUM: an owner whose mySalons RESOLVES without the '
+        'route salon id is redirected to role home', (tester) async {
+      final Completer<List<Salon>> salons = Completer<List<Salon>>();
+      final container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(_OwnerAuthNotifier.new),
+          mySalonsProvider.overrideWith(() => _CompleterMySalons(salons)),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      await container.read(authProvider.future);
+      final router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId, openReviews: true),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) => SalonShellScreen(
+              salonId: state.pathParameters['salonId']!,
+              openReviewsTab: true,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.salonHome,
+            builder: (context, state) =>
+                const Scaffold(key: Key('shell-bounce-target')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(SalonShellScreen), findsOneWidget, reason: 'admitted');
+
+      salons.complete(const <Salon>[
+        Salon(id: _kOtherSalonId, name: 'Not the route salon'),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(find.byKey(const Key('shell-bounce-target')), findsOneWidget);
+      await drainReviewTimers(tester);
+    });
+
+    testWidgets('security MEDIUM: mySalons already resolved WITHOUT the id '
+        'before the first build is also redirected (post-frame check)', (
+      tester,
+    ) async {
+      final container = makeTestContainer(
+        overrides: <Object>[
+          authProvider.overrideWith(_OwnerAuthNotifier.new),
+          mySalonsProvider.overrideWith(_OtherOnlyMySalons.new),
+          salonManagementProfileProvider(
+            _kSalonId,
+          ).overrideWith(_SettledSalonManagementProfile.new),
+        ],
+      );
+      await container.read(authProvider.future);
+      await container.read(mySalonsProvider.future);
+      final router = GoRouter(
+        initialLocation: RouteNames.salonShell(_kSalonId, openReviews: true),
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/salons/:salonId/shell',
+            builder: (context, state) => SalonShellScreen(
+              salonId: state.pathParameters['salonId']!,
+              openReviewsTab: true,
+            ),
+          ),
+          GoRoute(
+            path: RouteNames.salonHome,
+            builder: (context, state) =>
+                const Scaffold(key: Key('shell-bounce-target')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SalonShellScreen), findsNothing);
+      expect(find.byKey(const Key('shell-bounce-target')), findsOneWidget);
+      await drainReviewTimers(tester);
+    });
+  });
+}
+
+/// [MySalons] that stays unresolved until [salons] completes.
+class _CompleterMySalons extends MySalons {
+  _CompleterMySalons(this._salons);
+  final Completer<List<Salon>> _salons;
+  @override
+  Future<List<Salon>> build() => _salons.future;
+}
+
+/// [MySalons] resolved to a list NOT containing [_kSalonId].
+class _OtherOnlyMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: _kOtherSalonId, name: 'Not the route salon'),
+  ];
 }

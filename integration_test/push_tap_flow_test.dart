@@ -27,6 +27,7 @@
 // Runs headless: `flutter test integration_test/push_tap_flow_test.dart
 // -d flutter-tester`.
 
+import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -35,7 +36,9 @@ import 'package:beautica_mobile/core/push/push_available_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -90,6 +93,23 @@ RemoteMessage _bookingPush(String notificationId) => RemoteMessage(
   },
 );
 
+/// Phase 391 — a push of [type] (default `REVIEW_RECEIVED`) for a booking of
+/// [salonId].
+RemoteMessage _reviewPush(
+  String notificationId,
+  String salonId, {
+  String type = 'REVIEW_RECEIVED',
+}) => RemoteMessage(
+  data: <String, dynamic>{
+    'v': '1',
+    'notificationId': notificationId,
+    'type': type,
+    'targetKind': 'BOOKING',
+    'bookingId': FakeBackend.kNotificationBookingId,
+    'salonId': salonId,
+  },
+);
+
 RemoteMessage _nonePush(String notificationId) => RemoteMessage(
   data: <String, dynamic>{
     'v': '1',
@@ -126,7 +146,10 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  tearDown(() {
+    resetNotificationNavigationStateForTest();
+    AppHarness.tearDownHarness();
+  });
 
   testWidgets('a background push tap opens the booking detail, marks the '
       'notification read on the backend and drops the bell', (tester) async {
@@ -166,6 +189,234 @@ void main() {
     expect(
       bellAsset(tester, _clientBell),
       BeauticaAssetIcons.notificationPlain,
+    );
+  });
+
+  testWidgets('a REVIEW_RECEIVED push tap for the SALON_OWNER opens the '
+      'booking salon shell on «Відгуки», not the booking detail', (
+    tester,
+  ) async {
+    // The mapper drops non-UUID ids, so the salon is a UUID-shaped extra salon
+    // the owner holds (the guard admits it via `mySalons`).
+    const String salonUuid = '5a1f0000-0000-4000-8000-0000000000b2';
+    final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+    fb.mySalons.add(<String, dynamic>{
+      'id': salonUuid,
+      'ownerId': 'user-owner-1',
+      'name': 'Студія Краси «Камелія»',
+      'city': 'Київ',
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'isActive': true,
+      'isPrimary': false,
+    });
+    final String id = fb.seedNotification(
+      type: 'REVIEW_RECEIVED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      salonId: salonUuid,
+    );
+    final _TapFixture fcm = _TapFixture();
+    addTearDown(fcm.dispose);
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      storage: FakeSecureStorage(),
+      extraOverrides: fcm.overrides,
+      mountPushTapDispatcher: true,
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fcm.openedSubscriptions > 0,
+      description: 'the push-tap listener attached after login',
+    );
+    await AppHarness.settle(tester);
+
+    fcm.opened.add(_reviewPush(id, salonUuid));
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () =>
+          AppHarness.location(router) == '/salons/$salonUuid/shell?tab=reviews',
+      description: 'the salon shell opened on «Відгуки»',
+    );
+    await AppHarness.settle(tester);
+
+    expect(find.byType(BookingDetailScreen), findsNothing);
+    // The UUID-shaped extra salon has no served detail, so the sub-tab row
+    // never renders here (the salon-tab-3 selected state is asserted in
+    // `notification_tap_to_detail_flow_test.dart`, where the fake serves the
+    // salon in full): assert the shell is the reviews landing instead.
+    expect(
+      tester
+          .widget<SalonShellScreen>(find.byType(SalonShellScreen).last)
+          .openReviewsTab,
+      isTrue,
+    );
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.notificationMarkedReadIds.contains(id),
+      description: 'the review notification was marked read',
+    );
+  });
+
+  testWidgets('a REVIEW_RECEIVED push tap for a SALON_OWNER with a salon id '
+      'NOT in mySalons lands on the booking detail, never the salon shell', (
+    tester,
+  ) async {
+    // Phase 391 audit L1: the owner's list resolves WITHOUT this salon, so the
+    // tap must not enter the unverified salon shell.
+    const String foreignSalon = '5a1f0000-0000-4000-8000-0000000000f1';
+    final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+    fb.mySalons.add(<String, dynamic>{
+      'id': '5a1f0000-0000-4000-8000-0000000000a1',
+      'ownerId': 'user-owner-1',
+      'name': 'Студія Краси «Камелія»',
+      'city': 'Київ',
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'isActive': true,
+      'isPrimary': true,
+    });
+    final String id = fb.seedNotification(
+      type: 'REVIEW_RECEIVED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      salonId: foreignSalon,
+    );
+    final _TapFixture fcm = _TapFixture();
+    addTearDown(fcm.dispose);
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      storage: FakeSecureStorage(),
+      extraOverrides: fcm.overrides,
+      mountPushTapDispatcher: true,
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fcm.openedSubscriptions > 0,
+      description: 'the push-tap listener attached after login',
+    );
+    await AppHarness.settle(tester);
+
+    fcm.opened.add(_reviewPush(id, foreignSalon));
+    await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+    await AppHarness.settle(tester);
+
+    expect(
+      AppHarness.location(router),
+      startsWith(
+        RouteNames.salonStaffBookingDetail(FakeBackend.kNotificationBookingId),
+      ),
+    );
+    expect(find.byType(SalonShellScreen), findsNothing);
+    expect(AppHarness.location(router), isNot(contains('/shell')));
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fb.notificationMarkedReadIds.contains(id),
+      description: 'the review notification was marked read',
+    );
+  });
+
+  testWidgets('a REVIEW_RECEIVED push tap for a SALON_MASTER opens the staff '
+      'booking detail, never the salon shell', (tester) async {
+    const String salonUuid = '5a1f0000-0000-4000-8000-0000000000b3';
+    final FakeBackend fb = FakeBackend(
+      masterRowId: 'master-removable',
+      masterSalonId: salonUuid,
+    );
+    final String id = fb.seedNotification(
+      type: 'REVIEW_RECEIVED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      salonId: salonUuid,
+    );
+    final _TapFixture fcm = _TapFixture();
+    addTearDown(fcm.dispose);
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      storage: FakeSecureStorage(),
+      extraOverrides: fcm.overrides,
+      mountPushTapDispatcher: true,
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.salonMaster);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fcm.openedSubscriptions > 0,
+      description: 'the push-tap listener attached after login',
+    );
+    await AppHarness.settle(tester);
+
+    fcm.opened.add(_reviewPush(id, salonUuid));
+    await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+    await AppHarness.settle(tester);
+
+    expect(
+      AppHarness.location(router),
+      startsWith(
+        RouteNames.salonMasterBookingDetail(FakeBackend.kNotificationBookingId),
+      ),
+    );
+    expect(find.byType(SalonShellScreen), findsNothing);
+    expect(find.byType(ProfileTabBar), findsNothing);
+  });
+
+  testWidgets('a BOOKING_CREATED push tap (with a salonId) for the SALON_OWNER '
+      'opens the staff booking detail, not the «Відгуки» tab', (tester) async {
+    const String salonUuid = '5a1f0000-0000-4000-8000-0000000000b4';
+    final FakeBackend fb = FakeBackend()..currentRole = UserRole.salonOwner;
+    fb.mySalons.add(<String, dynamic>{
+      'id': salonUuid,
+      'ownerId': 'user-owner-1',
+      'name': 'Студія Краси «Камелія»',
+      'city': 'Київ',
+      'cityId': 'city-kyiv',
+      'oblastId': 'oblast-kyiv',
+      'street': 'вул. Хрещатик',
+      'buildingNo': '12',
+      'isActive': true,
+      'isPrimary': false,
+    });
+    final String id = fb.seedNotification(
+      type: 'BOOKING_CREATED',
+      bookingId: FakeBackend.kNotificationBookingId,
+      salonId: salonUuid,
+    );
+    final _TapFixture fcm = _TapFixture();
+    addTearDown(fcm.dispose);
+    final GoRouter router = await AppHarness.boot(
+      tester,
+      fb,
+      storage: FakeSecureStorage(),
+      extraOverrides: fcm.overrides,
+      mountPushTapDispatcher: true,
+    );
+    await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fcm.openedSubscriptions > 0,
+      description: 'the push-tap listener attached after login',
+    );
+    await AppHarness.settle(tester);
+
+    fcm.opened.add(_reviewPush(id, salonUuid, type: 'BOOKING_CREATED'));
+    await AppHarness.pumpUntilFound(tester, find.byType(BookingDetailScreen));
+    await AppHarness.settle(tester);
+
+    expect(
+      AppHarness.location(router),
+      startsWith(
+        RouteNames.salonStaffBookingDetail(FakeBackend.kNotificationBookingId),
+      ),
+    );
+    expect(AppHarness.location(router), isNot(contains('tab=reviews')));
+    expect(
+      find.byKey(const Key('salon-manage-tab-body-reviews')),
+      findsNothing,
     );
   });
 

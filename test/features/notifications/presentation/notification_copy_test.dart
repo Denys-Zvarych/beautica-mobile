@@ -491,6 +491,139 @@ void main() {
       expect(body, uk.notificationsParamsGone);
     });
 
+    group('masterName', () {
+      NotificationParams params({String? master}) => NotificationParams(
+        counterpartName: 'Олена',
+        serviceName: 'Манікюр',
+        serviceCount: 1,
+        startsAt: DateTime.utc(2026, 10, 3, 11, 30),
+        masterName: master,
+      );
+
+      test('should_appendMaster_when_providerAndMasterPresent', () {
+        final String? body = NotificationCopy.body(
+          uk,
+          row(params(master: 'Ірина')),
+          isClient: false,
+          showMaster: true,
+        );
+        expect(body, contains(_iso('Ірина')));
+        expect(body, contains(_iso('Олена')));
+        expect(body, isNot(uk.notificationsParamsGone));
+      });
+
+      test('should_keepPlainText_when_masterMissingOrInvisible', () {
+        final String plain = NotificationCopy.body(
+          uk,
+          row(params()),
+          isClient: false,
+        )!;
+        final String blank = NotificationCopy.body(
+          uk,
+          row(params(master: _c(0x202E))),
+          isClient: false,
+          showMaster: true,
+        )!;
+        expect(plain, isNot(uk.notificationsParamsGone));
+        expect(blank, plain);
+      });
+
+      test('should_notShowMaster_when_recipientIsClient', () {
+        final String? body = NotificationCopy.body(
+          uk,
+          row(params(master: 'Ірина')),
+          isClient: true,
+          showMaster: true,
+        );
+        expect(body!.contains(_iso('Ірина')), isFalse);
+      });
+
+      test('should_ignoreMaster_when_viewerNotOwnerOrAdmin', () {
+        // salon master / independent master: showMaster defaults to false.
+        final String plain = NotificationCopy.body(
+          uk,
+          row(params()),
+          isClient: false,
+        )!;
+        final String? body = NotificationCopy.body(
+          uk,
+          row(params(master: 'Ірина')),
+          isClient: false,
+        );
+        expect(body, plain);
+        expect(body!.contains('Ірина'), isFalse);
+      });
+
+      test('should_ignoreMaster_when_clientEvenIfShowMasterSet', () {
+        final String plain = NotificationCopy.body(
+          uk,
+          row(params()),
+          isClient: true,
+        )!;
+        final String? body = NotificationCopy.body(
+          uk,
+          row(params(master: 'Ірина')),
+          isClient: true,
+          showMaster: true,
+        );
+        expect(body, plain);
+      });
+
+      test('should_sanitiseMaster_rtlAndControlChars', () {
+        final String? body = NotificationCopy.body(
+          uk,
+          row(params(master: 'Ір${_c(0x202E)}и\nна')),
+          isClient: false,
+          showMaster: true,
+        );
+        expect(body, contains(_iso('Іри на')));
+        expect(body!.contains(_c(0x202E)), isFalse);
+        expect(body.contains('\n'), isFalse);
+      });
+
+      test('should_capOverlongMaster_likeCounterpart', () {
+        final String long = 'М' * 5000;
+        final String masterBody = NotificationCopy.body(
+          uk,
+          row(params(master: long)),
+          isClient: false,
+          showMaster: true,
+        )!;
+        final String counterpartBody = NotificationCopy.body(
+          uk,
+          row(
+            NotificationParams(
+              counterpartName: long,
+              serviceName: 'Манікюр',
+              serviceCount: 1,
+              startsAt: DateTime.utc(2026, 10, 3, 11, 30),
+            ),
+          ),
+          isClient: false,
+        )!;
+        expect(masterBody.length, lessThan(2500));
+        expect(masterBody.contains('…'), isTrue);
+        expect(counterpartBody.contains('…'), isTrue);
+      });
+
+      test('should_appendMaster_when_rescheduled', () {
+        final String? body = NotificationCopy.body(
+          uk,
+          AppNotification(
+            id: '00000000-0000-4000-8000-000000000003',
+            type: AppNotificationType.bookingRescheduled,
+            createdAt: DateTime.utc(2026, 9, 30, 10),
+            read: false,
+            target: const NotificationTarget.none(),
+            params: params(master: 'Ірина'),
+          ),
+          isClient: false,
+          showMaster: true,
+        );
+        expect(body, contains(_iso('Ірина')));
+      });
+    });
+
     test('should_sanitiseTheInviteSubject', () {
       final String? body = NotificationCopy.body(
         uk,
