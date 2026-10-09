@@ -94,7 +94,9 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**declineBooking**](doc/BookingControllerApi.md#declinebooking) | **PATCH** /api/v1/bookings/{bookingId}/decline | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getBooking**](doc/BookingControllerApi.md#getbooking) | **GET** /api/v1/bookings/{bookingId} | Get a booking
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getMyPendingActionsCount**](doc/BookingControllerApi.md#getmypendingactionscount) | **GET** /api/v1/bookings/me/pending-actions/count | Bookings awaiting provider action (close or rate client) — archive badge
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getSalonBookings**](doc/BookingControllerApi.md#getsalonbookings) | **GET** /api/v1/bookings/salon/{salonId} | List salon bookings (owner/admin)
+[*BookingControllerApi*](doc/BookingControllerApi.md) | [**getSalonPendingActionsCount**](doc/BookingControllerApi.md#getsalonpendingactionscount) | **GET** /api/v1/bookings/salon/{salonId}/pending-actions/count | Bookings awaiting provider action (close or rate client) — archive badge
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**getUnclosedCount**](doc/BookingControllerApi.md#getunclosedcount) | **GET** /api/v1/bookings/me/unclosed-count | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookedDays**](doc/BookingControllerApi.md#listmybookeddays) | **GET** /api/v1/bookings/me/booked-days | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**listMyBookings**](doc/BookingControllerApi.md#listmybookings) | **GET** /api/v1/bookings/me | 
@@ -273,6 +275,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePageResponseSalonSearchResult](doc/ApiResponsePageResponseSalonSearchResult.md)
  - [ApiResponsePageResponseTimelineItemResponse](doc/ApiResponsePageResponseTimelineItemResponse.md)
  - [ApiResponsePassportResponse](doc/ApiResponsePassportResponse.md)
+ - [ApiResponsePendingBookingActionsCountResponse](doc/ApiResponsePendingBookingActionsCountResponse.md)
  - [ApiResponsePlatformCategoryResponse](doc/ApiResponsePlatformCategoryResponse.md)
  - [ApiResponsePublicSalonResponse](doc/ApiResponsePublicSalonResponse.md)
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
@@ -387,6 +390,7 @@ Class | Method | HTTP request | Description
  - [Pageable](doc/Pageable.md)
  - [PageableObject](doc/PageableObject.md)
  - [PassportResponse](doc/PassportResponse.md)
+ - [PendingBookingActionsCountResponse](doc/PendingBookingActionsCountResponse.md)
  - [PhoneOtpSendRequest](doc/PhoneOtpSendRequest.md)
  - [PhoneOtpVerifyRequest](doc/PhoneOtpVerifyRequest.md)
  - [PlatformCategoryResponse](doc/PlatformCategoryResponse.md)

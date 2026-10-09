@@ -64,6 +64,8 @@ import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
 import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
+import 'pending_actions_count_wiring_test.dart' as pending_actions_count;
+import 'salon_staff_client_review_flow_test.dart' as salon_staff_client_review;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'owner_master_mode_flow_test.dart' as owner_master_mode;
 import 'owner_master_client_visibility_flow_test.dart'
@@ -783,4 +785,8 @@ void main() {
   group('notifications_provider_flow', notifications_provider.main);
   // Phase 365 — one owner, two salons, one global feed.
   group('owner_multi_salon_feed_flow', owner_multi_salon_feed.main);
+  // Phase 393 — pendingBookingActionsCountProvider wire-up.
+  group('pending_actions_count_wiring', pending_actions_count.main);
+  // Phase 386 — owner/admin rate the client (wired late, 393).
+  group('salon_staff_client_review_flow', salon_staff_client_review.main);
 }

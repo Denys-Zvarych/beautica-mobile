@@ -49,6 +49,7 @@
 // The file must still pass WITHOUT `--update-goldens`; a failure is a
 // reportable visual delta, not a baseline to refresh.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:alchemist/alchemist.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -225,6 +226,12 @@ class _FakeSlotRepository implements SlotRepository {
 }
 
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<Appointment> createMasterBooking(
     String masterId,

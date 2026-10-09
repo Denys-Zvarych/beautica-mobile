@@ -19,6 +19,7 @@
 // and `appointmentRepositoryProvider` (create path) / `bookingRepositoryProvider`
 // (reschedule path) with hand-written fakes — no mocktail.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -476,6 +477,12 @@ class _FakeAppointmentRepository implements AppointmentRepository {
 /// widget-layer invalidation's re-fetch is observable (a still-listened
 /// autoDispose provider only re-fetches when invalidated).
 class _RecordingRescheduleRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   final List<(String, DateTime)> rescheduleCalls = <(String, DateTime)>[];
   int getBookingByIdCalls = 0;
   int getMyBookingsCalls = 0;

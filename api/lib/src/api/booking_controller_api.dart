@@ -12,6 +12,7 @@ import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 import 'package:beautica_api/src/model/api_response_unclosed_count_response.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
@@ -400,6 +401,91 @@ class BookingControllerApi {
     );
   }
 
+  /// Bookings awaiting provider action (close or rate client) — archive badge
+  ///
+  ///
+  /// Parameters:
+  /// * [asMaster] - SALON_OWNER only: true counts the owner's own master-row bookings. Without it a SALON_OWNER is 403 (use the salon endpoint).
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponsePendingBookingActionsCountResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponsePendingBookingActionsCountResponse>>
+      getMyPendingActionsCount({
+    bool? asMaster,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/me/pending-actions/count';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (asMaster != null)
+        r'asMaster':
+            encodeQueryParameter(_serializers, asMaster, const FullType(bool)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponsePendingBookingActionsCountResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponsePendingBookingActionsCountResponse),
+            ) as ApiResponsePendingBookingActionsCountResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponsePendingBookingActionsCountResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// List salon bookings (owner/admin)
   ///
   ///
@@ -514,6 +600,88 @@ class BookingControllerApi {
     }
 
     return Response<ApiResponsePageResponseBookingDetailResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Bookings awaiting provider action (close or rate client) — archive badge
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponsePendingBookingActionsCountResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponsePendingBookingActionsCountResponse>>
+      getSalonPendingActionsCount({
+    required String salonId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/salon/{salonId}/pending-actions/count'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponsePendingBookingActionsCountResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponsePendingBookingActionsCountResponse),
+            ) as ApiResponsePendingBookingActionsCountResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponsePendingBookingActionsCountResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

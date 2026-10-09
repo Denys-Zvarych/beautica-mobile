@@ -96,6 +96,7 @@ export 'package:beautica_api/src/model/api_response_page_response_salon_review_r
 export 'package:beautica_api/src/model/api_response_page_response_salon_search_result.dart';
 export 'package:beautica_api/src/model/api_response_page_response_timeline_item_response.dart';
 export 'package:beautica_api/src/model/api_response_passport_response.dart';
+export 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 export 'package:beautica_api/src/model/api_response_platform_category_response.dart';
 export 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 export 'package:beautica_api/src/model/api_response_registration_response.dart';
@@ -210,6 +211,7 @@ export 'package:beautica_api/src/model/page_response_timeline_item_response.dart
 export 'package:beautica_api/src/model/pageable.dart';
 export 'package:beautica_api/src/model/pageable_object.dart';
 export 'package:beautica_api/src/model/passport_response.dart';
+export 'package:beautica_api/src/model/pending_booking_actions_count_response.dart';
 export 'package:beautica_api/src/model/phone_otp_send_request.dart';
 export 'package:beautica_api/src/model/phone_otp_verify_request.dart';
 export 'package:beautica_api/src/model/platform_category_response.dart';

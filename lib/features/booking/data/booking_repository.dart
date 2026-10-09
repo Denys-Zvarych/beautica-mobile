@@ -80,6 +80,7 @@ import '../domain/booking_sort.dart';
 import '../domain/booking_status.dart';
 import '../domain/create_booking_request.dart';
 import '../domain/create_master_booking_request.dart';
+import '../domain/pending_actions_scope.dart';
 import 'booking_mapper.dart';
 
 /// Default page size for the "my bookings" list (Phase 14.3).
@@ -377,6 +378,21 @@ abstract interface class BookingRepository {
     required String salonId,
     required DateTime from,
     required DateTime to,
+    CancelToken? cancelToken,
+  });
+
+  /// Number of bookings awaiting a provider action for [scope] (Phase 393).
+  ///
+  /// Wraps `GET /bookings/me/pending-actions/count` / `GET
+  /// /bookings/salon/{salonId}/pending-actions/count` and returns only
+  /// `data.count` (the `toClose` / `toRateClient` breakdown is ignored).
+  /// Throws a [Failure] on error.
+  ///
+  /// [cancelToken] (phase 393 audit) aborts the in-flight request when the
+  /// owning provider is disposed. Optional so every existing implementer and
+  /// fake keeps compiling.
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
     CancelToken? cancelToken,
   });
 
@@ -937,6 +953,55 @@ final class HttpBookingRepository implements BookingRepository {
       if (kDebugMode) {
         log(
           '$label failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw _mapDioException(e);
+    }
+  }
+
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      final int? count = switch (scope) {
+        PendingActionsScopeMe(:final asMaster) =>
+          (await _bookingApi.getMyPendingActionsCount(
+            asMaster: asMaster,
+            cancelToken: cancelToken,
+          )).data?.data?.count,
+        PendingActionsScopeSalon(:final salonId) =>
+          (await _bookingApi.getSalonPendingActionsCount(
+            // The generated client interpolates this raw into the path (it
+            // does no encoding). Reject anything that is not a plain id
+            // token BEFORE any request, then route it through the shared
+            // segment encoder as defence in depth.
+            salonId: encodePathSegment(
+              requirePathIdToken(salonId, 'salonId'),
+              'salonId',
+              logTag: _tag,
+            ),
+            cancelToken: cancelToken,
+          )).data?.data?.count,
+      };
+      if (count == null) {
+        if (kDebugMode) {
+          log('getPendingActionsCount: count is null', name: _tag, level: 1000);
+        }
+        throw const ServerFailure(statusCode: null);
+      }
+      return count;
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      // A routine cancel (provider disposed / superseded) is not a failure.
+      if (kDebugMode && e.type != DioExceptionType.cancel) {
+        log(
+          'getPendingActionsCount failed: ${e.type} ${e.response?.statusCode}',
           name: _tag,
           level: 900,
           stackTrace: st,

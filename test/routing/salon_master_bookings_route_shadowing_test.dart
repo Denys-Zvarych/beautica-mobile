@@ -38,6 +38,7 @@
 //
 // Layer: Widget (real appRouterProvider + real authRedirect, fake repos).
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -174,6 +175,12 @@ final Booking _closeableArchiveRow = Booking(
 /// Every method throws except the two list reads the mounted screens make, so
 /// an unexpected call fails loudly rather than silently hitting real Dio.
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   /// ADDITIVE, defaulting to the empty page every pre-existing test in this
   /// file was written against — so none of them changed behaviour when the
   /// phase-332 gate group below started needing a real row.

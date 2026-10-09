@@ -37,6 +37,7 @@
 // recording fake (unused by the surviving cases, kept so `_baseOverrides`
 // never needs a live Dio call) — mirrors `booking_confirm_test.dart`.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 
 import 'package:dio/dio.dart';
@@ -88,6 +89,12 @@ Future<void> _pumpTall(WidgetTester tester) async {
 // pass succeeds), otherwise returns a fixture Booking.
 // ---------------------------------------------------------------------------
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   _FakeBookingRepository({Set<String> failOnce = const <String>{}})
     : _failOnce = <String>{...failOnce};
 

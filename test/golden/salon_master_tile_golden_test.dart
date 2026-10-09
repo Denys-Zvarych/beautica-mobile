@@ -79,6 +79,7 @@
 // original 6 `salon_master_tile_masters_*` baselines are NOT untouched
 // this round — see the scenario-1 header above for what changed there too.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:alchemist/alchemist.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -303,6 +304,12 @@ class _FakeSlotRepository implements SlotRepository {
 }
 
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   @override
   Future<Appointment> createMasterBooking(
     String masterId,

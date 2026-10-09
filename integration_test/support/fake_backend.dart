@@ -9677,6 +9677,21 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // GET /api/v1/bookings/me/pending-actions/count?asMaster= — Phase 393.
+    _adapter.onRoute(
+      '/api/v1/bookings/me/pending-actions/count',
+      (server) => server.replyCallback(200, (req) {
+        getPendingActionsCountCalls++;
+        final bool asMaster = _asMasterFrom(
+          Map<String, dynamic>.from(req.queryParameters),
+        );
+        return _pendingActionsCountEnvelope(
+          computedMePendingActionsCount(asMaster: asMaster),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     // GET /api/v1/bookings/me?status=&sort=&page=&size= — the client's «МОЇ
     // ЗАПИСИ» list. DioAdapter matches path-only, so the single handler
     // dispatches on whether a full [_bookingsDataset] has been seeded: when
@@ -10312,6 +10327,81 @@ final class FakeBackend {
     };
   }
 
+  // ── Phase 393 — `GET …/pending-actions/count` ────────────────────────────
+  //
+  // Computed from the fake's OWN seeded rows with the backend-357 rules — never
+  // a settable integer, which would defang the 395 badge assertions:
+  //   leg 1: CONFIRMED && endsAt < [serverNow];
+  //   leg 2: COMPLETED && client present (not a guest) && providerCanReviewClient.
+
+  /// `GET /bookings/me/pending-actions/count` + the salon twin, every call.
+  int getPendingActionsCountCalls = 0;
+
+  /// Both legs of the backend-357 count over [rows] (one entry per booking).
+  int pendingActionsCountOf(Iterable<Map<String, dynamic>> rows) {
+    int count = 0;
+    for (final Map<String, dynamic> row in rows) {
+      final String? status = row['status'] as String?;
+      if (status == 'CONFIRMED') {
+        final String? endsAt = row['endsAt'] as String?;
+        if (endsAt != null && DateTime.parse(endsAt).isBefore(serverNow)) {
+          count++;
+        }
+      } else if (status == 'COMPLETED') {
+        // A guest row carries an explicit null `clientId`. Dataset / salon
+        // board rows omit the key entirely and always have a real client.
+        final bool clientPresent =
+            !row.containsKey('clientId') || row['clientId'] != null;
+        if (clientPresent && row['providerCanReviewClient'] == true) count++;
+      }
+    }
+    return count;
+  }
+
+  /// The count the `/me` endpoint answers: over [_bookingsDataset] when seeded
+  /// (narrowed to [ownerMasterRowBookingIds] for `asMaster`), else over the
+  /// single seeded `booking-1` row (its status follows [bookingStatus]).
+  int computedMePendingActionsCount({required bool asMaster}) {
+    final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+    if (dataset != null) {
+      final Set<String>? ownIds = asMaster ? ownerMasterRowBookingIds : null;
+      return pendingActionsCountOf(
+        dataset.where((r) => ownIds == null || ownIds.contains(r['id'])),
+      );
+    }
+    return pendingActionsCountOf(<Map<String, dynamic>>[_seededBookingJson()]);
+  }
+
+  /// The count the salon endpoint answers: board rows plus archive rows,
+  /// de-duplicated by id.
+  int computedSalonPendingActionsCount() {
+    final Map<Object?, Map<String, dynamic>> byId =
+        <Object?, Map<String, dynamic>>{
+          for (final Map<String, dynamic> r in salonBoardBookings) r['id']: r,
+          for (final Map<String, dynamic> r in salonArchiveBookings) r['id']: r,
+        };
+    return pendingActionsCountOf(byId.values);
+  }
+
+  Map<String, dynamic> _pendingActionsCountEnvelope(
+    int count,
+  ) => <String, dynamic>{
+    'success': true,
+    'message': 'ok',
+    'data': <String, dynamic>{'count': count, 'toClose': 0, 'toRateClient': 0},
+  };
+
+  void _wireSalonPendingActionsCount(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$salonId/pending-actions/count',
+      (server) => server.replyCallback(200, (_) {
+        getPendingActionsCountCalls++;
+        return _pendingActionsCountEnvelope(computedSalonPendingActionsCount());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// The ONE `GET /bookings/salon/{id}` handler body, shared by
   /// [kOwnerSalonId] and [kAdminSalonId] so the two registrations cannot
   /// disagree about which shape they are answering. Branches on `partition`
@@ -10410,6 +10500,8 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    _wireSalonPendingActionsCount(kOwnerSalonId);
 
     // The board's own day fetch — AND, since phase 345, the archive's
     // `partition=HISTORY` read. [_salonBookingsReply] branches; see its doc.
@@ -10564,6 +10656,8 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    _wireSalonPendingActionsCount(kAdminSalonId);
 
     // The SAME shared body as [kOwnerSalonId]'s registration (phase 345) —
     // the two ids must not disagree about what `partition` means, and the

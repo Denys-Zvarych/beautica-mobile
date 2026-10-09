@@ -80,6 +80,7 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // 429 from the notification feed's shared per-user bucket (phase 359).
   'NotificationsRateLimitedFailure': true,
   // Deterministic.
+  'ServerFailure(403)': false,
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
   // Invite-accept post-success design (2026-09-01): the 2xx already
@@ -163,6 +164,7 @@ Map<String, Failure> _instances() {
     'ServerFailure(500)': const ServerFailure(statusCode: 500),
     'ServerFailure(503)': const ServerFailure(statusCode: 503),
     'ServerFailure(599)': const ServerFailure(statusCode: 599),
+    'ServerFailure(403)': const ServerFailure(statusCode: 403),
     'ServerFailure(409)': const ServerFailure(statusCode: 409),
     'ServerFailure(null)': const ServerFailure(),
     'ResponseUnusableFailure': const ResponseUnusableFailure(),

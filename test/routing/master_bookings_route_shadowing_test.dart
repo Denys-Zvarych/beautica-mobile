@@ -44,6 +44,7 @@
 // restoring the original order turns them back GREEN. A pin that would not
 // fail on that reorder would be worthless — this one does.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/app_start_time.dart';
@@ -135,6 +136,12 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// below is answered by `getMyBookings` alone. Every other method throws so
 /// an unexpected call fails loudly rather than silently hitting real Dio.
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   /// Phase 21.12 — the salon-wide board's endpoint. Unused by this fake's
   /// screen; present only because [BookingRepository] gained the method.
   @override
