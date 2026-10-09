@@ -531,6 +531,11 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
     final bool salonViewer =
         role == UserRole.salonOwner || role == UserRole.salonAdmin;
+    // Phase 390 — the client-review gate FAILS CLOSED: a transiently null
+    // role (session loading / unauthenticated) must not reveal the review.
+    // Separate from [salonViewer], whose null behaviour the performing-master
+    // strip depends on.
+    final bool hideClientReview = role == null || salonViewer;
 
     // Phase 331 — WHICH provider actions the provider footer is allowed to
     // offer. `bookingViewerRole.dart:71-76` already maps `SALON_MASTER` onto
@@ -574,6 +579,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           // (product decision; no own-master comparison, no `/masters/me`).
           showPerformingMaster:
               salonViewer && booking.atSalon && booking.masterId.isNotEmpty,
+          // Phase 390 — the same owner/admin read also hides the client's
+          // review: they read it in the salon «Відгуки» tab instead.
+          hideClientReview: hideClientReview,
           transitionsEnabled: transitionsEnabled,
           // Injected clock seam — the PROVIDER footer's start-time gate reads
           // this instead of the device clock so tests can pin it. `watch` (not
@@ -602,6 +610,7 @@ class _DetailBody extends StatelessWidget {
     required this.booking,
     required this.viewer,
     required this.showPerformingMaster,
+    required this.hideClientReview,
     required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
@@ -621,6 +630,13 @@ class _DetailBody extends StatelessWidget {
   /// Salon owner/admin viewing a salon booking performed by SOMEONE ELSE —
   /// adds the performing-master strip under the client strip.
   final bool showPerformingMaster;
+
+  /// Phase 390 — hides [ClientReviewSection]. True when the session role is
+  /// SALON_OWNER / SALON_ADMIN (master mode and own performed bookings
+  /// included; they read the review in the salon «Відгуки» tab) OR when the
+  /// role is null (fail closed while the session is transiently unresolved).
+  /// Reuses the owning state's single role read; never re-derived here.
+  final bool hideClientReview;
 
   /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
   /// (complete / decline / reschedule / not-complete). Sourced from
@@ -672,9 +688,8 @@ class _DetailBody extends StatelessWidget {
     // gates collapse into this one null: a client viewer gets `null` whatever
     // the server sent, and a provider gets `null` unless a review really
     // exists. See the call site below for why each gate is drawn where it is.
-    final ClientAuthoredReview? reviewByClient = viewer.isProvider
-        ? booking.reviewByClient
-        : null;
+    final ClientAuthoredReview? reviewByClient =
+        viewer.isProvider && !hideClientReview ? booking.reviewByClient : null;
 
     // The big status TITLE shows for COMPLETED, NOT_COMPLETED, CANCELLED and
     // DECLINED — the finished/closed outcome deserves a header label.
@@ -791,7 +806,8 @@ class _DetailBody extends StatelessWidget {
         // ── Phase 334 — «Відгук клієнта»: the review the CLIENT left about
         //    the master, read-only.
         //
-        // PROVIDER-ONLY, and not for a privacy reason — the text is already
+        // PROVIDERS EXCEPT salon owner/admin (phase 390 — they read it in the
+        // salon «Відгуки» tab), and not for a privacy reason — the text is already
         // world-readable through the permitAll `GET /masters/{id}/reviews`
         // listing (backend phase 317 decision D2). It is a RELEVANCE gate:
         // a client reading their own booking wrote this review themselves

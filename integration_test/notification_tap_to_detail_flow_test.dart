@@ -31,6 +31,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/client_review_section.dart';
 import 'package:beautica_mobile/features/notifications/data/notification_repository.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
@@ -68,6 +69,17 @@ const String _kOwnMasterName = 'Софія Бондар';
 
 /// Bottom-nav destination of «Команда» (`SalonBottomNav.ownerAdminItems`).
 const int _navTeam = 2;
+
+/// Phase 390 — wire comment of the client's review; must NEVER render for a
+/// salon owner/admin (they read it in the salon «Відгуки» tab).
+const String _kReviewComment = 'Чудовий майстер, дякую!';
+
+Future<void> _expectNoClientReview(WidgetTester tester) async {
+  expect(find.byType(BookingDetailScreen), findsOneWidget);
+  expect(find.byType(ClientReviewSection), findsNothing);
+  // i18n-finder-ok: seeded backend review body, not UI copy.
+  expect(find.text(_kReviewComment), findsNothing);
+}
 
 /// Stateful scripted feed: one page, newest first.
 class _FeedRepo implements NotificationRepository {
@@ -310,7 +322,11 @@ void main() {
         ..currentRole = UserRole.salonOwner
         ..bookingMasterType = 'SALON_MASTER'
         ..bookingSalonName = 'Салон Камелія'
-        ..bookingProviderCanReviewClient = false;
+        ..bookingProviderCanReviewClient = false
+        ..bookingReviewByClient = <String, Object?>{
+          'rating': 5,
+          'comment': _kReviewComment,
+        };
       final GoRouter router = await AppHarness.boot(
         tester,
         fb,
@@ -338,6 +354,51 @@ void main() {
         reason: 'the strip names the performing master — here the owner',
       );
       expect(fb.getMasterCalls, 0);
+      await _expectNoClientReview(tester);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('SALON_ADMIN taps a salon-booking item carrying the client '
+      'review: the detail opens with no review section', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final _FeedRepo repo = _FeedRepo(<AppNotification>[
+        _notif(
+          'adm1',
+          age: const Duration(hours: 1),
+          target: const NotificationTarget.booking(
+            bookingId: _kBookingId,
+            salonId: FakeBackend.kOwnerSalonId,
+          ),
+        ),
+      ]);
+      final fb = FakeBackend()
+        ..currentRole = UserRole.salonAdmin
+        ..bookingMasterType = 'SALON_MASTER'
+        ..bookingSalonName = 'Салон Камелія'
+        ..bookingReviewByClient = <String, Object?>{
+          'rating': 5,
+          'comment': _kReviewComment,
+        };
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: _repo(repo),
+      );
+      await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+      await AppHarness.settle(tester);
+
+      await _openFeed(tester, router, _coverBell);
+      await tester.tap(_tile('adm1'));
+      await AppHarness.settle(tester);
+
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('booking-detail-performing-master-strip')),
+        findsOneWidget,
+        reason: 'anti-vacuity — the salon-viewer detail really rendered',
+      );
+      await _expectNoClientReview(tester);
       expect(tester.takeException(), isNull);
     });
   });
