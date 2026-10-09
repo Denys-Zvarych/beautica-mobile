@@ -1024,6 +1024,32 @@ void main() {
         findsOneWidget,
         reason: 'the COMPLETED booking must remain visible',
       );
+
+      // ── Phase 392 (24.7) — the shared `CountBadge` on the real filter
+      //      button: 2 active filters (status + service) show '2'; resetting
+      //      them and re-applying removes the badge entirely. ────────────────
+      final Finder badge = find.byKey(
+        const Key('master-bookings-filter-badge'),
+      );
+      expect(badge, findsOneWidget);
+      expect(
+        find.descendant(of: badge, matching: find.text('2')),
+        findsOneWidget,
+        reason: 'two applied filters (status + service) must read «2»',
+      );
+
+      await tester.tap(find.byKey(const Key('master-bookings-filter-button')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-filter-reset')));
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('master-bookings-filter-apply')));
+      await AppHarness.settle(tester);
+
+      expect(
+        badge,
+        findsNothing,
+        reason: 'clearing every filter must remove the count badge',
+      );
     },
   );
 
