@@ -3,7 +3,7 @@
 # test/selector_test.dart (mutation-checked, see phase doc).
 #
 # Classification order for each changed path (first match wins):
-#   none_globs -> ignored | arb / golden_assets / path_includes -> mapped
+#   full_before_none -> FULL | none_globs -> ignored | arb / golden_assets / path_includes -> mapped
 #   | full_globs -> FULL | dart under graph_roots -> seed
 #   | anything else -> FULL (fail-safe)
 
@@ -17,7 +17,18 @@ packages:
 # Directories scanned for the import graph.
 graph_roots: [lib, api/lib, test, integration_test]
 
+# Carve-outs of a none glob that must force FULL anyway (checked FIRST).
+# Parity with the workflow's `is_forced` guard (phase 400, 398 R1): the Gradle
+# wrapper / properties are build-toolchain config the `test` job's APK builds
+# consume, so the guard forces FULL even though android/** is otherwise
+# patrol-only. Pinned by test/guard_parity_test.dart.
+full_before_none:
+  - 'android/gradle/wrapper/**'
+  - 'android/gradle.properties'
+
 # Changes that cannot affect any test the selector runs.
+# (.github/workflows/gitleaks.yml used to be here; the workflow guard forces
+# FULL for every .github/** change, so it is FULL here too: parity, 398 R1.)
 none_globs:
   - 'docs/**'
   - '**/*.md'
@@ -37,8 +48,6 @@ none_globs:
   - 'api/.openapi-generator-ignore'
   # Perf measurement scripts have their own tests (scripts/perf/tests, CI-only).
   - 'scripts/perf/**'
-  # Separate workflow that never runs flutter tests.
-  - '.github/workflows/gitleaks.yml'
   # OpenAPI snapshot: read only by `scripts/regenerate_api.sh --check`, the
   # drift gate in the `validate` job, which runs on EVERY PR regardless of
   # mode. No test reads it; the regenerated api/lib Dart files seed on their own.
@@ -81,6 +90,7 @@ full_globs:
   - 'api/build.yaml'
   - 'test/flutter_test_config.dart'
   - 'test/helpers/**'
+  - 'test/ci/**'               # workflow/guard meta tests (is_forced parity, 398 R1)
   - 'integration_test/support/**'
   - 'integration_test/fixtures/**'
   - 'test_driver/**'

@@ -66,8 +66,14 @@ List<Change> parseChanges(String text) => [
     if (l.trim().isNotEmpty) Change.parse(l.trimRight()),
 ];
 
-/// Classifies one path. Order: none -> full -> graph seed -> FULL (fail-safe).
+/// Classifies one path. Order: full_before_none -> none -> mapped kinds ->
+/// full -> graph seed -> FULL (fail-safe).
 Classification classify(String path, Rules rules) {
+  for (final g in rules.fullBeforeNone) {
+    if (g.matches(path)) {
+      return Classification(path, PathKind.full, 'full: ${g.source}');
+    }
+  }
   for (final g in rules.none) {
     if (g.matches(path)) {
       return Classification(path, PathKind.none, 'none: ${g.source}');

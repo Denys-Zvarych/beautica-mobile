@@ -57,17 +57,21 @@ jobs:
   # Plan (phase 397) — the ONE place that owns the diff and the run mode.
   #
   #   mode   full       push (dev/main), workflow_dispatch (manual + nightly),
-  #                     PRs labelled `full-ci`, or any failed diff computation
-  #          selective  every other PR (phase 400 turns this into a test
-  #                     selection; until then consumers still run everything)
+  #                     PRs labelled `full-ci`, any failed diff computation,
+  #                     any CI-machinery change (guard), a selector FULL
+  #                     verdict, or ANY selector/selection failure (phase 400 D7)
+  #          selective  the selector's explicit lists (unit / golden / tz /
+  #                     integration), consumed by the `test` job (phase 400)
+  #          none       nothing selectable changed (docs-only): gates only (D5)
   #   native true|false PR touches a native surface (patrol gate; the globs of
   #                     the retired `changes` job)
+  #   *_count           list sizes, so consumers decide with `if:` (D1)
   #
   # Only THIS job does a full-history checkout (fetch-depth: 0, pull_request
   # only); every other job keeps its shallow checkout. All logic lives in tool/ci/plan.sh and is
   # table-tested by scripts/test/plan_sh_test.sh (run by verify_guards.sh).
-  # Later phases slot in here: 400 flips SELECTIVE_ENABLED and adds the selector
-  # step, 402 adds shard outputs.
+  # Phase 400 added the selector steps (base-owned, from trusted/); 402 adds
+  # shard outputs.
   # ---------------------------------------------------------------------------
   plan:
     name: Plan (mode + diff)
@@ -79,11 +83,22 @@ jobs:
     permissions:
       contents: read
     outputs:
-      # `guard` (below) overrides `plan` only to force FULL.
-      mode: ${{ steps.guard.outputs.mode || steps.plan.outputs.mode }}
+      # `sel` (below) is the ONE final verdict: it folds plan + guard + the
+      # selector. No fallback to the planner's raw `selective`: an empty mode
+      # reaches ci-gate as "unknown plan mode" => RED (fail closed).
+      mode: ${{ steps.sel.outputs.mode }}
       native: ${{ steps.plan.outputs.native }}
-      run_all: ${{ steps.guard.outputs.run_all || steps.plan.outputs.run_all }}
-      selection_count: ${{ steps.plan.outputs.selection_count }}
+      run_all: ${{ steps.sel.outputs.run_all }}
+      selection_count: ${{ steps.sel.outputs.selection_count }}
+      unit_count: ${{ steps.sel.outputs.unit_count }}
+      golden_count: ${{ steps.sel.outputs.golden_count }}
+      tz_count: ${{ steps.sel.outputs.tz_count }}
+      # 1 iff the DST day-rail file is in the tz list (base-owned resolver):
+      # tests-ran owes a tz-kyiv stream from this, not from PR-made events.
+      kyiv_count: ${{ steps.sel.outputs.kyiv_count }}
+      integration_count: ${{ steps.sel.outputs.integration_count }}
+      # unit + golden + tz: what the `test` job runs (tests-ran expectation).
+      test_count: ${{ steps.sel.outputs.test_count }}
       base: ${{ steps.plan.outputs.base }}
       head: ${{ steps.plan.outputs.head }}
     steps:
@@ -130,9 +145,8 @@ jobs:
           # The commit actually checked out (merge ref on PRs), not
           # pull_request.head.sha: the diff must describe the tested tree.
           HEAD_SHA: ${{ github.event.pull_request.number && steps.tree.outputs.sha || '' }}
-          # Phase 400 flips this to 'true'. Until then a selective PR still runs
-          # every test (run_all=true), so behaviour is unchanged.
-          SELECTIVE_ENABLED: 'false'
+          # Phase 400: selection is live (a selective PR gets run_all=false).
+          SELECTIVE_ENABLED: 'true'
           # Outside the PR tree: the PR controls every path (and symlink) under pr/.
           PLAN_OUT_DIR: ${{ runner.temp }}/ci
         run: |
@@ -147,8 +161,6 @@ jobs:
               echo "selection_count=unknown"; echo "base=$BASE_SHA"; echo "head=$HEAD_SHA"
             } | tee -a "$GITHUB_OUTPUT"
           fi
-          # Phase 400 adds here, also from trusted/:
-          #   dart run trusted/tool/ci/affected_tests/bin/affected_tests.dart --repo .
 
       # Independent of the planner/selector (which a PR could try to subvert):
       # plain workflow shell, base-owned diff. Any change to CI machinery forces
@@ -212,6 +224,80 @@ jobs:
           path: ${{ runner.temp }}/ci/changes.txt
           retention-days: 3
           if-no-files-found: ignore
+
+      # Phase 400 D1 — the affected-test selector (phase 398), run from the
+      # BASE commit (trusted/) against the PR tree, only when plan + guard
+      # still say `selective`. Plain `dart` (no Flutter): the selector is its
+      # own package so analyzer never constrains the app's codegen toolchain.
+      # D8: no cache feeds the selector (PR-scope cache poisoning); uncached dart pub get from trusted/.
+      - name: Set up Dart (selector)
+        if: (steps.guard.outputs.mode || steps.plan.outputs.mode) == 'selective'
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d  # v1.8.1
+        with:
+          sdk: '3.11.5'
+
+      - name: Selector pub get (base commit)
+        id: selpubget
+        if: (steps.guard.outputs.mode || steps.plan.outputs.mode) == 'selective'
+        shell: bash
+        run: |
+          # Bootstrap (base predates the selector): nothing to fetch; the next
+          # step then finds no base selector and forces FULL.
+          # D7 fail-safe: a failed fetch must not turn the job red; the
+          # selector then exits non-zero and the next step forces FULL.
+          d="$GITHUB_WORKSPACE/trusted/tool/ci/affected_tests"
+          if [ -f "$d/pubspec.yaml" ]; then
+            (cd "$d" && dart pub get --enforce-lockfile) || echo "::warning::selector pub get failed; the selector will force mode=full (D7)"
+          fi
+
+      # The ONE final verdict (job outputs read only this step). D7 fail-safes:
+      # selector exit != 0 (64 usage / 70 internal / anything), missing or
+      # invalid selection.json, or a base without the selector/resolver =>
+      # mode=full. --base-ref is the plan's MERGE-BASE, never the branch tip.
+      - name: Select tests (selector from the BASE commit)
+        id: sel
+        shell: bash
+        env:
+          PLAN_MODE: ${{ steps.plan.outputs.mode }}
+          GUARD_MODE: ${{ steps.guard.outputs.mode }}
+          MERGE_BASE: ${{ steps.plan.outputs.base }}
+        run: |
+          set -euo pipefail
+          eff="${GUARD_MODE:-$PLAN_MODE}"
+          full_now() {
+            echo "::notice::test selection: full ($1)"
+            {
+              echo "mode=full"; echo "run_all=true"
+              for k in unit_count golden_count tz_count integration_count selection_count test_count; do echo "$k=unknown"; done
+              echo "kyiv_count=0"
+            } | tee -a "$GITHUB_OUTPUT"
+          }
+          if [ "$eff" != "selective" ]; then full_now "plan/guard mode '${eff:-<empty>}'"; exit 0; fi
+          trusted="$GITHUB_WORKSPACE/trusted/tool/ci"
+          if [ ! -f "$trusted/affected_tests/bin/affected_tests.dart" ] || [ ! -f "$trusted/resolve_selection.sh" ]; then
+            echo "::warning::base commit has no selector/resolver; forcing mode=full"
+            full_now "bootstrap"; exit 0
+          fi
+          # Outside the PR tree (plan.sh already hardened $RUNNER_TEMP/ci).
+          sel_dir="$RUNNER_TEMP/ci/sel"
+          rm -rf "$sel_dir"; mkdir "$sel_dir"
+          rc=0
+          (cd "$trusted/affected_tests" && dart run bin/affected_tests.dart \
+            --repo "$GITHUB_WORKSPACE/pr" \
+            --changes "$RUNNER_TEMP/ci/changes.txt" \
+            --base-ref "$MERGE_BASE" \
+            --rules "$trusted/affected_tests/rules.yaml" \
+            --out "$sel_dir/selection.json") || rc=$?
+          bash "$trusted/resolve_selection.sh" "$rc" "$sel_dir/selection.json"
+
+      - name: Upload test selection
+        if: steps.sel.outputs.mode == 'selective' || steps.sel.outputs.mode == 'none'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ci-selection
+          path: ${{ runner.temp }}/ci/sel/
+          retention-days: 3
+          if-no-files-found: error
 
   validate:
     name: Analyze & Gates
@@ -854,16 +940,69 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
+  # Selector tests (phase 400 audit L1): `dart test` for the affected-test
+  # selector package, including the D8 wiring pins in workflow_wiring_test.dart
+  # (no actions/cache in `plan`, exact selector-step conditions). Own job, off
+  # the `plan` critical path (needs nothing), so a red here never delays the
+  # selection. Runs on EVERY non-noop event like `validate` (no path gate:
+  # a path filter is one more thing a PR could route around, and the run is
+  # ~1 min). Same uncached Dart as the plan's selector step (D8): SHA-pinned
+  # setup-dart, the same pinned SDK, no actions/cache, no PUB_* overrides.
+  # ci-gate needs this job; a failure is `result=failure` => RED (gate.sh).
+  # ---------------------------------------------------------------------------
+  selector-tests:
+    name: Selector tests (tool/ci/affected_tests)
+    runs-on: ubuntu-latest
+    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      # pipeline_e2e_test.dart diffs the full branches against the last
+      # pre-400 workflow; the depth-1 checkout lacks that commit, so fetch
+      # exactly it (public repo, anonymous; on dev via PR #81). A failed fetch
+      # is RED: the parity test fails on CI instead of skipping.
+      - name: Fetch pre-400 parity commit
+        shell: bash
+        run: git fetch --no-tags --depth=1 origin 7b85cb18c809319fa1fd8519349e307dc9498cf4
+
+      - name: Set up Dart (selector tests)
+        uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d  # v1.8.1
+        with:
+          sdk: '3.11.5'
+
+      - name: Selector dart test
+        shell: bash
+        working-directory: tool/ci/affected_tests
+        run: |
+          set -euo pipefail
+          dart pub get --enforce-lockfile
+          dart test
+
+  # ---------------------------------------------------------------------------
   # Test & build (split from `validate`, audit 2026-10-10): this is the only
   # part of the old `validate` job that consumes the plan (run_all for
   # coverage; the selection in phase 400), so only it waits for `plan`. The
   # cheap gates in `validate` start immediately and run in parallel.
+  #
+  # Phase 400: every test step has a `full` branch (the pre-400 command,
+  # byte-for-byte) and a `selective` branch (tool/ci/run_list.sh over the
+  # selector's list: one `flutter test` per list + a JSON-stream failure
+  # report). mode=none (docs-only) skips this job unless the PR touches a
+  # native surface, which still needs the APK builds (D4/D5).
   # ---------------------------------------------------------------------------
   test:
     name: Test & Build
     runs-on: ubuntu-latest
     needs: plan
-    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+      && (needs.plan.outputs.mode != 'none' || needs.plan.outputs.native == 'true')
     # Cap (2026-10-10): measured ~55 min on a full run: unit tests 28.3, DST/TZ
     # zone re-runs ~13, goldens ~2, debug APK 7, release APK 2.6, small steps
     # the rest. 70 leaves headroom and still bounds a hung runner (default 360).
@@ -875,7 +1014,12 @@ jobs:
         with:
           persist-credentials: false
 
+      # Java is only for the Gradle APK builds below: same condition (D4),
+      # plus every non-PR event (signed release; those are always full anyway).
       - name: Set up Java 17
+        if: >-
+          needs.plan.outputs.mode == 'full' || needs.plan.outputs.native == 'true'
+          || github.event_name != 'pull_request'
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
         with:
           java-version: '17'
@@ -895,27 +1039,37 @@ jobs:
       - name: Codegen (build_runner)
         run: dart run build_runner build --delete-conflicting-outputs
 
+      # Selective mode only: the plan job's lists (unit.txt, golden.txt,
+      # tz_sweep.txt, integration.txt). Outside the tree, like plan's output.
+      - name: Download test selection
+        if: needs.plan.outputs.mode == 'selective'
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: ci-selection
+          path: ${{ runner.temp }}/sel
+
       # --file-reporter writes the JSON event stream alongside the unchanged
       # console reporter; the next step proves real (non-skipped) tests passed.
+      # Selective (D3): same --exclude-tags golden, no --coverage (coverage is
+      # only uploaded for whole-suite runs anyway).
       - name: Test
+        if: needs.plan.outputs.mode == 'full' || (needs.plan.outputs.mode == 'selective' && needs.plan.outputs.unit_count != '0')
+        shell: bash
+        env:
+          CI_MODE: ${{ needs.plan.outputs.mode }}
         run: |
-          mkdir -p build/ci
-          flutter test --coverage --reporter=expanded --file-reporter=json:build/ci/unit-events.json --exclude-tags golden
+          if [ "$CI_MODE" = "full" ]; then
+            mkdir -p build/ci
+            flutter test --coverage --reporter=expanded --file-reporter=json:build/ci/unit-events.json --exclude-tags golden
+          else
+            bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/unit.txt" unit-events --exclude-tags golden
+          fi
 
       # The "tests actually ran" verdict is NOT computed here: this job runs PR
       # test code, which could delete/replace any checker on disk. The event
       # stream is handed to the `tests-ran` job (no PR code, base-owned script).
       # always() so a failed Test still hands over its stream; tests-ran is only
       # gated on test success, so a missing stream there fails closed.
-      - name: Upload unit event stream
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
-        with:
-          name: unit-events
-          path: build/ci/unit-events.json
-          retention-days: 3
-          if-no-files-found: ignore
-
       # The day rail's two RENDERED DST guards can only observe the bug they
       # exist to catch on a host whose UTC offset actually changes across the
       # transition. This runner is UTC, so they SKIP in the step above; this
@@ -932,9 +1086,20 @@ jobs:
       # Pinned by test/ci/dst_rail_ci_coverage_test.dart — renaming or dropping
       # this step fails that test.
       - name: DST rail guards (market zone)
+        if: needs.plan.outputs.mode == 'full' || (needs.plan.outputs.mode == 'selective' && needs.plan.outputs.tz_count != '0')
+        shell: bash
         env:
           TZ: Europe/Kyiv
-        run: flutter test test/features/booking/presentation/bookings_day_rail_test.dart --reporter=expanded
+          CI_MODE: ${{ needs.plan.outputs.mode }}
+        run: |
+          if [ "$CI_MODE" = "full" ]; then
+            flutter test test/features/booking/presentation/bookings_day_rail_test.dart --reporter=expanded
+          elif grep -qFx test/features/booking/presentation/bookings_day_rail_test.dart "$RUNNER_TEMP/sel/tz_sweep.txt"; then
+            printf '%s\n' test/features/booking/presentation/bookings_day_rail_test.dart >"$RUNNER_TEMP/sel/tz_kyiv.txt"
+            bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/tz_kyiv.txt" tz-kyiv-events
+          else
+            echo "day-rail file not in the selection; nothing to run under Europe/Kyiv"
+          fi
 
       # 2026-08-02 — a third CI zone, distinct from BOTH the main suite (UTC)
       # and the DST-rail step above (Europe/Kyiv). The main suite's UTC run
@@ -1059,9 +1224,13 @@ jobs:
       # `test/features/calendar/data/working_hours_repository_test.dart`'s
       # own "Kyiv-anchored" test group for the Tokyo-pinned regression case.
       - name: Third-timezone sweep (host-clock leak detector)
+        if: needs.plan.outputs.mode == 'full' || (needs.plan.outputs.mode == 'selective' && needs.plan.outputs.tz_count != '0')
+        shell: bash
         env:
           TZ: Asia/Tokyo
+          CI_MODE: ${{ needs.plan.outputs.mode }}
         run: |
+          if [ "$CI_MODE" = "full" ]; then
           flutter test \
             test/features/booking/ \
             test/features/schedule/ \
@@ -1073,6 +1242,9 @@ jobs:
             test/core/time/ \
             test/routing/ \
             --reporter=expanded
+          else
+            bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/tz_sweep.txt" tz-tokyo-events
+          fi
 
       # 2026-08-04 — a FOURTH CI zone, WEST of Kyiv. Added, not swapped in for
       # Asia/Tokyo, because measurement showed the two are complementary rather
@@ -1170,9 +1342,13 @@ jobs:
       # DST rail guards step. Pinned by test/ci/dst_rail_ci_coverage_test.dart;
       # deleting this step fails that test.
       - name: Fourth-timezone sweep (west-of-Kyiv day-boundary detector)
+        if: needs.plan.outputs.mode == 'full' || (needs.plan.outputs.mode == 'selective' && needs.plan.outputs.tz_count != '0')
+        shell: bash
         env:
           TZ: Pacific/Honolulu
+          CI_MODE: ${{ needs.plan.outputs.mode }}
         run: |
+          if [ "$CI_MODE" = "full" ]; then
           flutter test \
             test/features/booking/ \
             test/features/schedule/ \
@@ -1184,6 +1360,9 @@ jobs:
             test/core/time/ \
             test/routing/ \
             --reporter=expanded
+          else
+            bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/tz_sweep.txt" tz-honolulu-events
+          fi
 
       # Phase 17.4 — Golden regression suite.
       # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
@@ -1193,7 +1372,16 @@ jobs:
       # masterImage, testImage to <test-file-dir>/failures/) and uploaded so
       # reviewers can inspect regressions without pulling the branch locally.
       - name: Golden regression tests
-        run: flutter test test/golden/ --reporter=expanded
+        if: needs.plan.outputs.mode == 'full' || (needs.plan.outputs.mode == 'selective' && needs.plan.outputs.golden_count != '0')
+        shell: bash
+        env:
+          CI_MODE: ${{ needs.plan.outputs.mode }}
+        run: |
+          if [ "$CI_MODE" = "full" ]; then
+            flutter test test/golden/ --reporter=expanded
+          else
+            bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/golden.txt" golden-events
+          fi
 
       - name: Upload golden failure diffs
         if: failure()
@@ -1207,6 +1395,18 @@ jobs:
             test/golden/failures/
           if-no-files-found: ignore
           retention-days: 14
+
+      # Full: only unit-events.json exists (as before). Selective: also
+      # golden-/tz-*-events.json from run_list.sh; tests-ran sums them.
+      # Placed after every test step so all streams are present.
+      - name: Upload unit event stream
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: unit-events
+          path: build/ci/*-events.json
+          retention-days: 3
+          if-no-files-found: ignore
 
       # Decode the release keystore from the base64 secret. NEVER on
       # pull_request: PR-controlled Gradle runs in the release build below and
@@ -1225,7 +1425,13 @@ jobs:
             echo "BEAUTICA_KEYSTORE_BASE64 not set — skipping release signing"
           fi
 
+      # Phase 400 D4 — the APK builds (~9.5 min) prove native packaging, not
+      # Dart logic (Analyze already proves Dart compiles): always in full mode,
+      # in selective/none mode only when the PR touches a native surface
+      # (plan.native covers android/**, pubspec.yaml, lib/main.dart, routing,
+      # patrol, this workflow).
       - name: Build APK (debug)
+        if: needs.plan.outputs.mode == 'full' || needs.plan.outputs.native == 'true'
         env:
           # NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
           # already prepend /api/v1/. A suffix here double-prefixes every URL
@@ -1242,7 +1448,7 @@ jobs:
       # (APK uploads are disabled), so release-only breakage (R8, proguard) is
       # still caught on PRs.
       - name: Build APK (release, compile check, no secrets)
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && (needs.plan.outputs.mode == 'full' || needs.plan.outputs.native == 'true')
         env:
           BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
           BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE: '1'
@@ -1321,7 +1527,14 @@ jobs:
         shell: bash
         env:
           RUN_ALL: ${{ needs.plan.outputs.run_all }}
-          SELECTION_COUNT: ${{ needs.plan.outputs.selection_count }}
+          # unit + golden + tz lists: what the `test` job ran (phase 400).
+          TEST_COUNT: ${{ needs.plan.outputs.test_count }}
+          # Per-list sizes: every non-empty list owes its stream (QA INFO).
+          UNIT_COUNT: ${{ needs.plan.outputs.unit_count }}
+          GOLDEN_COUNT: ${{ needs.plan.outputs.golden_count }}
+          TZ_COUNT: ${{ needs.plan.outputs.tz_count }}
+          # 1 iff the Kyiv rail step ran (base-owned resolver verdict).
+          KYIV_COUNT: ${{ needs.plan.outputs.kyiv_count }}
         run: |
           set -euo pipefail
           chk=tool/ci/tests_ran.sh
@@ -1330,16 +1543,64 @@ jobs:
             echo "::warning::base commit has no tool/ci/tests_ran.sh; skipping the tests-ran check"
             exit 0
           fi
-          ev=events/unit-events.json
-          if [ ! -s "$ev" ]; then
-            echo "::error::tests-ran RED: unit event stream missing or empty (fail closed)"; exit 1
-          fi
           if [ "$RUN_ALL" = "true" ]; then
+            # Full: the whole-suite unit stream vs the base-owned floor
+            # (unchanged by phase 400; never relaxed for selective runs).
+            ev=events/unit-events.json
+            if [ ! -s "$ev" ]; then
+              echo "::error::tests-ran RED: unit event stream missing or empty (fail closed)"; exit 1
+            fi
             bash "$chk" "$ev" full tool/ci/min_tests.txt
-          elif [ "$SELECTION_COUNT" = "0" ]; then
-            echo "empty selection: nothing is expected to run"
+          elif [ "$TEST_COUNT" = "0" ]; then
+            echo "empty test selection (mode none, or integration-only): nothing is expected to run"
+          elif [[ "$TEST_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+            # Selective: the floor would always trip on a subset, so the
+            # check is ">= 1 real test passed" PER selective stream (unit,
+            # golden, Kyiv rail, Tokyo, Honolulu): an all-skipped list is RED
+            # even when another stream passed (run_list.sh also checks each
+            # list at run time, incl. every listed file loading as a suite).
+            shopt -s nullglob
+            streams=(events/*-events.json)
+            if [ "${#streams[@]}" -eq 0 ]; then
+              echo "::error::tests-ran RED: $TEST_COUNT test file(s) selected but no event stream (fail closed)"; exit 1
+            fi
+            # Each list with a non-zero count must have produced ITS stream:
+            # checking only the streams that exist let a selected list that
+            # wrote nothing (e.g. golden_count=1, no golden stream) pass.
+            owe() { # <stream> <count>
+              if ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                echo "::error::tests-ran RED: $1 count '$2' is not a number (fail closed)"; exit 1
+              fi
+              if [ "$2" -gt 0 ] && [ ! -s "events/$1-events.json" ]; then
+                echo "::error::tests-ran RED: $1 list has $2 file(s) but events/$1-events.json is missing or empty (fail closed)"; exit 1
+              fi
+            }
+            owe unit "$UNIT_COUNT"
+            owe golden "$GOLDEN_COUNT"
+            owe tz-tokyo "$TZ_COUNT"
+            owe tz-honolulu "$TZ_COUNT"
+            # The Kyiv rail step runs only when the rail file is in the tz
+            # list. The base-owned resolver says whether it is (kyiv_count),
+            # so the owed Kyiv stream never depends on PR-produced events.
+            if [ -n "${KYIV_COUNT:-}" ]; then
+              owe tz-kyiv "$KYIV_COUNT"
+            else
+              # Fallback only for a base resolver that predates kyiv_count:
+              # infer from the Tokyo stream (same list), loudly.
+              echo "::warning::base resolver has no kyiv_count; inferring from the Tokyo stream"
+              rail=test/features/booking/presentation/bookings_day_rail_test.dart
+              if [ -s events/tz-tokyo-events.json ] && jq -R -e --arg r "$rail" \
+                  'fromjson? | select(.type == "suite") | .suite.path | select(. == $r or endswith("/" + $r))' \
+                  events/tz-tokyo-events.json >/dev/null; then
+                owe tz-kyiv 1
+              fi
+            fi
+            for st in "${streams[@]}"; do
+              echo "tests-ran: $st"
+              bash "$chk" "$st" selective
+            done
           else
-            bash "$chk" "$ev" selective
+            echo "::error::tests-ran RED: run_all='$RUN_ALL' with test_count='$TEST_COUNT' (fail closed)"; exit 1
           fi
 
   # ---------------------------------------------------------------------------
@@ -2052,7 +2313,7 @@ jobs:
   ci-gate:
     name: ci-gate
     if: always()
-    needs: [plan, validate, test, tests-ran, integration, integration-profile, patrol]
+    needs: [plan, validate, selector-tests, test, tests-ran, integration, integration-profile, patrol]
     runs-on: ubuntu-latest
     # Normally seconds; a noop-label event waits for the real run it mirrors:
     # up to 3 min polling for it to appear + the watch below (200 min =

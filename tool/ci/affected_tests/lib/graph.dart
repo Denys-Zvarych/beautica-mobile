@@ -12,6 +12,15 @@ import 'rules.dart';
 bool isGeneratedDart(String path) =>
     path.endsWith('.g.dart') || path.endsWith('.freezed.dart');
 
+/// True when any segment of the repo-relative [path] is a dot-dir/dot-file
+/// (e.g. `test/.run_list_selftest_123/x_test.dart`). Such files are scratch
+/// (self-test fixtures, editor/tool state), never part of the test universe
+/// (`universe()` skips them; `tool/ci/run_list.sh` refuses them too). They
+/// stay graph NODES with their edges: dropping them would sever a transitive
+/// chain `lib/a.dart <- lib/.x/b.dart <- lib/c.dart <- test/c_test.dart`.
+bool isUnderDotDir(String path) =>
+    path.split('/').any((s) => s.startsWith('.'));
+
 /// Reverse import graph over the Dart files under `Rules.graphRoots`.
 ///
 /// Edges come from `import` / `export` / `part` directives (every URI of a

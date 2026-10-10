@@ -40,6 +40,7 @@ final class Rules {
   Rules._({
     required this.packages,
     required this.graphRoots,
+    required this.fullBeforeNone,
     required this.none,
     required this.full,
     required this.fullNonDartRoots,
@@ -80,6 +81,7 @@ final class Rules {
           e.key as String: e.value as String,
       },
       graphRoots: [for (final r in y['graph_roots'] as YamlList) r as String],
+      fullBeforeNone: _globs(y['full_before_none']),
       none: _globs(y['none_globs']),
       full: _globs(y['full_globs']),
       fullNonDartRoots: [
@@ -112,6 +114,9 @@ final class Rules {
 
   final Map<String, String> packages;
   final List<String> graphRoots;
+
+  /// FULL globs checked before [none]: carve-outs of a none glob.
+  final List<RuleGlob> fullBeforeNone;
   final List<RuleGlob> none;
   final List<RuleGlob> full;
   final List<String> fullNonDartRoots;

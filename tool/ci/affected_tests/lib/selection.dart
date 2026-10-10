@@ -69,12 +69,16 @@ List<RuleGlob> _mappedIncludes(String path, Rules rules) => [
 bool _isTest(String path) => path.endsWith('_test.dart');
 
 /// Every test the selector knows about, from a built [graph].
+///
+/// Dot-dir files ([isUnderDotDir]) are graph nodes (their edges carry
+/// transitive chains) but are never runnable tests.
 ({List<String> unit, List<String> golden, List<String> flows}) universe(
   ImportGraph graph,
   Rules rules,
 ) {
   final unit = <String>[], golden = <String>[], flows = <String>[];
   for (final n in graph.nodes) {
+    if (isUnderDotDir(n)) continue;
     if (n.startsWith('test/') && _isTest(n)) {
       (n.startsWith('test/golden/') ? golden : unit).add(n);
     } else if (rules.flowGlob.matches(n)) {
@@ -98,6 +102,8 @@ Selection select({
   final reasons = <Reason>[];
   // 1. classify
   var forceFull = false;
+  // D5: `none` is docs-only, i.e. EVERY changed path classified `none`.
+  final codeChanged = <String>[]; // paths classified anything but `none`
   final seeds = <String>{}; // live seeds (HEAD tree)
   final goneSeeds = <String>{}; // BASE-tree seeds (deleted / renamed-away)
   final livePaths = <String>[]; // non-ignored live changed paths
@@ -108,6 +114,7 @@ Selection select({
     for (final path in c.livePaths) {
       final k = classify(path, rules);
       reasons.add(Reason(path, k.rule));
+      if (k.kind != PathKind.none) codeChanged.add(path);
       switch (k.kind) {
         case PathKind.none:
           break;
@@ -131,6 +138,7 @@ Selection select({
     for (final path in c.gonePaths) {
       final k = classify(path, rules);
       reasons.add(Reason(path, '${k.rule} [removed]'));
+      if (k.kind != PathKind.none) codeChanged.add(path);
       if (k.kind == PathKind.full) forceFull = true;
       if (k.kind == PathKind.seed) {
         goneSeeds.add(k.seedPath!);
@@ -150,6 +158,12 @@ Selection select({
   final g = graph ?? ImportGraph.build(root, rules);
   final uni = universe(g, rules);
   final allTests = [...uni.unit, ...uni.golden];
+  if (codeChanged.isNotEmpty && allTests.isEmpty) {
+    // Nothing to select from (and the 60% threshold cannot apply): an
+    // unscannable tree must never read as "no tests needed".
+    reasons.add(const Reason('*', 'full: empty test universe'));
+    return Selection(mode: Mode.full, reasons: reasons);
+  }
 
   // 1b. non-Dart changes that map to tests instead of forcing FULL. Anything
   // unresolvable falls back to FULL (fail-safe).
@@ -329,6 +343,18 @@ Selection select({
     return Selection(mode: Mode.full, reasons: reasons);
   }
   if (unit.isEmpty && golden.isEmpty && flows.isEmpty) {
+    if (codeChanged.isNotEmpty) {
+      // A non-docs change that reaches no test is a graph blind spot (e.g. a
+      // symlinked test the graph skips), never proof that nothing can break.
+      reasons.add(
+        Reason(
+          '*',
+          'full: ${codeChanged.length} non-docs change(s) selected no tests '
+              '(first: ${codeChanged.first})',
+        ),
+      );
+      return Selection(mode: Mode.full, reasons: reasons);
+    }
     return Selection(mode: Mode.none, reasons: reasons);
   }
   return Selection(

@@ -157,15 +157,32 @@ void main() {
       'api/build.yaml': 'api/build.yaml',
       'test/flutter_test_config.dart': 'test/flutter_test_config.dart',
       'test/helpers/h.dart': 'test/helpers/**',
+      'test/ci/dst_rail_ci_coverage_test.dart': 'test/ci/**',
       'integration_test/support/s.dart': 'integration_test/support/**',
       'integration_test/fixtures/f.json': 'integration_test/fixtures/**',
       'test_driver/integration_test.dart': 'test_driver/**',
       'tool/ci/plan.sh': 'tool/ci/**',
       'scripts/forbid_x.sh': 'scripts/**',
       '.github/workflows/pr-validate.yml': '.github/workflows/**',
+      // 400 / 398 R1: no longer ignored, the workflow guard forces FULL.
+      '.github/workflows/gitleaks.yml': '.github/workflows/**',
     };
     fullCases.forEach((path, glob) {
       test('$path -> full via $glob', () {
+        final c = classify(path, rules);
+        expect(c.kind, PathKind.full);
+        expect(c.rule, 'full: $glob');
+      });
+    });
+
+    // full_before_none: carve-outs of android/** that beat the none glob.
+    const fullBeforeNoneCases = {
+      'android/gradle/wrapper/gradle-wrapper.properties':
+          'android/gradle/wrapper/**',
+      'android/gradle.properties': 'android/gradle.properties',
+    };
+    fullBeforeNoneCases.forEach((path, glob) {
+      test('$path -> full via $glob (beats android/**)', () {
         final c = classify(path, rules);
         expect(c.kind, PathKind.full);
         expect(c.rule, 'full: $glob');
@@ -194,7 +211,6 @@ void main() {
       'ios/Runner/Info.plist': 'ios/**',
       'windows/runner/main.cpp': 'windows/**',
       'scripts/perf/measure_startup.sh': 'scripts/perf/**',
-      '.github/workflows/gitleaks.yml': '.github/workflows/gitleaks.yml',
       'api/doc/Foo.txt': 'api/doc/**',
       '.gitleaksignore': '.gitleaksignore',
       '.metadata': '.metadata',
@@ -216,6 +232,9 @@ void main() {
     test('every rule in rules.yaml has a case here (no unpinned rule)', () {
       expect({for (final g in rules.full) g.source}, fullCases.values.toSet());
       expect({for (final g in rules.none) g.source}, noneCases.values.toSet());
+      expect({
+        for (final g in rules.fullBeforeNone) g.source,
+      }, fullBeforeNoneCases.values.toSet());
       expect(
         {
           for (final pi in rules.pathIncludes)
@@ -515,6 +534,35 @@ void main() {
       expect(s.unit.length, 3);
       expect(s.mode, Mode.selective);
     });
+    test('a lib change reaching no test -> full, never none (D5)', () {
+      final r = FixtureRepo({'lib/orphan.dart': 'int o = 1;\n', ...filler(40)});
+      addTearDown(r.dispose);
+      final s = r.run(m('lib/orphan.dart'));
+      expect(s.mode, Mode.full);
+      expect(s.reasons.last.rule, contains('selected no tests'));
+    });
+    test('a symlinked test the graph skips cannot turn into none', () {
+      final r = FixtureRepo({
+        'lib/a.dart': 'int a = 1;\n',
+        'real/a_test.dart': pkg('a.dart'),
+        ...filler(40),
+      });
+      addTearDown(r.dispose);
+      Link(
+        p.join(r.root, 'test', 'a_test.dart'),
+      ).createSync(p.join(r.root, 'real', 'a_test.dart'));
+      final s = r.run(m('test/a_test.dart'));
+      expect(s.mode, Mode.full);
+    });
+    test('an empty test universe -> full on any non-docs change', () {
+      final r = FixtureRepo({'lib/a.dart': 'int a = 1;\n'});
+      addTearDown(r.dispose);
+      final s = r.run(m('lib/a.dart'));
+      expect(s.mode, Mode.full);
+      expect(s.reasons.last.rule, contains('empty test universe'));
+      // docs-only stays none even with an empty universe.
+      expect(r.run(m('docs/a.md')).mode, Mode.none);
+    });
     test('threshold comes from rules.yaml', () {
       expect(rules.fullThreshold, 0.60);
     });
@@ -693,6 +741,41 @@ void main() {
       expect(u.unit, ['test/a_test.dart']);
       expect(u.golden, ['test/golden/g_golden_test.dart']);
       expect(u.flows, ['integration_test/f_flow_test.dart']);
+    });
+
+    test('dot-dirs under test/ are never in the universe or a selection', () {
+      // A leaked run_list_test.sh fixture dir (SIGKILL skips its EXIT trap)
+      // must never be selected: it holds a planted failing test.
+      final repo = FixtureRepo({
+        'lib/w.dart': 'int w = 1;\n',
+        'test/a_test.dart': pkg('w.dart'),
+        'test/.run_list_selftest_123/planted_fail_test.dart': pkg('w.dart'),
+        '.hidden/test/b_test.dart': 'void main() {}\n',
+        ...filler(40),
+      });
+      addTearDown(repo.dispose);
+      final u = universe(ImportGraph.build(repo.root, rules), rules);
+      expect(u.unit, isNot(contains(matches(r'/\.'))));
+      expect(u.unit, contains('test/a_test.dart'));
+      final sel = repo.run(m('lib/w.dart'));
+      expect(sel.unit, contains('test/a_test.dart'));
+      expect(sel.unit, isNot(contains(matches(r'/\.'))));
+    });
+
+    test('a dot-dir lib file keeps its edges (transitive chain intact)', () {
+      // lib/a.dart <- lib/.x/b.dart <- lib/c.dart <- test/c_test.dart:
+      // dropping the dot-dir node severed the chain and read as mode=none.
+      final repo = FixtureRepo({
+        'lib/a.dart': 'int a = 1;\n',
+        'lib/.x/b.dart': "import '../a.dart';\n",
+        'lib/c.dart': "import '.x/b.dart';\n",
+        'test/c_test.dart': pkg('c.dart'),
+        ...filler(40),
+      });
+      addTearDown(repo.dispose);
+      final sel = repo.run(m('lib/a.dart'));
+      expect(sel.mode, Mode.selective);
+      expect(sel.unit, contains('test/c_test.dart'));
     });
 
     test('a Rename of a lib file re-runs the structural meta tests', () {
@@ -1092,6 +1175,11 @@ void main() {
             .listSync(recursive: true)
             .whereType<File>()
             .where((f) => f.path.endsWith('_test.dart'))
+            .where(
+              (f) => !isUnderDotDir(
+                p.posix.joinAll(p.split(p.relative(f.path, from: repoRoot))),
+              ),
+            )
             .length;
         final g = ImportGraph.build(repoRoot, rules);
         final u = universe(g, rules);
@@ -1106,18 +1194,8 @@ void main() {
       skip: haveRepo ? false : 'not inside the beautica-mobile tree',
     );
 
-    test(
-      'rules.yaml tz_sweep mirrors pr-validate.yml (dirs appear in the workflow)',
-      () {
-        final wf = File(
-          p.join(repoRoot, '.github', 'workflows', 'pr-validate.yml'),
-        ).readAsStringSync();
-        for (final d in rules.tzDirs) {
-          expect(wf, contains(d), reason: '$d missing from the TZ sweep steps');
-        }
-      },
-      skip: haveRepo ? false : 'not inside the beautica-mobile tree',
-    );
+    // The rules.yaml <-> workflow TZ mirror lives in pipeline_e2e_test.dart
+    // (exact list + order, Tokyo AND Honolulu, plus the Kyiv file).
 
     test(
       'every tracked top-level path class is covered by a rule or fails safe',
