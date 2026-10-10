@@ -1,6 +1,7 @@
 // Replays the selector over historic commits: for commit C it diffs C^..C
 // (first parent), extracts both trees with `git archive` (read-only, no
-// checkout) and prints a mode / selected-count table.
+// checkout) and prints a mode / selected-count table with the FULL reason per
+// commit (398 R2: full_glob <glob> | >60% (share) | fail-safe <rule> <path>).
 //
 //   dart run tool/ci/affected_tests/bin/replay.dart --commit <sha> [--commit ...]
 //   dart run tool/ci/affected_tests/bin/replay.dart --last 30 --ref dev
@@ -59,10 +60,7 @@ void main(List<String> args) {
         ),
   );
 
-  stdout.writeln(
-    '| commit | files | mode | unit | golden | tz | flows | subject |',
-  );
-  stdout.writeln('|---|---|---|---|---|---|---|---|');
+  stdout.writeln(replayHeader);
   final pcts = <double>[];
   for (final c in commits) {
     final tmp = Directory.systemTemp.createTempSync('replay_');
@@ -84,12 +82,16 @@ void main(List<String> args) {
         graph: g,
       );
       final subject = _git(repo, ['log', '-1', '--format=%s', c]).trim();
-      final unit = s.mode == Mode.full ? 'FULL' : '${s.unit.length}/$total';
       if (s.mode != Mode.full && total > 0) pcts.add(s.unit.length / total);
       stdout.writeln(
-        '| ${c.substring(0, 8)} | ${changes.length} | ${s.mode.name} | $unit | ${s.golden.length} '
-        '| ${s.tzSweep.length} | ${s.integration.length} | '
-        '${subject.length > 60 ? subject.substring(0, 60) : subject} |',
+        replayRow(
+          commit: c,
+          files: changes.length,
+          s: s,
+          totalUnit: total,
+          rules: rules,
+          subject: subject,
+        ),
       );
       if (verbose) {
         stdout.writeln(

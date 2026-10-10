@@ -109,3 +109,6 @@ integration_test/test_bundle.dart
 # ignore so a stale bundle there can never be committed or break analyze.
 /patrol_test/
 
+
+# run_list_test.sh fixture dirs (older versions; swept at startup)
+test/.run_list_selftest_*/
