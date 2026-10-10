@@ -864,10 +864,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: plan
     if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
-    # Cap (2026-10-10): the slowest steps are the unit run plus three zone
-    # re-runs of date-sensitive dirs (~4 min each) and the debug build; the whole
-    # job is normally well under 30 min. 45 bounds a hung runner (default 360).
-    timeout-minutes: 45
+    # Cap (2026-10-10): measured ~55 min on a full run: unit tests 28.3, DST/TZ
+    # zone re-runs ~13, goldens ~2, debug APK 7, release APK 2.6, small steps
+    # the rest. 70 leaves headroom and still bounds a hung runner (default 360).
+    timeout-minutes: 70
 
     steps:
       - name: Checkout
