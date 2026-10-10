@@ -50,6 +50,9 @@ import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/features/master/domain/master_update.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/application/owner_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -57,7 +60,6 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
-import 'package:beautica_mobile/features/home/data/client_profile_repository.dart';
 import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -290,11 +292,22 @@ Future<GoRouter> _pumpRealRouterAs(
   return router;
 }
 
-class _MockClientProfileRepository extends Mock
-    implements ClientProfileRepository {}
+class _MockMasterRepository extends Mock implements MasterRepository {}
 
 void main() {
-  setUpAll(() => registerFallbackValue(const ClientProfileUpdate()));
+  setUpAll(() {
+    registerFallbackValue(const ClientProfileUpdate());
+    registerFallbackValue(
+      const MasterUpdate(
+        firstName: '',
+        lastName: '',
+        bio: '',
+        contactPhone: '',
+        instagram: '',
+        professionalTitle: '',
+      ),
+    );
+  });
 
   _identityAvatarTests();
   _masterModeTests();
@@ -1079,10 +1092,15 @@ void main() {
       );
     });
 
-    testWidgets('/owner/edit/personal: a real save lands on the master-mode '
-        'profile (doneRoute = /owner/master/profile)', (tester) async {
-      final repo = _MockClientProfileRepository();
-      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+    testWidgets('/owner/edit/personal: a real save of the master label + bio '
+        'lands on the master-mode profile (doneRoute = /owner/master/profile)', (
+      tester,
+    ) async {
+      final repo = _MockMasterRepository();
+      MasterUpdate? captured;
+      when(() => repo.updateMyProfile(any())).thenAnswer((i) async {
+        captured = i.positionalArguments.first as MasterUpdate;
+      });
       final GoRouter router = await _pumpRealRouterAs(
         tester,
         _routerOwner,
@@ -1092,29 +1110,38 @@ void main() {
         meResult: _routerOwner,
         extraOverrides: <Object>[
           clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
-          clientProfileRepositoryProvider.overrideWithValue(repo),
+          masterRepositoryProvider.overrideWithValue(repo),
         ],
       );
 
       router.go(RouteNames.ownerEditPersonal);
       // Not pumpAndSettle: the edit screen never settles here.
-      await tester.pumpUntilFound(find.byType(ClientPersonalInfoEditScreen));
+      await tester.pumpUntilFound(find.byType(PersonalInfoEditScreen));
       await tester.pump();
       await tester.pump();
 
       await tester.enterText(
         find.descendant(
-          of: find.byKey(const Key('field-firstName')),
+          of: find.byKey(const Key('field-professionalTitle')),
           matching: find.byType(TextField),
         ),
-        'Оля',
+        'Візажист-стиліст',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-bio')),
+          matching: find.byType(TextField),
+        ),
+        'Унікальна біографія 399.',
       );
       await tester.pump();
       await tester.tap(find.byKey(const Key('btn-save-personal')));
       await tester.pump();
-      await tester.pumpUntilGone(find.byType(ClientPersonalInfoEditScreen));
+      await tester.pumpUntilGone(find.byType(PersonalInfoEditScreen));
 
       verify(() => repo.updateMyProfile(any())).called(1);
+      expect(captured?.professionalTitle, 'Візажист-стиліст');
+      expect(captured?.bio, 'Унікальна біографія 399.');
       expect(
         // router-location-ok: `.go` only in this test.
         router.routerDelegate.currentConfiguration.uri.toString(),
@@ -1125,6 +1152,27 @@ void main() {
       // fixed-wait-ok: drains the snackbar auto-dismiss Timer before teardown;
       // there is no widget condition to poll for a pending Timer.
       await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('/owner/edit/personal builds the master PersonalInfoEditScreen '
+        '(label + bio fields), not the client editor', (tester) async {
+      final GoRouter router = await _pumpRealRouterAs(
+        tester,
+        _routerOwner,
+        meResult: _routerOwner,
+        extraOverrides: <Object>[
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+        ],
+      );
+
+      router.go(RouteNames.ownerEditPersonal);
+      await tester.pumpUntilFound(find.byType(PersonalInfoEditScreen));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+      expect(find.byKey(const Key('field-professionalTitle')), findsOneWidget);
+      expect(find.byKey(const Key('field-bio')), findsOneWidget);
     });
 
     // NO CLIENT CASE for the owner-hub route either, deliberately. `mySalonsGuard` branches on "is this

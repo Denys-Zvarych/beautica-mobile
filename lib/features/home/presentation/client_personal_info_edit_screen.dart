@@ -301,14 +301,14 @@ class _ClientPersonalInfoEditScreenState
       if (!mounted) return;
       showErrorSnack(context, f.userMessage(context));
       setState(() => _saving = false);
-    } catch (e, st) {
+    } catch (e) {
       if (kDebugMode) {
         log(
           'client personal-info save unexpected error',
           name: 'feature.client.edit.personal',
           level: 1000,
-          error: e,
-          stackTrace: st,
+          // runtimeType only — a raw exception may echo a response body (PII).
+          error: e.runtimeType.toString(),
         );
       }
       if (!mounted) return;

@@ -1224,16 +1224,17 @@ GoRouter appRouter(Ref ref) {
           fallbackHomeRoute: RouteNames.ownerMasterProfile,
         ),
       ),
-      // Phase 367 (9.6, D6) — «Особисті дані» for a SALON_OWNER. REUSES
-      // [ClientPersonalInfoEditScreen] VERBATIM exactly as the admin route
-      // above does; saving returns to the owner's master-mode profile
-      // (Phase 137 — the hub is reached from master mode). See
-      // `RouteNames.ownerEditPersonal`'s own doc.
+      // Phase 367 / 399 — «Особисті дані» for a SALON_OWNER. REUSES
+      // [PersonalInfoEditScreen] (name + label + bio + avatar) via its
+      // additive `doneRoute` / `backFallbackRoute`; saving returns to the
+      // owner's master-mode profile (Phase 137 — the hub is reached from
+      // master mode). See `RouteNames.ownerEditPersonal`'s own doc.
       GoRoute(
         path: RouteNames.ownerEditPersonal,
         redirect: mySalonsGuard,
-        builder: (context, state) => const ClientPersonalInfoEditScreen(
+        builder: (context, state) => const PersonalInfoEditScreen(
           doneRoute: RouteNames.ownerMasterProfile,
+          backFallbackRoute: RouteNames.ownerSettings,
         ),
       ),
       // Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. REUSES

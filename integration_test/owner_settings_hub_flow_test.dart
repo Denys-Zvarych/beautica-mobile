@@ -14,6 +14,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
@@ -99,7 +100,10 @@ void main() {
         await tester.tap(find.byKey(const Key('row-personal')));
         await AppHarness.settle(tester);
         AppHarness.expectLocation(router, RouteNames.ownerEditPersonal);
-        expect(find.byType(ClientPersonalInfoEditScreen), findsOneWidget);
+        // Phase 399 — the MASTER editor (name + label + bio), not the client
+        // one.
+        expect(find.byType(PersonalInfoEditScreen), findsOneWidget);
+        expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
 
         final Finder firstNameField = find.descendant(
           of: find.byKey(const Key('field-firstName')),
@@ -107,21 +111,37 @@ void main() {
         );
         expect(
           tester.widget<TextField>(firstNameField).controller?.text,
-          'Оксана',
-          reason: 'pre-populated from the REAL /users/me read',
+          fb.masterFirstName,
+          reason: 'pre-populated from the REAL /masters/me read',
         );
         await tester.tap(firstNameField);
         await AppHarness.settle(tester);
         await tester.enterText(firstNameField, 'Марта');
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-professionalTitle')),
+            matching: find.byType(TextField),
+          ),
+          'Візажист-стиліст',
+        );
+        await tester.enterText(
+          find.descendant(
+            of: find.byKey(const Key('field-bio')),
+            matching: find.byType(TextField),
+          ),
+          'Біографія власниці 399.',
+        );
         await tester.pump();
 
-        final int patchesBefore = fb.patchMeCalls;
+        final int patchesBefore = fb.patchProfileCalls;
         final int getMeBefore = fb.getMeCalls;
         final int servicesBefore = fb.getPublicMasterServicesCalls;
         await tester.tap(find.byKey(const Key('btn-save-personal')));
         await AppHarness.settle(tester);
-        expect(fb.patchMeCalls, patchesBefore + 1);
+        expect(fb.patchProfileCalls, patchesBefore + 1);
         expect(fb.ownerFirstName, 'Марта');
+        expect(fb.masterProfessionalTitle, 'Візажист-стиліст');
+        expect(fb.masterBio, 'Біографія власниці 399.');
         // Redundant-fetch pin (mobile-perf LOW, 2026-10): `go(doneRoute)`
         // lands on the ALREADY-MOUNTED master-mode profile page, so the only
         // network cost of a save is the identity refresh (`refreshUser` +
@@ -145,8 +165,13 @@ void main() {
         await pumpPastVelvetSnack(tester);
         expect(
           _textOf(tester, 'owner-own-profile-name'),
-          'Марта Власник',
+          'Марта ${fb.ownerLastName}',
           reason: 'the new name shows without a restart',
+        );
+        expect(
+          _textOf(tester, 'owner-own-profile-professional-title'),
+          'Візажист-стиліст',
+          reason: 'the saved label shows on the master-mode profile',
         );
 
         // --- account row ------------------------------------------------
@@ -180,6 +205,30 @@ void main() {
           findsOneWidget,
         );
         expect(fb.logoutCalls, logoutsBefore + 1);
+      });
+    },
+  );
+
+  testWidgets(
+    'SALON_OWNER: back from «Особисті дані» without saving returns to the hub',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+        final GoRouter router = await _enterMasterMode(tester, fb);
+        await _openHub(tester, router);
+
+        await tester.tap(find.byKey(const Key('row-personal')));
+        await AppHarness.settle(tester);
+        AppHarness.expectLocation(router, RouteNames.ownerEditPersonal);
+        expect(find.byType(PersonalInfoEditScreen), findsOneWidget);
+
+        final int patchesBefore = fb.patchProfileCalls;
+        await tester.tap(find.byKey(const Key('btn-back-personal')));
+        await AppHarness.settle(tester);
+
+        AppHarness.expectLocation(router, RouteNames.ownerSettings);
+        expect(find.byType(SettingsHubScreen), findsOneWidget);
+        expect(fb.patchProfileCalls, patchesBefore);
       });
     },
   );

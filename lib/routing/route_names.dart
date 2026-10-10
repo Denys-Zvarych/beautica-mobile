@@ -601,12 +601,13 @@ abstract final class RouteNames {
   /// why `doneRoute: adminSettings` is passed.
   static const String adminEditContacts = '/profile/admin/settings/contacts';
 
-  /// Phase 367 (9.6, D6) — «Особисті дані» edit for a SALON_OWNER: name
-  /// (`PATCH /users/me`, valid for every role) plus the live own-avatar
-  /// editor. REUSES [ClientPersonalInfoEditScreen] VERBATIM, exactly as
-  /// [adminEditPersonal] does, with `doneRoute: ownerMasterProfile` (Phase 137
-  /// — the hub is reached from master mode, so saving must not drop the owner
-  /// out of it). A top-level
+  /// Phase 367 (9.6, D6) / 399 — «Особисті дані» edit for a SALON_OWNER:
+  /// name, professional label, bio and the live own-avatar editor. REUSES
+  /// the master `PersonalInfoEditScreen` (the owner's save goes to
+  /// `PATCH /independent-masters/me/profile`, admitted for the owner by
+  /// backend 361) with `doneRoute: ownerMasterProfile` (Phase 137 — the hub
+  /// is reached from master mode, so saving must not drop the owner out of
+  /// it) and `backFallbackRoute: ownerSettings`. A top-level
   /// literal (no dynamic `/owner/:x` sibling exists to shadow it), gated by
   /// the SALON_OWNER-only `mySalonsGuard` [ownerOwnProfile] reuses.
   ///

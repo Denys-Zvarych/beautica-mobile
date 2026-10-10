@@ -7602,6 +7602,10 @@ final class FakeBackend {
             ...userJsonForRole(currentRole),
             'firstName': ownerFirstName,
             'lastName': ownerLastName,
+            // Phase 399 — the label lives on the shared `users` row, so the
+            // owner's PATCH /independent-masters/me/profile shows up here.
+            if (masterProfessionalTitle != null)
+              'professionalTitle': masterProfessionalTitle,
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
             'avatarUrl': ?avatar,
           }),
@@ -8769,6 +8773,12 @@ final class FakeBackend {
         }
         if (body['lastName'] is String) {
           masterLastName = body['lastName'] as String;
+        }
+        // Phase 399 — the backend writes the name onto the shared `users` row,
+        // so an OWNER's PATCH here is what the next `GET /users/me` returns.
+        if (currentRole == UserRole.salonOwner) {
+          ownerFirstName = masterFirstName;
+          ownerLastName = masterLastName;
         }
         if (body['bio'] is String) masterBio = body['bio'] as String;
         masterInstagram = body['instagram'] as String?;

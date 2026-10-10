@@ -73,7 +73,9 @@ import 'widgets/settings_row.dart';
 //     `contactsEnabled`, which SALON_MASTER genuinely still disables for a
 //     role with no destination — see above). SALON_ADMIN's row is live via
 //     Phase 356: [personalInfoRoute] is `RouteNames.adminEditPersonal`,
-//     pushing the reused [ClientPersonalInfoEditScreen]. Every other caller
+//     pushing the reused [ClientPersonalInfoEditScreen]. SALON_OWNER's row
+//     (Phase 399) is `RouteNames.ownerEditPersonal`, the master
+//     `PersonalInfoEditScreen` (name + label + bio). Every other caller
 //     leaves [personalInfoRoute] at its default, unaffected.
 //   * [fallbackHomeRoute] — the hub's own onBack no-pop fallback, so the
 //     SAME [SettingsRow] destinations resolve per-role without forking the
