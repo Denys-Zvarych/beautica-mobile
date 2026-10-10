@@ -567,6 +567,14 @@ abstract final class RouteNames {
   /// "SALON_ADMIN only".
   static const String adminSettings = '/profile/admin/settings';
 
+  /// Phase 137 (21.15) — the SALON_OWNER's own settings hub, opened by the
+  /// trailing tune on the owner own-profile (`/profile/owner` and master-mode
+  /// `/owner/master/profile`). REUSES `SettingsHubScreen` in a third
+  /// configuration (no «Локація», no «Контакти»). A flat top-level literal
+  /// (no dynamic `/profile/owner/:x` sibling to shadow it), gated by the
+  /// SALON_OWNER-only `mySalonsGuard`.
+  static const String ownerSettings = '/profile/owner/settings';
+
   /// Phase 356 — «Особисті дані» edit for a SALON_ADMIN. An admin is a
   /// `User`, not a `Master`: this reuses [ClientPersonalInfoEditScreen]
   /// VERBATIM (firstName + lastName through `PATCH /users/me`) rather than
@@ -596,14 +604,15 @@ abstract final class RouteNames {
   /// Phase 367 (9.6, D6) — «Особисті дані» edit for a SALON_OWNER: name
   /// (`PATCH /users/me`, valid for every role) plus the live own-avatar
   /// editor. REUSES [ClientPersonalInfoEditScreen] VERBATIM, exactly as
-  /// [adminEditPersonal] does, with `doneRoute: ownerOwnProfile`. A top-level
+  /// [adminEditPersonal] does, with `doneRoute: ownerMasterProfile` (Phase 137
+  /// — the hub is reached from master mode, so saving must not drop the owner
+  /// out of it). A top-level
   /// literal (no dynamic `/owner/:x` sibling exists to shadow it), gated by
   /// the SALON_OWNER-only `mySalonsGuard` [ownerOwnProfile] reuses.
   ///
-  /// No in-app row pushes it yet: the owner's own-profile tune button stays
-  /// inert until the Phase 21.15 Owner Settings Hub (whose «Особисті дані»
-  /// row this is the target of). The owner's avatar itself is already live
-  /// on the own-profile identity card.
+  /// Pushed by the «Особисті дані» row of the Phase 137 Owner Settings Hub
+  /// ([ownerSettings]). The owner's avatar itself is already live on the
+  /// own-profile identity card.
   static const String ownerEditPersonal = '/owner/edit/personal';
 
   /// Phase 379 (24.1b) — the SALON_OWNER's «master mode» «Профіль» tab: the

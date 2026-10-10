@@ -416,6 +416,8 @@ void main() {
       // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN's own settings hub,
       // reached from `adminOwnProfile`'s trailing tune action.
       'adminSettings': RouteNames.adminSettings,
+      // Phase 137 (21.15) — the SALON_OWNER's own settings hub (tune action).
+      'ownerSettings': RouteNames.ownerSettings,
       // Phase 356 — the admin hub's «Особисті дані» / «Контакти» edit leaves,
       // reusing the CLIENT editor screens via `doneRoute`.
       'adminEditPersonal': RouteNames.adminEditPersonal,

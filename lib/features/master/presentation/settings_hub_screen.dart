@@ -39,13 +39,18 @@ import 'widgets/settings_row.dart';
 // Reused VERBATIM by the SALON_MASTER own-profile settings hub
 // (`RouteNames.salonMasterSettings`, `/staff/settings`) and the SALON_ADMIN
 // own-profile settings hub (`RouteNames.adminSettings`,
-// `/profile/admin/settings`) via five additive params — every existing
+// `/profile/admin/settings`) and the SALON_OWNER own-profile settings hub
+// (`RouteNames.ownerSettings`, `/profile/owner/settings`; passes
+// `showContacts: false`) via six additive params — every existing
 // (INDEPENDENT_MASTER) call site passes none of them and renders EXACTLY as
 // before:
 //   * [showLocation]     — SALON_MASTER/SALON_ADMIN have no personal location
 //     to manage (works from the salon's address, which is the salon's to
 //     edit, not theirs); the row is omitted entirely rather than disabled,
 //     since it names a concept that does not apply to the role at all.
+//   * [showContacts]     — omits the «Контакти» row entirely (SALON_OWNER).
+//     The rows below it take the earlier reveal slots so the stagger has no
+//     gap; callers leaving it `true` keep their exact intervals.
 //   * [contactsEnabled] / [contactsRoute] — SALON_MASTER's «Контакти» row IS
 //     live (2026-09-01): it pushes [contactsRoute], which for this role is
 //     `RouteNames.salonMasterEditContacts` — the SAME [ContactsEditScreen]
@@ -77,6 +82,7 @@ class SettingsHubScreen extends ConsumerStatefulWidget {
   const SettingsHubScreen({
     super.key,
     this.showLocation = true,
+    this.showContacts = true,
     this.contactsEnabled = true,
     this.contactsRoute = RouteNames.masterEditContacts,
     this.personalInfoRoute = RouteNames.masterEditPersonal,
@@ -86,6 +92,12 @@ class SettingsHubScreen extends ConsumerStatefulWidget {
   /// Whether the «Локація» row renders. Defaults to `true` (INDEPENDENT_
   /// MASTER, every pre-existing call site).
   final bool showLocation;
+
+  /// Whether the «Контакти» row renders at all. Defaults to `true` (every
+  /// pre-existing call site). `false` OMITS the row entirely (SALON_OWNER:
+  /// no owner-scoped contacts endpoint exists) — distinct from
+  /// [contactsEnabled]`: false`, which renders it present but disabled.
+  final bool showContacts;
 
   /// Whether the «Контакти» row is a live push target. `false` renders it
   /// PRESENT BUT DISABLED with a «незабаром» trailing value — see the class
@@ -186,6 +198,12 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // Reveal slots for the rows after «Контакти». With contacts hidden they
+    // shift up so the stagger has no gap; otherwise the original intervals.
+    final locationAnim = widget.showContacts ? _anim3 : _anim2;
+    final accountAnim = widget.showContacts
+        ? _anim4
+        : (widget.showLocation ? _anim3 : _anim2);
 
     return SectionScaffold(
       title: l10n.settingsTitle,
@@ -221,36 +239,38 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
               onTap: () => context.push(widget.personalInfoRoute),
             ),
           ),
-          const SizedBox(height: VelvetSpacing.md),
-          _reveal(
-            _anim2,
-            widget.contactsEnabled
-                ? SettingsRow(
-                    key: const Key('row-contacts'),
-                    icon: Icons.call_outlined,
-                    label: l10n.settingsHubContacts,
-                    onTap: () => context.push(widget.contactsRoute),
-                  )
-                : SettingsRow(
-                    key: const Key('row-contacts'),
-                    icon: Icons.call_outlined,
-                    label: l10n.settingsHubContacts,
-                    // This caller has no contacts-edit destination —
-                    // present but visibly inert, never a fake success. No
-                    // current call site passes `contactsEnabled: false`
-                    // (SALON_MASTER's «Контакти» is live — see the class
-                    // doc); kept general-purpose for a future role that
-                    // genuinely has none yet.
-                    enabled: false,
-                    showChevron: false,
-                    value: l10n.settingsHubContactsSoon,
-                    onTap: () {},
-                  ),
-          ),
+          if (widget.showContacts) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _reveal(
+              _anim2,
+              widget.contactsEnabled
+                  ? SettingsRow(
+                      key: const Key('row-contacts'),
+                      icon: Icons.call_outlined,
+                      label: l10n.settingsHubContacts,
+                      onTap: () => context.push(widget.contactsRoute),
+                    )
+                  : SettingsRow(
+                      key: const Key('row-contacts'),
+                      icon: Icons.call_outlined,
+                      label: l10n.settingsHubContacts,
+                      // This caller has no contacts-edit destination —
+                      // present but visibly inert, never a fake success. No
+                      // current call site passes `contactsEnabled: false`
+                      // (SALON_MASTER's «Контакти» is live — see the class
+                      // doc); kept general-purpose for a future role that
+                      // genuinely has none yet.
+                      enabled: false,
+                      showChevron: false,
+                      value: l10n.settingsHubContactsSoon,
+                      onTap: () {},
+                    ),
+            ),
+          ],
           if (widget.showLocation) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
             _reveal(
-              _anim3,
+              locationAnim,
               SettingsRow(
                 key: const Key('row-location'),
                 icon: Icons.location_on_outlined,
@@ -266,7 +286,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
           ],
           const SizedBox(height: VelvetSpacing.md),
           _reveal(
-            _anim4,
+            accountAnim,
             SettingsRow(
               key: const Key('row-account'),
               icon: Icons.settings_outlined,

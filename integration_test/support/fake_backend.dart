@@ -773,6 +773,14 @@ final class FakeBackend {
   String adminLastName = 'Адміністратор';
   String? adminPhone = '+380663334455';
 
+  /// Phase 137 (21.15) — the SALON_OWNER's mutable first/last name, so a
+  /// `PATCH /users/me` made through the reused CLIENT personal-info editor
+  /// (the owner hub's «Особисті дані») round-trips on the next
+  /// `GET /users/me`. Defaults match [_ownerUserJson] exactly, so every flow
+  /// that never PATCHes as an owner sees the fixture it always has.
+  String ownerFirstName = 'Оксана';
+  String ownerLastName = 'Власник';
+
   // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
   //
   // `GET /api/v1/salons/mine` — `SalonResponse` shape (carries `isPrimary`,
@@ -7589,6 +7597,14 @@ final class FakeBackend {
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
             'avatarUrl': ?avatar,
           }),
+          // Phase 137 — owner identity is mutable (see [ownerFirstName]).
+          UserRole.salonOwner => _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
+          }),
           // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
           // it, so the default body is byte-identical to the pre-21.14 one
           // and `null` stays a genuine "key absent", not a serialized null.
@@ -7762,6 +7778,22 @@ final class FakeBackend {
             if (body.containsKey('lastName')) row['lastName'] = adminLastName;
           }
           return _ok(_adminProfileBody());
+        }
+
+        // Phase 137 — SALON_OWNER branch: the owner hub's «Особисті дані»
+        // PATCHes the same endpoint; keep the owner identity in lock-step.
+        if (currentRole == UserRole.salonOwner) {
+          if (body.containsKey('firstName')) {
+            ownerFirstName = body['firstName'] as String? ?? ownerFirstName;
+          }
+          if (body.containsKey('lastName')) {
+            ownerLastName = body['lastName'] as String? ?? ownerLastName;
+          }
+          return _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+          });
         }
 
         // CONTRACT NOTES the CLIENT flow asserts against:
