@@ -216,7 +216,13 @@ project.gradle.taskGraph.whenReady {
         val envRequiresSigning =
             System.getenv("BEAUTICA_REQUIRE_RELEASE_SIGNING") == "1"
         val propRequiresSigning = project.hasProperty("release.signing.required")
-        if (ciSignal || envRequiresSigning || propRequiresSigning) {
+        // PR CI compile-check (secrets-free release build, never distributed):
+        // BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE=1 waives ONLY the bare CI signal.
+        // The explicit opt-ins (BEAUTICA_REQUIRE_RELEASE_SIGNING, -Prelease.signing.required)
+        // still win. Unset locally and on signed CI builds, so behaviour there is unchanged.
+        val allowDebugSigned =
+            System.getenv("BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE") == "1"
+        if ((ciSignal && !allowDebugSigned) || envRequiresSigning || propRequiresSigning) {
             throw GradleException(
                 "Release signing is REQUIRED for this build but the BEAUTICA_* " +
                     "signing env vars are absent (BEAUTICA_KEYSTORE_PATH, " +

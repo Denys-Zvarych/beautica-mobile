@@ -57,12 +57,10 @@
 // section to ABSENT instead of erroring the whole tab.
 //
 // ── THE TRAILING TUNE ─────────────────────────────────────────────────────
-// Rendered VISIBLE BUT INERT (`enabled: false`): its destination, the Phase
-// 21.15 Owner Settings Hub, is unbuilt. It is deliberately NOT a route stub
-// (dead weight the router-shadowing tests would then have to police) and NOT a
-// snackbar (a fake acknowledgement). The dim/absorb/semantics treatment is
-// [NeumorphicIconButton]'s `enabled` parameter, which mirrors [SettingsRow]'s
-// identical, already-shipped convention.
+// Live (Phase 137 / 21.15): pushes `RouteNames.ownerSettings`, the Owner
+// Settings Hub (the shared `SettingsHubScreen` in its owner configuration).
+// The same tune serves `/profile/owner` and master-mode `/owner/master/profile`
+// because both build this screen.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -366,11 +364,8 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
             key: const Key('btn-owner-own-profile-settings'),
             icon: Icons.tune_rounded,
             semanticLabel: l10n.ownerOwnProfileSettingsSemanticLabel,
-            // Phase 21.15 is unbuilt — the control is present but inert. See
-            // the file header's THE TRAILING TUNE note for why this is neither
-            // a route stub nor a snackbar.
-            enabled: false,
-            onTap: () {},
+            // Phase 137 (21.15) — opens the Owner Settings Hub.
+            onTap: () => context.push(RouteNames.ownerSettings),
           ),
         ],
       ),

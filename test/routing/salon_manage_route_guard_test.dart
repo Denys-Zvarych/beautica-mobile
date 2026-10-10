@@ -66,6 +66,7 @@ import 'package:beautica_mobile/features/home/presentation/client_personal_info_
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -2037,8 +2038,8 @@ void main() {
     // guard stayed green while every other role reached the owner's
     // «Особисті дані».
     group('/owner/edit/personal (Phase 367, mySalonsGuard)', () {
-      testWidgets('SALON_OWNER is ADMITTED onto the reused '
-          'ClientPersonalInfoEditScreen', (tester) async {
+      testWidgets('SALON_OWNER is ADMITTED onto the reused master '
+          'PersonalInfoEditScreen (Phase 399)', (tester) async {
         final router = await pumpRouterAs(
           tester,
           _ownerSession,
@@ -2054,7 +2055,8 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(locationOf(router), equals(RouteNames.ownerEditPersonal));
-        expect(find.byType(ClientPersonalInfoEditScreen), findsOneWidget);
+        expect(find.byType(PersonalInfoEditScreen), findsOneWidget);
+        expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
       });
 
       for (final (String label, AsyncValue<AuthSession> session, String home)
@@ -2081,6 +2083,7 @@ void main() {
           await tester.pumpAndSettle();
 
           expectBouncedTo(router, home);
+          expect(find.byType(PersonalInfoEditScreen), findsNothing);
           expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
         });
       }

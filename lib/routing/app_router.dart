@@ -1210,21 +1210,37 @@ GoRouter appRouter(Ref ref) {
           doneRoute: RouteNames.adminSettings,
         ),
       ),
+      // Phase 137 (21.15) — the SALON_OWNER own settings hub. REUSES
+      // [SettingsHubScreen] VERBATIM in a third configuration (additive
+      // `showContacts: false` + `showLocation: false`; the owner is always a
+      // master, so no toggle). Gated by [mySalonsGuard] (SALON_OWNER only).
+      GoRoute(
+        path: RouteNames.ownerSettings,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const SettingsHubScreen(
+          showLocation: false,
+          showContacts: false,
+          personalInfoRoute: RouteNames.ownerEditPersonal,
+          fallbackHomeRoute: RouteNames.ownerMasterProfile,
+        ),
+      ),
+      // Phase 367 / 399 — «Особисті дані» for a SALON_OWNER. REUSES
+      // [PersonalInfoEditScreen] (name + label + bio + avatar) via its
+      // additive `doneRoute` / `backFallbackRoute`; saving returns to the
+      // owner's master-mode profile (Phase 137 — the hub is reached from
+      // master mode). See `RouteNames.ownerEditPersonal`'s own doc.
+      GoRoute(
+        path: RouteNames.ownerEditPersonal,
+        redirect: mySalonsGuard,
+        builder: (context, state) => const PersonalInfoEditScreen(
+          doneRoute: RouteNames.ownerMasterProfile,
+          backFallbackRoute: RouteNames.ownerSettings,
+        ),
+      ),
       // Phase 356 — «Контакти» edit for a SALON_ADMIN — phone only. REUSES
       // [ClientContactsEditScreen] VERBATIM (Instagram already removed from
       // that screen) via the same additive `doneRoute` param. See
       // `RouteNames.adminEditContacts`'s own doc.
-      // Phase 367 (9.6, D6) — «Особисті дані» for a SALON_OWNER. REUSES
-      // [ClientPersonalInfoEditScreen] VERBATIM exactly as the admin route
-      // above does; saving returns to the owner's own profile. See
-      // `RouteNames.ownerEditPersonal`'s own doc.
-      GoRoute(
-        path: RouteNames.ownerEditPersonal,
-        redirect: mySalonsGuard,
-        builder: (context, state) => const ClientPersonalInfoEditScreen(
-          doneRoute: RouteNames.ownerOwnProfile,
-        ),
-      ),
       GoRoute(
         path: RouteNames.adminEditContacts,
         redirect: salonAdminOnlyGuard,

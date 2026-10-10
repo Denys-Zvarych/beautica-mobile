@@ -1,0 +1,21 @@
+# CI machinery: a PR can edit its own workflow, planner and gates, so changes
+# here need owner review. Requires branch protection "Require review from Code
+# Owners" on dev and main to take effect.
+/.github/**   @Denys-Zvarych
+/tool/ci/**   @Denys-Zvarych
+/scripts/**   @Denys-Zvarych
+/android/app/build.gradle.kts @Denys-Zvarych
+/android/app/proguard-rules.pro @Denys-Zvarych
+# Test-execution config + harness: a PR that skips/neuters tests here would
+# otherwise pass CI. (CI also forces mode=full when these change.)
+/dart_test.yaml @Denys-Zvarych
+/test/flutter_test_config.dart @Denys-Zvarych
+/test/helpers/** @Denys-Zvarych
+/test/ci/** @Denys-Zvarych
+/integration_test/support/** @Denys-Zvarych
+/pubspec.yaml @Denys-Zvarych
+/pubspec.lock @Denys-Zvarych
+/analysis_options.yaml @Denys-Zvarych
+/android/gradle/wrapper/** @Denys-Zvarych
+/android/gradle.properties @Denys-Zvarych
+/.github/CODEOWNERS @Denys-Zvarych

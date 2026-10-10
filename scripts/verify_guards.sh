@@ -320,6 +320,21 @@ if [ "$selftest_mode" = "1" ] && [ "${#passed[@]}" -ne "${#guards[@]}" ]; then
   exit 1
 fi
 
+# Phase 397 — the CI plan/gate scripts (tool/ci/plan.sh, tool/ci/gate.sh) are
+# not forbid_* guards but are verified the same way: their table-driven
+# self-test must run and emit its sentinel.
+if [ "$selftest_mode" = "1" ]; then
+  plan_out="$(bash "$here/test/plan_sh_test.sh" 2>&1)" && plan_rc=0 || plan_rc=$?
+  echo "== test/plan_sh_test.sh =="
+  echo "$plan_out"
+  if [ "$plan_rc" -ne 0 ] || ! grep -q '^SELF-TEST OK: plan_sh_test.sh$' <<<"$plan_out"; then
+    echo "FAIL: test/plan_sh_test.sh"
+    exit 1
+  fi
+  echo "PASS: test/plan_sh_test.sh"
+  echo
+fi
+
 if [ "$selftest_mode" = "1" ]; then
   echo "All ${#guards[@]} guards self-tested and emitted their sentinel."
 else

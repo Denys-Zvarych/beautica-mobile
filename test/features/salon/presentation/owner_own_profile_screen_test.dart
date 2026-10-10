@@ -48,6 +48,11 @@ import 'package:beautica_mobile/features/master/application/master_reviews_notif
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
+import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
+import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
+import 'package:beautica_mobile/features/master/data/master_repository.dart';
+import 'package:beautica_mobile/features/master/domain/master_update.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/salon/application/owner_own_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
@@ -55,6 +60,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
+import 'package:beautica_mobile/features/home/domain/client_profile_update.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
@@ -222,7 +228,11 @@ class _TwoUnread extends UnreadNotifications {
 
 /// The REAL `appRouterProvider` over a fixed [user] session — shared by the
 /// `/profile/owner` guard group and the phase 379 master-mode group.
-ProviderContainer _makeRouterContainer(User user) {
+ProviderContainer _makeRouterContainer(
+  User user, {
+  List<Object> extraOverrides = const <Object>[],
+  Object? meResult,
+}) {
   final container = makeTestContainer(
     retry: (_, _) => null,
     overrides: [
@@ -233,7 +243,9 @@ ProviderContainer _makeRouterContainer(User user) {
           ),
         ),
       ),
-      authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+      authRepositoryProvider.overrideWith(
+        (_) => FakeAuthRepository()..meResult = meResult,
+      ),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
       // Resolves IMMEDIATELY — keeps the owner landing off the real
       // Dio-backed repository and off a never-settling shimmer.
@@ -251,13 +263,23 @@ ProviderContainer _makeRouterContainer(User user) {
       approvedCategoriesProvider.overrideWith(
         (ref) async => const <ServiceCategoryOption>[],
       ),
+      ...extraOverrides,
     ],
   );
   return container;
 }
 
-Future<GoRouter> _pumpRealRouterAs(WidgetTester tester, User user) async {
-  final ProviderContainer container = _makeRouterContainer(user);
+Future<GoRouter> _pumpRealRouterAs(
+  WidgetTester tester,
+  User user, {
+  List<Object> extraOverrides = const <Object>[],
+  Object? meResult,
+}) async {
+  final ProviderContainer container = _makeRouterContainer(
+    user,
+    extraOverrides: extraOverrides,
+    meResult: meResult,
+  );
   final GoRouter router = container.read(appRouterProvider);
   addTearDown(router.dispose);
   await tester.pumpWidget(
@@ -270,7 +292,23 @@ Future<GoRouter> _pumpRealRouterAs(WidgetTester tester, User user) async {
   return router;
 }
 
+class _MockMasterRepository extends Mock implements MasterRepository {}
+
 void main() {
+  setUpAll(() {
+    registerFallbackValue(const ClientProfileUpdate());
+    registerFallbackValue(
+      const MasterUpdate(
+        firstName: '',
+        lastName: '',
+        bio: '',
+        contactPhone: '',
+        instagram: '',
+        professionalTitle: '',
+      ),
+    );
+  });
+
   _identityAvatarTests();
   _masterModeTests();
   _avatarUploadNoReloadTests();
@@ -287,6 +325,10 @@ void main() {
         GoRoute(
           path: RouteNames.notifications,
           builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+        GoRoute(
+          path: RouteNames.ownerSettings,
+          builder: (_, _) => const Scaffold(body: Text('owner-hub-stub')),
         ),
       ],
     );
@@ -319,6 +361,17 @@ void main() {
       );
       expect(bell.right, lessThan(button.left));
       expect(button.left - bell.right, VelvetSpacing.sm + 4);
+    });
+
+    testWidgets('should_pushOwnerSettings_whenTuneTapped', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('btn-owner-own-profile-settings')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('owner-hub-stub'), findsOneWidget);
     });
 
     testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
@@ -406,7 +459,7 @@ void main() {
     expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsNothing);
   });
 
-  testWidgets('master section absent; tune is inert', (tester) async {
+  testWidgets('master section absent; tune is enabled', (tester) async {
     await tester.pumpApp(
       const OwnerOwnProfileScreen(),
       overrides: _overrides((
@@ -439,25 +492,10 @@ void main() {
       findsOneWidget,
     );
 
-    // Tune renders, is dimmed and absorbs taps.
+    // Phase 137 — the tune is live: enabled (no dim/absorb wrapper).
     final tune = find.byKey(const Key('btn-owner-own-profile-settings'));
     expect(tune, findsOneWidget);
-    expect(
-      tester
-          .widget<Opacity>(
-            find.descendant(of: tune, matching: find.byType(Opacity)),
-          )
-          .opacity,
-      0.6,
-    );
-    expect(
-      tester
-          .widget<AbsorbPointer>(
-            find.descendant(of: tune, matching: find.byType(AbsorbPointer)),
-          )
-          .absorbing,
-      isTrue,
-    );
+    expect(tester.widget<NeumorphicIconButton>(tune).enabled, isTrue);
 
     // Standalone keeps a back affordance.
     expect(find.byIcon(Icons.arrow_back_ios_new_rounded), findsOneWidget);
@@ -1002,7 +1040,142 @@ void main() {
       );
     });
 
-    // NO CLIENT CASE, deliberately. `mySalonsGuard` branches on "is this
+    // Phase 137 (21.15) — the Owner Settings Hub route.
+    testWidgets('/profile/owner/settings builds SettingsHubScreen for a '
+        'SALON_OWNER (owner config: no contacts, no location)', (tester) async {
+      final GoRouter router = await pumpRouterAs(tester, _routerOwner);
+
+      router.go(RouteNames.ownerSettings);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsHubScreen), findsOneWidget);
+      expect(find.byKey(const Key('row-personal')), findsOneWidget);
+      expect(find.byKey(const Key('row-account')), findsOneWidget);
+      expect(find.byKey(const Key('row-help')), findsOneWidget);
+      expect(find.byKey(const Key('row-logout')), findsOneWidget);
+      expect(find.byKey(const Key('row-contacts')), findsNothing);
+      expect(find.byKey(const Key('row-location')), findsNothing);
+    });
+
+    testWidgets('/profile/owner/settings BOUNCES an INDEPENDENT_MASTER', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpRouterAs(tester, _routerMaster);
+
+      router.go(RouteNames.ownerSettings);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsHubScreen), findsNothing);
+      expect(
+        // router-location-ok: `.go` only in this test.
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        isNot(RouteNames.ownerSettings),
+      );
+    });
+
+    testWidgets('/profile/owner/settings BOUNCES a SALON_ADMIN', (
+      tester,
+    ) async {
+      final GoRouter router = await pumpRouterAs(
+        tester,
+        _routerOwner.copyWith(role: UserRole.salonAdmin),
+      );
+
+      router.go(RouteNames.ownerSettings);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SettingsHubScreen), findsNothing);
+      expect(
+        // router-location-ok: `.go` only in this test.
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        isNot(RouteNames.ownerSettings),
+      );
+    });
+
+    testWidgets('/owner/edit/personal: a real save of the master label + bio '
+        'lands on the master-mode profile (doneRoute = /owner/master/profile)', (
+      tester,
+    ) async {
+      final repo = _MockMasterRepository();
+      MasterUpdate? captured;
+      when(() => repo.updateMyProfile(any())).thenAnswer((i) async {
+        captured = i.positionalArguments.first as MasterUpdate;
+      });
+      final GoRouter router = await _pumpRealRouterAs(
+        tester,
+        _routerOwner,
+        // `refreshUser()` re-reads `/auth/me` on save; the default fake
+        // answers with a different role, which would redirect off the owner
+        // shell and mask the destination under test.
+        meResult: _routerOwner,
+        extraOverrides: <Object>[
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+          masterRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+
+      router.go(RouteNames.ownerEditPersonal);
+      // Not pumpAndSettle: the edit screen never settles here.
+      await tester.pumpUntilFound(find.byType(PersonalInfoEditScreen));
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-professionalTitle')),
+          matching: find.byType(TextField),
+        ),
+        'Візажист-стиліст',
+      );
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('field-bio')),
+          matching: find.byType(TextField),
+        ),
+        'Унікальна біографія 399.',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pump();
+      await tester.pumpUntilGone(find.byType(PersonalInfoEditScreen));
+
+      verify(() => repo.updateMyProfile(any())).called(1);
+      expect(captured?.professionalTitle, 'Візажист-стиліст');
+      expect(captured?.bio, 'Унікальна біографія 399.');
+      expect(
+        // router-location-ok: `.go` only in this test.
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        RouteNames.ownerMasterProfile,
+        reason: 'saving the owner personal edit must return to master mode',
+      );
+
+      // fixed-wait-ok: drains the snackbar auto-dismiss Timer before teardown;
+      // there is no widget condition to poll for a pending Timer.
+      await tester.pump(const Duration(seconds: 10));
+    });
+
+    testWidgets('/owner/edit/personal builds the master PersonalInfoEditScreen '
+        '(label + bio fields), not the client editor', (tester) async {
+      final GoRouter router = await _pumpRealRouterAs(
+        tester,
+        _routerOwner,
+        meResult: _routerOwner,
+        extraOverrides: <Object>[
+          clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
+        ],
+      );
+
+      router.go(RouteNames.ownerEditPersonal);
+      await tester.pumpUntilFound(find.byType(PersonalInfoEditScreen));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+      expect(find.byKey(const Key('field-professionalTitle')), findsOneWidget);
+      expect(find.byKey(const Key('field-bio')), findsOneWidget);
+    });
+
+    // NO CLIENT CASE for the owner-hub route either, deliberately. `mySalonsGuard` branches on "is this
     // session a SALON_OWNER", not per-role, so a CLIENT adds no new guard
     // decision — and its bounce destination is the real client home hub, whose
     // `myRatingProvider` opens a 5-minute Timer that would have to be stubbed

@@ -66,6 +66,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/velvet_field.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -78,9 +79,25 @@ import 'master_role_routes.dart';
 import 'widgets/master_own_avatar.dart';
 import 'widgets/section_scaffold.dart';
 
-/// Personal-info edit page (firstName + lastName + bio).
+/// Personal-info edit page (firstName + lastName + professionalTitle + bio).
+///
+/// Reused by the owner settings hub (phase 399) via the additive
+/// [doneRoute] / [backFallbackRoute] params; both `null` keeps the
+/// independent-master and salon-master behaviour byte-identical.
 class PersonalInfoEditScreen extends ConsumerStatefulWidget {
-  const PersonalInfoEditScreen({super.key});
+  const PersonalInfoEditScreen({
+    super.key,
+    this.doneRoute,
+    this.backFallbackRoute,
+  });
+
+  /// Route to `go` to after a successful save. `null` →
+  /// `masterHomeRouteFor(type)`.
+  final String? doneRoute;
+
+  /// Route to `go` to on back when the stack cannot pop. `null` →
+  /// `masterMenuRouteFor(type)`.
+  final String? backFallbackRoute;
 
   @override
   ConsumerState<PersonalInfoEditScreen> createState() =>
@@ -338,6 +355,12 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
     setState(() => _saving = true);
 
+    // /users/me returns firstName, lastName, bio AND professionalTitle — every
+    // field this form edits — so the cached identity is stale iff any changed.
+    // Captured before the await (the controllers can't change mid-save, but
+    // the intent is "what this save changed").
+    final bool identityChanged = _isDirty;
+
     try {
       // CRITICAL: merge name + professionalTitle + bio onto the cached phone +
       // instagram so the PATCH never clears the sibling contact fields this page
@@ -358,8 +381,9 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
 
       if (!mounted) return;
       ref.invalidate(masterProfileProvider);
+      if (identityChanged) invalidateOwnIdentity(ref);
       showSuccessSnack(context, AppLocalizations.of(context).savedSnackbar);
-      context.go(masterHomeRouteFor(cached.type));
+      context.go(widget.doneRoute ?? masterHomeRouteFor(cached.type));
     } on ValidationFailure catch (f) {
       if (!mounted) return;
       setState(() {
@@ -378,14 +402,14 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
       if (!mounted) return;
       showErrorSnack(context, f.userMessage(context));
       setState(() => _saving = false);
-    } catch (e, st) {
+    } catch (e) {
       if (kDebugMode) {
         log(
           'personal-info save unexpected error',
           name: 'feature.master.edit.personal',
           level: 1000,
-          error: e,
-          stackTrace: st,
+          // runtimeType only — a raw exception may echo a response body (PII).
+          error: e.runtimeType.toString(),
         );
       }
       if (!mounted) return;
@@ -435,7 +459,9 @@ class _PersonalInfoEditScreenState extends ConsumerState<PersonalInfoEditScreen>
         if (context.canPop()) {
           context.pop();
         } else {
-          context.go(masterMenuRouteFor(cached.type));
+          context.go(
+            widget.backFallbackRoute ?? masterMenuRouteFor(cached.type),
+          );
         }
       },
       footer: _reveal(

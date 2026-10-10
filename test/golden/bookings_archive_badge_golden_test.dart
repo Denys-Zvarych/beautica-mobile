@@ -5,6 +5,7 @@
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -16,6 +17,7 @@ import 'package:beautica_mobile/features/services/data/master_service_catalog_pr
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../helpers/clock_instant.dart';
 import 'helpers/golden_pump.dart';
 
 class _NoOpScreenProtection extends ScreenProtectionManager {
@@ -53,6 +55,10 @@ List<Object> _overrides() {
   );
   return <Object>[
     screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+    // Pin the clock so the day rail's highlighted "today" cell is stable.
+    clockProvider.overrideWithValue(
+      () => asClockInstant(DateTime(2026, 6, 13)),
+    ),
     bookingRepositoryProvider.overrideWithValue(repo),
     bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
     masterServiceCatalogProvider.overrideWith(
