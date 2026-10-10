@@ -1,0 +1,153 @@
+# Selector rules (phase 398 D5). The Dart code holds NO paths; every path,
+# glob and threshold lives here, and every entry has a case in
+# test/selector_test.dart (mutation-checked, see phase doc).
+#
+# Classification order for each changed path (first match wins):
+#   none_globs -> ignored | arb / golden_assets / path_includes -> mapped
+#   | full_globs -> FULL | dart under graph_roots -> seed
+#   | anything else -> FULL (fail-safe)
+
+# Dart packages that can appear in import URIs and where they live.
+packages:
+  beautica_mobile: lib
+  # The OpenAPI client; its real name is read from api/pubspec.yaml at runtime
+  # and mapped to api/lib (this entry is the fallback).
+  beautica_api: api/lib
+
+# Directories scanned for the import graph.
+graph_roots: [lib, api/lib, test, integration_test]
+
+# Changes that cannot affect any test the selector runs.
+none_globs:
+  - 'docs/**'
+  - '**/*.md'
+  - '.gitignore'
+  - '.gitleaksignore'
+  - '.metadata'
+  - '*.iml'
+  - 'assets_design/**'
+  # Native shells: exercised by patrol only, which plan.sh/native gates.
+  - 'android/**'
+  - 'ios/**'
+  - 'windows/**'
+  # Generated-client by-products that are not Dart sources.
+  - 'api/doc/**'
+  - 'api/test/**'
+  - 'api/.openapi-generator/**'
+  - 'api/.openapi-generator-ignore'
+  # Perf measurement scripts have their own tests (scripts/perf/tests, CI-only).
+  - 'scripts/perf/**'
+  # Separate workflow that never runs flutter tests.
+  - '.github/workflows/gitleaks.yml'
+  # OpenAPI snapshot: read only by `scripts/regenerate_api.sh --check`, the
+  # drift gate in the `validate` job, which runs on EVERY PR regardless of
+  # mode. No test reads it; the regenerated api/lib Dart files seed on their own.
+  - 'tool/openapi/**'
+
+# Changed path -> fixed test set (never FULL, never a graph seed). Aggregator
+# entrypoints are run whole by the `integration` job on every PR; the only unit
+# tests that read them are the two meta tests.
+path_includes:
+  - when: ['integration_test/all_tests*.dart']
+    include:
+      - 'test/integration_aggregator_meta_test.dart'
+      - 'test/patrol_excluded_from_fast_path_test.dart'
+
+# Committed golden PNGs: every *_test.dart directly beside the `goldens/` folder
+# is selected. A PNG not directly under a `goldens/` dir, or with no sibling
+# tests, goes FULL.
+golden_assets:
+  globs: ['test/**/goldens/*.png']
+
+# ARB: diffed against BASE per key. Selected: lib files that mention a changed
+# key (seeds), tests/flows that mention the key or a placeholder-free fragment
+# of its old/new text, tests that read .arb files, test/l10n/**. No BASE tree,
+# unparsable JSON or a changed @@global -> FULL.
+arb:
+  globs: ['lib/l10n/*.arb']
+  reader_literal: '\.arb|l10n/app_(uk|en)'
+  include_always: ['test/l10n/**']
+
+# Anything here forces mode=full.
+full_globs:
+  - 'pubspec.yaml'
+  - 'pubspec.lock'
+  - 'analysis_options.yaml'
+  - 'dart_test.yaml'
+  - 'build.yaml'
+  - 'l10n.yaml'
+  - 'assets/**'              # fonts/images feed goldens
+  - 'api/pubspec.yaml'
+  - 'api/build.yaml'
+  - 'test/flutter_test_config.dart'
+  - 'test/helpers/**'
+  - 'integration_test/support/**'
+  - 'integration_test/fixtures/**'
+  - 'test_driver/**'
+  - 'tool/ci/**'
+  - 'scripts/**'             # (scripts/perf/** is carved out via none_globs)
+  - '.github/workflows/**'
+
+# Any non-.dart file under these roots that no glob above matched (golden PNGs,
+# JSON fixtures, ...) forces FULL. Dart files are handled by the graph.
+full_nondart_roots: [lib, test]
+
+# Cardinality ledgers: tests that count/enumerate things must run whole when
+# the thing they count can have changed.
+ledgers:
+  - when: ['lib/core/**']
+    include: ['test/core/**']                       # failure_retry_policy ledger
+  - when: ['lib/routing/**']
+    include: ['test/routing/**']                    # navigation_links NL-R01c
+  - when: ['lib/core/network/**', 'lib/features/auth/data/**']
+    include: ['test/core/network/**', 'test/features/auth/data/**']   # kPiiPaths
+  - when: ['lib/**']                                # servicesListProvider consumers
+    when_text: 'servicesListProvider'               # only if the changed file mentions it
+    include: ['test/features/services/**']
+
+# Any Added/Deleted/Renamed file under these roots re-runs the meta tests that
+# enumerate the tree (workflow wiring, guard wiring, integration aggregators).
+structural_roots: ['lib/**', 'test/**', 'integration_test/**']
+structural_include:
+  - 'test/ci/**'
+  - 'test/build_guards/**'
+  - 'test/consistency/**'
+  - 'test/integration_aggregator_meta_test.dart'
+  - 'test/patrol_excluded_from_fast_path_test.dart'
+
+# Tests that read lib/ source as text (dart:io readers) are always included
+# once any lib/ file changed. Auto-detected: a string literal starting 'lib/ or "lib/.
+always_include_when_changed: 'lib/**'
+always_include_literal: '[''"]lib/'
+
+# Third/fourth-timezone sweeps (pr-validate.yml "Third-timezone sweep" and
+# "Fourth-timezone sweep"; the two lists are kept identical there) + DST rail.
+tz_sweep:
+  dirs:
+    - test/features/booking/
+    - test/features/schedule/
+    - test/features/home/
+    - test/features/calendar/
+    - test/shared/formatters/
+    - test/shared/time/
+    - test/shared/calendar/
+    - test/core/time/
+    - test/routing/
+  files:
+    - test/features/booking/presentation/bookings_day_rail_test.dart
+
+# Integration flows: top-level integration_test/*_test.dart (patrol/ and perf/
+# are subdirectories, so excluded by construction).
+integration:
+  flow_glob: 'integration_test/*_test.dart'
+  # Traversal does not follow edges INTO hubs (every flow reaches all of lib/
+  # through the app harness); a changed hub selects ALL flows.
+  hubs:
+    - 'lib/main.dart'
+    - 'lib/app.dart'
+    - 'lib/routing/**'
+    - 'integration_test/support/**'
+    - 'test/integration_support/**'
+
+# Unit tests selected above this share of all unit tests -> mode=full.
+full_threshold: 0.60

@@ -1,31 +1,228 @@
 name: PR Validation
 
+# Cosmetic + load-bearing: an irrelevant-label (noop) event is titled `label-noop ...`
+# so ci-gate's mirror mode (tool/ci/mirror.sh) can exclude noop runs when it looks
+# up the real run for the same head SHA.
+run-name: ${{ github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && format('label-noop PR {0}', github.event.pull_request.number) || '' }}
+
 on:
   pull_request:
     branches: [main, dev]
-    # `labeled` lets the opt-in `run-patrol` label trigger the heavy patrol job
-    # on a PR before this workflow (with workflow_dispatch) reaches the default branch.
+    # `labeled` lets the opt-in `run-patrol` / `full-ci` labels act on a PR.
+    # Any OTHER label is a no-op: its own concurrency group + every job gated
+    # on `github.event.action != 'labeled' || label in (full-ci, run-patrol)`.
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
-  # Phase 17.5 — nightly trigger for the heavy patrol native-E2E job (see the
-  # `patrol` job below). The fast `validate` + `integration` jobs run on every
-  # push/PR as before; the patrol job is gated to schedule / manual dispatch /
-  # an opt-in PR label so its slow native compile + emulator run never blocks
-  # the per-PR critical path.
-  schedule:
-    # 03:30 UTC nightly (off-peak; after typical EU working hours).
-    - cron: '30 3 * * *'
-  workflow_dispatch: {}
+  # Phase 396 — NO `schedule:` here, deliberately. A `schedule` event always runs
+  # the workflow file from the DEFAULT branch (main) but the nightly wants to
+  # test dev's code; the resulting workflow/code skew broke the patrol job for
+  # four nights running. The nightly is now `.github/workflows/nightly.yml`,
+  # which dispatches THIS workflow on `dev` so workflow and code come from the
+  # same branch. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this run was dispatched (nightly = dispatched by nightly.yml)'
+        type: choice
+        options: [manual, nightly]
+        default: manual
+
+# Least privilege by default: every job needs only to read the repo.
+permissions:
+  contents: read
+
+# Phase 396 D4 — a superseded PR push stops burning 50-114 min of runner time.
+# Only pull_request runs are cancellable; dev/main pushes, manual and nightly
+# dispatches are never cancelled by a newer run.
+#
+# Group suffixes (audit 2026-10-10):
+#   * `labeled` events for labels other than full-ci / run-patrol get their OWN
+#     fixed `-noop` group per PR, so adding e.g. `bug` never cancels the
+#     in-flight real run; a newer noop run cancels the older one (one mirror
+#     poller per PR, not one per label). The run itself is a no-op (every job
+#     below is gated on the same condition).
+#   * workflow_dispatch gets run_id, so a manual dispatch can never replace the
+#     pending nightly (a group holds one running + one pending run).
+concurrency:
+  group: >-
+    pr-validate-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}${{
+    (github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol' && '-noop')
+    || (github.event_name == 'workflow_dispatch' && format('-{0}', github.run_id))
+    || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  validate:
-    name: Analyze & Test
+  # ---------------------------------------------------------------------------
+  # Plan (phase 397) — the ONE place that owns the diff and the run mode.
+  #
+  #   mode   full       push (dev/main), workflow_dispatch (manual + nightly),
+  #                     PRs labelled `full-ci`, or any failed diff computation
+  #          selective  every other PR (phase 400 turns this into a test
+  #                     selection; until then consumers still run everything)
+  #   native true|false PR touches a native surface (patrol gate; the globs of
+  #                     the retired `changes` job)
+  #
+  # Only THIS job does a full-history checkout (fetch-depth: 0, pull_request
+  # only); every other job keeps its shallow checkout. All logic lives in tool/ci/plan.sh and is
+  # table-tested by scripts/test/plan_sh_test.sh (run by verify_guards.sh).
+  # Later phases slot in here: 400 flips SELECTIVE_ENABLED and adds the selector
+  # step, 402 adds shard outputs.
+  # ---------------------------------------------------------------------------
+  plan:
+    name: Plan (mode + diff)
     runs-on: ubuntu-latest
+    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    timeout-minutes: 10
+    # Least privilege: read-only token, and no job in this workflow holds a
+    # write-scoped token, so nothing here can be turned against the repo.
+    permissions:
+      contents: read
+    outputs:
+      # `guard` (below) overrides `plan` only to force FULL.
+      mode: ${{ steps.guard.outputs.mode || steps.plan.outputs.mode }}
+      native: ${{ steps.plan.outputs.native }}
+      run_all: ${{ steps.guard.outputs.run_all || steps.plan.outputs.run_all }}
+      selection_count: ${{ steps.plan.outputs.selection_count }}
+      base: ${{ steps.plan.outputs.base }}
+      head: ${{ steps.plan.outputs.head }}
+    steps:
+      # TRUST MODEL (security review 2026-10-10). On pull_request the PR can
+      # edit any file in its own checkout, including this planner and (phase
+      # 400) the selector + rules.yaml; a PR that makes the selector say
+      # "none" would pass ci-gate with zero tests. So the planner/selector run
+      # from `trusted/` = the BASE commit, against the PR tree in `pr/`.
+      # (The workflow file itself is the PR's own on pull_request; protect it
+      # with CODEOWNERS / required review on .github/**.)
+      # For push / workflow_dispatch both checkouts are the same trusted ref.
+      - name: Checkout trusted tooling (base commit)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          # Only the planner/gate scripts are needed from the base commit.
+          sparse-checkout: tool/ci
+          persist-credentials: false
+
+      # Default ref = the same merge commit the other jobs test, so the diff
+      # below is the diff of exactly the tree under test.
+      - name: Checkout tree under test (full history)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          path: pr
+          # Full history is only needed for the PR merge-base diff.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          persist-credentials: false
+
+      - name: Resolve the checked-out commit
+        id: tree
+        shell: bash
+        run: echo "sha=$(git -C pr rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Compute plan (planner from the BASE commit)
+        id: plan
+        shell: bash
+        working-directory: pr
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # The commit actually checked out (merge ref on PRs), not
+          # pull_request.head.sha: the diff must describe the tested tree.
+          HEAD_SHA: ${{ github.event.pull_request.number && steps.tree.outputs.sha || '' }}
+          # Phase 400 flips this to 'true'. Until then a selective PR still runs
+          # every test (run_all=true), so behaviour is unchanged.
+          SELECTIVE_ENABLED: 'false'
+          # Outside the PR tree: the PR controls every path (and symlink) under pr/.
+          PLAN_OUT_DIR: ${{ runner.temp }}/ci
+        run: |
+          if [ -x "$GITHUB_WORKSPACE/trusted/tool/ci/plan.sh" ]; then
+            "$GITHUB_WORKSPACE/trusted/tool/ci/plan.sh"
+          else
+            # Bootstrap only (the PR that introduces the planner): the base has
+            # none, so refuse to run the PR's copy and run everything.
+            echo "::warning::base commit has no tool/ci/plan.sh; forcing mode=full"
+            {
+              echo "mode=full"; echo "native=true"; echo "run_all=true"
+              echo "selection_count=unknown"; echo "base=$BASE_SHA"; echo "head=$HEAD_SHA"
+            } | tee -a "$GITHUB_OUTPUT"
+          fi
+          # Phase 400 adds here, also from trusted/:
+          #   dart run trusted/tool/ci/affected_tests/bin/affected_tests.dart --repo .
+
+      # Independent of the planner/selector (which a PR could try to subvert):
+      # plain workflow shell, base-owned diff. Any change to CI machinery forces
+      # FULL regardless of what the planner decided.
+      - name: Guard - CI machinery changes force full
+        id: guard
+        if: github.event_name == 'pull_request'
+        shell: bash
+        working-directory: pr
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ steps.tree.outputs.sha }}
+        run: |
+          set -euo pipefail
+          force() { { echo "mode=full"; echo "run_all=true"; } >> "$GITHUB_OUTPUT"; echo "::notice::mode forced to full: $1"; }
+          # Kept as a standalone function: scripts/test/plan_sh_test.sh extracts
+          # and table-tests it. CI machinery AND test-execution config.
+          is_forced() {
+            case "$1" in
+              scripts/perf/*) return 1 ;;
+              .github/* | tool/ci/* | scripts/*) return 0 ;;
+              analysis_options.yaml | pubspec.yaml | pubspec.lock | dart_test.yaml | build.yaml) return 0 ;;
+              test/flutter_test_config.dart | test_driver/*) return 0 ;;
+              test/helpers/* | test/ci/* | integration_test/support/*) return 0 ;;
+              android/gradle/wrapper/* | android/gradle.properties) return 0 ;;
+            esac
+            return 1
+          }
+          # Paths that must never appear in a PR diff: build output / tool cache
+          # (gitignored; a committed one is a planted file or symlink aimed at
+          # CI output paths). Fail the plan rather than force-full: there is no
+          # legitimate case, so red is the right signal. Also table-tested.
+          is_forbidden() {
+            case "$1" in
+              build/* | .dart_tool/*) return 0 ;;
+            esac
+            return 1
+          }
+          # NUL-delimited + unquoted (core.quotepath=false): a non-ASCII or
+          # odd path must reach is_forced verbatim, not as an octal-quoted string.
+          raw="$RUNNER_TEMP/guard-files.bin"
+          if ! mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" ||
+             ! git -c core.quotepath=false diff -z --no-renames --name-only "$mb" "$HEAD_SHA" >"$raw"; then
+            force "diff unavailable"; exit 0
+          fi
+          forced=0
+          while IFS= read -r -d '' f; do
+            if is_forbidden "$f"; then
+              echo "::error::PR diff contains a build artefact path (path withheld: PR-controlled); build/ and .dart_tool/ are never committed (fail closed)"
+              exit 1
+            fi
+            if is_forced "$f"; then forced=1; fi
+          done <"$raw"
+          if [ "$forced" -eq 1 ]; then force "CI machinery / test config changed"; fi
+
+      - name: Upload changed-file list
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ci-changes
+          path: ${{ runner.temp }}/ci/changes.txt
+          retention-days: 3
+          if-no-files-found: ignore
+
+  validate:
+    name: Analyze & Gates
+    runs-on: ubuntu-latest
+    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
 
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
@@ -39,6 +236,7 @@ jobs:
           flutter-version: '3.41.x'
           channel: 'stable'
           cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock') }}
 
       - name: Pub get
         run: flutter pub get
@@ -388,6 +586,13 @@ jobs:
         shell: bash
         run: ./scripts/forbid_slash_in_patrol_test_name.sh
 
+      # Phase 396 — pr-validate.yml must never regain a `schedule:` trigger (or a
+      # schedule-conditional checkout ref): schedule runs use main's workflow
+      # with dev's code and the skew broke patrol four nights running.
+      - name: Forbid schedule coupling in pr-validate.yml
+        shell: bash
+        run: ./scripts/forbid_schedule_in_pr_validate.sh
+
       # 2026-07-31 — forbid a bare pumpAndSettle() straight after a
       # results-screen tap. SearchResultsScreen keeps an INDETERMINATE
       # _LoadMoreSpinner mounted while data.hasMore (FakeBackend seeds
@@ -648,8 +853,68 @@ jobs:
             exit 1
           fi
 
+  # ---------------------------------------------------------------------------
+  # Test & build (split from `validate`, audit 2026-10-10): this is the only
+  # part of the old `validate` job that consumes the plan (run_all for
+  # coverage; the selection in phase 400), so only it waits for `plan`. The
+  # cheap gates in `validate` start immediately and run in parallel.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    needs: plan
+    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    # Cap (2026-10-10): the slowest steps are the unit run plus three zone
+    # re-runs of date-sensitive dirs (~4 min each) and the debug build; the whole
+    # job is normally well under 30 min. 45 bounds a hung runner (default 360).
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+        with:
+          flutter-version: '3.41.x'
+          channel: 'stable'
+          cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock') }}
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Codegen (build_runner)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # --file-reporter writes the JSON event stream alongside the unchanged
+      # console reporter; the next step proves real (non-skipped) tests passed.
       - name: Test
-        run: flutter test --coverage --reporter=expanded --exclude-tags golden
+        run: |
+          mkdir -p build/ci
+          flutter test --coverage --reporter=expanded --file-reporter=json:build/ci/unit-events.json --exclude-tags golden
+
+      # The "tests actually ran" verdict is NOT computed here: this job runs PR
+      # test code, which could delete/replace any checker on disk. The event
+      # stream is handed to the `tests-ran` job (no PR code, base-owned script).
+      # always() so a failed Test still hands over its stream; tests-ran is only
+      # gated on test success, so a missing stream there fails closed.
+      - name: Upload unit event stream
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: unit-events
+          path: build/ci/unit-events.json
+          retention-days: 3
+          if-no-files-found: ignore
 
       # The day rail's two RENDERED DST guards can only observe the bug they
       # exist to catch on a host whose UTC offset actually changes across the
@@ -943,9 +1208,12 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # Decode the release keystore from the base64 secret.
-      # Skipped silently on forks / branches where the secret is absent.
+      # Decode the release keystore from the base64 secret. NEVER on
+      # pull_request: PR-controlled Gradle runs in the release build below and
+      # must not see signing secrets (security audit 2026-10-10). Real signing
+      # happens only on push (dev/main) and workflow_dispatch.
       - name: Decode keystore
+        if: github.event_name != 'pull_request'
         env:
           KEYSTORE_BASE64: ${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}
         run: |
@@ -968,7 +1236,22 @@ jobs:
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
-      - name: Build APK (release)
+      # PRs: compile-only release build, NO secrets. android/app/build.gradle.kts
+      # falls back to the debug key; BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE=1 tells
+      # its CI distribution guard that this artifact is never distributed
+      # (APK uploads are disabled), so release-only breakage (R8, proguard) is
+      # still caught on PRs.
+      - name: Build APK (release, compile check, no secrets)
+        if: github.event_name == 'pull_request'
+        env:
+          BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
+          BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE: '1'
+        run: |
+          flutter build apk --release \
+            --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
+
+      - name: Build APK (release, signed)
+        if: github.event_name != 'pull_request'
         env:
           # NO /api/v1 suffix — see the debug build note above. Double-prefix → 404.
           BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
@@ -987,12 +1270,77 @@ jobs:
       # (see git history for this file) once we're close to a release and
       # need a downloadable build.
 
+      # Phase 397 D5 — partial (selective) runs would report false coverage
+      # drops, so only whole-suite runs upload.
       - name: Upload coverage
-        if: success()
+        if: success() && needs.plan.outputs.run_all == 'true'
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
         with:
           file: coverage/lcov.info
           fail_ci_if_error: false
+
+
+  # ---------------------------------------------------------------------------
+  # tests-ran (audit 2026-10-10, N2/N3): proves the `test` job executed real
+  # (non-skipped) tests. Deliberately a SEPARATE job: `test` runs PR test code,
+  # which can rewrite anything in its workspace, so the checker, its floor and
+  # the verdict must live where no PR code ever executes. This job checks out
+  # ONLY the BASE commit (two files), downloads the event stream and judges it.
+  # No PR checkout, read-only token, no secrets.
+  # Bootstrap (base lacks the script) is decided from the base checkout alone;
+  # script present on base but stream missing/empty => RED (fail closed).
+  # ---------------------------------------------------------------------------
+  tests-ran:
+    name: Tests actually ran
+    runs-on: ubuntu-latest
+    needs: [plan, test]
+    if: needs.test.result == 'success'
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout checker + floor (base commit only)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: |
+            tool/ci/tests_ran.sh
+            tool/ci/min_tests.txt
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download unit event stream
+        id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: unit-events
+          path: events
+
+      - name: Verify tests actually ran
+        shell: bash
+        env:
+          RUN_ALL: ${{ needs.plan.outputs.run_all }}
+          SELECTION_COUNT: ${{ needs.plan.outputs.selection_count }}
+        run: |
+          set -euo pipefail
+          chk=tool/ci/tests_ran.sh
+          if [ ! -f "$chk" ]; then
+            # Bootstrap only (the PR that introduces the checker): base has none.
+            echo "::warning::base commit has no tool/ci/tests_ran.sh; skipping the tests-ran check"
+            exit 0
+          fi
+          ev=events/unit-events.json
+          if [ ! -s "$ev" ]; then
+            echo "::error::tests-ran RED: unit event stream missing or empty (fail closed)"; exit 1
+          fi
+          if [ "$RUN_ALL" = "true" ]; then
+            bash "$chk" "$ev" full tool/ci/min_tests.txt
+          elif [ "$SELECTION_COUNT" = "0" ]; then
+            echo "empty selection: nothing is expected to run"
+          else
+            bash "$chk" "$ev" selective
+          fi
 
   # ---------------------------------------------------------------------------
   # End-to-end integration tests (Fix 4, 2026-06-02).
@@ -1010,6 +1358,7 @@ jobs:
   integration:
     name: Integration tests (emulator)
     runs-on: ubuntu-latest
+    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
     # Backstop for the backstop. Each of the six invocations below is
     # individually `timeout`-bounded (see part 1 attempt 1), so this only has
     # to cover the case where the emulator action itself wedges outside the
@@ -1018,6 +1367,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
@@ -1031,6 +1382,7 @@ jobs:
           flutter-version: '3.41.x'
           channel: 'stable'
           cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock') }}
 
       - name: Pub get
         run: flutter pub get
@@ -1316,7 +1668,7 @@ jobs:
   #   The profile AOT compile adds ~1.5–3 min to the critical path on every PR.
   #   The inverse-divergence class it guards is rare and the auth flow changes
   #   seldom, so per-PR cost is not justified. It therefore runs only on:
-  #     • the nightly `schedule` trigger,
+  #     • the nightly (nightly.yml -> workflow_dispatch on dev),
   #     • manual `workflow_dispatch`,
   #     • PRs explicitly labelled `run-patrol` (the same opt-in label the patrol
   #       native-E2E job uses — both are the heavy emulator-AOT tier).
@@ -1326,16 +1678,22 @@ jobs:
   integration-profile:
     name: Integration profile drive (emulator)
     runs-on: ubuntu-latest
-    # Skip on ordinary push/PR; opt in via schedule, manual dispatch, or label —
+    # Skip on ordinary push/PR; opt in via dispatch (manual or nightly), or label —
     # mirrors the `patrol` job's gating idiom.
     if: >-
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' &&
-       contains(github.event.pull_request.labels.*.name, 'run-patrol'))
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol') &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'run-patrol')))
+    # Without this the job inherits GitHub's 6-HOUR default (it boots an
+    # emulator like `integration`). Set between patrol (45) and integration (180):
+    # it drives ONE profile-mode test file, not the six-invocation suite.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
@@ -1349,6 +1707,7 @@ jobs:
           flutter-version: '3.41.x'
           channel: 'stable'
           cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock') }}
 
       - name: Pub get
         run: flutter pub get
@@ -1387,64 +1746,6 @@ jobs:
             timeout --signal=TERM --kill-after=60 900 flutter drive --profile --driver=test_driver/integration_test.dart --target=integration_test/logout_flow_test.dart; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PROFILE DRIVE: TIMED OUT after 900s (rc=$RC). External bound — an in-isolate one cannot catch event-loop starvation; see the part1/part2 note in the integration job above."; fi; exit $RC
 
   # ---------------------------------------------------------------------------
-  # Native-surface change detection — the additive gate for the `patrol` job.
-  #
-  # GitHub cannot combine a workflow-level `paths:` filter with a job-level
-  # `if:`, so change detection has to be its own job whose output the `patrol`
-  # job's `if:` consumes.
-  #
-  # This job ALWAYS runs (it is cheap: checkout + one filter step). The filter
-  # step itself only runs on `pull_request`, because that is the only event
-  # with a meaningful diff to filter. On `schedule` / `workflow_dispatch` /
-  # `push` the step is skipped and `steps.filter.outputs.native` is the empty
-  # string, so `needs.changes.outputs.native == 'true'` is false and the
-  # scheduled run falls through to its own unconditional clause in `patrol`'s
-  # `if:` — i.e. the nightly is NEVER gated on a diff.
-  # ---------------------------------------------------------------------------
-  changes:
-    name: Detect native-surface changes
-    runs-on: ubuntu-latest
-    # dorny/paths-filter reads the PR file list via the API on pull_request.
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      native: ${{ steps.filter.outputs.native }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-
-      - name: Filter native-surface paths
-        id: filter
-        if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36  # v3.0.2
-        with:
-          # Everything here genuinely changes what the patrol flows exercise.
-          # Keep this list TIGHT — a false positive costs a full emulator boot.
-          filters: |
-            native:
-              # Whole Android shell: manifests (App-Link intent filters +
-              # flutter_deeplinking_enabled), Gradle/AGP config, res/xml
-              # network_security_config, signing, ProGuard.
-              - 'android/**'
-              # Redundant with android/** today, but keeps the gate correct if
-              # a manifest is ever added outside android/.
-              - '**/AndroidManifest.xml'
-              # The patrol flows themselves + their support helpers.
-              - 'integration_test/patrol/**'
-              # go_router config: the deep-link flow asserts that an App Link
-              # actually RESOLVES to the right screen, so a route change can
-              # break the native test without touching android/.
-              - 'lib/routing/**'
-              # App bootstrap — decides what the cold-start intent lands on.
-              - 'lib/main.dart'
-              # patrol / flutter pins and `test_directory`, which control what
-              # the native test bundle even contains.
-              - 'pubspec.yaml'
-              # The job definition itself.
-              - '.github/workflows/pr-validate.yml'
-
-  # ---------------------------------------------------------------------------
   # Patrol native E2E (Phase 17.5).
   #
   # Covers OS-level surfaces integration_test cannot reach (deep-link intents,
@@ -1458,10 +1759,10 @@ jobs:
   #   The native compile builds the androidTest variant + AndroidX Test
   #   Orchestrator and boots a full emulator — materially slower than the fast
   #   jobs. Running it on every PR is not justified, so it runs only on:
-  #     • the nightly `schedule` trigger,
+  #     • the nightly (nightly.yml -> workflow_dispatch on dev),
   #     • manual `workflow_dispatch`,
   #     • PRs explicitly labelled `run-patrol`,
-  #     • PRs that touch a native surface (see the `changes` job's filter).
+  #     • PRs that touch a native surface (see the `plan` job / tool/ci/plan.sh).
   #   It is a SEPARATE job, so it never blocks or merges into the fast
   #   `validate` / `integration` jobs.
   #
@@ -1469,10 +1770,9 @@ jobs:
   #   App Link routing merged green — nobody remembers to add a label for a
   #   regression they do not know they are introducing.
   #
-  # EXPECTED OUTCOME PER TRIGGER (all five cases the `if:` must get right):
-  #   1. schedule            -> RUNS (clause 1; never gated on a diff)
-  #   2. workflow_dispatch   -> RUNS (clause 2)
-  #   3. PR + `run-patrol`   -> RUNS (clause 3, label branch)
+  # EXPECTED OUTCOME PER TRIGGER (all four cases the `if:` must get right):
+  #   1. workflow_dispatch   -> RUNS (manual or nightly; never gated on a diff)
+  #   2. PR + `run-patrol`   -> RUNS (clause 3, label branch)
   #   4. PR touching native  -> RUNS (clause 3, changed-paths branch)
   #   5. any other PR / push -> SKIPPED (no clause matches; `push` is
   #                             deliberately absent — its PR already covered it)
@@ -1497,48 +1797,22 @@ jobs:
       fail-fast: false
       matrix:
         api-level: [34]
-    # `changes` always succeeds, so gating on it cannot silently skip patrol;
-    # it only makes the changed-paths output available to the `if:` below.
-    needs: changes
-    # Skip on ordinary push/PR; run on schedule, manual dispatch, the opt-in
+    # `plan` supplies the native-surface flag (it replaced the old `changes`
+    # job). If plan fails, patrol is skipped and `ci-gate` goes red.
+    needs: plan
+    # Skip on ordinary push/PR; run on dispatch (manual or nightly), the opt-in
     # label, or a PR that touches a native surface. See the per-trigger table
     # in the comment block above.
     if: >-
-      github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
        (contains(github.event.pull_request.labels.*.name, 'run-patrol') ||
-        needs.changes.outputs.native == 'true'))
+        needs.plan.outputs.native == 'true'))
     steps:
-      # =====================================================================
-      # !!! PRE-RELEASE ONLY — MUST BE FLIPPED BACK TO `main` AT RELEASE !!!
-      #
-      # `ref: dev` on the SCHEDULED run is deliberate, not a mistake.
-      #
-      # WHY: GitHub runs `schedule` workflows only from the DEFAULT BRANCH,
-      # which is `main`. During development nothing is committed to `main`
-      # directly — all work targets `dev` — so an unpinned nightly would
-      # exercise a stale `main` while real regressions sat on `dev`, caught
-      # neither per-PR (this job is gated) nor nightly. That is the exact hole
-      # this pin closes.
-      #
-      # AT RELEASE: when `main` becomes the branch that actually ships, delete
-      # the `with:` block below (reverting to the default-branch checkout) or
-      # change 'dev' to 'main'. Leaving it pinned to `dev` post-release means
-      # the nightly silently stops testing what users run.
-      #
-      # SCOPE: the override applies ONLY to `schedule`. For `pull_request` and
-      # `workflow_dispatch` the ref MUST stay empty so checkout uses the
-      # triggering ref — pinning `dev` unconditionally would make a labelled
-      # or native-path PR test `dev` instead of the PR head, i.e. report a
-      # green patrol run for code that was never built.
-      #
-      # Tracked in docs/mobile-phases/mobile-backlog.md → Pre-release checklist.
-      # =====================================================================
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
-          ref: ${{ github.event_name == 'schedule' && 'dev' || '' }}
+          persist-credentials: false
 
       - name: Set up Java 17
         uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
@@ -1552,6 +1826,7 @@ jobs:
           flutter-version: '3.41.x'
           channel: 'stable'
           cache: true
+          pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock') }}
 
       - name: Pub get
         run: flutter pub get
@@ -1757,3 +2032,99 @@ jobs:
             emulator-diag/
           if-no-files-found: ignore
           retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # ci-gate (phase 397) — the ONLY required status check on dev and main.
+  #
+  # `if: always()` so it reports even when upstream jobs are skipped. A skipped
+  # job reports success, so a failed `plan` (which skips everything downstream)
+  # would otherwise leave a green PR: the gate turns that red. `skipped` jobs
+  # (patrol off, future empty selections) are NOT failures, EXCEPT `test` when
+  # EXPECT_TESTS=true. Verdict logic lives in tool/ci/gate.sh (table-tested).
+  # Every new job MUST be added to `needs:`.
+  #
+  # NEVER SKIPPED, not even on an irrelevant-label (noop) event: a skipped
+  # required check counts as passing and the newest same-named check wins, so a
+  # skipped ci-gate could mask a red/pending real one. On noop events every other
+  # job is skipped and ci-gate MIRRORS the real run for the same head SHA
+  # (tool/ci/mirror.sh, base-owned), waiting for it and passing only on success.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: ci-gate
+    if: always()
+    needs: [plan, validate, test, tests-ran, integration, integration-profile, patrol]
+    runs-on: ubuntu-latest
+    # Normally seconds; a noop-label event waits for the real run it mirrors:
+    # up to 3 min polling for it to appear + the watch below (200 min =
+    # the slowest real job, `integration` at 180, plus runner QUEUE time, which
+    # the job timeout does not cover) + verdict. Must stay
+    # ABOVE both, or the gate dies before the thing it is mirroring.
+    timeout-minutes: 205
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      # The scripts come from the BASE commit on PRs: a PR must not be able to
+      # edit the check that judges it.
+      - name: Checkout gate scripts (base commit)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          sparse-checkout: |
+            tool/ci/gate.sh
+            tool/ci/mirror.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Mirror the real run (irrelevant label)
+        if: github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name != 'full-ci' && github.event.label.name != 'run-patrol'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [ -x tool/ci/mirror.sh ] || { echo "::error::base commit has no tool/ci/mirror.sh; cannot mirror (fail closed)"; exit 1; }
+          [ -n "$HEAD_SHA" ] && [ -n "$PR_NUMBER" ] || { echo "::error::no PR head sha / number"; exit 1; }
+          # The real run may not be listed yet (label added the instant the PR
+          # opened): poll up to ~3 min (6 x 30 s), then fail closed. Runs are
+          # scoped to THIS PR (pull_requests[].number), not just the head sha.
+          id=""
+          for attempt in 1 2 3 4 5 6; do
+            id="$(gh api "repos/$GH_REPO/actions/runs?head_sha=$HEAD_SHA&event=pull_request&per_page=100" \
+              | ./tool/ci/mirror.sh select "$PR_NUMBER")" || id=""
+            [ -z "$id" ] || break
+            echo "no real pr-validate run for PR #$PR_NUMBER @ $HEAD_SHA yet (attempt $attempt/6)"
+            [ "$attempt" -eq 6 ] || sleep 30
+          done
+          [ -n "$id" ] || { echo "::error::no real pr-validate run found for PR #$PR_NUMBER @ $HEAD_SHA to mirror after ~3 min (fail closed)"; exit 1; }
+          echo "Mirroring run $id"
+          # 12000 s = 200 min > the slowest real job (integration, 180 min) plus
+          # queue time (job timeouts start counting only once a runner is assigned).
+          # Exit status of watch is advisory; the verdict is re-read below.
+          timeout --signal=KILL 12000 gh run watch "$id" --interval 60 --exit-status >/dev/null || echo "::warning::watch of run $id ended non-zero or timed out"
+          read -r status conclusion < <(gh run view "$id" --json status,conclusion --jq '"\(.status) \(.conclusion)"')
+          ./tool/ci/mirror.sh verdict "${status:-}" "${conclusion:-}"
+
+      - name: Evaluate needs (fail closed)
+        if: github.event_name != 'pull_request' || github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol'
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          PLAN_MODE: ${{ needs.plan.outputs.mode }}
+          PLAN_SELECTION_COUNT: ${{ needs.plan.outputs.selection_count }}
+          EXPECT_TESTS: ${{ (needs.plan.outputs.mode == 'full' || needs.plan.outputs.mode == 'selective') && 'true' || 'false' }}
+        run: |
+          if [ -x tool/ci/gate.sh ]; then
+            ./tool/ci/gate.sh
+          else
+            # Bootstrap only (PR introducing the gate): minimal inline verdict.
+            echo "::warning::base commit has no tool/ci/gate.sh; inline verdict"
+            case "$PLAN_MODE" in full | selective) ;; *) echo "bad plan mode '$PLAN_MODE'"; exit 1 ;; esac
+            printf '%s' "$NEEDS_JSON" | jq -e '
+              to_entries | map(select((.key == "plan" and .value.result != "success")
+                or .value.result == "failure" or .value.result == "cancelled")) | length == 0' >/dev/null
+          fi

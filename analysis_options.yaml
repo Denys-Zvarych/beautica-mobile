@@ -51,6 +51,10 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "build/**"
+    # Phase 398 - the CI selector is its own package (own pubspec, plain `dart`);
+    # its deps are not resolved by the root pub get and it has its own
+    # analysis_options.yaml.
+    - "tool/ci/affected_tests/**"
   language:
     strict-casts: true
     strict-inference: true

@@ -1,0 +1,44 @@
+name: Nightly
+
+# Phase 396 — a `schedule` event always runs the workflow file from the default
+# branch (main), while the nightly must test dev. Running pr-validate.yml
+# straight from a schedule therefore paired main's workflow with dev's code
+# (workflow/code skew: dev's patrol test needed a gallery-seed step that main's
+# workflow lacked). Instead this tiny workflow dispatches pr-validate.yml on
+# `dev`, so the dispatched run uses dev's workflow AND dev's code.
+#
+# This file must live on the default branch (main) for the schedule to fire.
+
+on:
+  schedule:
+    # 03:30 UTC nightly (off-peak; after typical EU working hours).
+    - cron: '30 3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  contents: read # dev HEAD lookup for the already-tested skip
+
+jobs:
+  dispatch:
+    name: Dispatch pr-validate on dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch pr-validate.yml on dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          # Skip when the last successful nightly dispatch already tested the
+          # current dev HEAD. FAIL OPEN: any API/parse error -> dispatch.
+          if head="$(gh api "repos/$GH_REPO/commits/dev" -q .sha 2>/dev/null)" && [ -n "$head" ] &&
+             last="$(gh run list --workflow pr-validate.yml --branch dev --event workflow_dispatch \
+                       --status success --limit 30 --json headSha,displayTitle 2>/dev/null)" &&
+             printf '%s' "$last" | jq -e --arg h "$head" \
+                 'any(.[]; .headSha == $h)' >/dev/null 2>&1; then
+            echo "dev HEAD $head already has a successful dispatch run; skipping nightly"
+            exit 0
+          fi
+          gh workflow run pr-validate.yml --ref dev -f reason=nightly
