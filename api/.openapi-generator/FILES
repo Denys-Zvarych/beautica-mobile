@@ -547,5 +547,3 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_pending_booking_actions_count_response_test.dart
-test/pending_booking_actions_count_response_test.dart

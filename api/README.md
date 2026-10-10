@@ -181,8 +181,6 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**removeAdmin**](doc/SalonControllerApi.md#removeadmin) | **DELETE** /api/v1/salons/{salonId}/admins/{userId} | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**rotateAdmin**](doc/SalonControllerApi.md#rotateadmin) | **PATCH** /api/v1/salons/{salonId}/admins/{userId}/salon | 
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
-[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**disableOwnerMaster**](doc/SalonMasterControllerApi.md#disableownermaster) | **DELETE** /api/v1/salons/{salonId}/master | 
-[*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**enableOwnerMaster**](doc/SalonMasterControllerApi.md#enableownermaster) | **POST** /api/v1/salons/{salonId}/master | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**removeMaster**](doc/SalonMasterControllerApi.md#removemaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId} | 
 [*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**deleteSalonImage**](doc/SalonMediaControllerApi.md#deletesalonimage) | **DELETE** /api/v1/salons/{salonId}/media/{slot} | Remove the salon logo or cover (SALON_OWNER of this salon only)
 [*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**uploadSalonImage**](doc/SalonMediaControllerApi.md#uploadsalonimage) | **POST** /api/v1/salons/{salonId}/media/{slot} | Upload or replace the salon logo or cover (SALON_OWNER of this salon only)

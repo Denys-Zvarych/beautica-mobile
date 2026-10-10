@@ -6,13 +6,8 @@ void main() {
   final instance = BeauticaApi().getSalonMasterControllerApi();
 
   group(SalonMasterControllerApi, () {
-    //Future disableOwnerMaster(String salonId) async
-    test('test disableOwnerMaster', () async {
-      // TODO
-    });
-
-    //Future<ApiResponseMasterDetailResponse> enableOwnerMaster(String salonId) async
-    test('test enableOwnerMaster', () async {
+    //Future removeMaster(String salonId, String masterId) async
+    test('test removeMaster', () async {
       // TODO
     });
   });
