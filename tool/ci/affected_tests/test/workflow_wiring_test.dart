@@ -1628,6 +1628,32 @@ void main() {
       expect(n, greaterThan(50));
       expect(bad, isEmpty);
     });
+
+    test('`why:` pointers in local composite actions resolve too', () {
+      final root = wfFile.parent.parent.parent.path;
+      final ptr = RegExp(r'why: docs/ci/([\w.-]+\.md)#([\w-]+)\s*$');
+      final actions = Directory(p.join(root, '.github', 'actions'))
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => p.basename(f.path) == 'action.yml');
+      final bad = <String>[];
+      var n = 0;
+      for (final a in actions) {
+        for (final l in a.readAsLinesSync()) {
+          if (!l.contains('why:')) continue;
+          n++;
+          final m = ptr.firstMatch(l);
+          final f = m == null ? null : File(p.join(root, 'docs', 'ci', m[1]));
+          if (m == null ||
+              !f!.existsSync() ||
+              !f.readAsStringSync().contains('<a id="${m[2]}"></a>')) {
+            bad.add('${p.relative(a.path, from: root)}: ${l.trim()}');
+          }
+        }
+      }
+      expect(n, greaterThan(0), reason: 'enable-kvm carries a trust pointer');
+      expect(bad, isEmpty);
+    });
   }, skip: skip);
 }
 

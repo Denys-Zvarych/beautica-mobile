@@ -257,13 +257,44 @@ if extract_fn is_forced; then
       mkdir -p "$gws/$side/tool/ci"
       printf 'echo "ran=%s"\n' "$side" >"$gws/$side/tool/ci/ci_paths_guard.sh"
     done
-    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)"
+    # `|| true`: a broken step body must print FAIL, not abort this script (set -e).
+    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)" || true
     if [ "$out" = "ran=trusted" ]; then echo "  PASS  guard step: base copy present -> trusted/ runs, no warning"; else echo "  FAIL  guard step: base copy present, got: $out"; rc=1; fi
     rm "$gws/trusted/tool/ci/ci_paths_guard.sh"
-    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)"
+    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)" || true
     want="$(printf '%s\n%s' "::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy" "ran=pr")"
     if [ "$out" = "$want" ]; then echo "  PASS  guard step: base copy absent -> PR copy + bootstrap warning"; else echo "  FAIL  guard step: base copy absent, got: $out"; rc=1; fi
   fi
+  # main(): run the real script end-to-end over a throwaway repo's merge-base
+  # diff, so the fail-closed exit and the force-full outputs are pinned, not
+  # just the case tables (phase 402 D14 QA).
+  grepo="$tmp/guard-repo"
+  git init -q "$grepo"
+  gg() { git -C "$grepo" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+  echo base >"$grepo/base.txt"; gg add -A; gg commit -qm base; gbase="$(gg rev-parse HEAD)"
+  case_main() { # <name> <want exit> <want outputs ("" = none)> <path>
+    gg checkout -q "$gbase"
+    mkdir -p "$grepo/$(dirname "$4")"; echo x >"$grepo/$4"; gg add -A; gg commit -qm head
+    local head ofile got_rc got_out
+    head="$(gg rev-parse HEAD)"; ofile="$tmp/guard-out.txt"; : >"$ofile"
+    got_rc=0
+    (cd "$grepo" && BASE_SHA="$gbase" HEAD_SHA="$head" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$ofile" \
+      bash "$guard" >/dev/null 2>&1) || got_rc=$?
+    got_out="$(tr '\n' ' ' <"$ofile")"
+    if [ "$got_rc" = "$2" ] && [ "$got_out" = "$3" ]; then printf '  PASS  guard main: %s\n' "$1"
+    else printf '  FAIL  guard main: %s (want rc=%s out=[%s], got rc=%s out=[%s])\n' "$1" "$2" "$3" "$got_rc" "$got_out"; rc=1; fi
+  }
+  case_main "plain lib change -> no output, exit 0" 0 "" lib/a.dart
+  case_main "tool/ci change -> mode=full run_all=true" 0 "mode=full run_all=true " tool/ci/x.sh
+  case_main "non-ASCII .github path still forces (NUL diff)" 0 "mode=full run_all=true " ".github/ü x.yml"
+  case_main "build/ artefact -> exit 1 (fail closed), no force" 1 "" build/planted.txt
+  : >"$tmp/guard-out.txt"
+  got_rc=0
+  (cd "$grepo" && BASE_SHA=deadbeef HEAD_SHA="$gbase" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/guard-out.txt" \
+    bash "$guard" >/dev/null 2>&1) || got_rc=$?
+  if [ "$got_rc" = 0 ] && [ "$(tr '\n' ' ' <"$tmp/guard-out.txt")" = "mode=full run_all=true " ]; then
+    echo "  PASS  guard main: unresolvable base -> forces full (diff unavailable)"
+  else echo "  FAIL  guard main: unresolvable base (rc=$got_rc)"; rc=1; fi
 else
   rc=1
 fi
