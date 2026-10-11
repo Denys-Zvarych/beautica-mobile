@@ -41,7 +41,7 @@
 #     stub the cycle-closing providers (masterProfile/servicesList/
 #     serviceRepository) — that hides the cycle. Unblock a justified stub with a
 #     `// cycle-stub-ok: <reason>` comment.
-# Both run in the pr-validate.yml `validate` job. Rationale: ARCHITECTURE-mobile.md § 14.3.
+# Both run in the pr-validate.yml `gates` job. Rationale: ARCHITECTURE-mobile.md § 14.3.
 
 include: package:flutter_lints/flutter.yaml
 

@@ -15,26 +15,30 @@
 # Unit-count warning (phase 400 P4): a selective unit list above
 # UNIT_WARN_THRESHOLD files (default 80, ≈15-min edge: ~6.8 min non-unit + ~6 s/file (phase 400 D9))
 # emits a ::warning:: and a summary line: it exceeds the 15-min selective
-# budget (phase 402 sharding, D3a, is the remedy). Informational only, never a
-# verdict.
+# budget (phase 402 shards such a list, D3a). Informational only, never a
+# verdict. The SAME value is emitted as `unit_warn_threshold` and handed to the
+# selector's `--shards-for` (phase 402 D3a): this is the only literal of it.
 #
 # On a valid selective/none verdict the four list files (unit.txt, golden.txt,
 # tz_sweep.txt, integration.txt) are REWRITTEN from the JSON beside it, so the
-# lists the test job consumes are exactly the counts emitted here.
+# lists the unit / tz-sweeps / goldens jobs consume are exactly the counts emitted here.
 #
 # Outputs (GITHUB_OUTPUT when set, always stdout):
 #   mode run_all unit_count golden_count tz_count integration_count
+#   unit_warn_threshold   (the sanitised UNIT_WARN_THRESHOLD; selective only)
 #   kyiv_count      (1 if the DST day-rail file is in the tz list, else 0;
 #                   0 on every non-selective path): tests-ran owes a tz-kyiv
 #                   stream from THIS base-owned value, never from PR-produced
 #                   events
 #   selection_count (all four lists; "unknown" for full)
-#   test_count      (unit + golden + tz: what the `test` job runs; "unknown" for full)
+#   test_count      (unit + golden + tz: what the unit, tz-sweeps and goldens jobs run; "unknown" for full)
 # GITHUB_STEP_SUMMARY (when set): mode, counts, first 200 selected paths, and
 # the reasons behind a full verdict.
 # On PRs this script is executed from the BASE commit, never from the PR tree.
 set -euo pipefail
-UNIT_WARN_THRESHOLD="${UNIT_WARN_THRESHOLD:-80}"
+unit_warn_default=80   # the ONE literal (phase 402 D3a)
+UNIT_WARN_THRESHOLD="${UNIT_WARN_THRESHOLD:-$unit_warn_default}"
+case "$UNIT_WARN_THRESHOLD" in '' | *[!0-9]* | 0) UNIT_WARN_THRESHOLD=$unit_warn_default ;; esac
 # The one tz-list file the Kyiv (DST rail) step runs; must match that step.
 KYIV_RAIL=test/features/booking/presentation/bookings_day_rail_test.dart
 rc_in="${1:-}"; json="${2:-}"
@@ -128,10 +132,10 @@ emit kyiv_count "$nk"
 emit selection_count "$total"
 emit test_count "$((nu + ng + nt))"
 
+emit unit_warn_threshold "$UNIT_WARN_THRESHOLD"
 unit_warn=""
-case "$UNIT_WARN_THRESHOLD" in '' | *[!0-9]*) UNIT_WARN_THRESHOLD=80 ;; esac
 if [ "$mode" = "selective" ] && [ "$nu" -gt "$UNIT_WARN_THRESHOLD" ]; then
-  unit_warn="selective unit list has $nu files (> $UNIT_WARN_THRESHOLD): exceeds the 15-min selective budget; phase 402 sharding (D3a) is the remedy"
+  unit_warn="selective unit list has $nu files (> $UNIT_WARN_THRESHOLD): the unit job is split into shards of at most this size (phase 402 D3a)"
   echo "::warning::$unit_warn"
 fi
 

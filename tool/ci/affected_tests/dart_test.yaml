@@ -1,0 +1,13 @@
+# CI runs the package as three parallel legs (pr-validate.yml `selector-tests`,
+# audit F6), split by tag:
+#   fast  = `-x e2e`   everything not tagged e2e
+#   e2e-a = `-t e2e-a` pipeline_e2e_test.dart + pipeline_e2e_integration_test.dart
+#   e2e-b = `-t e2e-b` pipeline_e2e_sharding_test.dart + pipeline_e2e_audit1_test.dart
+# The four pipeline_e2e_*_test.dart files execute the real workflow steps on a
+# synthetic repo (CPU-bound: each scenario starts several Dart processes); each
+# carries `e2e` plus exactly one of e2e-a / e2e-b. A plain `dart test` still
+# runs everything.
+tags:
+  e2e:
+  e2e-a:
+  e2e-b:

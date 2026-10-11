@@ -13,18 +13,28 @@ const usage = '''
 affected_tests --changes <file> | --diff <A..B>  [--repo <root>] [--out <json>]
                [--base-root <dir> | --base-ref <git-ref>] [--rules <yaml>]
                [--shard i/N] [--all]
+affected_tests --shards-for <count|full> --threshold <n>
+affected_tests --shard-list <file> --shard i/N --out <file> [--weights-root <dir>]
 
   --changes   file of "STATUS<TAB>path[<TAB>newpath]" lines (git diff --name-status -M)
   --diff      A..B  : compute the changes with git (merge-base NOT applied; pass it)
   --base-ref  extract this ref to a temp dir to resolve deleted/renamed Dart files
   --all       emit every test (full-run sharding input); ignores --changes
   --shard     keep only shard i of N of each list (1-based)
+  --shards-for  print the `unit` shard count (phase 402 D3a): `full` -> 4, a
+                number -> ceil(count / --threshold) capped at 4 (0 -> 0).
+                --threshold is the single UNIT_WARN_THRESHOLD, never defaulted.
+  --shard-list  write shard i/N (--shard) of the lines of <file> to --out
+                (one path per line); no rules or graph involved. Longest-first
+                greedy by weight (shard.dart); --weights-root <dir> weighs each
+                path by its file size under <dir> (default: every file = 1).
 Writes <out> (default build/ci/selection.json) plus unit.txt, golden.txt,
 tz_sweep.txt, integration.txt beside it. Exit 0 always on a verdict.''';
 
 /// Runs the selector CLI; returns the process exit code.
 int run(List<String> args) {
   String? changes, diff, repo, out, baseRoot, baseRef, rulesPath, shardSpec;
+  String? shardsForArg, threshold, shardList, weightsRoot;
   var all = false;
   for (var i = 0; i < args.length; i++) {
     String next() => i + 1 < args.length
@@ -47,6 +57,14 @@ int run(List<String> args) {
         rulesPath = next();
       case '--shard':
         shardSpec = next();
+      case '--shards-for':
+        shardsForArg = next();
+      case '--threshold':
+        threshold = next();
+      case '--shard-list':
+        shardList = next();
+      case '--weights-root':
+        weightsRoot = next();
       case '--all':
         all = true;
       case '-h' || '--help':
@@ -56,6 +74,10 @@ int run(List<String> args) {
         stderr.writeln('unknown argument ${args[i]}\n$usage');
         return 64;
     }
+  }
+  if (shardsForArg != null) return _runShardsFor(shardsForArg, threshold);
+  if (shardList != null) {
+    return _runShardList(shardList, shardSpec, out, weightsRoot);
   }
   final root = p.normalize(p.absolute(repo ?? Directory.current.path));
   final rules = Rules.fromFile(
@@ -146,6 +168,70 @@ int run(List<String> args) {
     'mode=${sel.mode.name} unit=${sel.unit.length} golden=${sel.golden.length} '
     'tz_sweep=${sel.tzSweep.length} integration=${sel.integration.length} -> $out',
   );
+  return 0;
+}
+
+/// `--shards-for`: prints the shard count and nothing else (stdout is parsed
+/// by shard_units.sh). Exit 64 on any malformed input; never a default.
+int _runShardsFor(String what, String? threshold) {
+  final int n;
+  if (what == 'full') {
+    n = fullShards;
+  } else {
+    final count = int.tryParse(what);
+    final t = threshold == null ? null : int.tryParse(threshold);
+    if (count == null || count < 0 || t == null || t < 1) {
+      stderr.writeln(
+        '--shards-for needs <count|full>; a count also needs --threshold >= 1\n$usage',
+      );
+      return 64;
+    }
+    n = shardsFor(count, threshold: t);
+  }
+  stdout.writeln(n);
+  return 0;
+}
+
+/// `--shard-list`: shard i/N of a plain list file, written to [out].
+int _runShardList(
+  String listPath,
+  String? spec,
+  String? out,
+  String? weightsRoot,
+) {
+  if (spec == null || out == null) {
+    stderr.writeln('--shard-list needs --shard i/N and --out <file>\n$usage');
+    return 64;
+  }
+  final ({int index, int count}) s;
+  try {
+    s = parseShard(spec);
+    if (s.count < 1 || s.index < 1 || s.index > s.count) {
+      throw FormatException('shard $spec out of range');
+    }
+  } on FormatException catch (e) {
+    stderr.writeln('${e.message}\n$usage');
+    return 64;
+  }
+  final f = File(listPath);
+  if (!f.existsSync()) {
+    stderr.writeln('list not found: $listPath');
+    return 64;
+  }
+  final lines = [
+    for (final l in f.readAsLinesSync())
+      if (l.isNotEmpty) l,
+  ];
+  File(out)
+    ..parent.createSync(recursive: true)
+    ..writeAsStringSync(
+      shard(
+        lines,
+        s.index,
+        s.count,
+        weights: weightsRoot == null ? null : fileWeights(weightsRoot, lines),
+      ).map((l) => '$l\n').join(),
+    );
   return 0;
 }
 

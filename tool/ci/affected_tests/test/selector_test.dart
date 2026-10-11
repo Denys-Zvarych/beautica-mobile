@@ -166,6 +166,9 @@ void main() {
       '.github/workflows/pr-validate.yml': '.github/workflows/**',
       // 400 / 398 R1: no longer ignored, the workflow guard forces FULL.
       '.github/workflows/gitleaks.yml': '.github/workflows/**',
+      // 401 S2: the integration job checks the base commit out at trusted/.
+      'trusted': 'trusted',
+      'trusted/tool/ci/affected_tests/bin/x.dart': 'trusted/**',
     };
     fullCases.forEach((path, glob) {
       test('$path -> full via $glob', () {
