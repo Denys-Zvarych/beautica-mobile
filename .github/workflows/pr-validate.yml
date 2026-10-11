@@ -68,7 +68,8 @@ jobs:
   #   *_count           list sizes, so consumers decide with `if:` (D1)
   #
   # Only THIS job does a full-history checkout (fetch-depth: 0, pull_request
-  # only); every other job keeps its shallow checkout. All logic lives in tool/ci/plan.sh and is
+  # only); every other job keeps its shallow checkout. (Phase 401 audit P1: a
+  # bounded window was measured and dropped, see the phase 401 doc D7.) All logic lives in tool/ci/plan.sh and is
   # table-tested by scripts/test/plan_sh_test.sh (run by verify_guards.sh).
   # Phase 400 added the selector steps (base-owned, from trusted/); 402 adds
   # shard outputs.
@@ -182,6 +183,7 @@ jobs:
             case "$1" in
               scripts/perf/*) return 1 ;;
               .github/* | tool/ci/* | scripts/*) return 0 ;;
+              trusted | trusted/*) return 0 ;;
               analysis_options.yaml | pubspec.yaml | pubspec.lock | dart_test.yaml | build.yaml) return 0 ;;
               test/flutter_test_config.dart | test_driver/*) return 0 ;;
               test/helpers/* | test/ci/* | integration_test/support/*) return 0 ;;
@@ -191,11 +193,12 @@ jobs:
           }
           # Paths that must never appear in a PR diff: build output / tool cache
           # (gitignored; a committed one is a planted file or symlink aimed at
-          # CI output paths). Fail the plan rather than force-full: there is no
+          # CI output paths) and a top-level trusted/ (the integration job checks
+          # the base commit out at that name; a PR-made one would shadow it). Fail the plan rather than force-full: there is no
           # legitimate case, so red is the right signal. Also table-tested.
           is_forbidden() {
             case "$1" in
-              build/* | .dart_tool/*) return 0 ;;
+              build/* | .dart_tool/* | trusted | trusted/*) return 0 ;;
             esac
             return 1
           }
@@ -209,7 +212,7 @@ jobs:
           forced=0
           while IFS= read -r -d '' f; do
             if is_forbidden "$f"; then
-              echo "::error::PR diff contains a build artefact path (path withheld: PR-controlled); build/ and .dart_tool/ are never committed (fail closed)"
+              echo "::error::PR diff contains a build artefact path (path withheld: PR-controlled); build/, .dart_tool/ and trusted/ are never committed (fail closed)"
               exit 1
             fi
             if is_forced "$f"; then forced=1; fi
@@ -1610,8 +1613,16 @@ jobs:
   # notifiers + real repository + real generated client + real serialization)
   # with ONLY the Dio transport socket faked by http_mock_adapter — no live
   # backend. IntegrationTestWidgetsFlutterBinding requires a device, so this job
-  # boots a headless Android emulator (KVM-accelerated on the runner) and runs:
-  #   flutter test integration_test/
+  # boots a headless Android emulator (KVM-accelerated on the runner) and runs
+  # the two aggregating files all_tests_part1.dart + all_tests_part2.dart.
+  #
+  # Phase 401: on a `selective` PR only the flows whose own code path changed
+  # run, through a generated, gitignored integration_test/ci_selected_tests.dart
+  # (tool/ci/affected_tests/bin/gen_integration_entry.dart, run from the BASE
+  # commit). D3: when the selection covers >= 70% of a part, or any hub changed,
+  # the two part files run unchanged. FULL mode (push, dispatch, nightly, any
+  # fail-safe) runs exactly the two part files, command lines unchanged.
+  # D4: skipped when the selector found no flow (ci-gate treats a skip as ok).
   #
   # Run locally against a connected emulator (see scripts/connect_adb.sh) with:
   #   flutter test integration_test/edit_profile_flow_test.dart
@@ -1619,7 +1630,10 @@ jobs:
   integration:
     name: Integration tests (emulator)
     runs-on: ubuntu-latest
-    if: (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+    needs: plan
+    if: >-
+      (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
+      && (needs.plan.outputs.mode == 'full' || needs.plan.outputs.integration_count != '0')
     # Backstop for the backstop. Each of the six invocations below is
     # individually `timeout`-bounded (see part 1 attempt 1), so this only has
     # to cover the case where the emulator action itself wedges outside the
@@ -1650,6 +1664,129 @@ jobs:
 
       - name: Codegen (build_runner)
         run: dart run build_runner build --delete-conflicting-outputs
+
+      # Phase 401 (selective PRs only). The plan job's lists; the generator and
+      # the part-vs-selected decision come from the BASE commit (trusted/), like
+      # the selector: a PR must not be able to shrink its own integration run.
+      - name: Download test selection
+        if: needs.plan.outputs.mode == 'selective'
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: ci-selection
+          path: ${{ runner.temp }}/sel
+
+      # S2: a PR can commit a top-level `trusted/` (any file or symlink); the
+      # checkout below must not land on top of it. The plan guard also rejects
+      # such a diff (is_forbidden), this is the second, local line of defence.
+      - name: Remove any PR-made trusted/ path
+        if: needs.plan.outputs.mode == 'selective'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/trusted"
+
+      - name: Checkout trusted tooling (base commit)
+        if: needs.plan.outputs.mode == 'selective'
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: trusted
+          sparse-checkout: tool/ci
+          persist-credentials: false
+
+      # S2: prove the tooling really is the base commit before anything runs it.
+      - name: Verify the trusted checkout is the base commit
+        if: needs.plan.outputs.mode == 'selective'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          t="$GITHUB_WORKSPACE/trusted"
+          if [ -L "$t" ] || [ ! -d "$t/.git" ] || [ -L "$t/.git" ]; then
+            echo "::error::trusted/ is not a plain git checkout"; exit 1
+          fi
+          top="$(git -C "$t" rev-parse --show-toplevel)"
+          got="$(git -C "$t" rev-parse HEAD)"
+          if [ "$top" != "$(cd -P "$t" && pwd -P)" ] || [ "$got" != "$EXPECTED_SHA" ]; then
+            echo "::error::trusted/ is not the base commit (expected $EXPECTED_SHA, got $got)"; exit 1
+          fi
+          echo "trusted/ = $got"
+
+      # P2: Gradle's downloads/transforms for the app build. RESTORE ONLY on
+      # pull_request: a PR can never write the cache other runs read (the save
+      # step below runs on push/dispatch/nightly only). This feeds the APK build,
+      # which is PR-controlled code anyway, never the selector (400 D8, see the
+      # phase 401 doc D6). The key hashes the files that decide Gradle inputs.
+      - name: Restore Gradle cache
+        id: gradle-cache
+        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-it-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/gradle.properties', 'android/gradle/wrapper/gradle-wrapper.properties', 'pubspec.lock') }}
+          restore-keys: |
+            gradle-it-${{ runner.os }}-
+
+      # entry=selected only when the trusted generator ran cleanly and wrote
+      # integration_test/ci_selected_tests.dart, and the trusted attempt script
+      # exists. EVERYTHING else (generator or script missing on the base, crash,
+      # no/odd entry= or count= line, `none`, D3/cap fallback) is `parts`: the
+      # two part files, i.e. the pre-401 run. Fail-safe to FULL (400 D7).
+      # S1: the target is removed first (a PR-committed dangling symlink would
+      # redirect the write). S3: `--packages=<empty config>` makes the generator
+      # ignore the PR's .dart_tool/package_config.json (it has no imports;
+      # `/dev/null` itself is rejected by dart as an empty packages file).
+      # P3: bound = clamp(420 + 45 * flows, 600, 1500) seconds.
+      - name: Choose integration entry (selected flows or the two parts)
+        id: entry
+        if: needs.plan.outputs.mode == 'selective'
+        shell: bash
+        run: |
+          set -uo pipefail
+          t="$GITHUB_WORKSPACE/trusted/tool/ci"
+          gen="$t/affected_tests/bin/gen_integration_entry.dart"
+          entry=parts; count=0; bound=1500
+          rm -rf integration_test/ci_selected_tests.dart
+          if [ -f "$gen" ] && [ -f "$t/run_it_attempt.sh" ]; then
+            pk="$RUNNER_TEMP/empty_package_config.json"
+            echo '{"configVersion":2,"packages":[]}' >"$pk"
+            out="$(dart --packages="$pk" "$gen" --selection "$RUNNER_TEMP/sel/selection.json" --repo "$GITHUB_WORKSPACE")" || out=""
+            if [ "$(printf '%s\n' "$out" | grep -c '^entry=')" = 1 ] &&
+               [ "$(printf '%s\n' "$out" | sed -n 's/^entry=//p')" = selected ]; then
+              c="$(printf '%s\n' "$out" | sed -n 's/^count=//p')"
+              if [[ "$c" =~ ^[0-9]+$ ]] && [ "$c" -ge 1 ] && [ "$c" -le 40 ]; then
+                entry=selected; count="$c"
+              fi
+            fi
+          else
+            echo "::warning::base commit has no gen_integration_entry.dart / run_it_attempt.sh; running the two parts"
+          fi
+          f=integration_test/ci_selected_tests.dart
+          if [ "$entry" != "selected" ] || [ -L "$f" ] || [ ! -f "$f" ] || [ ! -s "$f" ]; then
+            entry=parts; count=0
+            rm -rf "$f"
+          fi
+          if [ "$entry" = selected ]; then
+            bound=$((420 + 45 * count))
+            [ "$bound" -lt 600 ] && bound=600
+            [ "$bound" -gt 1500 ] && bound=1500
+          fi
+          {
+            echo "entry=$entry"
+            echo "count=$count"
+            echo "bound=$bound"
+          } | tee -a "$GITHUB_OUTPUT"
+          {
+            echo "### Integration entry: \`$entry\`"
+            if [ "$entry" = "selected" ]; then
+              echo
+              echo "$count flow(s), per-attempt bound ${bound}s"
+              echo
+              echo '```dart'
+              cat "$f"
+              echo '```'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
 
       # KVM is required for hardware-accelerated emulator boot on the runner.
       - name: Enable KVM
@@ -1733,6 +1870,7 @@ jobs:
       # part1's crash has zero effect on part2's own fresh attempts.
       - name: Run integration tests — part 1 (attempt 1)
         id: it-part1-attempt-1
+        if: steps.entry.outputs.entry != 'selected'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
@@ -1813,6 +1951,7 @@ jobs:
 
       - name: Run integration tests — part 2 (attempt 1)
         id: it-part2-attempt-1
+        if: steps.entry.outputs.entry != 'selected'
         continue-on-error: true
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
@@ -1858,17 +1997,94 @@ jobs:
             cat part2.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
+      # Selected-flow attempts (audit cycle 1). The pass/fail decision, the
+      # scaled timeout (P3) and the deterministic-failure detection (P5) live in
+      # ONE base-owned script, tool/ci/run_it_attempt.sh, run from trusted/ (P7).
+      # Attempt 3 is skipped when attempts 1 and 2 failed with the SAME failing
+      # tests (`deterministic=true` output of attempt 2); crash/hang/offline
+      # flakes keep all three attempts. Pass/fail is judged from the host-side JSON
+      # test protocol (`--file-reporter json:$RUNNER_TEMP/it-sel/events.json`, needs
+      # jq) -- never from stdout, which a test's print() can forge (audit cycle 4).
+      - name: Run integration tests — selected flows (attempt 1)
+        id: it-sel-attempt-1
+        if: steps.entry.outputs.entry == 'selected'
+        continue-on-error: true
+        env:
+          SEL_BOUND: ${{ steps.entry.outputs.bound }}
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          script: |
+            bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
+
+      - name: Run integration tests — selected flows (attempt 2)
+        id: it-sel-attempt-2
+        if: steps.entry.outputs.entry == 'selected' && steps.it-sel-attempt-1.outcome == 'failure'
+        continue-on-error: true
+        env:
+          SEL_BOUND: ${{ steps.entry.outputs.bound }}
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          script: |
+            bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
+
+      - name: Run integration tests — selected flows (attempt 3)
+        id: it-sel-attempt-3
+        if: steps.entry.outputs.entry == 'selected' && steps.it-sel-attempt-1.outcome == 'failure' && steps.it-sel-attempt-2.outcome == 'failure' && steps.it-sel-attempt-2.outputs.deterministic != 'true'
+        continue-on-error: true
+        env:
+          SEL_BOUND: ${{ steps.entry.outputs.bound }}
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          heap-size: 512M
+          script: |
+            bash "$GITHUB_WORKSPACE/trusted/tool/ci/run_it_attempt.sh" integration_test/ci_selected_tests.dart selected.log "$SEL_BOUND" "$RUNNER_TEMP/it-sel"
+
       - name: Verify integration tests passed on some attempt
         if: always()
+        # S4: step outputs/outcomes reach the shell through env, never by
+        # interpolating `${{ }}` into the script text.
+        env:
+          ENTRY: ${{ steps.entry.outputs.entry }}
+          SEL1: ${{ steps.it-sel-attempt-1.outcome }}
+          SEL2: ${{ steps.it-sel-attempt-2.outcome }}
+          SEL3: ${{ steps.it-sel-attempt-3.outcome }}
+          P1A1: ${{ steps.it-part1-attempt-1.outcome }}
+          P1A2: ${{ steps.it-part1-attempt-2.outcome }}
+          P1A3: ${{ steps.it-part1-attempt-3.outcome }}
+          P2A1: ${{ steps.it-part2-attempt-1.outcome }}
+          P2A2: ${{ steps.it-part2-attempt-2.outcome }}
+          P2A3: ${{ steps.it-part2-attempt-3.outcome }}
         run: |
-          if [[ "${{ steps.it-part1-attempt-1.outcome }}" == "success" || "${{ steps.it-part1-attempt-2.outcome }}" == "success" || "${{ steps.it-part1-attempt-3.outcome }}" == "success" ]]; then
+          if [[ "$ENTRY" == "selected" ]]; then
+            if [[ "$SEL1" == "success" || "$SEL2" == "success" || "$SEL3" == "success" ]]; then
+              echo "SELECTED FLOWS: passed."
+              exit 0
+            fi
+            echo "SELECTED FLOWS: no attempt passed (a real regression, a deterministic failure that skipped the last attempt, or the known upstream emulator flake — see the attempt logs)."
+            exit 1
+          fi
+          if [[ "$P1A1" == "success" || "$P1A2" == "success" || "$P1A3" == "success" ]]; then
             echo "PART 1: passed."
             part1_ok=1
           else
             echo "PART 1: all 3 attempts failed."
             part1_ok=0
           fi
-          if [[ "${{ steps.it-part2-attempt-1.outcome }}" == "success" || "${{ steps.it-part2-attempt-2.outcome }}" == "success" || "${{ steps.it-part2-attempt-3.outcome }}" == "success" ]]; then
+          if [[ "$P2A1" == "success" || "$P2A2" == "success" || "$P2A3" == "success" ]]; then
             echo "PART 2: passed."
             part2_ok=1
           else
@@ -1888,6 +2104,20 @@ jobs:
                  "devices connected'."
             exit 1
           fi
+
+      # P2: SAVE only outside pull_request (push to dev/main, dispatch, nightly):
+      # a PR run can never poison what other runs restore. Skipped on an exact hit.
+      - name: Save Gradle cache
+        if: success() && github.event_name != 'pull_request' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          # N1: the key computed by the restore step, not a second hashFiles() after
+          # the build (an input that changed meanwhile would save under a different
+          # key than the one restored: key drift).
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
 
   # ---------------------------------------------------------------------------
   # Profile-mode integration drive (2026-06-18 debug↔release divergence

@@ -1,0 +1,268 @@
+Resolving dependencies...
+Downloading packages...
+Got dependencies!
+112 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+Running Gradle task 'assembleDebug'...                             34.6s
+✓ Built build/app/outputs/flutter-apk/app-debug.apk
+Installing build/app/outputs/flutter-apk/app-debug.apk...          784ms
+✅ master_bookings_flow PROVIDER view of an UNREVIEWED registered client: the strip shows the em-dash and never 0.0
+✅ master_bookings_flow PROVIDER view of a GUEST booking: the strip shows no ★ and no em-dash
+✅ master_bookings_flow INDEPENDENT_MASTER opens «Мої записи», narrows by a rail day, and opens the booking in the PROVIDER view
+✅ master_bookings_flow the filter sheet has no Дата section — Phase 7.13
+✅ master_bookings_flow selecting a status AND a service in the filter sheet reaches GET /bookings/me as real query params, and the rendered list narrows to match
+✅ master_bookings_flow «Мої записи» is no longer a dead end — the bottom nav bar round-trips to «Послуги» and back, and the already-active tile is a no-op
+✅ master_bookings_flow two back-to-back short bookings on the same day both render their full natural height and the earlier card wins the tap, through a real GET /bookings/me
+✅ master_bookings_flow the timeline card prints a start–end range read from the wire endsAt, and no date, through a real GET /bookings/me
+✅ master_bookings_flow no monthAbbrev() token collides, WORD-BOUNDED, with the master booking card's fixed status/label vocabulary — in any of the 12 months
+✅ master_bookings_flow a 45-minute booking renders the COMPACT card and a 60-minute one the FULL card — the layout threshold, driven from durationMinutes on the wire
+✅ master_bookings_flow the compact card reads identity above the hairline and transaction below, every field sourced from a real GET /bookings/me
+✅ master_bookings_flow «Сьогодні» returns the selection to the INJECTED clock's Kyiv today, whose from == to == today query the wire already saw
+✅ master_bookings_flow the «+» add-booking affordance opens the walk-in chain
+✅ master_bookings_flow the day-scoped skeleton renders while the first day load is in flight, and clears once it resolves
+✅ master_bookings_flow a genuinely empty WORKING day renders the timeline grid (ruler + gridlines, no cards), never an illustrated empty state
+✅ master_bookings_flow a failed GET /bookings/me renders the error state, and retry issues a real, successful refetch
+✅ master_bookings_flow a CANCELLED booking is HIDDEN from the master day list by default and renders only once «Скасовані» is ticked, while its CONFIRMED same-day sibling follows the opposite path — through a real GET /bookings/me
+✅ master_bookings_flow a CANCELLED booking overlapping a live CONFIRMED one at the same slot, with «Скасовані» ticked: the CONFIRMED card renders in the leftmost lane, and the cancelled one is still present (reachable, not filtered), through a real GET /bookings/me
+✅ master_bookings_flow a CANCELLED booking overlapping NOTHING, sandwiched between an early and a late active booking, with «Скасовані» ticked: still renders in the leftmost lane — left-aligned with both active cards — through a real GET /bookings/me
+✅ master_create_booking_flow Phase 264: «+» → guest step → service step → date/slot (CLIENT screens) → confirm → success → «Готово» → the walk-in booking is visible in «Мої записи»
+✅ master_create_booking_flow Phase 256/264: a 3-service walk-in visit requests availability for ALL three services and submits all three ordered ids in ONE POST
+✅ master_archive_flow MASTER «Архів»: past bookings include an elapsed-unclosed CONFIRMED row; filtering to «Підтверджено» narrows to it; closing it via «Виконано» succeeds on the real HTTP boundary and the row leaves the still-active filter, while a sibling awaitingClosure row stays
+✅ master_archive_flow a first raw page with ZERO rows matching «Підтверджено» plus hasMore:true is NOT the terminal empty state — the archive auto-continues and surfaces the match sitting on raw page 2
+✅ master_archive_flow a raw page with zero «Підтверджено» matches AND hasMore:false renders the terminal empty state — the auto-continue fix must not regress into never showing an empty state at all
+✅ master_archive_flow archive rows render grouped under Kyiv date headers end-to-end: two bookings on the SAME Kyiv day collapse under exactly ONE header, a booking on a genuinely DIFFERENT Kyiv day gets its own, and the newer day's header renders ABOVE the older one — against the REAL fake-backed screen and a real HTTP round trip, not a mocked repository
+✅ master_archive_flow MASTER «Записи»: the «Архів» icon badge reads the pending-actions count (ended CONFIRMED + rate-able COMPLETED = 2; guest and future rows do not count), and clears once both clients are rated
+✅ master_archive_per_service_complete_flow MASTER «Архів»: completing ONE elapsed service of a multi-service visit routes to the PER-SERVICE PATCH /appointments/{apptId}/services/{bookingId}/complete — never the whole-visit PATCH /appointments/{apptId}/complete — and the not-yet-started sibling neither completes nor materialises in the refetched HISTORY list
+✅ master_archive_per_service_complete_flow MASTER «Архів»: the «Виконано» gate is evaluated against the INJECTED clockProvider instant, not the device clock — a row the SERVER still classifies into HISTORY renders, but offers no close action while the app's own clock says the service has not started
+✅ master_archive_review_flow archive → tap a row → detail → decline → back to archive: the archive reflects the decline on RESUME (Riverpod pauses the covered consumer, so the refetch lands after the pop, never immediately) — a sibling PAST row proves this is a genuine per-row reclassification, not a stale or fully-emptied list
+✅ master_archive_review_flow archive «Відгук» on a COMPLETED row lands on the real leave-client-feedback form in exactly one GET /bookings/{id} round trip; popping returns to the ARCHIVE; a PAST-but-not-COMPLETED sibling never offers the button at all
+✅ master_archive_review_flow opening «Відгук» for a booking whose REAL providerCanReviewClient is false renders the not-reviewable state immediately — the form is never built, not merely disabled — and backing out of it still clears that row's stale CTA (and only that row's) with ZERO refetch
+✅ master_archive_review_flow archive «Відгук» → form → 5★ submit → pop: the reviewed row loses its «Відгук» CTA while KEEPING the row, a never-reviewed sibling keeps its own CTA, and the round trip fires NO extra GET /bookings/me and NO second GET /bookings/{id}
+✅ master_archive_review_flow a submit that 409s (feedback already left elsewhere) does NOT pop, swaps the form for the not-reviewable state, and backing out of THAT still reports «no longer reviewable» — so the archive drops the same row's CTA, keeps the sibling's, and never refetches the list
+✅ master_archive_review_flow archive → tap the ROW → BookingDetailScreen → its footer «Залишити відгук про клієнта» → 5★ submit → back to detail → back to archive: that row's «Відгук» CTA is GONE even though nothing ever popped a result to the archive, the row and a never-reviewed sibling both survive, and the archive fires NO extra GET /bookings/me across the whole excursion
+✅ master_archive_review_flow the session-scoped review signal does NOT survive a logout: after submitting a review, logging out and logging back in, the archive shows that row's «Відгук» CTA again — the keepAlive set was emptied by the auth cascade, not carried into the new session
+✅ master_archive_review_flow when GET /bookings/{id} FAILS, «Відгук» lands on the retry error state — never the not-reviewable pre-gate — the retry genuinely re-issues the request, and backing out leaves the row's CTA intact so the master can try again once the fetch recovers
+✅ master_archive_review_flow an elapsed-unclosed CONFIRMED row seeded providerCanReviewClient:true (an older/looser backend) offers «Виконано» but NEVER «Відгук» — the client-side gate fails closed on its own — and completing it for real flips the SAME row: «Виконано» disappears and «Відгук» takes its place
+✅ master_bookings_month_step_flow stepping the Варіант D calendar forward one month moves BOTH the selection AND the fetched list to the new day — the original relabel-without-reselect bug, pinned against a real GET /bookings/me
+✅ master_bookings_month_step_flow expanding the Варіант D calendar DISPLACES the booking timeline down, end-to-end against a real screen — it must never paint over the list (locked product requirement; mobile-qa gap-4, 2026-08-13)
+✅ master_bookings_week_rail_flow the rail opens on the week containing today and pages one WHOLE week at a time — and a paging excursion selects nothing and fetches nothing
+✅ master_bookings_week_rail_flow browsing the WEEK RAIL across a month boundary relabels the panel, issues no request, and «Сьогодні» resyncs the label back — the exact composed defect the day-rail month-label fix closes, end-to-end against a real HTTP boundary
+✅ master_bookings_week_rail_flow the month+year label is permanent, anchored identically in BOTH resting states, follows a month page, and survives the collapse — with no ‹ › chevrons anywhere on this screen
+✅ master_bookings_working_hours_window_flow a day with NO published working hours shows the gray state and its CTA lands on the schedule screen with that date pre-selected; a day WITH both a booking and published hours renders the bounded timeline
+✅ master_bookings_declared_time_cards_flow a day whose working hours are EXPLICIT_TIMES renders DeclaredTimeCards — a booked slot AND a free slot both visible, never the grid, never the gray state; the booked slot shows the real card's status AND price; and the declared time SWALLOWED by the booking's duration is hidden outright
+✅ master_bookings_declared_time_cards_flow a CANCELLED booking on a declared-times day is hidden by default; once «Скасовані» is ticked it renders with its own status label and no price, and NO declared time claims to be «Вільно» while the filter hides an occupying CONFIRMED booking; ticking every group restores both
+✅ kyiv_day_boundary_flow INDEPENDENT_MASTER opens «Мої записи» at the Kyiv day boundary: both the day-scoped landing fetch AND the booked-days rail window are anchored to the KYIV day, never the UTC/device one that is still "the 1st" at this exact instant
+✅ harness_retry_policy_flow AppHarness.boot defaults to the production retry predicate — a deterministic Failure surfaces AsyncError on the FIRST attempt, not after a hidden ~38 s backoff
+✅ master_booking_provider_actions_flow PROVIDER declines a CONFIRMED, not-yet-started booking → the real StatusUpdateRequest reaches FakeBackend, the status persists across a real re-fetch (footer goes terminal), and the actively-watched day-list refetches for real
+✅ master_booking_provider_actions_flow PROVIDER completes an underway CONFIRMED booking → the real PATCH /complete reaches FakeBackend, the status persists across a real re-fetch (footer goes terminal), and the actively-watched day-list refetches for real
+✅ master_booking_provider_actions_flow PROVIDER declines an elapsed CONFIRMED booking → the real StatusUpdateRequest still reaches FakeBackend (the backend allows a provider decline at any time), the status persists across a real re-fetch (footer goes terminal), and the actively-watched day-list refetches for real
+✅ master_booking_provider_actions_flow INDEPENDENT_MASTER TAPS «Перенести» on its own CONFIRMED booking and reaches the REAL slot picker (never bounced to /master/profile), then walks the whole reschedule journey — date → time → confirm → submit → success — across all four clientOnlyGuard-ed routes, and «На головну» lands on the MASTER home, not the CLIENT shell. mobile-qa (client-identity parity, 2026-08-22) additionally asserts the registered-client identity card (`booking-confirm-client-card` / `booking-success-client-card`) renders with the REAL seeded client name (`booking-1`'s FakeBackend fixture — clientId `client-1`, firstName «Дмитро», lastName «Клієнт») on BOTH the confirm and done steps — the end-to-end proof that `reschedule_navigation.dart` seeds the field off a REAL `GET /bookings/booking-1` response, not merely a synthetic widget-tier fixture (`reschedule_navigation_test.dart` and `booking_confirm_test.dart`/`booking_success_walkin_test.dart` already prove the wiring against hand-built fixtures; this is the one place that proves it survives a real GET + real JSON deserialization).
+✅ master_booking_provider_actions_flow NEGATIVE SIBLING — the same INDEPENDENT_MASTER pushing /booking/slots with a CREATE-shaped seed (no rescheduleBookingId) is STILL bounced to /master/profile: the guard was NARROWED, not deleted
+✅ master_appointment_child_booking_actions_flow PROVIDER declines an appointment-child (multi-service visit) booking → routes to AppointmentRepository.declineAppointmentService(appointmentId, bookingId) — the PER-SERVICE endpoint — never the whole-visit declineAppointment nor BookingRepository.declineBooking, and the status persists as terminal across a real re-fetch
+✅ master_appointment_child_booking_actions_flow PROVIDER completes an underway appointment-child (multi-service visit) booking → routes to AppointmentRepository.completeAppointmentService(appointmentId, bookingId), never the whole-visit completeAppointment nor BookingRepository.completeBooking, and the status persists as terminal across a real re-fetch
+✅ master_appointment_child_booking_actions_flow PROVIDER declines an underway (elapsed) appointment-child (multi-service visit) booking → still routes to AppointmentRepository.declineAppointmentService(appointmentId, bookingId), never the whole-visit declineAppointment nor BookingRepository.declineBooking, and the status persists as terminal across a real re-fetch
+✅ master_appointment_child_booking_actions_flow PER-SERVICE regression — PROVIDER declines ONE service of a multi-service visit → only that child transitions to DECLINED (per-service endpoint hit with THIS child id), while a SIBLING child of the same visit stays CONFIRMED across a real re-fetch
+✅ master_home_add_services_flow INDEPENDENT_MASTER with zero services sees the add-services CTA and tapping it opens the service-setup flow
+✅ master_leave_client_feedback_flow PROVIDER opens a COMPLETED booking, leaves 5★ feedback about the client with a comment, and a real POST /client-reviews reaches FakeBackend
+✅ master_leave_client_feedback_flow archive: complete, client feedback and pull-to-refresh each refetch the pending-actions count (2 → 2 → 1)
+✅ master_profile_address_block_flow Phase 224 — INDEPENDENT_MASTER opens their own profile; a SHORT REAL GET /masters/me address (city + street + buildingNo) collapses onto ONE city-first line that is provably not clipped, the split rows are gone, and the long note still clamps with a working «більше»/«згорнути» toggle beneath it
+✅ master_profile_address_block_flow Phase 224 — a LONG REAL GET /masters/me address at a 360dp phone width falls back to the Phase 220 two-row split: locality beside the pin, street+building indented underneath, and NO combined row
+✅ master_own_profile_reviews_tab_flow INDEPENDENT_MASTER: tapping the reviews stat card does nothing; the «Відгуки» tab (tapped directly) renders the seeded reviews + summary INLINE (keyed on the master-row id, NOT the user id, and with NO navigation), and changing the sort reorders the list
+✅ master_own_profile_reviews_tab_flow INDEPENDENT_MASTER: «Послуги» tab category card opens ServicesListScreen with that category expanded
+✅ master_own_profile_bio_flow INDEPENDENT_MASTER with no bio: the profile shows «Додати опис» -> the real editor opens -> typing + saving a bio -> the profile shows the saved bio card, no AddLink, on return
+✅ passport_flow CLIENT with derived history and five favourites sees the whole rebuilt passport page off the wire
+✅ passport_flow a CLIENT with NO history sees the identity strip alone and an empty wish list — never an error, never a fabricated figure
+✅ passport_flow the WISH LIST empty-state CTA navigates the CLIENT to the search tab
+✅ passport_flow a SECOND client session on the same device reads its OWN passport, never the first session's cached one
+adb: device offline
+✅ passport_flow pull-to-refresh on the passport refetches fresh data, shows the error card when the endpoint fails, and recovers once the failure clears (Qase defect #9 step 6)
+✅ wishlist_flow «Показати всі (5)» pushes /passport/wishlist and lists EVERY favourite, including the three the two-card line could not show
+✅ wishlist_flow un-favouriting on the full-list page removes it there AND on the passport behind it, with no second fetch
+✅ wishlist_flow removing the LAST favourite reaches the empty state — and NOT before the wire call is even made
+adb uninstall failed: ProcessException: Process exited abnormally with exit code 1:
+adb: device offline
+  Command: /usr/local/lib/android/sdk/platform-tools/adb -s emulator-5554 uninstall com.beautica.beautica_mobile
+✅ wishlist_rebook_flow CLIENT taps «Записатись» on a wish-list compact card → the existing booking flow opens with the service already selected (no Step 1) and slots are requested for that exact masterServiceId
+✅ wishlist_rebook_flow CLIENT rebooks a wish-list entry whose service was deactivated in the meantime → the create 404s as an ORDINARY booking-flow failure → backing all the way out to the passport drops the dead entry from the wish list
+✅ wishlist_remove_failure_flow a FAILED un-favourite of the MIDDLE entry disappears optimistically mid-flight, then restores at its ORIGINAL index and tells the user it failed
+✅ wishlist_salon_service_redirect_flow CLIENT taps a SALON-sourced favourite's «Обрати майстра» → the salon booking flow's step-2 master picker opens (via a real context.push) showing only the masters who perform that service, and «Далі» continues to step 3
+✅ wishlist_salon_service_redirect_flow back from the directly-entered step-2 master picker returns to the Beauty Passport wish list, not to the salon booking flow's step 1
+✅ wishlist_salon_service_redirect_flow a favourited service no roster master performs lands on step 2 and renders the no-covering-master empty state — no rows, no crash
+✅ public_master_profile_flow CLIENT opens a master public profile → it renders the name/role/services, the favourite heart POSTs a favorite, and «Записатись» drives the full booking flow (service select → date → time → the /booking/confirm stub)
+✅ public_master_profile_flow INDEPENDENT_MASTER reaching /masters/:id is redirected to /master/profile (CLIENT-only route guard)
+✅ public_master_profile_flow SlotDateScreen: a day the real GET /masters/{id}/working-days endpoint marks working:false renders untappable and never fetches slots or advances the flow (E2E, not just fixture wiring)
+✅ public_master_profile_flow SlotDateScreen: a day with no slot for the CHOSEN SERVICE is disabled because the calendar threads the serviceId into GET /working-days — the client can never tap through to the «Немає вільного часу» dead-end (Phase 14.20 regression, E2E)
+✅ public_master_profile_flow CLIENT taps the rating/reviews/services cards on a master public profile → nothing happens; the «Відгуки» tab (tapped directly) renders the real reviews INLINE
+✅ public_master_profile_flow CLIENT opens a master public profile with no bio → the «Про майстра» tab shows only the muted empty-bio placeholder, never an AddLink
+✅ public_master_profile_flow CLIENT opens a SALON-master public profile → the booking shelf renders and «Записатись» opens the SAME booking flow for THAT master
+✅ public_salon_profile_flow CLIENT taps a salon result card → the public salon profile renders real data across all 4 tabs, tapping a master card navigates to the master profile, and the favourite heart POSTs a favorite
+✅ public_salon_profile_flow INDEPENDENT_MASTER reaching /salons/:id is redirected to /master/profile (CLIENT-only route guard)
+✅ public_salon_profile_flow CLIENT viewing salon-xyz sees the active master + the active owner, never the SALON_ADMIN staff member seeded for the same salon (D1/D2/D3)
+✅ public_salon_profile_flow Phase 223 (b) / 224 regression pin: a 1000-char locationNote never evicts the hero address, and renders — collapsed, then expanded — as its own ExpandableNote on the hero card, through a REAL GET /salons/{id} response
+✅ public_salon_profile_flow a locationNote containing an RLO (U+202E) override renders SANITIZED on the hero card through a REAL GET /salons/{id} response
+✅ public_salon_profile_flow a PHONE-ONLY salon renders the «Контакти» section and its phone tile — the combination that rendered nothing at all before the fix
+✅ register_flow CLIENT wizard: role → step1 → step2 → step3 (skip) → /verification
+✅ register_flow OTP submit on /verification → /done
+✅ register_locality_persistence_flow CLIENT picks a city → register → draft lost (OS-kill) → OTP → PATCH /users/me carries the picked cityId
+✅ salon_booking_flow CLIENT books a salon service end to end: profile CTA → service selection → master assignment (ineligible masters filtered, eligible masters auto-attached) → coming-soon placeholder
+✅ salon_booking_flow CLIENT salon confirm: a 409 on one master keeps the confirm screen; retry resubmits every appointment (including the already-succeeded one, deduped server-side by its stable idempotency key) and reaches success
+✅ salon_booking_flow CLIENT salon confirm: a CLIENT_BOOKING_CONFLICT on one master opens the non-destructive conflict dialog; confirming resubmits ONLY that master and reaches success, leaving the other master untouched
+✅ salon_booking_coverage_retry_flow CLIENT salon booking: a failed getBookableMasters call for ONE selected service renders the retry row (never the terminal uncovered row), and a successful retry recovers that service into a pickable master
+✅ salon_booking_pager_flow CLIENT salon confirm pager: arrow taps AND a real swipe page through three masters, changing the visible card each time; the arrows are inert ONLY at the true first/last page, and BOTH are enabled on the middle page
+✅ salon_booking_pager_flow CLIENT salon confirm/success pager: with exactly ONE master, the ‹ N / M › control and its arrows are not built at all on either screen
+✅ salon_booking_pager_flow CLIENT salon success pager: every master gets exactly ONE calendar button covering their whole visit — a 2-service master and a 1-service master both get exactly one, on their OWN page — never bleeding onto each other
+✅ salon_booking_pager_flow CLIENT salon confirm pager: typing distinct comments for two masters, paging back and forth between them repeatedly, survives with neither bleeding into the other — and the SUBMITTED request carries each master's OWN text
+✅ salon_create_booking_flow Phase 341: SALON_OWNER books a THREE-service walk-in visit through the approved wizard — one POST, three ordered masterServiceIds, the done step renders all three
+✅ salon_create_booking_flow Phase 341: SALON_ADMIN books the SAME THREE-service walk-in visit — the masters step must not assume the caller has a master profile
+✅ salon_archive_flow Phase 345: SALON_OWNER opens «Архів» and gets the SALON's whole history — one partition=HISTORY fetch, zero /bookings/me, two masters attributed apart, an elapsed unclosed CONFIRMED row present, an UPCOMING row absent, and «Відгук» following the server flag across two otherwise identical rows
+✅ salon_archive_flow Phase 345 D4: SALON_ADMIN walks the IDENTICAL arm against their own salon — the /salon/* gate admits both roles and the archive must not assume the viewer owns the salon
+✅ salon_archive_flow Phase 345: the salon archive pages off the SALON endpoint (page=1, never /bookings/me) and «Виконано» closes a salon row, which then leaves the list on a re-read of that same endpoint
+✅ salon_archive_flow Phase 345 D4: SALON_MASTER navigating to /salon/bookings/archive is bounced by the REAL router and never sees the salon board or the salon-scoped archive — while its OWN /staff/bookings/archive still renders
+✅ salon_service_favourite_flow CLIENT hearts a service on the salon catalogue → POSTs a SALON_SERVICE favorite → the BEAUTY PASSPORT wish list shows a SALON-sourced row
+✅ salon_service_filter_flow CLIENT opens a salon profile → Послуги → taps a service → the Майстри tab narrows to only the performing master (real coverage fan-out) → clearing the filter restores the full roster
+✅ schedule_edit_flow INDEPENDENT_MASTER can open the weekly schedule editor
+✅ schedule_edit_flow Toggling Monday off and Saving fires PUT /masters/{id}/weekly-schedules/schedule-1
+✅ schedule_edit_flow Toggling Monday to EXPLICIT_TIMES, adding 09:00/13:00/15:00 and Saving sends mode=EXPLICIT_TIMES + the three times in the PUT body
+✅ schedule_edit_flow A per-date override in EXPLICIT_TIMES mode PUTs the override with mode=EXPLICIT_TIMES + its discrete times
+✅ schedule_edit_flow A break dragged flush against the working-window start is EXCLUDED from the saved working intervals (PUT body carries 10:15–18:00, never 09:00–18:00)
+✅ schedule_edit_flow A stored working window reloads as a BREAK ROW, not a shortened working day (Monday 10:00–18:00 + window 09:00–18:00 → від 09:00 + break 09:00–10:00); a legacy row in the same response is unchanged
+✅ schedule_edit_flow Saving after an unrelated edit re-sends Monday's windowStart/windowEnd in the PUT body (the row is never silently demoted back to legacy)
+✅ schedule_edit_flow picking a CUSTOM window via the consolidated PeriodRangePicker and applying it fires PUT …/weekly-schedules/schedule-1 with the exact picked validFrom/validTo
+✅ schedule_first_create_flow first-create: enable a day (and pick a window) then BACK without Save → ZERO upsertWeeklySchedule calls AND the schedule screen stays empty
+✅ schedule_first_create_flow first-create: enable a day, PICK a validity window, then PRESS Save → exactly ONE upsertWeeklySchedule (POST) carrying the picked validFrom/validTo AND the calendar renders the template
+✅ schedule_first_create_flow first-create: enable a day then PRESS Save WITHOUT picking a validity window → ZERO upsertWeeklySchedule calls, the inline required-window error is shown, and the calendar stays empty
+✅ schedule_override_conflict_flow no conflicts on the date: save succeeds with NO confirmation dialog
+✅ schedule_override_conflict_flow a conflict on the date shows the dialog listing it; confirming saves with cancelOverlapping: true and the conflicting booking is gone
+✅ schedule_override_conflict_flow a conflict on the date, backing out via «Залишити як є»: persists NOTHING — no override PUT, no cancellation
+✅ salon_master_schedule_nav_flow SALON_MASTER taps «Графік» from /staff/profile, lands on the REAL read-only «Графік роботи» with their own hours loaded and zero edit affordances, then returns to /staff/profile
+✅ salon_master_schedule_nav_flow CONTROL — INDEPENDENT_MASTER's identical journey still lands on /schedule with every edit affordance PRESENT
+✅ salon_master_bookings_nav_flow SALON_MASTER taps «Записи» from /staff/profile, lands on the REAL read-only bookings screen at /staff/bookings with NO add button, and can open the archive from there
+✅ salon_master_bookings_nav_flow CONTROL — INDEPENDENT_MASTER's identical journey still lands on /master/bookings with the add (+) button PRESENT
+✅ salon_owner_bookings_board_flow SALON_OWNER logs in, taps «Записи» in their own salon shell, sees the salon-wide board with one column per roster master, and drills into a booking WITHOUT being bounced out of the shell
+✅ salon_owner_bookings_board_flow the board renders NO cards and no crash when the salon day is empty — the roster strip still states WHICH masters are free
+✅ salon_owner_bookings_board_flow the board fetches the salon roster's effective schedule and bounds its timeline by the UNION of every master's hours, not by the bookings
+✅ salon_owner_bookings_board_flow the board greys the column of a master the roster says is NOT WORKING the selected day and marks it as a day off, while a working master and a master the response says nothing about both render ordinary columns
+✅ salon_owner_bookings_board_flow the owner narrows the board through the «Майстер» filter section: only the ticked masters keep a column, the funnel badge lights without the sheet open, nothing master-shaped reaches the wire, and a reset restores the full roster
+✅ salon_owner_bookings_board_flow declining from the board's own drill-in takes the card OFF the board list after the pop — not only off the rail dot set
+✅ salon_owner_bookings_board_flow SALON_OWNER opens «Архів» from the board header and lands on the SALON-scoped archive: rows performed by TWO DIFFERENT masters, each attributed by name, fetched off GET /bookings/salon/{id} and never off /bookings/me, with no «Послуга» facet and no read of the owner's own service catalogue
+✅ salon_owner_bookings_board_flow a master on /staff but NOT on the public /masters rail keeps a board column and their CONFIRMED card
+✅ salon_owner_bookings_board_flow dense salon board at 360dp: a 60-min and a 90-min card show the full surname, the service and a >=12sp un-shrunk price
+✅ salon_owner_bookings_board_flow dense salon board at 360dp: a short name shows in full, a long name shows the first name only and the Semantics label keeps the full name
+✅ salon_owner_bookings_board_flow owner opening ANOTHER master's salon booking sees the performing-master strip with that master's name
+✅ salon_owner_bookings_board_flow an ADMIN opening a salon booking sees the performing-master strip
+✅ salon_owner_bookings_board_flow owner opening their OWN booking (own master-row id == booking.masterId) STILL sees the performing-master strip, with no GET /masters/me
+✅ salon_owner_bookings_board_flow UserRole.salonOwner board: a salon-master ended CONFIRMED booking lights «1» on the «Архів» icon; closing it from the drill-in clears the badge
+✅ salon_owner_bookings_board_flow UserRole.salonAdmin board: a salon-master ended CONFIRMED booking lights «1» on the «Архів» icon; closing it from the drill-in clears the badge
+✅ salon_master_client_review_flow Phase 386 - SALON_MASTER on a COMPLETED booking whose seed says reviewable never sees the CTA, a directly pushed review route shows the ineligible state, and POST /client-reviews is never called
+✅ salon_master_client_review_flow CONTROL — when the server answers providerCanReviewClient=false the CTA is absent from the SAME screen reached by the SAME journey
+✅ salon_master_client_review_flow Phase 334 — «Відгук клієнта» renders on the SALON_MASTER's detail screen when GET /bookings/{id} carries reviewByClient
+✅ salon_master_client_review_flow Phase 334 — with no reviewByClient on the wire the section is absent entirely (no placeholder), on a detail screen proven to have rendered
+✅ salon_master_services_read_only_flow SALON_MASTER taps «Послуги» from /staff/profile, lands on the REAL read-only services list loaded from the salon path, with zero write affordances, then returns to /staff/profile
+✅ salon_master_services_read_only_flow CONTROL — INDEPENDENT_MASTER's identical journey still lands on /services with every write affordance PRESENT, over the ROOT endpoint
+✅ salon_master_services_read_only_flow SALON_MASTER with an empty salon-scoped catalogue sees the "ask the owner/admin" hint on the REAL /staff/services route, not the writable "add your first service" copy
+✅ salon_master_own_profile_tabs_flow SALON_MASTER lands on /staff/profile with 3 stat cards (no «Досвід»); tapping the rating/reviews/services cards does nothing, and the tab bar (tapped directly) switches to «Відгуки» / «Послуги»
+✅ salon_master_own_profile_tabs_flow SALON_MASTER with no assigned services sees the "ask the owner/admin" hint on «Послуги», not the category list
+✅ service_favourite_flow CLIENT hearts a service on the booking service-selection sheet → POSTs a SERVICE favorite → the BEAUTY PASSPORT wish list shows the entry
+✅ service_append_flow INDEPENDENT_MASTER with an existing catalogue opens the setup screen from the services-list FAB, sees the already-owned type inert, and appends a new one
+✅ service_append_flow INDEPENDENT_MASTER with zero services opens the setup screen from the services-list empty-state CTA
+✅ salon_owner_set_master_services_flow SALON_OWNER: roster -> «Послуги» -> the real salon-scoped list -> FAB add -> D4 refresh -> unassign -> D4 refresh again (backlog row 802)
+✅ salon_owner_set_master_services_flow CONTROL — INDEPENDENT_MASTER: the identical FAB->setup->submit journey still hits /independent-masters/me/services and …/me/services/bulk, never the salon path
+✅ salon_owner_set_master_services_flow SALON_OWNER: opens master A's services, pops to the roster, opens master B's services — B's list is genuinely B's, by content AND by the request URI carrying B's master row id (phase 324 D3)
+✅ salon_owner_set_master_services_flow SALON_OWNER: the salon «Послуги» tab re-prices to a RANGE after a second master is assigned the service — a real second GET, not a served cache
+✅ salon_owner_set_master_services_flow SALON_OWNER: roster -> «Послуги» TAB -> a category card -> the real salon-scoped list for THIS master
+✅ salon_admin_set_master_services_flow SALON_ADMIN: roster -> «Послуги» -> the real salon-scoped list -> FAB add -> unassign the pre-seeded row (admin parity with the owner journey)
+✅ salon_admin_set_master_services_flow D4 — a SALON_ADMIN deep-linking a DIFFERENT salon's staff-services route is bounced before ServicesListScreen ever mounts
+✅ salon_admin_set_master_services_flow SALON_ADMIN: a shared service the OWNER also performs -> hint shown, name locked, price saves via the band PATCH ONLY (no definition PATCH)
+✅ salon_admin_set_master_services_flow SALON_ADMIN: a service the owner does NOT perform -> no hint, name editable, a rename reaches the definition PATCH (control for the lock)
+✅ salon_admin_set_master_services_flow SALON_ADMIN: owner catalogue read ERRORS (lock fails open) and the shared-definition PATCH 403s -> the snack explains it with the owner-performed copy, not the generic server error
+✅ service_crud_flow INDEPENDENT_MASTER can create a FIXED-price service
+✅ service_crud_flow INDEPENDENT_MASTER service edit form renders RANGE pricing fields with seeded data
+✅ service_delete_flow INDEPENDENT_MASTER deletes a service: DELETE /services/{serviceDefId} fires on the null-target path, the screen pops, and the refreshed list no longer renders the card
+✅ service_delete_flow a second delete tap while the first DELETE is in flight issues no second DELETE and opens no second dialog
+✅ service_delete_flow saving a service edit re-fetches the catalogue but issues no GET /masters/me
+✅ service_duplicate_flow a bulk-save 409 DUPLICATE_SERVICE shows the localized duplicate copy in a snackbar, keeps the master on the setup screen, and never shows errServer
+✅ service_edit_category_type changing category clears the orphan type, the picker re-queries the new category, and a re-picked type saves
+✅ service_edit_category_type a fieldless mismatch-400 from the backend surfaces as a localized inline error, not a raw English snackbar
+✅ service_edit_category_type an INDEPENDENT master's price + duration edit still PATCHes the service DEFINITION (price + baseDurationMinutes) and never touches the per-master band endpoint
+✅ service_edit_category_type service edit renders no photo slot and the wizard service picker rows render no photo thumbnail
+✅ service_preselection_flow CLIENT filters search by a service → taps a MASTER result → the booking catalogue pre-checks ONLY the matching service (exact serviceTypeSlug)
+✅ service_preselection_flow CLIENT filters search by a service → taps a SALON result → the salon booking catalogue pre-checks ONLY the matching service (exact serviceTypeSlug)
+✅ service_setup_field_error_flow a bulk-save per-field 400 shows the duration error INLINE on the row and suppresses the generic validation snackbar
+✅ settings_change_password_flow settings change-password journey: logged in → change password → OTP → new password → forced logout → lands on login
+✅ support_contact_flow master → settings hub → help row → fill message → Send → success card renders and the backend received exactly one support POST
+✅ swipe_to_delete_salon_flow owner swipes a salon card -> confirms -> the salon is deleted -> lands on «Мої салони» with the remaining salon
+✅ swipe_to_delete_salon_flow owner swipes their ONLY salon -> sees the last-salon body -> confirms -> lands on the empty «Мої салони» hub
+✅ velvet_snack_flow a real 409 duplicate-service failure raises an error VelvetSnack, which auto-retires and frees the Save CTA underneath it
+✅ velvet_snack_flow a real success VelvetSnack survives the context.pop() route change that immediately follows it, then auto-retires on the screen behind
+✅ velvet_snack_flow two real showInfoSnack triggers separated by a genuine async gap (NOT the same synchronous tick) keep exactly one VelvetSnack mounted
+✅ media_avatar_upload_flow POST /media/avatar through the app Dio resolves to the public URL, reports progress ending at 1.0 and the fake saw exactly one call
+✅ media_avatar_upload_flow fake 413 surfaces as UploadTooLargeFailure
+✅ media_avatar_upload_flow fake 503 surfaces as UploadStorageUnavailableFailure
+✅ media_avatar_upload_flow DELETE /media/avatar is routed (204) and counted
+✅ master_avatar_upload INDEPENDENT_MASTER: gallery -> crop -> upload -> success snack; own profile then renders the new photo through RemoteImage
+✅ master_avatar_upload SALON_MASTER: gallery -> crop -> upload -> success snack; own profile then renders the new photo through RemoteImage
+✅ master_avatar_upload SALON_MASTER: upload from the own-profile identity card lands in place — no skeleton, no refetch
+✅ master_avatar_upload 503 storage-off: error snack, avatar unchanged, the picked photo stays under the retry veil and a retry re-sends it to the server
+✅ master_avatar_upload remove: sheet shows the remove row once an avatar exists; DELETE reverts the editor to initials and snacks
+✅ master_avatar_upload cancel at the picker: no upload, no snack, editor unchanged
+✅ master_avatar_upload propagation: a profile screen already on the stack picks up each new URL after pop (no remount), and the crop labels are all Ukrainian
+✅ owner_admin_avatar_upload SALON_OWNER: upload from the own-profile identity card, the photo lands in place; «Особисті дані» (/owner/edit/personal) shows it; remove reverts to the monogram
+✅ owner_admin_avatar_upload SALON_OWNER in the shell: upload from the own «Команда» card (/profile/owner), then back — the owner card shows the new photo with no roster refetch
+✅ owner_admin_avatar_upload SALON_ADMIN: upload from «Особисті дані»; the own-profile identity card then shows it; remove
+✅ owner_admin_avatar_upload CLIENT: the «Особисті дані» badge is LIVE (no «Незабаром»): upload lands on the edit screen and the Головна profile card
+✅ owner_admin_avatar_upload 503 storage-off (owner): failure snack, nothing set, the photo is kept under the retry veil
+✅ salon_logo_cover_owner SALON_OWNER uploads the cover and the logo: progress, in-place hero update, exact wire shape; a CLIENT then sees both on the public salon profile
+✅ salon_logo_cover_owner SALON_OWNER: 429 / 503 / 409 surface their copy and keep the photo for retry; remove brings back the gradient and the monogram
+✅ salon_logo_cover_owner SALON_ADMIN sees NO edit controls; a forced upload / removal is refused (403) with the owner-only copy and changes nothing
+✅ salon_logo_surfaces_flow SEED CONTRACT: a salon seeded cover-then-logo on the R2 public host paints on the hub card, the settings row, the management hero and the public profile (SALON_OWNER surfaces, then a CLIENT)
+✅ salon_logo_surfaces_flow SALON_ADMIN: a real logo / cover paint on the affiliation card, the settings row and the hero — no surface offers an edit control
+✅ salon_logo_surfaces_flow ROTATE-ADMIN PICKER: a sibling salon's logo paints on its destination card; a sibling with no logo keeps the monogram
+✅ salon_logo_surfaces_flow DISALLOWED HOST: hub card, settings row, hero and public profile keep the monogram / gradient and never fetch the URL (SALON_OWNER, then CLIENT)
+✅ salon_logo_surfaces_flow LOAD ERROR: every surface falls back to the monogram / gradient (SALON_OWNER, SALON_ADMIN, CLIENT)
+✅ own_avatar_surface_matrix CLIENT — Головна + Паспорт cards upload FROM the Головна card; Паспорт shows it; remove FROM the Паспорт card; Головна reverts to the monogram
+✅ own_avatar_surface_matrix CLIENT — Головна + Паспорт cards 503 on the Паспорт card: failure snack, photo kept under the veil; retry re-sends it without the picker
+✅ own_avatar_surface_matrix SALON_ADMIN: 503 on the own-profile identity card, retry re-sends the kept photo
+✅ own_avatar_surface_matrix INDEPENDENT_MASTER: upload FROM the own-profile header; «Особисті дані» shows it; remove FROM the header
+✅ own_avatar_surface_matrix SALON_MASTER — own-profile header upload then remove FROM the header card
+✅ own_avatar_surface_matrix SALON_MASTER — own-profile header 503 on the header card, retry re-sends the kept photo
+✅ own_avatar_surface_matrix read-only surfaces render NO camera badge CLIENT viewing another master's public profile
+✅ own_avatar_surface_matrix read-only surfaces render NO camera badge SALON_OWNER viewing a salon staff member's profile
+✅ notification_bell_flow CLIENT with unread > 0 sees the dot; tap opens /notifications and back returns to Головна
+✅ notification_bell_flow CLIENT with unread == 0 sees the plain bell (no dot); tap still navigates
+✅ notification_bell_flow INDEPENDENT_MASTER sees the global dot on «Мій профіль»; the bell opens /notifications and back returns
+✅ notification_bell_flow SALON_MASTER sees the global dot on «Мій профіль»; the bell opens /notifications and back returns
+✅ notification_bell_flow SALON_OWNER sees the same global dot on «Мої салони» and on the salon cover; each bell opens /notifications
+✅ notification_bell_flow salonOwner sees the global dot on the «Профіль» tab; the bell opens /notifications and back returns
+✅ notification_bell_flow salonAdmin sees the global dot on the «Профіль» tab; the bell opens /notifications and back returns
+✅ notifications_mark_read_flow CLIENT opens the feed from the bell, marks one row read, marks all read, the bell loses its dot, and pull-to-refresh brings a new item back
+✅ notifications_mark_read_flow CLIENT: a failing «Позначити всі» rolls every row back to unread, shows the error snack, and the bell keeps its dot
+✅ notifications_mark_read_flow SALON_OWNER sees rows of BOTH salons in one feed, each labelled; the salon-less row has no label; the count spans both
+✅ notification_tap_to_detail_flow CLIENT taps a booking item: the detail opens on the feed-scoped alias, the item is read and the count drops; Back returns to the feed and then Головна
+✅ notification_tap_to_detail_flow SALON_OWNER (salon A active) taps a salon-B booking item: the staff detail opens, Back returns to the feed, and the owner is still on the salon-A shell
+✅ notification_tap_to_detail_flow SALON_OWNER taps a notification for a booking they PERFORM themselves: the detail shows the performing-master strip with their master name and never reads /masters/me
+✅ notification_tap_to_detail_flow SALON_ADMIN taps a salon-booking item carrying the client review: the detail opens with no review section
+✅ notification_tap_to_detail_flow SALON_OWNER taps a SalonTeamTarget item: the salon shell opens on «Команда»
+✅ notification_tap_to_detail_flow SALON_OWNER taps a «Новий відгук» item (salon B): the salon shell opens on «Відгуки», the review is listed, no booking detail
+✅ notification_tap_to_detail_flow SALON_ADMIN taps a «Новий відгук» item: their salon shell opens on «Відгуки» (salon-tab-3 selected)
+✅ notification_tap_to_detail_flow SALON_OWNER taps a «Новий відгук» item with salonId "null": falls back to the booking detail with from=notification
+✅ notification_tap_to_detail_flow SALON_OWNER taps a «Новий відгук» item with salonId "": falls back to the booking detail with from=notification
+✅ notification_tap_to_detail_flow SALON_OWNER taps a «Новий відгук» item with salonId "   ": falls back to the booking detail with from=notification
+✅ notification_tap_to_detail_flow SALON_MASTER taps a «Новий відгук» item: the staff booking detail still opens (unchanged route)
+✅ notification_tap_to_detail_flow CLIENT taps a booking item whose detail is gone (404): back on the feed with the unavailable snack, and the item is read
+✅ notifications_flow CLIENT: the poll returns 1, the bell shows the dot, tapping a BOOKING_DECLINED item opens the booking detail, and back the dot is gone
+✅ notifications_flow CLIENT: ✓ on one of three rows then «Позначити всі» go through the real wire, the server count follows and the bell loses its dot
+✅ notifications_flow CLIENT: a notification that lands while the app is backgrounded is picked up on resume (count 1 -> 2) with no feed interaction
+✅ notifications_flow SALON_OWNER: a BOOKING_CREATED row carrying masterName shows the «· майстер <name>» suffix
+✅ notifications_flow SALON_MASTER: the same payload (masterName present) renders NO master suffix
+✅ notifications_provider_flow SALON_OWNER taps a BOOKING_CREATED item: the salon staff booking detail opens with the provider footer, and Back returns to the feed
+✅ notifications_provider_flow SALON_MASTER taps a BOOKING_CREATED item: the read-only staff detail opens with NO transition offered, and Back returns to the feed
+✅ notifications_provider_flow INDEPENDENT_MASTER taps a BOOKING_CREATED item: the master booking detail opens with the provider footer, and Back returns to the feed
+✅ notifications_provider_flow SALON_OWNER taps an INVITE_ACCEPTED item for the salon they are in: the salon shell opens on «Команда» and the item is read
+✅ owner_multi_salon_feed_flow owner with salons A and B: the count is global across a salon switch, the feed labels both salons, a salon-B tap opens B's detail and salon A stays active
+✅ pending_actions_count_wiring INDEPENDENT_MASTER on «Записи»: the .me(asMaster: false) count equals the fake's computed count, via exactly one request
+✅ pending_actions_count_wiring SALON_OWNER on the board: the .salon(id) count equals the fake's computed count, via exactly one request
+✅ salon_staff_client_review_flow SALON_OWNER: board -> detail -> complete -> rate the client (POST) -> CTA gone
+✅ salon_staff_client_review_flow SALON_ADMIN: board -> detail (GET /bookings/{id} allowed, backend 356) -> complete -> rate the client (POST) -> CTA gone
+
+🎉 64 tests passed.

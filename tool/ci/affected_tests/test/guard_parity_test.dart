@@ -167,6 +167,52 @@ void main() {
     }, skip: skip);
   });
 
+  group('401 S2: trusted/ is never a PR path', () {
+    late final List<GuardArm> arms;
+    setUpAll(() {
+      if (haveRepo) arms = parseIsForced(wfFile.readAsStringSync());
+    });
+
+    test(
+      'the guard forces FULL for trusted and trusted/*, and rules agree',
+      () {
+        for (final path in ['trusted', 'trusted/tool/ci/x.sh', 'trusted/a/b']) {
+          expect(guardForces(arms, path), isTrue, reason: path);
+          expect(classify(path, rules).kind, PathKind.full, reason: path);
+        }
+        expect(guardForces(arms, 'lib/trusted/a.dart'), isFalse);
+      },
+      skip: skip,
+    );
+
+    test(
+      'is_forbidden (fail-closed, red plan) lists trusted and trusted/*',
+      () {
+        final wf = wfFile.readAsStringSync();
+        final body = RegExp(
+          r'is_forbidden\(\) \{[\s\S]*?\n\s*\}\n',
+        ).firstMatch(wf)!.group(0)!;
+        expect(body, contains('trusted | trusted/*'));
+        // Run the real function.
+        for (final (path, want) in [
+          ('trusted/x', 0),
+          ('trusted', 0),
+          ('lib/trusted/x.dart', 1),
+          ('trustedx/a', 1),
+        ]) {
+          final r = Process.runSync('bash', [
+            '-c',
+            '$body\nis_forbidden "\$1"',
+            'bash',
+            path,
+          ]);
+          expect(r.exitCode, want, reason: path);
+        }
+      },
+      skip: skip,
+    );
+  });
+
   group('parser self-checks', () {
     test('case globs: * spans "/" like shell case', () {
       expect(caseGlob('test/ci/*').hasMatch('test/ci/a/b_test.dart'), isTrue);

@@ -157,6 +157,9 @@ if extract_fn is_forced; then
   case_forced "gradle.properties forces"   0 android/gradle.properties
   case_forced "non-ASCII path (plain) does not" 1 lib/маршрут.dart
   case_forced "test_driver forces"         0 test_driver/integration_test.dart
+  case_forced "trusted/ (base checkout name) forces" 0 trusted/tool/ci/plan.sh
+  case_forced "bare trusted entry forces"  0 trusted
+  case_forced "lib/trusted/ nested does not" 1 lib/trusted/a.dart
   case_forced "plain lib file does not"    1 lib/features/a.dart
   case_forced "plain test file does not"   1 test/features/a_test.dart
   case_forced "docs do not"                1 docs/x.md
@@ -170,6 +173,10 @@ if extract_fn is_forced; then
     case_forbidden "build/ itself forbidden"        0 build/x
     case_forbidden ".dart_tool forbidden"           0 .dart_tool/package_config.json
     case_forbidden "lib/build_x.dart ok"            1 lib/build_x.dart
+    case_forbidden "trusted/ file forbidden (401 S2)" 0 trusted/tool/ci/gen.dart
+    case_forbidden "bare trusted entry forbidden"   0 trusted
+    case_forbidden "trustedx/ ok"                   1 trustedx/a
+    case_forbidden "lib/trusted/ nested ok"         1 lib/trusted/a.dart
     case_forbidden "api/.dart_tool nested ok (tracked)" 1 api/.dart_tool/package_config.json
     case_forbidden "plain lib file ok"              1 lib/a.dart
   else

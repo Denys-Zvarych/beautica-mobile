@@ -97,6 +97,8 @@ full_globs:
   - 'tool/ci/**'
   - 'scripts/**'             # (scripts/perf/** is carved out via none_globs)
   - '.github/workflows/**'
+  - 'trusted'                # the integration job checks the base commit out here (401 S2)
+  - 'trusted/**'
 
 # Any non-.dart file under these roots that no glob above matched (golden PNGs,
 # JSON fixtures, ...) forces FULL. Dart files are handled by the graph.
