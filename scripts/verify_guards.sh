@@ -321,11 +321,11 @@ if [ "$selftest_mode" = "1" ] && [ "${#passed[@]}" -ne "${#guards[@]}" ]; then
 fi
 
 # Phase 397/400 — the CI scripts under tool/ci/ (plan.sh, gate.sh, run_list.sh,
-# report_failures.sh, resolve_selection.sh) are not forbid_* guards but are
+# report_failures.sh, resolve_selection.sh, shard_units.sh, verify_shards.sh) are not forbid_* guards but are
 # verified the same way: each table-driven self-test must run and emit its
 # sentinel.
 if [ "$selftest_mode" = "1" ]; then
-  for ci_test in plan_sh_test.sh run_list_test.sh resolve_selection_test.sh; do
+  for ci_test in plan_sh_test.sh run_list_test.sh resolve_selection_test.sh shard_scripts_test.sh; do
     ci_out="$(bash "$here/test/$ci_test" 2>&1)" && ci_rc=0 || ci_rc=$?
     echo "== test/$ci_test =="
     echo "$ci_out"

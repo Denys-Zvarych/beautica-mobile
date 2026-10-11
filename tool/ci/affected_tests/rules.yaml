@@ -19,7 +19,7 @@ graph_roots: [lib, api/lib, test, integration_test]
 
 # Carve-outs of a none glob that must force FULL anyway (checked FIRST).
 # Parity with the workflow's `is_forced` guard (phase 400, 398 R1): the Gradle
-# wrapper / properties are build-toolchain config the `test` job's APK builds
+# wrapper / properties are build-toolchain config the `apk` job's APK builds
 # consume, so the guard forces FULL even though android/** is otherwise
 # patrol-only. Pinned by test/guard_parity_test.dart.
 full_before_none:
@@ -49,7 +49,7 @@ none_globs:
   # Perf measurement scripts have their own tests (scripts/perf/tests, CI-only).
   - 'scripts/perf/**'
   # OpenAPI snapshot: read only by `scripts/regenerate_api.sh --check`, the
-  # drift gate in the `validate` job, which runs on EVERY PR regardless of
+  # drift gate in the `gates` job (was `validate`), which runs on EVERY PR regardless of
   # mode. No test reads it; the regenerated api/lib Dart files seed on their own.
   - 'tool/openapi/**'
 

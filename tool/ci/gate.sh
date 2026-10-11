@@ -3,11 +3,28 @@
 #   NEEDS_JSON            toJSON(needs)
 #   PLAN_MODE             needs.plan.outputs.mode
 #   PLAN_SELECTION_COUNT  needs.plan.outputs.selection_count
-#   EXPECT_TESTS          "true" when the `test` job must have run (mode full |
-#                         selective on a non-noop event); then `test` must be
-#                         `success` (a skipped `test` is RED, not a non-failure),
-#                         and so must `tests-ran` (the base-owned "real tests
-#                         executed" check; skipped / missing is RED too)
+#   EXPECT_TESTS          "true" when the tests must have run (mode full |
+#                         selective on a non-noop event); then `tests-ran` (the
+#                         base-owned "real tests executed" check) must be
+#                         `success` (skipped / missing is RED), so must the two
+#                         static-check jobs `gates-fast` and `gates` (they run
+#                         on every non-noop event; audit F1 split the old
+#                         `gates`) and `selector-tests` (a 3-leg matrix whose
+#                         single result is success only if EVERY leg passed;
+#                         audit cycle 2 N-L4: skipped / missing is RED, not
+#                         merely "not failed"), and in mode FULL so must each of unit,
+#                         tz-sweeps, goldens and apk (phase 402: the old single
+#                         `test` job is split; a skipped one is RED, not a
+#                         non-failure). `apk` is a debug/release matrix (audit
+#                         F5): its single job result covers both legs.
+#                         `coverage` is NON-BLOCKING (audit F2): codecov upload
+#                         is informational (fail_ci_if_error: false), so a
+#                         failed / cancelled / skipped coverage job is a
+#                         ::warning::, never RED.
+#                         In selective mode those jobs are legitimately skipped
+#                         when their list is empty (a failure is still RED), and
+#                         tests-ran owes a stream for every non-empty list.
+#                         The compatibility `test` aggregator is NOT consulted.
 # Red when:
 #   - `plan` did not succeed (a failed plan skips everything downstream and a
 #     skipped job reports success),
@@ -24,12 +41,27 @@ fail=0
 bad="$(printf '%s' "$NEEDS_JSON" | jq -r '
   to_entries[]
   | select((.key == "plan" and .value.result != "success")
-           or .value.result == "failure" or .value.result == "cancelled")
+           or (.key != "coverage" and (.value.result == "failure" or .value.result == "cancelled")))
   | "\(.key)=\(.value.result)"')"
 if [ -n "$bad" ]; then echo "ci-gate RED:"; echo "$bad" | sed 's/^/  /'; fail=1; fi
+cov="$(printf '%s' "$NEEDS_JSON" | jq -r '.coverage.result // "missing"')"
+if [ "$cov" = "failure" ] || [ "$cov" = "cancelled" ]; then
+  echo "::warning::coverage job $cov (non-blocking: the codecov report is informational)"
+fi
 if [ "$EXPECT_TESTS" = "true" ]; then
-  tres="$(printf '%s' "$NEEDS_JSON" | jq -r '.test.result // "missing"')"
-  if [ "$tres" != "success" ]; then echo "ci-gate RED: test must be success (got $tres)"; fail=1; fi
+  for j in gates-fast selector-tests gates; do
+    jres="$(printf '%s' "$NEEDS_JSON" | jq -r --arg j "$j" '.[$j].result // "missing"')"
+    if [ "$jres" != "success" ]; then echo "ci-gate RED: $j must be success (got $jres)"; fail=1; fi
+  done
+  if [ "$PLAN_MODE" = "full" ]; then
+    if [ "$cov" = "skipped" ] || [ "$cov" = "missing" ]; then
+      echo "::warning::coverage job was $cov in a full run (non-blocking)"
+    fi
+    for j in unit tz-sweeps goldens apk; do
+      jres="$(printf '%s' "$NEEDS_JSON" | jq -r --arg j "$j" '.[$j].result // "missing"')"
+      if [ "$jres" != "success" ]; then echo "ci-gate RED: $j must be success in a full run (got $jres)"; fail=1; fi
+    done
+  fi
   rres="$(printf '%s' "$NEEDS_JSON" | jq -r '.["tests-ran"].result // "missing"')"
   if [ "$rres" != "success" ]; then echo "ci-gate RED: tests-ran must be success (got $rres)"; fail=1; fi
 fi

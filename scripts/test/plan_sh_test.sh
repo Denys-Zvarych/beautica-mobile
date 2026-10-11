@@ -65,37 +65,93 @@ case_gate() {
   EXPECT_TESTS="${EXPECT_TESTS:-}" NEEDS_JSON="$json" PLAN_MODE="$mode" PLAN_SELECTION_COUNT="$cnt" bash "$gate" >/dev/null 2>&1 || got=$?
   if [ "$got" -eq "$erc" ]; then printf '  PASS  gate: %s\n' "$name"; else printf '  FAIL  gate: %s (want rc=%s got %s)\n' "$name" "$erc" "$got"; rc=1; fi
 }
-ok='{"plan":{"result":"success"},"validate":{"result":"success"},"patrol":{"result":"success"}}'
+ok='{"plan":{"result":"success"},"gates":{"result":"success"},"patrol":{"result":"success"}}'
 case_gate "all success, full -> green"          0 full      unknown "$ok"
 case_gate "selective -> green"                  0 selective unknown "$ok"
-case_gate "test job failed -> red"              1 full      unknown '{"plan":{"result":"success"},"validate":{"result":"success"},"test":{"result":"failure"}}'
-# EXPECT_TESTS unset (legacy callers): skipped test is a non-failure.
-case_gate "test skipped, EXPECT_TESTS unset -> green" 0 full unknown '{"plan":{"result":"success"},"validate":{"result":"success"},"test":{"result":"skipped"}}'
-t_ok='{"plan":{"result":"success"},"test":{"result":"success"},"tests-ran":{"result":"success"}}'
-tr_skip='{"plan":{"result":"success"},"test":{"result":"success"},"tests-ran":{"result":"skipped"}}'
-tr_fail='{"plan":{"result":"success"},"test":{"result":"success"},"tests-ran":{"result":"failure"}}'
-tr_none='{"plan":{"result":"success"},"test":{"result":"success"}}'
-t_skip='{"plan":{"result":"success"},"test":{"result":"skipped"}}'
-t_fail='{"plan":{"result":"success"},"test":{"result":"failure"}}'
-t_none='{"plan":{"result":"success"},"validate":{"result":"success"}}'
+case_gate "unit job failed -> red"              1 full      unknown '{"plan":{"result":"success"},"gates":{"result":"success"},"unit":{"result":"failure"}}'
+# EXPECT_TESTS unset (legacy callers): a skipped test job is a non-failure.
+case_gate "unit skipped, EXPECT_TESTS unset -> green" 0 full unknown '{"plan":{"result":"success"},"gates":{"result":"success"},"unit":{"result":"skipped"}}'
+# Phase 402: the old `test` job is split. FULL needs every part to be success;
+# selective tolerates a part skipped for an empty list (never a failure).
+j() { # j <name=result>...  -> needs JSON with plan=success
+  local o='{"plan":{"result":"success"}' kv
+  for kv in "$@"; do o+=",\"${kv%%=*}\":{\"result\":\"${kv#*=}\"}"; done
+  printf '%s}' "$o"
+}
+f_ok="$(j gates-fast=success selector-tests=success gates=success unit=success tz-sweeps=success goldens=success apk=success coverage=success tests-ran=success)"
 export EXPECT_TESTS=true
-case_gate "EXPECT_TESTS, test success -> green"  0 full      unknown "$t_ok"
-case_gate "EXPECT_TESTS, test skipped -> red"    1 full      unknown "$t_skip"
-case_gate "EXPECT_TESTS, test skipped sel -> red" 1 selective unknown "$t_skip"
-case_gate "EXPECT_TESTS, test failure -> red"    1 full      unknown "$t_fail"
-case_gate "EXPECT_TESTS, tests-ran skipped -> red" 1 full      unknown "$tr_skip"
-case_gate "EXPECT_TESTS, tests-ran failure -> red" 1 full      unknown "$tr_fail"
-case_gate "EXPECT_TESTS, tests-ran missing -> red" 1 selective unknown "$tr_none"
-case_gate "EXPECT_TESTS, tests-ran success -> green" 0 selective unknown "$t_ok"
-case_gate "EXPECT_TESTS, test missing -> red"    1 full      unknown "$t_none"
+case_gate "EXPECT_TESTS full, all parts success -> green" 0 full unknown "$f_ok"
+for part in gates-fast selector-tests gates unit tz-sweeps goldens apk tests-ran; do
+  for res in skipped failure cancelled; do
+    case_gate "EXPECT_TESTS full, $part $res -> red" 1 full unknown "$(j gates-fast=success selector-tests=success gates=success unit=success tz-sweeps=success goldens=success apk=success coverage=success tests-ran=success "$part=$res")"
+  done
+  case_gate "EXPECT_TESTS full, $part missing -> red" 1 full unknown "$(jq -c "del(.\"$part\")" <<<"$f_ok")"
+done
+# Audit cycle 2 N-L4: `selector-tests` (a 3-leg matrix: its single result is
+# success only if EVERY leg succeeded) must be `success` whenever tests are
+# expected, in full AND selective mode; "not failed" (skipped, missing) is RED.
+for res in skipped failure cancelled; do
+  case_gate "EXPECT_TESTS selective, selector-tests $res -> red" 1 selective unknown "$(j gates-fast=success selector-tests=$res gates=success unit=success tests-ran=success)"
+done
+case_gate "EXPECT_TESTS selective, selector-tests missing -> red" 1 selective unknown "$(j gates-fast=success gates=success unit=success tests-ran=success)"
+case_gate "EXPECT_TESTS selective, selector-tests success -> green" 0 selective unknown "$(j gates-fast=success selector-tests=success gates=success unit=success tests-ran=success)"
+st_out="$(EXPECT_TESTS=true NEEDS_JSON="$(jq -c '.["selector-tests"].result = "skipped"' <<<"$f_ok")" PLAN_MODE=full PLAN_SELECTION_COUNT=unknown bash "$gate" 2>&1)" || true
+grep -qF 'ci-gate RED: selector-tests must be success (got skipped)' <<<"$st_out" && echo "  PASS  gate: skipped selector-tests names the job" || { echo "  FAIL  gate: selector-tests message"; rc=1; }
+# Without EXPECT_TESTS the legacy "not failed" rule stays (a skipped job is no failure).
+EXPECT_TESTS="" case_gate "EXPECT_TESTS unset, selector-tests skipped -> green" 0 full unknown '{"plan":{"result":"success"},"gates":{"result":"success"},"selector-tests":{"result":"skipped"}}'
+# Audit F2: coverage is NON-BLOCKING in every state; a failure only warns.
+for res in skipped failure cancelled; do
+  case_gate "EXPECT_TESTS full, coverage $res -> still green (non-blocking)" 0 full unknown "$(jq -c ".coverage.result = \"$res\"" <<<"$f_ok")"
+done
+case_gate "EXPECT_TESTS full, coverage missing -> still green (non-blocking)" 0 full unknown "$(jq -c 'del(.coverage)' <<<"$f_ok")"
+cov_out="$(EXPECT_TESTS=true NEEDS_JSON="$(jq -c '.coverage.result = "failure"' <<<"$f_ok")" PLAN_MODE=full PLAN_SELECTION_COUNT=unknown bash "$gate" 2>&1)" || true
+grep -qF '::warning::coverage job failure (non-blocking' <<<"$cov_out" && echo "  PASS  gate: a failed coverage job is reported as a warning" || { echo "  FAIL  gate: coverage warning"; rc=1; }
+# ...but the same failure in any OTHER job stays red (the exemption is coverage only).
+case_gate "a failed apk job is still red even if coverage passed" 1 full unknown "$(jq -c '.apk.result = "failure"' <<<"$f_ok")"
+case_gate "EXPECT_TESTS selective, gates-fast skipped -> red" 1 selective unknown "$(j gates-fast=skipped selector-tests=success gates=success unit=success tests-ran=success)"
+case_gate "EXPECT_TESTS selective, gates skipped -> red" 1 selective unknown "$(j gates-fast=success selector-tests=success gates=skipped unit=success tests-ran=success)"
+case_gate "EXPECT_TESTS selective, gates-fast failure -> red" 1 selective unknown "$(j gates-fast=failure selector-tests=success gates=success unit=success tests-ran=success)"
+# Old-base compatibility (D7): an OLD gate.sh ignores unknown jobs, so the extra
+# jobs added by this phase (gates-fast, the apk matrix) cannot confuse it; the
+# new one never consults the `test` aggregator.
+# D7 bootstrap compatibility: the OLD base gate.sh (verbatim fixture) must stay
+# green on the needs of the NEW workflow, while the new jobs exist: gates-fast,
+# the apk matrix (one `apk` result), the `test` aggregator (which no longer
+# needs coverage).
+old_gate="$here/fixtures/gate_base_pre402.sh"
+case_old() { # case_old <name> <expect_rc> <needs json>
+  local got=0
+  EXPECT_TESTS=true NEEDS_JSON="$3" PLAN_MODE=full PLAN_SELECTION_COUNT=unknown bash "$old_gate" >/dev/null 2>&1 || got=$?
+  if [ "$got" -eq "$2" ]; then printf '  PASS  old base gate: %s\n' "$1"; else printf '  FAIL  old base gate: %s (want rc=%s got %s)\n' "$1" "$2" "$got"; rc=1; fi
+}
+old_ok="$(jq -c '. + {"test":{"result":"success"}}' <<<"$f_ok")"
+case_old "new workflow's needs (gates-fast, test aggregator) -> green" 0 "$old_ok"
+case_old "gates-fast failure -> red (generic failure check)" 1 "$(jq -c '.["gates-fast"].result = "failure"' <<<"$old_ok")"
+# N-L4: the OLD base gate (the one the introducing PR runs) never reads
+# selector-tests beyond the generic failed/cancelled rule, so the NEW needs
+# (selector-tests success OR skipped OR absent) cannot turn it red.
+case_old "selector-tests success -> green (new base rule irrelevant to the old gate)" 0 "$old_ok"
+case_old "selector-tests skipped -> green (old gate ignores it)" 0 "$(jq -c '.["selector-tests"].result = "skipped"' <<<"$old_ok")"
+case_old "selector-tests failure -> red (generic failure check)" 1 "$(jq -c '.["selector-tests"].result = "failure"' <<<"$old_ok")"
+case_old "apk failure -> red" 1 "$(jq -c '.apk.result = "failure"' <<<"$old_ok")"
+# job-level continue-on-error reports a failed coverage as `success` to needs.*
+case_old "coverage reported success by continue-on-error -> green" 0 "$(jq -c '.coverage.result = "success"' <<<"$old_ok")"
+s_ok="$(j gates-fast=success selector-tests=success gates=success unit=success tz-sweeps=skipped goldens=skipped apk=skipped coverage=skipped tests-ran=success)"
+case_gate "EXPECT_TESTS selective, empty lists skipped -> green" 0 selective unknown "$s_ok"
+case_gate "EXPECT_TESTS selective, unit failure -> red" 1 selective unknown "$(j gates-fast=success selector-tests=success gates=success unit=failure tests-ran=success)"
+case_gate "EXPECT_TESTS selective, tests-ran skipped -> red" 1 selective unknown "$(j gates-fast=success selector-tests=success gates=success unit=success tests-ran=skipped)"
+case_gate "EXPECT_TESTS selective, tests-ran failure -> red" 1 selective unknown "$(j gates-fast=success selector-tests=success gates=success unit=success tests-ran=failure)"
+case_gate "EXPECT_TESTS selective, tests-ran missing -> red" 1 selective unknown "$(j gates-fast=success selector-tests=success gates=success unit=success)"
+# The compatibility `test` aggregator is not consulted for the verdict.
+case_gate "EXPECT_TESTS full, aggregator absent -> still green" 0 full unknown "$f_ok"
 export EXPECT_TESTS=false
-case_gate "EXPECT_TESTS=false, test skipped -> green" 0 full unknown "$t_skip"
+case_gate "EXPECT_TESTS=false, parts skipped -> green" 0 full unknown "$(j gates=success unit=skipped tz-sweeps=skipped)"
 unset EXPECT_TESTS
-case_gate "patrol skipped -> green"             0 full      unknown '{"plan":{"result":"success"},"validate":{"result":"success"},"patrol":{"result":"skipped"}}'
-case_gate "plan failed -> red"                  1 ""        ""      '{"plan":{"result":"failure"},"validate":{"result":"skipped"},"patrol":{"result":"skipped"}}'
-case_gate "plan skipped -> red"                 1 full      unknown '{"plan":{"result":"skipped"},"validate":{"result":"skipped"}}'
-case_gate "a job failed -> red"                 1 full      unknown '{"plan":{"result":"success"},"validate":{"result":"failure"}}'
-case_gate "a job cancelled -> red"              1 full      unknown '{"plan":{"result":"success"},"validate":{"result":"cancelled"}}'
+case_gate "patrol skipped -> green"             0 full      unknown '{"plan":{"result":"success"},"gates":{"result":"success"},"patrol":{"result":"skipped"}}'
+case_gate "plan failed -> red"                  1 ""        ""      '{"plan":{"result":"failure"},"gates":{"result":"skipped"},"patrol":{"result":"skipped"}}'
+case_gate "plan skipped -> red"                 1 full      unknown '{"plan":{"result":"skipped"},"gates":{"result":"skipped"}}'
+case_gate "a job failed -> red"                 1 full      unknown '{"plan":{"result":"success"},"gates":{"result":"failure"}}'
+case_gate "a job cancelled -> red"              1 full      unknown '{"plan":{"result":"success"},"gates":{"result":"cancelled"}}'
 case_gate "empty mode -> red (fail closed)"     1 ""        unknown "$ok"
 case_gate "garbage mode -> red"                 1 skip      0       "$ok"
 case_gate "mode=none with count 0 -> green"     0 none      0       "$ok"
@@ -209,7 +265,7 @@ done
 # Extract the relevance condition from the workflow and require it everywhere
 # a job could start heavy work.
 rel="(github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')"
-for job in plan validate test integration integration-profile; do
+for job in plan gates-fast gates unit tz-sweeps goldens apk coverage test tests-ran integration integration-profile; do
   body="$(awk -v j="  $job:" '$0==j{f=1;next} f&&/^  [a-z-]+:$/{exit} f' "$wf")"
   if grep -qF "$rel" <<<"$body"; then
     echo "  PASS  label gate on job: $job"
@@ -230,20 +286,26 @@ for j in integration integration-profile; do
   body="$(awk -v j="  $j:" '$0==j{f=1;next} f&&/^  [a-z-]+:$/{exit} f' "$wf")"
   grep -qE '^    timeout-minutes: [0-9]+' <<<"$body" && echo "  PASS  timeout-minutes on job: $j" || { echo "  FAIL  timeout-minutes missing on job: $j"; rc=1; }
 done
-test_body="$(awk '$0=="  test:"{f=1;next} f&&/^  [a-z-]+:$/{exit} f' "$wf")"
-grep -qF 'file-reporter=json:build/ci/unit-events.json' <<<"$test_body" && grep -qF 'name: unit-events' <<<"$test_body" && echo "  PASS  test job: json reporter + stream upload" || { echo "  FAIL  test job stream wiring"; rc=1; }
-grep -qE '^    timeout-minutes: [0-9]+' <<<"$test_body" && echo "  PASS  timeout-minutes on job: test" || { echo "  FAIL  timeout-minutes missing on job: test"; rc=1; }
+job_body() { awk -v j="  $1:" '$0==j{f=1;next} f&&/^  [a-z-]+:$/{exit} f' "$wf"; }
+unit_body="$(job_body unit)"
+grep -qF '"unit-$SHARD-events"' <<<"$unit_body" && grep -qF 'name: events-unit-' <<<"$unit_body" && grep -qF 'file-reporter=json:build/ci/unit-events.json' <<<"$unit_body" && echo "  PASS  unit job: per-shard json stream + upload (and the unsharded fallback stream)" || { echo "  FAIL  unit job stream wiring"; rc=1; }
+for j in gates-fast gates unit tz-sweeps goldens apk coverage test tests-ran; do
+  grep -qE '^    timeout-minutes: [0-9]+' <<<"$(job_body "$j")" && echo "  PASS  timeout-minutes on job: $j" || { echo "  FAIL  timeout-minutes missing on job: $j"; rc=1; }
+done
 # N2/N3: no trusted tooling inside the PR workspace; the verdict lives in a job that never checks out PR code.
-if grep -qF '.ci-trusted' "$wf" || grep -qF 'tests_ran.sh' <<<"$test_body"; then echo "  FAIL  .ci-trusted / tests_ran.sh reachable from the test job"; rc=1; else echo "  PASS  no .ci-trusted in the test job"; fi
+if grep -qF '.ci-trusted' "$wf"; then echo "  FAIL  .ci-trusted in the workflow"; rc=1; else echo "  PASS  no .ci-trusted"; fi
+for j in gates-fast gates unit tz-sweeps goldens apk coverage; do
+  if grep -qE 'tests_ran\.sh|verify_shards\.sh' <<<"$(job_body "$j")"; then echo "  FAIL  tests_ran.sh / verify_shards.sh reachable from job: $j"; rc=1; else echo "  PASS  base-owned checkers not reachable from job: $j"; fi
+done
 tr_body="$(awk '$0=="  tests-ran:"{f=1;next} f&&/^  [a-z-]+:$/{exit} f' "$wf")"
-if [ -n "$tr_body" ] && [ "$(grep -c 'uses: actions/checkout@' <<<"$tr_body")" -eq 1 ] && grep -qF 'ref: ${{ github.event.pull_request.base.sha || github.sha }}' <<<"$tr_body" && grep -qF 'tool/ci/tests_ran.sh' <<<"$tr_body" && grep -qF 'needs: [plan, test]' <<<"$tr_body" && grep -qF 'contents: read' <<<"$tr_body"; then echo "  PASS  tests-ran job: base-only checkout, read-only"; else echo "  FAIL  tests-ran job shape (single base checkout / needs / perms)"; rc=1; fi
+if [ -n "$tr_body" ] && [ "$(grep -c 'uses: actions/checkout@' <<<"$tr_body")" -eq 1 ] && grep -qF 'ref: ${{ github.event.pull_request.base.sha || github.sha }}' <<<"$tr_body" && grep -qF 'tool/ci/tests_ran.sh' <<<"$tr_body" && grep -qF 'needs: [plan, unit, tz-sweeps, goldens]' <<<"$tr_body" && grep -qF 'tool/ci/verify_shards.sh' <<<"$tr_body" && grep -qF 'contents: read' <<<"$tr_body"; then echo "  PASS  tests-ran job: base-only checkout, read-only"; else echo "  FAIL  tests-ran job shape (single base checkout / needs / perms)"; rc=1; fi
 # no expression interpolation inside any ci-gate run: block
 if [ -n "$(awk '/^        run: \|/{r=1;next} /^      - name:/{r=0} r&&/\$\{\{/' <<<"$cg_body")" ]; then echo "  FAIL  \${{ }} inside ci-gate run:"; rc=1; else echo "  PASS  no \${{ }} in ci-gate run:"; fi
 grep -qF "&& '-noop')" "$wf" && ! grep -qF "format('-noop-" "$wf" && echo "  PASS  noop label group is fixed per PR" || { echo "  FAIL  noop label group"; rc=1; }
 grep -qF "format('-{0}', github.run_id)" "$wf" && echo "  PASS  dispatch group is unique" || { echo "  FAIL  dispatch group"; rc=1; }
-# ci-gate must require every job it required before the split, plus `test`.
+# ci-gate must require every job (phase 402: the split jobs + the `test` bootstrap aggregator).
 gate_body="$(awk '/^  ci-gate:/{f=1} f' "$wf")"
-for j in plan validate test tests-ran integration integration-profile patrol; do
+for j in plan gates-fast gates selector-tests unit tz-sweeps goldens apk coverage test tests-ran integration integration-profile patrol; do
   grep -qE "^    needs: \[.*\b$j\b.*\]" <<<"$gate_body" && echo "  PASS  ci-gate needs $j" || { echo "  FAIL  ci-gate needs $j"; rc=1; }
 done
 
