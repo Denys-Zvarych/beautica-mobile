@@ -1,0 +1,46 @@
+name: Flutter setup
+description: >-
+  Flutter 3.41 stable + pub cache + pub get + build_runner codegen (phase 402
+  D5). ONE definition for every job that builds or tests the APP (gates, unit,
+  tz-sweeps, goldens, apk); each used to repeat these four steps.
+
+# NOT used by the selector jobs (`plan`, `selector-tests`): phase 400 D8 forbids
+# any cache feeding the selector (PR-scope cache poisoning). Those jobs keep
+# their own uncached `dart-lang/setup-dart` + `dart pub get --enforce-lockfile`.
+#
+# Cache key: the pub cache is keyed on every file that decides what `pub get`
+# and `build_runner` resolve: pubspec.lock (the resolved set), pubspec.yaml and
+# api/pubspec.yaml (the path package), and build.yaml (builder config). A
+# change to any of them is a new key; none is "restored then patched".
+# build_runner OUTPUT is deliberately NOT cached (the 2026-07-02 stale
+# incremental-cache incident, scripts/verify_builtvalue_codegen.sh): codegen runs
+# fresh on every job.
+
+inputs:
+  extra-pub-key-files:
+    description: >-
+      Optional extra hashFiles() glob appended to the pub-cache key (default:
+      none, so the key is unchanged). why: docs/ci/README.md#gates-selector-pub-cache
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Flutter
+      uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2  # v2
+      with:
+        flutter-version: '3.41.x'
+        channel: 'stable'
+        cache: true
+        pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock', 'pubspec.yaml', 'api/pubspec.yaml', 'build.yaml') }}${{ inputs.extra-pub-key-files != '' && format('-{0}', hashFiles(inputs.extra-pub-key-files)) || '' }}
+
+    - name: Pub get
+      shell: bash
+      run: flutter pub get
+
+    # *.g.dart files are gitignored; codegen must run on every fresh checkout
+    # before analyze/test can succeed.
+    - name: Codegen (build_runner)
+      shell: bash
+      run: dart run build_runner build --delete-conflicting-outputs

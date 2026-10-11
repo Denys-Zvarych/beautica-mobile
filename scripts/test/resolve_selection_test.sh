@@ -42,6 +42,16 @@ else
   echo "  FAIL  summary"; rc=1
 fi
 
+# Phase 402 D3a: the (sanitised) threshold is an output, the single source the
+# selector's --shards-for is fed from. Default 80; env override; garbage -> 80.
+case_res "selective emits unit_warn_threshold=80" 0 "$sel" unit_warn_threshold=80
+d3="$tmp/thr"; mkdir -p "$d3"; printf '%s' "$sel" >"$d3/selection.json"
+for row in "120:120" "0:80" "abc:80" ":80"; do
+  v="${row%%:*}"; want="${row#*:}"
+  got="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY UNIT_WARN_THRESHOLD="$v" bash "$res" 0 "$d3/selection.json" | sed -n 's/^unit_warn_threshold=//p')"
+  [ "$got" = "$want" ] && echo "  PASS  UNIT_WARN_THRESHOLD='$v' -> unit_warn_threshold=$want" || { echo "  FAIL  UNIT_WARN_THRESHOLD='$v' -> '$got' (want $want)"; rc=1; }
+done
+
 # Stale list files planted by anything else are overwritten, not trusted.
 d2="$tmp/stale"; mkdir -p "$d2"; printf '%s' "$sel" >"$d2/selection.json"; printf 'test/evil_test.dart\n' >"$d2/unit.txt"
 env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY bash "$res" 0 "$d2/selection.json" >/dev/null

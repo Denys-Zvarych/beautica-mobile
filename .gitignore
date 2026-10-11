@@ -112,3 +112,6 @@ integration_test/test_bundle.dart
 
 # run_list_test.sh fixture dirs (older versions; swept at startup)
 test/.run_list_selftest_*/
+
+# Phase 401: generated per-PR integration aggregator (tool/ci/affected_tests/bin/gen_integration_entry.dart)
+integration_test/ci_selected_tests.dart
