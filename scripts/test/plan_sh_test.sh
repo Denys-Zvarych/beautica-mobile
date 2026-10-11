@@ -241,9 +241,9 @@ if extract_fn is_forced; then
   fi
   # The guard must fail (exit 1) on a forbidden path, before any force-full.
   grep -qE 'is_forbidden "\$f"' "$guard" && echo "  PASS  guard calls is_forbidden" || { echo "  FAIL  guard does not call is_forbidden"; rc=1; }
-  # The plan step runs the BASE copy (trusted/), and the PR copy only when the
-  # base lacks it (bootstrap, warned). Run the real step body against a fake
-  # workspace whose two copies only report which one ran.
+  # The plan step runs the BASE copy (trusted/) only; when the base lacks it
+  # (bootstrap) it forces full, warned, and never runs the PR copy. Run the real
+  # step body against a fake workspace whose two copies only report which ran.
   step_body="$(awk '
     /^      - name: Guard - CI machinery changes force full$/ { in_step=1; next }
     in_step && /^        run: \|$/ { in_run=1; next }
@@ -258,12 +258,15 @@ if extract_fn is_forced; then
       printf 'echo "ran=%s"\n' "$side" >"$gws/$side/tool/ci/ci_paths_guard.sh"
     done
     # `|| true`: a broken step body must print FAIL, not abort this script (set -e).
-    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)" || true
+    gout="$tmp/guard-step-out.txt"; : >"$gout"
+    out="$(GITHUB_WORKSPACE="$gws" GITHUB_OUTPUT="$gout" bash -c "$step_body" 2>&1)" || true
     if [ "$out" = "ran=trusted" ]; then echo "  PASS  guard step: base copy present -> trusted/ runs, no warning"; else echo "  FAIL  guard step: base copy present, got: $out"; rc=1; fi
     rm "$gws/trusted/tool/ci/ci_paths_guard.sh"
-    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)" || true
-    want="$(printf '%s\n%s' "::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy" "ran=pr")"
-    if [ "$out" = "$want" ]; then echo "  PASS  guard step: base copy absent -> PR copy + bootstrap warning"; else echo "  FAIL  guard step: base copy absent, got: $out"; rc=1; fi
+    : >"$gout"
+    out="$(GITHUB_WORKSPACE="$gws" GITHUB_OUTPUT="$gout" bash -c "$step_body" 2>&1)" || true
+    if grep -qxF "::warning::ci_paths_guard bootstrap: base lacks the script, forcing full" <<<"$out"; then echo "  PASS  guard step: base copy absent -> bootstrap warning"; else echo "  FAIL  guard step: base copy absent, no warning, got: $out"; rc=1; fi
+    if grep -q "ran=pr" <<<"$out"; then echo "  FAIL  guard step: base copy absent -> PR copy RAN"; rc=1; else echo "  PASS  guard step: base copy absent -> PR copy not run"; fi
+    if [ "$(tr '\n' ' ' <"$gout")" = "mode=full run_all=true " ]; then echo "  PASS  guard step: base copy absent -> GITHUB_OUTPUT mode=full run_all=true"; else echo "  FAIL  guard step: base copy absent, GITHUB_OUTPUT: $(cat "$gout")"; rc=1; fi
   fi
   # main(): run the real script end-to-end over a throwaway repo's merge-base
   # diff, so the fail-closed exit and the force-full outputs are pinned, not

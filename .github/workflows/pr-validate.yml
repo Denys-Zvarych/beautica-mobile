@@ -131,7 +131,7 @@ jobs:
           fi
 
       # Base-owned tool/ci/ci_paths_guard.sh (D14): a CI-machinery change forces FULL, a forbidden
-      # path fails the plan. PR copy only while the base lacks the script (bootstrap, warned).
+      # path fails the plan. Base lacks it (bootstrap): never run the PR copy, force FULL (warned).
       # why: docs/ci/README.md#plan-guard
       - name: Guard - CI machinery changes force full
         id: guard
@@ -143,11 +143,14 @@ jobs:
           HEAD_SHA: ${{ steps.tree.outputs.sha }}
         run: |
           g="$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh"
-          if [ ! -f "$g" ]; then
-            echo "::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy"
-            g="$GITHUB_WORKSPACE/pr/tool/ci/ci_paths_guard.sh"
+          if [ -f "$g" ]; then
+            bash "$g"
+          else
+            # Bootstrap only (the PR that introduces the guard): the base has
+            # none, so refuse to run the PR's copy and run everything.
+            echo "::warning::ci_paths_guard bootstrap: base lacks the script, forcing full"
+            { echo "mode=full"; echo "run_all=true"; } | tee -a "$GITHUB_OUTPUT"
           fi
-          bash "$g"
 
       - name: Upload changed-file list
         if: github.event_name == 'pull_request'
@@ -562,6 +565,10 @@ jobs:
       # every fresh checkout before analyze/test can succeed.)
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
+        # Self-test's selector pub get lands in this same pub cache; key it on the selector lock too.
+        # why: docs/ci/README.md#gates-selector-pub-cache
+        with:
+          extra-pub-key-files: tool/ci/affected_tests/pubspec.lock
       # Phase 3.1: OpenAPI drift gate (regenerate from the committed spec, diff api/).
       # why: docs/ci/static-guards.md#openapi-drift
       - name: Install openapi-generator-cli

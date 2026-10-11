@@ -16,6 +16,14 @@ description: >-
 # incremental-cache incident, scripts/verify_builtvalue_codegen.sh): codegen runs
 # fresh on every job.
 
+inputs:
+  extra-pub-key-files:
+    description: >-
+      Optional extra hashFiles() glob appended to the pub-cache key (default:
+      none, so the key is unchanged). why: docs/ci/README.md#gates-selector-pub-cache
+    required: false
+    default: ''
+
 runs:
   using: composite
   steps:
@@ -25,7 +33,7 @@ runs:
         flutter-version: '3.41.x'
         channel: 'stable'
         cache: true
-        pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock', 'pubspec.yaml', 'api/pubspec.yaml', 'build.yaml') }}
+        pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('pubspec.lock', 'pubspec.yaml', 'api/pubspec.yaml', 'build.yaml') }}${{ inputs.extra-pub-key-files != '' && format('-{0}', hashFiles(inputs.extra-pub-key-files)) || '' }}
 
     - name: Pub get
       shell: bash

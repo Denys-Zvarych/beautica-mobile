@@ -478,6 +478,51 @@ void main() {
         'dart run build_runner build --delete-conflicting-outputs',
       );
       expect(actionFile.readAsStringSync(), isNot(contains('actions/cache')));
+      // D14 audit-fix (perf LOW): optional extra key glob, default none.
+      final inp = (y['inputs'] as YamlMap)['extra-pub-key-files'] as YamlMap;
+      expect(inp['required'], isFalse);
+      expect(inp['default'], '');
+      expect(
+        w['pub-cache-key'],
+        endsWith(
+          "\${{ inputs.extra-pub-key-files != '' && format('-{0}', "
+          "hashFiles(inputs.extra-pub-key-files)) || '' }}",
+        ),
+      );
+    });
+
+    test('D14 audit-fix: only gates keys its pub cache on the selector lock; '
+        'plan and selector-tests stay cache-free (D8)', () {
+      for (final j in jobs.keys) {
+        for (final st in steps(j.toString())) {
+          if (st['uses'] != './.github/actions/flutter-setup') continue;
+          final w = st['with'] as YamlMap?;
+          if (j == 'gates') {
+            expect(
+              w?['extra-pub-key-files'],
+              'tool/ci/affected_tests/pubspec.lock',
+            );
+          } else {
+            expect(w, isNull, reason: '$j: default key, unchanged');
+          }
+        }
+      }
+      for (final j in ['plan', 'selector-tests']) {
+        for (final st in steps(j)) {
+          final u = (st['uses'] ?? '').toString();
+          expect(
+            u,
+            isNot(startsWith('actions/cache')),
+            reason: '$j: ${st['name']}',
+          );
+          expect(u, isNot(startsWith('./')), reason: '$j: ${st['name']}');
+          expect(
+            (st['with'] ?? '').toString(),
+            isNot(contains('pub-cache')),
+            reason: '$j: ${st['name']}',
+          );
+        }
+      }
     });
 
     test('every external action in the jobs and the composite is pinned to a '
@@ -1521,10 +1566,10 @@ void main() {
   }, skip: skip);
 
   // Phase 402 D14 + security review: the CI-paths guard is base-owned like the
-  // planner/selector; the PR copy runs only behind the base-lacks-it check.
+  // planner/selector; the PR copy NEVER runs (bootstrap forces full instead).
   group('phase 402 D14 base-owned CI-paths guard', () {
-    test('guard step runs trusted/ ci_paths_guard.sh, PR copy only as a '
-        'warned bootstrap fallback', () {
+    test('guard step runs trusted/ ci_paths_guard.sh only; bootstrap forces '
+        'full without running the PR copy', () {
       final g = step('plan', 'Guard - CI machinery changes force full');
       expect(g['id'], 'guard');
       expect(g['working-directory'], 'pr');
@@ -1536,13 +1581,17 @@ void main() {
       ];
       expect(lines, [
         r'g="$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh"',
-        r'if [ ! -f "$g" ]; then',
-        'echo "::warning::ci_paths_guard bootstrap: base lacks the script, '
-            'using PR copy"',
-        r'g="$GITHUB_WORKSPACE/pr/tool/ci/ci_paths_guard.sh"',
-        'fi',
+        r'if [ -f "$g" ]; then',
         r'bash "$g"',
+        'else',
+        '# Bootstrap only (the PR that introduces the guard): the base has',
+        "# none, so refuse to run the PR's copy and run everything.",
+        'echo "::warning::ci_paths_guard bootstrap: base lacks the script, '
+            'forcing full"',
+        r'{ echo "mode=full"; echo "run_all=true"; } | tee -a "$GITHUB_OUTPUT"',
+        'fi',
       ]);
+      expect(g['run'].toString(), isNot(contains('pr/tool/ci')));
       // trusted/ is the base commit and carries tool/ci (sparse checkout).
       final t = step('plan', 'Checkout trusted tooling (base commit)');
       expect((t['with'] as YamlMap)['path'], 'trusted');

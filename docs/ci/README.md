@@ -157,11 +157,11 @@ FULL regardless of what the planner decided.
 
 Phase 402 D14 moved the step body into `tool/ci/ci_paths_guard.sh`. The step keeps its name and
 `id: guard`. Like the planner and the selector in the same job, the guard is **base-owned**: the
-step runs `$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh` (the base-commit checkout). Only
-when the base commit does not have the script yet (bootstrap: the PR that introduces it) does it
-fall back to the `pr/` copy, with
-`::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy`. `trusted/` is the base
-SHA, so a PR cannot choose the branch. The PR tree is data only: `BASE_SHA` / `HEAD_SHA` arrive by
+step runs `$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh` (the base-commit checkout). When
+the base commit does not have the script yet (bootstrap: the PR that introduces it) the step never
+runs the `pr/` copy; like the planner bootstrap it writes `mode=full` / `run_all=true` to
+`GITHUB_OUTPUT` with `::warning::ci_paths_guard bootstrap: base lacks the script, forcing full`.
+`trusted/` is the base SHA, so a PR cannot choose the branch. The PR tree is data only: `BASE_SHA` / `HEAD_SHA` arrive by
 env and the working directory is `pr/`. Sourcing the script only defines `is_forced` /
 `is_forbidden`; `scripts/test/plan_sh_test.sh` table-tests both and runs the step body against
 both branches, and `guard_parity_test.dart` checks `is_forced` against `rules.yaml`. Changes to
@@ -253,6 +253,20 @@ gates (phase 402 D1; was `validate`) — static checks only: codegen verify,
 OpenAPI --check, format, analyze and every forbid_*.sh. No tests and no APK,
 so it goes red in ~5 min instead of after the whole run. The grep-only forbid_* guards moved to `gates-fast` (audit F1) so they go red in ~1 min; what stays here needs the Flutter toolchain or the generated *.g.dart files. Starts at once
 (needs nothing): the cheap checks never wait for `plan`.
+
+<a id="gates-selector-pub-cache"></a>
+
+### gates: selector packages in the pub cache (phase 402 D14 audit-fix, perf LOW)
+
+`verify_guards.sh --self-test` runs `scripts/test/shard_scripts_test.sh`, which does a
+`dart pub get --enforce-lockfile` in `tool/ci/affected_tests` (~17 selector-only packages). It
+writes into the same `~/.pub-cache` that `flutter-setup` already caches, so `gates` passes
+`extra-pub-key-files: tool/ci/affected_tests/pubspec.lock` and the composite appends that hash to
+its pub-cache key. A selector-lock change is then a new key whose post-job save holds the selector
+packages too. No second `actions/cache` on the same path (two caches over one directory race on
+restore and save), and no combined `actions/cache@` step (it saves from PR runs). Other app jobs
+pass nothing, so their key is unchanged. This cache is never in `plan` or `selector-tests`: phase
+400 D8 forbids any cache feeding the selector (the verdict selector stays uncached).
 
 <a id="job-selector-tests"></a>
 
