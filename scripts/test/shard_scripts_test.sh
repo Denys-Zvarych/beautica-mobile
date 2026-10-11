@@ -111,6 +111,9 @@ run_su "none" ok SHARD_MODE=none
 expect "none -> count 0" 'unit_shards=[1]' 'unit_shard_count=0'
 
 # real selector, selective, 3 shards ---------------------------------------
+# shard_units.sh never resolves packages (by design); a fresh checkout (CI
+# gates job) has no .dart_tool/, so resolve them here or it degrades to 1 shard.
+(cd "$repo/tool/ci/affected_tests" && dart pub get --enforce-lockfile >/dev/null) || fail "selector pub get"
 mk_list "$tmp/real" 170
 OUT="$(env -u GITHUB_OUTPUT SHARD_MODE=selective SHARD_UNIT_COUNT=170 SHARD_THRESHOLD=80 SHARD_SEL_DIR="$tmp/real" \
   SHARD_SELECTOR_DIR="$repo/tool/ci/affected_tests" SHARD_OUT_DIR="$tmp/real-out" bash "$su" 2>&1)" || fail "real selector run: $OUT"
