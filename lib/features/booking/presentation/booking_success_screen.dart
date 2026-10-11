@@ -47,6 +47,14 @@ import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';
 import 'widgets/guest_identity_card.dart';
 
+/// Phase 383 (security) — the ONLY routes a walk-in success «Готово» may
+/// honour from [BookingSuccessArgs.returnRoute]; anything else falls back to
+/// [RouteNames.masterBookings].
+const Set<String> _kWalkInReturnRoutes = <String>{
+  RouteNames.masterBookings,
+  RouteNames.ownerMasterBookings,
+};
+
 /// Booking flow — the post-submit celebration screen (one confirmed visit).
 class BookingSuccessScreen extends ConsumerStatefulWidget {
   const BookingSuccessScreen({super.key, required this.args});
@@ -231,7 +239,18 @@ class _BookingSuccessScreenState extends ConsumerState<BookingSuccessScreen> {
           // changes, and only in the intended direction.
           onPressed: () {
             if (!widget.args.isReschedule && widget.args.isWalkIn) {
-              context.go(RouteNames.masterBookings);
+              // Phase 383 — the owner master-mode chain lands on its own
+              // «Записи»; `null` keeps the independent master's route. The
+              // route is ALLOW-LISTED: anything other than the two «Записи»
+              // surfaces falls back to the default, so a forged/stale arg
+              // can never steer `go` to an arbitrary location.
+              final returnRoute = widget.args.returnRoute;
+              context.go(
+                returnRoute != null &&
+                        _kWalkInReturnRoutes.contains(returnRoute)
+                    ? returnRoute
+                    : RouteNames.masterBookings,
+              );
               return;
             }
             final session = ref.read(authProvider).value;

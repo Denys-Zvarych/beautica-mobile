@@ -8,12 +8,18 @@
 // detail (Phase 14.4) must be behaviourally unchanged, so every provider-view
 // assertion here has a client-view twin.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
@@ -21,14 +27,18 @@ import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/booking_fixture_dates.dart';
+import '../../../helpers/dim_probe.dart';
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 
 // Fixture identities injected BY these tests — NOT app copy. They are
@@ -62,6 +72,8 @@ User _user(UserRole role) => User(id: 'u1', email: 'u@e.com', role: role);
 
 Booking _booking({
   String id = 'b1',
+  String masterId = 'm1',
+  String? salonId,
   BookingStatus status = BookingStatus.confirmed,
   String? clientId = 'c1',
   String? clientFirstName = _clientFirst,
@@ -69,13 +81,17 @@ Booking _booking({
   String? providerComment,
   String? clientComment,
   String? clientCancellationNote,
+  String? clientAvatarUrl,
+  double? clientAvgRating,
+  int? clientReviewCount,
   String? salonName,
   DateTime? startAt,
 }) {
   final DateTime start = startAt ?? futureBookingStart();
   return Booking(
     id: id,
-    masterId: 'm1',
+    masterId: masterId,
+    salonId: salonId,
     masterFirstName: 'Марія',
     masterLastName: 'Іванюк',
     masterType: salonName != null ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
@@ -83,6 +99,9 @@ Booking _booking({
     clientId: clientId,
     clientFirstName: clientFirstName,
     clientLastName: clientLastName,
+    clientAvatarUrl: clientAvatarUrl,
+    clientAvgRating: clientAvgRating,
+    clientReviewCount: clientReviewCount,
     serviceId: 's1',
     serviceName: _serviceName,
     categoryName: 'NAIL_SERVICE',
@@ -116,6 +135,7 @@ Future<void> _pump(
   WidgetTester tester,
   Booking booking, {
   required UserRole role,
+  MasterMeCallCounter? masterMeCalls,
 }) async {
   await tester.pumpApp(
     BookingDetailScreen(bookingId: booking.id),
@@ -123,6 +143,11 @@ Future<void> _pump(
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
       bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+      // Spy: `GET /masters/me` must never be read by this screen.
+      if (masterMeCalls != null)
+        masterProfileProvider.overrideWith(
+          () => _CountingMasterProfile(masterMeCalls),
+        ),
       authProvider.overrideWith(
         () => _StubAuth(
           AuthSession.authenticated(user: _user(role), accessToken: 't'),
@@ -131,6 +156,29 @@ Future<void> _pump(
     ],
   );
   await tester.pumpAndSettle();
+}
+
+/// Counts `GET /masters/me` builds — the screen must make none.
+class MasterMeCallCounter {
+  int builds = 0;
+}
+
+class _CountingMasterProfile extends MasterProfile {
+  _CountingMasterProfile(this._counter);
+
+  final MasterMeCallCounter _counter;
+
+  @override
+  Future<Master> build() async {
+    _counter.builds++;
+    return const Master(
+      id: 'owner-master',
+      firstName: 'Власна',
+      lastName: 'Майстриня',
+      reviewCount: 0,
+      type: MasterType.salonOwner,
+    );
+  }
 }
 
 class _StubAuth extends AuthNotifier {
@@ -932,6 +980,393 @@ void main() {
             'Suspect the status/isPast half of the gate rather than the role '
             'half.',
       );
+    });
+  });
+  // The `Opacity.opacity` field assertions above prove the WIDGET is configured,
+  // not that the pixels dim (Phase 299: CI goldens discard layer opacity, and a
+  // field read cannot see the compositor). Phase 301 observes `_ClientStrip`'s
+  // `isDead ? 0.7 : 1` through the real compositor.
+  //
+  // The strip's content does not depend on status, so the same `_booking`
+  // fixture CONFIRMED vs CANCELLED/DECLINED differs ONLY in the dim. The public
+  // header is pumped twice side by side, each in its own boundary over a solid
+  // `base` ground. Tolerance 0.04: 8-bit rounding of `0.7·d` on the avatar's
+  // soft edges biases the summed ratio a touch low (see the master-strip probe
+  // in booking_detail_screen_test.dart, which measures 0.670).
+  group('Phase 301 — client strip dim on a dead booking (pixel probe)', () {
+    const Key keyFull = Key('client-strip-dim-full');
+    const Key keyDim = Key('client-strip-dim-dim');
+
+    Widget cell(Key key, Booking b) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: SizedBox(
+            width: 340,
+            child: BookingCounterpartyHeader(
+              booking: b,
+              viewer: BookingViewerRole.provider,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Future<void> probe(
+      WidgetTester tester, {
+      required BookingStatus status,
+      required double expected,
+    }) async {
+      await tester.pumpApp(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            cell(keyFull, _booking()),
+            cell(keyDim, _booking(status: status)),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(keyDim),
+        full: find.byKey(keyFull),
+        ground: BrandColors.base,
+        expected: expected,
+        tolerance: 0.04,
+      );
+    }
+
+    testWidgets(
+      'a CANCELLED client strip composites to 0.7 of the live one',
+      (tester) => probe(tester, status: BookingStatus.cancelled, expected: 0.7),
+    );
+
+    testWidgets(
+      'a DECLINED client strip composites to 0.7 of the live one',
+      (tester) => probe(tester, status: BookingStatus.declined, expected: 0.7),
+    );
+
+    // The 0.04 band cannot see a 0.7 -> 0.73/0.75 drift. This pins the dim
+    // TIGHTLY against the SAME live header hand-wrapped in `Opacity(0.7)`: both
+    // sides share the 8-bit rounding bias, so the ratio is 1.0 +- 0.015.
+    for (final BookingStatus dead in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('a $dead client strip matches a hand-wrapped Opacity(0.7) '
+          'control', (tester) async {
+        const Key keyControl = Key('client-strip-dim-control');
+        await tester.pumpApp(
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              RepaintBoundary(
+                key: keyControl,
+                child: ColoredBox(
+                  color: BrandColors.base,
+                  child: Opacity(
+                    opacity: 0.7,
+                    child: Padding(
+                      padding: const EdgeInsets.all(VelvetSpacing.md),
+                      child: SizedBox(
+                        width: 340,
+                        child: BookingCounterpartyHeader(
+                          booking: _booking(),
+                          viewer: BookingViewerRole.provider,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              cell(keyDim, _booking(status: dead)),
+            ],
+          ),
+        );
+        await tester.pump();
+
+        await expectDimRatio(
+          tester: tester,
+          dimmed: find.byKey(keyDim),
+          full: find.byKey(keyControl),
+          ground: BrandColors.base,
+          expected: 1.0,
+          tolerance: 0.015,
+        );
+      });
+    }
+
+    testWidgets(
+      'a COMPLETED client strip is NOT dimmed (ratio 1.0)',
+      (tester) => probe(tester, status: BookingStatus.completed, expected: 1.0),
+    );
+  });
+
+  group('client strip photo (provider viewer)', () {
+    const String host = 'cdn.example.com';
+    const String photoUrl = 'https://$host/avatars/client-1.png';
+    const Key photoKey = Key('booking-detail-client-avatar-photo');
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+    late FakeMediaCacheManager fake;
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{host};
+      fake = FakeMediaCacheManager(mediaLoadingForever);
+      debugMediaCacheManager = fake;
+    });
+
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+      imageCache.clear();
+      imageCache.clearLiveImages();
+    });
+
+    testWidgets('an allowlisted https clientAvatarUrl renders the photo from '
+        'that exact URL, not the monogram', (tester) async {
+      fake.responder = mediaLoaded;
+      final Booking b = _booking(clientAvatarUrl: photoUrl);
+      await _pump(tester, b, role: UserRole.independentMaster);
+      await tester.runAsync(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      });
+      await tester.pumpAndSettle();
+
+      final Finder img = find.descendant(
+        of: find.byKey(photoKey),
+        matching: find.byType(Image),
+      );
+      expect(img, findsOneWidget);
+      final ImageProvider<Object> provider = tester.widget<Image>(img).image;
+      expect(provider, isA<ResizeImage>());
+      final ImageProvider<Object> inner =
+          (provider as ResizeImage).imageProvider;
+      expect(inner, isA<CachedNetworkImageProvider>());
+      expect((inner as CachedNetworkImageProvider).url, photoUrl);
+      expect(fake.getFileStreamCalls, greaterThan(0));
+      expect(
+        find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+        findsNothing,
+        reason: 'a loaded photo replaces the monogram',
+      );
+    });
+
+    testWidgets('a null clientAvatarUrl shows the monogram and no network '
+        'image', (tester) async {
+      final Booking b = _booking();
+      await _pump(tester, b, role: UserRole.independentMaster);
+
+      expect(b.clientInitials, isNotEmpty);
+      expect(
+        find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byType(Image)),
+        findsNothing,
+      );
+      expect(fake.getFileStreamCalls, 0);
+    });
+
+    for (final String bad in <String>[
+      'http://$host/avatars/client-1.png',
+      'https://evil.example.net/avatars/client-1.png',
+    ]) {
+      testWidgets('a rejected URL ($bad) shows the monogram and never '
+          'fetches', (tester) async {
+        final Booking b = _booking(clientAvatarUrl: bad);
+        await _pump(tester, b, role: UserRole.independentMaster);
+
+        expect(
+          find.descendant(of: strip, matching: find.text(b.clientInitials!)),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(of: strip, matching: find.byType(Image)),
+          findsNothing,
+        );
+        expect(fake.getFileStreamCalls, 0);
+      });
+    }
+  });
+
+  group('client strip rating readout (provider viewer)', () {
+    final Finder strip = find.byKey(const Key('booking-detail-client-strip'));
+
+    testWidgets('a rated registered client shows ★ 4.7 and the review count', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _booking(clientAvgRating: 4.7, clientReviewCount: 12),
+        role: UserRole.independentMaster,
+      );
+      expect(find.descendant(of: strip, matching: find.text('4.7')), findsOne);
+      expect(find.descendant(of: strip, matching: find.text('(12)')), findsOne);
+      final double figureX = tester
+          .getTopLeft(find.descendant(of: strip, matching: find.text('4.7')))
+          .dx;
+      final double countX = tester
+          .getTopLeft(find.descendant(of: strip, matching: find.text('(12)')))
+          .dx;
+      expect(
+        figureX,
+        lessThan(countX),
+        reason: 'the figure precedes the count: «★ 4.7 (12)»',
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsOne,
+      );
+    });
+
+    testWidgets(
+      'an unreviewed registered client shows the em-dash, never 0.0',
+      (tester) async {
+        await _pump(
+          tester,
+          _booking(clientAvgRating: 0, clientReviewCount: 0),
+          role: UserRole.independentMaster,
+        );
+        expect(find.descendant(of: strip, matching: find.text('—')), findsOne);
+        expect(
+          find.descendant(of: strip, matching: find.text('0.0')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('an unreviewed client\'s semantics say "no reviews yet", not '
+        '«Рейтинг —»', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        _booking(clientAvgRating: null, clientReviewCount: 0),
+        role: UserRole.independentMaster,
+      );
+      final String label = tester.getSemantics(strip).label;
+      expect(label, contains(_l10n(tester).masterReviewsEmpty));
+      expect(label, isNot(contains('Рейтинг')));
+      handle.dispose();
+    });
+
+    testWidgets('a guest booking shows NO rating at all', (tester) async {
+      await _pump(
+        tester,
+        _booking(clientId: null),
+        role: UserRole.independentMaster,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.byIcon(Icons.star_rounded)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: strip, matching: find.text('—')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('performing-master strip (salon viewer)', () {
+    const Key strip = Key('booking-detail-performing-master-strip');
+
+    testWidgets('an OWNER sees the strip with the master name on another '
+        'master\'s salon booking', (tester) async {
+      await _pump(
+        tester,
+        _booking(salonName: 'Салон'),
+        role: UserRole.salonOwner,
+      );
+      expect(find.byKey(strip), findsOne);
+      expect(
+        find.descendant(
+          of: find.byKey(strip),
+          matching: find.text(_masterFull),
+        ),
+        findsOne,
+      ); // i18n-finder-ok: test fixture name, not app copy
+      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+    });
+
+    testWidgets('an OWNER sees the strip on a booking whose master row is '
+        'their own, and makes NO /masters/me call', (tester) async {
+      final MasterMeCallCounter calls = MasterMeCallCounter();
+      await _pump(
+        tester,
+        _booking(salonName: 'Салон', masterId: 'owner-master'),
+        role: UserRole.salonOwner,
+        masterMeCalls: calls,
+      );
+      expect(find.byKey(strip), findsOne);
+      expect(
+        find.descendant(
+          of: find.byKey(strip),
+          matching: find.text(_masterFull),
+        ),
+        findsOne,
+      ); // i18n-finder-ok: test fixture name, not app copy
+      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+      expect(calls.builds, 0);
+    });
+
+    testWidgets('an ADMIN sees the strip, and makes NO /masters/me call', (
+      tester,
+    ) async {
+      final MasterMeCallCounter calls = MasterMeCallCounter();
+      await _pump(
+        tester,
+        _booking(salonName: 'Салон'),
+        role: UserRole.salonAdmin,
+        masterMeCalls: calls,
+      );
+      expect(find.byKey(strip), findsOne);
+      expect(calls.builds, 0);
+    });
+
+    testWidgets('a SALON_MASTER never sees the strip', (tester) async {
+      await _pump(
+        tester,
+        _booking(salonName: 'Салон'),
+        role: UserRole.salonMaster,
+      );
+      expect(find.byKey(strip), findsNothing);
+    });
+
+    testWidgets('an INDEPENDENT_MASTER never sees the strip', (tester) async {
+      await _pump(tester, _booking(), role: UserRole.independentMaster);
+      expect(find.byKey(strip), findsNothing);
+    });
+
+    testWidgets('an OWNER viewing an INDEPENDENT-master (non-salon) booking '
+        'sees no strip', (tester) async {
+      await _pump(tester, _booking(), role: UserRole.salonOwner);
+      expect(find.byKey(const Key('booking-detail-client-strip')), findsOne);
+      expect(find.byKey(strip), findsNothing);
+    });
+
+    testWidgets('a CANCELLED booking dims BOTH strips to Opacity(0.7)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        _booking(salonName: 'Салон', status: BookingStatus.cancelled),
+        role: UserRole.salonAdmin,
+      );
+      for (final Key k in <Key>[
+        strip,
+        const Key('booking-detail-client-strip'),
+      ]) {
+        final Opacity o = tester.widget<Opacity>(
+          find
+              .ancestor(of: find.byKey(k), matching: find.byType(Opacity))
+              .first,
+        );
+        expect(o.opacity, 0.7);
+      }
     });
   });
 }

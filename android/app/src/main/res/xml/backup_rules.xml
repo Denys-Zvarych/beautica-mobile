@@ -12,4 +12,11 @@
          image BYTES live in getTemporaryDirectory() (cache dir), already excluded from
          auto-backup by default, so only this metadata DB needs an explicit rule. -->
     <exclude domain="file" path="beauticaImages.db"/>
+    <!-- Phase 066 audit M1: defence in depth for Firebase registration state.
+         Firebase Installations 19.x writes PersistedInstallation.<key>.json to
+         getNoBackupFilesDir(), which is never backed up. Firebase Messaging also
+         discards a restored appid.xml via its
+         com.google.android.gms.appid-no-backup marker. This exclude of the fixed-name
+         appid.xml is therefore a second layer (Android path matching is exact, no glob). -->
+    <exclude domain="sharedpref" path="com.google.android.gms.appid.xml"/>
 </full-backup-content>

@@ -576,7 +576,6 @@ class _TimeWell extends StatelessWidget {
     required this.widgetKey,
     required this.time,
     required this.onTap,
-    required this.enabled,
     required this.hasError,
     required this.semanticLabel,
   });
@@ -584,50 +583,40 @@ class _TimeWell extends StatelessWidget {
   final Key widgetKey;
   final TimeOfDay time;
   final VoidCallback onTap;
-  final bool enabled;
   final bool hasError;
   final String semanticLabel;
 
   // Hoisted to avoid TextStyle allocation per build.
-  static final TextStyle _enabledStyle = VelvetText.input().copyWith(
+  static final TextStyle _timeStyle = VelvetText.input().copyWith(
     fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
-  );
-  static final TextStyle _disabledStyle = VelvetText.input().copyWith(
-    color: BrandColors.faint,
   );
 
   @override
   Widget build(BuildContext context) {
-    final TextStyle textStyle = enabled ? _enabledStyle : _disabledStyle;
-
     final Widget well = NeumorphicInset(
-      hasError: enabled && hasError,
+      hasError: hasError,
       child: SizedBox(
         height: 46,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Icon(
+            const Icon(
               Icons.schedule_rounded,
               size: 17,
-              color: enabled ? BrandColors.muted : BrandColors.faint,
+              color: BrandColors.muted,
             ),
             const SizedBox(width: VelvetSpacing.sm),
-            Text(_formatTime(time), style: textStyle),
+            Text(_formatTime(time), style: _timeStyle),
           ],
         ),
       ),
     );
 
     return Semantics(
-      button: enabled,
-      enabled: enabled,
+      button: true,
+      enabled: true,
       label: '$semanticLabel ${_formatTime(time)}',
-      child: GestureDetector(
-        key: widgetKey,
-        onTap: enabled ? onTap : null,
-        child: Opacity(opacity: enabled ? 1 : 0.5, child: well),
-      ),
+      child: GestureDetector(key: widgetKey, onTap: onTap, child: well),
     );
   }
 }
@@ -725,7 +714,6 @@ class _DayRow extends StatelessWidget {
                     widgetKey: Key('wh-start-$dow'),
                     time: hours.start,
                     onTap: onPickStart,
-                    enabled: true,
                     hasError: hasError,
                     semanticLabel: startSemanticLabel,
                   ),
@@ -741,7 +729,6 @@ class _DayRow extends StatelessWidget {
                     widgetKey: Key('wh-end-$dow'),
                     time: hours.end,
                     onTap: onPickEnd,
-                    enabled: true,
                     hasError: hasError,
                     semanticLabel: endSemanticLabel,
                   ),

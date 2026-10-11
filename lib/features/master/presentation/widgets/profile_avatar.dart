@@ -11,6 +11,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -35,15 +36,28 @@ export 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 /// this widget paints the inset inner-shadow effect directly via a circular
 /// [CustomPaint] layer, then clips child content with [ClipOval].
 class ProfileAvatar extends StatelessWidget {
-  const ProfileAvatar({super.key, this.diameter = kDiameter});
+  const ProfileAvatar({super.key, this.diameter = kDiameter, this.imageUrl});
 
   /// Default avatar diameter — matches the preview spec (96–112 px band).
   static const double kDiameter = 104;
 
   final double diameter;
 
+  /// Phase 072 — the avatar photo. Rendered through the allow-listed
+  /// `RemoteImage`; null, a disallowed host, or a failed fetch all keep the icon
+  /// well. Null (every pre-existing caller) renders exactly as before.
+  final String? imageUrl;
+
   @override
   Widget build(BuildContext context) {
+    final Widget iconWell = Center(
+      child: Icon(
+        Icons.person_outline,
+        color: BrandColors.accent,
+        size: diameter * 0.42,
+      ),
+    );
+    final String? url = imageUrl;
     return Semantics(
       label: 'Фото профілю',
       image: true,
@@ -56,13 +70,16 @@ class ProfileAvatar extends StatelessWidget {
           child: ClipOval(
             child: ColoredBox(
               color: BrandColors.base,
-              child: Center(
-                child: Icon(
-                  Icons.person_outline,
-                  color: BrandColors.accent,
-                  size: diameter * 0.42,
-                ),
-              ),
+              child: url == null
+                  ? iconWell
+                  : RemoteImage(
+                      url: url,
+                      width: diameter,
+                      height: diameter,
+                      shape: RemoteImageShape.circle,
+                      excludeFromSemantics: true,
+                      fallback: iconWell,
+                    ),
             ),
           ),
         ),

@@ -36,6 +36,7 @@ import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/navigation/shell_back_dispatcher.dart';
 import 'package:beautica_mobile/shared/widgets/edge_swipe_back.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 
 import 'widgets/client_bottom_nav.dart';
 import 'widgets/client_top_bar.dart';
@@ -110,14 +111,10 @@ class _ClientShellState extends State<ClientShell> {
   /// hub's Account row routes onward to the shared SettingsScreen (/settings).
   void _onBurger(BuildContext context) => context.push(RouteNames.clientMenu);
 
-  void _onBell(BuildContext context) {
-    // Phase 14.9 not yet shipped — notification center is a placeholder. The
-    // bell is intentionally inert here (no route yet). When 14.9 ships, push
-    // RouteNames.notifications and bind ClientTopBar.hasUnread from the unread
-    // provider (single call site now — see the [ClientTopBar] below).
-    //
-    // TODO(14.9): context.push(RouteNames.notifications).
-  }
+  /// Phase 361 — opens the notification feed. The dot itself comes from the
+  /// GLOBAL `hasUnreadNotificationsProvider`, watched by the `bell` slot's
+  /// [ConnectedNotificationBell] (whose own tap does the same push).
+  void _onBell(BuildContext context) => context.push(RouteNames.notifications);
 
   @override
   Widget build(BuildContext context) {
@@ -201,21 +198,25 @@ class _ClientShellState extends State<ClientShell> {
                   VelvetSpacing.lg,
                   0,
                 ),
+                // Phase 361 — the bar is built ONCE per shell rebuild; the
+                // unread flag is watched only inside [ConnectedNotificationBell]
+                // (the `bell` slot), so a flag flip rebuilds the bell alone —
+                // never the wordmark or the burger.
                 child: ClientTopBar(
-                  // Single STABLE identity across every branch hop — the element
-                  // subtree is reused (updated in place) instead of torn down and
-                  // rebuilt on each `goBranch`. The only per-branch differences
-                  // (showBurger + the bell/burger test keys) flow through props
-                  // below via `_configFor`, none of which need a new bar IDENTITY.
+                  // Single STABLE identity across every branch hop — the
+                  // element subtree is reused (updated in place) instead of
+                  // torn down and rebuilt on each `goBranch`. The only
+                  // per-branch differences (showBurger + the bell/burger
+                  // test keys) flow through props below via `_configFor`,
+                  // none of which need a new bar IDENTITY.
                   key: const Key('client-top-bar'),
                   onBell: () => _onBell(context),
+                  bell: ConnectedNotificationBell(buttonKey: config.bellKey),
                   onBurger: config.showBurger ? () => _onBurger(context) : null,
-                  bellSemanticLabel: l10n.homeHubNotificationsLabel,
+                  bellSemanticLabel: l10n.notificationBellLabel,
                   burgerSemanticLabel: l10n.settingsHubMenuButton,
                   bellKey: config.bellKey,
                   burgerKey: config.burgerKey,
-                  // hasUnread is pinned false until the Phase 14.9 notification
-                  // provider ships (single call site now).
                 ),
               ),
               // Left-edge swipe-back — the gesture twin of the [PopScope]

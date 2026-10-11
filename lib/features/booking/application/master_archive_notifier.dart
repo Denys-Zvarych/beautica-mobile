@@ -481,6 +481,7 @@ class MasterArchiveNotifier extends _$MasterArchiveNotifier {
         serviceIds: query.serviceIds,
         sort: BookingSort.newest,
         page: page,
+        asMaster: query.asOwnerMaster,
       );
     }
 

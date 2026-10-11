@@ -77,7 +77,10 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // through a provider BUILD like the board, so `isThrottleFailure` is what
   // stops the container re-issuing it — asserted in the throttle group.
   'SettlementSearchRateLimitedFailure': true,
+  // 429 from the notification feed's shared per-user bucket (phase 359).
+  'NotificationsRateLimitedFailure': true,
   // Deterministic.
+  'ServerFailure(403)': false,
   'ServerFailure(409)': false,
   'ServerFailure(null)': false,
   // Invite-accept post-success design (2026-09-01): the 2xx already
@@ -161,6 +164,7 @@ Map<String, Failure> _instances() {
     'ServerFailure(500)': const ServerFailure(statusCode: 500),
     'ServerFailure(503)': const ServerFailure(statusCode: 503),
     'ServerFailure(599)': const ServerFailure(statusCode: 599),
+    'ServerFailure(403)': const ServerFailure(statusCode: 403),
     'ServerFailure(409)': const ServerFailure(statusCode: 409),
     'ServerFailure(null)': const ServerFailure(),
     'ResponseUnusableFailure': const ResponseUnusableFailure(),
@@ -198,6 +202,9 @@ Map<String, Failure> _instances() {
     ),
     'SettlementSearchRateLimitedFailure':
         const SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
+    'NotificationsRateLimitedFailure': const NotificationsRateLimitedFailure(
+      retryAfterSeconds: 30,
+    ),
     'ConflictFailure': const ConflictFailure(),
     'AccountDeleteBookingLimitFailure': const AccountDeleteBookingLimitFailure(
       serverMessage: 'Скасуйте деякі записи перед видаленням акаунта.',
@@ -443,6 +450,9 @@ void main() {
             SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
         'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
+        'NotificationsRateLimitedFailure': NotificationsRateLimitedFailure(
+          retryAfterSeconds: 30,
+        ),
       };
       for (final MapEntry<String, Failure> e in throttles.entries) {
         expect(

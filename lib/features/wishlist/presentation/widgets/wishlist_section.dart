@@ -195,6 +195,7 @@ class _WishlistSectionState extends ConsumerState<WishlistSection>
                   // there is no height for an AnimatedSize to animate. The card
                   // fades, then the line re-flows and the next favourite
                   // promotes into the freed slot.
+                  // dim-decorative: exit fade before reflow; 0/1
                   child: AnimatedOpacity(
                     // `favoriteTargetId`, not `masterServiceId` — the latter
                     // is null on a SALON row, which would collide every

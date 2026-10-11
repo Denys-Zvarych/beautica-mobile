@@ -38,6 +38,7 @@
 //
 // Layer: Widget (real appRouterProvider + real authRedirect, fake repos).
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -86,6 +87,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -173,6 +175,12 @@ final Booking _closeableArchiveRow = Booking(
 /// Every method throws except the two list reads the mounted screens make, so
 /// an unexpected call fails loudly rather than silently hitting real Dio.
 class _FakeBookingRepository implements BookingRepository {
+  @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
   /// ADDITIVE, defaulting to the empty page every pre-existing test in this
   /// file was written against — so none of them changed behaviour when the
   /// phase-332 gate group below started needing a real row.
@@ -207,6 +215,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async => PageResponse<Booking>(
     items: rows,
     page: 0,
@@ -219,6 +228,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) async => const <DateTime>[];
 
   @override
@@ -337,7 +347,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer(User user, {List<Booking> rows = const []}) {
-    final container = ProviderContainer(
+    final container = makeTestContainer(
       // Retry DISABLED (not `beauticaProviderRetry`): this file mounts the
       // real role landing on the way to each route under test, and a provider
       // it reads without an override (e.g. the salon-master own-profile fetch)
@@ -388,7 +398,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 

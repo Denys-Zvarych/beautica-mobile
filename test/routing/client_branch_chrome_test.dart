@@ -59,7 +59,7 @@ import 'package:go_router/go_router.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import 'client_branch_chrome_matrix.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../helpers/test_container.dart';
 
 // Sub-pixel tolerance for the cross-branch equality assertions. The wordmark and
 // bottom-nav positions are driven by the SAME constants on every branch, so the
@@ -482,15 +482,13 @@ class _ClientShellHarness {
 /// are left to the suite-wide no-network override (they settle to AsyncError);
 /// the chrome renders regardless of data state.
 ProviderContainer _authedClientContainer() {
-  final container = ProviderContainer(
-    retry: beauticaProviderRetry,
+  final container = makeTestContainer(
     overrides: [
       authProvider.overrideWith(() => _FixedAuthNotifier(_clientSession())),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
   );
-  addTearDown(container.dispose);
   return container;
 }
 

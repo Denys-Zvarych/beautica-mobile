@@ -30,6 +30,7 @@ import 'package:beautica_mobile/features/master/presentation/widgets/management_
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../../helpers/dim_probe.dart';
 import '../../../../helpers/pump_app.dart';
 
 Widget _card({
@@ -182,5 +183,58 @@ void main() {
         isNot(BrandColors.error),
       );
     });
+  });
+
+  // Pins the card's `inertOpacity: 0.55` OVERRIDE of PressableSurface's 0.6
+  // default (`management_action_card.dart`). The shared AnimatedOpacity is
+  // already gated by the settings-row probe, but that probe only ever observes
+  // 0.6 — a drift of this override would go unseen. `enabled: false` (not
+  // `loading`, which swaps the chevron for a spinner) so the two cards paint
+  // the same content and differ only in the dim.
+  testWidgets('enabled: false composites to 0.55 of an identical enabled '
+      'card\'s deviation from the ground', (tester) async {
+    const Key fullKey = Key('dim-probe-card-full');
+    const Key dimKey = Key('dim-probe-card-dimmed');
+    Widget cell(Key key, {required bool enabled}) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: SizedBox(
+            width: 160,
+            child: ManagementActionCard(
+              icon: Icons.design_services_rounded,
+              label: 'Probe Label',
+              value: 'Probe Value',
+              enabled: enabled,
+              onTap: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpApp(
+      Material(
+        child: Column(
+          children: <Widget>[
+            cell(fullKey, enabled: true),
+            cell(dimKey, enabled: false),
+          ],
+        ),
+      ),
+      width: 400,
+      height: 600,
+    );
+    await tester.pumpAndSettle();
+
+    await expectDimRatio(
+      tester: tester,
+      dimmed: find.byKey(dimKey),
+      full: find.byKey(fullKey),
+      ground: BrandColors.base,
+      expected: 0.55,
+    );
   });
 }

@@ -3,6 +3,25 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'brand_colors.dart';
 
+/// Nunito text theme with every M3 w500 role remapped to the bundled w600.
+///
+/// MaterialApp merges the M3 typography geometry under this theme, and that
+/// geometry makes titleMedium / titleSmall / labelLarge / labelMedium /
+/// labelSmall w500. Only Nunito w400/w600/w700/w800 are bundled (no Medium),
+/// so a w500 role would render a mismatched face. Remap explicitly: zero bytes.
+TextTheme _nunitoTextTheme() {
+  const FontWeight semiBold = FontWeight.w600;
+  final TextTheme plain = ThemeData.light().textTheme;
+  final TextTheme base = plain.copyWith(
+    titleMedium: plain.titleMedium?.copyWith(fontWeight: semiBold),
+    titleSmall: plain.titleSmall?.copyWith(fontWeight: semiBold),
+    labelLarge: plain.labelLarge?.copyWith(fontWeight: semiBold),
+    labelMedium: plain.labelMedium?.copyWith(fontWeight: semiBold),
+    labelSmall: plain.labelSmall?.copyWith(fontWeight: semiBold),
+  );
+  return GoogleFonts.nunitoTextTheme(base);
+}
+
 /// Beautica Material 3 theme factory — VelvetTouch design system.
 ///
 /// Light-only. The VelvetTouch soft-UI (neumorphic) metaphor requires a
@@ -22,7 +41,7 @@ ThemeData velvetTheme() {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: BrandColors.base,
-    textTheme: GoogleFonts.nunitoTextTheme(),
+    textTheme: _nunitoTextTheme(),
     splashColor: BrandColors.accent.withValues(alpha: 0.12),
     highlightColor: BrandColors.accent.withValues(alpha: 0.06),
     // Enable left-edge swipe-to-pop on Android (and all platforms) using the

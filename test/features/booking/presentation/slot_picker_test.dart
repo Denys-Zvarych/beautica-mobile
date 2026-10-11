@@ -17,7 +17,11 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_confirm_args.dart';
@@ -41,6 +45,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +100,7 @@ BookingSlotPickerArgs _args({
   bool hideMasterIdentity = false,
   bool returnSlotToCaller = false,
   List<DateTimeRange> excludeWindows = const <DateTimeRange>[],
+  String? returnRoute,
 }) => BookingSlotPickerArgs(
   masterId: _kMaster.id,
   master: _kMaster,
@@ -104,6 +110,7 @@ BookingSlotPickerArgs _args({
   hideMasterIdentity: hideMasterIdentity,
   returnSlotToCaller: returnSlotToCaller,
   excludeWindows: excludeWindows,
+  returnRoute: returnRoute,
 );
 
 const WalkInGuest _kGuest = WalkInGuest(
@@ -269,7 +276,7 @@ GoRouter _router({required Widget dateScreen}) => GoRouter(
             'confirm-stub:${args.masterId}:${args.services.first.id}:'
             '${args.startAt.toIso8601String()}:${args.rescheduleBookingId}:'
             'guest=${args.guest?.phone}:hideMasterIdentity='
-            '${args.hideMasterIdentity}',
+            '${args.hideMasterIdentity}:returnRoute=${args.returnRoute}',
           ),
         );
       },
@@ -1810,6 +1817,35 @@ void main() {
 
       expect(find.textContaining('guest=${_kGuest.phone}'), findsOneWidget);
       expect(find.textContaining('hideMasterIdentity=true'), findsOneWidget);
+      expect(find.textContaining('returnRoute=null'), findsOneWidget);
+    });
+
+    // Phase 383 (24.1f) — the owner walk-in chain's «Готово» landing is
+    // forwarded verbatim onto the confirm args.
+    testWidgets('should_forwardReturnRoute_when_ownerWalkInConfirms', (
+      tester,
+    ) async {
+      await pumpTimeScreen(
+        tester,
+        args: _args(
+          guest: _kGuest,
+          hideMasterIdentity: true,
+          returnRoute: RouteNames.ownerMasterBookings,
+        ),
+      );
+
+      final Finder availableChip = find.byWidgetPredicate(
+        (Widget w) => w is SlotChip && w.available,
+      );
+      await tester.tap(availableChip);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('booking-summary-cta')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('returnRoute=${RouteNames.ownerMasterBookings}'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('should_forwardNulls_when_clientPathConfirms', (tester) async {
@@ -2430,6 +2466,84 @@ void main() {
         reason:
             'the empty state must name the conflicting service, not just '
             'say "no free slots" — phase-274 D5',
+      );
+    });
+  });
+  // SlotChip's unavailable face is `Opacity(0.7)` over a faint-label inset well.
+  // That dim is the ONLY signal that a slot is not bookable beyond the label's
+  // colour, and CI goldens discard layer opacity (Phase 299) — so it is probed
+  // here through the real compositor (Phase 301).
+  //
+  // The two states cannot be one widget in two pumps (available:false changes
+  // the face), so the control is an UNDIMMED replica of the unavailable face
+  // built from the same public pieces (`NeumorphicInset`, `VelvetText.
+  // bookSlotChip`, `BrandColors.faint`). The ratio chip : replica is the dim.
+  group('Phase 301 — unavailable SlotChip dim (pixel probe)', () {
+    const Key keyDim = Key('slot-dim-probe-dim');
+    const Key keyFull = Key('slot-dim-probe-full');
+
+    Widget cell(Key key, Widget child) => RepaintBoundary(
+      key: key,
+      child: ColoredBox(
+        color: BrandColors.base,
+        child: Padding(
+          padding: const EdgeInsets.all(VelvetSpacing.md),
+          child: SizedBox(width: 74, child: child),
+        ),
+      ),
+    );
+
+    testWidgets('unavailable chip composites to 0.7 of its undimmed face', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            cell(
+              keyDim,
+              SlotChip(
+                time: '12:00',
+                selected: false,
+                available: false,
+                onTap: () {},
+              ),
+            ),
+            cell(
+              keyFull,
+              SizedBox(
+                height: 40,
+                child: NeumorphicInset(
+                  radius: VelvetRadii.pill,
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: VelvetSpacing.sm + 2,
+                      ),
+                      child: Text(
+                        '12:00',
+                        style: VelvetText.bookSlotChip.copyWith(
+                          color: BrandColors.faint,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+      await tester.pump();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(keyDim),
+        full: find.byKey(keyFull),
+        ground: BrandColors.base,
+        expected: 0.7,
+        reason:
+            'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
       );
     });
   });

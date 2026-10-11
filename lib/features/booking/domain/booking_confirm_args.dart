@@ -151,5 +151,11 @@ abstract class BookingConfirmArgs with _$BookingConfirmArgs {
     String? venueBuildingNo,
     String? venueCity,
     String? venueLocationNote,
+
+    /// Phase 383 (24.1f) — forwarded unchanged from
+    /// [BookingSlotPickerArgs.returnRoute] by `SlotTimeScreen._confirm`, and on
+    /// onto [BookingSuccessArgs.returnRoute] by this screen's `_submit`. See
+    /// that field's doc. `null` on every existing call site.
+    String? returnRoute,
   }) = _BookingConfirmArgs;
 }

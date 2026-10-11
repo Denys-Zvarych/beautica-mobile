@@ -3,14 +3,15 @@
 //
 // Mirrors [runLogoutFlow] (`logout_action.dart`, same directory) in shape —
 // confirm dialog → single network call → post-action handling — and reuses
-// runLogoutFlow's EXACT post-success steps rather than hand-rolling a second
-// logout path: `DELETE /users/me` denylists the bearer token server-side, so
-// the client must tear down its own session and land exactly where an
-// explicit logout does. [AuthNotifier.logout] is already tolerant of a
-// server-side call failing (the account — and its refresh token — no longer
-// exist by the time it runs), so calling it unconditionally after a
-// successful delete is safe: it best-effort calls the (now pointless) logout
-// endpoint, then unconditionally wipes secure storage.
+// runLogoutFlow's post-success steps rather than hand-rolling a second logout
+// path: `DELETE /users/me` denylists the bearer token server-side, so the
+// client must tear down its own session and land exactly where an explicit
+// logout does. It calls [AuthNotifier.logoutForced] — the account (and its
+// refresh token) no longer exist, so the server logout call and the push
+// DELETE are skipped (they could only 401); the local push `deleteToken()` and
+// the unconditional secure-storage wipe still run. The local logout runs
+// BEFORE the `mounted` check, so a successful delete always signs the device
+// out even if the screen unmounted meanwhile.
 //
 // The dialog copy is deliberately short and generic — no booking COUNT is
 // fetched or displayed (locked product decision), just the three facts the
@@ -132,12 +133,14 @@ Future<void> runDeleteAccountFlow(
   // call. See the flag-lifetime doc on [runDeleteAccountFlow] above.
   loading.value = true;
   try {
+    // Captured BEFORE the await: `ref` of an unmounted widget must not be
+    // read afterwards, and the keepAlive notifier outlives the screen.
+    final AuthNotifier auth = ref.read(authProvider.notifier);
     await ref.read(userRepositoryProvider).deleteMyAccount();
-    if (!context.mounted) return;
-    // Same session teardown + redirect as [runLogoutFlow] — never a second,
-    // hand-rolled logout path. The account (and its refresh token) are
-    // already gone server-side, but [AuthNotifier.logout] tolerates that.
-    await ref.read(authProvider.notifier).logout();
+    // Same session teardown as [runLogoutFlow] — never a second, hand-rolled
+    // logout path. Runs BEFORE the mounted check: the account is already gone
+    // server-side, so the local session must end even if the screen unmounted.
+    await auth.logoutForced();
     if (!context.mounted) return;
     context.go(RouteNames.login);
     // Deliberately no reset of either flag here — navigation away follows,

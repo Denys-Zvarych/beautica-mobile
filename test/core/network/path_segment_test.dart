@@ -165,4 +165,48 @@ void main() {
       expect(Uri.encodeFull('a/b').contains('/'), isTrue);
     });
   });
+
+  group('requirePathIdToken', () {
+    Matcher rejectsName(String name) => throwsA(
+      isA<ValidationFailure>().having(
+        (ValidationFailure f) => f.fieldErrors,
+        'fieldErrors',
+        <String, String>{name: 'invalid'},
+      ),
+    );
+
+    test('accepts UUIDs and slugs, returning the value unchanged', () {
+      for (final String ok in <String>[
+        '3f2504e0-4f89-11d3-9a0c-0305e82c3301',
+        'salon-1',
+        'a_B-9',
+        'x' * 64,
+      ]) {
+        expect(requirePathIdToken(ok, 'id'), ok);
+      }
+    });
+
+    test(
+      'rejects empty, dot-segments, separators, spaces, trailing newline, over-length',
+      () {
+        for (final String bad in <String>[
+          '',
+          '.',
+          '..',
+          'a/b',
+          'a?x=1',
+          'a b',
+          '../x',
+          'a%2Fb',
+          'abc\n',
+          'x' * 65,
+        ]) {
+          expect(
+            () => requirePathIdToken(bad, 'salonId'),
+            rejectsName('salonId'),
+          );
+        }
+      },
+    );
+  });
 }

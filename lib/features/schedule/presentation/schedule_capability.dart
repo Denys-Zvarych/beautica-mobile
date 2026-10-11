@@ -143,9 +143,13 @@ bool _ownerOrAdminCanEdit(Ref ref, ScheduleScope scope) {
   );
   if (rosterAsync is! AsyncData<SalonManagementProfileData>) return false;
   final List<SalonStaffMember> roster = rosterAsync.value.$2;
+  final bool viewerOwns = ref.watch(viewerOwnsSalonProvider(scope.salonId));
   return roster.any(
     (SalonStaffMember member) =>
         member.masterId == scope.masterId &&
-        member.role == SalonStaffRole.master,
+        member.role == SalonStaffRole.master &&
+        // Phase 371 — the owner's row is owner-only (backend 345 403s an
+        // admin's schedule writes); read-only for any other viewer.
+        !isOwnerRowLockedForViewer(member: member, viewerOwnsSalon: viewerOwns),
   );
 }

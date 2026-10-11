@@ -227,4 +227,34 @@ void main() {
     pumpWidget: goldenPumpWidget(overrides: _emptyOverrides(), width: 414),
     builder: () => const ServicesListScreen(writable: false),
   );
+
+  _labelledBackGoldens();
+}
+
+// Phase 380 (24.1c) — the owner master-mode «‹ Салон» labelled back pill in
+// `AppBar.leading` (widened `leadingWidth`, title pushed right). Unlike the
+// read-only/empty cells above this is NOT pure subtraction: it reflows the
+// app bar and the pill width scales with text, so it is pinned at the
+// narrowest width at BOTH text scales plus the widest at 1x.
+void _labelledBackGoldens() {
+  for (final ({double width, double scale}) cell
+      in const <({double width, double scale})>[
+        (width: 320, scale: 1.0),
+        (width: 320, scale: 1.3),
+        (width: 414, scale: 1.0),
+      ]) {
+    final String suffix = widthScaleSuffix(cell.width, cell.scale);
+    goldenTest(
+      'services_list LABELLED BACK ${cell.width.toInt()}dp text-${cell.scale}x',
+      fileName: 'services_list_labelled_back_$suffix',
+      constraints: BoxConstraints.tight(Size(cell.width, kGoldenHeight)),
+      textScaleFactor: cell.scale,
+      pumpWidget: goldenPumpWidget(overrides: _overrides(), width: cell.width),
+      builder: () => const ServicesListScreen(
+        initialExpandCategory: 'HAIRCUT',
+        showBack: true,
+        backLabel: 'Салон',
+      ),
+    );
+  }
 }

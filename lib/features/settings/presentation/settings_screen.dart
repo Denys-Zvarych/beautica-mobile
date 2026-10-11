@@ -172,6 +172,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
     final Animation<Offset> slide = _slideTween.animate(anim);
+    // dim-decorative: screen entrance fade (`_reveal`); 1 at rest
     return FadeTransition(
       opacity: anim,
       child: SlideTransition(position: slide, child: child),
@@ -337,7 +338,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               key: const Key('row-notifications'),
               switchKey: const Key('switch-notifications'),
               icon: Icons.notifications_none_rounded,
-              // Match the top-bar idle bell (BellButton): the dotless
+              // Match the top-bar idle bell (NotificationBellButton): the dotless
               // `notificationPlain` SVG, tinted + sized to the settings-row
               // glyph spec (19 px, accentDeep) so it sits identically.
               iconWidget: const AppIcon(

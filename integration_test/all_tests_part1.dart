@@ -35,10 +35,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'app_boot_without_firebase_flow_test.dart' as app_boot_without_firebase;
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'owner_settings_hub_flow_test.dart' as owner_settings_hub;
+import 'owner_master_mode_flow_test.dart' as owner_master_mode;
+import 'owner_master_client_visibility_flow_test.dart'
+    as owner_master_client_visibility;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
@@ -66,6 +72,8 @@ import 'client_review_refreshes_salon_surfaces_flow_test.dart'
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_visit_render_flow_test.dart' as client_visit_render;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_session_switch_my_bookings_flow_test.dart'
+    as client_session_switch_my_bookings;
 import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'staff_delete_account_flow_test.dart' as staff_delete_account;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
@@ -92,6 +100,9 @@ import 'forgot_password_rate_limited_flow_test.dart'
 import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'logout_flow_test.dart' as logout;
+import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
+import 'push_tap_flow_test.dart' as push_tap;
+import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
@@ -114,14 +125,28 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('auth_login_flow', auth_login.main);
+  // Phase 066 — cold start + login with Firebase unavailable.
+  group('app_boot_without_firebase_flow', app_boot_without_firebase.main);
   // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
   // login AND the post-registration done_to_app CTA both land on the My
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
   group('salon_owner_landing_flow', salon_owner_landing.main);
   group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 288 — owner reopens on the last-visited salon across a relaunch;
+  // stale pointer self-heals; sign-out forgets it (D6).
+  group('owner_relaunch_last_salon_flow', owner_relaunch_last_salon.main);
   // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
+  group('owner_settings_hub_flow', owner_settings_hub.main);
+  group('owner_master_mode_flow', owner_master_mode.main);
+  // Phase 385 (24.1h) — decision 7: a bookable owner (service + schedule
+  // set in master mode) appears in the client «Команда»; a non-bookable one
+  // does not.
+  group(
+    'owner_master_client_visibility_flow',
+    owner_master_client_visibility.main,
+  );
   group('admin_own_profile_flow', admin_own_profile.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept
@@ -231,6 +256,10 @@ void main() {
   group('client_home_hub_flow', client_home_hub.main);
   group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
+  group(
+    'client_session_switch_my_bookings_flow',
+    client_session_switch_my_bookings.main,
+  );
   group('client_delete_account_flow', client_delete_account.main);
   // Staff delete-account widening (2026-09-08, Step 2.7 Rule 3b, mobile-qa)
   // — SALON_MASTER / INDEPENDENT_MASTER / SALON_ADMIN reachability + the
@@ -293,6 +322,13 @@ void main() {
   group('forgot_password_otp_flow', forgot_password_otp.main);
   group('forgot_password_rate_limited_flow', forgot_password_rate_limited.main);
   group('logout_flow', logout.main);
+  group('push_token_registration_flow', push_token_registration.main);
+  // Phase 068 — a foreground FCM message refreshes the bell / merges into the
+  // open feed after the debounce; a permission-denied user is ignored.
+  group('push_foreground_refresh_flow', push_foreground_refresh.main);
+  // Phase 069 — a push TAP (background / cold start) opens its destination,
+  // marks the notification read; a signed-out launch tap is dropped.
+  group('push_tap_flow', push_tap.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.

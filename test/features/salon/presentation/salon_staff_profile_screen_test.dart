@@ -46,6 +46,8 @@ import 'package:beautica_mobile/features/master/presentation/widgets/master_revi
 import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/salon/application/salon_staff_member_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_staff_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/staff_settings_screen.dart';
@@ -253,6 +255,23 @@ const User _kOwnerAsMaster = User(
   lastName: 'Ковальчук',
 );
 
+/// A settled `mySalonsProvider` containing [_kSalonId] — proves the viewer
+/// owns THIS salon (`viewerOwnsSalonProvider`, Phase 371).
+class _SettledMySalons extends MySalons {
+  @override
+  Future<List<Salon>> build() async => const <Salon>[
+    Salon(id: _kSalonId, name: 'Салон'),
+  ];
+}
+
+/// A `mySalonsProvider` the test releases by hand (cold-window driver).
+class _GatedMySalons extends MySalons {
+  static Completer<List<Salon>> gate = Completer<List<Salon>>();
+
+  @override
+  Future<List<Salon>> build() => gate.future;
+}
+
 class _StubAuthNotifier extends AuthNotifier {
   _StubAuthNotifier(this._user);
 
@@ -295,6 +314,7 @@ Future<GoRouter> _pumpRouted(
   String memberId,
   FutureOr<SalonStaffMemberProfileData> Function(Ref ref) create, {
   User? user,
+  List<Object> extraOverrides = const <Object>[],
 }) async {
   final GoRouter router = _profileRouter(memberId);
   addTearDown(router.dispose);
@@ -304,6 +324,7 @@ Future<GoRouter> _pumpRouted(
       ..._overrides(memberId, create),
       if (user != null)
         authProvider.overrideWith(() => _StubAuthNotifier(user)),
+      ...extraOverrides,
     ],
   );
   await tester.pumpAndSettle();
@@ -1015,6 +1036,142 @@ void main() {
       );
 
       expect(find.byKey(const Key('btn-master-settings')), findsNothing);
+    });
+  });
+
+  // ── Phase 371 — the OWNER's row is read-only for a non-owner viewer. ──────
+  group("owner's row gating (Phase 371)", () {
+    const SalonStaffMember ownerRow = SalonStaffMember(
+      userId: _kMasterId,
+      masterId: 'master-row-owner-1',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonOwner,
+      firstName: 'Оксана',
+      lastName: 'Швець',
+    );
+
+    testWidgets('an ADMIN viewing the owner hides both cards and shows the '
+        'notice', (tester) async {
+      await _pumpRouted(
+        tester,
+        _kMasterId,
+        (ref) async => (ownerRow, const <MasterService>[]),
+        user: _kAdminViewer,
+      );
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+
+      expect(
+        find.byKey(const Key('salon-staff-profile-schedule-row')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-services-row')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-read-only')),
+        findsOneWidget,
+      );
+      expect(find.text(l10n.staffOwnerRowReadOnlyTitle), findsOneWidget);
+      expect(find.text(l10n.staffOwnerRowReadOnlyBody), findsOneWidget);
+    });
+
+    testWidgets('cold window: owner on their OWN row while mySalons is '
+        'pending sees a loading placeholder, never the notice; once resolved, '
+        'both cards', (tester) async {
+      _GatedMySalons.gate = Completer<List<Salon>>();
+      final GoRouter router = _profileRouter(_kMasterId);
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (ownerRow, const <MasterService>[]),
+          ),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kOwnerAsMaster)),
+          mySalonsProvider.overrideWith(_GatedMySalons.new),
+        ],
+      );
+      await tester.pumpUntilFound(
+        find.byKey(const Key('salon-staff-profile-owner-row-pending')),
+      );
+
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-pending')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-read-only')),
+        findsNothing,
+        reason: 'pending is not a verdict — no flash of the notice',
+      );
+
+      _GatedMySalons.gate.complete(const <Salon>[
+        Salon(id: _kSalonId, name: 'Салон'),
+      ]);
+      await tester.pumpUntilFound(
+        find.byKey(const Key('salon-staff-profile-schedule-row')),
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-schedule-row')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-read-only')),
+        findsNothing,
+      );
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('the OWNER viewing their own row keeps both cards, no notice', (
+      tester,
+    ) async {
+      await _pumpRouted(
+        tester,
+        _kMasterId,
+        (ref) async => (ownerRow, const <MasterService>[]),
+        user: _kOwnerAsMaster,
+        extraOverrides: <Object>[
+          mySalonsProvider.overrideWith(_SettledMySalons.new),
+        ],
+      );
+
+      expect(
+        find.byKey(const Key('salon-staff-profile-schedule-row')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-services-row')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-read-only')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an ADMIN viewing a NORMAL master keeps both cards, no '
+        'notice', (tester) async {
+      await _pumpRouted(
+        tester,
+        _kMasterId,
+        (ref) async => (_masterMember, _masterServices),
+        user: _kAdminViewer,
+      );
+
+      expect(
+        find.byKey(const Key('salon-staff-profile-schedule-row')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-services-row')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('salon-staff-profile-owner-row-read-only')),
+        findsNothing,
+      );
     });
   });
 
@@ -2378,6 +2535,50 @@ void main() {
           .toString();
 
       expect(after, before, reason: 'no navigation on a disabled card');
+      expect(find.byType(_ServicesRouteMarker), findsNothing);
+    });
+
+    testWidgets("an ADMIN viewing the OWNER's row: category cards are "
+        'non-interactive (no chevron) and a tap navigates nowhere', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      const SalonStaffMember ownerRow = SalonStaffMember(
+        userId: _kMasterId,
+        masterId: 'master-row-owner-1',
+        role: SalonStaffRole.master,
+        masterType: MasterType.salonOwner,
+        firstName: 'Оксана',
+        lastName: 'Швець',
+      );
+      final GoRouter router = buildServicesRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._overrides(_kMasterId, (ref) async => (ownerRow, _masterServices)),
+          authProvider.overrideWith(() => _StubAuthNotifier(_kAdminViewer)),
+        ],
+      );
+      await tester.pumpAndSettle();
+      await openServicesTab(tester);
+
+      final Finder card = find.byKey(const Key('staff-profile-category-NAILS'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.byIcon(Icons.arrow_forward_ios_rounded),
+        ),
+        findsNothing,
+        reason: 'interactive == false → no forward chevron',
+      );
+      await tester.tap(card);
+      await tester.pumpAndSettle();
       expect(find.byType(_ServicesRouteMarker), findsNothing);
     });
 

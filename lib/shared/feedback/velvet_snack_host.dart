@@ -435,6 +435,7 @@ class _VelvetSnackScopeState extends State<_VelvetSnackScope>
       bottom: bottom,
       child: Material(
         type: MaterialType.transparency,
+        // dim-decorative: snack enter/exit; 1 while shown
         child: FadeTransition(
           opacity: _fade,
           child: SlideTransition(

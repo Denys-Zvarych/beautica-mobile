@@ -1184,4 +1184,63 @@ void main() {
       verifyNever(() => handler.next(any()));
     });
   });
+
+  group('ErrorMapperInterceptor — notifications 429 (phase 359)', () {
+    DioException throttled(String path, {String? retryAfter}) {
+      final opts = _opts(path: path);
+      return DioException(
+        requestOptions: opts,
+        response: Response<dynamic>(
+          requestOptions: opts,
+          statusCode: 429,
+          headers: retryAfter == null
+              ? Headers()
+              : Headers.fromMap({
+                  'retry-after': [retryAfter],
+                }),
+        ),
+        type: DioExceptionType.badResponse,
+      );
+    }
+
+    test('should_mapNotifications429_toTypedFailure', () {
+      for (final path in <String>[
+        '/api/v1/notifications',
+        '/api/v1/notifications/unread-count',
+        '/api/v1/notifications/read-all',
+        '/api/v1/notifications/abc-123/read',
+      ]) {
+        final rejected = _captureRejected(throttled(path, retryAfter: '45'));
+        expect(
+          rejected.error,
+          isA<NotificationsRateLimitedFailure>(),
+          reason: path,
+        );
+        expect(
+          (rejected.error as NotificationsRateLimitedFailure).retryAfterSeconds,
+          45,
+        );
+      }
+    });
+
+    test('should_yieldNullOrClamped_when_retryAfterAbsentUnparsableOrHuge', () {
+      int? seconds(String? h) =>
+          (_captureRejected(
+                    throttled('/api/v1/notifications', retryAfter: h),
+                  ).error
+                  as NotificationsRateLimitedFailure)
+              .retryAfterSeconds;
+      // `null` = absent (failure contract); never 0 ("retry now") so the
+      // phase-360 poller applies its own default backoff.
+      expect(seconds(null), isNull, reason: 'absent');
+      expect(seconds('Wed, 21 Oct 2026 07:28:00 GMT'), isNull, reason: 'date');
+      expect(seconds('-5'), isNull, reason: 'negative');
+      expect(seconds('abc'), isNull, reason: 'non-numeric');
+      expect(seconds('0'), isNull, reason: 'zero');
+      expect(seconds('9999'), 3600, reason: 'clamped, not dropped');
+      expect(seconds('999999999'), 3600, reason: 'clamped, not dropped');
+      expect(seconds('1'), 1);
+      expect(seconds('30'), 30);
+    });
+  });
 }

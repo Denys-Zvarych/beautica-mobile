@@ -107,6 +107,34 @@ Future<Set<DateTime>> bookedDays(Ref ref) => _bookedDaysWindow(ref, (
   return repo.getMyBookedDays(from: from, to: to, cancelToken: cancelToken);
 });
 
+/// [bookedDays]' owner-as-master twin (phase 382 / 24.1e) — the days on which
+/// a `SALON_OWNER`'s OWN master row has at least one booking
+/// (`GET /bookings/me/booked-days?asMaster=true`, backend phase 354), rather
+/// than every booking of every salon they own. Feeds the owner master-mode
+/// «Записи» rail (phase 383). Same shared [_bookedDaysWindow] body, so it
+/// cannot drift from [bookedDays] on caching, cancellation, session watch or
+/// window arithmetic.
+///
+/// A separate provider rather than a parameter on [bookedDays]: turning that
+/// singleton into a family would change `bookedDaysProvider`'s shape for
+/// every existing consumer and invalidation site.
+///
+/// Generated provider name: `ownerMasterBookedDaysProvider`.
+@riverpod
+Future<Set<DateTime>> ownerMasterBookedDays(Ref ref) => _bookedDaysWindow(ref, (
+  BookingRepository repo,
+  DateTime from,
+  DateTime to,
+  CancelToken cancelToken,
+) {
+  return repo.getMyBookedDays(
+    from: from,
+    to: to,
+    cancelToken: cancelToken,
+    asMaster: true,
+  );
+});
+
 /// [bookedDays]' salon-wide twin — the days on which [salonId] has at least
 /// one booking, across today ± [kBookedDaysSpanDays]. Feeds the salon
 /// «Записи» board's day-rail dots.

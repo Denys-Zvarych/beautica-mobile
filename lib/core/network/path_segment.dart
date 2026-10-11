@@ -113,3 +113,20 @@ String encodePathSegment(String value, String name, {required String logTag}) {
   }
   return encoded;
 }
+
+/// Server ids are UUIDs, but fake/dev ids are slugs — so the gate is "one
+/// plain id token" (letters, digits, `-`, `_`, 1-64 chars), which every UUID
+/// satisfies. Stricter than [encodePathSegment]: use it to reject a malformed
+/// id BEFORE any request is built.
+///
+/// Returns [value] unchanged; throws [ValidationFailure] keyed by [name].
+/// PROMOTED out of `booking_repository.dart`; other call sites are not yet
+/// swept onto it.
+String requirePathIdToken(String value, String name) {
+  if (!_idToken.hasMatch(value)) {
+    throw ValidationFailure(fieldErrors: <String, String>{name: 'invalid'});
+  }
+  return value;
+}
+
+final RegExp _idToken = RegExp(r'^[A-Za-z0-9_-]{1,64}$');

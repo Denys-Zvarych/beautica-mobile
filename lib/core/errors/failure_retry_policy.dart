@@ -181,6 +181,7 @@ bool isThrottleFailure(Failure failure) =>
     failure is AccountDeleteRateLimitedFailure ||
     failure is SalonBoardRateLimitedFailure ||
     failure is SettlementSearchRateLimitedFailure ||
+    failure is NotificationsRateLimitedFailure ||
     failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
@@ -230,6 +231,10 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   // really on `beauticaProviderRetry`'s path (`settlementSearchProvider` is a
   // provider BUILD), so [isThrottleFailure] is what stops the re-issue.
   SettlementSearchRateLimitedFailure() => true,
+  // 429 from the in-app notification feed's shared per-user 60/min bucket
+  // (backend phase 334). Same answer as the throttles above; the unread poll
+  // is a provider BUILD, so [isThrottleFailure] is what blocks re-issue.
+  NotificationsRateLimitedFailure() => true,
 
   // ---- deterministic: invite-accept post-success hand-off (2026-09-01) ---
   // The 2xx already happened server-side; a retry would resend a mutation

@@ -2,19 +2,31 @@
 //
 // The shared SALON_OWNER/SALON_ADMIN landing had ZERO direct coverage before
 // this file — only reached incidentally through the router-tier
-// `role_landing_chrome_test.dart`, whose ONE fixture (single primary salon)
-// never exercises the isPrimary edge cases, the zero-salon fallback, the
-// error/retry surface, or the admin null-salonId guard.
+// `role_landing_chrome_test.dart`, whose ONE fixture (single salon) never
+// exercises the selection chain, the zero-salon fallback, the error/retry
+// surface, or the admin null-salonId guard.
 //
-// Covers the full matrix documented on the screen itself:
-//   * SALON_OWNER, AsyncLoading                    -> loading skeleton.
-//   * SALON_OWNER, one isPrimary                    -> go to that salon's shell.
-//   * SALON_OWNER, no isPrimary at all (all null)    -> first salon in list.
-//   * SALON_OWNER, SEVERAL isPrimary                -> first salon (firstWhere,
-//     never singleWhere, which would throw on bad data).
-//   * SALON_OWNER, zero salons                       -> RouteNames.mySalons.
-//   * SALON_OWNER, AsyncError                        -> ErrorState + working retry.
-//   * SALON_ADMIN, salonId set                       -> synchronous go to shell.
+// Covers the full matrix documented on the screen itself. Phase 288 replaced
+// the owner's `isPrimary` pick with the last-visited chain (D1);
+// `lastVisitedSalonProvider` is overridden DIRECTLY in every owner case,
+// never through a storage fake:
+//   * SALON_OWNER, mySalons AsyncLoading             -> loading skeleton (8),
+//     and the pointer read has already STARTED — it overlaps the fetch (11).
+//   * SALON_OWNER, pointer AsyncLoading              -> loading skeleton, no
+//     forward (9).
+//   * SALON_OWNER, pointer = B for this user         -> shell B, even though A
+//     is `isPrimary` (1).
+//   * SALON_OWNER, no pointer                         -> first salon (2), and
+//     `isPrimary` is ignored — single, all-null or several-true (5).
+//   * SALON_OWNER, pointer to a salon not in the list -> first salon (3).
+//   * SALON_OWNER, pointer from ANOTHER user          -> first salon (4).
+//   * SALON_OWNER, zero salons                       -> RouteNames.mySalons,
+//     even while the pointer read never completes — the read may start, but
+//     the empty branch never WAITS on it (6).
+//   * SALON_OWNER, AsyncError                        -> ErrorState + working
+//     retry (10).
+//   * SALON_ADMIN, salonId set                       -> synchronous go to
+//     shell, and the pointer is never read (7).
 //   * SALON_ADMIN, salonId null                      -> a self-describing
 //     `SessionIncompleteFailure` + a retry that re-fetches the profile, and
 //     the forward-to-shell that follows once it arrives. NEVER blank, and
@@ -31,7 +43,9 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/last_visited_salon_provider.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/last_visited_salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_home_resolver_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -167,6 +181,44 @@ class _FlakyMySalons extends MySalons {
   }
 }
 
+/// Overrides `lastVisitedSalonProvider` to resolve to [pointer].
+Object _pointer(LastVisitedSalon? pointer) =>
+    lastVisitedSalonProvider.overrideWith((ref) async => pointer);
+
+/// Overrides `lastVisitedSalonProvider` with a read that NEVER completes.
+Object _pointerNeverResolves() => lastVisitedSalonProvider.overrideWith(
+  (ref) => Completer<LastVisitedSalon?>().future,
+);
+
+/// A pointer recorded by the signed-in owner ([_stubOwner]).
+LastVisitedSalon _ownPointer(String salonId) =>
+    LastVisitedSalon(userId: _stubOwner.id, salonId: salonId);
+
+/// Salons A, B, C where A is `isPrimary` and B is not — so the pre-Phase-288
+/// rule would pick A, and a pointer to B must MOVE the destination.
+const List<Salon> _abc = <Salon>[
+  Salon(id: 'salon-a', name: 'A', isPrimary: true),
+  Salon(id: 'salon-b', name: 'B', isPrimary: false),
+  Salon(id: 'salon-c', name: 'C', isPrimary: false),
+];
+
+/// [MySalons] stub that resolves to [salons], then lets the test drive a
+/// REAL post-settle `state = AsyncLoading()` — which Riverpod turns into an
+/// `AsyncLoading` still CARRYING the previous list (`copyWithPrevious`), the
+/// shape the screen's concrete-subtype gate exists for. (`ref.invalidate`
+/// cannot produce it here: a seamless reload settles as
+/// `AsyncData(isLoading: true)`.)
+class _ReloadableMySalons extends MySalons {
+  _ReloadableMySalons(this.salons);
+
+  final List<Salon> salons;
+
+  @override
+  Future<List<Salon>> build() async => salons;
+
+  void startReloading() => state = const AsyncLoading<List<Salon>>();
+}
+
 GoRouter _router() => GoRouter(
   initialLocation: RouteNames.salonHome,
   routes: <RouteBase>[
@@ -191,98 +243,271 @@ GoRouter _router() => GoRouter(
 
 void main() {
   group('SALON_OWNER', () {
-    testWidgets('AsyncLoading -> the loading skeleton renders', (tester) async {
-      await tester.pumpRoutedApp(
-        _router(),
-        overrides: <Object>[
-          authProvider.overrideWith(_OwnerAuthNotifier.new),
-          mySalonsProvider.overrideWith(_NeverResolvingMySalons.new),
-        ],
-      );
-      // Bounded pump — mySalonsProvider never resolves, so pumpAndSettle
-      // would hang on the repeating shimmer.
-      await tester.pump();
-
-      expect(
-        find.byKey(const Key('salon-home-resolver-loading')),
-        findsOneWidget,
-      );
-      expect(find.byType(SkeletonShimmerScope), findsOneWidget);
-      expect(find.byKey(const Key('shell-stub-salon-a')), findsNothing);
-    });
-
     testWidgets(
-      'one isPrimary salon among others -> forwards to THAT salon\'s shell',
+      '8 should_notNavigate_when_mySalonsIsStillLoading — the loading '
+      'skeleton renders',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
           overrides: <Object>[
             authProvider.overrideWith(_OwnerAuthNotifier.new),
-            mySalonsProvider.overrideWith(
-              () => _ResolvedMySalons(const <Salon>[
-                Salon(id: 'salon-a', name: 'A', isPrimary: false),
-                Salon(id: 'salon-b', name: 'B', isPrimary: true),
-                Salon(id: 'salon-c', name: 'C', isPrimary: false),
-              ]),
-            ),
+            mySalonsProvider.overrideWith(_NeverResolvingMySalons.new),
+            _pointer(_ownPointer('salon-a')),
+          ],
+        );
+        // Bounded pump — mySalonsProvider never resolves, so pumpAndSettle
+        // would hang on the repeating shimmer.
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('salon-home-resolver-loading')),
+          findsOneWidget,
+        );
+        expect(find.byType(SkeletonShimmerScope), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-a')), findsNothing);
+      },
+    );
+
+    // Phase 288 audit (mobile-perf MEDIUM) — the pointer read must OVERLAP
+    // the network fetch, not start after it. MUTATION CHECK: moving the
+    // `lastVisitedSalonProvider` watch back below the `salons.isEmpty` branch
+    // turns this RED.
+    testWidgets(
+      '11 should_startPointerRead_when_mySalonsIsStillLoading — the storage '
+      'read overlaps the network fetch',
+      (tester) async {
+        bool pointerRead = false;
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(_OwnerAuthNotifier.new),
+            mySalonsProvider.overrideWith(_NeverResolvingMySalons.new),
+            lastVisitedSalonProvider.overrideWith((ref) async {
+              pointerRead = true;
+              return _ownPointer('salon-a');
+            }),
+          ],
+        );
+        // Bounded pump — mySalonsProvider never resolves.
+        await tester.pump();
+
+        expect(
+          pointerRead,
+          isTrue,
+          reason: 'the slot read must start while mySalons is still loading',
+        );
+        expect(
+          find.byKey(const Key('salon-home-resolver-loading')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('shell-stub-salon-a')), findsNothing);
+      },
+    );
+
+    // D4 pin for the `mySalonsProvider` concrete-subtype gate. Case 8 alone
+    // cannot catch a gate relaxed to `.value`: a first-ever `AsyncLoading`
+    // has no value either way. This fixture produces the shape that CAN —
+    // a re-loading `AsyncLoading` still carrying the previous list.
+    // MUTATION CHECK: `final List<Salon>? salons = mySalonsAsync.value;`
+    // turns this RED (forwards into `salon-stale`).
+    testWidgets(
+      '8b should_notNavigate_when_mySalonsIsReloadingWithAStaleValue',
+      (tester) async {
+        final Completer<LastVisitedSalon?> pointerRead =
+            Completer<LastVisitedSalon?>();
+        final _ReloadableMySalons notifier = _ReloadableMySalons(const <Salon>[
+          Salon(id: 'salon-stale', name: 'Stale'),
+        ]);
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(_OwnerAuthNotifier.new),
+            mySalonsProvider.overrideWith(() => notifier),
+            lastVisitedSalonProvider.overrideWith((ref) => pointerRead.future),
+          ],
+        );
+        // fixed-wait-ok (pump-bounded): repeating shimmer.
+        await tester.pump();
+        await tester.pump();
+
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(SalonHomeResolverScreen)),
+        );
+        // Precondition: the list resolved; only the pointer holds the gate.
+        expect(container.read(mySalonsProvider), isA<AsyncData<List<Salon>>>());
+
+        notifier.startReloading();
+        await tester.pump();
+        final AsyncValue<List<Salon>> reloading = container.read(
+          mySalonsProvider,
+        );
+        expect(reloading, isA<AsyncLoading<List<Salon>>>());
+        expect(
+          reloading.value,
+          isNotNull,
+          reason: 'the fixture must carry a stale value, or this is vacuous',
+        );
+
+        pointerRead.complete(null);
+        for (int i = 0; i < 10; i++) {
+          // fixed-wait-ok: one step of a bounded loop — the forward this pins
+          // the absence of is post-frame.
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+
+        expect(find.byKey(const Key('shell-stub-salon-stale')), findsNothing);
+        expect(
+          find.byKey(const Key('salon-home-resolver-loading')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '9 should_notNavigate_when_pointerIsStillLoading — salons resolved, '
+      'the slot read never completes -> skeleton, no forward',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(_OwnerAuthNotifier.new),
+            mySalonsProvider.overrideWith(() => _ResolvedMySalons(_abc)),
+            _pointerNeverResolves(),
+          ],
+        );
+        // fixed-wait-ok (pump-bounded): the shimmer repeats, so
+        // pumpAndSettle never returns; the forward this pins the absence of
+        // is post-frame, so pump several frames.
+        for (int i = 0; i < 10; i++) {
+          // fixed-wait-ok: one step of the bounded loop above.
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+
+        expect(
+          find.byKey(const Key('salon-home-resolver-loading')),
+          findsOneWidget,
+        );
+        for (final Salon s in _abc) {
+          expect(find.byKey(Key('shell-stub-${s.id}')), findsNothing);
+        }
+      },
+    );
+
+    testWidgets(
+      '1 should_openLastVisitedSalon_when_ownerRelaunches — pointer = B, '
+      'A is isPrimary -> shell B',
+      (tester) async {
+        await tester.pumpRoutedApp(
+          _router(),
+          overrides: <Object>[
+            authProvider.overrideWith(_OwnerAuthNotifier.new),
+            mySalonsProvider.overrideWith(() => _ResolvedMySalons(_abc)),
+            _pointer(_ownPointer('salon-b')),
           ],
         );
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('shell-stub-salon-b')), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-a')), findsNothing);
       },
     );
 
+    testWidgets('2 should_openFirstSalon_when_noLastVisitedStored', (
+      tester,
+    ) async {
+      await tester.pumpRoutedApp(
+        _router(),
+        overrides: <Object>[
+          authProvider.overrideWith(_OwnerAuthNotifier.new),
+          mySalonsProvider.overrideWith(() => _ResolvedMySalons(_abc)),
+          _pointer(null),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('shell-stub-salon-a')), findsOneWidget);
+    });
+
     testWidgets(
-      'no salon has isPrimary set (all null) -> falls back to the FIRST '
-      'salon in the list',
+      '3 should_openFirstSalon_when_lastVisitedSalonIsNoLongerInTheList — '
+      'a stale pointer self-heals, never navigates to the missing salon',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
           overrides: <Object>[
             authProvider.overrideWith(_OwnerAuthNotifier.new),
-            mySalonsProvider.overrideWith(
-              () => _ResolvedMySalons(const <Salon>[
-                Salon(id: 'salon-first', name: 'First'),
-                Salon(id: 'salon-second', name: 'Second'),
-              ]),
-            ),
+            mySalonsProvider.overrideWith(() => _ResolvedMySalons(_abc)),
+            _pointer(_ownPointer('salon-deleted')),
           ],
         );
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('shell-stub-salon-first')), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-a')), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-deleted')), findsNothing);
       },
     );
 
     testWidgets(
-      'SEVERAL salons have isPrimary true (bad data) -> falls back to the '
-      'FIRST salon instead of throwing (firstWhere, never singleWhere)',
+      '4 should_openFirstSalon_when_storedUserIdDoesNotMatchSession',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
           overrides: <Object>[
             authProvider.overrideWith(_OwnerAuthNotifier.new),
-            mySalonsProvider.overrideWith(
-              () => _ResolvedMySalons(const <Salon>[
-                Salon(id: 'salon-p1', name: 'P1', isPrimary: true),
-                Salon(id: 'salon-p2', name: 'P2', isPrimary: true),
-              ]),
+            mySalonsProvider.overrideWith(() => _ResolvedMySalons(_abc)),
+            _pointer(
+              const LastVisitedSalon(
+                userId: 'someone-else',
+                salonId: 'salon-b',
+              ),
             ),
           ],
         );
-        // If the production code used `singleWhere` this would THROW inside
-        // build() instead of settling — pumpAndSettle would surface that as
-        // a failed test via the uncaught FlutterError.
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('shell-stub-salon-p1')), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-a')), findsOneWidget);
+        expect(find.byKey(const Key('shell-stub-salon-b')), findsNothing);
       },
     );
 
+    group('5 should_ignoreIsPrimary_when_noPointer', () {
+      final Map<String, List<Salon>> fixtures = <String, List<Salon>>{
+        'B alone is isPrimary': const <Salon>[
+          Salon(id: 'salon-a', name: 'A', isPrimary: false),
+          Salon(id: 'salon-b', name: 'B', isPrimary: true),
+          Salon(id: 'salon-c', name: 'C', isPrimary: false),
+        ],
+        'isPrimary all null': const <Salon>[
+          Salon(id: 'salon-a', name: 'A'),
+          Salon(id: 'salon-b', name: 'B'),
+        ],
+        'several isPrimary true (bad data)': const <Salon>[
+          Salon(id: 'salon-a', name: 'A', isPrimary: false),
+          Salon(id: 'salon-b', name: 'B', isPrimary: true),
+          Salon(id: 'salon-c', name: 'C', isPrimary: true),
+        ],
+      };
+      for (final MapEntry<String, List<Salon>> f in fixtures.entries) {
+        testWidgets('${f.key} -> the FIRST salon (A)', (tester) async {
+          await tester.pumpRoutedApp(
+            _router(),
+            overrides: <Object>[
+              authProvider.overrideWith(_OwnerAuthNotifier.new),
+              mySalonsProvider.overrideWith(() => _ResolvedMySalons(f.value)),
+              _pointer(null),
+            ],
+          );
+          await tester.pumpAndSettle();
+
+          expect(find.byKey(const Key('shell-stub-salon-a')), findsOneWidget);
+        });
+      }
+    });
+
     testWidgets(
-      'zero salons -> forwards to the My Salons hub, not a shell with no '
-      'salonId',
+      '6 should_forwardToMySalons_when_ownerHasNoSalons — even while the '
+      'pointer read never completes (the empty branch does not wait on '
+      'storage)',
       (tester) async {
         await tester.pumpRoutedApp(
           _router(),
@@ -291,6 +516,7 @@ void main() {
             mySalonsProvider.overrideWith(
               () => _ResolvedMySalons(const <Salon>[]),
             ),
+            _pointerNeverResolves(),
           ],
         );
         await tester.pumpAndSettle();
@@ -300,8 +526,8 @@ void main() {
     );
 
     testWidgets(
-      'AsyncError -> ErrorState renders with a WORKING retry that recovers '
-      'to the resolved shell',
+      '10 should_showErrorWithRetry_when_mySalonsFails — ErrorState renders '
+      'with a WORKING retry that recovers to the resolved shell',
       (tester) async {
         final flaky = _FlakyMySalons(const <Salon>[
           Salon(id: 'salon-recovered', name: 'Recovered', isPrimary: true),
@@ -311,6 +537,7 @@ void main() {
           overrides: <Object>[
             authProvider.overrideWith(_OwnerAuthNotifier.new),
             mySalonsProvider.overrideWith(() => flaky),
+            _pointer(null),
           ],
           // Disable the ambient retry policy so the AsyncError actually
           // settles and renders ErrorState instead of being retried away by
@@ -345,14 +572,24 @@ void main() {
   });
 
   group('SALON_ADMIN', () {
-    testWidgets('salonId set -> forwards SYNCHRONOUSLY to that salon\'s shell '
-        '(no mySalonsProvider watch at all)', (tester) async {
+    testWidgets('7 should_useSessionSalonId_when_roleIsSalonAdmin — forwards '
+        'SYNCHRONOUSLY to that salon\'s shell (no mySalonsProvider watch, and '
+        'the last-visited pointer is never read)', (tester) async {
+      bool pointerRead = false;
       await tester.pumpRoutedApp(
         _router(),
         overrides: <Object>[
           authProvider.overrideWith(
             () => _AdminAuthNotifier('salon-admin-own'),
           ),
+          lastVisitedSalonProvider.overrideWith((ref) async {
+            pointerRead = true;
+            // A pointer that WOULD move the admin, were it consulted.
+            return const LastVisitedSalon(
+              userId: 'admin-resolver-1',
+              salonId: 'salon-elsewhere',
+            );
+          }),
         ],
       );
       await tester.pumpAndSettle();
@@ -360,6 +597,11 @@ void main() {
       expect(
         find.byKey(const Key('shell-stub-salon-admin-own')),
         findsOneWidget,
+      );
+      expect(
+        pointerRead,
+        isFalse,
+        reason: 'the admin arm must never touch the lastSalon slot',
       );
     });
 

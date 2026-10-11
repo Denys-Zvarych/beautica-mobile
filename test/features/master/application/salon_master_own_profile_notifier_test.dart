@@ -281,4 +281,112 @@ void main() {
       verifyNever(() => salonRepo.getSalonById(any()));
     });
   });
+
+  // Phase 367 fix — the loader selects `masterIgnoringAvatar` (the owner
+  // loader's selector): `SalonMasterProfileScreen` reads the photo straight
+  // off `masterProfileProvider`, so an avatar-only patch of the cached master
+  // row must not rebuild this loader (that rebuild flashed the skeleton and
+  // refetched the services + salon). Both halves are pinned: a NON-avatar
+  // change — and an identity change — must still rebuild it.
+  // MUTATION CHECK: reverting to `ref.watch(masterProfileProvider.future)`
+  // turns the "avatar-only" half red (states gain a reload, calls go to 2).
+  group('masterProfile changes (Phase 367 fix)', () {
+    late _MockServiceRepository serviceRepo;
+    late _MockSalonRepository salonRepo;
+    late int servicesCalls;
+    late int salonCalls;
+
+    setUp(() {
+      servicesCalls = 0;
+      salonCalls = 0;
+      serviceRepo = _MockServiceRepository();
+      when(() => serviceRepo.getMasterServices(any())).thenAnswer((_) async {
+        servicesCalls++;
+        return _services;
+      });
+      salonRepo = _MockSalonRepository();
+      when(() => salonRepo.getSalonById(any())).thenAnswer((_) async {
+        salonCalls++;
+        return _salon;
+      });
+    });
+
+    void setMaster(ProviderContainer container, Master master) {
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      container.read(masterProfileProvider.notifier).state = AsyncData<Master>(
+        master,
+      );
+    }
+
+    test('an avatar-only patch does NOT rebuild the loader or refetch; a bio '
+        'change does', () async {
+      final container = makeContainer(
+        master: _masterWithSalon,
+        serviceRepo: serviceRepo,
+        salonRepo: salonRepo,
+      );
+      final List<AsyncValue<SalonMasterOwnProfileData>> states =
+          <AsyncValue<SalonMasterOwnProfileData>>[];
+      final sub = container.listen(
+        salonMasterOwnProfileProvider,
+        (_, AsyncValue<SalonMasterOwnProfileData> next) => states.add(next),
+      );
+      addTearDown(sub.close);
+      await container.read(salonMasterOwnProfileProvider.future);
+      expect((servicesCalls, salonCalls), (1, 1));
+      states.clear();
+
+      expect(
+        container
+            .read(masterProfileProvider.notifier)
+            .patchAvatarUrl('https://media.test/avatars/u9/new.jpg'),
+        isTrue,
+      );
+      await Future<void>.delayed(Duration.zero);
+      final SalonMasterOwnProfileData afterPatch = await container.read(
+        salonMasterOwnProfileProvider.future,
+      );
+      expect(states, isEmpty, reason: 'avatar-only patch: no rebuild at all');
+      expect((servicesCalls, salonCalls), (1, 1), reason: 'no refetch');
+      expect(
+        afterPatch.$1.avatarUrl,
+        isNull,
+        reason:
+            'the record is avatar-stripped; the screen reads the photo '
+            'from masterProfileProvider',
+      );
+
+      setMaster(container, _masterWithSalon.copyWith(bio: 'Новий опис'));
+      await Future<void>.delayed(Duration.zero);
+      final SalonMasterOwnProfileData afterBio = await container.read(
+        salonMasterOwnProfileProvider.future,
+      );
+      expect(afterBio.$1.bio, 'Новий опис');
+      expect(
+        (servicesCalls, salonCalls),
+        (2, 2),
+        reason: 'a real master edit still flows',
+      );
+    });
+
+    test('an identity change (different master id) still rebuilds', () async {
+      final container = makeContainer(
+        master: _masterWithSalon,
+        serviceRepo: serviceRepo,
+        salonRepo: salonRepo,
+      );
+      final sub = container.listen(salonMasterOwnProfileProvider, (_, _) {});
+      addTearDown(sub.close);
+      await container.read(salonMasterOwnProfileProvider.future);
+
+      setMaster(container, _masterNoSalon);
+      await Future<void>.delayed(Duration.zero);
+      final SalonMasterOwnProfileData data = await container.read(
+        salonMasterOwnProfileProvider.future,
+      );
+      expect(data.$1.id, _masterNoSalon.id);
+      expect(data.$3, isNull, reason: 'the new master has no salon');
+      verify(() => serviceRepo.getMasterServices(_masterNoSalon.id)).called(1);
+    });
+  });
 }

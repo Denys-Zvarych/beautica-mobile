@@ -60,10 +60,13 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/home/application/home_hub_notifier.dart';
+import 'package:beautica_mobile/features/home/presentation/client_personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/home/domain/home_hub_models.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
+import 'package:beautica_mobile/features/master/presentation/personal_info_edit_screen.dart';
 import 'package:beautica_mobile/features/rating/application/my_rating_notifier.dart';
 import 'package:beautica_mobile/features/rating/domain/client_rating.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
@@ -104,6 +107,7 @@ import 'package:go_router/go_router.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -331,6 +335,14 @@ const _unauthenticatedSession = AsyncData<AuthSession>(
   AuthSession.unauthenticated(),
 );
 
+/// Phase 367 QA — settles `/owner/edit/personal`'s own data source
+/// (`clientEditProfileProvider`, `GET /users/me`) for the ADMITTED owner row,
+/// so [ClientPersonalInfoEditScreen] mounts without a Dio request.
+class _SettledOwnerEditProfile extends ClientEditProfile {
+  @override
+  Future<User> build() async => _ownerUser;
+}
+
 /// [AuthNotifier] stub that immediately settles to a fixed [AsyncValue] —
 /// mirrors `booking_route_guard_test.dart`'s `_FixedAuthNotifier`.
 class _FixedAuthNotifier extends AuthNotifier {
@@ -385,8 +397,11 @@ void main() {
       // deliberately (see `_NeverResolvingMySalons`'s own doc for why an
       // explicit stub is still worth having).
       MySalons Function()? mySalonsOverride,
+      // Phase 367 QA — additive: extra overrides for one group's ADMITTED
+      // screen. Empty for every pre-existing row.
+      List<Object> extraOverrides = const <Object>[],
     }) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
@@ -478,9 +493,9 @@ void main() {
           approvedCategoriesProvider.overrideWith(
             (_) async => const <ServiceCategoryOption>[],
           ),
+          ...extraOverrides,
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
@@ -568,10 +583,12 @@ void main() {
       // MySalonsScreen, disposing its shimmer controller before any
       // subsequent `pumpAndSettle()`.
       bool initialSettle = true,
+      List<Object> extraOverrides = const <Object>[],
     }) async {
       final container = makeContainer(
         session,
         mySalonsOverride: mySalonsOverride,
+        extraOverrides: extraOverrides,
       );
       final router = container.read(appRouterProvider);
       addTearDown(router.dispose);
@@ -1390,6 +1407,98 @@ void main() {
         },
       );
 
+      testWidgets('phase 391: ?tab=reviews is parsed onto openReviewsTab', (
+        tester,
+      ) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+        );
+
+        router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+        await tester.pumpAndSettle();
+
+        expect(
+          locationOf(router),
+          equals('/salons/$_kSalonId/shell?tab=reviews'),
+        );
+        final SalonShellScreen shell = tester.widget(
+          find.byType(SalonShellScreen),
+        );
+        expect(shell.openReviewsTab, isTrue);
+        expect(shell.initialNavTab, isNull);
+        await tester.pumpWidget(const SizedBox());
+        // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+        await tester.pump(const Duration(minutes: 6));
+      });
+
+      // `?tab` parse (allow-list, EXACT-match, case-sensitive). Documented
+      // outcomes: `Reviews` (wrong case), empty and unknown values are ignored
+      // -> «Про салон» (no tab flags). A DUPLICATE key resolves to the LAST
+      // value (`Uri.queryParameters`), so `tab=reviews&tab=team` is the team
+      // landing and `tab=team&tab=reviews` the reviews landing.
+      for (final ({String query, bool reviews, int? navTab}) c
+          in <({String query, bool reviews, int? navTab})>[
+            (query: 'tab=bogus', reviews: false, navTab: null),
+            (query: 'tab=Reviews', reviews: false, navTab: null),
+            (query: 'tab=', reviews: false, navTab: null),
+            (query: 'tab', reviews: false, navTab: null),
+            (query: 'tab=reviews&tab=team', reviews: false, navTab: 2),
+            (query: 'tab=team&tab=reviews', reviews: true, navTab: null),
+          ]) {
+        testWidgets('phase 391: ?${c.query} -> openReviewsTab=${c.reviews}, '
+            'initialNavTab=${c.navTab}', (tester) async {
+          final router = await pumpRouterAs(
+            tester,
+            _ownerSession,
+            mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+          );
+
+          router.go('/salons/$_kSalonId/shell?${c.query}');
+          await tester.pumpAndSettle();
+
+          final SalonShellScreen shell = tester.widget(
+            find.byType(SalonShellScreen),
+          );
+          expect(shell.openReviewsTab, c.reviews);
+          expect(shell.initialNavTab, c.navTab);
+          await tester.pumpWidget(const SizedBox());
+          // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+          await tester.pump(const Duration(minutes: 6));
+        });
+      }
+
+      testWidgets('phase 391: SALON_ADMIN on their own salon with '
+          '?tab=reviews is admitted with openReviewsTab', (tester) async {
+        final router = await pumpRouterAs(tester, _adminSession);
+
+        router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+        await tester.pumpAndSettle();
+
+        final SalonShellScreen shell = tester.widget(
+          find.byType(SalonShellScreen),
+        );
+        expect(shell.openReviewsTab, isTrue);
+        expect(shell.salonId, _kSalonId);
+        await tester.pumpWidget(const SizedBox());
+        // fixed-wait-ok: crosses the reviews providers' 5-minute keepAlive TTL so no timer outlives the test
+        await tester.pump(const Duration(minutes: 6));
+      });
+
+      testWidgets(
+        'phase 391: SALON_MASTER with ?tab=reviews is still bounced',
+        (tester) async {
+          final router = await pumpRouterAs(tester, _salonMasterSession);
+
+          router.go(RouteNames.salonShell(_kSalonId, openReviews: true));
+          await tester.pumpAndSettle();
+
+          expect(find.byType(SalonShellScreen), findsNothing);
+          expect(locationOf(router), isNot(contains('/shell')));
+        },
+      );
+
       testWidgets('SALON_ADMIN is ADMITTED on their OWN salonId', (
         tester,
       ) async {
@@ -1920,6 +2029,64 @@ void main() {
         );
         expect(find.byType(SalonManagementProfileScreen), findsOneWidget);
       });
+    });
+
+    // Phase 367 (9.6, D6) — `/owner/edit/personal` reuses the SALON_OWNER-only
+    // `mySalonsGuard`. Before this group nothing exercised that `redirect:`
+    // on this route (`navigation_links_test` only resolves the path via
+    // `findMatch`, which never runs a redirect), so dropping or swapping the
+    // guard stayed green while every other role reached the owner's
+    // «Особисті дані».
+    group('/owner/edit/personal (Phase 367, mySalonsGuard)', () {
+      testWidgets('SALON_OWNER is ADMITTED onto the reused master '
+          'PersonalInfoEditScreen (Phase 399)', (tester) async {
+        final router = await pumpRouterAs(
+          tester,
+          _ownerSession,
+          mySalonsOverride: () => _ResolvedMySalons(const <Salon>[_kSalon]),
+          extraOverrides: <Object>[
+            clientEditProfileProvider.overrideWith(
+              _SettledOwnerEditProfile.new,
+            ),
+          ],
+        );
+
+        router.go(RouteNames.ownerEditPersonal);
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.ownerEditPersonal));
+        expect(find.byType(PersonalInfoEditScreen), findsOneWidget);
+        expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+      });
+
+      for (final (String label, AsyncValue<AuthSession> session, String home)
+          in <(String, AsyncValue<AuthSession>, String)>[
+            ('CLIENT', _clientSession, RouteNames.clientHome),
+            ('SALON_ADMIN', _adminSession, RouteNames.salonShell(_kSalonId)),
+            (
+              'SALON_MASTER',
+              _salonMasterSession,
+              RouteNames.salonMasterProfile,
+            ),
+            (
+              'INDEPENDENT_MASTER',
+              _independentSession,
+              RouteNames.masterProfile,
+            ),
+            ('unauthenticated', _unauthenticatedSession, RouteNames.login),
+          ]) {
+        testWidgets('$label is bounced off ${RouteNames.ownerEditPersonal} to '
+            '$home, never admitted', (tester) async {
+          final router = await pumpRouterAs(tester, session);
+
+          router.go(RouteNames.ownerEditPersonal);
+          await tester.pumpAndSettle();
+
+          expectBouncedTo(router, home);
+          expect(find.byType(PersonalInfoEditScreen), findsNothing);
+          expect(find.byType(ClientPersonalInfoEditScreen), findsNothing);
+        });
+      }
     });
   });
 }

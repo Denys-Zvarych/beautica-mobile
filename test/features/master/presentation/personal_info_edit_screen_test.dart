@@ -20,6 +20,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/domain/master_update.dart';
@@ -801,6 +802,264 @@ void main() {
       },
     );
   });
+
+  // Phase 399 — the owner settings hub reuses this screen via the additive
+  // doneRoute / backFallbackRoute params.
+  group('owner reuse (phase 399)', () {
+    const ownerCached = Master(
+      id: 'owner-1',
+      firstName: 'Оксана',
+      lastName: 'Власник',
+      bio: 'Стара біографія.',
+      professionalTitle: 'Стара посада',
+      phoneNumber: '+380 50 222 22 22',
+      instagram: '@oksana_salon',
+      reviewCount: 0,
+      type: MasterType.salonOwner,
+    );
+
+    GoRouter ownerRouter({
+      String? doneRoute,
+      String? backFallbackRoute,
+      List<AsyncValue<Object?>>? identityStates,
+    }) => GoRouter(
+      initialLocation: RouteNames.ownerEditPersonal,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.ownerEditPersonal,
+          pageBuilder: (_, _) => NoTransitionPage<void>(
+            child: Stack(
+              children: <Widget>[
+                PersonalInfoEditScreen(
+                  doneRoute: doneRoute,
+                  backFallbackRoute: backFallbackRoute,
+                ),
+                if (identityStates != null)
+                  _IdentityWatcher(states: identityStates),
+              ],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.ownerMasterProfile,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-owner-profile'))),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.ownerSettings,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-owner-settings'))),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.masterProfile,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-master-profile'))),
+          ),
+        ),
+        GoRoute(
+          path: RouteNames.masterMenu,
+          pageBuilder: (_, _) => const NoTransitionPage<void>(
+            child: Scaffold(body: SizedBox(key: Key('stub-master-menu'))),
+          ),
+        ),
+      ],
+    );
+
+    Future<void> editTitleAndSave(WidgetTester tester) async {
+      await tester.enterText(
+        _field('field-professionalTitle'),
+        'Майстер манікюру',
+      );
+      await tester.enterText(_field('field-bio'), 'Нова біографія.');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('owner save: sends title + bio with masterType salonOwner, '
+        'preserves phone + instagram, lands on doneRoute', (tester) async {
+      MasterUpdate? captured;
+      when(() => repo.updateMyProfile(any())).thenAnswer((i) async {
+        captured = i.positionalArguments.first as MasterUpdate;
+      });
+      await tester.pumpRoutedApp(
+        ownerRouter(doneRoute: RouteNames.ownerMasterProfile),
+        overrides: _overrides(repo, master: ownerCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await editTitleAndSave(tester);
+
+      expect(captured, isNotNull);
+      expect(captured!.masterType, MasterType.salonOwner);
+      expect(captured!.professionalTitle, 'Майстер манікюру');
+      expect(captured!.bio, 'Нова біографія.');
+      expect(captured!.instagram, '@oksana_salon');
+      expect(captured!.contactPhone, '+380 50 222 22 22');
+      expect(find.byKey(const Key('stub-owner-profile')), findsOneWidget);
+      expect(find.byKey(const Key('stub-master-profile')), findsNothing);
+    });
+
+    testWidgets('owner clears label + bio: sends empty strings (acceptance: '
+        '"clears")', (tester) async {
+      MasterUpdate? captured;
+      when(() => repo.updateMyProfile(any())).thenAnswer((i) async {
+        captured = i.positionalArguments.first as MasterUpdate;
+      });
+      await tester.pumpRoutedApp(
+        ownerRouter(doneRoute: RouteNames.ownerMasterProfile),
+        overrides: _overrides(repo, master: ownerCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.enterText(_field('field-professionalTitle'), '');
+      await tester.enterText(_field('field-bio'), '');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+
+      expect(captured, isNotNull);
+      expect(captured!.professionalTitle, isEmpty);
+      expect(captured!.bio, isEmpty);
+      expect(captured!.masterType, MasterType.salonOwner);
+      expect(find.byKey(const Key('stub-owner-profile')), findsOneWidget);
+    });
+
+    testWidgets('doneRoute null keeps masterHomeRouteFor (default unchanged)', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+      await tester.pumpRoutedApp(
+        ownerRouter(),
+        overrides: _overrides(repo, master: ownerCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await editTitleAndSave(tester);
+
+      expect(find.byKey(const Key('stub-master-profile')), findsOneWidget);
+      expect(find.byKey(const Key('stub-owner-profile')), findsNothing);
+    });
+
+    testWidgets('backFallbackRoute is honoured on back with no history', (
+      tester,
+    ) async {
+      await tester.pumpRoutedApp(
+        ownerRouter(backFallbackRoute: RouteNames.ownerSettings),
+        overrides: _overrides(repo, master: ownerCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-back-personal')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-owner-settings')), findsOneWidget);
+      expect(find.byKey(const Key('stub-master-menu')), findsNothing);
+    });
+
+    testWidgets('backFallbackRoute null keeps masterMenuRouteFor', (
+      tester,
+    ) async {
+      await tester.pumpRoutedApp(
+        ownerRouter(),
+        overrides: _overrides(repo, master: ownerCached),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('btn-back-personal')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-master-menu')), findsOneWidget);
+    });
+
+    testWidgets('save invalidates the /users/me identity provider too', (
+      tester,
+    ) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+      _CountingIdentity.builds = 0;
+      final List<AsyncValue<Object?>> states = <AsyncValue<Object?>>[];
+      await tester.pumpRoutedApp(
+        ownerRouter(
+          doneRoute: RouteNames.ownerMasterProfile,
+          identityStates: states,
+        ),
+        overrides: <Object>[
+          ..._overrides(repo, master: ownerCached),
+          clientEditProfileProvider.overrideWith(_CountingIdentity.new),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      final int before = _CountingIdentity.builds;
+      expect(before, greaterThan(0), reason: 'the watcher built it once');
+
+      await editTitleAndSave(tester);
+
+      expect(
+        _CountingIdentity.builds,
+        greaterThan(before),
+        reason: 'invalidateOwnIdentity must rebuild clientEditProfileProvider',
+      );
+    });
+
+    testWidgets('save button is inert with nothing changed (no PATCH, so no '
+        'identity refetch)', (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+      _CountingIdentity.builds = 0;
+      await tester.pumpRoutedApp(
+        ownerRouter(
+          doneRoute: RouteNames.ownerMasterProfile,
+          identityStates: <AsyncValue<Object?>>[],
+        ),
+        overrides: <Object>[
+          ..._overrides(repo, master: ownerCached),
+          clientEditProfileProvider.overrideWith(_CountingIdentity.new),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      final int before = _CountingIdentity.builds;
+      expect(before, greaterThan(0), reason: 'the watcher built it once');
+
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => repo.updateMyProfile(any()));
+      expect(_CountingIdentity.builds, before);
+    });
+
+    testWidgets('name change invalidates /users/me identity', (tester) async {
+      when(() => repo.updateMyProfile(any())).thenAnswer((_) async {});
+      _CountingIdentity.builds = 0;
+      await tester.pumpRoutedApp(
+        ownerRouter(
+          doneRoute: RouteNames.ownerMasterProfile,
+          identityStates: <AsyncValue<Object?>>[],
+        ),
+        overrides: <Object>[
+          ..._overrides(repo, master: ownerCached),
+          clientEditProfileProvider.overrideWith(_CountingIdentity.new),
+        ],
+      );
+      await tester.pump();
+      await tester.pump();
+      final int before = _CountingIdentity.builds;
+
+      await tester.enterText(_field('field-firstName'), 'Олена');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('btn-save-personal')));
+      await tester.pumpAndSettle();
+
+      expect(_CountingIdentity.builds, greaterThan(before));
+    });
+  });
 }
 
 /// Watches [masterProfileProvider] and records each emission so a test can
@@ -815,5 +1074,28 @@ class _InvalidationWatcher extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     states.add(ref.watch(masterProfileProvider));
     return child;
+  }
+}
+
+class _CountingIdentity extends ClientEditProfile {
+  static int builds = 0;
+
+  @override
+  Future<User> build() async {
+    builds++;
+    return _stubUser;
+  }
+}
+
+/// Keeps [clientEditProfileProvider] alive so an invalidation rebuilds it.
+class _IdentityWatcher extends ConsumerWidget {
+  const _IdentityWatcher({required this.states});
+
+  final List<AsyncValue<Object?>> states;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    states.add(ref.watch(clientEditProfileProvider));
+    return const SizedBox.shrink();
   }
 }

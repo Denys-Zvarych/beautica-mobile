@@ -83,6 +83,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../integration_test/support/app_harness.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/test_container.dart';
 
 const _testUser = User(
   id: 'u1',
@@ -125,14 +126,13 @@ void main() {
         // (fake_auth_repository.dart) for why this must be lazy.
         ..logoutDelayDuration = const Duration(milliseconds: 1500);
 
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
         ],
       );
-      addTearDown(container.dispose);
 
       // Drain the cold-start restore so authProvider settles to Authenticated
       // BEFORE the router is read.

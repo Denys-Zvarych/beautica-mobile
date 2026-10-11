@@ -176,7 +176,7 @@ No authorization required
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **uploadAvatar**
-> ApiResponseAvatarResponse uploadAvatar(uploadPortfolioPhotoRequest)
+> ApiResponseAvatarResponse uploadAvatar(file)
 
 
 
@@ -185,10 +185,10 @@ No authorization required
 import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getMediaControllerApi();
-final UploadPortfolioPhotoRequest uploadPortfolioPhotoRequest = ; // UploadPortfolioPhotoRequest | 
+final MultipartFile file = BINARY_DATA_HERE; // MultipartFile | 
 
 try {
-    final response = api.uploadAvatar(uploadPortfolioPhotoRequest);
+    final response = api.uploadAvatar(file);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling MediaControllerApi->uploadAvatar: $e\n');
@@ -199,7 +199,7 @@ try {
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **uploadPortfolioPhotoRequest** | [**UploadPortfolioPhotoRequest**](UploadPortfolioPhotoRequest.md)|  | [optional] 
+ **file** | **MultipartFile**|  | 
 
 ### Return type
 
@@ -211,13 +211,13 @@ No authorization required
 
 ### HTTP request headers
 
- - **Content-Type**: application/json
+ - **Content-Type**: multipart/form-data
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
 # **uploadPortfolioPhoto**
-> ApiResponseMediaFileResponse uploadPortfolioPhoto(uploadPortfolioPhotoRequest)
+> ApiResponseMediaFileResponse uploadPortfolioPhoto(file)
 
 
 
@@ -226,10 +226,10 @@ No authorization required
 import 'package:beautica_api/api.dart';
 
 final api = BeauticaApi().getMediaControllerApi();
-final UploadPortfolioPhotoRequest uploadPortfolioPhotoRequest = ; // UploadPortfolioPhotoRequest | 
+final MultipartFile file = BINARY_DATA_HERE; // MultipartFile | 
 
 try {
-    final response = api.uploadPortfolioPhoto(uploadPortfolioPhotoRequest);
+    final response = api.uploadPortfolioPhoto(file);
     print(response);
 } catch on DioException (e) {
     print('Exception when calling MediaControllerApi->uploadPortfolioPhoto: $e\n');
@@ -240,7 +240,7 @@ try {
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
- **uploadPortfolioPhotoRequest** | [**UploadPortfolioPhotoRequest**](UploadPortfolioPhotoRequest.md)|  | [optional] 
+ **file** | **MultipartFile**|  | 
 
 ### Return type
 
@@ -252,7 +252,7 @@ No authorization required
 
 ### HTTP request headers
 
- - **Content-Type**: application/json
+ - **Content-Type**: multipart/form-data
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

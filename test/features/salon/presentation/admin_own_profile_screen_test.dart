@@ -26,6 +26,11 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -63,6 +68,8 @@ import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -72,6 +79,7 @@ import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_master_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/fakes/fake_service_repository.dart';
+import '../../../helpers/test_container.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/reveal_boundary.dart';
 
@@ -282,7 +290,102 @@ class _RouterApp extends StatelessWidget {
   );
 }
 
+/// Phase 365 addendum — a global unread count of two, so the bell shows its dot.
+class _TwoUnread extends UnreadNotifications {
+  @override
+  FutureOr<int> build() => 2;
+}
+
 void main() {
+  _identityAvatarTests();
+  // Phase 365 addendum — the global notification bell, left of the tune button.
+  group('notification bell in the header (phase 365 addendum)', () {
+    GoRouter bellRouter() => GoRouter(
+      initialLocation: '/profile/admin',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/profile/admin',
+          builder: (_, _) => const AdminOwnProfileScreen(embedded: true),
+        ),
+        GoRoute(
+          path: RouteNames.notifications,
+          builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+      ],
+    );
+
+    Future<void> pumpBell(
+      WidgetTester tester,
+      GoRouter router, {
+      List<Object> extra = const <Object>[],
+    }) async {
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[..._overrides(_admin), ...extra],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_sitLeftOfTheTuneButton_with12dpGap', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      final Rect bell = tester.getRect(
+        find.byKey(const Key('admin-profile-bell')),
+      );
+      final Rect button = tester.getRect(
+        find.byKey(const Key('btn-admin-own-profile-settings')),
+      );
+      expect(bell.right, lessThan(button.left));
+      expect(button.left - bell.right, VelvetSpacing.sm + 4);
+    });
+
+    testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(
+        tester,
+        router,
+        extra: <Object>[
+          unreadNotificationsProvider.overrideWith(_TwoUnread.new),
+        ],
+      );
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationUnread,
+      );
+    });
+
+    testWidgets('should_showThePlainBell_whenNothingIsUnread', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationPlain,
+      );
+    });
+
+    testWidgets('should_pushTheFeed_whenTheBellIsTapped', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('admin-profile-bell')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('feed-stub'), findsOneWidget);
+      expect(router.canPop(), isTrue, reason: 'push, never go');
+    });
+  });
+
   // ---------------------------------------------------------------------
   // mobile-qa re-audit (cycle 2, 2026-09-05) — the REAL-TREE half of the
   // `RevealTransition` pin.
@@ -1075,7 +1178,7 @@ void main() {
     // at the `ProviderContainer` boundary infers the target — the same dodge
     // `test/helpers/pump_app.dart` documents for `ProviderScope.overrides`.
     ProviderContainer makeRouterContainer(Object authOverride) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: <Object>[
           authOverride,
@@ -1134,9 +1237,8 @@ void main() {
             (ref) async => const <TimelineEntry>[],
           ),
           myRatingProvider.overrideWith((ref) async => const ClientRating()),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
@@ -1930,4 +2032,71 @@ class _VisibilityHostState extends State<_VisibilityHost> {
       ),
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 367 (9.6) — the identity card carries the OWN avatar with the live
+// camera badge (the shared `SelfAvatarEditor`), sourced from the session user.
+// ---------------------------------------------------------------------------
+
+class _AvatarAuth extends AuthNotifier {
+  _AvatarAuth(this._u);
+  final User _u;
+  @override
+  Future<AuthSession> build() async =>
+      AuthSession.authenticated(user: _u, accessToken: 't');
+}
+
+void _identityAvatarTests() {
+  const String url = 'https://media.test/avatars/u1/1.jpg';
+  final Finder editor = find.descendant(
+    of: find.byKey(const Key('admin-own-profile-avatar-editor')),
+    matching: find.byType(NeumorphicAvatarEditor),
+    matchRoot: true,
+  );
+
+  group('identity avatar (Phase 367)', () {
+    for (final String? avatar in <String?>[url, null]) {
+      testWidgets('session avatar ${avatar ?? 'null'} -> '
+          '${avatar == null ? 'monogram' : 'photo'} + a live camera badge', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const AdminOwnProfileScreen(embedded: true),
+          overrides: <Object>[
+            ..._overrides(_admin),
+            authProvider.overrideWith(
+              () => _AvatarAuth(_admin.copyWith(avatarUrl: avatar)),
+            ),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        final NeumorphicAvatarEditor e = tester.widget<NeumorphicAvatarEditor>(
+          editor,
+        );
+        expect(e.imageUrl, avatar);
+        expect(
+          e.state,
+          avatar == null ? AvatarEditState.pristine : AvatarEditState.loaded,
+        );
+        expect(e.initials, 'ІА');
+        expect(
+          find.byType(ProfileAvatar),
+          findsNothing,
+          reason: 'own profile: no read-only well',
+        );
+        expect(find.byKey(const Key('avatar-edit-badge')), findsOneWidget);
+
+        // The badge is live: it opens the 071 source sheet.
+        await tester.tap(find.byKey(const Key('avatar-edit-badge')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+        expect(
+          find.byKey(const Key('image-source-remove')),
+          avatar == null ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+  });
 }

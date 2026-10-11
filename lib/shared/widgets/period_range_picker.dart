@@ -498,6 +498,7 @@ class _PeriodRangePickerState extends State<PeriodRangePicker> {
               VelvetSpacing.md,
               VelvetSpacing.md,
             ),
+            // dim-gated: test/features/schedule/presentation/period_range_picker_test.dart
             child: Opacity(
               opacity: _hasFullRange ? 1 : 0.55,
               child: IgnorePointer(

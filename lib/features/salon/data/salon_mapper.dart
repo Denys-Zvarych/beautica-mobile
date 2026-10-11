@@ -98,14 +98,14 @@ abstract final class SalonMapper {
   /// facing response) to the domain [Salon] model.
   ///
   /// [SalonResponse] carries `phone` — and so, as of the backend change that
-  /// closed the Phase 21.2 gap, does [PublicSalonResponse] ([fromDto]) — but
-  /// it does NOT carry `coverImageUrl`, `avgRating`, or
-  /// `reviewCount` (those are public-read-only aggregates). This method maps
-  /// every field [SalonResponse] DOES carry and leaves the three it doesn't
-  /// as `null`/`0` — callers (`SalonManagementProfile.save`) MUST merge those
-  /// three back in from the previously-loaded [Salon] via `copyWith` rather
-  /// than rendering this result directly, or the hero card's rating/review
-  /// count/cover photo would incorrectly reset after every save.
+  /// closed the Phase 21.2 gap, does [PublicSalonResponse] ([fromDto]) — and,
+  /// since backend 343 (Phase 369), `coverImageUrl` too (it is also the
+  /// answer of the salon logo / cover upload endpoint). It does NOT carry
+  /// `avgRating` or `reviewCount` (public-read-only aggregates): this method
+  /// leaves those two as `null`/`0` — callers (`SalonManagementProfile.save`)
+  /// MUST merge them back in from the previously-loaded [Salon] via
+  /// `copyWith` rather than rendering this result directly, or the hero
+  /// card's rating/review count would incorrectly reset after every save.
   ///
   /// Throws [ServerFailure] (statusCode `null`) when [dto.id] is absent,
   /// mirroring [fromDto].
@@ -147,9 +147,10 @@ abstract final class SalonMapper {
       phone: _blankToNull(dto.phone),
       instagramUrl: _blankToNull(dto.instagramUrl),
       avatarUrl: dto.avatarUrl,
+      // Phase 369 — carried since backend 343 (was hard-coded `null`).
+      coverImageUrl: dto.coverImageUrl,
       // Deliberately NOT carried by SalonResponse — see method doc. Callers
       // must copyWith these back in from the previous [Salon].
-      coverImageUrl: null,
       avgRating: null,
       reviewCount: 0,
       // Phase 21.1 — `SalonResponse.isPrimary` DOES carry this (unlike
@@ -397,11 +398,11 @@ abstract final class SalonInviteMapper {
 /// `GET /salons/{salonId}/sibling-salons` (Phase 21.6).
 ///
 /// The ONE mapper in this file whose input and output are the SAME type. The
-/// generated built_value model already carries exactly the four fields this
-/// endpoint sends (`id`, `name`, `street?`, `buildingNo?`) and is as narrow
-/// as the backend's `SiblingSalonOption.java` — re-projecting it onto a
-/// hand-written twin would only re-open, by hand, a shape the compiler now
-/// enforces. So this mapper does the two things the schema CANNOT express:
+/// generated built_value model already carries exactly the five fields this
+/// endpoint sends (`id`, `name`, `street?`, `buildingNo?`, `avatarUrl?`) and
+/// is as narrow as the backend's `SiblingSalonOption.java` — re-projecting it
+/// onto a hand-written twin would only re-open, by hand, a shape the compiler
+/// now enforces. So this mapper does the two things the schema CANNOT express:
 ///
 ///  * drops a row whose `id` is BLANK (`""` is a valid non-null `String` to
 ///    built_value, but an option with no id could not be submitted as a
@@ -409,8 +410,9 @@ abstract final class SalonInviteMapper {
 ///    card). One bad row must not blank the whole picker, so the drop is
 ///    logged, never thrown — the same fail-closed-per-row direction
 ///    [SalonInviteMapper.fromDtoList] takes.
-///  * collapses a blank/whitespace `street`/`buildingNo` to `null` (the same
-///    `""`-vs-null wire absorption [SalonMapper._blankToNull] performs) and
+///  * collapses a blank/whitespace `street`/`buildingNo`/`avatarUrl` to `null`
+///    (the same `""`-vs-null wire absorption [SalonMapper._blankToNull]
+///    performs) and
 ///    trims a padded one, so a renderer may treat non-null as "renderable".
 ///
 /// Wire ORDER is preserved: the picker renders rows as the backend sent them.
@@ -443,7 +445,10 @@ abstract final class SiblingSalonOptionMapper {
         dto.rebuild(
           (SiblingSalonOptionBuilder b) => b
             ..street = _stringOrNull(dto.street)
-            ..buildingNo = _stringOrNull(dto.buildingNo),
+            ..buildingNo = _stringOrNull(dto.buildingNo)
+            // Phase 369 — the logo; blank → null like the address parts.
+            // `SalonLogo` still gates it on `isAllowedMediaUrl`.
+            ..avatarUrl = _stringOrNull(dto.avatarUrl),
         ),
       );
     }

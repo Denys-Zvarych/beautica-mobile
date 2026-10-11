@@ -15,13 +15,19 @@ class _$SiblingSalonOption extends SiblingSalonOption {
   final String? street;
   @override
   final String? buildingNo;
+  @override
+  final String? avatarUrl;
 
   factory _$SiblingSalonOption(
           [void Function(SiblingSalonOptionBuilder)? updates]) =>
       (SiblingSalonOptionBuilder()..update(updates))._build();
 
   _$SiblingSalonOption._(
-      {required this.id, required this.name, this.street, this.buildingNo})
+      {required this.id,
+      required this.name,
+      this.street,
+      this.buildingNo,
+      this.avatarUrl})
       : super._();
   @override
   SiblingSalonOption rebuild(
@@ -39,7 +45,8 @@ class _$SiblingSalonOption extends SiblingSalonOption {
         id == other.id &&
         name == other.name &&
         street == other.street &&
-        buildingNo == other.buildingNo;
+        buildingNo == other.buildingNo &&
+        avatarUrl == other.avatarUrl;
   }
 
   @override
@@ -49,6 +56,7 @@ class _$SiblingSalonOption extends SiblingSalonOption {
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, street.hashCode);
     _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -59,7 +67,8 @@ class _$SiblingSalonOption extends SiblingSalonOption {
           ..add('id', id)
           ..add('name', name)
           ..add('street', street)
-          ..add('buildingNo', buildingNo))
+          ..add('buildingNo', buildingNo)
+          ..add('avatarUrl', avatarUrl))
         .toString();
   }
 }
@@ -84,6 +93,10 @@ class SiblingSalonOptionBuilder
   String? get buildingNo => _$this._buildingNo;
   set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
 
+  String? _avatarUrl;
+  String? get avatarUrl => _$this._avatarUrl;
+  set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
+
   SiblingSalonOptionBuilder() {
     SiblingSalonOption._defaults(this);
   }
@@ -95,6 +108,7 @@ class SiblingSalonOptionBuilder
       _name = $v.name;
       _street = $v.street;
       _buildingNo = $v.buildingNo;
+      _avatarUrl = $v.avatarUrl;
       _$v = null;
     }
     return this;
@@ -122,6 +136,7 @@ class SiblingSalonOptionBuilder
               name, r'SiblingSalonOption', 'name'),
           street: street,
           buildingNo: buildingNo,
+          avatarUrl: avatarUrl,
         );
     replace(_$result);
     return _$result;

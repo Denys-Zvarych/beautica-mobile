@@ -111,6 +111,7 @@ class _SlotChipState extends State<SlotChip> {
     }
 
     if (!widget.available) {
+      // dim-gated: test/features/booking/presentation/slot_picker_test.dart
       return Opacity(
         opacity: 0.7,
         child: SizedBox(

@@ -42,6 +42,7 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -206,5 +207,38 @@ void main() {
       isTrue,
       reason: 'OLDEST must reorder the list so mr-2 is above mr-1',
     );
+  }, timeout: const Timeout(Duration(seconds: 120)));
+
+  // Phase 24.5 — the «Послуги» tab body is the shared ProfileServicesTab:
+  // tapping a category card opens the owner's services list with THAT
+  // category expanded (FACE only — NAILS stays collapsed).
+  testWidgets('INDEPENDENT_MASTER: «Послуги» tab category card opens '
+      'ServicesListScreen with that category expanded', (tester) async {
+    final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+    final router = await AppHarness.boot(tester, fb);
+
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    // fixed-wait-ok: settles the real async login/route-transition + profile load.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    final Finder tab = find.byKey(const Key('master-profile-tab-1'));
+    await tester.ensureVisible(tab);
+    await tester.tap(tab);
+    // fixed-wait-ok: settles the tab switch + services provider load.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    final Finder card = find.byKey(const Key('profile-category-FACE'));
+    await tester.ensureVisible(card);
+    await tester.tap(card);
+    // fixed-wait-ok: settles the push transition + services list build.
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+
+    expect(find.byType(ServicesListScreen), findsOneWidget);
+    AppHarness.expectLocation(
+      router,
+      '${RouteNames.services}?expandCategory=FACE',
+    );
+    expect(find.byKey(const Key('service_card_assign-2')), findsOneWidget);
+    expect(find.byKey(const Key('service_card_assign-1')), findsNothing);
   }, timeout: const Timeout(Duration(seconds: 120)));
 }

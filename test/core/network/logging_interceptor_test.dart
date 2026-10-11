@@ -436,6 +436,56 @@ void main() {
     });
   });
 
+  group('LoggingInterceptor redacts /api/v1/devices/token (phase 067)', () {
+    const String fcmToken = 'fcm-secret-registration-token-XYZ';
+
+    for (final String method in <String>['POST', 'DELETE']) {
+      test('$method request body never reaches the log', () {
+        final sink = _CapturingSink();
+        final interceptor = LoggingInterceptor(sink: sink.call);
+        final handler = MockRequestHandler();
+        final opts = RequestOptions(
+          path: '/api/v1/devices/token',
+          method: method,
+          baseUrl: 'https://api.beautica.test',
+          data: {'token': fcmToken, 'platform': 'ANDROID'},
+        );
+
+        interceptor.onRequest(opts, handler);
+
+        expect(sink.only, isNot(contains(fcmToken)));
+        verify(() => handler.next(any())).called(1);
+      });
+
+      test('$method error body never reaches the log', () {
+        final sink = _CapturingSink();
+        final interceptor = LoggingInterceptor(sink: sink.call);
+        final handler = _MockErrorHandler();
+        final requestOptions = RequestOptions(
+          path: '/api/v1/devices/token',
+          method: method,
+          baseUrl: 'https://api.beautica.test',
+        );
+        final err = DioException(
+          requestOptions: requestOptions,
+          type: DioExceptionType.badResponse,
+          response: Response<dynamic>(
+            requestOptions: requestOptions,
+            statusCode: 400,
+            data: {'message': 'bad token $fcmToken'},
+          ),
+        );
+
+        interceptor.onError(err, handler);
+
+        final String logged = sink.only;
+        expect(logged, contains('body: [REDACTED]'));
+        expect(logged, isNot(contains(fcmToken)));
+        verify(() => handler.next(any())).called(1);
+      });
+    }
+  });
+
   // mobile-security HIGH mandatory companion (2026-09-01) — the SALON_MASTER
   // profile-save endpoint carries the same phone/bio/Instagram PII shape as
   // its `/independent-masters/me/profile` sibling (already covered by the

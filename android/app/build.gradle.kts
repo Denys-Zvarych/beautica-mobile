@@ -7,6 +7,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Phase 066 — Firebase push is opt-in at build time. google-services.json is
+// git-ignored and injected by scripts/deploy_apk*.sh; CI and fresh clones build
+// without it (push is then unavailable at runtime, see core/push/).
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.warn("google-services.json absent: building WITHOUT Firebase push")
+}
+
 android {
     namespace = "com.beautica.beautica_mobile"
     // Phase 0 — locked SDK levels per ARCHITECTURE-mobile.md § 2.
@@ -32,6 +41,15 @@ android {
     // flipping it off is an unrelated build-config change.
     buildFeatures {
         buildConfig = true
+    }
+
+    // Phase 10.3 A2 — ship only the Android resource translations for the two
+    // supported locales (AppLocalizations.supportedLocales = [en, uk]); strips the
+    // strings bundled by AndroidX / Play services / Firebase. Dart l10n unaffected.
+    // NOTE: this shrinks the universal/sideloaded APK only. On Google Play the
+    // AAB is already split by language, so it gives ~0 download-size benefit there.
+    androidResources {
+        localeFilters += listOf("en", "uk")
     }
 
     defaultConfig {
@@ -198,7 +216,13 @@ project.gradle.taskGraph.whenReady {
         val envRequiresSigning =
             System.getenv("BEAUTICA_REQUIRE_RELEASE_SIGNING") == "1"
         val propRequiresSigning = project.hasProperty("release.signing.required")
-        if (ciSignal || envRequiresSigning || propRequiresSigning) {
+        // PR CI compile-check (secrets-free release build, never distributed):
+        // BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE=1 waives ONLY the bare CI signal.
+        // The explicit opt-ins (BEAUTICA_REQUIRE_RELEASE_SIGNING, -Prelease.signing.required)
+        // still win. Unset locally and on signed CI builds, so behaviour there is unchanged.
+        val allowDebugSigned =
+            System.getenv("BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE") == "1"
+        if ((ciSignal && !allowDebugSigned) || envRequiresSigning || propRequiresSigning) {
             throw GradleException(
                 "Release signing is REQUIRED for this build but the BEAUTICA_* " +
                     "signing env vars are absent (BEAUTICA_KEYSTORE_PATH, " +

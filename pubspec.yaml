@@ -33,12 +33,14 @@ dependencies:
   # Secure storage — Android Keystore-backed; refresh-token home.
   flutter_secure_storage: ^10.2.0
 
-  # Push notifications — Firebase deps removed until Phase 8.1 FCM init ships
-  # (Perf MEDIUM-1 2026-05-24: both packages added ~5-7 MB to the release APK
-  # while unused; no Firebase.initializeApp() call, no google-services.json).
-  # Re-add firebase_core ^4.9.0 + firebase_messaging ^16.2.2 in Phase 8.1.
+  # Push notifications — Android only (phase 066). Config comes from the
+  # git-ignored android/app/google-services.json injected at build time; no
+  # firebase_options.dart. No analytics / crashlytics.
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
 
-  # Design system — Manrope via google_fonts (full Cyrillic glyph set).
+  # Design system — Comfortaa + Nunito via google_fonts, served from the bundled
+  # assets/fonts/ TTFs (runtime fetching is off; both carry full Cyrillic).
   google_fonts: ^8.1.0
 
   # Models / serialization — freezed + json_serializable codegen.
@@ -106,6 +108,16 @@ dependencies:
   # a second filesystem read. Limits (count/size/type) are enforced client-side
   # after selection; the backend re-validates by magic-byte sniffing.
   file_picker: ^8.1.6
+
+  # Phase 071 — photo pick / crop / compress (avatars + service photos).
+  # image_picker uses the Android Photo Picker (no storage permission);
+  # image_cropper = native uCrop / TOCropViewController; flutter_image_compress
+  # does the final JPEG re-encode with EXIF/GPS stripped (keepExif: false).
+  image_picker: ^1.2.3
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  image_cropper: ^12.2.1
+  flutter_image_compress: ^2.5.0
 
   # Multipart MediaType for the support-contact request part (the JSON `request`
   # part carries Content-Type: application/json; file parts carry their sniffed
@@ -428,7 +440,7 @@ flutter:
 
     # Lottie animations directory. The splash screen renders
     # `assets/lottie/splash_wordmark.json` as the animated "beautica" wordmark
-    # below the static VelvetLogo B-pillow. See assets/lottie/README.md for
+    # below the static VelvetLogo B-pillow. See tool/asset_docs/lottie.README.md for
     # the design spec.
     - assets/lottie/
 

@@ -137,6 +137,13 @@ abstract class User with _$User {
     /// explicit `false` is a proven negative; `null` is resolved by probing
     /// `GET /masters/me` (see `owner_own_profile_notifier.dart`).
     bool? hasMasterProfile,
+
+    /// Phase 367 — the user's OWN avatar URL (https), for every role. Populated
+    /// by GET /users/me (backend 344); absent on the login response. `null`
+    /// means no photo — every avatar surface then shows the monogram. Written
+    /// only by the self-avatar upload flow (`POST`/`DELETE /media/avatar`),
+    /// which patches it in place via `AuthNotifier.patchAvatarUrl`.
+    String? avatarUrl,
   }) = _User;
 
   factory User.fromJson(Map<String, dynamic> json) => _$UserFromJson(json);

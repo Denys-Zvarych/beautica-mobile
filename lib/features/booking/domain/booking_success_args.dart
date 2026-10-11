@@ -113,5 +113,12 @@ abstract class BookingSuccessArgs with _$BookingSuccessArgs {
     String? venueBuildingNo,
     String? venueCity,
     String? venueLocationNote,
+
+    /// Phase 383 (24.1f) — the WALK-IN «Готово» landing. `null` (the default)
+    /// keeps `RouteNames.masterBookings` — every pre-existing call site is
+    /// unchanged. The owner master-mode walk-in chain sets
+    /// `RouteNames.ownerMasterBookings` (a SALON_OWNER `go`ing to `/master/*`
+    /// would be bounced). Read only on the `isWalkIn && !isReschedule` branch.
+    String? returnRoute,
   }) = _BookingSuccessArgs;
 }

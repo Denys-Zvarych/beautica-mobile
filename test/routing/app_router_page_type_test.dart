@@ -39,6 +39,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// callers are unchanged. The walk-in role-guard group below passes a
 /// different role to exercise `independentMasterOnlyGuard`.
 ProviderContainer _makeContainer({AsyncValue<AuthSession>? session}) {
-  final container = ProviderContainer(
+  final container = makeTestContainer(
     retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(
@@ -93,7 +94,6 @@ ProviderContainer _makeContainer({AsyncValue<AuthSession>? session}) {
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
   );
-  addTearDown(container.dispose);
   return container;
 }
 

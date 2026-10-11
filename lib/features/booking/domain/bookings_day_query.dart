@@ -119,6 +119,14 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
     required DateTime day,
     required List<BookingStatus> statuses,
     required List<String> serviceIds,
+
+    /// Phase 382 (24.1e) — `true` asks for the caller's OWN master-row
+    /// bookings as a `SALON_OWNER` (`GET /bookings/me?asMaster=true`, backend
+    /// phase 354). Part of the freezed key, so an owner's master-mode day and
+    /// any other `/bookings/me` day never share a family member. `false` (the
+    /// default) sends no `asMaster` param — wire- and key-identical to every
+    /// pre-382 caller.
+    @Default(false) bool asOwnerMaster,
   }) = MasterOwnDayQuery;
 
   /// Phase 21.12 — the salon owner/admin's salon-wide day.
@@ -154,10 +162,14 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
   /// queries describing the same day+filters are always `==`-equal and
   /// always serialise to the same request — see the file header for why each
   /// half of that matters.
+  ///
+  /// [asOwnerMaster] forwards to [BookingsDayQuery.masterOwn]'s field of the
+  /// same name (phase 382); scalar, so no canonicalisation.
   factory BookingsDayQuery.of({
     required DateTime day,
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
+    bool asOwnerMaster = false,
   }) {
     final List<BookingStatus> sortedStatuses = statuses.toList(growable: false)
       ..sort((BookingStatus a, BookingStatus b) => a.index.compareTo(b.index));
@@ -168,6 +180,7 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
       day: dateOnly(day),
       statuses: List<BookingStatus>.unmodifiable(sortedStatuses),
       serviceIds: List<String>.unmodifiable(sortedServiceIds),
+      asOwnerMaster: asOwnerMaster,
     );
   }
 
@@ -270,13 +283,17 @@ sealed class BookingsDayQuery with _$BookingsDayQuery {
   /// `filterable`; see `BookingStatusFilterGroup`'s header and
   /// [BookingStatus.dayListWireStatuses]'s `maximal` doc for why that gap
   /// must be threaded through rather than left at the default).
+  ///
+  /// [asOwnerMaster] forwards to [BookingsDayQuery.of] (phase 382).
   factory BookingsDayQuery.dayList({
     required DateTime day,
     Set<BookingStatus> statuses = const <BookingStatus>{},
     Set<String> serviceIds = const <String>{},
     Set<BookingStatus>? maximalStatuses,
+    bool asOwnerMaster = false,
   }) => BookingsDayQuery.of(
     day: day,
+    asOwnerMaster: asOwnerMaster,
     statuses: BookingStatus.dayListWireStatuses(
       statuses,
       maximal: maximalStatuses,

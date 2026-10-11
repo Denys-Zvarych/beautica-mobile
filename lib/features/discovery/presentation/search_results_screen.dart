@@ -395,7 +395,7 @@ class _ResultsView extends StatelessWidget {
 // Results list (cards + bottom load-more spinner).
 // ---------------------------------------------------------------------------
 
-class _ResultsList extends StatelessWidget {
+class _ResultsList extends StatefulWidget {
   const _ResultsList({
     required this.scrollController,
     required this.data,
@@ -412,12 +412,77 @@ class _ResultsList extends StatelessWidget {
   final void Function(Failure failure) onFavoriteError;
 
   @override
+  State<_ResultsList> createState() => _ResultsListState();
+}
+
+class _ResultsListState extends State<_ResultsList> {
+  // Phase 076 row 6 — one built card per item id, reused while the item, the
+  // active filters and the error callback are unchanged. The screen State
+  // watches `searchResultsProvider`, so every emission (the `isLoadingMore`
+  // flips at the scroll threshold included) re-runs this list's `build`;
+  // handing Flutter the IDENTICAL widget lets `Element.updateChild` skip the
+  // card's rebuild (`formatLocality`, price label, address block, ...).
+  final Map<String, ({SearchResultItem item, Widget widget})> _cards =
+      <String, ({SearchResultItem item, Widget widget})>{};
+  List<SearchResultItem>? _cardsFor;
+  SearchFilters? _cardsFilters;
+  void Function(Failure failure)? _cardsOnError;
+
+  Widget _cardFor(SearchResultItem item) {
+    final ({SearchResultItem item, Widget widget})? hit = _cards[item.id];
+    if (hit != null && hit.item == item) return hit.widget;
+    final SearchFilters filters = widget.activeFilters;
+    final void Function(Failure failure) onError = widget.onFavoriteError;
+    // Isolate each animated card subtree so a heart scale / image decode
+    // never repaints its siblings while the list scrolls. Key by the item's
+    // stable id so element/boundary identity survives list re-orders.
+    final Widget built = RepaintBoundary(
+      key: ValueKey<String>(item.id),
+      child: switch (item) {
+        MasterResultItem(:final master) => MasterResultCard(
+          master: master,
+          activeFilters: filters,
+          onFavoriteError: onError,
+        ),
+        SalonResultItem(:final salon) => SalonResultCard(
+          salon: salon,
+          activeFilters: filters,
+          onFavoriteError: onError,
+        ),
+      },
+    );
+    _cards[item.id] = (item: item, widget: built);
+    return built;
+  }
+
+  /// Drops every cached card when the inputs baked into them change, and prunes
+  /// to the live ids when the list identity changes, so it never outgrows
+  /// `items`.
+  void _syncCache() {
+    if (_cardsFilters != widget.activeFilters ||
+        _cardsOnError != widget.onFavoriteError) {
+      _cards.clear();
+      _cardsFilters = widget.activeFilters;
+      _cardsOnError = widget.onFavoriteError;
+    }
+    final List<SearchResultItem> items = widget.data.items;
+    if (identical(_cardsFor, items)) return;
+    _cardsFor = items;
+    final Set<String> live = <String>{
+      for (final SearchResultItem i in items) i.id,
+    };
+    _cards.removeWhere((String id, _) => !live.contains(id));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    _syncCache();
+    final SearchResultsState data = widget.data;
     // +1 trailing slot for the load-more spinner when another page exists.
     final int extra = data.hasMore ? 1 : 0;
     return ListView.separated(
       key: const Key('results_list'),
-      controller: scrollController,
+      controller: widget.scrollController,
       padding: kResultsListPadding,
       itemCount: data.items.length + extra,
       separatorBuilder: (_, _) => const SizedBox(height: VelvetSpacing.md),
@@ -425,25 +490,7 @@ class _ResultsList extends StatelessWidget {
         if (i >= data.items.length) {
           return const _LoadMoreSpinner();
         }
-        final SearchResultItem item = data.items[i];
-        // Isolate each animated card subtree so a heart scale / image decode
-        // never repaints its siblings while the list scrolls. Key by the item's
-        // stable id so element/boundary identity survives list re-orders.
-        return RepaintBoundary(
-          key: ValueKey<String>(item.id),
-          child: switch (item) {
-            MasterResultItem(:final master) => MasterResultCard(
-              master: master,
-              activeFilters: activeFilters,
-              onFavoriteError: onFavoriteError,
-            ),
-            SalonResultItem(:final salon) => SalonResultCard(
-              salon: salon,
-              activeFilters: activeFilters,
-              onFavoriteError: onFavoriteError,
-            ),
-          },
-        );
+        return _cardFor(data.items[i]);
       },
     );
   }

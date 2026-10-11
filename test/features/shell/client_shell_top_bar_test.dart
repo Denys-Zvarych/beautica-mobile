@@ -17,7 +17,11 @@
 // (mobile-qa M2). Pumps are bounded (pumpAndSettle after each hop; the staggered
 // reveal is a one-shot SlideTransition that settles).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/app_start_time.dart';
+import 'package:beautica_mobile/core/icons/app_icon.dart';
+import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -26,11 +30,14 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/home/presentation/client_settings_hub_screen.dart';
+import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_top_bar.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +45,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../helpers/fakes/fake_auth_repository.dart';
 import '../../helpers/fakes/fake_secure_storage.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../helpers/test_container.dart';
 
 void main() {
   setUp(
@@ -111,6 +118,42 @@ void main() {
       harness.dispose();
     });
 
+    testWidgets('should_showDot_when_unreadPositive', (tester) async {
+      final harness = await _ShellHarness.boot(tester, unread: 4);
+
+      final AppIcon icon = tester.widget<AppIcon>(
+        find.byKey(NotificationBellButton.bellIconKey),
+      );
+      expect(icon.asset, BeauticaAssetIcons.notificationUnread);
+
+      harness.dispose();
+    });
+
+    testWidgets('no dot when unread is zero', (tester) async {
+      final harness = await _ShellHarness.boot(tester, unread: 0);
+
+      final AppIcon icon = tester.widget<AppIcon>(
+        find.byKey(NotificationBellButton.bellIconKey),
+      );
+      expect(icon.asset, BeauticaAssetIcons.notificationPlain);
+
+      harness.dispose();
+    });
+
+    testWidgets('tapping the bell pushes the notification feed', (
+      tester,
+    ) async {
+      final harness = await _ShellHarness.boot(tester, unread: 0);
+
+      await tester.tap(find.byKey(const Key('home_hub_bell_button')));
+      await tester.pumpAndSettle();
+
+      expect(harness.topLocation, equals(RouteNames.notifications));
+      expect(find.byType(NotificationsScreen), findsOneWidget);
+
+      harness.dispose();
+    });
+
     testWidgets('passport (branch 4) keeps the btn-menu-passport burger Key', (
       tester,
     ) async {
@@ -153,16 +196,16 @@ class _ShellHarness {
   final ProviderContainer container;
   final GoRouter router;
 
-  static Future<_ShellHarness> boot(WidgetTester tester) async {
-    final container = ProviderContainer(
-      retry: beauticaProviderRetry,
+  static Future<_ShellHarness> boot(WidgetTester tester, {int? unread}) async {
+    final container = makeTestContainer(
       overrides: [
+        if (unread != null)
+          unreadNotificationsProvider.overrideWith(() => _FixedUnread(unread)),
         authProvider.overrideWith(() => _FixedAuthNotifier(_clientSession())),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
       ],
     );
-    addTearDown(container.dispose);
     final router = container.read(appRouterProvider);
 
     await tester.pumpWidget(
@@ -215,6 +258,15 @@ AsyncData<AuthSession> _clientSession() => const AsyncData<AuthSession>(
     accessToken: 'token',
   ),
 );
+
+class _FixedUnread extends UnreadNotifications {
+  _FixedUnread(this._count);
+
+  final int _count;
+
+  @override
+  FutureOr<int> build() => _count;
+}
 
 class _FixedAuthNotifier extends AuthNotifier {
   _FixedAuthNotifier(this._fixed);

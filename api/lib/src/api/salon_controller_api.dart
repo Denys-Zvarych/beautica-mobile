@@ -741,7 +741,7 @@ class SalonControllerApi {
   }
 
   /// List sibling salons of the same owner
-  /// Active salons sharing this salon&#39;s owner, excluding this salon itself, as id + name + short address. Backs the rotate-admin destination picker. Requires management access to the salon (owner or assigned admin).
+  /// Active salons sharing this salon&#39;s owner, excluding this salon itself, as id + name + short address + logo URL. Backs the rotate-admin destination picker. Requires management access to the salon (owner or assigned admin).
   ///
   /// Parameters:
   /// * [salonId]

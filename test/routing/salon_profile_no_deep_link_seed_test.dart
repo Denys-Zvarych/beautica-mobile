@@ -81,6 +81,7 @@ import 'package:go_router/go_router.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/pump_app.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -364,7 +365,7 @@ GoRoute? _findRoute(List<RouteBase> routes, String path) {
 /// exact closure. A hand-written stand-in would keep passing through any such
 /// regression.
 GoRoute _realSalonProfileRoute() {
-  final ProviderContainer container = ProviderContainer(
+  final ProviderContainer container = makeTestContainer(
     retry: beauticaProviderRetry,
     overrides: [
       authProvider.overrideWith(_UnauthNotifier.new),
@@ -372,7 +373,6 @@ GoRoute _realSalonProfileRoute() {
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
   );
-  addTearDown(container.dispose);
   final GoRouter router = container.read(appRouterProvider);
   addTearDown(router.dispose);
 

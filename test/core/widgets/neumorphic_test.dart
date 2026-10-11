@@ -18,6 +18,8 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
 
+import '../../helpers/dim_probe.dart';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -934,6 +936,52 @@ void main() {
       await tester.pump();
 
       expect(tapped, isTrue);
+    });
+
+    // PIXEL gate for the `enabled: false` dim (`neumorphic.dart`
+    // NeumorphicIconButton, `Opacity(0.6)`): CI goldens are blind to layer
+    // opacity (Phase 299), so the dim is measured through the compositor.
+    // Two buttons identical but for `enabled`, each in its own boundary over
+    // an opaque `base` ground (margin wide enough to hold the shadow pair).
+    testWidgets('enabled: false composites to 0.6 of an identical enabled '
+        'button\'s deviation from the ground', (WidgetTester tester) async {
+      const Key enabledKey = Key('dim-probe-icon-enabled');
+      const Key disabledKey = Key('dim-probe-icon-disabled');
+      Widget cell(Key key, {required bool enabled}) => RepaintBoundary(
+        key: key,
+        child: ColoredBox(
+          color: BrandColors.base,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: NeumorphicIconButton(
+              icon: Icons.tune_rounded,
+              semanticLabel: 'probe',
+              enabled: enabled,
+              onTap: () {},
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          Column(
+            children: <Widget>[
+              cell(enabledKey, enabled: true),
+              cell(disabledKey, enabled: false),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await expectDimRatio(
+        tester: tester,
+        dimmed: find.byKey(disabledKey),
+        full: find.byKey(enabledKey),
+        ground: BrandColors.base,
+        expected: 0.6,
+      );
     });
   });
 

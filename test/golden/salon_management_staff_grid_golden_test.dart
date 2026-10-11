@@ -45,6 +45,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -177,6 +178,11 @@ List<Object> _overrides(List<SalonStaffMember> staff) => <Object>[
   salonManagementProfileProvider(
     _kSalonId,
   ).overrideWith(() => _FixedSalonManagementProfile((_stubSalon, staff))),
+  // Phase 361 — the cover bell is LIVE now. This baseline was captured with
+  // the (formerly static) dotted bell, so pin "has unread" to keep the
+  // baseline pixel-identical; the idle bell is covered by
+  // notification_bell_button_golden_test.dart.
+  hasUnreadNotificationsProvider.overrideWithValue(true),
 ];
 
 const double _kWidth = 414;

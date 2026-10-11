@@ -49,6 +49,9 @@ class MasterStripShell extends StatelessWidget {
     this.trailing,
     this.avatarGradient,
     this.avatarBordered = false,
+    this.avatarImageUrl,
+    this.avatarInitials,
+    this.avatarImageKey,
     this.onTap,
   });
 
@@ -75,6 +78,18 @@ class MasterStripShell extends StatelessWidget {
   /// row — there is deliberately no outer-row placement left to fall back to.
   /// See the placement note in [build].
   final Widget? trailing;
+
+  /// Phase 9.7 — the master's photo URL, forwarded to [MasterAvatarBadge.imageUrl].
+  /// `null` (default) renders the gradient glyph exactly as before.
+  final String? avatarImageUrl;
+
+  /// Monogram for the avatar's no-photo fallback; `null` keeps the glyph.
+  /// Forwarded to [MasterAvatarBadge.initials].
+  final String? avatarInitials;
+
+  /// Key for the avatar's photo widget; forwarded to
+  /// [MasterAvatarBadge.imageKey].
+  final Key? avatarImageKey;
 
   /// Two-stop diagonal avatar gradient; `null` falls back to
   /// [MasterAvatarBadge]'s default camel→mocha wash.
@@ -204,7 +219,13 @@ class MasterStripShell extends StatelessWidget {
       padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
       child: Row(
         children: <Widget>[
-          MasterAvatarBadge(gradient: avatarGradient, bordered: avatarBordered),
+          MasterAvatarBadge(
+            gradient: avatarGradient,
+            bordered: avatarBordered,
+            imageUrl: avatarImageUrl,
+            initials: avatarInitials,
+            imageKey: avatarImageKey,
+          ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(

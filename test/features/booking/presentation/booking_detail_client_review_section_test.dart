@@ -25,6 +25,7 @@ import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/booking/application/booking_viewer_role.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
@@ -78,6 +79,7 @@ Booking _booking({
   String? clientFirstName = _clientFirst,
   String? clientLastName = _clientLast,
   String? clientComment,
+  bool providerCanReviewClient = false,
 }) {
   // A FIXED PAST literal — the safe case `booking_fixture_dates.dart`
   // explicitly carves out (and `forbid_stale_future_date_fixture.sh` allows,
@@ -108,13 +110,14 @@ Booking _booking({
     canReview: false,
     clientComment: clientComment,
     reviewByClient: reviewByClient,
+    providerCanReviewClient: providerCanReviewClient,
   );
 }
 
 Future<void> _pump(
   WidgetTester tester,
   Booking booking, {
-  required UserRole role,
+  required UserRole? role,
 }) async {
   await tester.pumpApp(
     BookingDetailScreen(bookingId: booking.id),
@@ -126,12 +129,18 @@ Future<void> _pump(
       // production uses — never by overriding `bookingViewerRoleProvider`.
       authProvider.overrideWith(
         () => _StubAuth(
-          AuthSession.authenticated(
-            user: User(id: 'u1', email: 'u@e.com', role: role),
-            accessToken: 't',
-          ),
+          role == null
+              ? const AuthSession.unauthenticated()
+              : AuthSession.authenticated(
+                  user: User(id: 'u1', email: 'u@e.com', role: role),
+                  accessToken: 't',
+                ),
         ),
       ),
+      // Only the null-role case: the session cannot yield a provider viewer
+      // with a null role, so that seam is forced to exercise the review gate.
+      if (role == null)
+        bookingViewerRoleProvider.overrideWithValue(BookingViewerRole.provider),
     ],
   );
   await tester.pumpAndSettle();
@@ -467,6 +476,94 @@ void main() {
       // i18n-finder-ok: backend review body.
       expect(find.text(_reviewComment), findsOneWidget);
     });
+  });
+
+  group('phase 390 — salon owner/admin do not see the block', () {
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('$role: section and review text absent, screen rendered', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          _booking(
+            reviewByClient: const ClientAuthoredReview(
+              rating: 5,
+              comment: _reviewComment,
+            ),
+          ),
+          role: role,
+        );
+
+        expect(_screenChrome, findsOneWidget, reason: 'anti-vacuity');
+        expect(_section, findsNothing);
+        // i18n-finder-ok: backend review body must not render for owner/admin.
+        expect(find.text(_reviewComment), findsNothing);
+      });
+
+      testWidgets('$role: the provider->client CTA is still offered', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          _booking(
+            providerCanReviewClient: true,
+            reviewByClient: const ClientAuthoredReview(
+              rating: 5,
+              comment: _reviewComment,
+            ),
+          ),
+          role: role,
+        );
+
+        expect(_section, findsNothing);
+        expect(
+          find.byKey(const Key('booking-detail-leave-client-feedback')),
+          findsOneWidget,
+          reason: 'over-removal guard — only the review echo is hidden',
+        );
+      });
+    }
+
+    testWidgets('an owner viewing their OWN performed salon booking sees no '
+        'block', (tester) async {
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(
+            rating: 4,
+            comment: _reviewComment,
+          ),
+        ).copyWith(masterType: 'SALON_OWNER', salonId: 'sal1'),
+        role: UserRole.salonOwner,
+      );
+
+      expect(_screenChrome, findsOneWidget, reason: 'anti-vacuity');
+      expect(_section, findsNothing);
+      // i18n-finder-ok: backend review body.
+      expect(find.text(_reviewComment), findsNothing);
+    });
+  });
+
+  testWidgets('phase 390 — a provider viewer with a NULL session role does '
+      'not see the block (fails closed)', (tester) async {
+    await _pump(
+      tester,
+      _booking(
+        reviewByClient: const ClientAuthoredReview(
+          rating: 4,
+          comment: _reviewComment,
+        ),
+      ),
+      role: null,
+    );
+
+    expect(_screenChrome, findsOneWidget, reason: 'anti-vacuity');
+    expect(_section, findsNothing);
+    // i18n-finder-ok: backend review body.
+    expect(find.text(_reviewComment), findsNothing);
   });
 
   testWidgets('the block sits BELOW the notes — the recap reads '

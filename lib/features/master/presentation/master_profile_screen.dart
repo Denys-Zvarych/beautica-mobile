@@ -44,6 +44,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -54,7 +55,7 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
-import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/features/services/presentation/services_list_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
@@ -64,6 +65,7 @@ import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -77,10 +79,11 @@ import 'package:beautica_mobile/features/services/presentation/service_catalogue
 import 'master_profile_notifier.dart';
 import 'widgets/master_address_block.dart';
 import 'widgets/master_profile_tabs.dart';
+import 'widgets/master_own_avatar.dart';
 import 'widgets/master_reviews_body.dart';
 import 'widgets/profile_avatar.dart';
 import 'widgets/profile_scaffold.dart';
-import 'widgets/service_category_cards.dart';
+import 'widgets/profile_services_tab.dart';
 import 'widgets/services_stat_tile.dart';
 
 export 'master_profile_notifier.dart' show masterProfileProvider;
@@ -206,7 +209,13 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final masterAsync = ref.watch(masterProfileProvider);
+    // NARROWED (Phase 367 audit, perf LOW — mirrors the salon-master fix):
+    // the body branches on the profile but never renders its avatar, so an
+    // avatar-only patch must not rebuild this whole screen. The photo is read
+    // by [MasterOwnAvatar]'s own narrow watch.
+    final masterAsync = ref
+        .watch(masterProfileProvider.select(MasterProfileIgnoringAvatar.new))
+        .profile;
 
     return ProfileScaffold(
       title: l10n.masterProfileTitle,
@@ -216,17 +225,33 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
       // back chevron whose `onBack` calls `context.pop()` and throws
       // `GoError('There is nothing to pop')`.
       showBack: false,
-      trailing: NeumorphicIconButton(
-        key: const Key('btn-menu-master'),
-        icon: BeauticaIcons.menuBurger,
-        semanticLabel: l10n.settingsHubMenuButton,
-        onTap: () => context.push(RouteNames.masterMenu),
+      // Phase 363 — the global notification bell sits LEFT of the burger, the
+      // same `bell · burger` order and gap as the client top bar. «Мій профіль»
+      // is this role's landing tab, so it is the one header that carries it.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const ConnectedNotificationBell(
+            buttonKey: Key('master_profile_bell_button'),
+          ),
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: const Key('btn-menu-master'),
+            icon: BeauticaIcons.menuBurger,
+            semanticLabel: l10n.settingsHubMenuButton,
+            onTap: () => context.push(RouteNames.masterMenu),
+          ),
+        ],
       ),
       bottomNavBar: const VelvetBottomNavBar(activeIndex: 3),
       // Pull-to-refresh: invalidate the master profile and the services list
       // (the profile screen displays live service counts and category cards).
       // Riverpod 3.x note: invalidate + await .future — never gate on value==null.
       onRefresh: () async {
+        final String? masterId = ref.read(masterProfileProvider).value?.id;
+        if (masterId != null) {
+          invalidateMasterReviewSurfaces(ref, masterId);
+        }
         ref.invalidate(masterProfileProvider);
         invalidateMasterServiceCatalogues(ref);
         await Future.wait([
@@ -328,6 +353,7 @@ class _ProfileBody extends StatelessWidget {
     // PERF: RepaintBoundary isolates each reveal section's per-frame fade/slide
     // repaint so the entrance animation does not invalidate sibling sections.
     return RepaintBoundary(
+      // dim-decorative: profile entrance; 1 at rest
       child: FadeTransition(
         opacity: fadeAnim,
         child: SlideTransition(position: slideAnim, child: child),
@@ -387,8 +413,16 @@ class _ProfileBody extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: <Widget>[
-                const ProfileAvatar(),
-                const SizedBox(width: VelvetSpacing.md),
+                // Phase 367 — the OWN photo with the live camera badge (the
+                // shared own-avatar flow, same as «Особисті дані»).
+                // Phase 367 audit — its own narrow avatar watch (the body
+                // above ignores the avatar), shared with the salon master.
+                MasterOwnAvatar(
+                  initials: avatarMonogram(displayName),
+                  editorKey: const Key('master-profile-avatar-editor'),
+                ),
+                // No spacer: the editor carries its own badge→text gutter
+                // ([SelfAvatarEditor.textGap]).
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -586,7 +620,7 @@ class _ProfileBody extends StatelessWidget {
                   key: ValueKey<int>(tab),
                   child: switch (tab) {
                     0 => _AboutTab(master: master),
-                    1 => const _ProfileCategoriesSection(),
+                    1 => const _ProfileServicesTabBody(),
                     _ => MasterReviewsBody(masterId: master.id),
                   },
                 ),
@@ -769,122 +803,6 @@ class _AboutTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _ProfileCategoriesSection — P-H2 memoized category grouping
-// ---------------------------------------------------------------------------
-
-/// Watches [servicesListProvider] and renders the section header + the
-/// shared [ServiceCategoryCardList] (interactive: true — tapping a card
-/// navigates to `/services?expandCategory=<slug>`, the owner's own service-
-/// management screen). Category-label resolution lives in
-/// [ServiceCategoryCardList] itself, via [approvedCategoriesProvider].
-class _ProfileCategoriesSection extends ConsumerWidget {
-  const _ProfileCategoriesSection();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final l10n = AppLocalizations.of(context);
-    final servicesAsync = ref.watch(servicesListProvider);
-
-    // Section header — a single right-aligned "all services" link. The
-    // "Послуги" section title was removed per product decision; the link now
-    // sits flush to the right margin. Built on demand so it can be omitted
-    // entirely in the zero-services empty state, where the single
-    // "Додати послуги" CTA is the only call to action.
-    Widget buildHeader() => Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: <Widget>[
-          GestureDetector(
-            onTap: () => context.push(RouteNames.services),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(l10n.masterAllServices, style: VelvetText.link()),
-                const SizedBox(width: 2),
-                const Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  size: 12,
-                  color: BrandColors.accentDeep,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-
-    return servicesAsync.when(
-      loading: () => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          buildHeader(),
-          const SkeletonShimmerScope(
-            child: Column(
-              children: <Widget>[
-                SkeletonBlock(
-                  width: double.infinity,
-                  height: 56,
-                  radius: VelvetRadii.card,
-                ),
-                SizedBox(height: VelvetSpacing.sm),
-                SkeletonBlock(
-                  width: double.infinity,
-                  height: 56,
-                  radius: VelvetRadii.card,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-      error: (_, _) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          buildHeader(),
-          Padding(
-            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
-            child: Text(l10n.errUnknown, style: VelvetText.feedbackMutedXs),
-          ),
-        ],
-      ),
-      data: (List<MasterService> services) {
-        // Zero-services empty state: a single primary CTA that opens the
-        // first-time bulk service-setup flow — the SAME entry point the
-        // services-list empty state uses (RouteNames.serviceSetup). The
-        // section header and "all services" link are intentionally dropped
-        // here so the CTA stands alone.
-        if (services.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.only(top: VelvetSpacing.xs),
-            child: SizedBox(
-              width: double.infinity,
-              child: NeumorphicButton(
-                key: const Key('btn-master-add-services'),
-                label: l10n.masterAddServices,
-                icon: Icons.add_rounded,
-                onPressed: () => context.push(RouteNames.serviceSetup),
-              ),
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            buildHeader(),
-            ServiceCategoryCardList(
-              services: services,
-              keyPrefix: 'profile-category',
-              interactive: true,
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // _ProfileSkeleton — loading state
 // ---------------------------------------------------------------------------
 
@@ -980,4 +898,14 @@ class _ProfileSkeleton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// «Послуги» tab body of the independent master's own profile: watches the
+/// own-services list and feeds the shared [ProfileServicesTab].
+class _ProfileServicesTabBody extends ConsumerWidget {
+  const _ProfileServicesTabBody();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) =>
+      ProfileServicesTab(services: ref.watch(servicesListProvider));
 }

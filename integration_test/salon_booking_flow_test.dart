@@ -89,6 +89,8 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/data/appointment_repository.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -102,6 +104,7 @@ import 'package:beautica_mobile/features/booking/presentation/salon_booking_succ
 import 'package:beautica_mobile/features/booking/presentation/salon_master_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_time_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/widgets/master_strip.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
@@ -116,6 +119,8 @@ import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../test/helpers/fake_media_cache.dart';
+import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
@@ -260,8 +265,19 @@ class _FakeAppointmentRepository implements AppointmentRepository {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(installOverflowGuard);
-  tearDown(AppHarness.tearDownHarness);
+  setUp(() {
+    installOverflowGuard();
+    // Phase 9.7 — open the media allow-list to the fixture host and serve a
+    // decodable image, so the master photos the fake backend returns are
+    // actually rendered (the real cache manager needs path_provider/sqflite).
+    MediaConfig.debugAllowedHosts = <String>{'media.test'};
+    debugMediaCacheManager = FakeMediaCacheManager(mediaLoaded);
+  });
+  tearDown(() async {
+    debugMediaCacheManager = null;
+    MediaConfig.debugAllowedHosts = null;
+    await AppHarness.tearDownHarness();
+  });
 
   testWidgets('CLIENT books a salon service end to end: profile CTA → service '
       'selection → master assignment (ineligible masters filtered, eligible '
@@ -523,6 +539,20 @@ void main() {
         findsOneWidget,
         reason: 'master-ddd is bookable for salon-svc-exclusive',
       );
+      // Phase 9.7 — the picker row shows the master's photo when the roster
+      // carries one (master-ccc), and the gradient glyph when it does not
+      // (master-ddd).
+      expect(
+        renderedImageUrls(
+          tester,
+          within: find.byKey(const Key('salon_booking_master_row_master-ccc')),
+        ),
+        <String>['https://media.test/avatars/master-ccc.png'],
+      );
+      expectAvatarFallback(
+        tester,
+        find.byKey(const Key('salon_booking_master_row_master-ddd')),
+      );
       for (final String omittedId in <String>[
         'master-aaa', // reuses the Phase 13.5 fixture — never returned here
         'master-eee', // scheduleless-master bug stand-in — server-omitted
@@ -706,6 +736,19 @@ void main() {
           matching: find.text('4.6'),
         ),
         findsOneWidget,
+      );
+      // Phase 9.7 — the same slide header carries the master's photo through
+      // the REAL roster → `SalonMasterSchedule.avatarUrl` →
+      // `MasterStrip.fromSchedule` chain (master-ccc's fixture has one).
+      expect(
+        renderedImageUrls(
+          tester,
+          within: find.descendant(
+            of: find.byKey(const Key('salon-schedule-page-master-ccc')),
+            matching: find.byType(MasterStrip),
+          ),
+        ),
+        <String>['https://media.test/avatars/master-ccc.png'],
       );
 
       // Scopes an interaction/assertion to one master's slide — needed
@@ -1055,6 +1098,15 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('salon-time-pager-dot-1')));
       await AppHarness.settle(tester);
+      // Phase 9.7 — master-ddd has no avatarUrl, so its slide header keeps
+      // the gradient glyph (the null half of the time-strip pair above).
+      expectAvatarFallback(
+        tester,
+        find.descendant(
+          of: find.byKey(const Key('salon-schedule-page-master-ddd')),
+          matching: find.byType(MasterStrip),
+        ),
+      );
 
       // ── Both masters fully scheduled — the confirm bar's "Підтвердити"
       // enables, and tapping it is PURE forward navigation to the step-4

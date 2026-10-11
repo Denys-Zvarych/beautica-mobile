@@ -141,6 +141,8 @@ class _$UserProfileResponse extends UserProfileResponse {
   final UserProfileResponseCitySettlementTypeEnum? citySettlementType;
   @override
   final String? cityHromadaNameUk;
+  @override
+  final String? avatarUrl;
 
   factory _$UserProfileResponse(
           [void Function(UserProfileResponseBuilder)? updates]) =>
@@ -170,7 +172,8 @@ class _$UserProfileResponse extends UserProfileResponse {
       this.salonId,
       this.hasMasterProfile,
       this.citySettlementType,
-      this.cityHromadaNameUk})
+      this.cityHromadaNameUk,
+      this.avatarUrl})
       : super._();
   @override
   UserProfileResponse rebuild(
@@ -208,7 +211,8 @@ class _$UserProfileResponse extends UserProfileResponse {
         salonId == other.salonId &&
         hasMasterProfile == other.hasMasterProfile &&
         citySettlementType == other.citySettlementType &&
-        cityHromadaNameUk == other.cityHromadaNameUk;
+        cityHromadaNameUk == other.cityHromadaNameUk &&
+        avatarUrl == other.avatarUrl;
   }
 
   @override
@@ -238,6 +242,7 @@ class _$UserProfileResponse extends UserProfileResponse {
     _$hash = $jc(_$hash, hasMasterProfile.hashCode);
     _$hash = $jc(_$hash, citySettlementType.hashCode);
     _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
+    _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -268,7 +273,8 @@ class _$UserProfileResponse extends UserProfileResponse {
           ..add('salonId', salonId)
           ..add('hasMasterProfile', hasMasterProfile)
           ..add('citySettlementType', citySettlementType)
-          ..add('cityHromadaNameUk', cityHromadaNameUk))
+          ..add('cityHromadaNameUk', cityHromadaNameUk)
+          ..add('avatarUrl', avatarUrl))
         .toString();
   }
 }
@@ -380,6 +386,10 @@ class UserProfileResponseBuilder
   set cityHromadaNameUk(String? cityHromadaNameUk) =>
       _$this._cityHromadaNameUk = cityHromadaNameUk;
 
+  String? _avatarUrl;
+  String? get avatarUrl => _$this._avatarUrl;
+  set avatarUrl(String? avatarUrl) => _$this._avatarUrl = avatarUrl;
+
   UserProfileResponseBuilder() {
     UserProfileResponse._defaults(this);
   }
@@ -411,6 +421,7 @@ class UserProfileResponseBuilder
       _hasMasterProfile = $v.hasMasterProfile;
       _citySettlementType = $v.citySettlementType;
       _cityHromadaNameUk = $v.cityHromadaNameUk;
+      _avatarUrl = $v.avatarUrl;
       _$v = null;
     }
     return this;
@@ -456,6 +467,7 @@ class UserProfileResponseBuilder
           hasMasterProfile: hasMasterProfile,
           citySettlementType: citySettlementType,
           cityHromadaNameUk: cityHromadaNameUk,
+          avatarUrl: avatarUrl,
         );
     replace(_$result);
     return _$result;

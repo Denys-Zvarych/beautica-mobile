@@ -60,7 +60,6 @@ import 'dart:async';
 import 'package:beautica_api/beautica_api.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
-import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -103,6 +102,7 @@ import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/route_pump.dart';
 import '../helpers/velvet_snack_matchers.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the userId and the masters ROW id are DELIBERATELY different.
@@ -402,8 +402,7 @@ void main() {
   tearDown(AppStartTime.resetForTest);
 
   ProviderContainer makeContainer() {
-    final container = ProviderContainer(
-      retry: beauticaProviderRetry,
+    final container = makeTestContainer(
       overrides: [
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
@@ -433,7 +432,6 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
     return container;
   }
 
@@ -1574,9 +1572,17 @@ void main() {
   // -------------------------------------------------------------------------
 
   group('the /services/setup leaf gates on canManageSalon', () {
+    // Phase 380 (perf INFO) — the unresolved window renders a LOADING state,
+    // no longer the «Unauthorized» error: on a cold deep link that error used
+    // to flash before every legitimate owner's form. The security property
+    // this row exists for is unchanged — the bulk-create form still never
+    // mounts while ownership is unestablished. The resolved-and-excluded deny
+    // at the widget layer is pinned in
+    // `owner_master_services_route_resolution_test.dart` (CONTROL for the
+    // cold-link case) on the same shared `_SalonManageServiceSetupRoute`.
     testWidgets(
-      'DENY: a cold deep link whose ownership is unresolved renders the '
-      'unauthorized state, NOT ServiceSetupScreen',
+      'DENY: a cold deep link whose ownership is unresolved renders a '
+      'loading state (not the error flash), NOT ServiceSetupScreen',
       (tester) async {
         _MutableAuthNotifier.seed = _kOwnerOfOtherSalon;
         _ControlledMySalons.owned = null; // cold — never resolves
@@ -1589,12 +1595,16 @@ void main() {
         );
         await pumpUntilFound(
           tester,
-          find.byKey(const Key('salon_manage_service_setup_error')),
+          find.byKey(const Key('salon_manage_service_setup_loading')),
         );
 
         expect(
-          find.byKey(const Key('salon_manage_service_setup_error')),
+          find.byKey(const Key('salon_manage_service_setup_loading')),
           findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon_manage_service_setup_error')),
+          findsNothing,
         );
         expect(
           find.byType(ServiceSetupScreen),

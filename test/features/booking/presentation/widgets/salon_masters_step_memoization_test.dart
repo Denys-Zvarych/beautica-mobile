@@ -23,7 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_slot.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/salon_booking_wizard_steps.dart';
@@ -36,6 +36,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 
 import '../../../../helpers/booking_fixture_dates.dart';
 import '../../../../helpers/fake_salon_master_coverage.dart';
+import '../../../../helpers/fake_salon_staff_masters_roster.dart';
 import '../../../../helpers/fakes/fake_slot_repository.dart';
 import '../../../../helpers/pump_app.dart';
 
@@ -138,11 +139,10 @@ Future<_HostController> _pump(WidgetTester tester) async {
   await tester.pumpApp(
     _Host(state: c),
     overrides: <Object>[
-      salonMastersRosterProvider.overrideWith(
-        (ref, String salonId) async => <SalonMasterSummary>[
-          _kMasterA,
-          _kMasterB,
-        ],
+      salonStaffMastersRosterProvider.overrideWith(
+        () => FakeSalonStaffMastersRoster(
+          () => <SalonMasterSummary>[_kMasterA, _kMasterB],
+        ),
       ),
       salonMasterServiceCoverageProvider.overrideWith(
         () => FakeSalonMasterServiceCoverage(

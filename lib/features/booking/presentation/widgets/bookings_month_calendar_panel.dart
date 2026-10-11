@@ -703,6 +703,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                                 'bookings-month-calendar-grid-layer',
                               ),
                               ignoring: t < _kPanelHandoffT,
+                              // dim-decorative: grid/rail expand cross-fade; 0/1 at rest
                               child: Opacity(
                                 opacity: gridOpacity,
                                 child: child,
@@ -730,6 +731,7 @@ class _BookingsMonthCalendarPanelState extends State<BookingsMonthCalendarPanel>
                                 'bookings-month-calendar-rail-layer',
                               ),
                               ignoring: t >= _kPanelHandoffT,
+                              // dim-decorative: grid/rail expand cross-fade; 0/1 at rest
                               child: Opacity(
                                 opacity: railOpacity,
                                 child: child,

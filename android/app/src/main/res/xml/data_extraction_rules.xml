@@ -12,6 +12,7 @@
              as beauticaImages.db; the cached bytes live in the cache dir, already
              backup-excluded by default. -->
         <exclude domain="file" path="beauticaImages.db"/>
+        <exclude domain="sharedpref" path="com.google.android.gms.appid.xml"/>
     </cloud-backup>
     <device-transfer>
         <!-- Allow device-to-device transfer for non-sensitive preferences only -->
@@ -21,5 +22,6 @@
         <!-- Same media metadata store — excluded from device-to-device transfer so a
              new owner of a reassigned device does not inherit which users were viewed. -->
         <exclude domain="file" path="beauticaImages.db"/>
+        <exclude domain="sharedpref" path="com.google.android.gms.appid.xml"/>
     </device-transfer>
 </data-extraction-rules>

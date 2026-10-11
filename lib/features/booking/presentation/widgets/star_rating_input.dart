@@ -170,6 +170,7 @@ class _StarRatingInputState extends State<StarRatingInput>
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeIn,
           transitionBuilder: (Widget child, Animation<double> anim) {
+            // dim-decorative: rating label cross-fade
             return FadeTransition(
               opacity: anim,
               child: SlideTransition(

@@ -11,6 +11,7 @@
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -258,5 +259,24 @@ void main() {
       final failure = ConflictFailure(cause: underlying);
       expect(failure.cause, same(underlying));
     });
+  });
+
+  test('should_notLeakResponseBody_when_failureToString', () {
+    final opts = RequestOptions(path: '/api/v1/notifications');
+    final err = DioException(
+      requestOptions: opts,
+      response: Response<dynamic>(
+        requestOptions: opts,
+        statusCode: 500,
+        data: <String, Object?>{'message': 'Олена Коваленко +380501234567'},
+      ),
+      type: DioExceptionType.badResponse,
+    );
+    final text = ServerFailure(statusCode: 500, cause: err).toString();
+    expect(text, isNot(contains('Олена')));
+    expect(text, isNot(contains('380501234567')));
+    expect(text, contains('ServerFailure'));
+    expect(text, contains('500'));
+    expect(const NetworkFailure().toString(), 'NetworkFailure()');
   });
 }

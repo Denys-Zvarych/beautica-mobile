@@ -421,15 +421,6 @@ class _ProfileSection extends ConsumerWidget {
     return profileAsync.when(
       data: (ClientProfileSummary p) => HomeProfileCard(
         profile: p,
-        onCamera: () {
-          if (kDebugMode) {
-            log(
-              'change photo tapped — placeholder',
-              name: 'feature.home',
-              level: 700,
-            );
-          }
-        },
         onLocation: () {
           if (kDebugMode) {
             log(

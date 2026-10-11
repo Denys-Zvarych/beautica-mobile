@@ -260,3 +260,118 @@ final class ClientApiProvider
 }
 
 String _$clientApiHash() => r'6fdea0c0085efe957619439b4a991d045a41bc24';
+
+/// Provides the generated [NotificationsApi] singleton (phase 359) for the
+/// in-app notification feed. The generated enums carry an
+/// `unknown_default_open_api` fallback, so `standardSerializers` already
+/// tolerates a new backend `type` / `kind`.
+
+@ProviderFor(notificationsApi)
+final notificationsApiProvider = NotificationsApiProvider._();
+
+/// Provides the generated [NotificationsApi] singleton (phase 359) for the
+/// in-app notification feed. The generated enums carry an
+/// `unknown_default_open_api` fallback, so `standardSerializers` already
+/// tolerates a new backend `type` / `kind`.
+
+final class NotificationsApiProvider
+    extends
+        $FunctionalProvider<
+          NotificationsApi,
+          NotificationsApi,
+          NotificationsApi
+        >
+    with $Provider<NotificationsApi> {
+  /// Provides the generated [NotificationsApi] singleton (phase 359) for the
+  /// in-app notification feed. The generated enums carry an
+  /// `unknown_default_open_api` fallback, so `standardSerializers` already
+  /// tolerates a new backend `type` / `kind`.
+  NotificationsApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'notificationsApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$notificationsApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<NotificationsApi> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  NotificationsApi create(Ref ref) {
+    return notificationsApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(NotificationsApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<NotificationsApi>(value),
+    );
+  }
+}
+
+String _$notificationsApiHash() => r'38cafd0a0e4b5268675f5e1f3bd94b1ccb3c6362';
+
+/// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+/// token registration (`POST` / `DELETE /devices/token`).
+
+@ProviderFor(deviceApi)
+final deviceApiProvider = DeviceApiProvider._();
+
+/// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+/// token registration (`POST` / `DELETE /devices/token`).
+
+final class DeviceApiProvider
+    extends
+        $FunctionalProvider<
+          DeviceControllerApi,
+          DeviceControllerApi,
+          DeviceControllerApi
+        >
+    with $Provider<DeviceControllerApi> {
+  /// Provides the generated [DeviceControllerApi] singleton (phase 067) for FCM
+  /// token registration (`POST` / `DELETE /devices/token`).
+  DeviceApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'deviceApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$deviceApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<DeviceControllerApi> $createElement(
+    $ProviderPointer pointer,
+  ) => $ProviderElement(pointer);
+
+  @override
+  DeviceControllerApi create(Ref ref) {
+    return deviceApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(DeviceControllerApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<DeviceControllerApi>(value),
+    );
+  }
+}
+
+String _$deviceApiHash() => r'3f4cfd4fce4dfc4d8de2c2f70e78186f0e4b367a';

@@ -39,6 +39,7 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/core/widgets/size_reveal.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
@@ -51,6 +52,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/services_empty_state.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_top_bar.dart';
 
 import 'services_list_notifier.dart';
 
@@ -86,6 +88,9 @@ class ServicesListScreen extends ConsumerStatefulWidget {
     this.navScheduleRoute,
     this.navProfileRoute,
     this.navBookingsRoute,
+    this.backLabel,
+    this.backSemanticLabel,
+    this.bottomNavBar,
   });
 
   /// Optional upper-cased wire slug. When set, the matching category section
@@ -207,6 +212,25 @@ class ServicesListScreen extends ConsumerStatefulWidget {
   /// mount at [RouteNames.salonMasterBookings], so that tile no longer
   /// bounces — see [VelvetBottomNavBar.bookingsRoute].
   final String? navBookingsRoute;
+
+  /// Phase 380 (24.1c) — optional VISIBLE text beside [showBack]'s arrow,
+  /// forwarded to [NeumorphicIconButton.label] (the owner master-mode
+  /// «‹ Салон» pill). Non-null also widens `AppBar.leadingWidth` so the pill
+  /// fits. Only meaningful when [showBack] is `true`. `null` (every
+  /// pre-existing caller) renders the byte-identical app bar.
+  final String? backLabel;
+
+  /// Phase 380 (24.1c) — optional screen-reader label for [showBack]'s
+  /// button. `null` keeps `servicesListBackSemanticLabel` («Назад»).
+  final String? backSemanticLabel;
+
+  /// Phase 380 (24.1c) — optional prebuilt bottom bar that REPLACES the
+  /// default `VelvetBottomNavBar(activeIndex: 0, …)` built from
+  /// [navScheduleRoute] / [navProfileRoute] / [navBookingsRoute]. The owner
+  /// master-mode mount passes its canonical `const` tile-0 bar, so every
+  /// owner tab reads its routes from ONE table. Ignored when [showBottomNav]
+  /// is `false`. `null` (every pre-existing caller) keeps today's bar.
+  final Widget? bottomNavBar;
 
   /// Resolved setup destination — the parameter, or today's literal.
   String get resolvedSetupRoute => setupRoute ?? RouteNames.serviceSetup;
@@ -380,18 +404,21 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
         title: l10n.servicesTitle,
         showBack: widget.showBack,
         backFallbackRoute: widget.backFallbackRoute,
+        backLabel: widget.backLabel,
+        backSemanticLabel: widget.backSemanticLabel,
       ),
       // Tile 0 ("Послуги") — this screen IS that destination. Hosted via
       // Scaffold's own slot (not nested inside a body SafeArea) so it mounts
       // identically to the other three master tab screens — see
       // `VelvetBottomNavBar`'s doc comment and `ProfileScaffold.bottomNavBar`.
       bottomNavigationBar: widget.showBottomNav
-          ? VelvetBottomNavBar(
-              activeIndex: 0,
-              scheduleRoute: widget.navScheduleRoute,
-              profileRoute: widget.navProfileRoute,
-              bookingsRoute: widget.navBookingsRoute,
-            )
+          ? widget.bottomNavBar ??
+                VelvetBottomNavBar(
+                  activeIndex: 0,
+                  scheduleRoute: widget.navScheduleRoute,
+                  profileRoute: widget.navProfileRoute,
+                  bookingsRoute: widget.navBookingsRoute,
+                )
           : null,
       floatingActionButton: asyncServices.maybeWhen(
         data: (list) => (list.isEmpty || !widget.writable)
@@ -517,6 +544,8 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.title,
     this.showBack = false,
     this.backFallbackRoute,
+    this.backLabel,
+    this.backSemanticLabel,
   });
 
   final String title;
@@ -530,6 +559,12 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   /// See [ServicesListScreen.backFallbackRoute].
   final String? backFallbackRoute;
+
+  /// See [ServicesListScreen.backLabel].
+  final String? backLabel;
+
+  /// See [ServicesListScreen.backSemanticLabel].
+  final String? backSemanticLabel;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -563,10 +598,43 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
     // than a no-op, and the two `showBack: false` mounts never reach here.
   }
 
+  bool _labelFits(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    return VelvetTopBar.labelledBackFits(
+      titleRoom:
+          MediaQuery.sizeOf(context).width -
+          (VelvetSpacing.md + VelvetTopBar.labelledTitleInsetFor(scaler)) -
+          NavigationToolbar.kMiddleSpacing,
+      title: title,
+      scaler: scaler,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final String? requested = showBack ? backLabel : null;
+    // Phase 383 (LOW layout) — the shared collapse rule
+    // ([VelvetTopBar.labelledBackFits]): when the labelled pill would leave
+    // the title below its readable minimum, render the plain chevron (same
+    // key, same semantics) in AppBar's default leading slot. The AppBar is
+    // full-width, so the screen width is the bar width; the title starts
+    // after the leading slot and AppBar's own middle spacing.
+    final String? label = requested != null && _labelFits(context)
+        ? requested
+        : null;
     return AppBar(
+      // Phase 380 — the labelled pill is wider than the default 56 dp slot.
+      // Sized by the SAME measured pill width [VelvetTopBar] insets its title
+      // by (text-scale aware, capped at the pill's own max), plus a left
+      // inset so the pill clears the screen edge. `null` (no label) keeps
+      // AppBar's default — byte-identical for every pre-existing mount.
+      leadingWidth: label == null
+          ? null
+          : VelvetSpacing.md +
+                VelvetTopBar.labelledTitleInsetFor(
+                  MediaQuery.textScalerOf(context),
+                ),
       backgroundColor: BrandColors.base,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
@@ -582,14 +650,33 @@ class _ServicesAppBar extends StatelessWidget implements PreferredSizeWidget {
       // whose left edge already sits at x = 0, so it IS clipped horizontally.
       // ACCEPTED for parity with `schedule_editor_stubs.dart:51`, which puts
       // the same button in the same `AppBar.leading` slot.
-      leading: showBack
+      leading: !showBack
+          ? null
+          : label == null
           ? NeumorphicIconButton(
               key: ServicesListScreen.backKey,
               icon: Icons.arrow_back_ios_new_rounded,
-              semanticLabel: l10n.servicesListBackSemanticLabel,
+              semanticLabel:
+                  backSemanticLabel ?? l10n.servicesListBackSemanticLabel,
               onTap: () => _handleBack(context),
             )
-          : null,
+          // Loose-aligned so AppBar's TIGHT leading constraints do not stretch
+          // the pill to the whole slot; the left inset keeps its light shadow
+          // off the screen edge.
+          : Padding(
+              padding: const EdgeInsets.only(left: VelvetSpacing.md),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: NeumorphicIconButton(
+                  key: ServicesListScreen.backKey,
+                  icon: Icons.arrow_back_ios_new_rounded,
+                  semanticLabel:
+                      backSemanticLabel ?? l10n.servicesListBackSemanticLabel,
+                  onTap: () => _handleBack(context),
+                  label: label,
+                ),
+              ),
+            ),
       title: Text(title, style: VelvetText.pageTitle),
     );
   }
@@ -646,11 +733,104 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // is recomputed (identity change of services or categories).
   List<_ListItem>? _cachedItems;
 
+  // Phase 076 rows 1-2 — the open/closed set lives HERE, not in the
+  // `CategorySection` State: a section scrolled beyond the cache extent is
+  // disposed by the lazy list, and with it any private toggle state. Keyed by
+  // `group.key` ('' for uncategorized). Seeded once from
+  // [_LoadedBody.initialExpandCategory], exactly like the old
+  // `initiallyExpanded` (applied once, user toggles freely afterwards).
+  final Set<String> _expandedKeys = <String>{};
+
+  // Service ids whose staggered entrance already played IN VIEW (recorded by
+  // ServiceCard.onEntranceStarted; pruned against the data in [_resolveGroups]). A card the lazy list
+  // disposes and re-mounts on scroll-back mounts settled instead of replaying
+  // the 460 ms fade/rise. Cleared per group on collapse, so a fresh expand
+  // still animates in as before.
+  final Set<String> _appeared = <String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    final String seed = (widget.initialExpandCategory ?? '')
+        .trim()
+        .toUpperCase();
+    if (seed.isNotEmpty) _expandedKeys.add(seed);
+  }
+
+  // Phase 076 B — the expand/collapse reveal that flattening the cards into the
+  // lazy list dropped (it used to be `CategorySection`'s whole-body
+  // `AnimatedSize`, 220 ms easeOutCubic). Now per card, via [SizeReveal]:
+  //
+  //  * [_revealIds] — card ids that exist BECAUSE the user just expanded.
+  //    Populated in [_setExpanded] and emptied after the frame that built
+  //    them, so a card the lazy list builds LATER (scrolled in, or re-mounted
+  //    on scroll-back) is born settled. The initial-expand seed never enters
+  //    it: first paint does not animate, exactly as before.
+  //  * [_closing] — groups mid-collapse. Their card items stay in the list
+  //    while each shrinks to 0, then [_closeTimers] removes them. A lazy list
+  //    cannot animate an item it has already dropped, hence the deferral.
+  //
+  //  * N1 cap — only the FIRST [_revealCap] cards of an expanding section
+  //    animate (born at height 0); the rest are inserted settled. A reveal
+  //    card is 0 dp tall on the expand frame, so ALL of them would fit the
+  //    cache extent and mount at once; settled cards occupy their natural
+  //    height, so the lazy list stops building at the cache extent and the
+  //    expand frame mounts a bounded number (cap + what fits on screen).
+  final Set<String> _revealIds = <String>{};
+  static const int _revealCap = 12;
+  final Set<String> _closing = <String>{};
+  final Map<String, Timer> _closeTimers = <String, Timer>{};
+
+  @override
+  void dispose() {
+    for (final Timer t in _closeTimers.values) {
+      t.cancel();
+    }
+    super.dispose();
+  }
+
+  void _setExpanded(CategoryGroup group, bool expanded) {
+    setState(() {
+      if (expanded) {
+        final Timer? pending = _closeTimers.remove(group.key);
+        if (pending != null) {
+          // Re-opened mid-collapse: the cards are still mounted and simply
+          // grow back from where they are.
+          pending.cancel();
+          _closing.remove(group.key);
+        } else if (_expandedKeys.add(group.key)) {
+          for (final CategoryGroupEntry e in group.cards.take(_revealCap)) {
+            _revealIds.add(e.service.id);
+          }
+          // Cards built on later frames (scrolled in) must NOT reveal.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _revealIds.clear();
+          });
+        }
+      } else if (_expandedKeys.contains(group.key) &&
+          !_closing.contains(group.key)) {
+        _closing.add(group.key);
+        _closeTimers[group.key] = Timer(SizeReveal.duration, () {
+          _closeTimers.remove(group.key);
+          if (!mounted) return;
+          setState(() {
+            _closing.remove(group.key);
+            _expandedKeys.remove(group.key);
+            for (final CategoryGroupEntry e in group.cards) {
+              _appeared.remove(e.service.id);
+            }
+            _cachedItems = null;
+          });
+        });
+      }
+      _cachedItems = null;
+    });
+  }
+
   List<CategoryGroup> _resolveGroups(
-    AsyncValue<List<ServiceCategoryOption>> categoriesAsync,
+    List<ServiceCategoryOption>? categoriesValue,
     String uncategorizedLabel,
   ) {
-    final List<ServiceCategoryOption>? categoriesValue = categoriesAsync.value;
     final bool hit =
         _cachedGroups != null &&
         identical(_cachedServices, widget.services) &&
@@ -659,9 +839,26 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
 
     final List<CategoryGroup> groups = groupServicesByCategory(
       services: widget.services,
-      categoriesAsync: categoriesAsync,
+      categoriesAsync: categoriesValue == null
+          ? const AsyncLoading<List<ServiceCategoryOption>>()
+          : AsyncData<List<ServiceCategoryOption>>(categoriesValue),
       uncategorizedLabel: uncategorizedLabel,
     );
+    // N2: on a DATA change, drop bookkeeping for ids / sections that no longer
+    // exist, so a removed-then-re-added service animates in again and a gone
+    // section does not come back pre-expanded. Skipped on the first resolve
+    // (keeps the initial-expand seed) and on a categories-only change (group
+    // keys derive from the services alone).
+    if (_cachedGroups != null && !identical(_cachedServices, widget.services)) {
+      final Set<String> ids = <String>{
+        for (final MasterService s in widget.services) s.id,
+      };
+      final Set<String> keys = <String>{
+        for (final CategoryGroup g in groups) g.key,
+      };
+      _appeared.retainAll(ids);
+      _expandedKeys.retainAll(keys);
+    }
     _cachedServices = widget.services;
     _cachedCategories = categoriesValue;
     _cachedGroups = groups;
@@ -673,18 +870,19 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-    final categoriesAsync = ref.watch(approvedCategoriesProvider);
-
-    final List<CategoryGroup> groups = _resolveGroups(
-      categoriesAsync,
-      l10n.serviceCategoryUncategorized,
+    // Phase 076 row 3 — only the resolved list is consumed, so select it: the
+    // loading/refresh transition of an invalidation no longer rebuilds this
+    // body (and, through fresh closures, every mounted card).
+    final List<ServiceCategoryOption>? categoriesValue = ref.watch(
+      approvedCategoriesProvider.select(
+        (AsyncValue<List<ServiceCategoryOption>> a) => a.value,
+      ),
     );
 
-    // Normalise the requested slug once for O(1) per-section comparison.
-    final String? targetSlug =
-        (widget.initialExpandCategory?.trim().toUpperCase() ?? '').isEmpty
-        ? null
-        : widget.initialExpandCategory!.trim().toUpperCase();
+    final List<CategoryGroup> groups = _resolveGroups(
+      categoriesValue,
+      l10n.serviceCategoryUncategorized,
+    );
 
     // PERF A1 (HIGH): flatten the active-count header + ordered groups into a
     // single typed item list (header, section, section, …) once, then drive a
@@ -700,6 +898,8 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
     final List<_ListItem> items = _cachedItems!;
 
     return ListView.builder(
+      // Phase 076 — scroll target for `integration_test/perf/scroll_jank_test.dart`.
+      key: const Key('services-list-scroll'),
       physics: const AlwaysScrollableScrollPhysics(
         parent: BouncingScrollPhysics(),
       ),
@@ -725,82 +925,68 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
                 style: VelvetText.label(),
               ),
             );
-          case _SectionItem(:final group):
-            // When a target slug was requested:
-            //   • the matching section starts expanded,
-            //   • every other section starts collapsed.
-            // When no target slug is set (null — "Усі послуги" link or
-            // bottom-nav tab) all sections start collapsed.
-            final bool initiallyExpanded =
-                targetSlug != null && group.key == targetSlug;
+          case _SectionItem(:final group, :final expanded, :final hasBody):
             final String sectionSlug = group.key.isEmpty ? '_none' : group.key;
             return Padding(
-              padding: const EdgeInsets.only(bottom: VelvetSpacing.md),
+              // A section with a body keeps its bottom gap on its last card
+              // item (see [_CardItem.last]) so the total spacing is unchanged.
+              padding: EdgeInsets.only(bottom: hasBody ? 0 : VelvetSpacing.md),
               child: CategorySection(
-                // Stable key per bucket so expand/collapse state survives
-                // rebuilds (e.g. category-cache invalidation on screen return).
-                // Also used by widget tests and profile card navigation.
+                // Stable key per bucket; also used by widget tests and
+                // profile card navigation.
                 key: Key('category_section_$sectionSlug'),
                 title: group.label,
                 count: group.cards.length,
                 slug: group.key.isEmpty ? null : group.key,
-                initiallyExpanded: initiallyExpanded,
-                // LAZY form (2026-09-13 audit, M10): the cards are built
-                // inside [CategorySection]'s own `_expanded` branch, so a
-                // COLLAPSED section — which is every section by default on
-                // this screen — allocates no [ServiceCard], and therefore no
-                // AnimationController / CurvedAnimation / entrance timer.
-                // Passing a materialised `children:` list here built them all
-                // before CategorySection was even constructed.
-                childCount: group.cards.length,
-                childBuilder: (BuildContext context, int i) {
-                  final CategoryGroupEntry entry = group.cards[i];
-                  return Padding(
-                    padding: const EdgeInsets.only(top: VelvetSpacing.md),
-                    child: ServiceCard(
-                      key: Key('service_card_${entry.service.id}'),
-                      service: entry.service,
-                      // Opt out of the leading photo well (default `true`;
-                      // the booking-wizard picker keeps it). Service photo
-                      // upload is deferred to Phase 9.x, so on THIS screen
-                      // every card renders the identical spa placeholder —
-                      // 50 dp of row width (40 well + 10 gap) spent on a
-                      // glyph that distinguishes no card from any other, on
-                      // the one screen whose whole job is reading and
-                      // editing long service names. When Phase 9.x lands a
-                      // real photo, drop this line.
-                      showPhoto: false,
-                      // ALIGNMENT RULE: a service name starts at exactly the
-                      // same x as its category section's TITLE, so the two
-                      // form one vertical spine down the section. Derived
-                      // from the header's own constituents (its `md` padding
-                      // + 20 dp glyph slot + `sm` gap) minus the card's own
-                      // leading inset — never a literal 36, so it tracks any
-                      // future change to the header's padding, icon size or
-                      // gap instead of silently drifting off it.
-                      //
-                      // Dropping the photo well above reclaimed 50 dp but it
-                      // was also the only thing indenting the name; this
-                      // spends 36 of those 50 to put the name back under its
-                      // heading.
-                      leadingIndent:
-                          CategorySection.headerTitleInset -
-                          ServiceCard.contentInset,
-                      onEdit: widget.writable
-                          ? () => widget.onOpen(
-                              widget.editRouteBuilder(entry.service.id),
-                            )
-                          : null,
-                      // P-M3 fix: cap the effective stagger index at 5 so
-                      // the maximum outstanding delay is 90*5 = 450 ms,
-                      // regardless of list length. Visual behaviour is
-                      // identical for the first 6 cards.
-                      appearDelay: Duration(
-                        milliseconds: 90 * entry.staggerIndex.clamp(0, 5),
-                      ),
-                    ),
-                  );
-                },
+                // CONTROLLED (phase 076): the header only. The open body is
+                // emitted by [_flatten] as one lazy [_CardItem] per service, so
+                // `ListView.builder` virtualizes the cards instead of a
+                // non-lazy Column mounting all N at once.
+                expanded: expanded,
+                onExpandedChanged: (bool v) => _setExpanded(group, v),
+                children: const <Widget>[],
+              ),
+            );
+          case _CardItem(:final entry, :final last, :final closing):
+            final String id = entry.service.id;
+            // N2: a pure read — the id is recorded by the card itself
+            // (`onEntranceStarted`) once it has really mounted in view, never
+            // here (a build-only / cache-extent pass must not count).
+            final bool animate = !_appeared.contains(id);
+            return SizeReveal(
+              key: Key('service_card_reveal_$id'),
+              revealOnMount: _revealIds.contains(id),
+              collapsing: closing,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  top: VelvetSpacing.md,
+                  bottom: last ? VelvetSpacing.md : 0,
+                ),
+                child: ServiceCard(
+                  key: Key('service_card_$id'),
+                  service: entry.service,
+                  // Opt out of the leading photo well: service photo upload is
+                  // deferred to Phase 9.x, so every card here would render the
+                  // identical spa placeholder. When Phase 9.x lands, drop this.
+                  showPhoto: false,
+                  // ALIGNMENT RULE: a service name starts at exactly the same x
+                  // as its category section's TITLE. Derived from the header's
+                  // own constituents minus the card's leading inset, never a
+                  // literal.
+                  leadingIndent:
+                      CategorySection.headerTitleInset -
+                      ServiceCard.contentInset,
+                  onEdit: widget.writable
+                      ? () => widget.onOpen(widget.editRouteBuilder(id))
+                      : null,
+                  // P-M3: cap the stagger index at 5 (max 450 ms delay).
+                  appearDelay: Duration(
+                    milliseconds: 90 * entry.staggerIndex.clamp(0, 5),
+                  ),
+                  // Already played once (scrolled out and back): mount settled.
+                  animateEntrance: animate,
+                  onEntranceStarted: animate ? () => _appeared.add(id) : null,
+                ),
               ),
             );
         }
@@ -819,7 +1005,23 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   ) {
     return <_ListItem>[
       _HeaderItem(_activeServicesLabel(l10n, total)),
-      for (final CategoryGroup group in groups) _SectionItem(group),
+      for (final CategoryGroup group in groups) ...<_ListItem>[
+        _SectionItem(
+          group,
+          // The chevron/semantics flip the moment a collapse starts.
+          expanded:
+              _expandedKeys.contains(group.key) &&
+              !_closing.contains(group.key),
+          hasBody: _expandedKeys.contains(group.key),
+        ),
+        if (_expandedKeys.contains(group.key))
+          for (int i = 0; i < group.cards.length; i++)
+            _CardItem(
+              group.cards[i],
+              last: i == group.cards.length - 1,
+              closing: _closing.contains(group.key),
+            ),
+      ],
     ];
   }
 
@@ -867,60 +1069,46 @@ class _HeaderItem extends _ListItem {
 /// A category section (header pillow + its collapsible cards).
 @immutable
 class _SectionItem extends _ListItem {
-  const _SectionItem(this.group);
+  const _SectionItem(
+    this.group, {
+    required this.expanded,
+    required this.hasBody,
+  });
 
   final CategoryGroup group;
+  final bool expanded;
+
+  /// Card items follow this section in the list (true while it is collapsing).
+  final bool hasBody;
+}
+
+/// One service card of an EXPANDED section, flattened into the lazy list.
+@immutable
+class _CardItem extends _ListItem {
+  const _CardItem(this.entry, {required this.last, required this.closing});
+
+  final CategoryGroupEntry entry;
+  final bool last;
+
+  /// Its section is collapsing: the card shrinks out before being removed.
+  final bool closing;
 }
 
 // ---------------------------------------------------------------------------
 // Loading body — three shimmer skeleton cards
 // ---------------------------------------------------------------------------
 
-class _LoadingBody extends StatelessWidget {
+class _LoadingBody extends StatefulWidget {
   const _LoadingBody();
 
   @override
-  Widget build(BuildContext context) {
-    const List<double> titleWidths = <double>[0.62, 0.45, 0.54];
-    return ListView(
-      physics: const NeverScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(
-        VelvetSpacing.lg,
-        VelvetSpacing.md,
-        VelvetSpacing.lg,
-        VelvetSpacing.lg,
-      ),
-      children: <Widget>[
-        for (int i = 0; i < titleWidths.length; i++) ...<Widget>[
-          _SkeletonCard(
-            key: Key('skeleton_card_$i'),
-            titleWidthFactor: titleWidths[i],
-          ),
-          const SizedBox(height: VelvetSpacing.md),
-        ],
-      ],
-    );
-  }
+  State<_LoadingBody> createState() => _LoadingBodyState();
 }
 
-// ---------------------------------------------------------------------------
-// Skeleton card
-// ---------------------------------------------------------------------------
-
-/// A raised neumorphic card whose content areas are replaced by shimmering
-/// inset bars — depth preserved (never flat grey) so the loading state reads
-/// on-brand. One [AnimationController] per card (each card is independent).
-class _SkeletonCard extends StatefulWidget {
-  const _SkeletonCard({super.key, this.titleWidthFactor = 0.62});
-
-  final double titleWidthFactor;
-
-  @override
-  State<_SkeletonCard> createState() => _SkeletonCardState();
-}
-
-class _SkeletonCardState extends State<_SkeletonCard>
+class _LoadingBodyState extends State<_LoadingBody>
     with SingleTickerProviderStateMixin {
+  // Phase 076 row 8 — ONE controller drives every skeleton card's shimmer
+  // (was one repeating controller per card).
   late final AnimationController _shimmer;
 
   @override
@@ -940,59 +1128,105 @@ class _SkeletonCardState extends State<_SkeletonCard>
 
   @override
   Widget build(BuildContext context) {
-    return NeumorphicCard(
-      child: Row(
-        children: <Widget>[
-          _ShimmerBar(
+    const List<double> titleWidths = <double>[0.62, 0.45, 0.54];
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        VelvetSpacing.lg,
+        VelvetSpacing.md,
+        VelvetSpacing.lg,
+        VelvetSpacing.lg,
+      ),
+      children: <Widget>[
+        for (int i = 0; i < titleWidths.length; i++) ...<Widget>[
+          _SkeletonCard(
+            key: Key('skeleton_card_$i'),
             controller: _shimmer,
-            height: 48,
-            width: 48,
-            radius: VelvetRadii.field,
+            titleWidthFactor: titleWidths[i],
           ),
-          const SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _ShimmerBar(
-                  controller: _shimmer,
-                  height: 16,
-                  widthFactor: widget.titleWidthFactor,
-                  radius: 6,
-                ),
-                const SizedBox(height: VelvetSpacing.md),
-                Row(
-                  children: <Widget>[
-                    Expanded(
-                      flex: 3,
-                      child: _ShimmerBar(
-                        controller: _shimmer,
-                        height: 26,
-                        radius: VelvetRadii.pill,
-                      ),
-                    ),
-                    const SizedBox(width: VelvetSpacing.sm),
-                    Expanded(
-                      flex: 4,
-                      child: _ShimmerBar(
-                        controller: _shimmer,
-                        height: 26,
-                        radius: VelvetRadii.pill,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: VelvetSpacing.md),
-          _ShimmerBar(
-            controller: _shimmer,
-            height: 32,
-            width: 32,
-            radius: VelvetRadii.field,
-          ),
+          const SizedBox(height: VelvetSpacing.md),
         ],
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton card
+// ---------------------------------------------------------------------------
+
+/// A raised neumorphic card whose content areas are replaced by shimmering
+/// inset bars — depth preserved (never flat grey) so the loading state reads
+/// on-brand. The shimmer is driven by ONE controller owned by `_LoadingBody`.
+class _SkeletonCard extends StatelessWidget {
+  const _SkeletonCard({
+    super.key,
+    required this.controller,
+    this.titleWidthFactor = 0.62,
+  });
+
+  final AnimationController controller;
+  final double titleWidthFactor;
+
+  @override
+  Widget build(BuildContext context) {
+    return NeumorphicCard(
+      // The animating bars repaint inside their own layer, so the blurred
+      // card shadow (outside this child) is not re-rasterised every frame.
+      child: RepaintBoundary(
+        child: Row(
+          children: <Widget>[
+            _ShimmerBar(
+              controller: controller,
+              height: 48,
+              width: 48,
+              radius: VelvetRadii.field,
+            ),
+            const SizedBox(width: VelvetSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _ShimmerBar(
+                    controller: controller,
+                    height: 16,
+                    widthFactor: titleWidthFactor,
+                    radius: 6,
+                  ),
+                  const SizedBox(height: VelvetSpacing.md),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        flex: 3,
+                        child: _ShimmerBar(
+                          controller: controller,
+                          height: 26,
+                          radius: VelvetRadii.pill,
+                        ),
+                      ),
+                      const SizedBox(width: VelvetSpacing.sm),
+                      Expanded(
+                        flex: 4,
+                        child: _ShimmerBar(
+                          controller: controller,
+                          height: 26,
+                          radius: VelvetRadii.pill,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: VelvetSpacing.md),
+            _ShimmerBar(
+              controller: controller,
+              height: 32,
+              width: 32,
+              radius: VelvetRadii.field,
+            ),
+          ],
+        ),
       ),
     );
   }

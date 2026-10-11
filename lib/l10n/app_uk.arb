@@ -1649,6 +1649,14 @@
   "@servicePhotoChangeSemantics": {
     "description": "Screen-reader label for the photo slot in the filled state (Phase 5.4)."
   },
+  "photoUploading": "Завантаження фото",
+  "@photoUploading": {
+    "description": "Screen-reader label for the in-flight photo upload indicator on the avatar editor and the service photo slot (phase 072). The numeric percentage is exposed separately as the semantics value."
+  },
+  "photoUploadFailed": "Не вдалося завантажити фото",
+  "@photoUploadFailed": {
+    "description": "Message on the failed-upload state of the avatar editor / service photo slot (phase 072); sits beside the retry affordance (retryLabel)."
+  },
   "serviceUnsavedChangesBody": "Ви змінили послугу, але ще не зберегли. Якщо вийти зараз, зміни буде втрачено.",
   "@serviceUnsavedChangesBody": {
     "description": "Qase defect #26 (case 43 step 2) — body of the unsaved-changes confirmation on ServiceEditScreen, shown when the master leaves a DIRTY form via the system back gesture or the top-bar back icon. The dialog's TITLE reuses `serviceUnsavedChanges`, the same string the in-form dirty caption already renders, so the warning the tester was told to expect and the indicator they can see on screen read identically."
@@ -2800,6 +2808,17 @@
   "@boardErrRateLimitedNoWait": {
     "description": "Error shown when a salon-board read returns 429 without a usable Retry-After header (absent, unparsable, or above the 10-minute UX ceiling). Same message as boardErrRateLimited minus the countdown."
   },
+  "notificationsErrRateLimited": "Забагато запитів. Зачекайте {seconds} с і спробуйте ще раз.",
+  "@notificationsErrRateLimited": {
+    "description": "Error shown when an in-app notification-feed call returns 429 with a usable Retry-After header.",
+    "placeholders": {
+      "seconds": { "type": "int" }
+    }
+  },
+  "notificationsErrRateLimitedNoWait": "Забагато запитів. Зачекайте трохи й спробуйте ще раз.",
+  "@notificationsErrRateLimitedNoWait": {
+    "description": "Error shown when a notification-feed call returns 429 without a usable Retry-After header. Same message minus the countdown."
+  },
   "boardRetryCooldown": "Спробувати знову через {seconds} с",
   "@boardRetryCooldown": {
     "description": "Label on the disabled retry button while a salon-board rate-limit cooldown is still running. Replaces retryLabel until the countdown reaches zero.",
@@ -3264,6 +3283,209 @@
   "homeHubNotificationsLabel": "Сповіщення",
   "@homeHubNotificationsLabel": {
     "description": "Accessibility label for the notification bell button in the Home Hub top bar."
+  },
+  "notificationBellLabel": "Сповіщення",
+  "@notificationBellLabel": {
+    "description": "Accessibility label of the shared notification bell when nothing is unread."
+  },
+  "notificationBellUnreadLabel": "Сповіщення, є нові",
+  "@notificationBellUnreadLabel": {
+    "description": "Accessibility label of the shared notification bell when there are unread notifications."
+  },
+  "notificationsScreenTitle": "Сповіщення",
+  "@notificationsScreenTitle": {
+    "description": "Title of the notification feed screen."
+  },
+  "notificationsMarkAllRead": "Позначити всі як прочитані",
+  "@notificationsMarkAllRead": {
+    "description": "Phase 363 — action above the notification feed that marks every loaded notification read. Hidden (not disabled) when nothing is unread."
+  },
+  "notificationsMarkOneRead": "Позначити як прочитане",
+  "@notificationsMarkOneRead": {
+    "description": "Phase 363 — semantic label and tooltip of the per-row check button that marks one notification read without opening it."
+  },
+  "notificationsMarkReadFailed": "Не вдалося позначити як прочитане",
+  "@notificationsMarkReadFailed": {
+    "description": "Phase 363 — snackbar shown after a single mark-read failed and the row was rolled back to unread."
+  },
+  "notificationsBookingUnavailable": "Запис більше недоступний",
+  "@notificationsBookingUnavailable": {
+    "description": "Phase 364 — snackbar shown when a tapped notification points at a booking the viewer can no longer open (target gone, or the detail answered 403/404)."
+  },
+  "notificationsMarkAllReadFailed": "Не вдалося позначити сповіщення як прочитані",
+  "@notificationsMarkAllReadFailed": {
+    "description": "Phase 363 — snackbar shown after mark-all-read failed and every row was rolled back to unread."
+  },
+  "notificationsUnreadCount": "{count, plural, one{{count} непрочитане} few{{count} непрочитані} many{{count} непрочитаних} other{{count} непрочитаних}}",
+  "@notificationsUnreadCount": {
+    "description": "Phase 363 — unread counter beside the mark-all action.",
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
+  "notificationsUnreadCountCapped": "99+ непрочитаних",
+  "@notificationsUnreadCountCapped": {
+    "description": "Phase 363 — unread counter when the backend's count is at its cap of 99, so the true number is unknown."
+  },
+  "notificationsUnreadSemantic": "непрочитане",
+  "@notificationsUnreadSemantic": {
+    "description": "Phase 363 — screen-reader word announced on an unread notification row."
+  },
+  "notificationsParamsGone": "Деталі більше недоступні",
+  "@notificationsParamsGone": {
+    "description": "Phase 363 — body of a notification whose display parameters the backend nulled because the recipient lost access to the subject."
+  },
+  "notificationsNoTarget": "Більше недоступно",
+  "@notificationsNoTarget": {
+    "description": "Phase 363 — hint on a notification row that has nothing left to open."
+  },
+  "notificationsEmptyTitle": "Сповіщень поки немає",
+  "@notificationsEmptyTitle": {
+    "description": "Phase 363 — empty-state headline of the notification feed."
+  },
+  "notificationsEmptyBody": "Тут зʼявлятимуться нові записи, скасування, перенесення та відгуки.",
+  "@notificationsEmptyBody": {
+    "description": "Phase 363 — empty-state sub-line of the notification feed; says what WILL arrive, there is no action."
+  },
+  "notificationsLoadingSemantics": "Завантаження сповіщень",
+  "@notificationsLoadingSemantics": {
+    "description": "Phase 363 — screen-reader label of the notification feed's loading skeleton."
+  },
+  "notificationsLoadMoreFailed": "Не вдалося завантажити сповіщення",
+  "@notificationsLoadMoreFailed": {
+    "description": "Phase 363 — footer notice after the next feed page failed for a reason other than a rate limit; a retry action sits beside it."
+  },
+  "notificationTitleBookingCreated": "Новий запис",
+  "@notificationTitleBookingCreated": {
+    "description": "Phase 363 — title of a BOOKING_CREATED notification (provider audience)."
+  },
+  "notificationTitleCancelledByClient": "Клієнт скасував запис",
+  "@notificationTitleCancelledByClient": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_BY_CLIENT notification (provider audience). Gender-neutral: the API sends no gender."
+  },
+  "notificationTitleDeclinedClient": "Ваш запис скасовано",
+  "@notificationTitleDeclinedClient": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
+  },
+  "notificationTitleDeclinedProvider": "Запис у вашому дні скасовано",
+  "@notificationTitleDeclinedProvider": {
+    "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
+  },
+  "notificationTitleRescheduledClient": "Ваш запис перенесено",
+  "@notificationTitleRescheduledClient": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for the client."
+  },
+  "notificationTitleRescheduledProvider": "Запис перенесено",
+  "@notificationTitleRescheduledProvider": {
+    "description": "Phase 363 — title of a BOOKING_RESCHEDULED notification for a provider."
+  },
+  "notificationTitleInviteAccepted": "Новий учасник команди",
+  "@notificationTitleInviteAccepted": {
+    "description": "Phase 363 — title of an INVITE_ACCEPTED notification (salon owner / admin)."
+  },
+  "notificationTitleNotCompleted": "Візит позначено як непроведений",
+  "@notificationTitleNotCompleted": {
+    "description": "Phase 363 — title of a BOOKING_NOT_COMPLETED notification for the client."
+  },
+  "notificationTitleReviewRequested": "Як пройшов візит? Залиште відгук",
+  "@notificationTitleReviewRequested": {
+    "description": "Phase 363 — title of a REVIEW_REQUESTED notification for the client."
+  },
+  "notificationTitleReviewReceived": "Новий відгук",
+  "@notificationTitleReviewReceived": {
+    "description": "Phase 363 — title of a REVIEW_RECEIVED notification for a provider."
+  },
+  "notificationTitleSalonClosed": "Салон закрито, запис скасовано",
+  "@notificationTitleSalonClosed": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_SALON_CLOSED notification for the client."
+  },
+  "notificationTitleMasterRemoved": "Майстер більше не приймає, запис скасовано",
+  "@notificationTitleMasterRemoved": {
+    "description": "Phase 363 — title of a BOOKING_CANCELLED_MASTER_REMOVED notification for the client."
+  },
+  "notificationTitleUnknown": "Нове сповіщення",
+  "@notificationTitleUnknown": {
+    "description": "Phase 363 — title of a notification whose type this build does not recognise."
+  },
+  "notificationBodyProvider": "{counterpart} — {service}, {dateTime}",
+  "@notificationBodyProvider": {
+    "description": "Phase 363 — body line for a provider: client first, then service and time.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderWithMaster": "{counterpart} — {service}, {dateTime} · майстер {master}",
+  "@notificationBodyProviderWithMaster": {
+    "description": "Owner/admin body line naming the performing master (booking created / cancelled by client); mirrors the push copy.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduledWithMaster": "{counterpart} — {service}, новий час: {dateTime} · майстер {master}",
+  "@notificationBodyProviderRescheduledWithMaster": {
+    "description": "Rescheduled variant of notificationBodyProviderWithMaster.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" },
+      "master": { "type": "String" }
+    }
+  },
+  "notificationBodyClient": "{service}, {dateTime} — {counterpart}",
+  "@notificationBodyClient": {
+    "description": "Phase 363 — body line for a client: service and time first, then who provides it.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyProviderRescheduled": "{counterpart} — {service}, новий час: {dateTime}",
+  "@notificationBodyProviderRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a provider.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyClientRescheduled": "{service}, новий час: {dateTime} — {counterpart}",
+  "@notificationBodyClientRescheduled": {
+    "description": "Phase 363 — rescheduled body line for a client.",
+    "placeholders": {
+      "counterpart": { "type": "String" },
+      "service": { "type": "String" },
+      "dateTime": { "type": "String" }
+    }
+  },
+  "notificationBodyInviteAccepted": "{subject} тепер у команді — {role}",
+  "@notificationBodyInviteAccepted": {
+    "description": "Phase 363 — body line of an INVITE_ACCEPTED notification; role is notificationRoleSalonMaster or notificationRoleSalonAdmin.",
+    "placeholders": {
+      "subject": { "type": "String" },
+      "role": { "type": "String" }
+    }
+  },
+  "notificationRoleSalonMaster": "майстер",
+  "@notificationRoleSalonMaster": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationRoleSalonAdmin": "адміністратор",
+  "@notificationRoleSalonAdmin": {
+    "description": "Phase 363 — role word in an INVITE_ACCEPTED body."
+  },
+  "notificationServiceWithExtra": "{service} +{extraCount}",
+  "@notificationServiceWithExtra": {
+    "description": "Phase 363 — first service of a multi-service visit plus the number of further services.",
+    "placeholders": {
+      "service": { "type": "String" },
+      "extraCount": { "type": "int" }
+    }
   },
   "homeHubMenuLabel": "Меню",
   "@homeHubMenuLabel": {
@@ -4883,6 +5105,18 @@
       }
     }
   },
+  "salonMasterCardSemanticLabelNoRating": "{name}, {role}",
+  "@salonMasterCardSemanticLabelNoRating": {
+    "description": "Accessibility label for a staff card that shows no rating (a salon admin in the management «Команда» grid).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "role": {
+        "type": "String"
+      }
+    }
+  },
   "salonReviewCountLabel": "{count, plural, =0{0 відгуків} =1{1 відгук} few{{count} відгуки} many{{count} відгуків} other{{count} відгуків}}",
   "@salonReviewCountLabel": {
     "description": "Standalone review-count line under the salon's average rating (no parentheses, unlike searchResultReviewCount).",
@@ -5395,10 +5629,6 @@
   "@salonManageSettingsSemanticLabel": {
     "description": "Phase 21.2 — semantic label for the tune_rounded cover control on the owner/admin salon management profile, which opens the salon settings page."
   },
-  "salonManageNotificationsSemanticLabel": "Сповіщення",
-  "@salonManageNotificationsSemanticLabel": {
-    "description": "Semantic label for the notification bell cover control on the owner/admin salon management profile cover. Deliberately omits the unread state: the glyph shows the baked-in unread dot per the approved design, but the control is inert (notification centre out of scope, tap is a placeholder), so the accessible name must not assert a state the user cannot act on or dismiss."
-  },
   "salonManageNameLabel": "Назва салону",
   "@salonManageNameLabel": {
     "description": "Phase 21.2 — field label above the salon name input in the owner/admin profile edit form."
@@ -5581,6 +5811,22 @@
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
   },
+  "bookingDetailClientSemantics": "Клієнт: {name}",
+  "@bookingDetailClientSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when no rating is shown (guest booking).",
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "bookingDetailClientRatedSemantics": "Клієнт: {name}. Рейтинг {rating}, {reviews}",
+  "@bookingDetailClientRatedSemantics": {
+    "description": "Accessibility label for the client identity card on the provider view of «Деталі запису» when the ★ rating readout is shown (rating is an em-dash when the client has no reviews).",
+    "placeholders": {
+      "name": { "type": "String" },
+      "rating": { "type": "String" },
+      "reviews": { "type": "String" }
+    }
+  },
   "masterBookingsTitle": "Мої записи",
   "@masterBookingsTitle": {
     "description": "Screen title of the independent master's own booking list (Phase 7.6). Distinct from the CLIENT «Мої записи» screen, whose strings live under the myBookings* namespace."
@@ -5700,6 +5946,15 @@
   "masterArchiveOpenSemantics": "Відкрити архів записів",
   "@masterArchiveOpenSemantics": {
     "description": "Accessibility label for the archive button in the master «Мої записи» header (Phase 231) — opens MasterArchiveScreen. Hidden entirely (button not rendered) when BookingsDiscoveryView.onOpenArchive is null."
+  },
+  "masterArchiveOpenSemanticsPending": "Відкрити архів записів, потребують дії: {count}",
+  "@masterArchiveOpenSemanticsPending": {
+    "description": "Archive button accessibility label when {count} bookings await a provider action (close or rate the client) — Phase 395. The red count badge itself is excluded from semantics; this label announces it.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "masterArchiveTitle": "Архів",
   "@masterArchiveTitle": {
@@ -6209,19 +6464,19 @@
   },
   "staffSettingsMasterOwnerOnlyTitle": "Лише власник салону",
   "@staffSettingsMasterOwnerOnlyTitle": {
-    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row gets staffSettingsMasterSelfTitle/Body instead — this pair is now only for a genuinely non-owner viewer."
+    "description": "Phase 306 — SalonNoticeCard title shown when a non-owner reaches a master's settings route. Phase 307 fix (2026-09-05): the owner viewing their OWN master row is no longer shown this pair (Phase 371) — it is only for a genuinely non-owner viewer."
   },
   "staffSettingsMasterOwnerOnlyBody": "Керувати майстрами може лише власник салону. Зверніться до власника, якщо потрібно вилучити цього майстра.",
   "@staffSettingsMasterOwnerOnlyBody": {
-    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row (see staffSettingsMasterSelfBody) — its 'ask the owner' phrasing is factually wrong for that viewer."
+    "description": "Phase 306 — SalonNoticeCard body paired with staffSettingsMasterOwnerOnlyTitle. Phase 307 fix (2026-09-05): no longer shown to the owner viewing their own master row — its 'ask the owner' phrasing is factually wrong for that viewer."
   },
-  "staffSettingsMasterSelfTitle": "Власний профіль майстра",
-  "@staffSettingsMasterSelfTitle": {
-    "description": "mobile-security LOW fix, Phase 307 (2026-09-05) — SalonNoticeCard title shown when the SALON OWNER views their OWN master row on StaffSettingsScreen. Distinct from staffSettingsMasterOwnerOnlyTitle, whose 'ask the owner' framing is nonsensical when the viewer IS the owner."
+  "staffOwnerRowReadOnlyTitle": "Профіль власника салону",
+  "@staffOwnerRowReadOnlyTitle": {
+    "description": "Phase 371 — SalonNoticeCard title shown instead of the services/schedule entries when a non-owner (a salon admin) views the salon OWNER's master row (staff settings + staff profile). Backend 345 403s every write on that row."
   },
-  "staffSettingsMasterSelfBody": "Ви не можете видалити власний профіль майстра з цього екрана. Зверніться до служби підтримки, якщо потрібно це змінити.",
-  "@staffSettingsMasterSelfBody": {
-    "description": "mobile-security LOW fix, Phase 307 (2026-09-05); reworded 2026-09-05 (second LOW pass) — paired with staffSettingsMasterSelfTitle. States plainly that the owner cannot remove their own master profile from THIS SCREEN and names no button/screen/self-service path — the earlier wording implied an in-app flow ('you manage that separately, in your own account') that does not exist; wiring one is Phase 297, PLANNED and currently blocked. Points to support instead, which stays true regardless of whether Phase 297 ever ships an in-app toggle."
+  "staffOwnerRowReadOnlyBody": "Послуги та графік власника змінює лише власник салону.",
+  "@staffOwnerRowReadOnlyBody": {
+    "description": "Phase 371 — body paired with staffOwnerRowReadOnlyTitle."
   },
   "moveAdminSalonTitle": "Інший салон",
   "@moveAdminSalonTitle": {
@@ -6297,6 +6552,14 @@
   "@ownerOwnProfileTitle": {
     "description": "Phase 21.14 — top-bar title of the salon owner's own first-person profile screen."
   },
+  "ownerMasterModeBack": "Салон",
+  "@ownerMasterModeBack": {
+    "description": "Phase 379 (24.1b) — visible label of the top-left back pill («‹ Салон») on the salon owner's master-mode profile; returns to the salon shell."
+  },
+  "ownerMasterModeBackSemantics": "Повернутися до салону",
+  "@ownerMasterModeBackSemantics": {
+    "description": "Phase 379 (24.1b) — screen-reader label of the owner master-mode back pill that returns to the salon shell."
+  },
   "ownerOwnProfileSettingsSemanticLabel": "Налаштування акаунта",
   "@ownerOwnProfileSettingsSemanticLabel": {
     "description": "Phase 21.14 — screen-reader label for the trailing tune action on the owner's own profile. Rendered disabled until the Phase 21.15 Owner Settings Hub ships."
@@ -6304,14 +6567,6 @@
   "ownerOwnProfileBioLabel": "Про мене",
   "@ownerOwnProfileBioLabel": {
     "description": "Phase 21.14 — section label above the owner-as-master bio block on the owner's own profile."
-  },
-  "ownerOwnProfileCategoriesLabel": "Мої категорії",
-  "@ownerOwnProfileCategoriesLabel": {
-    "description": "Phase 21.14 — section label above the owner-as-master service categories on the owner's own profile."
-  },
-  "ownerOwnProfileNoServices": "У вас поки немає послуг",
-  "@ownerOwnProfileNoServices": {
-    "description": "Phase 21.14 — empty state under the owner's «Мої категорії» section when the owner works as a master but has configured no services yet."
   },
   "adminOwnProfileTitle": "Мій профіль",
   "@adminOwnProfileTitle": {
@@ -6454,5 +6709,126 @@
   "errSettlementRequired": "Оберіть населений пункт",
   "@errSettlementRequired": {
     "description": "Phase 346 — inline validation error under the settlement field when a provider tries to save without choosing one."
+  },
+  "uploadErrorTooLarge": "Фото завелике (макс. 5 МБ)",
+  "@uploadErrorTooLarge": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorFormat": "Підтримуються лише JPEG, PNG або WebP",
+  "@uploadErrorFormat": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorStorage": "Завантаження фото тимчасово недоступне",
+  "@uploadErrorStorage": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNetwork": "Не вдалося завантажити фото. Перевірте з'єднання",
+  "@uploadErrorNetwork": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorGeneric": "Не вдалося завантажити фото",
+  "@uploadErrorGeneric": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorUnauthorized": "Сесія завершилася. Увійдіть знову",
+  "@uploadErrorUnauthorized": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorForbidden": "Немає прав для цієї дії",
+  "@uploadErrorForbidden": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorNotFound": "Не вдалося знайти потрібний запис",
+  "@uploadErrorNotFound": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "uploadErrorCancelled": "Завантаження скасовано",
+  "@uploadErrorCancelled": {
+    "description": "Phase 070 — media upload failure copy."
+  },
+  "imageSourceTitle": "Фото",
+  "@imageSourceTitle": {
+    "description": "Phase 071 — image source sheet title."
+  },
+  "imageSourceGallery": "Обрати з галереї",
+  "@imageSourceGallery": {
+    "description": "Phase 071 — image source sheet row: pick from gallery."
+  },
+  "imageSourceCamera": "Зробити фото",
+  "@imageSourceCamera": {
+    "description": "Phase 071 — image source sheet row: take a photo with the camera."
+  },
+  "imageSourceRemove": "Видалити фото",
+  "@imageSourceRemove": {
+    "description": "Phase 071 — image source sheet row: remove the current photo (destructive)."
+  },
+  "cropTitle": "Обрізати фото",
+  "@cropTitle": {
+    "description": "Phase 071 — native crop screen toolbar title."
+  },
+  "cropDone": "Готово",
+  "@cropDone": {
+    "description": "Phase 071 — iOS crop screen confirm button."
+  },
+  "cropCancel": "Скасувати",
+  "@cropCancel": {
+    "description": "Phase 071 — iOS crop screen cancel button."
+  },
+  "avatarUpdated": "Фото оновлено",
+  "@avatarUpdated": {
+    "description": "Phase 073 — success snack after a master avatar upload."
+  },
+  "avatarRemoved": "Фото видалено",
+  "@avatarRemoved": {
+    "description": "Phase 073 — success snack after a master avatar removal."
+  },
+  "cropTitleSalonLogo": "Обрізати логотип",
+  "@cropTitleSalonLogo": {
+    "description": "Phase 369 — native crop screen title when cropping the salon logo."
+  },
+  "cropTitleSalonCover": "Обрізати обкладинку",
+  "@cropTitleSalonCover": {
+    "description": "Phase 369 — native crop screen title when cropping the salon cover banner (16:9)."
+  },
+  "salonCoverUpdated": "Обкладинку оновлено",
+  "@salonCoverUpdated": {
+    "description": "Phase 369 — success snack after the owner uploads a new salon cover."
+  },
+  "salonCoverRemoved": "Обкладинку видалено",
+  "@salonCoverRemoved": {
+    "description": "Phase 369 — success snack after the owner removes the salon cover."
+  },
+  "salonLogoEditLabel": "Змінити логотип салону",
+  "@salonLogoEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only salon logo editor on the management profile."
+  },
+  "salonCoverEditLabel": "Змінити обкладинку салону",
+  "@salonCoverEditLabel": {
+    "description": "Phase 369 — screen-reader label of the owner-only cover camera control on the management profile."
+  },
+  "uploadErrorSalonOwnerOnly": "Змінювати фото салону може лише власник",
+  "@uploadErrorSalonOwnerOnly": {
+    "description": "Phase 369 (D6) — HTTP 403 on a salon logo / cover upload or removal (a SALON_ADMIN, a stale role or a revoked owner)."
+  },
+  "uploadErrorConflict": "Не вдалося зберегти фото. Спробуйте ще раз",
+  "@uploadErrorConflict": {
+    "description": "Phase 369 — HTTP 409 on a photo upload (the server's per-record lock timed out). Retryable."
+  },
+  "uploadErrorRateLimitedNoWait": "Забагато завантажень. Спробуйте трохи згодом",
+  "@uploadErrorRateLimitedNoWait": {
+    "description": "Phase 369 — HTTP 429 on a photo upload (all photo uploads share one 10/min bucket) without a usable Retry-After."
+  },
+  "uploadErrorRateLimited": "Забагато завантажень. Спробуйте за {seconds} с",
+  "@uploadErrorRateLimited": {
+    "description": "Phase 369 — HTTP 429 on a photo upload with a usable Retry-After (seconds).",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "serviceEditOwnerPerformedHint": "Цю послугу виконує власник салону, тому назву й категорію може змінити лише він.",
+  "@serviceEditOwnerPerformedHint": {
+    "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
   }
 }

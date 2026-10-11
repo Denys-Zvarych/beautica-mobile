@@ -16,8 +16,10 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
+import 'package:beautica_mobile/core/theme/velvet_text.dart';
 
 /// A small raised circular avatar glyph — a two-stop diagonal [gradient] wash
 /// behind a white `person_rounded` icon, lifted by the small extruded shadow.
@@ -27,6 +29,9 @@ class MasterAvatarBadge extends StatelessWidget {
     this.gradient,
     this.bordered = false,
     this.size = 48,
+    this.imageUrl,
+    this.initials,
+    this.imageKey,
   }) : assert(size > 0, 'size must be positive');
 
   /// Two-stop diagonal gradient; defaults to the independent-master flow's
@@ -52,6 +57,20 @@ class MasterAvatarBadge extends StatelessWidget {
   /// forked "small" copy.
   final double size;
 
+  /// Phase 9.7 — the master's photo. `null` (the default, every pre-existing
+  /// caller) renders exactly the gradient + glyph above. When set, the photo is
+  /// drawn through the shared [RemoteImage] inside the same circle, inset by the
+  /// ring width; a disallowed URL or a load error falls back to the glyph.
+  final String? imageUrl;
+
+  /// Monogram shown in place of the person glyph when there is no photo (or it
+  /// is disallowed / fails to load). `null` (the default, every pre-existing
+  /// caller) keeps the glyph. Used by the provider's CLIENT identity card.
+  final String? initials;
+
+  /// Key forwarded to the photo's [RemoteImage]. `null` by default.
+  final Key? imageKey;
+
   static const List<Color> _defaultGradient = <Color>[
     Color(0xFFD8BE9C),
     Color(0xFF6A4A28),
@@ -59,6 +78,26 @@ class MasterAvatarBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final Widget glyph = Center(
+      child: Icon(
+        Icons.person_rounded,
+        color: BrandColors.white.withValues(alpha: 0.82),
+        size: size / 2,
+      ),
+    );
+    final String? mono = initials;
+    final Widget fallback = mono == null
+        ? glyph
+        : Center(
+            child: Text(
+              mono,
+              style: VelvetText.avatarMonogram.copyWith(
+                color: BrandColors.white.withValues(alpha: 0.92),
+              ),
+            ),
+          );
+    final double ring = bordered ? size / 24 : 0;
+    final double photo = size - 2 * ring;
     return Container(
       height: size,
       width: size,
@@ -81,13 +120,17 @@ class MasterAvatarBadge extends StatelessWidget {
               )
             : null,
       ),
-      child: Center(
-        child: Icon(
-          Icons.person_rounded,
-          color: BrandColors.white.withValues(alpha: 0.82),
-          size: size / 2,
-        ),
-      ),
+      child: (imageUrl == null && mono == null)
+          ? glyph
+          : RemoteImage(
+              key: imageKey,
+              url: imageUrl,
+              width: photo,
+              height: photo,
+              shape: RemoteImageShape.circle,
+              excludeFromSemantics: true,
+              fallback: fallback,
+            ),
     );
   }
 }

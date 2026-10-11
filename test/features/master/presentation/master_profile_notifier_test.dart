@@ -405,4 +405,65 @@ void main() {
       verify(() => repo.getMyProfile('user-99')).called(1);
     });
   });
+
+  // ── patchAvatarUrl() — SETTLED only (2026-10-05) ─────────────────────────
+  //
+  // `patchAvatarUrl` used to read the lenient `.value` and write `AsyncData`
+  // back, so a failed `refresh()` (an `AsyncError` still carrying the
+  // previous profile) was PROMOTED to data — the error hidden behind stale
+  // data. It now reads `settledValueOrNull` and refuses; the caller
+  // (`applySelfAvatarUrl`) falls back to an invalidate.
+  group('patchAvatarUrl()', () {
+    const String kNew = 'https://cdn.beautica.ua/users/new.webp';
+
+    test('settled profile: patched in place, stays AsyncData', () async {
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
+      final container = _makeContainer(
+        authFactory: _StubAuthAuthenticated.new,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      await container.read(masterProfileProvider.future);
+
+      expect(
+        container.read(masterProfileProvider.notifier).patchAvatarUrl(kNew),
+        isTrue,
+      );
+      final state = container.read(masterProfileProvider);
+      expect(state, isA<AsyncData<Master>>());
+      expect(state.value?.avatarUrl, kNew);
+    });
+
+    test('failed refresh (AsyncError carrying the previous profile): '
+        'refused, the error is NOT promoted to data', () async {
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => _stubMaster);
+      final container = _makeContainer(
+        authFactory: _StubAuthAuthenticated.new,
+        repo: repo,
+      );
+      await container.read(authProvider.future);
+      await container.read(masterProfileProvider.future);
+      when(
+        () => repo.getMyProfile(_testUserId),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      await container.read(masterProfileProvider.notifier).refresh();
+      final before = container.read(masterProfileProvider);
+      // Non-vacuous precondition: the error really carries a stale value —
+      // the exact shape the lenient `.value` read used to promote.
+      expect(before, isA<AsyncError<Master>>());
+      expect(before.value, isNotNull);
+
+      expect(
+        container.read(masterProfileProvider.notifier).patchAvatarUrl(kNew),
+        isFalse,
+      );
+      final after = container.read(masterProfileProvider);
+      expect(after, isA<AsyncError<Master>>());
+      expect(after.value?.avatarUrl, isNot(kNew));
+    });
+  });
 }

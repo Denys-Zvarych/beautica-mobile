@@ -52,7 +52,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/network/page_response.dart';
@@ -80,8 +80,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../helpers/fake_salon_master_coverage.dart';
+import '../helpers/fake_salon_staff_masters_roster.dart';
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — mirrors master_bookings_route_shadowing_test.dart's own.
@@ -185,7 +187,7 @@ void main() {
       Duration? Function(int, Object)? retry = beauticaProviderRetry,
       List<Object> extra = const <Object>[],
     }) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: retry,
         overrides: <Object>[
           ...extra,
@@ -197,7 +199,9 @@ void main() {
           // The screen's own data — never needs to SETTLE for this test
           // (which only asserts the resolved WIDGET TYPE), but must not
           // throw synchronously while building the provider graph.
-          salonMastersRosterProvider.overrideWith((ref, salonId) async => []),
+          salonStaffMastersRosterProvider.overrideWith(
+            () => FakeSalonStaffMastersRoster(() => []),
+          ),
           salonMasterServiceCoverageProvider.overrideWith(
             () => FakeSalonMasterServiceCoverage(
               () => salonCoverageOf(<String, Map<String, String>>{}),
@@ -213,9 +217,8 @@ void main() {
           // regression — same shape every other override in this file
           // guards against).
           mySalonsProvider.overrideWith(_SettledMySalons.new),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
@@ -448,6 +451,16 @@ void main() {
       );
       expect(screen.detailRouteBuilder, isNotNull);
       expect(screen.reviewRouteBuilder, isNotNull);
+      // Phase 383 — the salon id is forwarded to `/salon/bookings/:id` as
+      // `extra`; that path holds no salon id, so null here means an
+      // archive-opened detail never drops this salon's board dots. The row
+      // tap itself is driven end to end in
+      // `integration_test/salon_owner_bookings_board_flow_test.dart`.
+      expect(
+        screen.detailExtra,
+        'salon-1',
+        reason: 'the archive must forward its salon id to the detail push',
+      );
     });
 
     testWidgets('the salon archive AppBar reuses masterArchiveTitle («Архів») '

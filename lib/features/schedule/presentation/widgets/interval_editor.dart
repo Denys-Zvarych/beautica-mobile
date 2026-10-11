@@ -403,6 +403,7 @@ class IntervalEditor extends StatelessWidget {
         const SizedBox(height: VelvetSpacing.md),
         Align(
           alignment: Alignment.centerLeft,
+          // dim-gated: test/features/schedule/presentation/widgets/interval_editor_add_break_test.dart
           child: Opacity(
             opacity: _hasRoomForBreak ? 1.0 : 0.4,
             child: Semantics(

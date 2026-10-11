@@ -91,6 +91,7 @@ final class TimelineDensity {
   const TimelineDensity._({
     required this.scale,
     required this.columnsPerViewport,
+    this.denseCards = false,
   });
 
   /// The single-master scope — the INDEPENDENT_MASTER's «Мої записи» and the
@@ -108,6 +109,7 @@ final class TimelineDensity {
   static const TimelineDensity salon = TimelineDensity._(
     scale: salonScale,
     columnsPerViewport: 2,
+    denseCards: true,
   );
 
   /// The salon board's multiplier, named so the derivations above and the
@@ -123,6 +125,11 @@ final class TimelineDensity {
   /// in [columnWidth]'s clamp. `1` for a single-master scope, where the clamp
   /// reduces to the shipped `math.min(_kCardW, constraints.maxWidth)`.
   final int columnsPerViewport;
+
+  /// Whether booking cards on this board render their DENSE layout
+  /// (`MasterBookingCard.dense`). `true` only for [salon]: its 136-148dp lanes
+  /// cannot hold the 203-272dp-budgeted standard card rows.
+  final bool denseCards;
 
   // ── Vertical ───────────────────────────────────────────────────────────
 

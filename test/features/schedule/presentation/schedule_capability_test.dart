@@ -668,6 +668,33 @@ void main() {
       );
     });
 
+    // Phase 371 — the owner's row is owner-only (backend 345 403s an admin's
+    // schedule writes), so an ADMIN of the very same salon is read-only on
+    // it. Same roster + scope as the owner test above; only the viewer
+    // differs. (Owner + own row → true is the test above; admin + a normal
+    // master → true is test 9.)
+    test(
+      'SALON_ADMIN of the salon, viewing the OWNER\'s row → false',
+      () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonAdmin, salonId: _kSalonId)),
+          extraOverrides: [
+            salonManagementProfileProvider.overrideWith(
+              () => _FixedRoster(_kRosterWithOwnerAsMaster),
+            ),
+          ],
+        );
+        await container.read(authProvider.future);
+        await container.read(salonManagementProfileProvider(_kSalonId).future);
+
+        expect(
+          container.read(scheduleEditableProvider(_viewedMasterScope)),
+          isFalse,
+          reason: 'an admin must not be offered edits the server will 403',
+        );
+      },
+    );
+
     // ---------------------------------------------------------------
     // Test 13 — mySalonsProvider UNRESOLVED for an owner → false.
     // Deliberately the OPPOSITE of `salonManageGuard`'s route-guard

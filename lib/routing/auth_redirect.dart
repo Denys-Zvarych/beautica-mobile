@@ -322,6 +322,23 @@ String? authRedirectForLocation(
     }
   }
 
+  // Role gate (Phase 379 / 24.1b): /owner/master/* is only accessible to
+  // SALON_OWNER.
+  //
+  // The owner's «master mode» — their own profile/services/schedule/bookings
+  // mounted with the independent-master bottom nav. A SEPARATE subtree for
+  // the same reason `/staff/*` is: the `/master/*` gate above must keep every
+  // non-INDEPENDENT_MASTER out. Deliberately scoped to `/owner/master/`, NOT
+  // `/owner/` — `/owner/edit/personal` keeps its own per-route
+  // `mySalonsGuard`. Any other authenticated role is redirected to its own
+  // landing.
+  if (isAuthenticated && location.startsWith('/owner/master/')) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (auth.user.role != UserRole.salonOwner) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
   // Role gate (Phase 250): /salon/* is only accessible to SALON_OWNER /
   // SALON_ADMIN.
   //
@@ -408,6 +425,9 @@ String? authRedirectForLocation(
       RouteNames.clientPassport,
       // Phase 13.7 (revised) — standalone CLIENT quick-link targets (not in shell branches)
       RouteNames.myRating,
+      // Phase 364 — the feed-scoped aliases of the CLIENT's `/bookings/:id`
+      // (+ `review`). `/notifications` itself stays open to every role.
+      '${RouteNames.notifications}/bookings',
     ];
     final isAtClientBranch = clientBranchPrefixes.any(
       (p) => location == p || location.startsWith('$p/'),

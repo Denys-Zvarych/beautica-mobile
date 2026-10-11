@@ -304,4 +304,60 @@ void main() {
       expect(find.byKey(ctaKey), findsNothing);
     },
   );
+
+  // Phase 364 — `leaveReviewRouteBuilder` aims the CLIENT's own «Залишити
+  // відгук» push. `null` (every existing mount) is `RouteNames.bookingReview`.
+  group('CLIENT «Залишити відгук» target', () {
+    const Key reviewKey = Key('booking-detail-leave-review');
+
+    Future<void> pumpClient(
+      WidgetTester tester, {
+      String Function(String bookingId)? builder,
+      required String stubPath,
+    }) async {
+      final Booking booking = _booking(
+        status: BookingStatus.completed,
+      ).copyWith(canReview: true);
+      final GoRouter router = GoRouter(
+        initialLocation: '/detail',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/detail',
+            builder: (_, _) => BookingDetailScreen(
+              bookingId: booking.id,
+              leaveReviewRouteBuilder: builder,
+            ),
+          ),
+          GoRoute(
+            path: stubPath,
+            builder: (_, _) => const Scaffold(key: Key('review_stub')),
+          ),
+        ],
+      );
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(booking, _clientUser),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byKey(reviewKey));
+      await tester.tap(find.byKey(reviewKey));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_pushBookingReview_when_noBuilderGiven', (tester) async {
+      await pumpClient(tester, stubPath: RouteNames.bookingReview('b1'));
+      expect(find.byKey(const Key('review_stub')), findsOneWidget);
+    });
+
+    testWidgets('should_pushNotificationAlias_when_builderGiven', (
+      tester,
+    ) async {
+      await pumpClient(
+        tester,
+        builder: RouteNames.notificationBookingReview,
+        stubPath: RouteNames.notificationBookingReview('b1'),
+      );
+      expect(find.byKey(const Key('review_stub')), findsOneWidget);
+    });
+  });
 }

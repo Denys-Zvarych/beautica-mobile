@@ -8,6 +8,7 @@
 // Both providers use `Ref` (not typed ref variants — deprecated in
 // Riverpod 3.x). `.value` is used (not the removed `.valueOrNull`).
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../domain/auth_session.dart';
@@ -22,13 +23,21 @@ part 'auth_selectors.g.dart';
 /// Widgets that only need the user profile (e.g. displaying the avatar) should
 /// watch this provider rather than unwrapping [authProvider] themselves.
 @riverpod
-User? currentUser(Ref ref) {
-  final session = ref.watch(authProvider).value;
-  return switch (session) {
-    Authenticated(:final user) => user,
-    _ => null,
-  };
-}
+User? currentUser(Ref ref) =>
+    // NARROWED with `.select` (Phase 367 audit, mobile-perf LOW): the bare
+    // `ref.watch(authProvider)` re-ran this provider on every silent token
+    // refresh (`Authenticated` equality includes the token). The selected
+    // `User?` is exactly what was returned before, so dependents notify on
+    // the same changes as before (a user / profile / avatar change, sign-in,
+    // sign-out) — a call site that needs only one FIELD should watch
+    // `authProvider.select(authUserIdOrNull)` / `authUserRoleOrNull` instead.
+    ref.watch(authProvider.select(_sessionUserOrNull));
+
+User? _sessionUserOrNull(AsyncValue<AuthSession> session) =>
+    switch (session.value) {
+      Authenticated(:final user) => user,
+      _ => null,
+    };
 
 /// Returns `true` when the user has a valid, settled [Authenticated] session.
 ///

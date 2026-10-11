@@ -457,6 +457,14 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
                 startsAt: widget.args.startAt,
                 guest: guest,
               ),
+              // Phase 383 (24.1f) — the booked master's salon, so the
+              // salon «Записи» board's dot set (`salonBookedDaysProvider`)
+              // drops too: an owner booking their OWN master row lands on the
+              // salon board (backend stamps the owner's salon_id). `null` for
+              // an INDEPENDENT_MASTER (`Master.salonId` doc) — that path is
+              // byte-for-byte what it was. Prefers the walk-in chain's own
+              // `/masters/me` row (`args.master`) over the public profile.
+              salonId: widget.args.master?.salonId ?? master.salonId,
             );
         if (!mounted) return;
         final AsyncValue<void> result = ref.read(masterCreateBookingProvider);
@@ -606,6 +614,9 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           venueBuildingNo: widget.args.venueBuildingNo,
           venueCity: widget.args.venueCity,
           venueLocationNote: widget.args.venueLocationNote,
+          // Phase 383 (24.1f) — the walk-in «Готово» landing, forwarded
+          // verbatim; `null` everywhere but the owner master-mode chain.
+          returnRoute: widget.args.returnRoute,
         ),
       );
     } on Failure catch (failure) {

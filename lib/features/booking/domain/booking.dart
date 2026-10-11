@@ -116,6 +116,16 @@ abstract class Booking with _$Booking {
     /// `GET /bookings/me`, for the provider and for the client reading their
     /// own booking — so it is safe to cache by booking id across both.
     String? clientAvatarUrl,
+
+    /// The CLIENT's aggregate rating from providers' reviews of them
+    /// (1.00-5.00). `null` for an unreviewed client AND for a guest booking —
+    /// never a `0`. Render through [BookingDisplayX.clientDisplayRating].
+    double? clientAvgRating,
+
+    /// How many provider reviews [clientAvgRating] is computed from. `0` for an
+    /// unreviewed registered client; `null` for a guest/no-client booking
+    /// (unknown, not zero).
+    int? clientReviewCount,
     required String serviceId,
     required String serviceName,
     String? categoryName,

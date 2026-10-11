@@ -1,4 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#E6DDD0</color>
+
+    <!-- Phase 071 follow-up: uCrop 2.2.11 resource overrides (app resources win
+         over the AAR's). Only what UCrop.Options cannot reach: the bottom state
+         bar, the controls panel and its labels. VelvetTouch palette:
+         base E6DDD0, camel B89A7A, mocha 6A4A28, espresso 4A3322. -->
+    <color name="ucrop_color_widget_background">#E6DDD0</color>
+    <color name="ucrop_color_widget">#6A4A28</color>
+    <color name="ucrop_color_widget_active">#6A4A28</color>
+    <color name="ucrop_color_widget_text">#4A3322</color>
+    <color name="ucrop_color_widget_rotate_angle">#6A4A28</color>
+    <color name="ucrop_color_widget_rotate_mid_line">#B89A7A</color>
+    <color name="ucrop_color_progress_wheel_line">#B89A7A</color>
+    <color name="ucrop_color_active_controls_color">#B89A7A</color>
+    <color name="ucrop_color_inactive_controls_color">#6A4A28</color>
+    <color name="ucrop_color_active_aspect_ratio">#6A4A28</color>
+    <color name="ucrop_color_inactive_aspect_ratio">#B89A7A</color>
+    <color name="ucrop_color_controls_panel">#E6DDD0</color>
 </resources>

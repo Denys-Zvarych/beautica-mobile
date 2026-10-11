@@ -28,6 +28,7 @@ part 'salon_response.g.dart';
 /// * [phone]
 /// * [instagramUrl]
 /// * [avatarUrl]
+/// * [coverImageUrl] - Salon cover (banner) image URL, 16:9. Set only by the salon's SALON_OWNER via POST /salons/{salonId}/media/cover (Phase 343); null when unset.
 /// * [isActive]
 /// * [isPrimary]
 /// * [createdAt]
@@ -85,6 +86,10 @@ abstract class SalonResponse
 
   @BuiltValueField(wireName: r'avatarUrl')
   String? get avatarUrl;
+
+  /// Salon cover (banner) image URL, 16:9. Set only by the salon's SALON_OWNER via POST /salons/{salonId}/media/cover (Phase 343); null when unset.
+  @BuiltValueField(wireName: r'coverImageUrl')
+  String? get coverImageUrl;
 
   @BuiltValueField(wireName: r'isActive')
   bool? get isActive;
@@ -235,6 +240,13 @@ class _$SalonResponseSerializer implements PrimitiveSerializer<SalonResponse> {
       yield serializers.serialize(
         object.avatarUrl,
         specifiedType: const FullType(String),
+      );
+    }
+    if (object.coverImageUrl != null) {
+      yield r'coverImageUrl';
+      yield serializers.serialize(
+        object.coverImageUrl,
+        specifiedType: const FullType.nullable(String),
       );
     }
     if (object.isActive != null) {
@@ -409,6 +421,14 @@ class _$SalonResponseSerializer implements PrimitiveSerializer<SalonResponse> {
             specifiedType: const FullType(String),
           ) as String;
           result.avatarUrl = valueDes;
+          break;
+        case r'coverImageUrl':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.coverImageUrl = valueDes;
           break;
         case r'isActive':
           final valueDes = serializers.deserialize(

@@ -45,6 +45,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/salon/presentation/admin_own_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/invite_staff_screen.dart';
@@ -1642,4 +1643,154 @@ void main() {
       });
     },
   );
+
+  // ── mobile-qa (2026-10-05) — «Команда» team-tab fixes, end to end ─────────
+  //
+  // Phase 367 follow-up. Two of the four team-tab fixes had widget coverage
+  // only (`salon_management_profile_screen_test.dart`); these pin them through
+  // the REAL router + guard + `GET /salons/{id}/staff` wire mapping.
+  group('«Команда» team-tab fixes (2026-10-05)', () {
+    Future<AppLocalizations> openStaffTab(
+      WidgetTester tester,
+      FakeBackend fb,
+    ) async {
+      _seedSalonXyzIntoMySalons(fb);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.salonOwner);
+      // fixed-wait-ok: settles the real async login/route-transition step.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      router.go(RouteNames.salonManage(_kSalonId));
+      // fixed-wait-ok: settles the real async route-transition step.
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await tester.tap(find.text(l10n.salonManageTabStaff));
+      await tester.pumpAndSettle();
+      return l10n;
+    }
+
+    testWidgets(
+      'an ADMIN card renders no ★ rating row; a MASTER card keeps it',
+      (tester) async {
+        await mockNetworkImagesFor(() async {
+          final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+          final l10n = await openStaffTab(tester, fb);
+
+          final Finder master = find.byKey(
+            const Key('salon-manage-staff-card-master-aaa'),
+          );
+          final Finder admin = find.byKey(
+            const Key('salon-manage-staff-card-admin-zzz'),
+          );
+          await AppHarness.revealRosterCard(tester, admin);
+          await tester.ensureVisible(admin);
+          await tester.pumpAndSettle();
+          expect(master, findsOneWidget);
+          expect(admin, findsOneWidget);
+
+          // Positive control — the master's ★ row renders the wire rating.
+          expect(
+            find.descendant(
+              of: master,
+              matching: find.byIcon(Icons.star_rounded),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: master,
+              matching: find.text(
+                FakeBackend.kPublicMasterAvgRatingBeforeReview.toStringAsFixed(
+                  1,
+                ),
+              ),
+            ),
+            findsOneWidget,
+          );
+          // The admin card: no glyph, no `—` placeholder, no spoken rating.
+          expect(
+            find.descendant(
+              of: admin,
+              matching: find.byIcon(Icons.star_rounded),
+            ),
+            findsNothing,
+          );
+          expect(
+            find.descendant(of: admin, matching: find.text('—')),
+            findsNothing,
+          );
+          expect(
+            tester.getSemantics(admin).label,
+            contains(
+              l10n.salonMasterCardSemanticLabelNoRating(
+                'Ірина',
+                l10n.salonStaffRoleAdmin,
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+
+    testWidgets(
+      'pull-to-refresh refetches GET /salons/{id}/staff exactly once and the '
+      'card renders the photo another member changed meanwhile',
+      (tester) async {
+        await mockNetworkImagesFor(() async {
+          const String newPhoto =
+              'https://media.test/avatars/master-aaa-changed.png';
+          final fb = FakeBackend()..currentRole = UserRole.salonOwner;
+          await openStaffTab(tester, fb);
+
+          final Finder master = find.byKey(
+            const Key('salon-manage-staff-card-master-aaa'),
+          );
+          Finder photo(String url) => find.descendant(
+            of: master,
+            matching: find.byWidgetPredicate(
+              (Widget w) => w is RemoteImage && w.url == url,
+            ),
+          );
+          expect(master, findsOneWidget);
+          expect(photo(newPhoto), findsNothing);
+          final int before = fb.getSalonStaffCallsById[_kSalonId] ?? 0;
+          expect(before, greaterThan(0));
+
+          // Another member changes their photo server-side; nothing local
+          // knows. The fake reads `salonStaff` at REQUEST time.
+          final int row = fb.salonStaff.indexWhere(
+            (Map<String, dynamic> r) => r['userId'] == 'master-aaa',
+          );
+          expect(row, isNonNegative);
+          fb.salonStaff[row] = <String, dynamic>{
+            ...fb.salonStaff[row],
+            'avatarUrl': newPhoto,
+          };
+
+          await tester.fling(
+            find.descendant(
+              of: find.byKey(const Key('salon-manage-refresh')),
+              matching: find.byType(CustomScrollView),
+            ),
+            const Offset(0, 500),
+            1500,
+          );
+          await AppHarness.pumpUntilFound(
+            tester,
+            photo(newPhoto),
+            timeout: const Duration(seconds: 15),
+          );
+          await tester.pumpAndSettle();
+
+          expect(photo(newPhoto), findsOneWidget);
+          expect(
+            fb.getSalonStaffCallsById[_kSalonId],
+            before + 1,
+            reason: 'one pull = exactly one roster refetch',
+          );
+          expect(tester.takeException(), isNull);
+        });
+      },
+    );
+  });
 }

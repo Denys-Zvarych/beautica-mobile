@@ -50,4 +50,32 @@ abstract final class StorageKeys {
   /// mismatch is treated exactly like "no value stored". Two opaque UUIDs,
   /// no PII (D3). Cleared on logout ([SecureStorage.deleteAll]).
   static const String lastSalon = 'BEAUTICA_LAST_SALON';
+
+  /// Phase 067 — per-DEVICE flag: the Android notification-permission prompt
+  /// has already been shown once ("ask once, never re-ask"). Value is the
+  /// literal `'1'`; no PII. Deliberately SURVIVES [SecureStorage.deleteAll]
+  /// (logout) — the prompt belongs to the device, not the account, so the
+  /// next user on the same device is not nagged either.
+  static const String pushPermissionAsked = 'BEAUTICA_PUSH_PERMISSION_ASKED';
+
+  /// Phase 067 — per-DEVICE flag: a push revocation (server DELETE and/or
+  /// local `deleteToken()`) is owed. Set BEFORE logout cleanup, cleared only
+  /// once `deleteToken()` succeeds; a start that finds it set retries the
+  /// revoke before any `getToken()`. Value is the literal `'1'`; no PII.
+  /// Deliberately SURVIVES [SecureStorage.deleteAll] (logout wipes the
+  /// session right after the cleanup that may have failed).
+  static const String pushRevokePending = 'BEAUTICA_PUSH_REVOKE_PENDING';
+
+  /// Phase 073 audit — the media pick in flight (`{ownerId, kind}` JSON), so a
+  /// pick the OS killed mid-way (Android lost data) is only ever resumed by the
+  /// SAME account for the SAME media kind. Opaque user id + enum name, no PII.
+  /// Cleared when the pick settles and on logout ([SecureStorage.deleteAll]).
+  static const String pendingPick = 'BEAUTICA_PENDING_PICK';
+
+  /// Keys that belong to the DEVICE, not the account: [SecureStorage.deleteAll]
+  /// restores them after the wipe. ONE mechanism for every such flag.
+  static const List<String> deviceScoped = <String>[
+    pushPermissionAsked,
+    pushRevokePending,
+  ];
 }

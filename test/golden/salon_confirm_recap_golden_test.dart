@@ -49,6 +49,7 @@
 // The file must still pass WITHOUT `--update-goldens`; a failure is a
 // reportable visual delta, not a baseline to refresh.
 
+import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'package:alchemist/alchemist.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -60,7 +61,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/booking/application/salon_master_coverage_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/salon_masters_roster_notifier.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/slot_repository.dart';
@@ -83,6 +84,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
 import '../helpers/fake_salon_master_coverage.dart';
+import '../helpers/fake_salon_staff_masters_roster.dart';
 import '../helpers/pump_app.dart' show TapCalendarDay;
 import 'helpers/golden_pump.dart';
 
@@ -225,6 +227,12 @@ class _FakeSlotRepository implements SlotRepository {
 
 class _FakeBookingRepository implements BookingRepository {
   @override
+  Future<int> getPendingActionsCount(
+    PendingActionsScope scope, {
+    CancelToken? cancelToken,
+  }) => throw UnimplementedError();
+
+  @override
   Future<Appointment> createMasterBooking(
     String masterId,
     CreateMasterBookingRequest request,
@@ -239,6 +247,7 @@ class _FakeBookingRepository implements BookingRepository {
     required DateTime from,
     required DateTime to,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
@@ -277,6 +286,7 @@ class _FakeBookingRepository implements BookingRepository {
     DateTime? to,
     BookingPartition? partition,
     CancelToken? cancelToken,
+    bool asMaster = false,
   }) => throw UnimplementedError();
 
   @override
@@ -310,8 +320,9 @@ class _FakeBookingRepository implements BookingRepository {
 // ---------------------------------------------------------------------------
 
 List<Object> _overrides(List<SalonServiceCategoryEntry> catalog) => <Object>[
-  salonMastersRosterProvider.overrideWith(
-    (ref, String salonId) async => const <SalonMasterSummary>[_kMaster],
+  salonStaffMastersRosterProvider.overrideWith(
+    () =>
+        FakeSalonStaffMastersRoster(() => const <SalonMasterSummary>[_kMaster]),
   ),
   salonMasterServiceCoverageProvider.overrideWith(
     () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(_coverageAll())),

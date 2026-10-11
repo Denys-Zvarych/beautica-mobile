@@ -59,6 +59,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 const String _kMasterId = 'master-swipe-back-1';
@@ -143,7 +144,7 @@ void main() {
   testWidgets('router.push(RouteNames.masterPublicProfile(id)) through the REAL '
       'appRouterProvider resolves to a MaterialPage, never a '
       'CustomTransitionPage', (tester) async {
-    final container = ProviderContainer(
+    final container = makeTestContainer(
       retry: beauticaProviderRetry,
       overrides: [
         authProvider.overrideWith(_FixedClientAuthNotifier.new),
@@ -158,7 +159,6 @@ void main() {
         ).overrideWith((ref) => Completer<PublicMasterProfileData>().future),
       ],
     );
-    addTearDown(container.dispose);
 
     final GoRouter router = container.read(appRouterProvider);
     addTearDown(router.dispose);

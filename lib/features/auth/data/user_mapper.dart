@@ -83,6 +83,8 @@ abstract final class UserMapper {
     // into the domain rather than being coerced to `false` here. See
     // [User.hasMasterProfile] for why an absent field is not a proven "no".
     hasMasterProfile: dto.hasMasterProfile,
+    // Phase 367 — own avatar, every role (backend 344). Null = no photo.
+    avatarUrl: dto.avatarUrl,
   );
 
   /// Parses the wire role, turning an absent or unrecognised one — including

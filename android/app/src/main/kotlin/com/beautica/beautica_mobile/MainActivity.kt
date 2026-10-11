@@ -1,10 +1,33 @@
 package com.beautica.beautica_mobile
 
 import android.os.Build
+import android.app.NotificationManager
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    // Audit L1 — logout clears the notification tray (previous user's pushes).
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.beautica.beautica_mobile/notification_tray",
+        ).setMethodCallHandler { call, result ->
+            if (call.method == "cancelAll") {
+                try {
+                    (getSystemService(NOTIFICATION_SERVICE) as? NotificationManager)?.cancelAll()
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("tray", e.javaClass.simpleName, null)
+                }
+            } else {
+                result.notImplemented()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

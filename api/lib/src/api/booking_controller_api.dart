@@ -12,6 +12,7 @@ import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_list_local_date.dart';
 import 'package:beautica_api/src/model/api_response_page_response_booking_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 import 'package:beautica_api/src/model/api_response_unclosed_count_response.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
@@ -321,8 +322,8 @@ class BookingControllerApi {
     return _response;
   }
 
-  /// getBooking
-  ///
+  /// Get a booking
+  /// 200 for the owning client, the performing master, the salon owner, or an assigned, active salon admin of the booking&#39;s salon. 403 for anyone else (also when the booking does not exist).
   ///
   /// Parameters:
   /// * [bookingId]
@@ -389,6 +390,91 @@ class BookingControllerApi {
     }
 
     return Response<ApiResponseBookingDetailResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Bookings awaiting provider action (close or rate client) — archive badge
+  ///
+  ///
+  /// Parameters:
+  /// * [asMaster] - SALON_OWNER only: true counts the owner's own master-row bookings. Without it a SALON_OWNER is 403 (use the salon endpoint).
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponsePendingBookingActionsCountResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponsePendingBookingActionsCountResponse>>
+      getMyPendingActionsCount({
+    bool? asMaster,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/me/pending-actions/count';
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (asMaster != null)
+        r'asMaster':
+            encodeQueryParameter(_serializers, asMaster, const FullType(bool)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponsePendingBookingActionsCountResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponsePendingBookingActionsCountResponse),
+            ) as ApiResponsePendingBookingActionsCountResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponsePendingBookingActionsCountResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,
@@ -525,6 +611,88 @@ class BookingControllerApi {
     );
   }
 
+  /// Bookings awaiting provider action (close or rate client) — archive badge
+  ///
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponsePendingBookingActionsCountResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponsePendingBookingActionsCountResponse>>
+      getSalonPendingActionsCount({
+    required String salonId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/bookings/salon/{salonId}/pending-actions/count'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponsePendingBookingActionsCountResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType:
+                  const FullType(ApiResponsePendingBookingActionsCountResponse),
+            ) as ApiResponsePendingBookingActionsCountResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponsePendingBookingActionsCountResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// getUnclosedCount
   ///
   ///
@@ -605,6 +773,7 @@ class BookingControllerApi {
   /// Parameters:
   /// * [from] - Range start (inclusive), local Europe/Kyiv day. Required.
   /// * [to] - Range end (inclusive), local Europe/Kyiv day. Required.
+  /// * [asMaster] - SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -617,6 +786,7 @@ class BookingControllerApi {
   Future<Response<ApiResponseListLocalDate>> listMyBookedDays({
     required Date from,
     required Date to,
+    bool? asMaster,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -640,6 +810,9 @@ class BookingControllerApi {
     final _queryParameters = <String, dynamic>{
       r'from': encodeQueryParameter(_serializers, from, const FullType(Date)),
       r'to': encodeQueryParameter(_serializers, to, const FullType(Date)),
+      if (asMaster != null)
+        r'asMaster':
+            encodeQueryParameter(_serializers, asMaster, const FullType(bool)),
     };
 
     final _response = await _dio.request<Object>(
@@ -693,6 +866,7 @@ class BookingControllerApi {
   /// * [to] - Bookings starting on/before the end of this local day (Europe/Kyiv), inclusive. Omit for an open-ended past window.
   /// * [serviceId] - Repeatable MasterService id filter, e.g. ?serviceId=<A>&serviceId=<B>. Omit for no service predicate.
   /// * [partition] - Time-based partition: UPCOMING (status=CONFIRMED and not yet elapsed), PAST (COMPLETED/NOT_COMPLETED, or an elapsed unclosed CONFIRMED), or CANCELLED (CANCELLED/DECLINED) — a total, disjoint cover of every booking status. AWAITING_CLOSURE is a named subset of PAST (an elapsed unclosed CONFIRMED booking only). HISTORY is a union view spanning PAST and CANCELLED, i.e. every booking EXCEPT UPCOMING, in one correctly-paginated request — use it for an \"archive\"/history list that must include cancelled and declined bookings alongside finished ones. When present, `status` is IGNORED — NOT a 400 — this is the additive rollout safety valve: a client sending both params degrades cleanly to the pre-partition `status`-only behaviour against a backend that does not yet know `partition`. Omit for byte-identical pre-Phase-28 behaviour.
+  /// * [asMaster] - SALON_OWNER only: list the caller's own master-row bookings (the master view) instead of every salon they own. Ignored for master roles. When true: CLIENT gets 400; SALON_ADMIN gets 403; an owner whose own master row is inactive or not owner-typed gets 403; an owner with no master row gets 404. Absent or false keeps the default behaviour.
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -710,6 +884,7 @@ class BookingControllerApi {
     Date? to,
     BuiltList<String>? serviceId,
     String? partition,
+    bool? asMaster,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -752,6 +927,9 @@ class BookingControllerApi {
       if (partition != null)
         r'partition': encodeQueryParameter(
             _serializers, partition, const FullType(String)),
+      if (asMaster != null)
+        r'asMaster':
+            encodeQueryParameter(_serializers, asMaster, const FullType(bool)),
       r'pageable': encodeQueryParameter(
           _serializers, pageable, const FullType(Pageable)),
     };

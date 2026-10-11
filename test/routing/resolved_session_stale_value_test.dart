@@ -105,6 +105,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 
 const String _kMasterId = 'master-stale-1';
 
@@ -207,7 +208,7 @@ void main() {
     /// `test/helpers/pump_app.dart` documents.
     ProviderContainer makeContainer() {
       notifier = _TransitionableAuthNotifier(_previousAccount);
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         // No retry curve: an AsyncError must stay terminal for the frame under
         // test rather than immediately re-entering AsyncLoading.
         retry: (_, _) => null,
@@ -237,9 +238,8 @@ void main() {
           approvedCategoriesProvider.overrideWith(
             (ref) async => const <ServiceCategoryOption>[],
           ),
-        ].cast(),
+        ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

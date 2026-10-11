@@ -99,6 +99,11 @@ abstract final class AppConfig {
     return value;
   }
 
+  /// Test seam, invoked (assert-only) at the top of [assertSecureUrl].
+  /// Assigned only from tests; guarded by forbid_debug_hook_assignment_in_lib.sh.
+  @visibleForTesting
+  static void Function()? debugOnAssertSecureUrl;
+
   /// Validates [baseUrl] at startup.
   ///
   /// - Release / profile builds: throws [StateError] if [baseUrl] is empty.
@@ -111,6 +116,12 @@ abstract final class AppConfig {
   /// - Debug builds: logs an actionable error message if [baseUrl] is empty,
   ///   but does NOT throw — the developer still needs to add the dart-define.
   static void assertSecureUrl() {
+    // Phase 075 test seam (assert-only, compiled out of release): lets
+    // boot_order_test pin that this guard runs before the first boot slice.
+    assert(() {
+      debugOnAssertSecureUrl?.call();
+      return true;
+    }());
     if (kReleaseMode || kProfileMode) {
       if (baseUrl.isEmpty) {
         throw StateError(

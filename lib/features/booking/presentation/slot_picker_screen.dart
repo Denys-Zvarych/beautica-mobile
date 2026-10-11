@@ -631,6 +631,9 @@ class SlotTimeScreen extends ConsumerWidget {
         venueBuildingNo: args.venueBuildingNo,
         venueCity: args.venueCity,
         venueLocationNote: args.venueLocationNote,
+        // Phase 383 — forwarded verbatim; `null` everywhere but the owner
+        // master-mode walk-in chain.
+        returnRoute: args.returnRoute,
       ),
     );
   }

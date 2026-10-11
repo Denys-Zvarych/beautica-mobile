@@ -11,10 +11,13 @@
 // waits use `pumpAndSettle` (M6). The picker is pumped inside a GoRouter so its
 // `context.pop(range)` resolves (M2/M6 compliant, hermetic — no providers).
 
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/shared/widgets/period_range_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+
+import '../../../helpers/dim_probe.dart';
 
 /// Whether the save CTA's CLOSEST `IgnorePointer` ancestor is inert. The picker
 /// nests the save button in `Opacity > IgnorePointer > NeumorphicButton`, so the
@@ -308,5 +311,61 @@ void main() {
         expect(sundayHeaderX, closeTo(sundayGridX, 1.5));
       },
     );
+  });
+
+  // Phase 301 — with no full range the save CTA renders `Opacity(0.55)`. CI
+  // goldens discard layer opacity (Phase 299), so the dim is probed through the
+  // real compositor. The CTA paints the same face in both states (only the
+  // calendar above it differs), so the target is the button's own rect, cropped
+  // out of one `RepaintBoundary` over a `base` ground, once per pump.
+  group('Phase 301 — save CTA dim (pixel probe)', () {
+    Future<void> pumpBare(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        MaterialApp(
+          home: RepaintBoundary(
+            child: Scaffold(
+              backgroundColor: BrandColors.base,
+              body: PeriodRangePicker(
+                firstMonth: firstMonth,
+                firstSelectableDay: firstSelectable,
+                strings: _strings,
+                clock: () => firstSelectable,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Finder dayNumber(int day) => find
+        .descendant(
+          of: find.byType(PeriodRangePicker),
+          matching: find.text('$day'),
+        )
+        .first;
+
+    testWidgets('the save CTA without a full range composites to 0.55 of the '
+        'enabled one', (tester) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: find.byKey(const Key('btn-range-picker-save')),
+        pumpFull: () async {
+          await pumpBare(tester);
+          await tester.tap(dayNumber(12));
+          await tester.pumpAndSettle();
+          await tester.tap(dayNumber(20));
+          await tester.pumpAndSettle();
+          expect(_saveCtaIgnoring(tester), isFalse);
+        },
+        pumpDimmed: () async {
+          await pumpBare(tester);
+          expect(_saveCtaIgnoring(tester), isTrue);
+        },
+        ground: BrandColors.base,
+        expected: 0.55,
+      );
+    });
   });
 }

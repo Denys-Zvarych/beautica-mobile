@@ -36,6 +36,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 void main() {
@@ -142,7 +143,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
@@ -169,7 +170,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 
@@ -260,7 +260,7 @@ void main() {
         'requestPasswordReset with the extra email — never '
         'requestChangePasswordOtp', (tester) async {
       final fakeAuthRepo = FakeAuthRepository();
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
@@ -270,7 +270,6 @@ void main() {
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         ],
       );
-      addTearDown(container.dispose);
       final router = container.read(appRouterProvider);
 
       await tester.pumpWidget(
@@ -312,7 +311,7 @@ void main() {
       tester,
     ) async {
       final fakeAuthRepo = FakeAuthRepository();
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
           authProvider.overrideWith(
@@ -334,7 +333,6 @@ void main() {
           ),
         ],
       );
-      addTearDown(container.dispose);
       final router = container.read(appRouterProvider);
 
       await tester.pumpWidget(

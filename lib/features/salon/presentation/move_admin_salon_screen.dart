@@ -269,6 +269,9 @@ class _MoveTargetsBody extends StatelessWidget {
     name: option.name,
     street: option.street,
     buildingNo: option.buildingNo,
+    // Phase 369 — the destination's logo, so the picker card shows the same
+    // mark as «Мої салони» (null → the monogram).
+    avatarUrl: option.avatarUrl,
   );
 
   @override

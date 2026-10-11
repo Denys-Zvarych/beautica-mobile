@@ -75,6 +75,7 @@ class _LoadingSkeletonState extends State<LoadingSkeleton>
     // FadeTransition is more efficient than AnimatedBuilder + Opacity because
     // it composites on the GPU layer without triggering a subtree rasterisation
     // pass on every animation tick (MP2 pattern).
+    // dim-decorative: skeleton breathing pulse
     return FadeTransition(
       opacity: _opacity,
       child: Padding(

@@ -68,6 +68,19 @@ class _RecordingRefreshLock extends TokenRefreshLock {
   }
 }
 
+/// Real [AuthNotifier] (cold start unchanged) that records WHICH logout entry
+/// point was invoked. `logoutForced` is overridden WITHOUT `super`, so it does
+/// not also register as a plain `logout`.
+class _RecordingAuth extends AuthNotifier {
+  final List<String> calls = <String>[];
+
+  @override
+  Future<void> logout() async => calls.add('logout');
+
+  @override
+  Future<void> logoutForced() async => calls.add('logoutForced');
+}
+
 // ---------------------------------------------------------------------------
 // Ref-capture provider
 //
@@ -108,6 +121,7 @@ ProviderContainer makeContainer({
   required FakeAuthRepository repo,
   required Dio refreshDio,
   TokenRefreshLock? lock,
+  List<Override> extraOverrides = const <Override>[],
 }) {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
@@ -116,6 +130,7 @@ ProviderContainer makeContainer({
       authRepositoryProvider.overrideWith((_) => repo),
       refreshDioProvider.overrideWith((_) => refreshDio),
       if (lock != null) tokenRefreshLockProvider.overrideWith((_) => lock),
+      ...extraOverrides,
     ],
   );
   addTearDown(container.dispose);
@@ -226,6 +241,112 @@ void main() {
   });
 
   // -------------------------------------------------------------------------
+  // FormData (single-use body) -> refresh, but NO replay; original 401 forwarded
+  // -------------------------------------------------------------------------
+  test(
+    'FormData body: refreshes once, does not replay, forwards the 401',
+    () async {
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final repo = FakeAuthRepository();
+      final refreshDio = MockDio();
+      final mainDio = MockDio();
+
+      when(
+        () => refreshDio.post<Map<String, dynamic>>(
+          '/api/v1/auth/refresh',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          requestOptions: _opts('/api/v1/media/avatar'),
+          statusCode: 200,
+          data: refreshEnvelope(),
+        ),
+      );
+
+      final container = makeContainer(
+        storage: storage,
+        repo: repo,
+        refreshDio: refreshDio,
+      );
+      final ref = container.read(testRefProvider);
+      await container.read(authProvider.future);
+
+      final handler = MockInterceptorHandler();
+      final interceptor = RefreshInterceptor(ref, mainDio);
+      final opts = _opts('/api/v1/media/avatar')
+        ..data = FormData.fromMap(<String, Object>{'k': 'v'});
+      final err = make401(opts);
+
+      await interceptor.onError(err, handler);
+
+      verify(
+        () => refreshDio.post<Map<String, dynamic>>(
+          '/api/v1/auth/refresh',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+      verifyNever(() => mainDio.fetch<dynamic>(any()));
+      verifyNever(() => handler.resolve(any()));
+      verify(() => handler.next(err)).called(1);
+    },
+  );
+
+  // Stream (single-use body) -> refresh, but NO replay; original 401 forwarded.
+  test(
+    'Stream body: refreshes once, does not replay, forwards the 401',
+    () async {
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final repo = FakeAuthRepository();
+      final refreshDio = MockDio();
+      final mainDio = MockDio();
+
+      when(
+        () => refreshDio.post<Map<String, dynamic>>(
+          '/api/v1/auth/refresh',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer(
+        (_) async => Response(
+          requestOptions: _opts('/api/v1/upload'),
+          statusCode: 200,
+          data: refreshEnvelope(),
+        ),
+      );
+
+      final container = makeContainer(
+        storage: storage,
+        repo: repo,
+        refreshDio: refreshDio,
+      );
+      final ref = container.read(testRefProvider);
+      await container.read(authProvider.future);
+
+      final handler = MockInterceptorHandler();
+      final interceptor = RefreshInterceptor(ref, mainDio);
+      final opts = _opts('/api/v1/upload')
+        ..data = Stream<List<int>>.fromIterable(<List<int>>[
+          <int>[1, 2, 3],
+        ]);
+      final err = make401(opts);
+
+      await interceptor.onError(err, handler);
+
+      verify(
+        () => refreshDio.post<Map<String, dynamic>>(
+          '/api/v1/auth/refresh',
+          data: any(named: 'data'),
+        ),
+      ).called(1);
+      verifyNever(() => mainDio.fetch<dynamic>(any()));
+      verifyNever(() => handler.resolve(any()));
+      verify(() => handler.next(err)).called(1);
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // Test 2 — X-No-Retry set → no refresh; handler.next called
   // -------------------------------------------------------------------------
   test('should not retry when X-No-Retry is set; calls handler.next', () async {
@@ -256,6 +377,45 @@ void main() {
         data: any(named: 'data'),
       ),
     );
+  });
+
+  // Refresh failure must end the session through logoutForced() — the access
+  // token is already dead, so the push DELETE (a certain 401) must be skipped.
+  test('refresh failure calls logoutForced(), never plain logout()', () async {
+    final storage = FakeSecureStorage();
+    await storage.writeRefreshToken('stored-refresh');
+    final repo = FakeAuthRepository();
+    final refreshDio = MockDio();
+    final mainDio = MockDio();
+    when(
+      () => refreshDio.post<Map<String, dynamic>>(
+        '/api/v1/auth/refresh',
+        data: any(named: 'data'),
+      ),
+    ).thenThrow(
+      DioException(
+        requestOptions: _opts('/api/v1/auth/refresh'),
+        type: DioExceptionType.connectionError,
+      ),
+    );
+    final auth = _RecordingAuth();
+    final container = makeContainer(
+      storage: storage,
+      repo: repo,
+      refreshDio: refreshDio,
+      extraOverrides: [authProvider.overrideWith(() => auth)],
+    );
+    final ref = container.read(testRefProvider);
+    await container.read(authProvider.future);
+
+    final handler = MockInterceptorHandler();
+    await RefreshInterceptor(
+      ref,
+      mainDio,
+    ).onError(make401(_opts('/protected')), handler);
+
+    expect(auth.calls, <String>['logoutForced']);
+    verify(() => handler.next(any())).called(1);
   });
 
   // -------------------------------------------------------------------------

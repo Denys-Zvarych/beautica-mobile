@@ -1,6 +1,13 @@
 // Phase 250 — salon master roster for the SALON «Новий запис» wizard's
 // `masters` step (STAFF caller: SALON_OWNER / SALON_ADMIN).
 //
+// ⚠ 2026-10-05 — NO STAFF SURFACE READS THIS ANY MORE. The public
+// `GET /salons/{id}/masters` rail it wraps lists only BOOKABLE masters, so
+// the «Записи» board, its «Майстер» filter and this wizard's masters/date
+// steps moved to `salonStaffMastersRosterProvider`
+// (`salon/application/salon_staff_masters_roster.dart`, the management
+// `/staff` roster). Do not point a staff surface back here.
+//
 // ## Why not [publicSalonProfileProvider]
 //
 // `publicSalonProfileProvider` (`features/salon/application/

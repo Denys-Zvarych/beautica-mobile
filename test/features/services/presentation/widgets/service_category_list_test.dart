@@ -279,12 +279,11 @@ void main() {
   // The pair is what makes the additive change honest. [ServiceCard] is
   // SHARED (the services management page and the master booking wizard's
   // service picker both render it), so the parameter's DEFAULT is the whole
-  // contract: a caller that says nothing must keep the 40 dp well it always
-  // had. Only `showPhoto: false` may drop it — together with the gap that
-  // follows it, which is the other half of the 50 dp the management page
-  // reclaims. A default flipped to `false` turns the first test RED; a
-  // half-applied opt-out that drops the well but keeps its 10 dp gap turns
-  // the width assertion in the second RED.
+  // contract: since 2026-10-04 a caller that says nothing gets NO well. Only
+  // `showPhoto: true` draws the 40 dp well + 10 dp gap (dormant opt-in). A
+  // default flipped back to `true` turns the first test RED; a half-applied
+  // opt-out that drops the well but keeps its 10 dp gap turns the width
+  // assertion in the second RED.
   // ---------------------------------------------------------------------------
 
   group('ServiceCard — showPhoto (leading well opt-out)', () {
@@ -322,8 +321,8 @@ void main() {
     }
 
     testWidgets(
-      'DEFAULT (parameter omitted) still renders the leading PhotoThumbnail — '
-      'every caller that predates showPhoto is unaffected',
+      'DEFAULT (parameter omitted) renders NO PhotoThumbnail — services carry '
+      'no custom photos (product decision 2026-10-04)',
       (tester) async {
         await tester.pumpApp(
           ServiceCard(
@@ -340,34 +339,30 @@ void main() {
             of: find.byKey(const Key('service_card_svc-001')),
             matching: find.byType(PhotoThumbnail),
           ),
-          findsOneWidget,
-          reason:
-              'showPhoto must default to true: the booking-wizard picker '
-              'passes nothing and must keep its leading well',
+          findsNothing,
+          reason: 'showPhoto must default to false: no empty well anywhere',
         );
       },
     );
 
     testWidgets(
-      'showPhoto: false drops the well AND its gap — the name column gains '
-      'exactly 50 dp (40 well + 10 gap)',
+      'showPhoto: true (dormant opt-in) renders the PhotoThumbnail well AND its '
+      'gap — the name column loses exactly 50 dp (40 well + 10 gap)',
       (tester) async {
+        final Finder thumb = find.descendant(
+          of: find.byKey(const Key('service_card_svc-001')),
+          matching: find.byType(PhotoThumbnail),
+        );
         final double withWell = await pumpAndMeasureInfoWidth(
           tester,
           showPhoto: true,
         );
+        expect(thumb, findsOneWidget, reason: 'showPhoto: true draws the well');
         final double withoutWell = await pumpAndMeasureInfoWidth(
           tester,
           showPhoto: false,
         );
-
-        expect(
-          find.descendant(
-            of: find.byKey(const Key('service_card_svc-001')),
-            matching: find.byType(PhotoThumbnail),
-          ),
-          findsNothing,
-        );
+        expect(thumb, findsNothing);
         // Measured from the laid-out render tree, not from widget fields: a
         // `PhotoThumbnail` removed while its SizedBox gap stayed behind would
         // satisfy the finder above and still fail here.
@@ -375,8 +370,8 @@ void main() {
           withoutWell - withWell,
           50.0,
           reason:
-              'the opt-out must reclaim the 40 dp well AND the 10 dp gap that '
-              'followed it, not just the well',
+              'the well must come with the 10 dp gap that follows it, not '
+              'just the 40 dp well',
         );
       },
     );

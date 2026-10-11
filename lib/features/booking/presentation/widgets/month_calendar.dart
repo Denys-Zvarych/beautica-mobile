@@ -365,6 +365,7 @@ class _MonthChevronState extends State<_MonthChevron> {
         button: true,
         enabled: false,
         label: widget.semanticLabel,
+        // dim-gated: test/features/booking/presentation/widgets/month_calendar_show_header_test.dart
         child: Opacity(opacity: 0.55, child: face),
       );
     }

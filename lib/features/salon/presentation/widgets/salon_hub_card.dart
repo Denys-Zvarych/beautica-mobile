@@ -191,7 +191,11 @@ class _SalonHubCardState extends ConsumerState<SalonHubCard> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                SalonLogo(diameter: 58, monogram: monogram),
+                SalonLogo(
+                  diameter: 58,
+                  monogram: monogram,
+                  imageUrl: s.avatarUrl,
+                ),
                 const SizedBox(width: VelvetSpacing.md),
                 Expanded(
                   child: Column(

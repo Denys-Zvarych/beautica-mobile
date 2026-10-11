@@ -38,10 +38,14 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -75,6 +79,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -88,6 +93,12 @@ import '../../../helpers/velvet_snack_matchers.dart';
 final Finder _locationIcon = find.byWidgetPredicate(
   (w) => w is AppIcon && w.asset == BeauticaAssetIcons.locationMarker,
 );
+
+/// Phase 363 — a global unread count of two, so the header bell shows its dot.
+class _TwoUnread extends UnreadNotifications {
+  @override
+  FutureOr<int> build() => 2;
+}
 
 // ---------------------------------------------------------------------------
 // Style matchers
@@ -2103,6 +2114,152 @@ void main() {
     );
   });
 
+  // ── 12e. Identity card — avatar badge vs text column (Phase 367 fix) ─────
+  //
+  // The own-avatar camera badge (and its 12 dp shadow blur) ran into the
+  // pin row at 320/360 dp once the column grew down to it. A long address at
+  // 320 × 1.3 is the tallest-column, narrowest-width case.
+  group('identity card — avatar badge clears the text column', () {
+    for (final ({String label, Master master}) c
+        in <({String label, Master master})>[
+          (label: 'long address', master: _stubMasterLongAddress),
+          (label: 'full address + long note', master: _stubMasterLongNote),
+        ]) {
+      testWidgets('${c.label} at 320dp × textScaler 1.3', (tester) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: AsyncData<Master>(c.master),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          width: 320,
+          textScaleFactor: 1.3,
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find
+                  .byKey(const Key('master-profile-locality-text'))
+                  .evaluate()
+                  .isNotEmpty ||
+              find
+                  .byKey(const Key('master-profile-address-combined-text'))
+                  .evaluate()
+                  .isNotEmpty ||
+              find
+                  .byKey(const Key('master-profile-address-text'))
+                  .evaluate()
+                  .isNotEmpty,
+          isTrue,
+          reason:
+              'the address rows must render, or the column is too short '
+              'to reach the badge and the guard is vacuous',
+        );
+        expectBadgeClearsTextColumn(
+          tester,
+          editorKey: const Key('master-profile-avatar-editor'),
+          nameKey: const Key('master-profile-name'),
+        );
+      });
+    }
+  });
+
+  // ── 12f. Avatar patch rebuilds the avatar only (Phase 367 audit, L2) ──────
+  //
+  // The screen watches the profile through `MasterProfileIgnoringAvatar`;
+  // `MasterOwnAvatar` watches the photo itself. An upload/remove patches
+  // `masterProfileProvider` in place — only the avatar may rebuild. The name
+  // Text is created in `_ProfileBody.build()`, so its widget instance stays
+  // identical only when the body did not rebuild.
+  testWidgets('an avatar patch rebuilds the avatar only, not the body', (
+    tester,
+  ) async {
+    const String url = 'https://media.test/avatars/u1/1.jpg';
+    await tester.pumpApp(
+      const MasterProfileScreen(),
+      overrides: _buildOverrides(
+        masterState: AsyncData<Master>(_stubMaster.copyWith(avatarUrl: url)),
+        repo: repo,
+        serviceRepo: mockServiceRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+    NeumorphicAvatarEditor editor() => tester.widget<NeumorphicAvatarEditor>(
+      find.byKey(const Key('master-profile-avatar-editor')),
+    );
+    expect(editor().imageUrl, url);
+    final Widget nameBefore = tester.widget(
+      find.byKey(const Key('master-profile-name')),
+    );
+
+    ProviderScope.containerOf(
+      tester.element(find.byType(MasterProfileScreen)),
+    ).read(masterProfileProvider.notifier).patchAvatarUrl(null);
+    await tester.pump();
+
+    expect(editor().imageUrl, isNull, reason: 'the avatar follows');
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('master-profile-name'))),
+        nameBefore,
+      ),
+      isTrue,
+      reason: 'the profile body must not rebuild for an avatar patch',
+    );
+  });
+
+  // ── 12g. A non-avatar change still rebuilds the body (Phase 369, 367 perf
+  // INFO a) — the counterpart of 12f: `MasterProfileIgnoringAvatar` must
+  // ignore ONLY the photo. Were it to compare too little, a name edit would
+  // never reach the screen; this pins that it does.
+  testWidgets('a non-avatar change (firstName) still rebuilds the body', (
+    tester,
+  ) async {
+    const String url = 'https://media.test/avatars/u1/1.jpg';
+    await tester.pumpApp(
+      const MasterProfileScreen(),
+      overrides: _buildOverrides(
+        masterState: AsyncData<Master>(_stubMaster.copyWith(avatarUrl: url)),
+        repo: repo,
+        serviceRepo: mockServiceRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final Widget nameBefore = tester.widget(
+      find.byKey(const Key('master-profile-name')),
+    );
+    expect(find.textContaining('Тест'), findsWidgets);
+
+    final ProviderContainer container = ProviderScope.containerOf(
+      tester.element(find.byType(MasterProfileScreen)),
+    );
+    // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+    container.read(masterProfileProvider.notifier).state = AsyncData<Master>(
+      _stubMaster.copyWith(avatarUrl: url, firstName: 'Оновлена'),
+    );
+    await tester.pump();
+
+    expect(
+      identical(
+        tester.widget(find.byKey(const Key('master-profile-name'))),
+        nameBefore,
+      ),
+      isFalse,
+      reason: 'a firstName change must rebuild the profile body',
+    );
+    expect(find.textContaining('Оновлена'), findsWidgets);
+    expect(
+      tester
+          .widget<NeumorphicAvatarEditor>(
+            find.byKey(const Key('master-profile-avatar-editor')),
+          )
+          .imageUrl,
+      url,
+      reason: 'the photo is unchanged',
+    );
+  });
+
   // ── 13. Services section states ──────────────────────────────────────────
 
   /// Four sub-tests exercise all three [servicesListProvider] states rendered
@@ -2977,6 +3134,120 @@ void main() {
             'popping the masterEdit screen must return to masterProfile — '
             'confirms a true back-stack exists after the push',
       );
+    });
+  });
+
+  // ── 13c. Phase 363 — the global notification bell, left of the burger ──────
+  //
+  // «Мій профіль» is this role's landing tab and the ONE master header that
+  // carries the bell. It sits left of the burger with the client top bar's
+  // 12 dp gap, and nothing else on the header moves: the burger stays pinned
+  // right and the Stack-centred title stays centred.
+
+  group('notification bell in the header (phase 363)', () {
+    GoRouter bellRouter() => GoRouter(
+      initialLocation: RouteNames.masterProfile,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterProfile,
+          builder: (_, _) => const MasterProfileScreen(),
+        ),
+        GoRoute(
+          path: RouteNames.notifications,
+          builder: (_, _) => const Scaffold(body: Text('feed-stub')),
+        ),
+      ],
+    );
+
+    Future<void> pumpBell(
+      WidgetTester tester,
+      GoRouter router, {
+      List<Object> extra = const <Object>[],
+    }) async {
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          ..._buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+          ),
+          ...extra,
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('should_sitLeftOfTheBurger_with12dpGap_andNothingElseMoves', (
+      tester,
+    ) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      final Rect bell = tester.getRect(
+        find.byKey(const Key('master_profile_bell_button')),
+      );
+      final Rect burger = tester.getRect(
+        find.byKey(const Key('btn-menu-master')),
+      );
+      final double width = tester.getSize(find.byType(MaterialApp)).width;
+
+      expect(bell.right, lessThan(burger.left));
+      expect(burger.left - bell.right, VelvetSpacing.sm + 4);
+      // The burger stays pinned to the right gutter, as it was before.
+      expect(burger.right, width - VelvetSpacing.lg);
+      // The Stack-centred title does not shift for the wider trailing slot.
+      final String title = AppLocalizations.of(
+        tester.element(find.byType(MasterProfileScreen)),
+      ).masterProfileTitle;
+      expect(tester.getCenter(find.text(title)).dx, closeTo(width / 2, 1));
+    });
+
+    testWidgets('should_showTheUnreadDot_fromTheGlobalCount', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(
+        tester,
+        router,
+        extra: <Object>[
+          unreadNotificationsProvider.overrideWith(_TwoUnread.new),
+        ],
+      );
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationUnread,
+      );
+    });
+
+    testWidgets('should_showThePlainBell_whenNothingIsUnread', (tester) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      expect(
+        tester
+            .widget<AppIcon>(find.byKey(NotificationBellButton.bellIconKey))
+            .asset,
+        BeauticaAssetIcons.notificationPlain,
+      );
+    });
+
+    testWidgets('should_pushTheFeed_andKeepABackStack_whenTheBellIsTapped', (
+      tester,
+    ) async {
+      final GoRouter router = bellRouter();
+      addTearDown(router.dispose);
+      await pumpBell(tester, router);
+
+      await tester.tap(find.byKey(const Key('master_profile_bell_button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('feed-stub'), findsOneWidget);
+      expect(router.canPop(), isTrue, reason: 'push, never go');
     });
   });
 

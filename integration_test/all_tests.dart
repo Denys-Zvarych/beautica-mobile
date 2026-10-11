@@ -58,11 +58,20 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'app_boot_without_firebase_flow_test.dart' as app_boot_without_firebase;
 import 'auth_login_flow_test.dart' as auth_login;
 import 'salon_owner_landing_flow_test.dart' as salon_owner_landing;
 import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
+import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
+import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
+import 'pending_actions_count_wiring_test.dart' as pending_actions_count;
+import 'salon_staff_client_review_flow_test.dart' as salon_staff_client_review;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
+import 'owner_master_mode_flow_test.dart' as owner_master_mode;
+import 'owner_master_client_visibility_flow_test.dart'
+    as owner_master_client_visibility;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
+import 'owner_settings_hub_flow_test.dart' as owner_settings_hub;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
 import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
@@ -89,6 +98,8 @@ import 'client_review_refreshes_salon_surfaces_flow_test.dart'
     as client_review_refreshes_salon_surfaces;
 import 'client_reschedule_flow_test.dart' as client_reschedule;
 import 'client_logout_flow_test.dart' as client_logout;
+import 'client_session_switch_my_bookings_flow_test.dart'
+    as client_session_switch_my_bookings;
 import 'client_delete_account_flow_test.dart' as client_delete_account;
 import 'staff_delete_account_flow_test.dart' as staff_delete_account;
 import 'client_profile_location_save_overrides_search_touch_flow_test.dart'
@@ -117,6 +128,9 @@ import 'independent_multi_service_booking_flow_test.dart'
     as independent_multi_service_booking;
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
 import 'logout_flow_test.dart' as logout;
+import 'push_foreground_refresh_flow_test.dart' as push_foreground_refresh;
+import 'push_tap_flow_test.dart' as push_tap;
+import 'push_token_registration_flow_test.dart' as push_token_registration;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
@@ -134,6 +148,11 @@ import 'master_bookings_declared_time_cards_flow_test.dart'
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
+import 'master_avatar_upload_test.dart' as master_avatar_upload;
+import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
+import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
+import 'salon_logo_surfaces_flow_test.dart' as salon_logo_surfaces_flow;
+import 'own_avatar_surface_matrix_test.dart' as own_avatar_surface_matrix;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -203,6 +222,13 @@ import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
+import 'notification_bell_flow_test.dart' as notification_bell;
+import 'notification_tap_to_detail_flow_test.dart'
+    as notification_tap_to_detail;
+import 'notifications_flow_test.dart' as notifications;
+import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
@@ -221,15 +247,30 @@ void main() {
   // and resets global state via AppHarness.tearDownHarness — the per-test
   // re-launch model that directory-mode batching cannot provide.
   group('auth_login_flow', auth_login.main);
+  // Phase 066 — cold start + login with Firebase unavailable (host, throwing
+  // init, hung init); pushAvailableProvider resolves false, never blocks.
+  group('app_boot_without_firebase_flow', app_boot_without_firebase.main);
   // Phase 21.1 — SALON_OWNER landing regression (the Step 5 fix): fresh
   // login AND the post-registration done_to_app CTA both land on the My
   // Salons Hub, never the pre-Phase-21.1 `/` placeholder.
   group('salon_owner_landing_flow', salon_owner_landing.main);
   group('salon_shell_landing_flow', salon_shell_landing.main);
+  // Phase 288 — owner reopens on the last-visited salon across a relaunch;
+  // stale pointer self-heals; sign-out forgets it (D6).
+  group('owner_relaunch_last_salon_flow', owner_relaunch_last_salon.main);
   // Phase 21.14 — the owner's own «Профіль» tab: the shell slot-2 swap plus
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
+  group('owner_master_mode_flow', owner_master_mode.main);
+  // Phase 385 (24.1h) — decision 7: a bookable owner (service + schedule
+  // set in master mode) appears in the client «Команда»; a non-bookable one
+  // does not.
+  group(
+    'owner_master_client_visibility_flow',
+    owner_master_client_visibility.main,
+  );
   group('admin_own_profile_flow', admin_own_profile.main);
+  group('owner_settings_hub_flow', owner_settings_hub.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept
   // envelope alone — the ONLY session-establishing flow with no `GET
@@ -341,6 +382,10 @@ void main() {
   group('client_home_hub_flow', client_home_hub.main);
   group('client_favorites_flow', client_favorites.main);
   group('client_logout_flow', client_logout.main);
+  group(
+    'client_session_switch_my_bookings_flow',
+    client_session_switch_my_bookings.main,
+  );
   group('client_delete_account_flow', client_delete_account.main);
   // Staff delete-account widening (2026-09-08, Step 2.7 Rule 3b, mobile-qa)
   // — SALON_MASTER / INDEPENDENT_MASTER / SALON_ADMIN reachability + the
@@ -405,6 +450,13 @@ void main() {
   // flow in this file inherits.
   group('harness_retry_policy_flow', harness_retry_policy.main);
   group('logout_flow', logout.main);
+  group('push_token_registration_flow', push_token_registration.main);
+  // Phase 068 — a foreground FCM message refreshes the bell / merges into the
+  // open feed after the debounce; a permission-denied user is ignored.
+  group('push_foreground_refresh_flow', push_foreground_refresh.main);
+  // Phase 069 — a push TAP (background / cold start) opens its destination,
+  // marks the notification read; a signed-out launch tap is dropped.
+  group('push_tap_flow', push_tap.main);
   // Master-home zero-services «Додати послуги» CTA → /services/setup
   // (Step 2.7 Rule 3b — master home → service-setup journey).
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
@@ -716,4 +768,27 @@ void main() {
   // surviving the context.pop() that follows it, and single-slot
   // pre-emption against a real (non-same-tick) second trigger.
   group('velvet_snack_flow', velvet_snack.main);
+  // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
+  group('media_avatar_upload_flow', media_avatar_upload.main);
+  group('master_avatar_upload', master_avatar_upload.main);
+  // Phase 367 — own-avatar for owner/admin/client + role × surface matrix.
+  group('owner_admin_avatar_upload', owner_admin_avatar_upload.main);
+  group('salon_logo_cover_owner', salon_logo_cover_owner.main);
+  group('salon_logo_surfaces_flow', salon_logo_surfaces_flow.main);
+  group('own_avatar_surface_matrix', own_avatar_surface_matrix.main);
+  group('notification_bell_flow', notification_bell.main);
+  // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
+  group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
+  group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
+  // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
+  group('notifications_flow', notifications.main);
+  // Phase 365 — a BOOKING_CREATED / INVITE_ACCEPTED tap for every provider role.
+  group('notifications_provider_flow', notifications_provider.main);
+  // Phase 365 — one owner, two salons, one global feed.
+  group('owner_multi_salon_feed_flow', owner_multi_salon_feed.main);
+  // Phase 393 — pendingBookingActionsCountProvider wire-up.
+  group('pending_actions_count_wiring', pending_actions_count.main);
+  // Phase 386 — owner/admin rate the client (wired late, 393).
+  group('salon_staff_client_review_flow', salon_staff_client_review.main);
 }

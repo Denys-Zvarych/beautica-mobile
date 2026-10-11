@@ -63,6 +63,15 @@ class _MasterBookingsStub extends StatelessWidget {
       const Scaffold(body: Center(child: Text('master-bookings-stub')));
 }
 
+/// Phase 383 — the owner master-mode «Записи» landing stub.
+class _OwnerMasterBookingsStub extends StatelessWidget {
+  const _OwnerMasterBookingsStub();
+
+  @override
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: Text('owner-master-bookings-stub')));
+}
+
 class _ClientHomeStub extends StatelessWidget {
   const _ClientHomeStub();
 
@@ -91,6 +100,10 @@ GoRouter _router() => GoRouter(
       path: RouteNames.clientHome,
       builder: (context, state) => const _ClientHomeStub(),
     ),
+    GoRoute(
+      path: RouteNames.ownerMasterBookings,
+      builder: (context, state) => const _OwnerMasterBookingsStub(),
+    ),
   ],
 );
 
@@ -111,6 +124,7 @@ BookingSuccessArgs _args({
   // site above is unaffected.
   String? rescheduleClientName,
   String? rescheduleClientPhone,
+  String? returnRoute,
 }) => BookingSuccessArgs(
   master: _kMaster,
   services: const <MasterService>[_kService],
@@ -120,6 +134,7 @@ BookingSuccessArgs _args({
   guest: guest,
   rescheduleClientName: rescheduleClientName,
   rescheduleClientPhone: rescheduleClientPhone,
+  returnRoute: returnRoute,
 );
 
 Future<GoRouter> _pump(WidgetTester tester, BookingSuccessArgs args) async {
@@ -206,6 +221,65 @@ void main() {
 
         expect(find.byType(_MasterBookingsStub), findsOneWidget);
         expect(find.byType(BookingSuccessScreen), findsNothing);
+      },
+    );
+
+    // Phase 383 QA (INFO security) — FAILING-FIRST spec. `returnRoute` is an
+    // unconstrained String handed straight to `context.go`; only the two
+    // walk-in landings may ever be honoured. Any other value must fall back
+    // to the independent master's «Записи». Observed RED before the fix
+    // (landed on the client home stub).
+    testWidgets(
+      'should_ignoreReturnRoute_when_notOnAllowList — an arbitrary route '
+      'falls back to /master/bookings',
+      (tester) async {
+        await _pump(
+          tester,
+          _args(isWalkIn: true, returnRoute: RouteNames.clientHome),
+        );
+
+        await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_ClientHomeStub), findsNothing);
+        expect(find.byType(_MasterBookingsStub), findsOneWidget);
+      },
+    );
+
+    // Phase 383 QA — `returnRoute` is read ONLY on the walk-in branch; a
+    // client success that somehow carried one still lands on the role home.
+    // MUTATION: hoisted `returnRoute ??` above the `isWalkIn` guard → this
+    // test landed on the owner stub and went red. Restored.
+    testWidgets(
+      'should_ignoreReturnRoute_when_notWalkIn — the client branch never '
+      'reads it',
+      (tester) async {
+        await _pump(tester, _args(returnRoute: RouteNames.ownerMasterBookings));
+
+        await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_OwnerMasterBookingsStub), findsNothing);
+        expect(find.byType(_ClientHomeStub), findsOneWidget);
+      },
+    );
+
+    // Phase 383 (24.1f) — the owner master-mode walk-in chain sets
+    // `returnRoute`; `go(masterBookings)` would bounce a SALON_OWNER.
+    testWidgets(
+      'should_goToReturnRoute_when_walkInDoneTappedWithReturnRoute — the '
+      'owner chain lands on /owner/master/bookings, never /master/bookings',
+      (tester) async {
+        await _pump(
+          tester,
+          _args(isWalkIn: true, returnRoute: RouteNames.ownerMasterBookings),
+        );
+
+        await tester.tap(find.byKey(const Key('booking-success-home-cta')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(_OwnerMasterBookingsStub), findsOneWidget);
+        expect(find.byType(_MasterBookingsStub), findsNothing);
       },
     );
 

@@ -69,6 +69,9 @@ abstract class SalonMasterSchedule with _$SalonMasterSchedule {
     /// contract — the card renders an em-dash for it).
     double? avgRating,
 
+    /// The master's photo URL (from [SalonMasterSummary.avatarUrl]), or `null`.
+    String? avatarUrl,
+
     /// Total number of reviews — the muted `(n)` suffix beside the rating.
     @Default(0) int reviewCount,
 

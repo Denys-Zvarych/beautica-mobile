@@ -26,6 +26,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/booking/application/salon_booking_schedule_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -55,6 +56,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/dim_probe.dart';
+import '../../../helpers/dim_probe_replicas.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
 
@@ -2696,6 +2699,79 @@ void main() {
           .getSemanticsData();
       expect(backData.label, l10n.salonBookingTimeBackToCalendarSemantics);
       expect(backData.flagsCollection.isButton, isTrue);
+    });
+  });
+
+  // Phase 301 — on the FIRST master's slide the ‹ pager arrow has no callback
+  // and renders `Opacity(0.55)` over a `faint`-glyph face. CI goldens discard
+  // layer opacity (Phase 299), so the dim is probed through the real compositor.
+  //
+  // Enabled and disabled are different pictures, so the "full" control is an
+  // UNDIMMED replica of the disabled face (`UndimmedDisabledArrowFace`) laid at
+  // the real arrow's measured rect over the same `base` ground; the ratio
+  // real : replica is the dim.
+  group('Phase 301 — disabled pager arrow dim (pixel probe)', () {
+    const SalonBookingTimeArgs args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1', 'svc-2'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+        'm2': <String>['svc-2'],
+      },
+    );
+    const Key prev = Key('salon-time-pager-prev');
+
+    Future<void> pumpReal(WidgetTester tester) async {
+      await _pumpTall(tester);
+      // Unmount whatever the previous pump left: a ProviderScope cannot change
+      // its override count in place.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpRoutedApp(
+        _router(args: args),
+        overrides: _baseOverrides(
+          masters: const <SalonMasterSummary>[_m1, _m2],
+          slotRepository: _FakeSlotRepository(const <BookingSlot>[]),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the ‹ arrow on the first slide composites to 0.55 of its '
+        'undimmed face', (tester) async {
+      await pumpReal(tester);
+      final Rect arrow = tester.getRect(find.byKey(prev));
+
+      await expectRegionDimRatio(
+        tester: tester,
+        target: find.byKey(prev),
+        pumpFull: () async {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpApp(
+            RepaintBoundary(
+              child: ColoredBox(
+                color: BrandColors.base,
+                child: Stack(
+                  children: <Widget>[
+                    Positioned.fromRect(
+                      rect: arrow,
+                      child: const UndimmedDisabledArrowFace(
+                        key: prev,
+                        icon: Icons.chevron_left_rounded,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+        },
+        pumpDimmed: () => pumpReal(tester),
+        ground: BrandColors.base,
+        expected: 0.55,
+        reason:
+            'if the real face was restyled, update the replica in test/helpers/dim_probe_replicas.dart',
+      );
     });
   });
 }

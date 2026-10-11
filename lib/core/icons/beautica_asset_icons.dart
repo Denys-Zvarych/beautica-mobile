@@ -17,7 +17,7 @@
 ///   2. Add a `static const String` below.
 ///   3. Use `AppIcon(BeauticaAssetIcons.yourIcon)` in your widget.
 ///
-/// See also `assets/icons/README.md` for the full contributor guide.
+/// See also `tool/asset_docs/icons.README.md` for the full contributor guide.
 abstract final class BeauticaAssetIcons {
   /// Base asset directory — keep in sync with `pubspec.yaml` flutter.assets.
   static const String _base = 'assets/icons';
@@ -35,7 +35,7 @@ abstract final class BeauticaAssetIcons {
   ///   f95493a915cc05109684f24823567931c9a9116ae164bbe6a5777b08fe60148e
   /// (recorded verbatim in the SVG's top comment for git-history auditability).
   ///
-  /// See `assets/icons/home_outline.svg` and `assets/icons/README.md`.
+  /// See `assets/icons/home_outline.svg` and `tool/asset_docs/icons.README.md`.
   static const String homeOutline = '$_base/home_outline.svg';
 
   /// Filled home glyph for the active/selected nav state.
@@ -217,7 +217,7 @@ abstract final class BeauticaAssetIcons {
   /// SHA-256: 5a27637436e57a5483fb36d85a456bbf9e733e76e230ab99ccf6adf87a408bf6
   ///
   /// Monochrome solid silhouette — render TINTED (pass a [AppIcon.color]); never
-  /// `multicolor: true`. See `assets/icons/star.svg` and `assets/icons/README.md`.
+  /// `multicolor: true`. See `assets/icons/star.svg` and `tool/asset_docs/icons.README.md`.
   static const String star = '$_base/star.svg';
 
   // ---------------------------------------------------------------------------
@@ -370,9 +370,9 @@ abstract final class BeauticaAssetIcons {
   /// Local source: `/media/sf_ubuntu_trash/icons_svg/team.svg` (2026-08-29),
   /// viewBox 0 0 24 24, no stroke.
   /// SHA-256: 92fdd3170ddc79ce8c6f4efa528360eb464c2f3540fd3aa293f0202d94ac1554
-  /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
+  /// Flaticon source URL not recorded — see `tool/asset_docs/icons.README.md` manifest.
   ///
-  /// See `assets/icons/team_outline.svg` and `assets/icons/README.md`.
+  /// See `assets/icons/team_outline.svg` and `tool/asset_docs/icons.README.md`.
   static const String teamOutline = '$_base/team_outline.svg';
 
   /// Filled three-person glyph for the active salon-shell «Команда» tab.
@@ -383,7 +383,7 @@ abstract final class BeauticaAssetIcons {
   /// Local source: `/media/sf_ubuntu_trash/icons_svg/people-group.svg`
   /// (2026-08-29), viewBox 0 0 24 24, no stroke.
   /// SHA-256: 1361953d49b1d7b73edf799512b1923cfcb081d9838c00a2862137f36f1650f6
-  /// Flaticon source URL not recorded — see `assets/icons/README.md` manifest.
+  /// Flaticon source URL not recorded — see `tool/asset_docs/icons.README.md` manifest.
   ///
   /// See `assets/icons/team_filled.svg`.
   static const String teamFilled = '$_base/team_filled.svg';

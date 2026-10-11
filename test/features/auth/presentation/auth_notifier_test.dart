@@ -24,15 +24,21 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/cache/lru_cache.dart';
+import 'package:beautica_mobile/core/media/pick/crop_labels.dart';
+import 'package:beautica_mobile/core/media/pick/image_pick_gateway.dart';
+import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/storage/secure_storage.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -46,6 +52,7 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/discovery/data/search_suggestion_cache_provider.dart';
+import 'package:beautica_mobile/core/push/push_session_hooks.dart';
 import 'package:beautica_mobile/features/discovery/domain/search_suggestion.dart';
 import 'package:beautica_mobile/features/location/data/settlement_search_cache.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
@@ -62,6 +69,20 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 class MockAuthRepository extends Mock implements AuthRepository {}
 
+/// Push stub (phase 067): registers recording handlers on the dependency-free
+/// [pushSessionHooksProvider] — the only push seam `AuthNotifier` may touch.
+Override _pushStub(List<String> log, {bool throwOnUnregister = false}) =>
+    pushSessionHooksProvider.overrideWith(
+      (ref) => PushSessionHooks()
+        ..onLogout = ({required bool forced}) async {
+          log.add(forced ? 'push-unregister-forced' : 'push-unregister');
+          if (throwOnUnregister) throw StateError('push exploded');
+        }
+        ..onLocalRevoke = () async {
+          log.add('push-revoke');
+        },
+    );
+
 /// A [SecureStorage] that delegates everything to a real [FakeSecureStorage]
 /// except `deleteAll()`, which throws.
 ///
@@ -71,6 +92,23 @@ final class _DeleteAllThrowsStorage implements SecureStorage {
   _DeleteAllThrowsStorage(this._inner);
 
   final FakeSecureStorage _inner;
+
+  @override
+  Future<String?> readPendingPick() => _inner.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _inner.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _inner.deletePendingPick();
+  @override
+  Future<bool> readPushPermissionAsked() => _inner.readPushPermissionAsked();
+  @override
+  Future<void> writePushPermissionAsked() => _inner.writePushPermissionAsked();
+  @override
+  Future<bool> readPushRevokePending() => _inner.readPushRevokePending();
+  @override
+  Future<void> writePushRevokePending() => _inner.writePushRevokePending();
+  @override
+  Future<void> clearPushRevokePending() => _inner.clearPushRevokePending();
 
   @override
   Future<void> deleteAll() async => throw StateError('keystore wedged');
@@ -170,6 +208,24 @@ final class _ThrowingWriteStorage implements SecureStorage {
   final FakeSecureStorage _backing = FakeSecureStorage();
 
   @override
+  Future<String?> readPendingPick() => _backing.readPendingPick();
+  @override
+  Future<void> writePendingPick(String json) => _backing.writePendingPick(json);
+  @override
+  Future<void> deletePendingPick() => _backing.deletePendingPick();
+  @override
+  Future<bool> readPushPermissionAsked() => _backing.readPushPermissionAsked();
+  @override
+  Future<void> writePushPermissionAsked() =>
+      _backing.writePushPermissionAsked();
+  @override
+  Future<bool> readPushRevokePending() => _backing.readPushRevokePending();
+  @override
+  Future<void> writePushRevokePending() => _backing.writePushRevokePending();
+  @override
+  Future<void> clearPushRevokePending() => _backing.clearPushRevokePending();
+
+  @override
   Future<void> writeRefreshToken(String token) async {
     throw PlatformException(
       code: 'write_error',
@@ -236,12 +292,14 @@ void main() {
   ProviderContainer makeContainer({
     required AuthRepository repo,
     required SecureStorage storage,
+    List<Override> extraOverrides = const [],
   }) {
     final container = ProviderContainer(
       retry: beauticaProviderRetry,
       overrides: [
         authRepositoryProvider.overrideWith((_) => repo),
         secureStorageProvider.overrideWith((_) => storage),
+        ...extraOverrides,
       ],
     );
     addTearDown(container.dispose);
@@ -555,6 +613,404 @@ void main() {
       expect(await storage.readRefreshToken(), isNull);
       // Phase 286 — the last-visited-salon pointer must be wiped too.
       expect(await storage.readLastSalon(), isNull);
+    });
+
+    // Phase 067 (D4) — push deregistration is the FIRST logout step and can
+    // never fail the logout.
+    test(
+      'logout: push unregister runs BEFORE the server call and the wipe',
+      () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        final log = <String>[];
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenAnswer((_) async => testTokens);
+        when(() => repo.me()).thenAnswer((_) async => testUser);
+        when(() => repo.logout()).thenAnswer((_) async {
+          log.add('server-logout');
+        });
+
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [_pushStub(log)],
+        );
+        await container.read(authProvider.future);
+        await container.read(authProvider.notifier).logout();
+
+        expect(log, ['push-unregister', 'server-logout']);
+        expect(await storage.readRefreshToken(), isNull);
+      },
+    );
+
+    test('logoutForced: push cleanup is told the logout is forced', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final log = <String>[];
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {
+        log.add('server-logout');
+      });
+      final container = makeContainer(
+        repo: repo,
+        storage: storage,
+        extraOverrides: [_pushStub(log)],
+      );
+      await container.read(authProvider.future);
+      await container.read(authProvider.notifier).logoutForced();
+      expect(log, ['push-unregister-forced', 'server-logout']);
+
+      // The flag does not leak into the next (ordinary) logout.
+      log.clear();
+      await container.read(authProvider.notifier).logout();
+      expect(log, ['push-unregister', 'server-logout']);
+    });
+
+    test('logout: a HUNG server logout call is bounded by '
+        'kServerLogoutTimeout; the local wipe still runs', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) => Completer<void>().future);
+
+      final container = makeContainer(repo: repo, storage: storage);
+      await container.read(authProvider.future);
+
+      final Stopwatch sw = Stopwatch()..start();
+      await container
+          .read(authProvider.notifier)
+          .logout()
+          .timeout(
+            kServerLogoutTimeout + const Duration(seconds: 3),
+            onTimeout: () => fail('logout hung on the server call'),
+          );
+      sw.stop();
+
+      expect(sw.elapsed, greaterThanOrEqualTo(kServerLogoutTimeout));
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      expect(await storage.readRefreshToken(), isNull);
+    });
+
+    test('logout succeeds (and wipes) when push unregister throws', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = makeContainer(
+        repo: repo,
+        storage: storage,
+        extraOverrides: [_pushStub(<String>[], throwOnUnregister: true)],
+      );
+      await container.read(authProvider.future);
+      await container.read(authProvider.notifier).logout();
+
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+      expect(await storage.readRefreshToken(), isNull);
+    });
+
+    test('logout: a THROWING push hook persists pushRevokePending and the '
+        'wipe still completes', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = makeContainer(
+        repo: repo,
+        storage: storage,
+        extraOverrides: [_pushStub(<String>[], throwOnUnregister: true)],
+      );
+      await container.read(authProvider.future);
+      expect(await storage.readPushRevokePending(), isFalse);
+      await container.read(authProvider.notifier).logout();
+
+      expect(await storage.readPushRevokePending(), isTrue);
+      expect(await storage.readRefreshToken(), isNull);
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
+      );
+    });
+
+    // Phase 067 audit — single-flight logout: a forced logout racing a user
+    // tap (or RefreshInterceptor) must join the in-progress one.
+    test('logout is single-flight: concurrent calls share one run', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final log = <String>[];
+      final gate = Completer<void>();
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {
+        log.add('server-logout');
+        await gate.future;
+      });
+
+      final container = makeContainer(
+        repo: repo,
+        storage: storage,
+        extraOverrides: [_pushStub(log)],
+      );
+      await container.read(authProvider.future);
+      final notifier = container.read(authProvider.notifier);
+
+      final first = notifier.logout();
+      final second = notifier.logout();
+      expect(identical(first, second), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      gate.complete();
+      await Future.wait([first, second]);
+
+      expect(log, ['push-unregister', 'server-logout']);
+      verify(() => repo.logout()).called(1);
+
+      // Once finished, a later logout runs again (not a stuck future).
+      await notifier.logout();
+      verify(() => repo.logout()).called(1);
+    });
+
+    // Phase 067 audit — non-logout wipes must revoke the device's FCM token
+    // locally, or the device keeps showing the old user's pushes.
+    group('cold-start wipe revokes the push token locally', () {
+      Future<void> settle() async {
+        for (var i = 0; i < 5; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      }
+
+      test('expired refresh token (pre-check wipe)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 60;
+        final b64 = base64Url
+            .encode(utf8.encode('{"sub":"u1","exp":$exp}'))
+            .replaceAll('=', '');
+        await storage.writeRefreshToken('h.$b64.s');
+        final log = <String>[];
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [_pushStub(log)],
+        );
+        await container.read(authProvider.future);
+        await settle();
+        expect(log, ['push-revoke']);
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('THROWING onLocalRevoke hook persists pushRevokePending and the '
+          'wipe completes', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('expired-refresh');
+        when(
+          () => repo.refresh('expired-refresh'),
+        ).thenThrow(const UnauthorizedFailure());
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [
+            pushSessionHooksProvider.overrideWith(
+              (ref) =>
+                  PushSessionHooks()
+                    ..onLocalRevoke = () async =>
+                        throw StateError('stale hook'),
+            ),
+          ],
+        );
+        await container.read(authProvider.future);
+        await settle();
+        expect(await storage.readPushRevokePending(), isTrue);
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('rejected refresh token (401)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('expired-refresh');
+        when(
+          () => repo.refresh('expired-refresh'),
+        ).thenThrow(const UnauthorizedFailure());
+        final log = <String>[];
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [_pushStub(log)],
+        );
+        await container.read(authProvider.future);
+        await settle();
+        expect(log, ['push-revoke']);
+        expect(await storage.readRefreshToken(), isNull);
+      });
+
+      test('transient failure (5xx) keeps the session: NO revoke', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenThrow(const ServerFailure(statusCode: 503));
+        final log = <String>[];
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [_pushStub(log)],
+        );
+        await container.read(authProvider.future);
+        await settle();
+        expect(log, isEmpty);
+        expect(await storage.readRefreshToken(), 'stored-refresh');
+      });
+
+      test('no stored token: NO revoke', () async {
+        final repo = MockAuthRepository();
+        final log = <String>[];
+        final container = makeContainer(
+          repo: repo,
+          storage: FakeSecureStorage(),
+          extraOverrides: [_pushStub(log)],
+        );
+        await container.read(authProvider.future);
+        await settle();
+        expect(log, isEmpty);
+      });
+    });
+
+    // Phase 367 audit (security LOW): the two cold-start wipes in build()
+    // (expired / rejected refresh token) end the previous account's session
+    // exactly like logout does, so they must also delete an un-discarded
+    // photo in `<tmp>/media_upload/` and drain Android's lost-pick record —
+    // otherwise the next account on the device could find or resume it.
+    group('cold-start wipe clears the media scratch + lost pick', () {
+      late Directory tmp;
+      late Directory dir;
+      late File lostFile;
+      late _NoopGateway gateway;
+
+      setUp(() {
+        tmp = Directory.systemTemp.createTempSync('coldstart_media');
+        dir = Directory('${tmp.path}/$kMediaUploadDirName')..createSync();
+        File('${dir.path}/leftover.jpg').writeAsBytesSync(<int>[1, 2, 3]);
+        lostFile = File('${tmp.path}/lost_pick.jpg')
+          ..writeAsBytesSync(<int>[4, 5, 6]);
+        gateway = _NoopGateway(lost: lostFile.path);
+      });
+      tearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+
+      Override pickOverride() => mediaPickServiceProvider.overrideWithValue(
+        MediaPickService(gateway, tempDir: () async => tmp),
+      );
+
+      // The wipe is fire-and-forget: wait on the artifacts themselves.
+      Future<void> waitForWipe() async {
+        for (
+          var i = 0;
+          i < 50 && (dir.existsSync() || lostFile.existsSync());
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      }
+
+      test('expired refresh token (pre-check wipe)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        final exp = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 60;
+        final b64 = base64Url
+            .encode(utf8.encode('{"sub":"u1","exp":$exp}'))
+            .replaceAll('=', '');
+        await storage.writeRefreshToken('h.$b64.s');
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('rejected refresh token (401)', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('expired-refresh');
+        when(
+          () => repo.refresh('expired-refresh'),
+        ).thenThrow(const UnauthorizedFailure());
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        expect(
+          await container.read(authProvider.future),
+          isA<Unauthenticated>(),
+        );
+        await waitForWipe();
+
+        expect(dir.existsSync(), isFalse, reason: 'scratch dir wiped');
+        expect(gateway.lostReads, 1, reason: 'lost-pick record drained');
+        expect(lostFile.existsSync(), isFalse, reason: 'lost file deleted');
+      });
+
+      test('transient failure (5xx) keeps the session: NO wipe', () async {
+        final repo = MockAuthRepository();
+        final storage = FakeSecureStorage();
+        await storage.writeRefreshToken('stored-refresh');
+        when(
+          () => repo.refresh('stored-refresh'),
+        ).thenThrow(const ServerFailure(statusCode: 503));
+        final container = makeContainer(
+          repo: repo,
+          storage: storage,
+          extraOverrides: [pickOverride()],
+        );
+
+        await container.read(authProvider.future);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(dir.existsSync(), isTrue);
+        expect(gateway.lostReads, 0);
+        expect(lostFile.existsSync(), isTrue);
+      });
     });
 
     // -----------------------------------------------------------------------
@@ -1088,6 +1544,98 @@ void main() {
 
       expect(cache.length, 0);
       expect(cache.get('львів'), isNull);
+    });
+
+    // Phase 071 audit (security LOW): an un-discarded picked photo in
+    // `<tmp>/media_upload/` must not survive into the next account's session.
+    // The wipe is fire-and-forget, so the test waits on the directory itself.
+    test('logout() wipes the media_upload scratch dir', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      final Directory tmp = Directory.systemTemp.createTempSync('logout_media');
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final Directory dir = Directory('${tmp.path}/$kMediaUploadDirName')
+        ..createSync();
+      File('${dir.path}/leftover.jpg').writeAsBytesSync(<int>[1, 2, 3]);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(_NoopGateway(), tempDir: () async => tmp),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      expect(dir.existsSync(), isTrue);
+
+      await container.read(authProvider.notifier).logout();
+      for (var i = 0; i < 50 && dir.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      expect(dir.existsSync(), isFalse);
+    });
+
+    // Phase 073 audit (security MEDIUM): image_picker's lost-data record
+    // survives a logout; unless it is drained and its file deleted, the NEXT
+    // account on the device could resume the previous account's photo.
+    test('logout() drains the lost-pick record and deletes its file', () async {
+      final repo = MockAuthRepository();
+      final storage = FakeSecureStorage();
+      await storage.writeRefreshToken('stored-refresh');
+      await storage.writePendingPick('{"ownerId":"u","kind":"avatar"}');
+      final Directory tmp = Directory.systemTemp.createTempSync('logout_lost');
+      addTearDown(() {
+        if (tmp.existsSync()) tmp.deleteSync(recursive: true);
+      });
+      final File lostFile = File('${tmp.path}/lost_pick.jpg')
+        ..writeAsBytesSync(<int>[1, 2, 3]);
+      final _NoopGateway gateway = _NoopGateway(lost: lostFile.path);
+
+      when(
+        () => repo.refresh('stored-refresh'),
+      ).thenAnswer((_) async => testTokens);
+      when(() => repo.me()).thenAnswer((_) async => testUser);
+      when(() => repo.logout()).thenAnswer((_) async {});
+
+      final container = ProviderContainer(
+        retry: beauticaProviderRetry,
+        overrides: [
+          authRepositoryProvider.overrideWith((_) => repo),
+          secureStorageProvider.overrideWith((_) => storage),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gateway, tempDir: () async => tmp),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authProvider.future);
+      await container.read(authProvider.notifier).logout();
+      for (var i = 0; i < 50 && lostFile.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect(gateway.lostReads, 1);
+      expect(lostFile.existsSync(), isFalse);
+      expect(
+        await storage.readPendingPick(),
+        isNull,
+        reason: 'the owner tag is cleared with the rest of the session',
+      );
     });
 
     // Phase 352 cycle-1 audit (mobile-perf HIGH + mobile-security MEDIUM,
@@ -4334,4 +4882,43 @@ void main() {
       },
     );
   });
+}
+
+/// Gateway that is never asked to pick: logout only touches the scratch dir and
+/// (phase 073 audit) drains the platform's lost-pick record, which is [lost].
+class _NoopGateway implements ImagePickGateway {
+  _NoopGateway({this.lost});
+
+  final String? lost;
+  int lostReads = 0;
+
+  @override
+  Future<String?> pickImage(
+    MediaPickSource source, {
+    required int maxDimension,
+  }) async => null;
+
+  @override
+  Future<String?> cropImage(
+    String sourcePath, {
+    required MediaSpec spec,
+    required int quality,
+    CropLabels? labels,
+  }) async => null;
+
+  @override
+  Future<String?> compress(
+    String sourcePath,
+    String targetPath, {
+    required int maxWidth,
+    required int maxHeight,
+    required int quality,
+    required bool keepExif,
+  }) async => null;
+
+  @override
+  Future<String?> retrieveLostData() async {
+    lostReads++;
+    return lost;
+  }
 }

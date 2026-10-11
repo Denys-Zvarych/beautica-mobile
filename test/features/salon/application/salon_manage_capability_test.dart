@@ -35,7 +35,10 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_manage_capability.dart';
+import 'package:beautica_mobile/features/master/domain/master.dart'
+    show MasterType;
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -127,6 +130,89 @@ ProviderContainer _makeContainerFor(
 }
 
 void main() {
+  group('owner-row lock (Phase 371)', () {
+    const SalonStaffMember ownerRow = SalonStaffMember(
+      userId: 'u-owner',
+      masterId: 'm-owner',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonOwner,
+      firstName: 'О',
+      lastName: 'В',
+    );
+    const SalonStaffMember normal = SalonStaffMember(
+      userId: 'u-m',
+      masterId: 'm-1',
+      role: SalonStaffRole.master,
+      masterType: MasterType.salonMaster,
+      firstName: 'М',
+      lastName: 'Н',
+    );
+    const SalonStaffMember unknownType = SalonStaffMember(
+      userId: 'u-x',
+      masterId: 'm-x',
+      role: SalonStaffRole.master,
+      firstName: 'Х',
+      lastName: 'Х',
+    );
+
+    test('owner row + viewer is NOT the salon owner (admin) → locked', () {
+      expect(
+        isOwnerRowLockedForViewer(member: ownerRow, viewerOwnsSalon: false),
+        isTrue,
+      );
+    });
+    test('owner row + viewer owns the salon → not locked', () {
+      expect(
+        isOwnerRowLockedForViewer(member: ownerRow, viewerOwnsSalon: true),
+        isFalse,
+      );
+    });
+    test('a normal master is never locked, for any viewer', () {
+      expect(
+        isOwnerRowLockedForViewer(member: normal, viewerOwnsSalon: false),
+        isFalse,
+      );
+    });
+    test(
+      'null masterType is documented fail-open; null member is not locked',
+      () {
+        expect(
+          isOwnerRowLockedForViewer(
+            member: unknownType,
+            viewerOwnsSalon: false,
+          ),
+          isFalse,
+        );
+        expect(
+          isOwnerRowLockedForViewer(member: null, viewerOwnsSalon: false),
+          isFalse,
+        );
+      },
+    );
+
+    test('viewerOwnsSalonProvider: owner of THIS salon → true; owner of '
+        'ANOTHER salon → false; admin → false', () async {
+      final owner = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+        extraOverrides: [
+          mySalonsProvider.overrideWith(
+            () => _SettledMySalons(const [_kSalon]),
+          ),
+        ],
+      );
+      await owner.read(authProvider.future);
+      await owner.read(mySalonsProvider.future);
+      expect(owner.read(viewerOwnsSalonProvider(_kSalonId)), isTrue);
+      expect(owner.read(viewerOwnsSalonProvider('other-salon')), isFalse);
+
+      final admin = _makeContainerFor(
+        _AuthenticatedAs(_userWith(UserRole.salonAdmin, salonId: _kSalonId)),
+      );
+      await admin.read(authProvider.future);
+      expect(admin.read(viewerOwnsSalonProvider(_kSalonId)), isFalse);
+    });
+  });
+
   group('canManageSalonProvider — phase 322 five-row role matrix', () {
     // -----------------------------------------------------------------
     // Row 1 — SALON_OWNER of this salon → true.
@@ -248,4 +334,126 @@ void main() {
       },
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 380 — canManageSalonPendingProvider: "the fail-closed `false` is not
+  // a verdict yet". It admits nothing; it only tells a gate to render loading
+  // instead of its denied state. TRUE in exactly one shape: a SETTLED
+  // SALON_OWNER whose mySalonsProvider is still loading.
+  // -------------------------------------------------------------------------
+  group(
+    'canManageSalonPendingProvider — phase 380 loading-window companion',
+    () {
+      test(
+        'settled SALON_OWNER + mySalonsProvider still loading → true',
+        () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isTrue);
+          // The gate it pairs with still denies — pending admits nothing.
+          expect(container.read(canManageSalonProvider(_kSalonId)), isFalse);
+        },
+      );
+
+      test('settled SALON_OWNER + RESOLVED list (not containing the salon) → '
+          'false — a resolved list is a verdict', () async {
+        final container = _makeContainerFor(
+          _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+          extraOverrides: [
+            mySalonsProvider.overrideWith(
+              () => _SettledMySalons(const <Salon>[]),
+            ),
+          ],
+        );
+        await container.read(authProvider.future);
+        await container.read(mySalonsProvider.future);
+
+        expect(container.read(canManageSalonPendingProvider), isFalse);
+        expect(container.read(canManageSalonProvider(_kSalonId)), isFalse);
+      });
+
+      test(
+        'settled SALON_OWNER whose list ends in a terminal AsyncError → false '
+        '(denied, not an endless skeleton)',
+        () async {
+          final notifier = _TransitionableMySalons(const <Salon>[_kSalon]);
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(UserRole.salonOwner)),
+            extraOverrides: [mySalonsProvider.overrideWith(() => notifier)],
+          );
+          await container.read(authProvider.future);
+          await container.read(mySalonsProvider.future);
+          container.listen(canManageSalonPendingProvider, (_, _) {});
+
+          notifier.forceError(const NetworkFailure());
+
+          expect(
+            container.read(mySalonsProvider),
+            isA<AsyncError<List<Salon>>>(),
+          );
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+        },
+      );
+
+      test(
+        'SALON_ADMIN → false, and mySalonsProvider is never built',
+        () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(
+              _userWith(UserRole.salonAdmin, salonId: _kSalonId),
+            ),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+          expect(container.exists(mySalonsProvider), isFalse);
+        },
+      );
+
+      for (final UserRole role in <UserRole>[
+        UserRole.salonMaster,
+        UserRole.independentMaster,
+        UserRole.client,
+      ]) {
+        test('${role.name} with a loading mySalonsProvider → false', () async {
+          final container = _makeContainerFor(
+            _AuthenticatedAs(_userWith(role, salonId: _kSalonId)),
+            extraOverrides: [
+              mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+            ],
+          );
+          await container.read(authProvider.future);
+
+          expect(container.read(canManageSalonPendingProvider), isFalse);
+        });
+      }
+
+      test('UNSETTLED session (auth still loading) → false', () async {
+        final container = _makeContainerFor(
+          _NeverSettlingAuth(),
+          extraOverrides: [
+            mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
+          ],
+        );
+
+        expect(container.read(authProvider).isLoading, isTrue);
+        expect(container.read(canManageSalonPendingProvider), isFalse);
+      });
+    },
+  );
+}
+
+/// Auth that never settles — the cold-start window before session restore.
+class _NeverSettlingAuth extends AuthNotifier {
+  @override
+  Future<AuthSession> build() => Completer<AuthSession>().future;
 }

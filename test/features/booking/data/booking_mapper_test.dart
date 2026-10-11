@@ -709,6 +709,71 @@ void main() {
     });
   });
 
+  group('BookingMapper.fromDto — clientAvgRating / clientReviewCount', () {
+    test('maps the wire num/int onto the domain double/int', () {
+      final BookingDetailResponse dto =
+          (_validDto(id: 'rated').toBuilder()
+                ..clientAvgRating = 4.5
+                ..clientReviewCount = 7)
+              .build();
+      final Booking b = BookingMapper.fromDto(dto);
+      expect(b.clientAvgRating, 4.5);
+      expect(b.clientReviewCount, 7);
+    });
+
+    Map<String, Object?> wire({Map<String, Object?> extra = const {}}) =>
+        <String, Object?>{
+          'id': 'booking-wire-rating',
+          'masterId': 'master-1',
+          'masterServiceId': 'service-1',
+          'masterFirstName': 'Оля',
+          'masterLastName': 'Коваль',
+          'masterType': 'INDEPENDENT_MASTER',
+          'serviceName': 'Манікюр',
+          'status': 'CONFIRMED',
+          'startsAt': '2026-07-10T10:00:00Z',
+          'endsAt': '2026-07-10T11:00:00Z',
+          'priceAtBooking': 500,
+          'durationMinutesAtBooking': 60,
+          'canReview': false,
+          ...extra,
+        };
+
+    test('the JSON keys clientAvgRating / clientReviewCount survive '
+        'deserialization (present)', () {
+      final BookingDetailResponse? dto = standardSerializers.deserializeWith(
+        BookingDetailResponse.serializer,
+        wire(
+          extra: <String, Object?>{
+            'clientAvgRating': 4.5,
+            'clientReviewCount': 12,
+          },
+        ),
+      );
+      expect(dto, isNotNull);
+      final Booking b = BookingMapper.fromDto(dto!);
+      expect(b.clientAvgRating, 4.5);
+      expect(b.clientReviewCount, 12);
+    });
+
+    test('the JSON keys are absent -> both stay null (absent)', () {
+      final BookingDetailResponse? dto = standardSerializers.deserializeWith(
+        BookingDetailResponse.serializer,
+        wire(),
+      );
+      expect(dto, isNotNull);
+      final Booking b = BookingMapper.fromDto(dto!);
+      expect(b.clientAvgRating, isNull);
+      expect(b.clientReviewCount, isNull);
+    });
+
+    test('absent (guest booking) stays null — never coalesced to 0', () {
+      final Booking b = BookingMapper.fromDto(_validDto(id: 'guest'));
+      expect(b.clientAvgRating, isNull);
+      expect(b.clientReviewCount, isNull);
+    });
+  });
+
   group('BookingStatus.fromWire', () {
     // Phase 7.1 reversed the old throw-on-unknown contract (a dropped booking
     // is invisible to the master, so the row must survive). Security S1 then

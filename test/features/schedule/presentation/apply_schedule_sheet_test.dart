@@ -14,6 +14,7 @@
 // (M6). `today` is injected so the presets/cap are deterministic (no wall-clock).
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -30,6 +31,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+
+import '../../../helpers/dim_probe.dart';
 
 class _MockScheduleRepository extends Mock implements ScheduleRepository {}
 
@@ -92,6 +95,7 @@ void main() {
     WidgetTester tester, {
     List<Object> extraOverrides = const <Object>[],
     DateTime? today,
+    WeeklySchedule? baseSchedule,
   }) async {
     final DateTime sheetToday = today ?? _today;
     final router = GoRouter(
@@ -105,7 +109,8 @@ void main() {
                 key: const Key('open-apply-sheet'),
                 onPressed: () => showApplyScheduleSheet(
                   context,
-                  baseSchedule: _baseSchedule(validFrom: sheetToday),
+                  baseSchedule:
+                      baseSchedule ?? _baseSchedule(validFrom: sheetToday),
                   today: sheetToday,
                 ),
                 child: const Text('open'),
@@ -355,6 +360,41 @@ void main() {
         any(),
         scheduleId: any(named: 'scheduleId'),
       ),
+    );
+  });
+
+  // Phase 301 — with no range the apply CTA renders `Opacity(0.55)`. CI goldens
+  // discard layer opacity (Phase 299), so the dim is probed through the real
+  // compositor. The CTA paints the same face in both states, so the target is
+  // the button's own rect cropped from the route's `RepaintBoundary` (the sheet
+  // paints a `base` ground inside it). The sheet is bottom-anchored and nothing
+  // sits under the CTA, so the extra day-count row the chosen range adds shifts
+  // only the content ABOVE it — the CTA rect is identical (the probe fails
+  // loudly if that ever stops being true).
+  testWidgets('the apply CTA without a range composites to 0.55 of the enabled '
+      'one', (tester) async {
+    // validTo before validFrom -> the seed collapses to null: no range.
+    final WeeklySchedule rangeless = _baseSchedule().copyWith(
+      validFrom: DateTime(2024, 5, 22),
+      validTo: DateTime(2024, 5, 21),
+    );
+    Future<void> pumpSheet() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await pumpHost(tester, baseSchedule: rangeless);
+      await openSheet(tester);
+    }
+
+    await expectRegionDimRatio(
+      tester: tester,
+      target: find.byKey(const Key('btn-apply-schedule')),
+      pumpFull: () async {
+        await pumpSheet();
+        await tester.tap(find.byKey(const Key('preset-this-month')));
+        await tester.pumpAndSettle();
+      },
+      pumpDimmed: pumpSheet,
+      ground: BrandColors.base,
+      expected: 0.55,
     );
   });
 

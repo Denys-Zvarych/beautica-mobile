@@ -4712,6 +4712,185 @@ void main() {
       expect(stripDays(tester), <int>[23, 24, 25, 26, 27, 28, 29]);
     });
   });
+
+  // ── Phase 381 (24.1d) — owner master-mode mount ──────────────────────────
+  //
+  // The owner's «Графік» tab mounts THIS screen with a
+  // `ScheduleScope.salonMaster` on their own row plus four additive params
+  // (`bottomNavBar`, `backLabel`, `backSemanticLabel`, `onBack`). These pin
+  // that the owner mount is editable, that the injected bar replaces the
+  // role-resolved one (tiles 0/3 land on `/owner/master/*`), that `onBack`
+  // replaces the pop-or-go fallback, and that the all-null default leaves
+  // the INDEPENDENT_MASTER / SALON_MASTER bars exactly as before.
+  group('MasterScheduleScreen — owner master-mode mount (Phase 381)', () {
+    const String salonId = 'salon-owner-test';
+    const String masterId = 'msst-test-master';
+    const ScheduleScope ownerScope = ScheduleScope.salonMaster(
+      salonId: salonId,
+      masterId: masterId,
+    );
+    // Mirrors `app_router.dart`'s private `_kOwnerMasterNavBars[2]`.
+    const VelvetBottomNavBar ownerBar = VelvetBottomNavBar(
+      activeIndex: 2,
+      servicesRoute: '/owner/master/services',
+      scheduleRoute: '/owner/master/schedule',
+      profileRoute: '/owner/master/profile',
+    );
+
+    Future<int Function()> pumpOwner(WidgetTester tester) async {
+      int backTaps = 0;
+      final List<WeeklySchedule> templates = <WeeklySchedule>[_template()];
+      final days = _weekWith(todayDay: _working, filler: _working);
+      final GoRouter router = GoRouter(
+        initialLocation: '/owner/master/schedule',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/owner/master/schedule',
+            builder: (context, state) => MasterScheduleScreen(
+              clock: () => asClockInstant(_today),
+              scope: ownerScope,
+              bottomNavBar: ownerBar,
+              backLabel: AppLocalizations.of(context).ownerMasterModeBack,
+              backSemanticLabel: AppLocalizations.of(
+                context,
+              ).ownerMasterModeBackSemantics,
+              onBack: () => backTaps++,
+            ),
+          ),
+          GoRoute(
+            path: '/owner/master/services',
+            builder: (context, state) =>
+                const Scaffold(key: Key('owner-services-stub')),
+          ),
+          GoRoute(
+            path: '/owner/master/profile',
+            builder: (context, state) =>
+                const Scaffold(key: Key('owner-profile-stub')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
+            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
+            mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
+            salonManagementProfileProvider.overrideWith(
+              () => _SettledSalonRosterWithMaster(),
+            ),
+            _fakeWorkingHours(),
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return () => backTaps;
+    }
+
+    testWidgets('owner + own-row SalonMasterScheduleScope → editable', (
+      tester,
+    ) async {
+      await pumpOwner(tester);
+      expect(find.byKey(const Key('schedule-weekly-card')), findsOneWidget);
+      expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
+    });
+
+    testWidgets('the injected bar REPLACES the role-resolved one: tile 2 '
+        'active, tiles 0 / 3 land on /owner/master/*', (tester) async {
+      await pumpOwner(tester);
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(identical(bar, ownerBar), isTrue);
+
+      await tester.tap(find.byKey(const Key('master-nav-tile-0')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('owner-services-stub')), findsOneWidget);
+    });
+
+    testWidgets('tile 3 lands on /owner/master/profile', (tester) async {
+      await pumpOwner(tester);
+      await tester.tap(find.byKey(const Key('master-nav-tile-3')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('owner-profile-stub')), findsOneWidget);
+    });
+
+    testWidgets('«‹ Салон» pill renders the label and calls onBack — never '
+        'the pop-or-go(profile) fallback', (tester) async {
+      final int Function() backTaps = await pumpOwner(tester);
+      final Finder pill = find.descendant(
+        of: find.byType(VelvetTopBar),
+        matching: find.byType(NeumorphicIconButton),
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      expect(
+        find.descendant(
+          of: pill,
+          matching: find.text(l10n.ownerMasterModeBack),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.bySemanticsLabel(l10n.ownerMasterModeBackSemantics),
+        findsOneWidget,
+      );
+      await tester.tap(pill);
+      await tester.pumpAndSettle();
+      expect(backTaps(), 1);
+      expect(find.byType(MasterScheduleScreen), findsOneWidget);
+      expect(find.byKey(const Key('owner-profile-stub')), findsNothing);
+    });
+
+    testWidgets('all-null params: INDEPENDENT_MASTER keeps its role-resolved '
+        'bar and a bare back arrow', (tester) async {
+      final days = _weekWith(todayDay: _working, filler: _working);
+      await _pump(tester, overrides: _editableData(days));
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.activeIndex, 2);
+      expect(bar.servicesRoute, RouteNames.services);
+      expect(bar.bookingsRoute, RouteNames.masterBookings);
+      expect(bar.scheduleRoute, RouteNames.masterSchedule);
+      expect(bar.profileRoute, RouteNames.masterProfile);
+      final VelvetTopBar top = tester.widget<VelvetTopBar>(
+        find.byType(VelvetTopBar),
+      );
+      expect(top.backLabel, isNull);
+      expect(top.backSemanticLabel, _l10n(tester).registerBackStep);
+    });
+
+    testWidgets('all-null params: SALON_MASTER keeps its /staff/* bar', (
+      tester,
+    ) async {
+      final days = _weekWith(todayDay: _working, filler: _working);
+      await _pump(
+        tester,
+        overrides: _withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
+          _template(),
+        ]),
+      );
+      final VelvetBottomNavBar bar = tester.widget<VelvetBottomNavBar>(
+        find.byType(VelvetBottomNavBar),
+      );
+      expect(bar.servicesRoute, RouteNames.salonMasterServices);
+      expect(bar.bookingsRoute, RouteNames.salonMasterBookings);
+      expect(bar.scheduleRoute, RouteNames.salonMasterSchedule);
+      expect(bar.profileRoute, RouteNames.salonMasterProfile);
+      expect(
+        tester.widget<VelvetTopBar>(find.byType(VelvetTopBar)).backLabel,
+        isNull,
+      );
+    });
+  });
 }
 
 /// Reads the `HH:MM` rendered inside a keyed [TimeWell] in the override sheet.

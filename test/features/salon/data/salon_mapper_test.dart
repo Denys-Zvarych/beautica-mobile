@@ -215,6 +215,53 @@ void main() {
       expect(salon.buildingNo, isNull);
       expect(salon.districtId, isNull);
     });
+
+    // Phase 369 — `coverImageUrl` was hard-coded `null` here
+    // (`salon_mapper.dart:152`); backend 343 ships it on SalonResponse (also
+    // the salon logo / cover upload's answer).
+    test('maps coverImageUrl and avatarUrl (logo) from a SalonResponse', () {
+      final SalonResponse dto = SalonResponse(
+        (b) => b
+          ..id = 'salon-6'
+          ..name = 'Вельвет'
+          ..cityId = 'city-uuid-6'
+          ..oblastId = 'oblast-uuid-6'
+          ..avatarUrl = 'https://media.test/salons/6/logo.jpg'
+          ..coverImageUrl = 'https://media.test/salons/6/cover.jpg',
+      );
+      final salon = SalonMapper.fromUpdateDto(dto);
+      expect(salon.coverImageUrl, 'https://media.test/salons/6/cover.jpg');
+      expect(salon.avatarUrl, 'https://media.test/salons/6/logo.jpg');
+    });
+
+    test('a SalonResponse without a cover maps to null', () {
+      final SalonResponse dto = SalonResponse(
+        (b) => b
+          ..id = 'salon-7'
+          ..name = 'Без обкладинки'
+          ..cityId = 'city-uuid-7'
+          ..oblastId = 'oblast-uuid-7',
+      );
+      expect(SalonMapper.fromUpdateDto(dto).coverImageUrl, isNull);
+    });
+  });
+
+  group('SalonMapper.fromDto — salon images (Phase 369)', () {
+    test('maps coverImageUrl and avatarUrl from a PublicSalonResponse', () {
+      final PublicSalonResponse dto = PublicSalonResponse(
+        (b) => b
+          ..id = 'salon-8'
+          ..name = 'Вельвет'
+          ..reviewCount = 0
+          ..cityId = 'city-uuid-8'
+          ..oblastId = 'oblast-uuid-8'
+          ..avatarUrl = 'https://media.test/salons/8/logo.jpg'
+          ..coverImageUrl = 'https://media.test/salons/8/cover.jpg',
+      );
+      final salon = SalonMapper.fromDto(dto);
+      expect(salon.coverImageUrl, 'https://media.test/salons/8/cover.jpg');
+      expect(salon.avatarUrl, 'https://media.test/salons/8/logo.jpg');
+    });
   });
 
   // The salon master rail card renders `professionalTitle` when set (see
@@ -338,12 +385,14 @@ void main() {
       String name = 'Салон',
       String? street,
       String? buildingNo,
+      String? avatarUrl,
     }) => SiblingSalonOption(
       (SiblingSalonOptionBuilder b) => b
         ..id = id
         ..name = name
         ..street = street
-        ..buildingNo = buildingNo,
+        ..buildingNo = buildingNo
+        ..avatarUrl = avatarUrl,
     );
 
     SiblingSalonOption goodRow() => dto(
@@ -411,6 +460,22 @@ void main() {
         expect(o.street, isNull, reason: 'street of ${o.id}');
         expect(o.buildingNo, isNull, reason: 'buildingNo of ${o.id}');
       }
+    });
+
+    test('Phase 369 — carries avatarUrl (the logo); blank → null', () {
+      const String logo = 'https://media.test/salons/2/logo.jpg';
+      final List<SiblingSalonOption> out =
+          SiblingSalonOptionMapper.fromDtoList(<SiblingSalonOption>[
+            dto(id: 'salon-logo', avatarUrl: logo),
+            dto(id: 'salon-blank-logo', avatarUrl: '  '),
+            dto(id: 'salon-no-logo'),
+          ]);
+
+      expect(out.map((SiblingSalonOption o) => o.avatarUrl), <String?>[
+        logo,
+        null,
+        null,
+      ]);
     });
 
     test('trims a padded street and buildingNo', () {

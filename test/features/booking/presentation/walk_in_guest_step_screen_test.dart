@@ -208,4 +208,69 @@ void main() {
     // router-location-ok: pop-back-to-root read, no ImperativeRouteMatch left on the stack
     expect(router.routerDelegate.currentConfiguration.uri.path, '/root');
   });
+
+  // Phase 383 (24.1f, decision 2026-10-07) — the owner master-mode mount
+  // passes `servicesRoute`, so «Далі» stays inside `/owner/master/` (the
+  // owner shell's service-target scope). The default is pinned by
+  // should_mintWalkInGuest_when_nextTapped above (only the
+  // `/master/bookings/new/services` stub records a push there).
+  testWidgets('servicesRoute: «Далі» pushes the OWNER services route, never '
+      '/master/bookings/new/services', (tester) async {
+    final List<Object?> ownerExtras = <Object?>[];
+    final List<Object?> masterExtras = <Object?>[];
+    final GoRouter router = GoRouter(
+      initialLocation: '/root',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/root',
+          builder: (context, state) => const SizedBox.shrink(),
+        ),
+        GoRoute(
+          path: RouteNames.ownerMasterBookingNew,
+          builder: (context, state) => const WalkInGuestStepScreen(
+            servicesRoute: RouteNames.ownerMasterBookingNewServices,
+          ),
+          routes: <RouteBase>[
+            GoRoute(
+              path: 'services',
+              builder: (context, state) {
+                ownerExtras.add(state.extra);
+                return const Scaffold(body: SizedBox.shrink());
+              },
+            ),
+          ],
+        ),
+        GoRoute(
+          path: RouteNames.masterBookingNewServices,
+          builder: (context, state) {
+            masterExtras.add(state.extra);
+            return const Scaffold(body: SizedBox.shrink());
+          },
+        ),
+      ],
+    );
+    await tester.pumpRoutedApp(router);
+    unawaited(router.push(RouteNames.ownerMasterBookingNew));
+    await tester.pumpAndSettle();
+
+    await _enter(
+      tester,
+      const Key('master-create-booking-first-name'),
+      _kFirstName,
+    );
+    await _enter(
+      tester,
+      const Key('master-create-booking-last-name'),
+      _kLastName,
+    );
+    await _enter(tester, const Key('master-create-booking-phone'), _kPhone);
+    await tester.tap(
+      find.byKey(const Key('master-create-booking-client-next')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(masterExtras, isEmpty);
+    expect(ownerExtras, hasLength(1));
+    expect((ownerExtras.single! as WalkInGuest).phone, '+380501234567');
+  });
 }

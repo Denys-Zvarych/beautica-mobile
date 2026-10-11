@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 071 follow-up: overrides uCrop's white controls panel (hardcoded
+     @android:color/white in the AAR) with the VelvetTouch base. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+
+    <corners
+        android:topLeftRadius="12dp"
+        android:topRightRadius="12dp" />
+
+    <solid android:color="@color/ucrop_color_controls_panel" />
+</shape>

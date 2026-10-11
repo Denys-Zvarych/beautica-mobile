@@ -131,6 +131,10 @@ abstract final class BrandColors {
   /// Error state — validation failures, cancellation.
   static const Color error = Color(0xFFB0452F);
 
+  /// Notification red — the bell's unread dot (`assets/icons/notification_unread.svg:12`).
+  /// Not [error] (a different red).
+  static const Color notificationBadge = Color(0xFFE2552F);
+
   /// Success state — positive confirmation.
   static const Color success = Color(0xFF5C7A4A);
 

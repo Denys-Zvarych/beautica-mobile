@@ -270,6 +270,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final String? categoryKey;
   @override
   final ClientAuthoredReviewResponse? reviewByClient;
+  @override
+  final num? clientAvgRating;
+  @override
+  final int? clientReviewCount;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -314,7 +318,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.masterReviewCount,
       this.salonId,
       this.categoryKey,
-      this.reviewByClient})
+      this.reviewByClient,
+      this.clientAvgRating,
+      this.clientReviewCount})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -367,7 +373,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         masterReviewCount == other.masterReviewCount &&
         salonId == other.salonId &&
         categoryKey == other.categoryKey &&
-        reviewByClient == other.reviewByClient;
+        reviewByClient == other.reviewByClient &&
+        clientAvgRating == other.clientAvgRating &&
+        clientReviewCount == other.clientReviewCount;
   }
 
   @override
@@ -412,6 +420,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, salonId.hashCode);
     _$hash = $jc(_$hash, categoryKey.hashCode);
     _$hash = $jc(_$hash, reviewByClient.hashCode);
+    _$hash = $jc(_$hash, clientAvgRating.hashCode);
+    _$hash = $jc(_$hash, clientReviewCount.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -457,7 +467,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('masterReviewCount', masterReviewCount)
           ..add('salonId', salonId)
           ..add('categoryKey', categoryKey)
-          ..add('reviewByClient', reviewByClient))
+          ..add('reviewByClient', reviewByClient)
+          ..add('clientAvgRating', clientAvgRating)
+          ..add('clientReviewCount', clientReviewCount))
         .toString();
   }
 }
@@ -646,6 +658,16 @@ class BookingDetailResponseBuilder
   set reviewByClient(ClientAuthoredReviewResponseBuilder? reviewByClient) =>
       _$this._reviewByClient = reviewByClient;
 
+  num? _clientAvgRating;
+  num? get clientAvgRating => _$this._clientAvgRating;
+  set clientAvgRating(num? clientAvgRating) =>
+      _$this._clientAvgRating = clientAvgRating;
+
+  int? _clientReviewCount;
+  int? get clientReviewCount => _$this._clientReviewCount;
+  set clientReviewCount(int? clientReviewCount) =>
+      _$this._clientReviewCount = clientReviewCount;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -692,6 +714,8 @@ class BookingDetailResponseBuilder
       _salonId = $v.salonId;
       _categoryKey = $v.categoryKey;
       _reviewByClient = $v.reviewByClient?.toBuilder();
+      _clientAvgRating = $v.clientAvgRating;
+      _clientReviewCount = $v.clientReviewCount;
       _$v = null;
     }
     return this;
@@ -754,6 +778,8 @@ class BookingDetailResponseBuilder
             salonId: salonId,
             categoryKey: categoryKey,
             reviewByClient: _reviewByClient?.build(),
+            clientAvgRating: clientAvgRating,
+            clientReviewCount: clientReviewCount,
           );
     } catch (_) {
       late String _$failedField;

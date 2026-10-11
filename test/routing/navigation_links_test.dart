@@ -92,6 +92,7 @@ import 'package:go_router/go_router.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
+import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 // ---------------------------------------------------------------------------
@@ -139,8 +140,7 @@ class _FixedAuthNotifier extends AuthNotifier {
 /// Reads the REAL production router with the minimum overrides needed to avoid
 /// network / platform-channel I/O.
 GoRouter _productionRouter() {
-  final container = ProviderContainer(
-    retry: beauticaProviderRetry,
+  final container = makeTestContainer(
     overrides: [
       authProvider.overrideWith(
         () => _FixedAuthNotifier(_authenticatedSession),
@@ -149,7 +149,6 @@ GoRouter _productionRouter() {
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
     ],
   );
-  addTearDown(container.dispose);
   return container.read(appRouterProvider);
 }
 
@@ -417,10 +416,34 @@ void main() {
       // DEBUG-chain fix (2026-09-26) — the SALON_ADMIN's own settings hub,
       // reached from `adminOwnProfile`'s trailing tune action.
       'adminSettings': RouteNames.adminSettings,
+      // Phase 137 (21.15) — the SALON_OWNER's own settings hub (tune action).
+      'ownerSettings': RouteNames.ownerSettings,
       // Phase 356 — the admin hub's «Особисті дані» / «Контакти» edit leaves,
       // reusing the CLIENT editor screens via `doneRoute`.
       'adminEditPersonal': RouteNames.adminEditPersonal,
       'adminEditContacts': RouteNames.adminEditContacts,
+      // Phase 367 — the owner's «Особисті дані» (same reused screen).
+      'ownerEditPersonal': RouteNames.ownerEditPersonal,
+      // Phase 379 (24.1b) — the owner «master mode» «Профіль» tab, the first
+      // literal under the owner-only `/owner/master/*` ShellRoute.
+      'ownerMasterProfile': RouteNames.ownerMasterProfile,
+      // Phase 380 (24.1c) — the owner master-mode «Послуги» tab and its
+      // setup (literal, declared first) / edit (dynamic) drill-ins.
+      'ownerMasterServices': RouteNames.ownerMasterServices,
+      'ownerMasterServiceSetup': RouteNames.ownerMasterServiceSetup,
+      'ownerMasterServiceEdit()': RouteNames.ownerMasterServiceEdit(kSampleId),
+      'ownerMasterServicesExpanded()': RouteNames.ownerMasterServicesExpanded(
+        'NAILS',
+      ),
+      // Phase 381 (24.1d) — the owner master-mode «Графік» tab.
+      'ownerMasterSchedule': RouteNames.ownerMasterSchedule,
+      // Phase 383 (24.1f) — the owner master-mode «Записи» tab + «Архів».
+      'ownerMasterBookings': RouteNames.ownerMasterBookings,
+      'ownerMasterBookingsArchive': RouteNames.ownerMasterBookingsArchive,
+      // Phase 383 (decision 2026-10-07) — owner master-mode «Новий запис»
+      // walk-in chain (guest → services) inside the owner shell.
+      'ownerMasterBookingNew': RouteNames.ownerMasterBookingNew,
+      'ownerMasterBookingNewServices': RouteNames.ownerMasterBookingNewServices,
       // Phase 21.8 — the salon-scoped bottom-nav shell.
       'salonShell()': RouteNames.salonShell(kSampleId),
       'bookingNew': RouteNames.bookingNew,
@@ -438,6 +461,16 @@ void main() {
       'clientEditContacts': RouteNames.clientEditContacts,
       'clientEditLocation': RouteNames.clientEditLocation,
       'contactSupport': RouteNames.contactSupport,
+      // Phase 361 — the notification feed, a literal top-level leaf pushed by
+      // the shared bell on every role's header.
+      'notifications': RouteNames.notifications,
+      // Phase 364 — CLIENT feed-scoped aliases of bookingDetail/bookingReview.
+      'notificationBookingDetail()': RouteNames.notificationBookingDetail(
+        kSampleId,
+      ),
+      'notificationBookingReview()': RouteNames.notificationBookingReview(
+        kSampleId,
+      ),
       'masterProfile': RouteNames.masterProfile,
       'masterBookings': RouteNames.masterBookings,
       'masterBookingNew': RouteNames.masterBookingNew,
@@ -680,8 +713,7 @@ void main() {
 
         // A container that starts with an unauthenticated session and
         // transitions to Authenticated after acceptInvite() succeeds.
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -690,7 +722,6 @@ void main() {
             ).overrideWith(() => _SyncInviteNotifier(validInvite)),
           ],
         );
-        addTearDown(container.dispose);
 
         // Build a minimal router that wires the REAL authRedirect so the
         // authenticated→unauthOnlyRoute guard is exercised.
@@ -847,8 +878,7 @@ void main() {
           ..acceptInviteResult = const ResponseUnusableFailure();
         final storage = FakeSecureStorage();
 
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => repo),
             secureStorageProvider.overrideWith((_) => storage),
@@ -857,7 +887,6 @@ void main() {
             ).overrideWith(() => _SyncInviteNotifier(validInvite)),
           ],
         );
-        addTearDown(container.dispose);
 
         final router = GoRouter(
           initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
@@ -974,8 +1003,7 @@ void main() {
             );
           final storage = FakeSecureStorage();
 
-          final container = ProviderContainer(
-            retry: beauticaProviderRetry,
+          final container = makeTestContainer(
             overrides: [
               authRepositoryProvider.overrideWith((_) => repo),
               secureStorageProvider.overrideWith((_) => storage),
@@ -984,7 +1012,6 @@ void main() {
               ).overrideWith(() => _SyncInviteNotifier(validInvite)),
             ],
           );
-          addTearDown(container.dispose);
 
           final router = GoRouter(
             initialLocation: '${RouteNames.acceptInvite}?token=$kToken',
@@ -1077,14 +1104,12 @@ void main() {
       'NL-B01: tapping the AuthScaffold back button on /register/step-2 '
       'navigates to /register (step-1)',
       (tester) async {
-        final container = ProviderContainer(
-          retry: beauticaProviderRetry,
+        final container = makeTestContainer(
           overrides: [
             authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
             secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
           ],
         );
-        addTearDown(container.dispose);
 
         container.read(registerDraftProvider.notifier).start(UserRole.client);
 
@@ -1168,14 +1193,12 @@ void main() {
   group('NL-B02: /register/step-3 back button navigates to /register/step-2', () {
     testWidgets('NL-B02: tapping the AuthScaffold back button on /register/step-3 '
         'navigates to /register/step-2', (tester) async {
-      final container = ProviderContainer(
-        retry: beauticaProviderRetry,
+      final container = makeTestContainer(
         overrides: [
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         ],
       );
-      addTearDown(container.dispose);
 
       container
           .read(registerDraftProvider.notifier)

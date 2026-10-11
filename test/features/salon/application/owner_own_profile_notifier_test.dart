@@ -380,4 +380,60 @@ void main() {
       );
     });
   });
+
+  // Phase 367 fix — the loader selects `masterIgnoringAvatar`: the owner
+  // screen renders the SESSION avatar, so an avatar-only patch of the cached
+  // master row must not rebuild it (that rebuild flashed the skeleton and
+  // refetched the catalogue). Both halves are pinned: a NON-avatar change
+  // must still rebuild it, or the selector would be swallowing real edits.
+  group('masterProfile changes (Phase 367 fix)', () {
+    test('an avatar-only patch does NOT rebuild the loader or refetch the '
+        'catalogue; a non-avatar change does', () async {
+      final List<String> log = <String>[];
+      final repo = _MockServiceRepository();
+      var catalogueCalls = 0;
+      when(() => repo.getMasterServices(any())).thenAnswer((_) async {
+        catalogueCalls++;
+        return _services;
+      });
+      final container = makeContainer(
+        owner: () => _SettledClientEditProfile(_owner),
+        log: log,
+        serviceRepo: repo,
+      );
+      final List<AsyncValue<OwnerOwnProfileData>> states =
+          <AsyncValue<OwnerOwnProfileData>>[];
+      final sub = container.listen(
+        ownerOwnProfileProvider,
+        (_, AsyncValue<OwnerOwnProfileData> next) => states.add(next),
+      );
+      addTearDown(sub.close);
+      await container.read(ownerOwnProfileProvider.future);
+      expect(catalogueCalls, 1);
+      states.clear();
+
+      expect(
+        container
+            .read(masterProfileProvider.notifier)
+            .patchAvatarUrl('https://media.test/avatars/u1/new.jpg'),
+        isTrue,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await container.read(ownerOwnProfileProvider.future);
+      expect(states, isEmpty, reason: 'avatar-only patch: no rebuild at all');
+      expect(catalogueCalls, 1, reason: 'avatar-only patch: no refetch');
+
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      container.read(masterProfileProvider.notifier).state = AsyncData<Master>(
+        _master.copyWith(bio: 'Новий опис'),
+      );
+      await Future<void>.delayed(Duration.zero);
+      final OwnerOwnProfileData data = await container.read(
+        ownerOwnProfileProvider.future,
+      );
+      expect(data.master?.$1.bio, 'Новий опис');
+      expect(catalogueCalls, 2, reason: 'a real master edit still flows');
+      expect(log.where((String e) => e == 'masters/me'), hasLength(1));
+    });
+  });
 }

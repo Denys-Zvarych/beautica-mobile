@@ -285,11 +285,7 @@ void main() {
             supportedLocales: AppLocalizations.supportedLocales,
             locale: const Locale('uk'),
             home: Scaffold(
-              body: HomeProfileCard(
-                profile: summary,
-                onCamera: () {},
-                onLocation: () {},
-              ),
+              body: HomeProfileCard(profile: summary, onLocation: () {}),
             ),
           ),
         ),
@@ -407,11 +403,7 @@ void main() {
             supportedLocales: AppLocalizations.supportedLocales,
             locale: const Locale('uk'),
             home: Scaffold(
-              body: HomeProfileCard(
-                profile: after,
-                onCamera: () {},
-                onLocation: () {},
-              ),
+              body: HomeProfileCard(profile: after, onLocation: () {}),
             ),
           ),
         ),

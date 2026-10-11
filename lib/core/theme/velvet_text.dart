@@ -1704,6 +1704,12 @@ abstract final class VelvetText {
     color: BrandColors.accentDeep,
   );
 
+  /// Monogram inside a default 48dp [MasterAvatarBadge] when there is no photo
+  /// (the provider's client card). Fixed 16 = the 48dp default side / 3.
+  static final TextStyle avatarMonogram = _subheadingStyle.copyWith(
+    fontSize: 16,
+  );
+
   /// The master booking card's OWN price-pill figure — [PriceTag]'s `pill()`
   /// verbatim, stepped down 0.8 sp (11 -> 10.2 sp, ~7.3%) for the 2026-08-15
   /// font-size pass (see [masterCardClientName]'s doc).
@@ -1719,6 +1725,19 @@ abstract final class VelvetText {
   /// that widget's class doc), so it never renders a `PriceTag` at all.
   static final TextStyle masterCardPricePill = _pillStyle.copyWith(
     fontSize: 10.2,
+  );
+
+  /// The price figure on the DENSE salon-board card ([MasterBookingCard.dense],
+  /// `TimelineDensity.salon`). 12 sp — [masterCardPricePill]'s 10.2 sp was
+  /// unreadable on a 136-148dp lane, where the dense layout gives the pill a
+  /// row of its own so it no longer has to share (and shrink for) the status
+  /// badge. A separate token, not a bump of [masterCardPricePill], so every
+  /// non-dense card renders byte-identically.
+  static final TextStyle masterCardPricePillDense = _pillStyle.copyWith(
+    fontSize: 12,
+    // Explicit, so the pill's line box (and the dense card's price row, which
+    // is sized from it) does not depend on the font's own metrics.
+    height: 1.2,
   );
 
   // Adaptive-layout pass (2026-07-20, later the same day as the compact
@@ -2071,12 +2090,12 @@ abstract final class VelvetText {
   // ---------------------------------------------------------------------------
 
   /// The card's label line — [subheading]'s Comfortaa 14/600 stepped DOWN to
-  /// 11/500 and recoloured secondary: the quietest caption on the screen,
-  /// level with `sectionLabel` on size and one weight notch under every
-  /// `SettingsRow` label.
+  /// 11 (same w600 — no Comfortaa Medium is bundled) and recoloured
+  /// secondary: the quietest caption on the screen, level with
+  /// `sectionLabel` on size.
   static final TextStyle managementCardLabel = _subheadingStyle.copyWith(
     fontSize: 11,
-    fontWeight: FontWeight.w500,
+    fontWeight: FontWeight.w600,
     height: 1.25,
     color: BrandColors.textSecondary,
   );

@@ -46,6 +46,7 @@ import '../helpers/fakes/fake_master_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/fakes/fake_slot_repository.dart';
+import '../helpers/test_container.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -252,7 +253,7 @@ void main() {
     tearDown(AppStartTime.resetForTest);
 
     ProviderContainer makeContainer(AsyncValue<AuthSession> session) {
-      final container = ProviderContainer(
+      final container = makeTestContainer(
         // Disables Riverpod's default retry backoff — mirrors
         // booking_route_guard_test.dart's rationale (avoids a leaked Timer
         // from unrelated failed reads on the bounce target's screen tree).
@@ -277,7 +278,6 @@ void main() {
           slotRepositoryProvider.overrideWith((_) => FakeSlotRepository()),
         ],
       );
-      addTearDown(container.dispose);
       return container;
     }
 

@@ -1,0 +1,19 @@
+name: affected_tests
+description: >
+  CI affected-test selector (phase 398): turns a changed-file list into
+  full | none | a selection of unit/golden/tz-sweep/integration test files via
+  the reverse Dart import graph. Own package so analyzer's version never
+  constrains the app's codegen toolchain; run with plain `dart`.
+publish_to: none
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  analyzer: ^8.0.0
+  glob: ^2.1.2
+  path: ^1.9.0
+  yaml: ^3.1.2
+
+dev_dependencies:
+  test: ^1.25.0

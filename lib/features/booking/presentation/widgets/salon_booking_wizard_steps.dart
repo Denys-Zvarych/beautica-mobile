@@ -23,9 +23,11 @@
 //
 // ## Masters-step data sources
 //
-// * Roster — [salonMastersRosterProvider] (`salon_masters_roster_notifier
-//   .dart`), NOT [publicSalonProfileProvider] — see that file's header for
-//   why the public-profile bundle is the wrong source for a staff caller.
+// * Roster — [salonStaffMastersRosterProvider] (`salon/application/
+//   salon_staff_masters_roster.dart`): the management `GET /salons/{id}/staff`
+//   roster projected onto its masters. NOT the public `/masters` rail
+//   ([salonMastersRosterProvider]), which lists only BOOKABLE masters — see
+//   that file's header (2026-10-05).
 // * Coverage (does master X perform this service) —
 //   [salonMasterServiceCoverageProvider], the SAME family the CLIENT-facing
 //   `SalonMasterSelectionScreen` already uses, called with a single-element
@@ -93,6 +95,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/salon/application/salon_staff_masters_roster.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/master/presentation/master_role_label.dart';
@@ -105,7 +108,6 @@ import 'package:beautica_mobile/shared/time/time_zones.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 
 import '../../application/salon_master_coverage_notifier.dart';
-import '../../application/salon_masters_roster_notifier.dart';
 import '../../application/salon_booking_schedule_notifier.dart'
     show salonMasterDaySlotsProvider;
 import '../../application/working_days_notifier.dart';
@@ -439,7 +441,7 @@ class _SalonDateStepState extends ConsumerState<SalonDateStep> {
     // Single normalisation point — mirrors `SalonMastersStep.build()`.
     final List<MasterService> ordered = widget.services;
     final AsyncValue<List<SalonMasterSummary>> rosterAsync = ref.watch(
-      salonMastersRosterProvider(widget.salonId),
+      salonStaffMastersRosterProvider(widget.salonId),
     );
     final SalonBookingMasterSelectionArgs coverageArgs =
         SalonBookingMasterSelectionArgs(
@@ -707,7 +709,7 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
         widget.services ?? <MasterService>[widget.service!];
 
     final AsyncValue<List<SalonMasterSummary>> rosterAsync = ref.watch(
-      salonMastersRosterProvider(widget.salonId),
+      salonStaffMastersRosterProvider(widget.salonId),
     );
     final SalonBookingMasterSelectionArgs coverageArgs =
         SalonBookingMasterSelectionArgs(
@@ -726,7 +728,7 @@ class _SalonMastersStepState extends ConsumerState<SalonMastersStep> {
         key: const Key('salon-create-booking-masters-error'),
         failure: error is Failure ? error : UnknownFailure(cause: error),
         onRetry: () {
-          ref.invalidate(salonMastersRosterProvider(widget.salonId));
+          ref.invalidate(salonStaffMastersRosterProvider(widget.salonId));
           ref.invalidate(salonMasterServiceCoverageProvider(coverageArgs));
         },
       );

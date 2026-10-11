@@ -56,10 +56,12 @@
 
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
+import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_display_x.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
@@ -75,6 +77,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 
 // ---------------------------------------------------------------------------
@@ -758,5 +761,100 @@ void main() {
         expect(find.byKey(const Key('cancel-booking-dialog')), findsOneWidget);
       },
     );
+  });
+  // =========================================================================
+  // PHASE 301 — `_MasterPhoto`'s `Opacity(0.55)` on a CANCELLED / DECLINED card.
+  // =========================================================================
+  //
+  // The dim is the only thing that says "this person is no longer in your near
+  // future" about the photo, and CI goldens discard layer opacity (Phase 299),
+  // so it is observed here through the real compositor (`expectRegionDimRatio`).
+  //
+  // `_MasterPhoto` is private and its dimmed/lit states can only be rendered
+  // one at a time (the card is status-driven), hence the TWO-PUMP region mode.
+  // The target is the INITIALS glyph run inside the disc (avatarUrl is null in
+  // this host's fixture): it sits wholly inside the disc, away from the lit
+  // state's neumorphic shadow pair (which `dimmed` also drops, and which would
+  // otherwise bleed into the bounding rect's corners and confound the ratio).
+  // `Opacity(a)` composites the disc over the card's solid `base` fill, so the
+  // deviation-from-`base` of any pixel inside the disc scales by exactly `a`.
+  group('Phase 301 — _MasterPhoto dim on a dead card (pixel probe)', () {
+    const Key boundaryKey = Key('master-photo-dim-boundary');
+
+    // A dead card draws a 1dp hairline border (`booking_card.dart`'s
+    // `_isDead` decoration) that the live one does not, so the initials sit
+    // exactly 1dp further in (measured: +1.0 on both axes, same size). The
+    // crop stays wholly inside the 48dp disc in both pumps, so the shift moves
+    // the same pixels over the same gradient; it is not the dim.
+    const double deadBorderShift = 1.01;
+
+    Future<void> pumpCard(WidgetTester tester, BookingStatus status) async {
+      await tester.pumpApp(
+        _framed(
+          Align(
+            alignment: Alignment.topCenter,
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: ColoredBox(
+                color: BrandColors.base,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: BookingCard(
+                    booking: _booking(id: 'photo-dim', status: status),
+                    onOpenDetails: () {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        width: 360,
+      );
+      await _lay(tester);
+    }
+
+    // Derived from the fixture's own master name (not a Cyrillic literal), so
+    // the finder survives the EN locale and cannot drift from the fixture.
+    final String initialsText = _booking(
+      id: 'photo-dim',
+      status: BookingStatus.confirmed,
+    ).masterInitials;
+    final Finder initials = find.descendant(
+      of: find.byType(BookingCard),
+      matching: find.text(initialsText),
+    );
+
+    for (final BookingStatus dead in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+    ]) {
+      testWidgets('a $dead card photo composites to 0.55 of a CONFIRMED one', (
+        tester,
+      ) async {
+        await expectRegionDimRatio(
+          tester: tester,
+          target: initials,
+          pumpFull: () => pumpCard(tester, BookingStatus.confirmed),
+          pumpDimmed: () => pumpCard(tester, dead),
+          ground: BrandColors.base,
+          expected: 0.55,
+          geometryTolerance: deadBorderShift,
+        );
+      });
+    }
+
+    testWidgets('a COMPLETED card photo is NOT dimmed (ratio 1.0)', (
+      tester,
+    ) async {
+      await expectRegionDimRatio(
+        tester: tester,
+        target: initials,
+        pumpFull: () => pumpCard(tester, BookingStatus.confirmed),
+        pumpDimmed: () => pumpCard(tester, BookingStatus.completed),
+        ground: BrandColors.base,
+        expected: 1.0,
+        geometryTolerance: deadBorderShift,
+      );
+    });
   });
 }

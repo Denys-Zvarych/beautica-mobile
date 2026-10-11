@@ -1,4 +1,6 @@
-// Phase 333 / 334 — E2E: the SALON_MASTER's client-review journey.
+// Phase 333 / 334 / 386 — E2E: the SALON_MASTER's client-review journey.
+// Phase 386 (backend 355) FLIPPED scenario 1: a SALON_MASTER never sees the
+// «Залишити відгук про клієнта» CTA; the M333 narrative below is historical.
 //
 // WHY THIS FILE EXISTS (Step 2.7 Rule 3b — integration-test gate)
 // --------------------------------------------------------------
@@ -54,6 +56,8 @@
 // review COMMENT, which is fixture DATA (the client's own words echoed back
 // verbatim), not UI copy — identical in every locale.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/leave_client_feedback_screen.dart';
@@ -61,9 +65,7 @@ import 'package:beautica_mobile/features/booking/presentation/master_archive_scr
 import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/client_review_section.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
-import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -71,7 +73,6 @@ import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
-import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
 /// The client's review COMMENT the fake serves on `GET /bookings/booking-1`.
@@ -81,23 +82,11 @@ import 'support/app_harness.dart';
 /// translated label, which `forbid_cyrillic_finder.sh` exists to stop).
 const String _kClientReviewComment = 'Майстриня чудова, все сподобалось.';
 
-/// The rating the SALON_MASTER taps in scenario 1.
-///
-/// Deliberately NOT 5 (the value every sibling flow submits) and NOT the
-/// `reviewByClient` fixture's own 4: `FakeBackend.lastClientReviewRating`
-/// starts `null` and no other seed carries a 3, so the post-submit assertion
-/// can only go green if THIS tap actually travelled the wire (a fixture value
-/// that already equals the expectation asserts nothing).
-const int _kSubmittedRating = 3;
-
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(installOverflowGuard);
   tearDown(AppHarness.tearDownHarness);
-
-  AppLocalizations l10nOf(WidgetTester tester, Type screen) =>
-      AppLocalizations.of(tester.element(find.byType(screen)));
 
   /// A far-past instant, deterministic regardless of the runner's wall clock
   /// or `TZ`. Same reasoning as `master_archive_review_flow_test.dart`'s
@@ -213,123 +202,48 @@ void main() {
   }
 
   // ==========================================================================
-  // 1. THE LOAD-BEARING CASE — the full M333 journey, end to end.
+  // 1. THE LOAD-BEARING CASE - phase 386 (backend 355): a SALON_MASTER never
+  //    rates the client. This REPLACES the phase-333 journey in which the
+  //    read-only role kept the CTA.
   // ==========================================================================
-  testWidgets(
-    'SALON_MASTER walks profile → «Записи» → «Архів» → a COMPLETED booking\'s '
-    'detail, and the «Залишити відгук про клієнта» CTA takes them to the REAL '
-    'form at /staff/bookings/booking-1/review, whose submit puts the exact '
-    'bookingId + rating on a REAL POST /client-reviews',
-    (tester) async {
-      await mockNetworkImagesFor(() async {
-        final FakeBackend fb = seedCompletedBooking();
-        final GoRouter router = await openBookingDetail(tester, fb);
+  testWidgets('Phase 386 - SALON_MASTER on a COMPLETED booking whose seed says '
+      'reviewable never sees the CTA, a directly pushed review route shows the '
+      'ineligible state, and POST /client-reviews is never called', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      // The raw seed is `true`: only the role-aware fake (the real server's
+      // phase-355 rule) turns it into `false` for this viewer.
+      final FakeBackend fb = seedCompletedBooking();
+      final GoRouter router = await openBookingDetail(tester, fb);
 
-        expectDetailBodyRendered();
+      expectDetailBodyRendered();
+      expect(
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+        findsNothing,
+        reason:
+            'backend 355: a SALON_MASTER is never offered the client '
+            'review, even on a booking they performed',
+      );
 
-        // ── M333: the read-only role KEEPS the review CTA ─────────────────
-        // `_providerActions` gates it on `providerCanReviewClient` in the
-        // COMPLETED arm, which sits ABOVE the phase-331 `transitionsEnabled`
-        // read-only gate on purpose. If that ordering is ever swapped this
-        // goes red — which is the whole point of asserting it through the
-        // real session rather than a hand-built container.
-        expect(
-          find.byKey(const Key('booking-detail-leave-client-feedback')),
-          findsOneWidget,
-          reason:
-              'a SALON_MASTER is read-only for TRANSITIONS, not for reviews — '
-              'backend phase 316 grants this role exactly this one write',
-        );
+      // Deep-link style push of the form route: the screen pre-gates on the
+      // fresh detail and must degrade to the ineligible state.
+      unawaited(router.push(RouteNames.salonMasterClientReview('booking-1')));
+      await AppHarness.settle(tester);
 
-        // ── Tap it → the form is PUSHED inside the /staff/* subtree ───────
-        await AppHarness.tapVisible(
-          tester,
-          find.byKey(const Key('booking-detail-leave-client-feedback')),
-        );
-        await AppHarness.settle(tester);
-
-        expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
-        AppHarness.expectNestedPushLocation(
-          router,
-          RouteNames.salonMasterClientReview('booking-1'),
-        );
-
-        // The FORM, not `_NotReviewable`. Both render inside
-        // `LeaveClientFeedbackScreen`, so `findsOneWidget` on the screen type
-        // alone cannot tell them apart — assert the star input and the submit
-        // button, which only the form branch draws, and the unavailable
-        // branch's own back button's ABSENCE.
-        expect(
-          find.byKey(const Key('leave-client-feedback-stars')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('leave-client-feedback-submit')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('leave-client-feedback-unavailable-back')),
-          findsNothing,
-          reason:
-              'the pre-gate must have resolved REVIEWABLE — if this role ever '
-              'gets a 403/409 on the detail pre-fetch the form silently '
-              'degrades to `_NotReviewable`, and every assertion below would '
-              'then be about a screen the master cannot act on',
-        );
-
-        // ── Rate + submit ─────────────────────────────────────────────────
-        await AppHarness.tapVisible(
-          tester,
-          find.byKey(const ValueKey<String>('review-star-$_kSubmittedRating')),
-        );
-        await AppHarness.settle(tester);
-
-        final AppLocalizations feedbackL10n = l10nOf(
-          tester,
-          LeaveClientFeedbackScreen,
-        );
-
-        await AppHarness.tapVisible(
-          tester,
-          find.byKey(const Key('leave-client-feedback-submit')),
-        );
-        await AppHarness.settle(tester);
-
-        // ── The REAL wire body, not a Dart-level mock argument ────────────
-        expect(
-          fb.createClientReviewCalls,
-          1,
-          reason: 'exactly one POST /client-reviews reached the backend',
-        );
-        expect(fb.lastClientReviewBookingId, 'booking-1');
-        expect(
-          fb.lastClientReviewRating,
-          _kSubmittedRating,
-          reason:
-              'the rating tapped must be the rating serialized — 3 appears in '
-              'no fixture, so this cannot pass on a default',
-        );
-
-        expectVelvetSnack(
-          feedbackL10n.clientReviewSubmitSuccess,
-          variant: VelvetSnackVariant.success,
-        );
-        expect(
-          find.byType(LeaveClientFeedbackScreen),
-          findsNothing,
-          reason: 'a successful submit pops back to the detail',
-        );
-        expect(find.byType(BookingDetailScreen), findsOneWidget);
-        AppHarness.expectNestedPushLocation(
-          router,
-          RouteNames.salonMasterBookingDetail('booking-1'),
-        );
-
-        // Drain the dwell Timer so none is pending at teardown.
-        await pumpPastVelvetSnack(tester);
-      });
-    },
-  );
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+      expect(
+        find.byKey(const Key('leave-client-feedback-unavailable-back')),
+        findsOneWidget,
+        reason: 'POSITIVE: the ineligible branch actually rendered',
+      );
+      expect(
+        find.byKey(const Key('leave-client-feedback-submit')),
+        findsNothing,
+      );
+      expect(fb.createClientReviewCalls, 0);
+    });
+  });
 
   // ==========================================================================
   // 2. The CTA obeys the SERVER, not the role.

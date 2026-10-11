@@ -31,6 +31,7 @@ import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
+import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
@@ -219,6 +220,46 @@ GoRouter _adminHubRouter() => GoRouter(
       path: RouteNames.adminOwnProfile,
       builder: (_, _) =>
           const Scaffold(body: SizedBox(key: Key('stub-admin-profile'))),
+    ),
+  ],
+);
+
+/// Phase 137 (21.15) — the SALON_OWNER own settings hub
+/// (`RouteNames.ownerSettings`): the exact real `app_router.dart` wiring —
+/// `showLocation: false` + `showContacts: false`.
+GoRouter _ownerHubRouter() => GoRouter(
+  initialLocation: RouteNames.ownerSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.ownerSettings,
+      builder: (_, _) => const SettingsHubScreen(
+        showLocation: false,
+        showContacts: false,
+        personalInfoRoute: RouteNames.ownerEditPersonal,
+        fallbackHomeRoute: RouteNames.ownerMasterProfile,
+      ),
+    ),
+    GoRoute(
+      path: RouteNames.ownerEditPersonal,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-owner-personal'))),
+    ),
+    GoRoute(
+      path: RouteNames.ownerMasterProfile,
+      builder: (_, _) =>
+          const Scaffold(body: SizedBox(key: Key('stub-owner-profile'))),
+    ),
+  ],
+);
+
+/// `showLocation: false` + `showContacts: true` (the default) — the
+/// SALON_ADMIN / SALON_MASTER shape, with NO other additive param.
+GoRouter _noLocationWithContactsRouter() => GoRouter(
+  initialLocation: RouteNames.ownerSettings,
+  routes: <RouteBase>[
+    GoRoute(
+      path: RouteNames.ownerSettings,
+      builder: (_, _) => const SettingsHubScreen(showLocation: false),
     ),
   ],
 );
@@ -923,6 +964,95 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('stub-admin-profile')), findsOneWidget);
+    });
+  });
+
+  group('SALON_OWNER config (Phase 137 — showContacts: false)', () {
+    testWidgets('omits contacts + location; personal, account, help, logout '
+        'render in that order; no toggle', (tester) async {
+      final router = _ownerHubRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-contacts')), findsNothing);
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      expect(find.byType(SettingsToggleRow), findsNothing);
+
+      final List<double> ys = <String>[
+        'row-personal',
+        'row-account',
+        'row-help',
+        'row-logout',
+      ].map((k) => tester.getTopLeft(find.byKey(Key(k))).dy).toList();
+      expect(ys, orderedEquals(<double>[...ys]..sort()));
+      expect(ys.toSet().length, 4);
+    });
+
+    testWidgets('personal row pushes the owner personal-info route', (
+      tester,
+    ) async {
+      final router = _ownerHubRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('row-personal')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stub-owner-personal')), findsOneWidget);
+    });
+
+    testWidgets('close with no history goes to the master-mode profile', (
+      tester,
+    ) async {
+      final router = _ownerHubRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('btn-close-hub')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stub-owner-profile')), findsOneWidget);
+    });
+
+    testWidgets('showLocation: false + showContacts: true keeps contacts, '
+        'drops location, rows stack with no layout gap', (tester) async {
+      final router = _noLocationWithContactsRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-location')), findsNothing);
+      final List<String> keys = <String>[
+        'row-personal',
+        'row-contacts',
+        'row-account',
+        'row-help',
+        'row-logout',
+      ];
+      for (final String k in keys) {
+        expect(find.byKey(Key(k)), findsOneWidget, reason: k);
+      }
+      // Reveal slots are animation-only (opacity/slide, 1/zero at rest): the
+      // layout must be gap-free, i.e. each row sits exactly one row-step
+      // below the previous one between personal -> contacts -> account.
+      final List<double> ys = keys
+          .map((k) => tester.getTopLeft(find.byKey(Key(k))).dy)
+          .toList();
+      expect(ys, orderedEquals(<double>[...ys]..sort()));
+      final double step = ys[1] - ys[0];
+      expect(ys[2] - ys[1], moreOrLessEquals(step, epsilon: 0.5));
+    });
+
+    testWidgets('default config still renders row-contacts (additive default '
+        'pinned)', (tester) async {
+      final router = _hubRouter();
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(router);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('row-contacts')), findsOneWidget);
+      expect(find.byKey(const Key('row-location')), findsOneWidget);
     });
   });
 }

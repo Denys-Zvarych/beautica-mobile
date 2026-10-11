@@ -409,12 +409,18 @@ final class FakeBackend {
   FakeBackend({
     this.masterRowId = 'user-master-1',
     this.masterSalonId,
+    this.wireOwnRowServices = false,
+    this.ownRowServicesSeed,
+    this.wireOwnRowSchedule = false,
+    this.listOwnerRowWhenBookable = false,
     this.masterMeNotFound = false,
     this.deleteMyAccountFailureStatusCode,
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
     this.forgotPasswordFailureStatusCode,
+    this.mediaAvatarUploadStatus,
+    this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
     _adapter = DioAdapter(dio: dio);
     dio.httpClientAdapter = _adapter;
@@ -437,6 +443,8 @@ final class FakeBackend {
     // queue that no flow exercises.
     dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
+    _wireNotifications();
+    _wireDeviceTokens();
   }
 
   /// The Master-ROW UUID that `GET /masters/me` reports for the authenticated
@@ -468,6 +476,140 @@ final class FakeBackend {
   /// `masterRowId: 'master-removable'`.
   final String? masterSalonId;
 
+  /// Phase 380 (24.1c) — opt-in: wires the SESSION'S OWN master-row services
+  /// pair, `GET /api/v1/salons/{masterSalonId}/masters/{masterRowId}/services`
+  /// (+ `POST …/services/bulk`), backed by [ownRowServices] (empty at boot).
+  /// For the owner-as-master «Послуги» tab, whose target is the owner's own
+  /// row in their primary salon. Off by default (and requires
+  /// [masterSalonId]) so the hard-wired `salon-xyz/master-removable` pairs
+  /// never collide with a second registration of the same path.
+  final bool wireOwnRowServices;
+
+  /// Phase 380 (mobile-qa) — rows the [wireOwnRowServices] catalogue boots
+  /// with. Each seeded definition id also gets its own-row band `PATCH` +
+  /// unassign `DELETE` at `…/services/{defId}` and the shared identity
+  /// `PATCH /api/v1/services/{defId}` — registered per SEEDED id only, so a
+  /// write aimed at any other id (or at the INDEPENDENT_MASTER endpoints)
+  /// fails loudly as an unmatched route instead of silently counting.
+  final List<Map<String, dynamic>>? ownRowServicesSeed;
+
+  /// Phase 380 — the [wireOwnRowServices] catalogue; bulk POSTs append here.
+  late final List<Map<String, dynamic>> ownRowServices = <Map<String, dynamic>>[
+    for (final Map<String, dynamic> row
+        in ownRowServicesSeed ?? const <Map<String, dynamic>>[])
+      _deepCopyRow(row),
+  ];
+
+  int ownRowServicesGetCalls = 0;
+  int ownRowBulkCreateCalls = 0;
+  String? lastOwnRowBulkPath;
+
+  /// Phase 381 (24.1d) — opt-in: wires the SESSION'S OWN master-row schedule
+  /// under `/api/v1/masters/{masterRowId}/…` (`weekly-schedules` GET + POST,
+  /// `overrides` GET, `effective-schedule` GET) backed by
+  /// [ownRowWeeklySchedule] (EMPTY at boot — first-create), and appends the
+  /// owner's own row (`role: SALON_OWNER`, `masterId: masterRowId`) to the
+  /// [kOwnerSalonId] roster — the backend auto-enrols the owner as a master
+  /// of their salon, which `scheduleEditable`'s owner arm requires.
+  ///
+  /// `effective-schedule` is DERIVED from [ownRowWeeklySchedule] over the
+  /// requested `from`/`to` (TEMPLATE days for every active weekday), so a
+  /// saved template genuinely shows as working days on the calendar.
+  ///
+  /// Off by default; requires a [masterRowId] distinct from every
+  /// hard-wired schedule id (`me`, `user-master-1`, `master-aaa`,
+  /// `master-admin-target`) so no path is registered twice. Only a POST is
+  /// wired for writes — a PUT/DELETE or a `/masters/me/…` write is an
+  /// unmatched route and fails loudly.
+  final bool wireOwnRowSchedule;
+
+  /// Phase 381 — the [wireOwnRowSchedule] templates; POSTs append here.
+  List<Map<String, dynamic>> ownRowWeeklySchedule = <Map<String, dynamic>>[];
+  int ownRowScheduleGetCalls = 0;
+  int ownRowSchedulePostCalls = 0;
+  int ownRowEffectiveGetCalls = 0;
+  String? lastOwnRowSchedulePostPath;
+  List<dynamic>? lastOwnRowWeeklyDays;
+
+  /// Phase 380 (mobile-qa) — own-row band PATCH / identity PATCH / unassign
+  /// DELETE recorders (see [ownRowServicesSeed]).
+  int ownRowBandPatchCalls = 0;
+  String? lastOwnRowBandPatchPath;
+  Map<String, dynamic>? lastOwnRowBandPatchBody;
+  int ownRowIdentityPatchCalls = 0;
+  int ownRowUnassignCalls = 0;
+  String? lastOwnRowUnassignPath;
+
+  static Map<String, dynamic> _deepCopyRow(Map<String, dynamic> row) =>
+      <String, dynamic>{
+        for (final MapEntry<String, dynamic> e in row.entries)
+          e.key: e.value is Map<String, dynamic>
+              ? Map<String, dynamic>.from(e.value as Map<String, dynamic>)
+              : e.value,
+      };
+  int _nextOwnRowServiceSeq = 1;
+
+  /// Phase 385 (24.1h) — opt-in: the owner's OWN master row joins the
+  /// [kOwnerSalonId] client roster (`GET /api/v1/salons/{id}/masters`, after
+  /// the static [_salonMasters]) exactly while it is BOOKABLE
+  /// ([ownerRowBookable]), mirroring the backend gate
+  /// `MasterRepository.findBookableIdsBySalonId` +
+  /// `MasterBookabilitySql.BOOKABLE_MASTER_M` (≥1 active service AND hours
+  /// in a weekly template; no `master_type` predicate, so a SALON_OWNER row
+  /// qualifies — pinned server-side by `OwnerMasterSelfServiceIT
+  /// .should_showOwnerEverywhere_when_ownerSetsUpOwnServicesAndSchedule`).
+  /// Spec: `docs/mobile-phases/phase-385-24.1h-owner-bookable-in-client-team-
+  /// e2e.md`.
+  ///
+  /// State is read at REQUEST time from the owner-row writes the fake
+  /// already records — [ownRowServices] ([wireOwnRowServices], phase 380)
+  /// and [ownRowWeeklySchedule] ([wireOwnRowSchedule], phase 381) — so both
+  /// must be on, with [masterSalonId] == [kOwnerSalonId]. Off by default:
+  /// the roster stays the static [_salonMasters] list, byte-identical.
+  final bool listOwnerRowWhenBookable;
+
+  /// Phase 385 — the fake's `BOOKABLE_MASTER_M`: ≥1 ACTIVE own-row service
+  /// AND ≥1 own-row weekly-template day with hours — either explicit-window
+  /// `intervals` or explicit-times `times` (both are accepted by the backend).
+  ///
+  /// NOT modelled (no flow drives them): the template validity window, the
+  /// 180-day horizon, custom-hours overrides, and the service-DEFINITION
+  /// active flag (only the row's own `isActive` is read).
+  bool get ownerRowBookable =>
+      ownRowServices.any((Map<String, dynamic> r) => r['isActive'] != false) &&
+      ownRowWeeklySchedule.any(
+        (Map<String, dynamic> template) =>
+            (template['days'] as List<dynamic>? ?? const <dynamic>[]).any(
+              (dynamic day) =>
+                  _nonEmptyList((day as Map<String, dynamic>)['intervals']) ||
+                  _nonEmptyList(day['times']),
+            ),
+      );
+
+  static bool _nonEmptyList(Object? value) =>
+      value is List<dynamic> && value.isNotEmpty;
+
+  /// Phase 385 — the [kOwnerSalonId] roster body: [_salonMasters] itself
+  /// when [listOwnerRowWhenBookable] is off (byte-identical), else plus the
+  /// owner's `MasterSummaryResponse` while [ownerRowBookable]. Identity
+  /// matches `GET /masters/{masterRowId}` ([_masterDetailEnvelope]), the
+  /// public profile the card opens.
+  List<Map<String, dynamic>> _ownerSalonRoster() {
+    if (!listOwnerRowWhenBookable || !ownerRowBookable) return _salonMasters;
+    return <Map<String, dynamic>>[
+      ..._salonMasters,
+      <String, dynamic>{
+        'masterId': masterRowId,
+        'firstName': masterFirstName,
+        'lastName': masterLastName,
+        'avatarUrl': null,
+        'avgRating': null,
+        'reviewCount': 0,
+        'masterType': 'SALON_OWNER',
+      },
+    ];
+  }
+
   final Dio dio;
   late final DioAdapter _adapter;
 
@@ -475,7 +617,18 @@ final class FakeBackend {
 
   /// The role currently "logged in" for this fake instance.
   /// Call [setCurrentRole] before asserting role-specific behaviour.
-  UserRole currentRole = UserRole.independentMaster;
+  UserRole get currentRole => _currentRole;
+  set currentRole(UserRole value) {
+    _currentRole = value;
+    // Phase 386: the SALON_MASTER 403s are registration-time statuses.
+    if (_roleRoutesReady) {
+      _wireClientReviews();
+      _wireBookingComplete();
+    }
+  }
+
+  UserRole _currentRole = UserRole.independentMaster;
+  bool _roleRoutesReady = false;
 
   String masterFirstName = 'Олена';
   String masterLastName = 'Ковальчук';
@@ -560,6 +713,22 @@ final class FakeBackend {
   // OPTIONAL for a CLIENT, so a null city must persist as a valid save.
   String clientFirstName = 'Дмитро';
   String clientLastName = 'Клієнт';
+
+  /// Opt-in: the booking CLIENT's avatar URL as the PROVIDER's booking detail
+  /// sees it (`clientAvatarUrl` on the seeded `booking-1`). Null (default) =
+  /// the key is omitted, so every other flow sees exactly the pre-knob wire.
+  String? bookingClientAvatarUrl;
+
+  /// Opt-in: the booking CLIENT's rating as the PROVIDER's booking detail sees
+  /// it (`clientAvgRating` / `clientReviewCount` on the seeded `booking-1`).
+  /// Null (default) = the keys are omitted (the unreviewed / guest wire), so
+  /// every other flow sees exactly the pre-knob payload.
+  double? bookingClientAvgRating;
+
+  /// Opt-in: serve the seeded `booking-1` as a GUEST booking (`clientId: null`,
+  /// no account behind it). False (default) = the registered `client-1`.
+  bool bookingClientIsGuest = false;
+  int? bookingClientReviewCount;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
   // saved-location PREFILL can resolve the saved locality cascade (the prefill
@@ -603,6 +772,14 @@ final class FakeBackend {
   String adminFirstName = 'Ірина';
   String adminLastName = 'Адміністратор';
   String? adminPhone = '+380663334455';
+
+  /// Phase 137 (21.15) — the SALON_OWNER's mutable first/last name, so a
+  /// `PATCH /users/me` made through the reused CLIENT personal-info editor
+  /// (the owner hub's «Особисті дані») round-trips on the next
+  /// `GET /users/me`. Defaults match [_ownerUserJson] exactly, so every flow
+  /// that never PATCHes as an owner sees the fixture it always has.
+  String ownerFirstName = 'Оксана';
+  String ownerLastName = 'Власник';
 
   // ── SALON_OWNER state (Phase 21.1 My Salons Hub) ───────────────────────────
   //
@@ -1616,8 +1793,8 @@ final class FakeBackend {
   /// same reason [salonAdminOneStaff] is its own list rather than a widened
   /// `salonStaff`: nothing else reads this one, so widening the shared list
   /// would risk rippling into `salon-xyz`'s own exact-content assertions for
-  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo
-  /// — `SiblingSalonOption`), and non-empty on purpose: an empty destination
+  /// zero benefit. Same shape as [siblingSalons] (id/name/street/buildingNo/
+  /// avatarUrl — `SiblingSalonOption`), and non-empty on purpose: an empty destination
   /// list is indistinguishable from a broken endpoint in
   /// [MoveAdminSalonScreen]'s rendered output, so a flow asserting the
   /// LOADED (not merely non-error) state needs at least one real row here.
@@ -1628,6 +1805,7 @@ final class FakeBackend {
           'name': 'Філія на Оболоні',
           'street': 'просп. Оболонський',
           'buildingNo': '12',
+          'avatarUrl': null,
         },
       ];
 
@@ -1653,8 +1831,10 @@ final class FakeBackend {
 
   /// `GET /salons/salon-xyz/sibling-salons` payload — the ACTIVE salons
   /// sharing this salon's owner, minus this salon. Shape mirrors the
-  /// backend's `SiblingSalonOption` (id + name + street + buildingNo ONLY —
-  /// deliberately narrower than `SalonResponse`). Since the OpenAPI snapshot
+  /// backend's `SiblingSalonOption` (id + name + street + buildingNo +
+  /// avatarUrl ONLY — deliberately narrower than `SalonResponse`). `avatarUrl`
+  /// defaults to null (no logo → monogram); a flow that needs the picker's
+  /// logo sets it on a row before opening the picker (Phase 369). Since the OpenAPI snapshot
   /// refresh this is deserialized by the GENERATED built_value model, so the
   /// shape here is now schema-checked rather than merely conventional.
   final List<Map<String, dynamic>> siblingSalons = <Map<String, dynamic>>[
@@ -1663,12 +1843,14 @@ final class FakeBackend {
       'name': 'Студія «Камелія» на Подолі',
       'street': 'вул. Спаська',
       'buildingNo': '5',
+      'avatarUrl': null,
     },
     <String, dynamic>{
       'id': 'salon-sibling-2',
       'name': 'Барбершоп «Дуб»',
       'street': 'вул. Січових Стрільців',
       'buildingNo': '4',
+      'avatarUrl': null,
     },
   ];
 
@@ -2186,6 +2368,64 @@ final class FakeBackend {
   int getSalonAdminMasterServicesCalls = 0;
   String? lastSalonAdminMasterServicesPath;
 
+  // ── Phase 377 (24.4) — owner-performed service identity lock (opt-in) ─────
+  //
+  // Backend 345: a SALON_ADMIN gets 403 on the shared-definition PATCH for a
+  // definition the salon OWNER actively performs. The app learns the owner's
+  // set from the `/staff` roster (the `SALON_OWNER` row's `masterId`) plus the
+  // owner's PUBLIC `GET /masters/{ownerMasterId}/services`. By DEFAULT the
+  // `salon-admin-1` roster has NO owner row and this catalogue is empty, so
+  // every existing flow resolves `unlocked` exactly as before.
+  // [seedAdminOwnerPerforms] is the ONLY way to opt in (call BEFORE login —
+  // the roster is read at request time).
+
+  /// The owner's `masters` row id on the opt-in roster row.
+  static const String adminOwnerMasterId = 'master-admin-owner';
+
+  /// Definition ids the opted-in owner ACTIVELY performs (public read).
+  final Set<String> _adminOwnerPerformedDefIds = <String>{};
+
+  /// `GET /api/v1/masters/master-admin-owner/services` calls.
+  int getAdminOwnerServicesCalls = 0;
+
+  /// Audit-fix cycle 2 — opt-in (DEFAULT OFF) "fail-open then 403" knob; pass
+  /// it to the constructor (routes are wired once there). When `true`: the
+  /// opted-in owner's catalogue read answers 404 (the lock verdict FAILS OPEN
+  /// to unlocked) AND the shared-definition `PATCH /api/v1/services/{defId}`
+  /// answers 403 without changing state (what backend 345 does to an admin for
+  /// an owner-performed definition). No existing flow sets it.
+  final bool adminOwnerCatalogueErrorsAndDefinitionPatch403;
+
+  /// Opts the `salon-admin-1` fixture into "the owner performs [defIds]":
+  /// appends a `SALON_OWNER` roster row (masterId [adminOwnerMasterId]) and
+  /// makes the owner's public catalogue return one ACTIVE assignment per id.
+  /// Idempotent on the roster row. Defaults stay untouched until called.
+  void seedAdminOwnerPerforms(Set<String> defIds) {
+    final bool listed = salonAdminOneStaff.any(
+      (Map<String, dynamic> r) => r['masterId'] == adminOwnerMasterId,
+    );
+    if (!listed) {
+      salonAdminOneStaff.add(<String, dynamic>{
+        'userId': 'user-owner-of-admin-salon',
+        'masterId': adminOwnerMasterId,
+        'role': 'SALON_OWNER',
+        'firstName': 'Олена',
+        'lastName': 'Власниця',
+        'professionalTitle': null,
+        'avatarUrl': null,
+        'phoneNumber': '+380501112233',
+        'instagram': null,
+        'bio': null,
+        'avgRating': null,
+        'reviewCount': 0,
+        'serviceCount': defIds.length,
+      });
+    }
+    _adminOwnerPerformedDefIds
+      ..clear()
+      ..addAll(defIds);
+  }
+
   /// `DELETE /api/v1/salons/{s}/masters/{m}/services/{serviceDefId}` — the
   /// per-master UNASSIGN. GENUINELY STATEFUL, mirroring [deleteServiceCalls]:
   /// a successful unassign REMOVES the row from [_salonMasterServices], so the
@@ -2620,6 +2860,68 @@ final class FakeBackend {
   /// «Додати послуги» CTA). Call BEFORE `AppHarness.boot` / before the master
   /// profile's services section resolves.
   void clearServices() => _services.clear();
+
+  /// Phase 076 (jank audit) — appends [count] extra services to the master's
+  /// own list, spread over [categories] round-robin, so a scroll-perf flow can
+  /// mount a list well past the default three rows. Additive: nothing calls
+  /// this but `integration_test/perf/scroll_jank_test.dart`. Ids are
+  /// `assign-bulk-<i>`; call BEFORE the services list first resolves.
+  void seedManyServices(
+    int count, {
+    List<String> categories = const <String>['NAILS', 'FACE', 'HAIR'],
+  }) {
+    for (int i = 0; i < count; i++) {
+      final String category = categories[i % categories.length];
+      _services.add(<String, dynamic>{
+        'id': 'assign-bulk-$i',
+        'masterId': 'user-master-1',
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 300 + i,
+        'priceMax': null,
+        'priceDisplay': '${300 + i} ₴',
+        'effectiveDurationMinutes': 45,
+        'serviceDefinition': <String, dynamic>{
+          'id': 'svc-bulk-$i',
+          'name': 'Послуга $i',
+          'description': null,
+          'category': category,
+          'baseDurationMinutes': 45,
+          'bufferMinutesAfter': 0,
+          'isActive': true,
+          'priceType': 'FIXED',
+          'priceMin': 300 + i,
+          'priceMax': null,
+          'priceDisplay': '${300 + i} ₴',
+          'photoUrl': null,
+        },
+      });
+    }
+  }
+
+  /// Phase 076 (jank audit) — when non-null, `GET /search/masters` serves
+  /// these rows in pages of 20 (real `page` slice, `totalPages` derived)
+  /// instead of the two-row default. Set by [seedManySearchMasters].
+  List<Map<String, dynamic>>? _searchMastersBulk;
+
+  /// Seeds [count] master search results (see [_searchMastersBulk]).
+  void seedManySearchMasters(int count) {
+    _searchMastersBulk = <Map<String, dynamic>>[
+      for (int i = 0; i < count; i++)
+        <String, dynamic>{
+          'masterId': 'master-bulk-$i',
+          'firstName': 'Майстер',
+          'lastName': 'Номер$i',
+          'cityLabel': 'Київ',
+          'districtLabel': 'Печерський',
+          'avgRating': 4.5,
+          'reviewCount': 3,
+          'avatarUrl': null,
+          'minEffectivePrice': 300 + i,
+        },
+    ];
+  }
+
   Map<String, dynamic>? lastCreatedService;
   int patchServiceCalls = 0;
   Map<String, dynamic>? lastPatchedService;
@@ -2651,6 +2953,100 @@ final class FakeBackend {
   // ── Support-contact telemetry ─────────────────────────────────────────────
   /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
   int supportContactCalls = 0;
+
+  // ── Media avatar telemetry (Phase 070) ────────────────────────────────────
+  /// Number of `POST /api/v1/media/avatar` calls the fake received (counted
+  /// even when [mediaAvatarUploadStatus] makes it fail).
+  int mediaAvatarUploadCalls = 0;
+
+  /// Phase 367 — the full request URI of every `POST /api/v1/media/avatar`,
+  /// so a test can prove the upload names NO target user (no query, no
+  /// `userId`): a personal avatar is set only by the person themselves.
+  final List<Uri> mediaAvatarUploadUris = <Uri>[];
+
+  /// Phase 367 QA — the multipart part NAMES (text fields AND file parts) of
+  /// every `POST /api/v1/media/avatar`, one list per request. A self-avatar
+  /// upload carries exactly one part, `file`: any `userId` / `targetUserId`
+  /// form field would show up here. A non-multipart body is recorded as
+  /// `<non-multipart:Type>` so it can never pass as "only `file`".
+  final List<List<String>> mediaAvatarUploadPartNames = <List<String>>[];
+
+  /// Phase 367 QA — the full request URI of every `DELETE /api/v1/media/avatar`
+  /// (no query may name a target user).
+  final List<Uri> mediaAvatarDeleteUris = <Uri>[];
+
+  /// Phase 367 QA — the request body of every `DELETE /api/v1/media/avatar`
+  /// (must be absent: a self-avatar removal names no user).
+  final List<Object?> mediaAvatarDeleteBodies = <Object?>[];
+
+  /// Number of `DELETE /api/v1/media/avatar` calls the fake accepted (204).
+  int mediaAvatarDeleteCalls = 0;
+
+  /// When non-null, `POST /api/v1/media/avatar` replies with this status and a
+  /// bare `{success:false}` body instead of the 200 success envelope — e.g.
+  /// 413 (too large), 400 (bad format), 503 (storage off).
+  ///
+  /// Read at construction time (like [forgotPasswordFailureStatusCode]):
+  /// `replyCallback`'s status is fixed when the route is wired from the
+  /// constructor, so mutating this after boot is a silent no-op (it was a
+  /// mutable field until QA measured exactly that). Pass it to `FakeBackend()`.
+  final int? mediaAvatarUploadStatus;
+
+  /// Phase 073 — the avatar URL `GET /masters/me` (and, Phase 367, `GET
+  /// /users/me` for every role) currently reports: set by a
+  /// successful `POST /media/avatar` (a NEW url per upload, like the real
+  /// per-upload R2 key), cleared by `DELETE /media/avatar`. Null until the first
+  /// upload, so every pre-existing flow's `/masters/me` body is unchanged.
+  String? mediaAvatarUrl;
+
+  /// Successful avatar uploads so far — numbers the fake URLs.
+  int _mediaAvatarSeq = 0;
+
+  // ── Salon logo / cover (Phase 369) ────────────────────────────────────────
+  //
+  // `POST`/`DELETE /api/v1/salons/{salonId}/media/{logo|cover}` (backend 343,
+  // SALON_OWNER of that salon only). A success writes the new URL into
+  // [mySalons]' first entry — the owner salon [kOwnerSalonId] that
+  // `GET /salons/mine` AND `GET /salons/{kOwnerSalonId}` (which spreads that
+  // same map) both serve — so every later read reflects it, like the real
+  // backend. `salon-admin-1` ([kAdminSalonId]) has no owner in this fake: its
+  // media routes ALWAYS answer 403, mirroring backend 343 TC-4 (an admin is
+  // never the owner).
+
+  /// Every `POST …/media/{slot}` request URI (any salon, any status).
+  final List<Uri> salonMediaUploadUris = <Uri>[];
+
+  /// The multipart part NAMES of every salon media upload, one list per
+  /// request (must be exactly `['file']`).
+  final List<List<String>> salonMediaUploadPartNames = <List<String>>[];
+
+  /// Every `DELETE …/media/{slot}` request URI.
+  final List<Uri> salonMediaDeleteUris = <Uri>[];
+
+  /// When non-null, the OWNER salon's media routes answer this status (with a
+  /// bare `{success:false}` body) instead of succeeding — 409 / 413 / 429 /
+  /// 503 … Setting it RE-REGISTERS the routes (a `replyCallback` status is
+  /// fixed when wired — see [bookingDetailFailStatus]).
+  int? get salonMediaFailStatus => _salonMediaFailStatus;
+  set salonMediaFailStatus(int? value) {
+    _salonMediaFailStatus = value;
+    _wireSalonMedia();
+  }
+
+  int? _salonMediaFailStatus;
+
+  /// `Retry-After` (seconds) sent with a 429 from [salonMediaFailStatus].
+  int salonMediaRetryAfterSeconds = 30;
+
+  int _salonMediaSeq = 0;
+
+  /// Phase 369 QA — the logo / cover `GET /salons/salon-admin-1` serves (read
+  /// at REQUEST time). Null by default, so every pre-existing admin flow sees
+  /// the unchanged no-photo salon; set by a flow that needs the SALON_ADMIN's
+  /// read-only surfaces (affiliation card, settings context row, hero) to
+  /// render a real logo / cover.
+  String? salonAdminOneAvatarUrl;
+  String? salonAdminOneCoverImageUrl;
 
   // ── Discovery search telemetry (Phase 13.4) ───────────────────────────────
   /// `GET /api/v1/search/masters` call count + the last `page` requested.
@@ -2946,6 +3342,8 @@ final class FakeBackend {
     'bio': masterBio,
     'phoneNumber': masterPhone,
     'instagram': masterInstagram,
+    // Phase 073 — omitted until an avatar upload set it.
+    if (mediaAvatarUrl != null) 'avatarUrl': mediaAvatarUrl,
     // professionalTitle is optional — null is valid (omitted from the
     // ApiResponse.data when the master has not set one). Include only when
     // set so flows that do not exercise this field see a clean seed.
@@ -3454,7 +3852,7 @@ final class FakeBackend {
           'masterId': 'master-aaa',
           'firstName': 'Софія',
           'lastName': 'Бондар',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-aaa.png',
           // Same master as the public detail / summary / search card — the
           // rail card opens THAT profile, so the numbers must match.
           'avgRating': kPublicMasterAvgRatingBeforeReview,
@@ -3465,7 +3863,7 @@ final class FakeBackend {
           'masterId': 'master-ccc',
           'firstName': 'Марія',
           'lastName': 'Гриценко',
-          'avatarUrl': null,
+          'avatarUrl': 'https://media.test/avatars/master-ccc.png',
           'avgRating': 4.6,
           'reviewCount': 9,
           'masterType': 'SALON_OWNER',
@@ -3542,7 +3940,7 @@ final class FakeBackend {
       'firstName': 'Софія',
       'lastName': 'Бондар',
       'professionalTitle': null,
-      'avatarUrl': null,
+      'avatarUrl': 'https://media.test/avatars/master-aaa.png',
       'phoneNumber': '+380671112233',
       'instagram': null,
       'bio': null,
@@ -3588,6 +3986,55 @@ final class FakeBackend {
       'serviceCount': 0,
     },
   ];
+
+  /// 2026-10-05 — `GET /salons/{id}/staff` for the two salons whose «Записи»
+  /// board / walk-in wizard this fake serves ([kOwnerSalonId],
+  /// [kAdminSalonId]): the salon's own management roster [own] FOLLOWED BY a
+  /// staff-shaped projection of every [_salonMasters] master it does not
+  /// already list.
+  ///
+  /// WHY. The board and the walk-in wizard read their master roster from
+  /// `/staff` (`salonStaffMastersRosterProvider`), no longer from the public
+  /// `/masters` rail — the backend narrows that rail to BOOKABLE masters. A
+  /// real `/staff` is a SUPERSET of `/masters` (every public master is
+  /// staff); serving [own] alone would silently drop the eight masters every
+  /// board/wizard flow seeds bookings and coverage against. [own]'s rows come
+  /// FIRST and keep their order, so a «Команда» grid on these salons renders
+  /// its pre-existing cards exactly where it did. The two endpoints still
+  /// DIFFER — [own]'s extra masters (e.g. `master-removable`) and anything a
+  /// test appends to [salonStaff] are `/staff`-only — which is the
+  /// post-backend-change world `salon_owner_bookings_board_flow_test.dart`'s
+  /// staff-only-column test pins.
+  List<Map<String, dynamic>> _boardSalonStaff(List<Map<String, dynamic>> own) {
+    final Set<Object?> listedMasterIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['masterId'],
+    };
+    final Set<Object?> listedUserIds = <Object?>{
+      for (final Map<String, dynamic> row in own) row['userId'],
+    };
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> row in own)
+        Map<String, dynamic>.from(row),
+      for (final Map<String, dynamic> m in _salonMasters)
+        if (!listedMasterIds.contains(m['masterId']) &&
+            !listedUserIds.contains(m['masterId']))
+          <String, dynamic>{
+            'userId': m['masterId'],
+            'masterId': m['masterId'],
+            'role': m['masterType'],
+            'firstName': m['firstName'],
+            'lastName': m['lastName'],
+            'professionalTitle': null,
+            'avatarUrl': m['avatarUrl'],
+            'phoneNumber': null,
+            'instagram': null,
+            'bio': null,
+            'avgRating': m['avgRating'],
+            'reviewCount': m['reviewCount'],
+            'serviceCount': 0,
+          },
+    ];
+  }
 
   /// PUBLIC service catalogue for `salon-xyz` — two categories, one service
   /// each: NAILS carries the salon's SHARED signature service (offered by
@@ -3877,6 +4324,12 @@ final class FakeBackend {
         ],
       });
 
+  /// Shared with integration assertions on the rendered row (mr-1).
+  static const String kMasterReview1ClientName = 'Іра К.';
+  static const String kMasterReview1Comment =
+      'Найкращий майстер, дуже задоволена!';
+  static const int kMasterReview1Rating = 5;
+
   /// Master received-reviews fixture — three reviews with DISTINCT ids, ratings
   /// and dates so the per-sort reordering below is observable. `serviceName`
   /// (backend `92280c3`) deliberately covers all three wire shapes the mapper
@@ -3889,9 +4342,9 @@ final class FakeBackend {
       <Map<String, dynamic>>[
         <String, dynamic>{
           'id': 'mr-1',
-          'clientDisplayName': 'Іра К.',
-          'rating': 5,
-          'comment': 'Найкращий майстер, дуже задоволена!',
+          'clientDisplayName': kMasterReview1ClientName,
+          'rating': kMasterReview1Rating,
+          'comment': kMasterReview1Comment,
           'createdAt': '2026-06-10T10:00:00Z',
           'serviceName': 'Манікюр',
         },
@@ -4118,6 +4571,12 @@ final class FakeBackend {
   /// deep link lands on the not-reviewable info state.
   bool bookingCanReview = false;
 
+  /// Phase 9.7 — `masterAvatarUrl` of the seeded `booking-1` (detail + list).
+  /// `null` (default) keeps every pre-existing flow's wire body unchanged; the
+  /// leave-review flow seeds a `media.test` URL to prove the master photo
+  /// reaches «Залишити відгук»'s `MasterFeedbackCard`.
+  String? bookingMasterAvatarUrl;
+
   /// `POST /reviews` call count + the last rating/comment/bookingId submitted
   /// (Phase 14.6). Asserted by the leave-review flow.
   int createReviewCalls = 0;
@@ -4290,6 +4749,15 @@ final class FakeBackend {
   }
 
   bool _clientReviewRejectDuplicate = false;
+
+  /// Phase 394 — opt-in (default `false`, so every existing flow is
+  /// untouched). When `true`, a successful `POST /client-reviews` also clears
+  /// `providerCanReviewClient` on the matching [_bookingsDataset] row, the way
+  /// the real backend stops counting a reviewed booking in the pending-actions
+  /// count. Off by default because other flows prove the archive's in-memory
+  /// `markClientReviewed` patch precisely BECAUSE the list endpoint keeps
+  /// answering `true`.
+  bool clientReviewClearsDatasetFlag = false;
 
   /// `POST /client-reviews` call count + the last rating/comment/bookingId
   /// submitted (track 7.x Wave B — the PROVIDER→CLIENT «ВІДГУК ПРО КЛІЄНТА»
@@ -4631,6 +5099,32 @@ final class FakeBackend {
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
 
+  /// Phase 383 (24.1f) — the `asMaster` flag of EVERY `GET /bookings/me` and
+  /// `GET /bookings/me/booked-days` call, in order (`true` iff the request
+  /// carried `asMaster=true`), so a flow can prove the owner master-mode
+  /// tab never once read the salon-wide scope.
+  final List<bool> myBookingsAsMasterFlags = <bool>[];
+  final List<bool> bookedDaysAsMasterFlags = <bool>[];
+
+  /// Phase 383 (24.1f) — backend 354's `asMaster=true` narrowing. When
+  /// non-null, a `GET /bookings/me?asMaster=true` over a seeded
+  /// [seedManyBookingsDataset] is answered from ONLY the rows whose `id` is
+  /// in this set (the owner's OWN master-row bookings); a request WITHOUT
+  /// the flag still sees the whole dataset (every salon booking, as the real
+  /// endpoint returns for a SALON_OWNER). `null` (every pre-383 flow) never
+  /// narrows.
+  Set<String>? ownerMasterRowBookingIds;
+
+  /// Phase 383 (decision 2026-10-07) — opt-in: a walk-in
+  /// `POST /masters/{masterRowId}/bookings` is ALSO appended to
+  /// [salonBoardBookings] (the owner's row carries their salon, so the real
+  /// backend shows it on `GET /bookings/salon/{salonId}`). `false` keeps
+  /// every pre-383 flow byte-identical.
+  bool mirrorWalkInToSalonBoard = false;
+
+  static bool _asMasterFrom(Map<String, dynamic> query) =>
+      _scalarQueryParam(query, 'asMaster') == 'true';
+
   /// The raw `from`/`to` query params of the MOST RECENT
   /// `GET /bookings/me/booked-days` call, as Dio actually sent them.
   ///
@@ -4726,7 +5220,7 @@ final class FakeBackend {
     'masterId': 'master-aaa',
     'masterFirstName': 'Софія',
     'masterLastName': 'Бондар',
-    'masterAvatarUrl': null,
+    'masterAvatarUrl': bookingMasterAvatarUrl,
     'masterType': bookingMasterType,
     'salonName': bookingSalonName,
     // Phase 232. Emitted UNCONDITIONALLY (not behind an `if`, unlike the
@@ -4741,9 +5235,15 @@ final class FakeBackend {
     // so the master's booking detail shows the client whose session the client
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
-    'clientId': 'client-1',
+    'clientId': bookingClientIsGuest ? null : 'client-1',
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
+    if (bookingClientAvatarUrl != null)
+      'clientAvatarUrl': bookingClientAvatarUrl,
+    if (bookingClientAvgRating != null)
+      'clientAvgRating': bookingClientAvgRating,
+    if (bookingClientReviewCount != null)
+      'clientReviewCount': bookingClientReviewCount,
     // The booked service's id MUST match one of `master-aaa`'s PUBLIC
     // catalogue services (`_publicMasterServices`) so the reschedule helper
     // (`startBookingReschedule`) can resolve the booked `MasterService` by id
@@ -4768,7 +5268,9 @@ final class FakeBackend {
     'endsAt': bookingEndsAt,
     'status': bookingStatus,
     'canReview': bookingCanReview,
-    'providerCanReviewClient': bookingProviderCanReviewClient,
+    'providerCanReviewClient': providerCanReviewClientFor(
+      bookingProviderCanReviewClient,
+    ),
     // Phase 334. Emitted ONLY on a detail payload AND only when seeded, so the
     // default keeps the pre-334 shape (key absent entirely) — same idiom as
     // `masterAvgRating` below.
@@ -4797,6 +5299,12 @@ final class FakeBackend {
   /// can tell the two children apart; same master/window as `booking-1` so its
   /// provider footer offers the same CONFIRMED affordances until (and only if)
   /// it is itself declined.
+  /// Phase 395 — opt-in (default `false`, every existing flow untouched): the
+  /// sibling `booking-2` detail offers «rate the client» (`providerCanReviewClient`)
+  /// until a `POST /client-reviews` for `booking-2` clears it. Lets a flow rate
+  /// TWO bookings through the real detail + review screens.
+  bool siblingProviderCanReviewClient = false;
+
   Map<String, dynamic> _seededSiblingBookingJson() => <String, dynamic>{
     'id': 'booking-2',
     'masterId': 'master-aaa',
@@ -4822,7 +5330,7 @@ final class FakeBackend {
     'endsAt': siblingBookingEndsAt,
     'status': siblingBookingStatus,
     'canReview': false,
-    'providerCanReviewClient': false,
+    'providerCanReviewClient': siblingProviderCanReviewClient,
     'clientComment': null,
     'providerComment': null,
     'clientCancellationNote': null,
@@ -5215,8 +5723,14 @@ final class FakeBackend {
   /// degenerate case where `status` is ALSO absent, which yields NO filter
   /// at all. That degenerate case is deliberate: it is the fake half of the
   /// Phase 227 rollout-safety-valve negative control.
-  Map<String, dynamic> _slicedBookingsPageEnvelope(Map<String, dynamic> query) {
-    final List<Map<String, dynamic>> dataset = _bookingsDataset!;
+  Map<String, dynamic> _slicedBookingsPageEnvelope(
+    Map<String, dynamic> query, {
+    Set<String>? onlyIds,
+  }) {
+    final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
+      for (final Map<String, dynamic> row in _bookingsDataset!)
+        if (onlyIds == null || onlyIds.contains(row['id'])) row,
+    ];
     final String? partition = backendSupportsPartition
         ? _scalarQueryParam(query, 'partition')
         : null;
@@ -5472,27 +5986,38 @@ final class FakeBackend {
     for (final String defId in defIds) {
       _adapter.onRoute(
         '/api/v1/services/$defId',
-        (server) => server.replyCallback(200, (req) {
-          patchSharedDefinitionCalls++;
-          final Map<String, dynamic> body = _decodeBody(req.data);
-          lastSharedDefinitionPatchBody = body;
-          // EVERY spelling either endpoint uses for money or time. A
-          // regression that picked the other name must still be counted, or
-          // the "priced writes stayed at zero" assertion would be satisfied
-          // by the very bug it exists to catch.
-          const List<String> moneyOrTime = <String>[
-            'price',
-            'priceMin',
-            'priceMax',
-            'priceType',
-            'baseDurationMinutes',
-            'durationMinutes',
-            'durationOverrideMinutes',
-          ];
-          final bool priced = moneyOrTime.any(body.containsKey);
-          if (priced) patchSharedDefinitionPricedCalls++;
-          return _ok(_applySharedDefinitionPatch(defId, body, priced: priced));
-        }),
+        (server) => server.replyCallback(
+          adminOwnerCatalogueErrorsAndDefinitionPatch403 ? 403 : 200,
+          (req) {
+            patchSharedDefinitionCalls++;
+            final Map<String, dynamic> body = _decodeBody(req.data);
+            lastSharedDefinitionPatchBody = body;
+            if (adminOwnerCatalogueErrorsAndDefinitionPatch403) {
+              return <String, dynamic>{
+                'success': false,
+                'message': 'Access denied',
+              };
+            }
+            // EVERY spelling either endpoint uses for money or time. A
+            // regression that picked the other name must still be counted, or
+            // the "priced writes stayed at zero" assertion would be satisfied
+            // by the very bug it exists to catch.
+            const List<String> moneyOrTime = <String>[
+              'price',
+              'priceMin',
+              'priceMax',
+              'priceType',
+              'baseDurationMinutes',
+              'durationMinutes',
+              'durationOverrideMinutes',
+            ];
+            final bool priced = moneyOrTime.any(body.containsKey);
+            if (priced) patchSharedDefinitionPricedCalls++;
+            return _ok(
+              _applySharedDefinitionPatch(defId, body, priced: priced),
+            );
+          },
+        ),
         request: const Request(
           method: RequestMethods.patch,
           data: Matchers.any,
@@ -5602,6 +6127,249 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+  }
+
+  /// Phase 381 (24.1d) — see [wireOwnRowSchedule].
+  void _wireOwnRowSchedule() {
+    if (!wireOwnRowSchedule) return;
+    assert(
+      !<String>{
+        'me',
+        'user-master-1',
+        'master-aaa',
+        'master-admin-target',
+      }.contains(masterRowId),
+      'wireOwnRowSchedule needs a masterRowId distinct from the hard-wired '
+      'schedule ids, or its routes would be registered twice',
+    );
+    final String base = '/api/v1/masters/$masterRowId';
+    _adapter.onRoute(
+      '$base/weekly-schedules',
+      (server) => server.replyCallback(200, (_) {
+        ownRowScheduleGetCalls++;
+        return _okList(ownRowWeeklySchedule);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '$base/weekly-schedules',
+      (server) => server.replyCallback(200, (req) {
+        ownRowSchedulePostCalls++;
+        lastOwnRowSchedulePostPath = req.path;
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        lastOwnRowWeeklyDays = body['days'] as List<dynamic>?;
+        final Map<String, dynamic> entry = <String, dynamic>{
+          'id': 'own-row-schedule-${_scheduleSeq++}',
+          'validFrom': body['validFrom'] ?? '2026-06-14',
+          'validTo': body['validTo'],
+          'days': body['days'] ?? <dynamic>[],
+        };
+        ownRowWeeklySchedule = <Map<String, dynamic>>[
+          ...ownRowWeeklySchedule,
+          entry,
+        ];
+        return _ok(entry);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '$base/overrides',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '$base/effective-schedule',
+      (server) => server.replyCallback(200, (req) {
+        ownRowEffectiveGetCalls++;
+        return _okList(_ownRowEffectiveDays(req.queryParameters));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// TEMPLATE days for every date in the request's `from`..`to` whose ISO
+  /// weekday has intervals in the most recent own-row template. CALENDAR-day
+  /// stepping (`DateTime(y, m, d + 1)`), never `+Duration(days: 1)` — the
+  /// DST trap. Validity windows are not modelled (every flow saves a window
+  /// covering the visible month).
+  List<Map<String, dynamic>> _ownRowEffectiveDays(Map<String, dynamic> query) {
+    final String? fromRaw = _scalarQueryParam(query, 'from');
+    final String? toRaw = _scalarQueryParam(query, 'to');
+    if (ownRowWeeklySchedule.isEmpty || fromRaw == null || toRaw == null) {
+      return const <Map<String, dynamic>>[];
+    }
+    final DateTime? from = DateTime.tryParse(fromRaw);
+    final DateTime? to = DateTime.tryParse(toRaw);
+    if (from == null || to == null) return const <Map<String, dynamic>>[];
+    final Map<int, List<(String, String)>> byWeekday =
+        <int, List<(String, String)>>{};
+    final List<dynamic> days =
+        ownRowWeeklySchedule.last['days'] as List<dynamic>? ?? <dynamic>[];
+    for (final dynamic raw in days) {
+      final Map<String, dynamic> day = raw as Map<String, dynamic>;
+      final List<dynamic> intervals =
+          day['intervals'] as List<dynamic>? ?? <dynamic>[];
+      if (intervals.isEmpty) continue;
+      byWeekday[day['dayOfWeek'] as int] = <(String, String)>[
+        for (final dynamic i in intervals)
+          (
+            (i as Map<String, dynamic>)['startTime'] as String,
+            i['endTime'] as String,
+          ),
+      ];
+    }
+    return <Map<String, dynamic>>[
+      for (
+        DateTime d = DateTime(from.year, from.month, from.day);
+        !d.isAfter(to);
+        d = DateTime(d.year, d.month, d.day + 1)
+      )
+        if (byWeekday[d.weekday] case final List<(String, String)> iv)
+          seedEffectiveScheduleDay(d, intervals: iv),
+    ];
+  }
+
+  /// Phase 380 (24.1c) — see [wireOwnRowServices].
+  void _wireOwnRowServices() {
+    final String? salonId = masterSalonId;
+    if (!wireOwnRowServices || salonId == null) return;
+    final String base = '/api/v1/salons/$salonId/masters/$masterRowId/services';
+    _adapter.onRoute(
+      base,
+      (server) => server.replyCallback(200, (_) {
+        ownRowServicesGetCalls++;
+        return _okList(
+          List<Map<String, dynamic>>.from(
+            ownRowServices.map(Map<String, dynamic>.from),
+          ),
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    final String bulkPath = '$base/bulk';
+    _adapter.onRoute(
+      bulkPath,
+      (server) => server.replyCallback(200, (req) {
+        ownRowBulkCreateCalls++;
+        lastOwnRowBulkPath = bulkPath;
+        final body = _decodeBody(req.data);
+        final items = (body['items'] as List<dynamic>?) ?? const <dynamic>[];
+        final created = <Map<String, dynamic>>[];
+        for (final item in items) {
+          final map = item is Map<String, dynamic> ? item : <String, dynamic>{};
+          final int seq = _nextOwnRowServiceSeq++;
+          final Object price = (map['price'] ?? map['priceMin'] ?? 0) as Object;
+          final row = <String, dynamic>{
+            'id': 'own-row-assign-bulk-$seq',
+            'masterId': masterRowId,
+            'isActive': true,
+            'priceType': map['priceType'] ?? 'FIXED',
+            'priceMin': price,
+            'priceMax': map['priceMax'],
+            'priceDisplay': '$price ₴',
+            'effectiveDurationMinutes': map['durationMinutes'] ?? 60,
+            'serviceDefinition': <String, dynamic>{
+              'id': 'own-row-def-bulk-$seq',
+              'name': 'Own row bulk service $seq',
+              'description': null,
+              'category': 'NAILS',
+              'baseDurationMinutes': map['durationMinutes'] ?? 60,
+              'bufferMinutesAfter': 0,
+              'isActive': true,
+              'priceType': map['priceType'] ?? 'FIXED',
+              'priceMin': price,
+              'priceMax': map['priceMax'],
+              'priceDisplay': '$price ₴',
+              'photoUrl': null,
+            },
+          };
+          ownRowServices.add(row);
+          created.add(row);
+        }
+        return _okList(created);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // Phase 380 (mobile-qa) — per SEEDED definition id: the own-row band
+    // PATCH + unassign DELETE, and the shared identity PATCH the split edit
+    // sends first (`_updateSalonMasterBand`).
+    for (final Map<String, dynamic> svc in List<Map<String, dynamic>>.of(
+      ownRowServices,
+    )) {
+      final String defId =
+          (svc['serviceDefinition'] as Map<String, dynamic>?)?['id']
+              as String? ??
+          '';
+      if (defId.isEmpty) continue;
+      final String path = '$base/$defId';
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          ownRowBandPatchCalls++;
+          lastOwnRowBandPatchPath = path;
+          final Map<String, dynamic> patch = _decodeBody(req.data);
+          lastOwnRowBandPatchBody = patch;
+          final Map<String, dynamic> row = ownRowServices.firstWhere(
+            (Map<String, dynamic> r) =>
+                (r['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          if (patch['priceType'] != null) {
+            row['priceType'] = patch['priceType'];
+            row['priceMin'] = patch['price'];
+            row['priceMax'] = patch['priceMax'];
+            row['priceDisplay'] = _priceDisplay(
+              patch['price'] as num?,
+              patch['priceMax'] as num?,
+            );
+          }
+          final Object? duration = patch['durationOverrideMinutes'];
+          if (duration != null) row['effectiveDurationMinutes'] = duration;
+          return _ok(Map<String, dynamic>.from(row));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(204, (_) {
+          ownRowUnassignCalls++;
+          lastOwnRowUnassignPath = path;
+          ownRowServices.removeWhere(
+            (Map<String, dynamic> r) =>
+                (r['serviceDefinition'] as Map<String, dynamic>?)?['id'] ==
+                defId,
+          );
+          return null;
+        }),
+        request: const Request(method: RequestMethods.delete),
+      );
+      _adapter.onRoute(
+        '/api/v1/services/$defId',
+        (server) => server.replyCallback(200, (req) {
+          ownRowIdentityPatchCalls++;
+          final Map<String, dynamic> patch = _decodeBody(req.data);
+          final Map<String, dynamic> def =
+              ownRowServices.firstWhere(
+                    (Map<String, dynamic> r) =>
+                        (r['serviceDefinition']
+                            as Map<String, dynamic>?)?['id'] ==
+                        defId,
+                    orElse: () => svc,
+                  )['serviceDefinition']
+                  as Map<String, dynamic>;
+          if (patch['name'] != null) def['name'] = patch['name'];
+          return _ok(Map<String, dynamic>.from(def));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
+    }
   }
 
   /// Phase 318 (mobile-qa) — `POST /api/v1/salons/salon-xyz/masters/
@@ -5731,7 +6499,69 @@ final class FakeBackend {
         }),
         request: const Request(method: RequestMethods.delete),
       );
+
+      // Phase 377 — PATCH on the SAME path: the PER-MASTER band write an admin
+      // price edit lands on (shared counters with the owner pair: only one
+      // pair is driven per test, and [lastBandPatchPath] names which).
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(200, (req) {
+          updateMasterBandCalls++;
+          lastBandPatchPath = path;
+          lastBandPatchedServiceDefId = defId;
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          lastBandPatchBody = body;
+          return _ok(_applySalonBand('master-admin-target', defId, body));
+        }),
+        request: const Request(
+          method: RequestMethods.patch,
+          data: Matchers.any,
+        ),
+      );
     }
+
+    // Phase 377 — the opted-in owner's PUBLIC catalogue. Empty unless
+    // [seedAdminOwnerPerforms] ran (request-time read).
+    _adapter.onRoute(
+      '/api/v1/masters/$adminOwnerMasterId/services',
+      (server) => server.replyCallback(
+        adminOwnerCatalogueErrorsAndDefinitionPatch403 ? 404 : 200,
+        (_) {
+          getAdminOwnerServicesCalls++;
+          if (adminOwnerCatalogueErrorsAndDefinitionPatch403) {
+            return <String, dynamic>{'success': false, 'message': 'Not found'};
+          }
+          return _okList(<Map<String, dynamic>>[
+            for (final String id in _adminOwnerPerformedDefIds)
+              <String, dynamic>{
+                'id': 'owner-assign-$id',
+                'masterId': adminOwnerMasterId,
+                'isActive': true,
+                'priceType': 'FIXED',
+                'priceMin': 400,
+                'priceMax': null,
+                'priceDisplay': '400 ₴',
+                'effectiveDurationMinutes': 40,
+                'serviceDefinition': <String, dynamic>{
+                  'id': id,
+                  'name': 'Owner-performed $id',
+                  'description': null,
+                  'category': 'NAILS',
+                  'baseDurationMinutes': 40,
+                  'bufferMinutesAfter': 0,
+                  'isActive': true,
+                  'priceType': 'FIXED',
+                  'priceMin': 400,
+                  'priceMax': null,
+                  'priceDisplay': '400 ₴',
+                  'photoUrl': null,
+                },
+              },
+          ]);
+        },
+      ),
+      request: const Request(method: RequestMethods.get),
+    );
   }
 
   /// Phase 322 (mobile-qa) — `POST /api/v1/salons/salon-admin-1/masters/
@@ -6693,6 +7523,55 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
+    // POST /api/v1/media/avatar — multipart (`file` part), so the body is not
+    // decoded. 200 with the public URL on success; [mediaAvatarUploadStatus]
+    // switches it to a failure status. Tests that render the returned URL must
+    // allow the `media.test` host via MediaConfig's debug hosts.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(mediaAvatarUploadStatus ?? 200, (
+        RequestOptions options,
+      ) {
+        mediaAvatarUploadCalls++;
+        mediaAvatarUploadUris.add(options.uri);
+        final Object? body = options.data;
+        mediaAvatarUploadPartNames.add(
+          body is FormData
+              ? <String>[
+                  for (final MapEntry<String, String> f in body.fields) f.key,
+                  for (final MapEntry<String, MultipartFile> f in body.files)
+                    f.key,
+                ]
+              : <String>['<non-multipart:${body.runtimeType}>'],
+        );
+        if (mediaAvatarUploadStatus != null) {
+          return <String, dynamic>{'success': false};
+        }
+        final String url =
+            'https://media.test/avatars/u1/${++_mediaAvatarSeq}.jpg';
+        mediaAvatarUrl = url;
+        return _ok(<String, dynamic>{'avatarUrl': url});
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // DELETE /api/v1/media/avatar → 204.
+    _adapter.onRoute(
+      '/api/v1/media/avatar',
+      (server) => server.replyCallback(204, (RequestOptions options) {
+        mediaAvatarDeleteCalls++;
+        mediaAvatarDeleteUris.add(options.uri);
+        mediaAvatarDeleteBodies.add(options.data);
+        mediaAvatarUrl = null;
+        return null;
+      }),
+      // `Matchers.any` (Phase 367 QA): a DELETE that smuggled a body must
+      // still reach this handler and be RECORDED, so
+      // `expectSelfOnlyAvatarRequests` fails on the body itself rather than
+      // on an opaque unmatched-route error.
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
+    );
+
     // GET /api/v1/users/me
     // For the CLIENT role, returns the MUTABLE client body so a PATCH /users/me
     // round-trips on the next read (the edit screens invalidate
@@ -6704,11 +7583,31 @@ final class FakeBackend {
       '/api/v1/users/me',
       (server) => server.replyCallback(200, (_) {
         getMeCalls++;
+        // Phase 367 — `avatarUrl` (backend 344, every role) mirrors the
+        // last successful `/media/avatar` write; OMITTED while none happened,
+        // so every pre-existing flow's body is byte-identical.
+        final String? avatar = mediaAvatarUrl;
         return switch (currentRole) {
-          UserRole.client => _ok(_clientProfileBody()),
+          UserRole.client => _ok(<String, dynamic>{
+            ..._clientProfileBody(),
+            'avatarUrl': ?avatar,
+          }),
           UserRole.salonAdmin => _ok(<String, dynamic>{
             ..._adminProfileBody(),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
+          }),
+          // Phase 137 — owner identity is mutable (see [ownerFirstName]).
+          UserRole.salonOwner => _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+            // Phase 399 — the label lives on the shared `users` row, so the
+            // owner's PATCH /independent-masters/me/profile shows up here.
+            if (masterProfessionalTitle != null)
+              'professionalTitle': masterProfessionalTitle,
+            if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
           // Phase 21.14 — `hasMasterProfile` is OMITTED unless the flow set
           // it, so the default body is byte-identical to the pre-21.14 one
@@ -6716,6 +7615,7 @@ final class FakeBackend {
           _ => _ok(<String, dynamic>{
             ...userJsonForRole(currentRole),
             if (hasMasterProfile != null) 'hasMasterProfile': hasMasterProfile,
+            'avatarUrl': ?avatar,
           }),
         };
       }),
@@ -6882,6 +7782,22 @@ final class FakeBackend {
             if (body.containsKey('lastName')) row['lastName'] = adminLastName;
           }
           return _ok(_adminProfileBody());
+        }
+
+        // Phase 137 — SALON_OWNER branch: the owner hub's «Особисті дані»
+        // PATCHes the same endpoint; keep the owner identity in lock-step.
+        if (currentRole == UserRole.salonOwner) {
+          if (body.containsKey('firstName')) {
+            ownerFirstName = body['firstName'] as String? ?? ownerFirstName;
+          }
+          if (body.containsKey('lastName')) {
+            ownerLastName = body['lastName'] as String? ?? ownerLastName;
+          }
+          return _ok(<String, dynamic>{
+            ...userJsonForRole(currentRole),
+            'firstName': ownerFirstName,
+            'lastName': ownerLastName,
+          });
         }
 
         // CONTRACT NOTES the CLIENT flow asserts against:
@@ -7370,13 +8286,18 @@ final class FakeBackend {
         bool anyRange = false;
         for (final dynamic rawId in serviceIds) {
           final String assignId = rawId as String;
-          final Map<String, dynamic> assignment = _services.firstWhere(
-            (Map<String, dynamic> s) => s['id'] == assignId,
-            orElse: () => throw StateError(
-              'FakeBackend: unknown masterServiceId "$assignId" in a '
-              'walk-in create — seed it in _services first',
-            ),
-          );
+          // Phase 383 — the owner master-mode walk-in books the owner's OWN
+          // row, whose catalogue is [ownRowServices], not [_services]. Only
+          // ADDS matches: every pre-383 id still resolves from [_services].
+          final Map<String, dynamic> assignment = _services
+              .followedBy(ownRowServices)
+              .firstWhere(
+                (Map<String, dynamic> s) => s['id'] == assignId,
+                orElse: () => throw StateError(
+                  'FakeBackend: unknown masterServiceId "$assignId" in a '
+                  'walk-in create — seed it in _services first',
+                ),
+              );
           final Map<String, dynamic> def =
               (assignment['serviceDefinition'] as Map).cast<String, dynamic>();
           final int duration = assignment['effectiveDurationMinutes'] as int;
@@ -7429,6 +8350,27 @@ final class FakeBackend {
         };
         (_bookingsDataset ??= <Map<String, dynamic>>[]).add(row);
         _lastWalkInBookingRow = row;
+        // Phase 383 — backend 354: a booking on the owner's OWN row is part
+        // of `GET /bookings/me?asMaster=true`. Inert when the narrowing set
+        // is `null` (every pre-383 flow).
+        ownerMasterRowBookingIds?.add(kWalkInBookingId);
+        // Phase 383 — opt-in: the backend stamps the owner's salon_id on an
+        // owner-row walk-in, so it is also on the salon «Записи» board.
+        if (mirrorWalkInToSalonBoard) {
+          salonBoardBookings.add(<String, dynamic>{
+            ...salonBoardBookingRow(
+              id: kWalkInBookingId,
+              masterId: masterRowId,
+              masterFirstName: 'Олена',
+              masterLastName: 'Власенко',
+              startsAt: startsAt,
+              duration: visitEnd.difference(startsAt),
+              clientFirstName: guest['name'] as String,
+              clientLastName: guest['surname'] as String,
+            ),
+            'masterType': 'SALON_OWNER',
+          });
+        }
         return _ok(row);
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
@@ -7618,8 +8560,8 @@ final class FakeBackend {
             'locationNote': null,
             'phone': null,
             'instagramUrl': null,
-            'avatarUrl': null,
-            'coverImageUrl': null,
+            'avatarUrl': salonAdminOneAvatarUrl,
+            'coverImageUrl': salonAdminOneCoverImageUrl,
             'avgRating': null,
             'reviewCount': 0,
           }),
@@ -7645,11 +8587,7 @@ final class FakeBackend {
           ifAbsent: () => 1,
         );
         lastGetSalonStaffId = 'salon-admin-1';
-        return _okList(
-          List<Map<String, dynamic>>.from(
-            salonAdminOneStaff.map(Map<String, dynamic>.from),
-          ),
-        );
+        return _okList(_boardSalonStaff(salonAdminOneStaff));
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -7836,6 +8774,12 @@ final class FakeBackend {
         if (body['lastName'] is String) {
           masterLastName = body['lastName'] as String;
         }
+        // Phase 399 — the backend writes the name onto the shared `users` row,
+        // so an OWNER's PATCH here is what the next `GET /users/me` returns.
+        if (currentRole == UserRole.salonOwner) {
+          ownerFirstName = masterFirstName;
+          ownerLastName = masterLastName;
+        }
         if (body['bio'] is String) masterBio = body['bio'] as String;
         masterInstagram = body['instagram'] as String?;
         masterPhone = body['phoneNumber'] as String?;
@@ -7875,6 +8819,10 @@ final class FakeBackend {
     _wireSalonAdminMasterServices();
 
     _wireSalonAdminMasterServicesBulk();
+
+    _wireOwnRowServices();
+
+    _wireOwnRowSchedule();
 
     // Phase 317 — the SHARED salon definitions (`PATCH /api/v1/services/
     // {defId}`) and the cascade that makes one master's definition write
@@ -8485,6 +9433,22 @@ final class FakeBackend {
         // (q + location.cityId + category + minPrice/maxPrice) arrived on
         // this SAME request — see [lastSearchMastersQueryMap].
         lastSearchMastersQueryMap = Map<String, dynamic>.from(reqJson);
+        final List<Map<String, dynamic>>? bulk = _searchMastersBulk;
+        if (bulk != null) {
+          const int pageSize = 20;
+          final int from = (page < 0 ? 0 : page) * pageSize;
+          final int to = (from + pageSize) > bulk.length
+              ? bulk.length
+              : from + pageSize;
+          return _searchEnvelope(
+            from >= bulk.length
+                ? const <Map<String, dynamic>>[]
+                : bulk.sublist(from, to),
+            page: page < 0 ? 0 : page,
+            totalPages: (bulk.length / pageSize).ceil(),
+            totalElements: bulk.length,
+          );
+        }
         if (page <= 0) {
           return _searchEnvelope(
             _withMatchedNames(
@@ -8758,11 +9722,29 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         bookedDaysCalls++;
         lastBookedDaysQuery = Map<String, dynamic>.from(req.queryParameters);
+        bookedDaysAsMasterFlags.add(
+          _asMasterFrom(Map<String, dynamic>.from(req.queryParameters)),
+        );
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
           'data': <String>[bookingStartsAt.substring(0, 10)],
         };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/bookings/me/pending-actions/count?asMaster= — Phase 393.
+    _adapter.onRoute(
+      '/api/v1/bookings/me/pending-actions/count',
+      (server) => server.replyCallback(200, (req) {
+        getPendingActionsCountCalls++;
+        final bool asMaster = _asMasterFrom(
+          Map<String, dynamic>.from(req.queryParameters),
+        );
+        return _pendingActionsCountEnvelope(
+          computedMePendingActionsCount(asMaster: asMaster),
+        );
       }),
       request: const Request(method: RequestMethods.get),
     );
@@ -8782,9 +9764,15 @@ final class FakeBackend {
       (server) => server.replyCallback(200, (req) {
         getMyBookingsCalls++;
         lastMyBookingsQuery = Map<String, dynamic>.from(req.queryParameters);
+        final bool asMaster = _asMasterFrom(
+          Map<String, dynamic>.from(req.queryParameters),
+        );
+        myBookingsAsMasterFlags.add(asMaster);
         if (_bookingsDataset != null) {
+          final Set<String>? ownIds = ownerMasterRowBookingIds;
           return _slicedBookingsPageEnvelope(
             Map<String, dynamic>.from(req.queryParameters),
+            onlyIds: asMaster ? ownIds : null,
           );
         }
         // Parsed with the SAME list-aware reader the dataset branch uses — a
@@ -8800,6 +9788,7 @@ final class FakeBackend {
     _wireSalonBoard();
     _wireSalonAdminBoard();
     _wireSalonMultiServiceWizard();
+    _wireSalonMedia();
 
     // GET /api/v1/bookings/booking-2 — «Деталі запису» for the SIBLING child of
     // the same multi-service visit (per-service decline regression). Reflects
@@ -8935,46 +9924,7 @@ final class FakeBackend {
     // — the exact visual shape this whole fix chain exists to prevent, just
     // reproduced by fake-fidelity drift instead of a mapper/widget bug. See
     // `master_archive_review_flow_test.dart`'s scenario 9.
-    _adapter.onRoute(
-      '/api/v1/bookings/booking-1/complete',
-      (server) => server.replyCallback(200, (_) {
-        completeBookingCalls++;
-        bookingStatus = 'COMPLETED';
-        final List<Map<String, dynamic>>? dataset = _bookingsDataset;
-        if (dataset != null) {
-          final int idx = dataset.indexWhere(
-            (Map<String, dynamic> row) => row['id'] == 'booking-1',
-          );
-          if (idx != -1) {
-            dataset[idx] = <String, dynamic>{
-              ...dataset[idx],
-              'status': 'COMPLETED',
-              'awaitingClosure': false,
-            };
-          }
-        }
-        // Phase 345 — the SAME mutation on the SALON archive list, for
-        // exactly the reason the two paragraphs above give for the
-        // `/bookings/me` dataset. The salon archive re-reads
-        // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
-        // this, that re-read would hand back the unchanged CONFIRMED row and
-        // "the closed row left the «Підтверджено» filter" would be
-        // unprovable at the salon host while passing at the master host —
-        // a fake-fidelity divergence between two callers of one write.
-        final int salonIdx = salonArchiveBookings.indexWhere(
-          (Map<String, dynamic> row) => row['id'] == 'booking-1',
-        );
-        if (salonIdx != -1) {
-          salonArchiveBookings[salonIdx] = <String, dynamic>{
-            ...salonArchiveBookings[salonIdx],
-            'status': 'COMPLETED',
-            'awaitingClosure': false,
-          };
-        }
-        return _okVoid;
-      }),
-      request: const Request(method: RequestMethods.patch),
-    );
+    _wireBookingComplete();
 
     // POST /api/v1/reviews — CLIENT leave-review (Phase 14.6). Records the
     // submitted bookingId/rating/comment and flips [bookingCanReview] false so a
@@ -9112,6 +10062,10 @@ final class FakeBackend {
   /// the whole point of a salon-wide board and the one field
   /// `SalonBookingsScreen.columnsFor` partitions on.
   ///
+  /// [serviceName] and [priceMaxAtBooking] are ADDITIVE opt-in knobs (dense
+  /// salon card, 2026-10-08): a long service name and a price band, defaulting
+  /// to the values every earlier caller already got («Манікюр», no band).
+  ///
   /// [providerCanReviewClient] and [awaitingClosure] are ADDITIVE (phase 345
   /// D3) and both default to the value every pre-345 caller already got
   /// (`false`), so no existing board fixture changes shape. They exist for the
@@ -9144,6 +10098,8 @@ final class FakeBackend {
     String clientLastName = 'Іванюк',
     bool providerCanReviewClient = false,
     bool awaitingClosure = false,
+    String serviceName = 'Манікюр',
+    num? priceMaxAtBooking,
   }) => <String, dynamic>{
     'id': id,
     'masterId': masterId,
@@ -9155,7 +10111,7 @@ final class FakeBackend {
     'clientLastName': clientLastName,
     'salonName': 'Салон Оксани',
     'masterServiceId': 'pub-assign-1',
-    'serviceName': 'Манікюр',
+    'serviceName': serviceName,
     'categoryName': 'NAIL_SERVICE',
     'cityLabel': 'Київ',
     'districtLabel': 'Печерський',
@@ -9163,7 +10119,7 @@ final class FakeBackend {
     'buildingNo': '12',
     'durationMinutesAtBooking': duration.inMinutes,
     'priceAtBooking': bookingPrice,
-    'priceMaxAtBooking': null,
+    'priceMaxAtBooking': priceMaxAtBooking,
     'startsAt': startsAt.toIso8601String(),
     'endsAt': startsAt.add(duration).toIso8601String(),
     'status': status,
@@ -9179,7 +10135,9 @@ final class FakeBackend {
     // ⟶ Phase 345 D3: still true of every row the BOARD serves, which is why
     // the parameter defaults to `false`. The ARCHIVE fixture overrides it on
     // the owner-as-master rows — see the constructor doc above.
-    'providerCanReviewClient': providerCanReviewClient,
+    'providerCanReviewClient': providerCanReviewClientFor(
+      providerCanReviewClient,
+    ),
     // Phase 345 D3 — see the constructor doc. `false` (the default) is
     // semantically identical to omitting the key, which is what every pre-345
     // board row did (`BookingMapper` reads `dto.awaitingClosure ?? false`).
@@ -9426,6 +10384,81 @@ final class FakeBackend {
     };
   }
 
+  // ── Phase 393 — `GET …/pending-actions/count` ────────────────────────────
+  //
+  // Computed from the fake's OWN seeded rows with the backend-357 rules — never
+  // a settable integer, which would defang the 395 badge assertions:
+  //   leg 1: CONFIRMED && endsAt < [serverNow];
+  //   leg 2: COMPLETED && client present (not a guest) && providerCanReviewClient.
+
+  /// `GET /bookings/me/pending-actions/count` + the salon twin, every call.
+  int getPendingActionsCountCalls = 0;
+
+  /// Both legs of the backend-357 count over [rows] (one entry per booking).
+  int pendingActionsCountOf(Iterable<Map<String, dynamic>> rows) {
+    int count = 0;
+    for (final Map<String, dynamic> row in rows) {
+      final String? status = row['status'] as String?;
+      if (status == 'CONFIRMED') {
+        final String? endsAt = row['endsAt'] as String?;
+        if (endsAt != null && DateTime.parse(endsAt).isBefore(serverNow)) {
+          count++;
+        }
+      } else if (status == 'COMPLETED') {
+        // A guest row carries an explicit null `clientId`. Dataset / salon
+        // board rows omit the key entirely and always have a real client.
+        final bool clientPresent =
+            !row.containsKey('clientId') || row['clientId'] != null;
+        if (clientPresent && row['providerCanReviewClient'] == true) count++;
+      }
+    }
+    return count;
+  }
+
+  /// The count the `/me` endpoint answers: over [_bookingsDataset] when seeded
+  /// (narrowed to [ownerMasterRowBookingIds] for `asMaster`), else over the
+  /// single seeded `booking-1` row (its status follows [bookingStatus]).
+  int computedMePendingActionsCount({required bool asMaster}) {
+    final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+    if (dataset != null) {
+      final Set<String>? ownIds = asMaster ? ownerMasterRowBookingIds : null;
+      return pendingActionsCountOf(
+        dataset.where((r) => ownIds == null || ownIds.contains(r['id'])),
+      );
+    }
+    return pendingActionsCountOf(<Map<String, dynamic>>[_seededBookingJson()]);
+  }
+
+  /// The count the salon endpoint answers: board rows plus archive rows,
+  /// de-duplicated by id.
+  int computedSalonPendingActionsCount() {
+    final Map<Object?, Map<String, dynamic>> byId =
+        <Object?, Map<String, dynamic>>{
+          for (final Map<String, dynamic> r in salonBoardBookings) r['id']: r,
+          for (final Map<String, dynamic> r in salonArchiveBookings) r['id']: r,
+        };
+    return pendingActionsCountOf(byId.values);
+  }
+
+  Map<String, dynamic> _pendingActionsCountEnvelope(
+    int count,
+  ) => <String, dynamic>{
+    'success': true,
+    'message': 'ok',
+    'data': <String, dynamic>{'count': count, 'toClose': 0, 'toRateClient': 0},
+  };
+
+  void _wireSalonPendingActionsCount(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/bookings/salon/$salonId/pending-actions/count',
+      (server) => server.replyCallback(200, (_) {
+        getPendingActionsCountCalls++;
+        return _pendingActionsCountEnvelope(computedSalonPendingActionsCount());
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
   /// The ONE `GET /bookings/salon/{id}` handler body, shared by
   /// [kOwnerSalonId] and [kAdminSalonId] so the two registrations cannot
   /// disagree about which shape they are answering. Branches on `partition`
@@ -9525,6 +10558,8 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    _wireSalonPendingActionsCount(kOwnerSalonId);
+
     // The board's own day fetch — AND, since phase 345, the archive's
     // `partition=HISTORY` read. [_salonBookingsReply] branches; see its doc.
     _adapter.onRoute(
@@ -9536,16 +10571,28 @@ final class FakeBackend {
     // The board's ROSTER — `salonMastersRosterProvider`. Serves the SAME
     // [_salonMasters] fixture the `salon-xyz` rail does, so a column header
     // rendered here and a rail card rendered there cannot disagree.
+    // Phase 385 — [_ownerSalonRoster] is [_salonMasters] unless
+    // [listOwnerRowWhenBookable] is on (see its doc).
+    assert(
+      !listOwnerRowWhenBookable ||
+          (wireOwnRowServices &&
+              wireOwnRowSchedule &&
+              masterSalonId == kOwnerSalonId),
+      'listOwnerRowWhenBookable reads the owner-row service/schedule writes: '
+      'it needs wireOwnRowServices + wireOwnRowSchedule and '
+      'masterSalonId == kOwnerSalonId',
+    );
     _adapter.onRoute(
       '/api/v1/salons/$kOwnerSalonId/masters',
       (server) => server.replyCallback(200, (_) {
         getSalonMastersCalls++;
         lastGetSalonMastersId = kOwnerSalonId;
+        final List<Map<String, dynamic>> roster = _ownerSalonRoster();
         return _searchEnvelope(
-          _salonMasters,
+          roster,
           page: 0,
           totalPages: 1,
-          totalElements: _salonMasters.length,
+          totalElements: roster.length,
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -9600,9 +10647,26 @@ final class FakeBackend {
         );
         lastGetSalonStaffId = kOwnerSalonId;
         return _okList(
-          List<Map<String, dynamic>>.from(
-            salonStaff.map(Map<String, dynamic>.from),
-          ),
+          _boardSalonStaff(<Map<String, dynamic>>[
+            ...salonStaff,
+            // Phase 381 — the owner's own auto-enrolled master row.
+            if (wireOwnRowSchedule)
+              <String, dynamic>{
+                'userId': 'user-owner-1',
+                'masterId': masterRowId,
+                'role': 'SALON_OWNER',
+                'firstName': 'Олена',
+                'lastName': 'Власниця',
+                'professionalTitle': null,
+                'avatarUrl': null,
+                'phoneNumber': null,
+                'instagram': null,
+                'bio': null,
+                'avgRating': null,
+                'reviewCount': 0,
+                'serviceCount': 0,
+              },
+          ]),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -9649,6 +10713,8 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    _wireSalonPendingActionsCount(kAdminSalonId);
 
     // The SAME shared body as [kOwnerSalonId]'s registration (phase 345) —
     // the two ids must not disagree about what `partition` means, and the
@@ -10100,6 +11166,92 @@ final class FakeBackend {
     );
   }
 
+  /// `PATCH /bookings/booking-1/complete`. Own method so [currentRole]'s setter
+  /// can RE-REGISTER it: `replyCallback` captures its status at registration
+  /// time (see [clientReviewRejectDuplicate]), and the SALON_MASTER 403 depends
+  /// on the role chosen AFTER construction.
+  void _wireBookingComplete() {
+    _adapter.onRoute(
+      '/api/v1/bookings/booking-1/complete',
+      (server) => server.replyCallback(
+        currentRole == UserRole.salonMaster ? 403 : 200,
+        (_) {
+          completeBookingCalls++;
+          if (currentRole == UserRole.salonMaster) return _forbiddenEnvelope();
+          bookingStatus = 'COMPLETED';
+          final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+          if (dataset != null) {
+            final int idx = dataset.indexWhere(
+              (Map<String, dynamic> row) => row['id'] == 'booking-1',
+            );
+            if (idx != -1) {
+              dataset[idx] = <String, dynamic>{
+                ...dataset[idx],
+                'status': 'COMPLETED',
+                'awaitingClosure': false,
+              };
+            }
+          }
+          // Phase 395 — and on the SALON BOARD's own day list, so the
+          // salon pending-actions count (board + archive rows, de-duplicated)
+          // drops after a close made from the board's drill-in.
+          final int boardIdx = salonBoardBookings.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (boardIdx != -1) {
+            salonBoardBookings[boardIdx] = <String, dynamic>{
+              ...salonBoardBookings[boardIdx],
+              'status': 'COMPLETED',
+              'awaitingClosure': false,
+            };
+          }
+          // Phase 345 — the SAME mutation on the SALON archive list, for
+          // exactly the reason the two paragraphs above give for the
+          // `/bookings/me` dataset. The salon archive re-reads
+          // `GET /bookings/salon/{id}?partition=HISTORY` after a close; without
+          // this, that re-read would hand back the unchanged CONFIRMED row and
+          // "the closed row left the «Підтверджено» filter" would be
+          // unprovable at the salon host while passing at the master host —
+          // a fake-fidelity divergence between two callers of one write.
+          final int salonIdx = salonArchiveBookings.indexWhere(
+            (Map<String, dynamic> row) => row['id'] == 'booking-1',
+          );
+          if (salonIdx != -1) {
+            salonArchiveBookings[salonIdx] = <String, dynamic>{
+              ...salonArchiveBookings[salonIdx],
+              'status': 'COMPLETED',
+              'awaitingClosure': false,
+            };
+          }
+          return _okVoid;
+        },
+      ),
+      request: const Request(method: RequestMethods.patch),
+    );
+  }
+
+  /// Phase 386 (backend 355) — the single place that models who may see
+  /// `providerCanReviewClient == true`: only the SALON_OWNER / SALON_ADMIN of
+  /// the salon and an INDEPENDENT_MASTER on their own booking. A SALON_MASTER
+  /// (even on a booking they performed) and a CLIENT always read `false`.
+  /// Used by BOTH the detail serializer and the salon board / archive row
+  /// builder so the two can never disagree.
+  bool providerCanReviewClientFor(bool seeded) =>
+      seeded &&
+      (currentRole == UserRole.salonOwner ||
+          currentRole == UserRole.salonAdmin ||
+          currentRole == UserRole.independentMaster);
+
+  /// Phase 386 (backend 355) — a SALON_MASTER may neither complete a booking
+  /// nor rate the client; the real server answers 403 and mutates nothing.
+  Map<String, dynamic> _forbiddenEnvelope() => <String, dynamic>{
+    'success': false,
+    'message': 'Access denied',
+    'data': null,
+  };
+
+  // Phase 386 (backend 356): `GET /bookings/{id}` answers 200 for the salon's
+  // assigned admin too, so the role-blind 200 below is the post-356 contract.
   void _wireBookingDetail() {
     final int? failStatus = _bookingDetailFailStatus;
     _adapter.onRoute(
@@ -10140,29 +11292,289 @@ final class FakeBackend {
   /// [clientReviewRejectDuplicate]'s setter can RE-REGISTER the route with a
   /// different status — see that field's doc for why a plain field cannot work.
   void _wireClientReviews() {
+    _roleRoutesReady = true;
     _adapter.onRoute(
       '/api/v1/client-reviews',
-      (server) =>
-          server.replyCallback(_clientReviewRejectDuplicate ? 409 : 200, (req) {
-            createClientReviewCalls++;
-            final body = _decodeBody(req.data);
-            lastClientReviewBookingId = body['bookingId'] as String?;
-            lastClientReviewRating = body['rating'] as int?;
-            lastClientReviewComment = body['comment'] as String?;
-            if (_clientReviewRejectDuplicate) {
-              // Deliberately does NOT flip [bookingProviderCanReviewClient].
-              // The screen's 409 branch invalidates `bookingDetailProvider`,
-              // so the refetch that follows still answers `true` — which means
-              // the `_NotReviewable` state a flow then observes can ONLY have
-              // come from the screen's own `_alreadyReviewed` flag, never from
-              // a conveniently-agreeing server. Flipping it here would make
-              // that assertion pass for the wrong reason.
-              return _okVoid;
-            }
-            bookingProviderCanReviewClient = false;
+      (server) => server.replyCallback(
+        currentRole == UserRole.salonMaster
+            ? 403
+            : (_clientReviewRejectDuplicate ? 409 : 200),
+        (req) {
+          createClientReviewCalls++;
+          if (currentRole == UserRole.salonMaster) {
+            // Phase 386 (backend 355): counted, never flips the flag.
+            return _forbiddenEnvelope();
+          }
+          final body = _decodeBody(req.data);
+          lastClientReviewBookingId = body['bookingId'] as String?;
+          lastClientReviewRating = body['rating'] as int?;
+          lastClientReviewComment = body['comment'] as String?;
+          if (_clientReviewRejectDuplicate) {
+            // Deliberately does NOT flip [bookingProviderCanReviewClient].
+            // The screen's 409 branch invalidates `bookingDetailProvider`,
+            // so the refetch that follows still answers `true` — which means
+            // the `_NotReviewable` state a flow then observes can ONLY have
+            // come from the screen's own `_alreadyReviewed` flag, never from
+            // a conveniently-agreeing server. Flipping it here would make
+            // that assertion pass for the wrong reason.
             return _okVoid;
-          }),
+          }
+          if (lastClientReviewBookingId == 'booking-2') {
+            siblingProviderCanReviewClient = false;
+          }
+          bookingProviderCanReviewClient = false;
+          final List<Map<String, dynamic>>? dataset = _bookingsDataset;
+          if (clientReviewClearsDatasetFlag && dataset != null) {
+            final int idx = dataset.indexWhere(
+              (Map<String, dynamic> row) =>
+                  row['id'] == lastClientReviewBookingId,
+            );
+            if (idx != -1) {
+              dataset[idx] = <String, dynamic>{
+                ...dataset[idx],
+                'providerCanReviewClient': false,
+              };
+            }
+          }
+          return _okVoid;
+        },
+      ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  // ── Phase 365 — the in-app notification feed (`/api/v1/notifications`) ──────
+  //
+  // Four STATEFUL routes (list, unread-count, mark-one-read, mark-all-read) so
+  // a flow can drive the REAL `HttpNotificationRepository` + generated
+  // `NotificationsApi` + Dio stack with no repository override. Before this the
+  // fake had no notification route at all, so every flow that mounts a header
+  // with the live bell polled a missing route (closed backlog INFO).
+  //
+  // DEFAULT = ZERO UNREAD: nothing is seeded, `unread-count` answers 0 and the
+  // feed answers an empty page, so every pre-existing flow behaves as before
+  // (no dot). A flow seeds items with [seedNotification]; the unread count is
+  // always DERIVED from the rows, never stored, so a mark-read moves it exactly
+  // like the real backend.
+  //
+  // IDs: the mapper drops any `id` / target id that is not a UUID, so seeded
+  // ids are UUID-shaped. [kNotificationBookingId] is the one booking a seeded
+  // target can point at — the fake serves its detail (`GET /bookings/<it>`)
+  // from the same seeded booking `booking-1` uses, with only the `id` swapped.
+
+  /// UUID-shaped id of the booking the notification fixtures target; its
+  /// `GET /api/v1/bookings/{id}` detail is served by [_wireNotifications].
+  static const String kNotificationBookingId =
+      '5a1f0000-0000-4000-8000-000000000001';
+
+  final List<Map<String, dynamic>> _notifications = <Map<String, dynamic>>[];
+
+  /// Call counters + the ids / `upTo` the mutating routes received.
+  int notificationFeedCalls = 0;
+  int notificationUnreadCountCalls = 0;
+  int notificationMarkAllCalls = 0;
+  final List<String> notificationMarkedReadIds = <String>[];
+  final List<String?> notificationMarkAllUpTo = <String?>[];
+
+  /// Unread rows right now — what `GET /notifications/unread-count` answers
+  /// (the backend caps it at 99; no flow seeds that many).
+  int get unreadNotificationCount => _notifications
+      .where((Map<String, dynamic> n) => n['read'] != true)
+      .length;
+
+  /// Seeds ONE notification row and returns its UUID-shaped id.
+  ///
+  /// [type] is the wire enum (`BOOKING_DECLINED`, `BOOKING_CREATED`,
+  /// `INVITE_ACCEPTED`, …). [targetKind] defaults from the ids given: a
+  /// [bookingId] -> `BOOKING`, a [salonId] alone -> `SALON_TEAM`, neither ->
+  /// `NONE`. [age] is subtracted from [kFixedNow] (M15 — the one injected
+  /// clock), so a larger age is an older row.
+  String seedNotification({
+    required String type,
+    String? bookingId,
+    String? salonId,
+    String? targetKind,
+    String? salonName,
+    // Opt-in (default off, so every existing flow keeps its payload): the
+    // performing master's name the backend adds for owner / admin recipients.
+    String? masterName,
+    bool read = false,
+    Duration age = const Duration(hours: 1),
+  }) {
+    final int n = _notifications.length + 1;
+    final String id =
+        '00000000-0000-4000-8000-${n.toString().padLeft(12, '0')}';
+    final String kind =
+        targetKind ??
+        (bookingId != null
+            ? 'BOOKING'
+            : salonId != null
+            ? 'SALON_TEAM'
+            : 'NONE');
+    _notifications.add(<String, dynamic>{
+      'id': id,
+      'type': type,
+      'createdAt': kFixedNow.subtract(age).toUtc().toIso8601String(),
+      'read': read,
+      'target': <String, dynamic>{
+        'kind': kind,
+        'bookingId': ?bookingId,
+        'salonId': ?salonId,
+      },
+      // Non-empty on purpose: an EMPTY params block on a booking item reads as
+      // "the viewer lost access" (`isNotificationUnavailable`).
+      'params': <String, dynamic>{
+        'counterpartName': 'Client $n',
+        'serviceName': 'Service $n',
+        'startsAt': kFixedNow
+            .add(const Duration(days: 1))
+            .toUtc()
+            .toIso8601String(),
+        'salonName': ?salonName,
+        'masterName': ?masterName,
+      },
+    });
+    _adapter.onRoute(
+      '/api/v1/notifications/$id/read',
+      (server) => server.replyCallback(200, (_) {
+        notificationMarkedReadIds.add(id);
+        _setNotificationRead((Map<String, dynamic> row) => row['id'] == id);
+        return _okVoid;
+      }),
+      request: const Request(method: RequestMethods.patch),
+    );
+    return id;
+  }
+
+  void _setNotificationRead(bool Function(Map<String, dynamic> row) test) {
+    for (final Map<String, dynamic> row in _notifications) {
+      if (test(row)) row['read'] = true;
+    }
+  }
+
+  void _wireNotifications() {
+    // GET /api/v1/notifications?page&size — newest first, paged like the real
+    // endpoint (`PageResponseNotificationResponse`).
+    _adapter.onRoute(
+      '/api/v1/notifications',
+      (server) => server.replyCallback(200, (req) {
+        notificationFeedCalls++;
+        final int page = _intQueryParam(req.queryParameters, 'page', 0);
+        final int size = _intQueryParam(req.queryParameters, 'size', 20);
+        final List<Map<String, dynamic>> sorted =
+            List<Map<String, dynamic>>.of(_notifications)..sort(
+              (Map<String, dynamic> a, Map<String, dynamic> b) =>
+                  (b['createdAt'] as String).compareTo(
+                    a['createdAt'] as String,
+                  ),
+            );
+        final int from = (page * size).clamp(0, sorted.length);
+        final int to = (from + size).clamp(0, sorted.length);
+        return <String, dynamic>{
+          'success': true,
+          'message': 'ok',
+          'data': sorted.sublist(from, to),
+          'page': page,
+          'size': size,
+          'totalElements': sorted.length,
+          'totalPages': (sorted.length / size).ceil(),
+        };
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // GET /api/v1/notifications/unread-count — derived from the rows.
+    _adapter.onRoute(
+      '/api/v1/notifications/unread-count',
+      (server) => server.replyCallback(200, (_) {
+        notificationUnreadCountCalls++;
+        return _ok(<String, dynamic>{'count': unreadNotificationCount});
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // PATCH /api/v1/notifications/read-all {upTo?} — marks every row created at
+    // or before `upTo` (default: all) read and answers the number updated.
+    _adapter.onRoute(
+      '/api/v1/notifications/read-all',
+      (server) => server.replyCallback(200, (req) {
+        notificationMarkAllCalls++;
+        final String? upToRaw = _decodeBody(req.data)['upTo'] as String?;
+        notificationMarkAllUpTo.add(upToRaw);
+        final DateTime? upTo = upToRaw == null ? null : DateTime.parse(upToRaw);
+        int updated = 0;
+        for (final Map<String, dynamic> row in _notifications) {
+          final bool covered =
+              upTo == null ||
+              !DateTime.parse(row['createdAt'] as String).isAfter(upTo);
+          if (row['read'] != true && covered) {
+            row['read'] = true;
+            updated++;
+          }
+        }
+        return _ok(<String, dynamic>{'updated': updated});
+      }),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+
+    // GET /api/v1/bookings/<kNotificationBookingId> — the detail a notification
+    // tap lands on. `booking-1`'s own route is keyed to that literal, and a
+    // seeded target must be UUID-shaped, so this serves the same seeded booking
+    // under the UUID.
+    _adapter.onRoute(
+      '/api/v1/bookings/$kNotificationBookingId',
+      (server) => server.replyCallback(200, (_) {
+        getBookingDetailCalls++;
+        return _ok(<String, dynamic>{
+          ..._seededBookingJson(includeReviewByClient: true),
+          'id': kNotificationBookingId,
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  // ── Phase 067 — FCM device-token registration (`/api/v1/devices/token`) ─────
+  //
+  // POST (register / rebind) and DELETE (unregister), both 204 with the body
+  // `{token, platform?}`. Recorded in arrival order so a flow can assert the
+  // user journey (register -> DELETE on logout -> re-register). The token is
+  // test-fixture data here; production never logs it.
+
+  /// Every device-token call, in order: `POST <token> <platform>` /
+  /// `DELETE <token>`.
+  final List<String> deviceTokenCalls = <String>[];
+
+  /// Tokens POSTed (register), in order.
+  List<String> get registeredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('POST ')) c.split(' ')[1],
+  ];
+
+  /// Tokens DELETEd (unregister), in order.
+  List<String> get unregisteredDeviceTokens => <String>[
+    for (final String c in deviceTokenCalls)
+      if (c.startsWith('DELETE ')) c.split(' ')[1],
+  ];
+
+  void _wireDeviceTokens() {
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('POST ${body['token']} ${body['platform']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+    _adapter.onRoute(
+      '/api/v1/devices/token',
+      (server) => server.replyCallback(204, (req) {
+        final Map<String, dynamic> body = _decodeBody(req.data);
+        deviceTokenCalls.add('DELETE ${body['token']}');
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete, data: Matchers.any),
     );
   }
 
@@ -10171,5 +11583,89 @@ final class FakeBackend {
     if (data is String) return jsonDecode(data) as Map<String, dynamic>;
     if (data is Map) return data.cast<String, dynamic>();
     return const <String, dynamic>{};
+  }
+
+  /// Phase 369 — wires the salon logo / cover routes (see the field block's
+  /// header). Re-callable: a later registration of the same route replaces
+  /// the earlier one.
+  void _wireSalonMedia() {
+    List<String> partNames(Object? body) => body is FormData
+        ? <String>[
+            for (final MapEntry<String, String> f in body.fields) f.key,
+            for (final MapEntry<String, MultipartFile> f in body.files) f.key,
+          ]
+        : <String>['<non-multipart:${body.runtimeType}>'];
+    const Map<String, dynamic> failBody = <String, dynamic>{'success': false};
+
+    for (final String slot in <String>['logo', 'cover']) {
+      final String field = slot == 'logo' ? 'avatarUrl' : 'coverImageUrl';
+
+      // The owner's salon.
+      final String ownerPath = '/api/v1/salons/$kOwnerSalonId/media/$slot';
+      final int? fail = _salonMediaFailStatus;
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(
+          fail ?? 200,
+          (RequestOptions options) {
+            salonMediaUploadUris.add(options.uri);
+            salonMediaUploadPartNames.add(partNames(options.data));
+            if (fail != null) return failBody;
+            final String url =
+                'https://media.test/salons/$kOwnerSalonId/$slot-'
+                '${++_salonMediaSeq}.jpg';
+            mySalons.first[field] = url;
+            return _ok(<String, dynamic>{
+              ...withSeededSalonLocality(mySalons.first),
+            });
+          },
+          headers: fail == 429
+              ? <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                  'retry-after': <String>['$salonMediaRetryAfterSeconds'],
+                }
+              : <String, List<String>>{
+                  Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+                },
+        ),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        ownerPath,
+        (server) => server.replyCallback(fail ?? 204, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          if (fail != null) return failBody;
+          mySalons.first[field] = null;
+          return null;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+
+      // The admin's salon: never the caller's to change.
+      final String adminPath = '/api/v1/salons/$kAdminSalonId/media/$slot';
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaUploadUris.add(options.uri);
+          salonMediaUploadPartNames.add(partNames(options.data));
+          return failBody;
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+      _adapter.onRoute(
+        adminPath,
+        (server) => server.replyCallback(403, (RequestOptions options) {
+          salonMediaDeleteUris.add(options.uri);
+          return failBody;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+    }
   }
 }

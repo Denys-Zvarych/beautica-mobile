@@ -44,8 +44,12 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
+import '../../master/domain/master.dart' show MasterType;
 import '../domain/salon.dart';
+import '../domain/salon_staff_member.dart';
 import 'my_salons_notifier.dart';
+import 'salon_management_profile_notifier.dart';
+import 'salon_staff_member_notifier.dart' show findSalonStaffMember;
 
 part 'salon_manage_capability.g.dart';
 
@@ -74,4 +78,81 @@ bool canManageSalon(Ref ref, String salonId) {
   // INDEPENDENT_MASTER, CLIENT, and an unresolved/unauthenticated session
   // all resolve to "cannot manage".
   return false;
+}
+
+/// `true` while [canManageSalon]'s `false` is NOT yet a verdict — a settled
+/// SALON_OWNER whose [mySalonsProvider] is still loading (the cold deep-link
+/// window: the predicate fails CLOSED on a non-`AsyncData` list). A gate
+/// built on [canManageSalon] renders a loading state for this window instead
+/// of flashing its denied/[UnauthorizedFailure] state.
+///
+/// Phase 380 — the companion of [canManageSalon], never a replacement: it
+/// admits nothing. `false` for every non-owner role (so an admin's gate never
+/// watches [mySalonsProvider]) and for a settled list, error included.
+@riverpod
+bool canManageSalonPending(Ref ref) {
+  final UserRole? role = ref.watch(
+    authProvider.select(authUserRoleSettledOrNull),
+  );
+  if (role != UserRole.salonOwner) return false;
+  return ref.watch(
+    mySalonsProvider.select(
+      (AsyncValue<List<Salon>> salons) => salons.isLoading,
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 371 — the OWNER-ROW lock, ONE definition shared by every site.
+//
+// Backend 345: the salon owner's master row is owner-only — a SALON_ADMIN
+// gets 403 on its services and schedule writes. Four UI sites pre-empt that
+// (staff settings, staff profile, the services routes, `scheduleEditable`);
+// they all go through the three pieces below so the predicate cannot drift.
+// ---------------------------------------------------------------------------
+
+/// `true` only when the viewer is the SALON_OWNER **of [salonId]** — the
+/// owner role AND [canManageSalon] for this exact salon. Scoped to the salon
+/// (never a bare role check), so an owner viewing ANOTHER salon's roster is
+/// not treated as that salon's owner. Fails CLOSED while the session or
+/// `mySalonsProvider` is unresolved.
+@riverpod
+bool viewerOwnsSalon(Ref ref, String salonId) {
+  final UserRole? role = ref.watch(
+    authProvider.select(authUserRoleSettledOrNull),
+  );
+  if (role != UserRole.salonOwner) return false;
+  return ref.watch(canManageSalonProvider(salonId));
+}
+
+/// Pure owner-row lock: `true` when [member] is the salon owner's master row
+/// and the viewer is not that salon's owner ([viewerOwnsSalon]).
+///
+/// Keyed on [SalonStaffMember.masterType] — the roster's own identity field.
+/// A `null` [SalonStaffMember.masterType] is deliberately NOT locked
+/// (fail-open): it only occurs for an admin entry or an unrecognised wire
+/// role, never for the owner, whom the backend always reports as
+/// [MasterType.salonOwner]; the roster carries no owner user id to
+/// cross-check against, and the server (403) remains the real gate.
+bool isOwnerRowLockedForViewer({
+  required SalonStaffMember? member,
+  required bool viewerOwnsSalon,
+}) => !viewerOwnsSalon && member?.masterType == MasterType.salonOwner;
+
+/// [isOwnerRowLockedForViewer] for a route that only has the `:memberId`
+/// (roster `userId`): scans the resolved roster. A not-yet-resolved roster or
+/// an unknown / empty [memberId] is not locked — the services shell already
+/// renders a loading / not-found state in that window, never a writable UI.
+@riverpod
+bool ownerRowLockedForMember(Ref ref, String salonId, String memberId) {
+  final bool owns = ref.watch(viewerOwnsSalonProvider(salonId));
+  if (owns) return false;
+  final SalonManagementProfileData? data = ref
+      .watch(salonManagementProfileProvider(salonId))
+      .value;
+  if (data == null) return false;
+  return isOwnerRowLockedForViewer(
+    member: findSalonStaffMember(data.$2, memberId),
+    viewerOwnsSalon: owns,
+  );
 }

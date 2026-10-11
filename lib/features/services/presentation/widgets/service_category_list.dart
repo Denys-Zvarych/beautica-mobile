@@ -19,8 +19,8 @@
 //   [CategorySection]     — the collapsible neumorphic disclosure section.
 //   [CategoryCountBadge]  — the small recessed per-category count pill.
 //   [ServiceCard]         — the tappable service row (staggered entrance).
-//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well (opt-out
-//                           via [ServiceCard.showPhoto]).
+//   [PhotoThumbnail]      — the 40×40 recessed photo/icon well (opt-in,
+//                           default off, via [ServiceCard.showPhoto]).
 //   [ServiceInfo]         — the card's name + inline metadata column.
 //   [MetaLine]            — the compact duration · price metadata strip.
 //   [MetaItem]            — a single icon + value pair inside [MetaLine].
@@ -40,6 +40,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -190,6 +191,8 @@ class CategorySection extends StatefulWidget {
     this.childBuilder,
     this.initiallyExpanded = false,
     this.slug,
+    this.expanded,
+    this.onExpandedChanged,
   }) : assert(
          (children == null) != (childBuilder == null),
          'Supply exactly one of children or childBuilder.',
@@ -244,6 +247,16 @@ class CategorySection extends StatefulWidget {
   /// "no icon", never the resolver's cosmetology fallback.
   final String? slug;
 
+  /// Additive (phase 076 row 1/2) — CONTROLLED mode. `null` (every
+  /// pre-existing caller, the booking wizard included) keeps the internal
+  /// toggle seeded from [initiallyExpanded]. Non-null makes the header reflect
+  /// this value and report taps through [onExpandedChanged] instead of
+  /// flipping private state, so the owner can hold the open/closed set across
+  /// the section being disposed by a lazy list, and can render the open body
+  /// itself (pass an empty [children]) as lazy sibling items.
+  final bool? expanded;
+  final ValueChanged<bool>? onExpandedChanged;
+
   /// Leading category glyph size — matches [ServiceCategoryCard]'s 20dp,
   /// the sibling list-row surface. Verified by rendering (not reasoning): see
   /// this file's header comment / the phase report for the PNG check across
@@ -285,7 +298,16 @@ class _CategorySectionState extends State<CategorySection> {
     _expanded = widget.initiallyExpanded;
   }
 
-  void _toggle() => setState(() => _expanded = !_expanded);
+  bool get _isExpanded => widget.expanded ?? _expanded;
+
+  void _toggle() {
+    final bool next = !_isExpanded;
+    if (widget.expanded != null) {
+      widget.onExpandedChanged?.call(next);
+      return;
+    }
+    setState(() => _expanded = next);
+  }
 
   /// Resolves the section body from whichever of the two additive forms the
   /// caller supplied. Only ever called from the `_expanded` branch.
@@ -308,7 +330,7 @@ class _CategorySectionState extends State<CategorySection> {
         Semantics(
           button: true,
           header: true,
-          expanded: _expanded,
+          expanded: _isExpanded,
           label: l10n.servicesCategorySectionSemantics(
             widget.title,
             widget.count,
@@ -362,7 +384,7 @@ class _CategorySectionState extends State<CategorySection> {
                   AnimatedRotation(
                     // 0.25 turns = 90°: chevron points down when expanded,
                     // right when collapsed.
-                    turns: _expanded ? 0.0 : -0.25,
+                    turns: _isExpanded ? 0.0 : -0.25,
                     duration: const Duration(milliseconds: 200),
                     curve: Curves.easeOutCubic,
                     child: const Icon(
@@ -386,7 +408,7 @@ class _CategorySectionState extends State<CategorySection> {
           // childBuilder] the children are constructed here, inside the
           // `_expanded` arm, rather than by the caller before this widget
           // exists (2026-09-13 audit, M10).
-          child: _expanded
+          child: _isExpanded
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -441,8 +463,10 @@ class ServiceCard extends StatefulWidget {
     this.appearDelay = Duration.zero,
     this.selectable = false,
     this.selected = false,
-    this.showPhoto = true,
+    this.showPhoto = false,
     this.leadingIndent = 0,
+    this.animateEntrance = true,
+    this.onEntranceStarted,
   }) : assert(leadingIndent >= 0, 'leadingIndent cannot be negative.');
 
   final MasterService service;
@@ -483,8 +507,9 @@ class ServiceCard extends StatefulWidget {
 
   /// Additive — whether the leading [PhotoThumbnail] well is drawn.
   ///
-  /// Defaults to `true`, the behaviour every caller had before this parameter
-  /// existed, so nothing renders differently unless it opts out explicitly.
+  /// Defaults to `false` (product decision 2026-10-04: services and categories
+  /// carry no custom photos, so no empty well is drawn anywhere). Pass `true`
+  /// only if photos return.
   ///
   /// `false` drops BOTH the 40 dp well and the gap that follows it, reclaiming
   /// 50 dp of horizontal room for the service name. The services MANAGEMENT
@@ -492,10 +517,6 @@ class ServiceCard extends StatefulWidget {
   /// every card there renders the identical [Icons.spa_rounded] placeholder —
   /// 50 dp per row spent on a glyph that distinguishes nothing, on the one
   /// screen whose entire job is reading and editing long service names.
-  ///
-  /// The master booking wizard keeps the well (`true`): its cards are a
-  /// PICKER, scanned rather than read, and the leading well anchors the
-  /// selectable row's left edge against the trailing check indicator.
   final bool showPhoto;
 
   /// Horizontal distance from this card's own left edge to the start of its
@@ -521,13 +542,31 @@ class ServiceCard extends StatefulWidget {
   /// heading — this restores the spine while keeping 30 of those 50 dp.
   final double leadingIndent;
 
+  /// Additive (phase 076 row 2) — `false` skips the staggered fade/rise and
+  /// mounts the card already settled. The lazy services list passes `false`
+  /// for a card that has already played its entrance, so scrolling it back
+  /// into the cache extent does not replay the 460 ms animation. Defaults to
+  /// `true`: every other caller is unchanged.
+  final bool animateEntrance;
+
+  /// Additive (phase 076 N2) — called once, after the first frame, when the
+  /// card has mounted with [animateEntrance] AND is inside its nearest
+  /// scrollable's viewport (a card built only for the cache extent is not
+  /// "seen" yet and does not report). The lazy list uses it to record which
+  /// entrances have been shown. Defaults to `null`: every other caller is
+  /// unchanged.
+  final VoidCallback? onEntranceStarted;
+
   @override
   State<ServiceCard> createState() => _ServiceCardState();
 }
 
 class _ServiceCardState extends State<ServiceCard>
     with SingleTickerProviderStateMixin {
-  bool _pressed = false;
+  // Phase 076 row 5 — the press flag lives in a notifier so tap-down/cancel
+  // repaints only the scale/decoration shell (via ValueListenableBuilder),
+  // never the whole card subtree.
+  final ValueNotifier<bool> _pressed = ValueNotifier<bool>(false);
   late final AnimationController _appear;
 
   // PERF MEDIUM-1: CurvedAnimation moved from build() to initState() so a
@@ -554,7 +593,14 @@ class _ServiceCardState extends State<ServiceCard>
       begin: const Offset(0, 0.05),
       end: Offset.zero,
     ).animate(_curve);
-    if (widget.appearDelay == Duration.zero) {
+    if (widget.animateEntrance && widget.onEntranceStarted != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _inViewport()) widget.onEntranceStarted?.call();
+      });
+    }
+    if (!widget.animateEntrance) {
+      _appear.value = 1;
+    } else if (widget.appearDelay == Duration.zero) {
       _appear.forward();
     } else {
       Future<void>.delayed(widget.appearDelay, () {
@@ -563,10 +609,29 @@ class _ServiceCardState extends State<ServiceCard>
     }
   }
 
+  /// `true` when this card overlaps its nearest scrollable's viewport (or has
+  /// no scrollable ancestor). Used only for the one-shot [onEntranceStarted].
+  bool _inViewport() {
+    final RenderObject? self = context.findRenderObject();
+    final RenderObject? viewport = Scrollable.maybeOf(
+      context,
+    )?.context.findRenderObject();
+    if (self is! RenderBox ||
+        !self.attached ||
+        viewport is! RenderBox ||
+        !viewport.attached) {
+      return true;
+    }
+    final Rect card =
+        self.localToGlobal(Offset.zero, ancestor: viewport) & self.size;
+    return card.overlaps(Offset.zero & viewport.size);
+  }
+
   @override
   void dispose() {
     _curve.dispose();
     _appear.dispose();
+    _pressed.dispose();
     super.dispose();
   }
 
@@ -603,85 +668,89 @@ class _ServiceCardState extends State<ServiceCard>
     // The card's inner content, built once regardless of [tappable]. When
     // not tappable there is no GestureDetector wrapping it (below), so
     // [_pressed] never flips and this renders at rest permanently.
-    final Widget content = AnimatedScale(
-      scale: _pressed ? 0.99 : 1.0,
-      duration: const Duration(milliseconds: 110),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        decoration: BoxDecoration(
-          color: BrandColors.base,
-          borderRadius: BorderRadius.circular(VelvetRadii.card),
-          // FIX B (mobile-debugger, this session) — DIM, never
-          // fully remove, the shadow on press: see
-          // `VelvetShadows.extrudedCardPressed`'s doc for why a
-          // `null` target here produced a visible background
-          // flicker on a normal (sub-150ms) tap.
-          boxShadow: _pressed
-              ? VelvetShadows.extrudedCardPressed
-              : VelvetShadows.extrudedCard,
-          // Additive (Phase 247 part 2): a picker-mode selected card
-          // gets an accent hairline, mirroring the selected-card
-          // treatment used elsewhere in the app. `null` (every
-          // pre-existing caller) renders no border at all.
-          border: (widget.selectable && widget.selected)
-              ? Border.all(color: BrandColors.accent, width: 1.5)
-              : null,
-        ),
-        // Compact dense row: tighter vertical padding (~halved height)
-        // versus the original VelvetSpacing.sm + 2 with a stacked pill
-        // Wrap below the title.
-        //
-        // Horizontal inset is VelvetSpacing.sm — squared onto the 4/8/16/24
-        // ladder from the off-ladder `sm + 2` (10) it carried before, which
-        // returns 4 dp of content width and costs nothing visually: the card
-        // is read by its extruded rim, not by a 2 dp inset difference.
-        padding: const EdgeInsets.symmetric(
-          horizontal: VelvetSpacing.sm,
-          vertical: VelvetSpacing.sm,
-        ),
-        child: Row(
-          children: <Widget>[
-            // Additive alignment indent (see [ServiceCard.leadingIndent]).
-            // `0` — every caller but the services management page — adds NO
-            // widget to this Row, so the default tree is unchanged.
-            if (widget.leadingIndent > 0) SizedBox(width: widget.leadingIndent),
-            // Opt-out (see [ServiceCard.showPhoto]): the well AND its trailing
-            // gap disappear together, so the name column simply starts at the
-            // card's own inset rather than 50 dp inside it.
-            if (widget.showPhoto) ...<Widget>[
-              PhotoThumbnail(key: Key('thumb_${s.id}')),
-              const SizedBox(width: VelvetSpacing.sm + 2),
-            ],
-            Expanded(
-              child: ServiceInfo(
-                name: primaryLabel,
-                durationLabel: durationLabel,
-                priceLabel: priceLabel,
-              ),
-            ),
-            // Tightened to `xs` (was `sm`): the trailing glyph slot is the
-            // row's right-hand punctuation, not a second content column, and
-            // the pillow's own extruded rim already reads as a gap.
-            const SizedBox(width: VelvetSpacing.xs),
-            // Phase 320 (D3) — the edit-pencil pillow is itself a write
-            // affordance: leaving it visible on a non-tappable card would
-            // "invite a tap that goes nowhere" exactly like a disabled FAB.
-            // A same-size blank slot keeps the row's width identical to the
-            // writable card (D5's "same tree, fewer affordances" — pure
-            // subtraction, nothing new drawn) instead of reflowing it.
-            if (widget.selectable)
-              _SelectIndicator(
-                key: Key('service_card_check_${s.id}'),
-                selected: widget.selected,
-              )
-            else if (tappable)
-              const _EditButton()
-            else
-              const SizedBox(
-                width: _kEditAffordanceSize,
-                height: _kEditAffordanceSize,
-              ),
+    final Widget content = ValueListenableBuilder<bool>(
+      valueListenable: _pressed,
+      child: Row(
+        children: <Widget>[
+          // Additive alignment indent (see [ServiceCard.leadingIndent]).
+          // `0` — every caller but the services management page — adds NO
+          // widget to this Row, so the default tree is unchanged.
+          if (widget.leadingIndent > 0) SizedBox(width: widget.leadingIndent),
+          // Opt-in (see [ServiceCard.showPhoto]; default false): the well AND
+          // its trailing gap appear together; when omitted, the name column
+          // starts at the card's own inset rather than 50 dp inside it.
+          if (widget.showPhoto) ...<Widget>[
+            PhotoThumbnail(key: Key('thumb_${s.id}')),
+            const SizedBox(width: VelvetSpacing.sm + 2),
           ],
+          Expanded(
+            child: ServiceInfo(
+              name: primaryLabel,
+              durationLabel: durationLabel,
+              priceLabel: priceLabel,
+            ),
+          ),
+          // Tightened to `xs` (was `sm`): the trailing glyph slot is the
+          // row's right-hand punctuation, not a second content column, and
+          // the pillow's own extruded rim already reads as a gap.
+          const SizedBox(width: VelvetSpacing.xs),
+          // Phase 320 (D3) — the edit-pencil pillow is itself a write
+          // affordance: leaving it visible on a non-tappable card would
+          // "invite a tap that goes nowhere" exactly like a disabled FAB.
+          // A same-size blank slot keeps the row's width identical to the
+          // writable card (D5's "same tree, fewer affordances" — pure
+          // subtraction, nothing new drawn) instead of reflowing it.
+          if (widget.selectable)
+            _SelectIndicator(
+              key: Key('service_card_check_${s.id}'),
+              selected: widget.selected,
+            )
+          else if (tappable)
+            const _EditButton()
+          else
+            const SizedBox(
+              width: _kEditAffordanceSize,
+              height: _kEditAffordanceSize,
+            ),
+        ],
+      ),
+      builder: (BuildContext context, bool pressed, Widget? child) => AnimatedScale(
+        scale: pressed ? 0.99 : 1.0,
+        duration: const Duration(milliseconds: 110),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: BrandColors.base,
+            borderRadius: BorderRadius.circular(VelvetRadii.card),
+            // FIX B (mobile-debugger, this session) — DIM, never
+            // fully remove, the shadow on press: see
+            // `VelvetShadows.extrudedCardPressed`'s doc for why a
+            // `null` target here produced a visible background
+            // flicker on a normal (sub-150ms) tap.
+            boxShadow: pressed
+                ? VelvetShadows.extrudedCardPressed
+                : VelvetShadows.extrudedCard,
+            // Additive (Phase 247 part 2): a picker-mode selected card
+            // gets an accent hairline, mirroring the selected-card
+            // treatment used elsewhere in the app. `null` (every
+            // pre-existing caller) renders no border at all.
+            border: (widget.selectable && widget.selected)
+                ? Border.all(color: BrandColors.accent, width: 1.5)
+                : null,
+          ),
+          // Compact dense row: tighter vertical padding (~halved height)
+          // versus the original VelvetSpacing.sm + 2 with a stacked pill
+          // Wrap below the title.
+          //
+          // Horizontal inset is VelvetSpacing.sm — squared onto the 4/8/16/24
+          // ladder from the off-ladder `sm + 2` (10) it carried before, which
+          // returns 4 dp of content width and costs nothing visually: the card
+          // is read by its extruded rim, not by a 2 dp inset difference.
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.sm,
+            vertical: VelvetSpacing.sm,
+          ),
+          child: child,
         ),
       ),
     );
@@ -693,6 +762,7 @@ class _ServiceCardState extends State<ServiceCard>
     // PERF: RepaintBoundary isolates this card's staggered entrance repaints so
     // the per-frame fade/slide does not invalidate sibling cards in the section.
     return RepaintBoundary(
+      // dim-decorative: staggered card entrance
       child: FadeTransition(
         opacity: _curve,
         child: SlideTransition(
@@ -718,10 +788,10 @@ class _ServiceCardState extends State<ServiceCard>
             // tap has nothing to hit at all.
             child: tappable
                 ? GestureDetector(
-                    onTapDown: (_) => setState(() => _pressed = true),
-                    onTapCancel: () => setState(() => _pressed = false),
+                    onTapDown: (_) => _pressed.value = true,
+                    onTapCancel: () => _pressed.value = false,
                     onTapUp: (_) {
-                      setState(() => _pressed = false);
+                      _pressed.value = false;
                       widget.onEdit!();
                     },
                     child: content,
@@ -741,18 +811,21 @@ class _ServiceCardState extends State<ServiceCard>
 /// 40×40 recessed inset well with a centred camel spa icon.
 ///
 /// Compact-row sizing (was 48×48) so the dense list fits more rows on screen.
-/// When actual photo upload is implemented (Phase 9.x), this widget will
-/// accept a `photoUrl` and render an [Image.network] inside the same
-/// 40×40 rounded [ClipRRect]. Until then, every service shows the icon
-/// placeholder so depth always comes from shadows, never a flat grey box.
+/// Phase 072: an optional [photoUrl] renders the real photo through the
+/// allow-listed `RemoteImage` inside the same 40×40 rounded box; null, a
+/// disallowed host or a failed fetch keep the icon placeholder, so depth always
+/// comes from shadows, never a flat grey box.
 class PhotoThumbnail extends StatelessWidget {
-  const PhotoThumbnail({super.key});
+  const PhotoThumbnail({super.key, this.photoUrl});
+
+  /// The service photo, or null (every pre-existing caller) for the icon well.
+  final String? photoUrl;
 
   static const double _size = 40;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final Widget well = SizedBox(
       height: _size,
       width: _size,
       child: NeumorphicInset(
@@ -765,6 +838,16 @@ class PhotoThumbnail extends StatelessWidget {
           ),
         ),
       ),
+    );
+    final String? url = photoUrl;
+    if (url == null) return well;
+    return RemoteImage(
+      url: url,
+      width: _size,
+      height: _size,
+      borderRadius: BorderRadius.circular(VelvetRadii.field),
+      excludeFromSemantics: true,
+      fallback: well,
     );
   }
 }

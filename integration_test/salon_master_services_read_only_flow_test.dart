@@ -276,6 +276,16 @@ void main() {
 
       expect(find.byType(ServicesListScreen), findsOneWidget);
       AppHarness.expectLocation(router, RouteNames.salonMasterServices);
+
+      // The screen mounts before its catalogue read lands; wait for the
+      // empty-state to RENDER (asserting right after the mount raced the
+      // fake round trip — ~1 in 5 runs red, 2026-10-06).
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.text(l10n.servicesEmpty),
+        timeout: const Duration(seconds: 20),
+      );
       expect(
         fb.getSalonMasterServicesCalls,
         greaterThanOrEqualTo(1),
@@ -283,8 +293,6 @@ void main() {
             'the REAL salon-scoped read must have resolved an EMPTY '
             'catalogue, not merely never have been called',
       );
-
-      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
       expect(find.text(l10n.servicesEmpty), findsOneWidget);
       // i18n-finder-ok: asserting the exact localized copy a real
       // read-only viewer sees over a real wire round trip.

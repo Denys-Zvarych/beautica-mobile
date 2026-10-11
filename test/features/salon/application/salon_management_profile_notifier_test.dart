@@ -24,11 +24,14 @@ import 'dart:async';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:dio/dio.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart'
+    show SalonImageSlot;
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -303,6 +306,163 @@ void main() {
       // rendered as a generic "unknown error" regardless of the real
       // network/server/unauthorized cause.
       expect(state.error, isA<NetworkFailure>());
+    });
+  });
+
+  // ── patchImage() — only a SETTLED AsyncData is patchable ────────────────
+  //
+  // Phase 369 audit (MASVS-AUTH LOW, defence in depth): `patchImage` used to
+  // read `state.value`, which keeps the PREVIOUS snapshot through a refetch
+  // or an error, and wrote `AsyncData` back — promoting a stale snapshot to
+  // "resolved" and, on the error path, HIDING the real `AsyncError` behind
+  // patched stale data. Each non-settled case pins BOTH halves: the return is
+  // `false` AND the state keeps its loading / error shape with the URL
+  // un-patched (the stale-promotion bug passed neither).
+  group('patchImage() — only a settled AsyncData is patchable', () {
+    const String kNewLogo = 'https://cdn.beautica.ua/salons/new-logo.webp';
+    final provider = salonManagementProfileProvider(_kSalonId);
+
+    ProviderContainer makeContainer(AuthNotifier Function() auth) {
+      final container = ProviderContainer(
+        retry: (_, _) => null,
+        overrides: [
+          authProvider.overrideWith(auth),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          salonRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      addTearDown(container.dispose);
+      final sub = container.listen(provider, (_, _) {});
+      addTearDown(sub.close);
+      return container;
+    }
+
+    Future<void> settle(ProviderContainer container) async {
+      await container.read(authProvider.future);
+      await container.read(provider.future);
+      expect(container.read(provider).value?.$1.avatarUrl, isNull);
+    }
+
+    setUp(() {
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+    });
+
+    test(
+      'plain AsyncData: patches the logo in place and returns true',
+      () async {
+        when(
+          () => repo.getSalonById(_kSalonId),
+        ).thenAnswer((_) async => _freshSalon);
+        final container = makeContainer(_StubAuthAuthenticated.new);
+        await settle(container);
+
+        final bool patched = container
+            .read(provider.notifier)
+            .patchImage(SalonImageSlot.logo, kNewLogo);
+
+        expect(patched, isTrue);
+        final state = container.read(provider);
+        expect(state, isA<AsyncData<SalonManagementProfileData>>());
+        expect(state.isLoading, isFalse);
+        expect(state.value?.$1.avatarUrl, kNewLogo);
+      },
+    );
+
+    test('refreshing (AsyncData + isLoading, stale value): returns false and '
+        'the state stays loading, un-patched', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final container = makeContainer(_StubAuthAuthenticated.new);
+      await settle(container);
+
+      final Completer<Salon> pending = Completer<Salon>();
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) => pending.future);
+      container.invalidate(provider);
+      container.read(provider);
+      expect(container.read(provider).isLoading, isTrue);
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state.isLoading, isTrue);
+      expect(state.value?.$1.avatarUrl, isNull);
+    });
+
+    test('reloading after an identity change (AsyncLoading carrying the '
+        "previous account's value): returns false and stays loading", () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final auth = _ControllableAuthAuthenticated();
+      final container = makeContainer(() => auth);
+      await settle(container);
+
+      final Completer<Salon> pending = Completer<Salon>();
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) => pending.future);
+      auth.emit(
+        const AuthSession.authenticated(
+          user: User(
+            id: 'owner-2',
+            email: 'owner-2@beautica.ua',
+            role: UserRole.salonOwner,
+          ),
+          accessToken: 'tok-2',
+        ),
+      );
+      await pumpEventQueue();
+      expect(container.read(provider).isLoading, isTrue);
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state, isNot(isA<AsyncData<SalonManagementProfileData>>()));
+      expect(state.isLoading, isTrue);
+      expect(state.value?.$1.avatarUrl, isNull);
+    });
+
+    test('AsyncError carrying a stale value: returns false and the error is '
+        'NOT hidden behind patched stale data', () async {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      final container = makeContainer(_StubAuthAuthenticated.new);
+      await settle(container);
+
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => throw const NetworkFailure());
+      container.invalidate(provider);
+      container.read(provider);
+      await pumpEventQueue();
+      expect(
+        container.read(provider),
+        isA<AsyncError<SalonManagementProfileData>>(),
+      );
+      expect(container.read(provider).hasValue, isTrue, reason: 'stale value');
+
+      final bool patched = container
+          .read(provider.notifier)
+          .patchImage(SalonImageSlot.logo, kNewLogo);
+
+      expect(patched, isFalse);
+      final state = container.read(provider);
+      expect(state, isA<AsyncError<SalonManagementProfileData>>());
+      expect(state.error, isA<NetworkFailure>());
+      expect(state.value?.$1.avatarUrl, isNull);
     });
   });
 
@@ -1670,6 +1830,378 @@ void main() {
         );
       },
     );
+  });
+
+  // ── Phase 384 perf MEDIUM — timed keepAlive across a master-mode trip ──
+  //
+  // An owner's «Профіль» tap (Phase 384) LEAVES the salon shell for owner
+  // master mode, dropping this family's only watcher. Without a cache window
+  // «‹ Салон» refetches `GET /salons/{id}` + `GET …/staff` behind a full
+  // loading frame. The fix mirrors `publicSalonProfileProvider`'s
+  // timed `ref.keepAlive()` (~60 s). Fake clock throughout (fake_async) — the
+  // window is measured on the SAME clock the keepAlive timer runs on.
+  group('Phase 384 — keepAlive window across leaving the shell', () {
+    void stubReads() {
+      when(
+        () => repo.getSalonById(_kSalonId),
+      ).thenAnswer((_) async => _freshSalon);
+      when(() => repo.getSalonStaff(_kSalonId)).thenAnswer((_) async => _staff);
+    }
+
+    test(
+      'SPEC — re-watched 30 s after the last watcher left: NO refetch and '
+      'the first state handed back is already AsyncData (no loading frame)',
+      () {
+        fakeAsync((FakeAsync clock) {
+          stubReads();
+          final ProviderContainer container = _makeContainer(repo);
+          // Pre-warm auth: a family build racing auth's first resolution
+          // rebuilds once on the identity watch, which would add a read that
+          // has nothing to do with the cache window under test.
+          final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+              .listen(authProvider, (_, _) {});
+          addTearDown(auth.close);
+          clock.elapse(const Duration(milliseconds: 1));
+          final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+          shell = container.listen(
+            salonManagementProfileProvider(_kSalonId),
+            (_, _) {},
+          );
+          clock.elapse(const Duration(milliseconds: 1));
+          expect(shell.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+          shell.close(); // the shell route is gone (owner entered master mode)
+          clock.elapse(const Duration(seconds: 30));
+
+          final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+          back = container.listen(
+            salonManagementProfileProvider(_kSalonId),
+            (_, _) {},
+          );
+          addTearDown(back.close);
+          expect(
+            back.read(),
+            isA<AsyncData<SalonManagementProfileData>>(),
+            reason: 'the returning shell must paint cached data on frame 1',
+          );
+          clock.elapse(const Duration(milliseconds: 1));
+          verify(() => repo.getSalonById(_kSalonId)).called(1);
+          verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+        });
+      },
+    );
+
+    test('after the window has long passed (10 min), re-watching DOES '
+        'refetch — the cache is bounded, never a permanent keepAlive', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        // Pre-warm auth: a family build racing auth's first resolution
+        // rebuilds once on the identity watch, which would add a read that
+        // has nothing to do with the cache window under test.
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        addTearDown(auth.close);
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        shell = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(shell.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+        shell.close();
+        clock.elapse(const Duration(minutes: 10));
+
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        back = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        addTearDown(back.close);
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(back.read(), isA<AsyncData<SalonManagementProfileData>>());
+        verify(() => repo.getSalonById(_kSalonId)).called(2);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(2);
+      });
+    });
+
+    // Guard for the fix: with the timed keepAlive in place, pins that the
+    // user-id watch still
+    // evicts a cached-but-unwatched entry when a DIFFERENT account signs in
+    // inside the window (owner A's salon must never paint for owner B).
+    test('an account switch INSIDE the window still evicts — the next watcher '
+        'refetches instead of reading the previous account\'s cache', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final _ControllableAuthAuthenticated authNotifier =
+            _ControllableAuthAuthenticated();
+        final ProviderContainer container = ProviderContainer(
+          overrides: [
+            authProvider.overrideWith(() => authNotifier),
+            secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+            authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+            salonRepositoryProvider.overrideWithValue(repo),
+          ],
+        );
+        addTearDown(container.dispose);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        addTearDown(auth.close);
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        shell = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(shell.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+        shell.close();
+        clock.elapse(const Duration(seconds: 5)); // well inside ~60 s
+        authNotifier.emit(
+          const AuthSession.authenticated(
+            user: User(
+              id: 'owner-2',
+              email: 'other-owner@beautica.ua',
+              role: UserRole.salonOwner,
+            ),
+            accessToken: 'tok-2',
+          ),
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        back = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        addTearDown(back.close);
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(back.read(), isA<AsyncData<SalonManagementProfileData>>());
+        verify(() => repo.getSalonById(_kSalonId)).called(2);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(2);
+      });
+    });
+
+    // Audit cycle 2 (perf + QA MEDIUM) — the window counts from when the LAST
+    // WATCHER LEAVES, not from load. An owner who sits in the shell longer
+    // than the window (the normal case) must still get the cache on «‹ Салон».
+    // A load-armed timer would have expired at +60 s while still watched, so
+    // the leave at +90 s disposes immediately and the return refetches.
+    test('watched for 90 s (longer than the window), left, back 5 s later: '
+        'NO refetch — the countdown starts on leave, not on load', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        shell = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(seconds: 90)); // owner stays in the shell
+        expect(shell.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+        shell.close(); // «Профіль» → owner master mode
+        clock.elapse(const Duration(seconds: 5));
+
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        back = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        expect(
+          back.read(),
+          isA<AsyncData<SalonManagementProfileData>>(),
+          reason: 'the returning shell must paint cached data on frame 1',
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        verify(() => repo.getSalonById(_kSalonId)).called(1);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+
+        back.close();
+        auth.close();
+        container.dispose();
+        expect(
+          clock.pendingTimers,
+          isEmpty,
+          reason: 'dispose must cancel the leave-armed countdown',
+        );
+      });
+    });
+
+    test('watched for 90 s, left, back after the window (61 s): DOES refetch '
+        '— the leave-armed countdown still bounds the cache', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        shell = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(seconds: 90));
+        shell.close();
+        clock.elapse(const Duration(seconds: 61));
+
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        back = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(back.read(), isA<AsyncData<SalonManagementProfileData>>());
+        verify(() => repo.getSalonById(_kSalonId)).called(2);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(2);
+
+        back.close();
+        auth.close();
+        container.dispose();
+        expect(clock.pendingTimers, isEmpty);
+      });
+    });
+
+    // Audit cycle 3 (QA MEDIUM) — `onResume` must DISARM the countdown. A
+    // second master-mode trip: leave, back within the window, then sit in the
+    // shell past the window, leave again, back 5 s later. Without the disarm
+    // the first trip's timer closes the link while the shell is watched, the
+    // second leave disposes immediately and «‹ Салон» refetches.
+    test('second trip: leave, back at +30 s, stay 90 s, leave, back 5 s later: '
+        'NO refetch — returning disarms the first countdown', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        first = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(first.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+        first.close(); // trip 1 out
+        clock.elapse(const Duration(seconds: 30));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        second = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        ); // trip 1 back — must disarm
+        clock.elapse(const Duration(seconds: 90)); // stays past the window
+
+        second.close(); // trip 2 out
+        clock.elapse(const Duration(seconds: 5));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        third = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        expect(
+          third.read(),
+          isA<AsyncData<SalonManagementProfileData>>(),
+          reason: 'the returning shell must paint cached data on frame 1',
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        verify(() => repo.getSalonById(_kSalonId)).called(1);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+
+        third.close();
+        auth.close();
+        container.dispose();
+        expect(clock.pendingTimers, isEmpty);
+      });
+    });
+
+    // Audit cycle 3 (perf LOW) — a PAUSED (offstage) shell counts as "no
+    // active watcher": pausing fires `onCancel`, so a pause longer than the
+    // window closes the link. `onResume` must re-take it (in a microtask —
+    // `keepAlive()` is illegal inside life-cycle callbacks), otherwise the
+    // later real leave disposes immediately and «‹ Салон» refetches.
+    test('paused offstage 90 s, resumed, left, back 5 s later: NO refetch — '
+        'resuming re-takes the link the paused countdown closed', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        clock.elapse(const Duration(milliseconds: 1));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        shell = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(shell.read(), isA<AsyncData<SalonManagementProfileData>>());
+
+        shell.pause(); // another route pushed over the shell
+        clock.elapse(const Duration(seconds: 90)); // outlives the window
+        shell.resume(); // pushed route popped — shell visible again
+        clock.elapse(const Duration(seconds: 10));
+
+        shell.close(); // «Профіль» → owner master mode
+        clock.elapse(const Duration(seconds: 5));
+        final ProviderSubscription<AsyncValue<SalonManagementProfileData>>
+        back = container.listen(
+          salonManagementProfileProvider(_kSalonId),
+          (_, _) {},
+        );
+        expect(
+          back.read(),
+          isA<AsyncData<SalonManagementProfileData>>(),
+          reason: 'the returning shell must paint cached data on frame 1',
+        );
+        clock.elapse(const Duration(milliseconds: 1));
+        verify(() => repo.getSalonById(_kSalonId)).called(1);
+        verify(() => repo.getSalonStaff(_kSalonId)).called(1);
+
+        back.close();
+        auth.close();
+        container.dispose();
+        clock.flushMicrotasks();
+        expect(clock.pendingTimers, isEmpty);
+      });
+    });
+
+    // A build that never gains a lasting listener (a bare `.notifier` read,
+    // e.g. `MySalonsScreen`'s swipe-to-delete) must not be pinned by the
+    // build-time link for the container's lifetime: Riverpod 3's `read` is a
+    // listen-then-close, so `onCancel` arms the same countdown.
+    test('never-watched build (bare .notifier read) is released after the '
+        'window — the next read rebuilds', () {
+      fakeAsync((FakeAsync clock) {
+        stubReads();
+        final ProviderContainer container = _makeContainer(repo);
+        final ProviderSubscription<AsyncValue<AuthSession>> auth = container
+            .listen(authProvider, (_, _) {});
+        clock.elapse(const Duration(milliseconds: 1));
+        container.read(salonManagementProfileProvider(_kSalonId).notifier);
+        clock.elapse(const Duration(seconds: 30));
+        expect(
+          container.exists(salonManagementProfileProvider(_kSalonId)),
+          isTrue,
+          reason: 'inside the window the unwatched entry is still cached',
+        );
+        clock.elapse(const Duration(seconds: 31));
+        expect(
+          container.exists(salonManagementProfileProvider(_kSalonId)),
+          isFalse,
+          reason: 'the leave-armed countdown must release the link',
+        );
+
+        auth.close();
+        container.dispose();
+        expect(clock.pendingTimers, isEmpty);
+      });
+    });
   });
 }
 

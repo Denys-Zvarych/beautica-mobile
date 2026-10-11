@@ -1,0 +1,13 @@
+# Own options: this package is analysed with plain `dart analyze` (the root
+# analysis_options.yaml includes flutter_lints, which this package cannot
+# resolve, and excludes this directory).
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+linter:
+  rules:
+    - curly_braces_in_flow_control_structures
+    - prefer_final_locals
+    - unawaited_futures

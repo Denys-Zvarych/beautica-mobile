@@ -166,6 +166,10 @@ const List<String> kPiiPathPrefixes = <String>[
   // Service update / delete / photo carry a dynamic {serviceDefId} segment and
   // free-text names, so they cannot live in the exact-match [kPiiPaths].
   '/api/v1/services/',
+  // Phase 070 — media upload / delete (`/media/avatar`, `/media/portfolio[/{id}]`).
+  // Multipart bodies are binary photos of people and the success response
+  // carries user-id-bearing object URLs; neither belongs in plain-text logs.
+  '/api/v1/media/',
   // Service-type autocomplete echoes the user's typed free-text query.
   '/api/v1/service-types/suggest',
   // Phase 14.0 — CLIENT booking read/write endpoints. Covers
@@ -248,6 +252,15 @@ const List<String> kPiiPathPrefixes = <String>[
   // `LoggingInterceptor.onRequest` wrote the full PATCH body unredacted via
   // `dart:developer.log()` in debug builds.
   '/api/v1/salons/',
+  // Phase 359 — in-app notification feed. Response bodies carry counterpart /
+  // subject names (PII) and salon names; the prefix also covers
+  // `/unread-count`, `/read-all` and `/{id}/read`.
+  '/api/v1/notifications',
+  // Phase 067 — FCM device-token registration. `POST` / `DELETE
+  // /api/v1/devices/token` bodies carry the raw FCM registration token (a
+  // device-bound credential-class identifier), including in error responses.
+  // A prefix so any future `/devices/*` route is covered too.
+  '/api/v1/devices/',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

@@ -74,6 +74,7 @@ class RevealTransition extends StatelessWidget {
   final Widget child;
 
   @override
+  // dim-decorative: entrance-slice primitive; the caller's controller settles at 1
   Widget build(BuildContext context) => FadeTransition(
     opacity: fade,
     child: SlideTransition(

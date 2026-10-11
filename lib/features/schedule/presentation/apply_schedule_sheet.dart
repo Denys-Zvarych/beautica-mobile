@@ -516,6 +516,7 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
                 ],
 
                 const SizedBox(height: VelvetSpacing.lg),
+                // dim-gated: test/features/schedule/presentation/apply_schedule_sheet_test.dart
                 Opacity(
                   opacity: _hasRange ? 1 : 0.55,
                   child: IgnorePointer(

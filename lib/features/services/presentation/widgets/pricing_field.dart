@@ -506,6 +506,7 @@ class PricingField extends StatelessWidget {
           // Invisible label placeholder — same structure as _PricingInputField's
           // visible label so this column's height matches the sibling's label
           // row exactly, regardless of font metrics or future token changes.
+          // dim-decorative: invisible height-matching spacer; constant 0
           Opacity(
             opacity: 0,
             child: Padding(
@@ -646,6 +647,7 @@ class _PricingModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // dim-gated: test/features/services/presentation/widgets/pricing_field_test.dart
     return Opacity(
       opacity: enabled ? 1.0 : 0.55,
       child: NeumorphicInset(

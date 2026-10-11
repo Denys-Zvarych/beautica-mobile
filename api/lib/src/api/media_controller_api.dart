@@ -12,7 +12,6 @@ import 'package:beautica_api/src/api_util.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_page_media_file_response.dart';
-import 'package:beautica_api/src/model/upload_portfolio_photo_request.dart';
 
 class MediaControllerApi {
   final Dio _dio;
@@ -278,7 +277,7 @@ class MediaControllerApi {
   ///
   ///
   /// Parameters:
-  /// * [uploadPortfolioPhotoRequest]
+  /// * [file]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -289,7 +288,7 @@ class MediaControllerApi {
   /// Returns a [Future] containing a [Response] with a [ApiResponseAvatarResponse] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<ApiResponseAvatarResponse>> uploadAvatar({
-    UploadPortfolioPhotoRequest? uploadPortfolioPhotoRequest,
+    required MultipartFile file,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -307,18 +306,16 @@ class MediaControllerApi {
         'secure': <Map<String, String>>[],
         ...?extra,
       },
-      contentType: 'application/json',
+      contentType: 'multipart/form-data',
       validateStatus: validateStatus,
     );
 
     dynamic _bodyData;
 
     try {
-      const _type = FullType(UploadPortfolioPhotoRequest);
-      _bodyData = uploadPortfolioPhotoRequest == null
-          ? null
-          : _serializers.serialize(uploadPortfolioPhotoRequest,
-              specifiedType: _type);
+      _bodyData = FormData.fromMap(<String, dynamic>{
+        r'file': file,
+      });
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(
@@ -376,7 +373,7 @@ class MediaControllerApi {
   ///
   ///
   /// Parameters:
-  /// * [uploadPortfolioPhotoRequest]
+  /// * [file]
   /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
   /// * [headers] - Can be used to add additional headers to the request
   /// * [extras] - Can be used to add flags to the request
@@ -387,7 +384,7 @@ class MediaControllerApi {
   /// Returns a [Future] containing a [Response] with a [ApiResponseMediaFileResponse] as data
   /// Throws [DioException] if API call or serialization fails
   Future<Response<ApiResponseMediaFileResponse>> uploadPortfolioPhoto({
-    UploadPortfolioPhotoRequest? uploadPortfolioPhotoRequest,
+    required MultipartFile file,
     CancelToken? cancelToken,
     Map<String, dynamic>? headers,
     Map<String, dynamic>? extra,
@@ -405,18 +402,16 @@ class MediaControllerApi {
         'secure': <Map<String, String>>[],
         ...?extra,
       },
-      contentType: 'application/json',
+      contentType: 'multipart/form-data',
       validateStatus: validateStatus,
     );
 
     dynamic _bodyData;
 
     try {
-      const _type = FullType(UploadPortfolioPhotoRequest);
-      _bodyData = uploadPortfolioPhotoRequest == null
-          ? null
-          : _serializers.serialize(uploadPortfolioPhotoRequest,
-              specifiedType: _type);
+      _bodyData = FormData.fromMap(<String, dynamic>{
+        r'file': file,
+      });
     } catch (error, stackTrace) {
       throw DioException(
         requestOptions: _options.compose(

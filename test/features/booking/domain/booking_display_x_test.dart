@@ -25,6 +25,8 @@ Booking _booking({
   DateTime? start,
   double? masterAvgRating,
   int? masterReviewCount,
+  double? clientAvgRating,
+  int? clientReviewCount,
 }) {
   final DateTime startInstant = start ?? DateTime.utc(2026, 7, 20, 15);
   return Booking(
@@ -55,6 +57,8 @@ Booking _booking({
     locationNote: null,
     masterAvgRating: masterAvgRating,
     masterReviewCount: masterReviewCount,
+    clientAvgRating: clientAvgRating,
+    clientReviewCount: clientReviewCount,
   );
 }
 
@@ -439,5 +443,50 @@ void main() {
             'two getters are asymmetric BY DESIGN.',
       );
     });
+  });
+
+  group('clientDisplayRating — the "unrated" shapes fold to null', () {
+    test('null / stale 0.0 / known-zero count / guest are all null', () {
+      expect(
+        _booking(status: BookingStatus.completed).clientDisplayRating,
+        isNull,
+      );
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          clientAvgRating: 0,
+        ).clientDisplayRating,
+        isNull,
+      );
+      expect(
+        _booking(
+          status: BookingStatus.completed,
+          clientAvgRating: 4.8,
+          clientReviewCount: 0,
+        ).clientDisplayRating,
+        isNull,
+      );
+    });
+
+    test(
+      'a real rating survives, including the 1.0 floor and an absent count',
+      () {
+        expect(
+          _booking(
+            status: BookingStatus.completed,
+            clientAvgRating: 1,
+            clientReviewCount: 1,
+          ).clientDisplayRating,
+          1.0,
+        );
+        expect(
+          _booking(
+            status: BookingStatus.completed,
+            clientAvgRating: 4.5,
+          ).clientDisplayRating,
+          4.5,
+        );
+      },
+    );
   });
 }

@@ -112,11 +112,13 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/widgets/reveal_transition.dart';
+import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:beautica_mobile/shared/widgets/staff_identity_card.dart';
 
@@ -333,13 +335,23 @@ class _AdminOwnProfileScreenState extends ConsumerState<AdminOwnProfileScreen>
     return ProfileScaffold(
       title: l10n.adminOwnProfileTitle,
       showBack: !widget.embedded,
-      trailing: NeumorphicIconButton(
-        key: const Key('btn-admin-own-profile-settings'),
-        icon: Icons.tune_rounded,
-        semanticLabel: l10n.adminOwnProfileSettingsSemanticLabel,
-        // Opens the admin's own settings hub — see the file header's THE
-        // TRAILING TUNE note.
-        onTap: () => context.push(RouteNames.adminSettings),
+      // Phase 365 addendum — the global notification bell sits LEFT of the
+      // tune button, the same `bell · button` order and gap as the master
+      // «Мій профіль» header.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const ConnectedNotificationBell(buttonKey: Key('admin-profile-bell')),
+          const SizedBox(width: VelvetSpacing.sm + 4),
+          NeumorphicIconButton(
+            key: const Key('btn-admin-own-profile-settings'),
+            icon: Icons.tune_rounded,
+            semanticLabel: l10n.adminOwnProfileSettingsSemanticLabel,
+            // Opens the admin's own settings hub — see the file header's THE
+            // TRAILING TUNE note.
+            onTap: () => context.push(RouteNames.adminSettings),
+          ),
+        ],
       ),
       // Pull-to-refresh. `clientEditProfileProvider` is a keepAlive singleton,
       // so it is the invalidation target itself; the salon card follows from
@@ -524,6 +536,13 @@ class _AdminProfileBody extends StatelessWidget {
             roleChipKey: const Key('admin-own-profile-role-chip'),
             professionalTitleKey: const Key(
               'admin-own-profile-professional-title',
+            ),
+            // Phase 367 — the OWN photo with the live camera badge (the shared
+            // own-avatar flow); the URL comes from the session user, patched
+            // in place on upload / remove.
+            avatar: SelfAvatarEditor(
+              initials: avatarMonogram(displayName),
+              editorKey: const Key('admin-own-profile-avatar-editor'),
             ),
           ),
         ),

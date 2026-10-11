@@ -809,6 +809,69 @@ void main() {
         expect(find.byIcon(Icons.cloud_off_rounded), findsOneWidget);
       },
     );
+
+    testWidgets('error -> data: the error slot IS the loaded avatar footprint '
+        '(same box, same text start) — no jump on recovery', (tester) async {
+      var attempts = 0;
+      await tester.pumpApp(
+        const PassportScreen(),
+        overrides: <Object>[
+          screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
+          clientProfileProvider.overrideWith((ref) async {
+            if (attempts++ == 0) throw const ServerFailure(statusCode: 500);
+            return _sampleProfile;
+          }),
+          passportProvider.overrideWith((ref) async => _populatedPassport),
+          wishlistRepositoryProvider.overrideWithValue(
+            FakeWishlistRepository(services: _kFiveFavourites),
+          ),
+        ],
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+      final AppLocalizations l10n = await _uk();
+
+      expect(find.byKey(_kProfileError), findsOneWidget);
+      // The glyph well's slot: its nearest SizedBox ancestor.
+      final Size errorSlot = tester.getSize(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.cloud_off_rounded),
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      final Offset errorSlotTopLeft = tester.getTopLeft(
+        find
+            .ancestor(
+              of: find.byIcon(Icons.cloud_off_rounded),
+              matching: find.byType(SizedBox),
+            )
+            .first,
+      );
+      final double errorTextX = tester
+          .getTopLeft(find.text(l10n.homeHubProfileLoadError))
+          .dx;
+
+      await tester.tap(find.byKey(_kProfileRetry));
+      await tester.pumpAndSettle();
+      expect(find.byKey(_kProfileError), findsNothing);
+
+      final Finder editor = find.byKey(const Key('passport-avatar-editor'));
+      expect(editor, findsOneWidget);
+      expect(
+        errorSlot,
+        tester.getSize(editor),
+        reason: 'one source of truth: the error slot is the editor ring box',
+      );
+      expect(errorSlot, const Size.square(104));
+      expect(errorSlotTopLeft, tester.getTopLeft(editor));
+      expect(
+        errorTextX,
+        tester.getTopLeft(find.text(_sampleProfile.fullName)).dx,
+        reason: 'the error column starts where the loaded text column does',
+      );
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -1307,9 +1370,12 @@ void main() {
         );
 
         final RenderParagraph paragraph = cityParagraph(tester);
+        // Phase 367 — `>= 2`, was `2`: the shared own-avatar editor narrowed
+        // this column by 6 dp, so the label may take a third (allowed) line.
+        // The guard is unchanged: maxLines: 1 would cap it to ONE line.
         expect(
           lineCount(paragraph),
-          2,
+          greaterThanOrEqualTo(2),
           reason:
               'the composed label wraps onto a SECOND line — under a '
               'reverted maxLines: 1 it would be capped to one line.',
@@ -1367,9 +1433,12 @@ void main() {
         '${uk.settlementVillagePrefix} Іванівка, Шишацька ${uk.settlementHromadaWord}, Полтавська ${uk.settlementOblastAbbrev}',
       );
 
+      // Phase 367 — `>= 2`, was `2`: the budget is now three lines (see
+      // passport_screen.dart). The guard is unchanged: a reverted maxLines: 1
+      // would collapse it to exactly ONE line.
       expect(
         lineCount(cityParagraph(tester)),
-        2,
+        greaterThanOrEqualTo(2),
         reason:
             'the label must use BOTH allowed lines — under a reverted '
             'maxLines: 1 (the bug this file guards) it would collapse to '

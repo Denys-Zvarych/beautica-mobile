@@ -21,13 +21,11 @@
 // [buildFullAddressLine] locality chain [SalonHubCard] and
 // `_ManagementHeroCard` share, and the same monogram derivation.
 //
-// ── NO LOGO IMAGE ─────────────────────────────────────────────────────────
-// The phase doc asks for `logoUrl`. `Salon.avatarUrl` exists on the domain
-// model but is rendered by NOTHING in the shipped app — every salon mark in
-// Beautica today is [SalonLogo]'s monogram-on-gradient (the hub card, the
-// management hero, the rotate-destination picker). This card follows that
-// convention rather than introducing a second, inconsistent salon mark; when
-// [SalonLogo] learns to paint a real logo, this call site inherits it.
+// ── LOGO IMAGE ────────────────────────────────────────────────────────────
+// Phase 369 (9.8) — [SalonLogo] now paints the salon's uploaded logo
+// (`Salon.avatarUrl`), falling back to the monogram-on-gradient; this card
+// passes it like every other salon mark (hub card, management hero, rotate
+// picker, public profile).
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -96,7 +94,11 @@ class SalonAffiliationCard extends ConsumerWidget {
       padding: const EdgeInsets.all(VelvetSpacing.md),
       child: Row(
         children: <Widget>[
-          SalonLogo(diameter: VelvetSizes.affiliationLogo, monogram: monogram),
+          SalonLogo(
+            diameter: VelvetSizes.affiliationLogo,
+            monogram: monogram,
+            imageUrl: salon.avatarUrl,
+          ),
           const SizedBox(width: VelvetSpacing.md),
           Expanded(
             child: Column(

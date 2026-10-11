@@ -28,6 +28,11 @@ import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
 import 'master_bookings_working_hours_window_flow_test.dart'
     as master_bookings_working_hours_window;
 import 'master_create_booking_test.dart' as master_create_booking;
+import 'master_avatar_upload_test.dart' as master_avatar_upload;
+import 'owner_admin_avatar_upload_test.dart' as owner_admin_avatar_upload;
+import 'salon_logo_cover_owner_test.dart' as salon_logo_cover_owner;
+import 'salon_logo_surfaces_flow_test.dart' as salon_logo_surfaces_flow;
+import 'own_avatar_surface_matrix_test.dart' as own_avatar_surface_matrix;
 import 'master_home_add_services_flow_test.dart' as master_home_add_services;
 import 'master_leave_client_feedback_flow_test.dart'
     as master_leave_client_feedback;
@@ -81,6 +86,16 @@ import 'settings_change_password_flow_test.dart' as settings_change_password;
 import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
+import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
+import 'notification_bell_flow_test.dart' as notification_bell;
+import 'notification_tap_to_detail_flow_test.dart'
+    as notification_tap_to_detail;
+import 'notifications_flow_test.dart' as notifications;
+import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notifications_provider_flow_test.dart' as notifications_provider;
+import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
+import 'pending_actions_count_wiring_test.dart' as pending_actions_count;
+import 'salon_staff_client_review_flow_test.dart' as salon_staff_client_review;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
@@ -347,4 +362,27 @@ void main() {
   // surviving the context.pop() that follows it, and single-slot
   // pre-emption against a real (non-same-tick) second trigger.
   group('velvet_snack_flow', velvet_snack.main);
+  // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
+  group('media_avatar_upload_flow', media_avatar_upload.main);
+  group('master_avatar_upload', master_avatar_upload.main);
+  // Phase 367 — own-avatar for owner/admin/client + role × surface matrix.
+  group('owner_admin_avatar_upload', owner_admin_avatar_upload.main);
+  group('salon_logo_cover_owner', salon_logo_cover_owner.main);
+  group('salon_logo_surfaces_flow', salon_logo_surfaces_flow.main);
+  group('own_avatar_surface_matrix', own_avatar_surface_matrix.main);
+  group('notification_bell_flow', notification_bell.main);
+  // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
+  group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
+  group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
+  // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
+  group('notifications_flow', notifications.main);
+  // Phase 365 — a BOOKING_CREATED / INVITE_ACCEPTED tap for every provider role.
+  group('notifications_provider_flow', notifications_provider.main);
+  // Phase 365 — one owner, two salons, one global feed.
+  group('owner_multi_salon_feed_flow', owner_multi_salon_feed.main);
+  // Phase 393 — pendingBookingActionsCountProvider wire-up.
+  group('pending_actions_count_wiring', pending_actions_count.main);
+  // Phase 386 — owner/admin rate the client (wired late, 393).
+  group('salon_staff_client_review_flow', salon_staff_client_review.main);
 }

@@ -80,6 +80,20 @@
 // `AppHarness.pumpUntilFound`/`pumpUntilCondition` (bounded, real
 // wall-clock) or a bounded fixed-count pump loop, mirroring that file.
 //
+// PHASE 377 (24.4) — OWNER-PERFORMED IDENTITY LOCK (two tests at the bottom).
+// Backend 345 403s a SALON_ADMIN's shared-definition PATCH for a definition
+// the salon OWNER actively performs; the app must lock name/category/type and
+// send ONLY the per-master band PATCH. Driven through the SAME real tap chain
+// as the journey above, with `FakeBackend.seedAdminOwnerPerforms` (opt-in; the
+// default `salon-admin-1` roster has no owner row, so the journey above and
+// every other flow resolves `unlocked` exactly as before). The fake counts the
+// band PATCH (`updateMasterBandCalls`) and the shared-definition PATCH
+// (`patchSharedDefinitionCalls`) separately, so "NO definition PATCH" is a
+// counted zero on the wire, not an absence inferred from the UI.
+// The spec's other item — an admin deep link to the OWNER's services list is
+// read-only — is already pinned end-to-end by
+// `salon_staff_settings_admin_gate_flow_test.dart` (phase 371); not repeated.
+//
 // KEY POLICY: navigation taps use key-based finders only. No
 // `find.text(cyrillic)` anywhere in this file (`forbid_cyrillic_finder.sh`).
 
@@ -507,5 +521,259 @@ void main() {
       });
     },
     timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  // ── Phase 377 (24.4) — owner-performed identity lock ────────────────────
+
+  const String kSeededDefId = 'salon-admin-def-1';
+  const String kSeededAssignId = 'salon-admin-assign-1';
+
+  /// Real tap chain: admin shell -> «Персонал» -> master card -> «Послуги»
+  /// row -> list -> the PRE-SEEDED card -> the edit form (not the pending
+  /// scaffold: waits for the form key).
+  Future<void> openSeededServiceEdit(
+    WidgetTester tester,
+    FakeBackend fb,
+  ) async {
+    await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.salonAdmin);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('salon-nav-tile-2')),
+      timeout: const Duration(seconds: 20),
+    );
+    await tapWhenReady(tester, find.byKey(const Key('salon-nav-tile-2')));
+    final Finder masterCard = find.byKey(
+      const Key('salon-manage-staff-card-$_kMemberUserId'),
+    );
+    await AppHarness.revealRosterCard(tester, masterCard);
+    await tapWhenReady(tester, masterCard);
+    final Finder servicesRow = find.byKey(
+      const Key('salon-staff-profile-services-row'),
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      servicesRow,
+      timeout: const Duration(seconds: 20),
+    );
+    await lockstepPump(tester);
+    await tapWhenReady(tester, servicesRow);
+
+    final Finder nails = find.byKey(const Key('category_section_NAILS'));
+    await AppHarness.pumpUntilFound(
+      tester,
+      nails,
+      timeout: const Duration(seconds: 20),
+    );
+    final Finder card = find.byKey(const Key('service_card_$kSeededAssignId'));
+    if (card.evaluate().isEmpty) await tapWhenReady(tester, nails);
+    await AppHarness.pumpUntilFound(
+      tester,
+      card,
+      timeout: const Duration(seconds: 20),
+    );
+    await tapWhenReady(tester, card);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('service-edit-form-$kSeededAssignId')),
+      timeout: const Duration(seconds: 20),
+    );
+  }
+
+  Finder nameEditor() => find.descendant(
+    of: find.byKey(const Key('field-service-name')),
+    matching: find.byType(TextField),
+  );
+
+  Finder priceEditor() => find.descendant(
+    of: find.byKey(const Key('pricing-fixed-amount')),
+    matching: find.byType(TextField),
+  );
+
+  testWidgets(
+    'SALON_ADMIN: a shared service the OWNER also performs -> hint shown, '
+    'name locked, price saves via the band PATCH ONLY (no definition PATCH)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.salonAdmin
+          ..seedAdminOwnerPerforms(<String>{kSeededDefId});
+
+        await openSeededServiceEdit(tester, fb);
+
+        // The lock verdict came from the REAL owner reads, not a default.
+        expect(
+          fb.getAdminOwnerServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the lock must be derived from the owner\'s catalogue read',
+        );
+
+        final Finder hint = find.byKey(
+          const Key('service-edit-identity-locked-hint'),
+        );
+        await AppHarness.pumpUntilFound(
+          tester,
+          hint,
+          timeout: const Duration(seconds: 20),
+        );
+        final AppLocalizations l10n = AppLocalizations.of(tester.element(hint));
+        expect(
+          find.descendant(
+            of: hint,
+            matching: find.text(l10n.serviceEditOwnerPerformedHint),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('field-service-name')),
+          findsOneWidget,
+          reason: 'the name row is rendered (as a value) ...',
+        );
+        expect(nameEditor(), findsNothing, reason: '... but NOT editable');
+
+        // A price change still saves.
+        await tester.ensureVisible(priceEditor());
+        await tester.enterText(priceEditor(), '555');
+        await tester.pump();
+        await tapWhenReady(tester, find.byKey(const Key('btn-submit-service')));
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.updateMasterBandCalls >= 1,
+          description: 'the per-master band PATCH to reach the fake backend',
+          timeout: const Duration(seconds: 20),
+        );
+
+        expect(fb.updateMasterBandCalls, 1);
+        expect(
+          fb.lastBandPatchPath,
+          '$_kSalonServicesUri/$kSeededDefId',
+          reason: 'band PATCH must target the admin salon / master row / def',
+        );
+        expect(fb.lastBandPatchBody?['price'], 555);
+        expect(
+          fb.patchSharedDefinitionCalls,
+          0,
+          reason:
+              'backend 345 would 403 a definition PATCH for an owner-performed '
+              'definition — none may be sent',
+        );
+        expect(
+          fb.salonResolvedPrice(_kMasterRowId, kSeededDefId),
+          555,
+          reason: 'the 2xx band write is observable in the fake state',
+        );
+        // Drain the pop + success snack so no timer outlives the test.
+        await lockstepPump(tester, times: 6);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  testWidgets(
+    'SALON_ADMIN: a service the owner does NOT perform -> no hint, name '
+    'editable, a rename reaches the definition PATCH (control for the lock)',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        // Owner row present and its catalogue loaded — but it performs a
+        // DIFFERENT definition, so the lock must key on membership.
+        final fb = FakeBackend()
+          ..currentRole = UserRole.salonAdmin
+          ..seedAdminOwnerPerforms(<String>{'some-other-owner-def'});
+
+        await openSeededServiceEdit(tester, fb);
+
+        expect(
+          fb.getAdminOwnerServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the owner catalogue was read and did not contain this def',
+        );
+        expect(
+          find.byKey(const Key('service-edit-identity-locked-hint')),
+          findsNothing,
+        );
+        expect(nameEditor(), findsOneWidget);
+
+        await tester.ensureVisible(nameEditor());
+        await tester.enterText(nameEditor(), 'Renamed by admin');
+        await tester.pump();
+        await tapWhenReady(tester, find.byKey(const Key('btn-submit-service')));
+        await AppHarness.pumpUntilCondition(
+          tester,
+          () => fb.updateMasterBandCalls >= 1,
+          description: 'the save to complete (band PATCH is the last call)',
+          timeout: const Duration(seconds: 20),
+        );
+
+        expect(fb.patchSharedDefinitionCalls, 1);
+        expect(fb.lastSharedDefinitionPatchBody?['name'], 'Renamed by admin');
+        expect(fb.updateMasterBandCalls, 1);
+        await lockstepPump(tester, times: 6);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  testWidgets(
+    'SALON_ADMIN: owner catalogue read ERRORS (lock fails open) and the '
+    'shared-definition PATCH 403s -> the snack explains it with the '
+    'owner-performed copy, not the generic server error',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb =
+            FakeBackend(adminOwnerCatalogueErrorsAndDefinitionPatch403: true)
+              ..currentRole = UserRole.salonAdmin
+              ..seedAdminOwnerPerforms(<String>{kSeededDefId});
+
+        await openSeededServiceEdit(tester, fb);
+
+        expect(
+          fb.getAdminOwnerServicesCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the owner catalogue read was attempted (and errored)',
+        );
+        // Fail-open: no hint, the name IS editable.
+        expect(
+          find.byKey(const Key('service-edit-identity-locked-hint')),
+          findsNothing,
+        );
+        expect(nameEditor(), findsOneWidget);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byKey(const Key('field-service-name'))),
+        );
+
+        await tester.ensureVisible(nameEditor());
+        await tester.enterText(nameEditor(), 'Renamed by admin');
+        await tester.pump();
+        await tapWhenReady(tester, find.byKey(const Key('btn-submit-service')));
+
+        final Finder ownerHint = find.text(l10n.serviceEditOwnerPerformedHint);
+        await AppHarness.pumpUntilFound(
+          tester,
+          ownerHint,
+          timeout: const Duration(seconds: 20),
+        );
+
+        expect(
+          ownerHint,
+          findsOneWidget,
+          reason: 'with no lock card shown, this is the 403 snack',
+        );
+        expect(find.text(l10n.errServer), findsNothing);
+        expect(
+          fb.patchSharedDefinitionCalls,
+          1,
+          reason: 'the identity PATCH WAS sent (and refused) — fail-open',
+        );
+        expect(
+          find.byKey(const Key('service-edit-form-$kSeededAssignId')),
+          findsOneWidget,
+          reason: 'a failed save stays on the form',
+        );
+        // Drain the snack timer.
+        await lockstepPump(tester, times: 30);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
   );
 }

@@ -37,6 +37,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/data/client_review_repository.dart';
@@ -145,6 +146,7 @@ void main() {
       required Future<Booking> Function(Ref ref) detail,
       _MockClientReviewRepository? repo,
       ClientReviewEntry entry = ClientReviewEntry.bookingDetail,
+      List<Object> extraOverrides = const <Object>[],
     }) async {
       final _MockClientReviewRepository r =
           repo ?? _MockClientReviewRepository();
@@ -191,6 +193,7 @@ void main() {
           screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
           clientReviewRepositoryProvider.overrideWithValue(r),
           bookingDetailProvider(_bookingId).overrideWith(detail),
+          ...extraOverrides,
         ],
       );
       await tester.pumpAndSettle();
@@ -480,6 +483,59 @@ void main() {
 
       await pumpPastVelvetSnack(tester);
     });
+
+    // Phase 394 (24.7b) — falsifiable: before this phase the ARCHIVE entry
+    // invalidated nothing, so the pending-actions count went stale after a
+    // review. Both entries must refetch it.
+    for (final ClientReviewEntry entry in ClientReviewEntry.values) {
+      testWidgets('a successful submit from the $entry entry refetches the '
+          'pending-actions count', (tester) async {
+        const PendingActionsScope scope = PendingActionsScope.me(
+          asMaster: false,
+        );
+        final repo = _MockClientReviewRepository();
+        when(
+          () => repo.createClientReview(
+            bookingId: any(named: 'bookingId'),
+            rating: any(named: 'rating'),
+            comment: any(named: 'comment'),
+          ),
+        ).thenAnswer((_) async {});
+        int countFetches = 0;
+        await pumpFeedback(
+          tester,
+          repo: repo,
+          entry: entry,
+          detail: (ref) async => _booking(),
+          extraOverrides: <Object>[
+            pendingBookingActionsCountProvider.overrideWith((ref, scope) async {
+              countFetches++;
+              return 1;
+            }),
+          ],
+        );
+        // A live listener, as «Записи» is while the review route is on top.
+        final ProviderContainer container = ProviderScope.containerOf(
+          tester.element(find.byType(LeaveClientFeedbackScreen)),
+          listen: false,
+        );
+        final sub = container.listen(
+          pendingBookingActionsCountProvider(scope),
+          (_, _) {},
+        );
+        addTearDown(sub.close);
+        await tester.pump();
+        expect(countFetches, 1);
+
+        await tester.tap(find.byKey(const ValueKey<String>('review-star-4')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('leave-client-feedback-submit')));
+        await tester.pumpAndSettle();
+
+        expect(countFetches, 2);
+        await pumpPastVelvetSnack(tester);
+      });
+    }
 
     testWidgets('a 409 does NOT pop, and backing out afterwards reports '
         '`true` so the archive still drops the stale row', (tester) async {
