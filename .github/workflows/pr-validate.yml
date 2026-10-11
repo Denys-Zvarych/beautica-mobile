@@ -14,12 +14,8 @@ on:
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, dev]
-  # Phase 396 — NO `schedule:` here, deliberately. A `schedule` event always runs
-  # the workflow file from the DEFAULT branch (main) but the nightly wants to
-  # test dev's code; the resulting workflow/code skew broke the patrol job for
-  # four nights running. The nightly is now `.github/workflows/nightly.yml`,
-  # which dispatches THIS workflow on `dev` so workflow and code come from the
-  # same branch. Guarded by scripts/forbid_schedule_in_pr_validate.sh.
+  # Phase 396: NO `schedule:` here; nightly.yml dispatches this workflow on dev.
+  # why: docs/ci/README.md#triggers-no-schedule
   workflow_dispatch:
     inputs:
       reason:
@@ -32,18 +28,8 @@ on:
 permissions:
   contents: read
 
-# Phase 396 D4 — a superseded PR push stops burning 50-114 min of runner time.
-# Only pull_request runs are cancellable; dev/main pushes, manual and nightly
-# dispatches are never cancelled by a newer run.
-#
-# Group suffixes (audit 2026-10-10):
-#   * `labeled` events for labels other than full-ci / run-patrol get their OWN
-#     fixed `-noop` group per PR, so adding e.g. `bug` never cancels the
-#     in-flight real run; a newer noop run cancels the older one (one mirror
-#     poller per PR, not one per label). The run itself is a no-op (every job
-#     below is gated on the same condition).
-#   * workflow_dispatch gets run_id, so a manual dispatch can never replace the
-#     pending nightly (a group holds one running + one pending run).
+# Phase 396 D4: only pull_request runs cancel; noop labels / dispatches get their own group.
+# why: docs/ci/README.md#concurrency
 concurrency:
   group: >-
     pr-validate-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}${{
@@ -53,27 +39,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Plan (phase 397) — the ONE place that owns the diff and the run mode.
-  #
-  #   mode   full       push (dev/main), workflow_dispatch (manual + nightly),
-  #                     PRs labelled `full-ci`, any failed diff computation,
-  #                     any CI-machinery change (guard), a selector FULL
-  #                     verdict, or ANY selector/selection failure (phase 400 D7)
-  #          selective  the selector's explicit lists (unit / golden / tz /
-  #                     integration), consumed by the unit / tz-sweeps / goldens jobs (phases 400, 402)
-  #          none       nothing selectable changed (docs-only): gates only (D5)
-  #   native true|false PR touches a native surface (patrol gate; the globs of
-  #                     the retired `changes` job)
-  #   *_count           list sizes, so consumers decide with `if:` (D1)
-  #
-  # Only THIS job does a full-history checkout (fetch-depth: 0, pull_request
-  # only); every other job keeps its shallow checkout. (Phase 401 audit P1: a
-  # bounded window was measured and dropped, see the phase 401 doc D7.) All logic lives in tool/ci/plan.sh and is
-  # table-tested by scripts/test/plan_sh_test.sh (run by verify_guards.sh).
-  # Phase 400 added the selector steps (base-owned, from trusted/); 402 adds
-  # the unit shard lists + matrix outputs (tool/ci/shard_units.sh, base-owned).
-  # ---------------------------------------------------------------------------
+  # plan (phase 397): owns the diff, the run mode (full | selective | none), the unit shards.
+  # why: docs/ci/README.md#job-plan
   plan:
     name: Plan (mode + diff)
     runs-on: ubuntu-latest
@@ -100,12 +67,8 @@ jobs:
       integration_count: ${{ steps.sel.outputs.integration_count }}
       # unit + golden + tz: what the test jobs run (tests-ran expectation).
       test_count: ${{ steps.sel.outputs.test_count }}
-      # Phase 402 D2/D3/D3a: the `unit` matrix. JSON array fed to
-      # fromJSON(): [1,2,3,4] (full), [1..N] (selective, N = ceil(count/80),
-      # max 4), [1] (nothing to run: the job is skipped by its own `if`) or
-      # ["whole"] (sharding unavailable: ONE job runs the pre-sharding command).
-      # unit_shard_count is N (1 for "whole", 0 when nothing runs). Both come
-      # from the base-owned tool/ci/shard_units.sh; tests-ran re-proves them.
+      # Phase 402 D2/D3/D3a: `unit` matrix JSON + shard count from base-owned shard_units.sh.
+      # why: docs/ci/README.md#plan-unit-shards-output
       unit_shards: ${{ steps.shard.outputs.unit_shards || '[1]' }}
       unit_shard_count: ${{ steps.shard.outputs.unit_shard_count || '0' }}
       # tz-sweeps matrix (D1): the Kyiv DST leg only when its file can run.
@@ -113,14 +76,8 @@ jobs:
       base: ${{ steps.plan.outputs.base }}
       head: ${{ steps.plan.outputs.head }}
     steps:
-      # TRUST MODEL (security review 2026-10-10). On pull_request the PR can
-      # edit any file in its own checkout, including this planner and (phase
-      # 400) the selector + rules.yaml; a PR that makes the selector say
-      # "none" would pass ci-gate with zero tests. So the planner/selector run
-      # from `trusted/` = the BASE commit, against the PR tree in `pr/`.
-      # (The workflow file itself is the PR's own on pull_request; protect it
-      # with CODEOWNERS / required review on .github/**.)
-      # For push / workflow_dispatch both checkouts are the same trusted ref.
+      # TRUST MODEL: planner + selector run from `trusted/` (BASE commit) against `pr/`.
+      # why: docs/ci/README.md#plan-trust-model
       - name: Checkout trusted tooling (base commit)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
@@ -201,11 +158,8 @@ jobs:
             esac
             return 1
           }
-          # Paths that must never appear in a PR diff: build output / tool cache
-          # (gitignored; a committed one is a planted file or symlink aimed at
-          # CI output paths) and a top-level trusted/ (the integration job checks
-          # the base commit out at that name; a PR-made one would shadow it). Fail the plan rather than force-full: there is no
-          # legitimate case, so red is the right signal. Also table-tested.
+          # Never-committed paths (build/, .dart_tool/, trusted/) fail the plan; not force-full.
+          # why: docs/ci/README.md#plan-guard-forbidden
           is_forbidden() {
             case "$1" in
               build/* | .dart_tool/* | trusted | trusted/*) return 0 ;;
@@ -238,24 +192,9 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-      # Phase 400 D1 — the affected-test selector (phase 398), run from the
-      # BASE commit (trusted/) against the PR tree, only when plan + guard
-      # still say `selective`. Plain `dart` (no Flutter): the selector is its
-      # own package so analyzer never constrains the app's codegen toolchain.
-      # D8: no cache feeds the selector (PR-scope cache poisoning); uncached dart pub get from trusted/.
-      # Phase 402: unconditional (was selective-only). A FULL run now needs the
-      # selector too: `--all` + `--shard-list` produce the 4 unit shard lists.
-      #
-      # Phase 402 D10 (architect 2026-10-11): these two steps run on EVERY plan
-      # because a FULL run needs `--all` + `--shards-for full`. In FULL mode a
-      # failure here (a transient pub.dev / setup-dart outage) must not turn
-      # `plan` red: the shard step then finds no usable selector and degrades to
-      # `unit_shards=["whole"]` (a strict superset of the tests, so it cannot
-      # under-select) with a ::warning::. In SELECTIVE (and none) mode the
-      # expression is false: a failed Dart setup stays a hard failure, because a
-      # selector that cannot run must never be papered over there. `guard` only
-      # exists on pull_request; elsewhere its output is empty and the plan's own
-      # mode decides. Both expressions are pinned in workflow_wiring_test.dart.
+      # Phase 400 D1/D8 + 402 D10: uncached selector Dart from trusted/ on EVERY plan; a failure
+      # is tolerated in FULL mode only (degrades to ["whole"]). Pinned in workflow_wiring_test.
+      # why: docs/ci/README.md#plan-selector-setup
       - name: Set up Dart (selector)
         continue-on-error: ${{ (steps.guard.outputs.mode || steps.plan.outputs.mode) == 'full' }}
         uses: dart-lang/setup-dart@6afc89df92d6eb3834022f73cd65adc8cdfcb92d  # v1.8.1
@@ -267,20 +206,15 @@ jobs:
         continue-on-error: ${{ (steps.guard.outputs.mode || steps.plan.outputs.mode) == 'full' }}
         shell: bash
         run: |
-          # Bootstrap (base predates the selector): nothing to fetch; the next
-          # step then finds no base selector and forces FULL.
-          # D7 fail-safe: a failed fetch must not turn the job red; the
-          # selector then exits non-zero and the next step forces FULL (and
-          # the shard step falls back to one whole-suite unit job).
+          # Bootstrap / D7: a missing or failed fetch never turns the job red (forces FULL).
+          # why: docs/ci/README.md#plan-selector-pubget
           d="$GITHUB_WORKSPACE/trusted/tool/ci/affected_tests"
           if [ -f "$d/pubspec.yaml" ]; then
             (cd "$d" && dart pub get --enforce-lockfile) || echo "::warning::selector pub get failed; the selector will force mode=full (D7)"
           fi
 
-      # The ONE final verdict (job outputs read only this step). D7 fail-safes:
-      # selector exit != 0 (64 usage / 70 internal / anything), missing or
-      # invalid selection.json, or a base without the selector/resolver =>
-      # mode=full. --base-ref is the plan's MERGE-BASE, never the branch tip.
+      # The ONE final verdict (job outputs read only this). D7: any selector failure => full.
+      # why: docs/ci/README.md#plan-select-verdict
       - name: Select tests (selector from the BASE commit)
         id: sel
         shell: bash
@@ -317,13 +251,8 @@ jobs:
             --out "$sel_dir/selection.json") || rc=$?
           bash "$trusted/resolve_selection.sh" "$rc" "$sel_dir/selection.json"
 
-      # Phase 402 D2/D3/D3a — the unit shard lists, from the BASE commit's
-      # tool/ci/shard_units.sh + selector (the `unit` jobs run PR code, so they
-      # only CONSUME these lists). Full: `--all` split 4 ways. Selective:
-      # ceil(unit_count / UNIT_WARN_THRESHOLD) shards, max 4; the threshold is
-      # the resolver's own output, never a second literal here. FAIL-SAFE: every
-      # failure ends in a runnable shape (full -> one whole-suite job,
-      # selective -> one shard with the whole list); this step never goes red.
+      # Phase 402 D2/D3/D3a: unit shard lists from base-owned shard_units.sh; never red.
+      # why: docs/ci/README.md#plan-shard
       - name: Shard unit tests (script from the BASE commit)
         id: shard
         shell: bash
@@ -366,17 +295,8 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # ---------------------------------------------------------------------------
-  # gates-fast (audit F1, phase 402) — the grep/awk-only static guards, with NO
-  # Flutter, Dart or Java: checkout and go. A forbid_* violation goes red here
-  # in ~1 min instead of waiting behind the ~3 min Flutter setup + codegen +
-  # OpenAPI check of `gates` (acceptance 3: gate violation red in <= 6 min).
-  # Every guard here was verified to give the same verdict on a tree WITHOUT
-  # generated files and on a PATH with no dart/flutter; the two that cannot
-  # (forbid_raw_ui_strings runs `dart`, forbid_bare_keepalive_family_invalidation
-  # reads *.g.dart) and verify_guards.sh --self-test stay in `gates`.
-  # Starts at once like `gates` (D6: no `needs: plan`).
-  # ---------------------------------------------------------------------------
+  # gates-fast (audit F1, phase 402): grep/awk-only guards, no Flutter/Dart/Java (~1 min).
+  # why: docs/ci/README.md#job-gates-fast
   gates-fast:
     name: Static guards (no Flutter)
     runs-on: ubuntu-latest
@@ -391,43 +311,26 @@ jobs:
         with:
           persist-credentials: false
 
-      # Phase 1.2 spacing scale gate — every padding literal must reference
-      # `AppSpacing.*` from `lib/core/theme/app_spacing.dart`. The check
-      # itself lives in `scripts/forbid_magic_padding.sh` so regex churn
-      # stays out of CI YAML. The script exits 0 when no offenders are
-      # found, 1 the moment a raw numeric `EdgeInsets(...)` shows up
-      # under `lib/`. Documented in `analysis_options.yaml`.
+      # Phase 1.2: every padding literal uses AppSpacing.*.
+      # why: docs/ci/static-guards.md#magic-padding
       - name: Forbid magic padding numbers
         shell: bash
         run: ./scripts/forbid_magic_padding.sh
 
-      # 2026-06-18 cycle-safeguard — forbid un-annotated cross-provider
-      # self-invalidation inside notifiers. A `ref.invalidate(otherProvider)` /
-      # `ref.refresh(otherProvider)` from inside a Notifier can close a watch
-      # cycle (CircularDependencyError, debug-only / stripped in release). The
-      # check lives in scripts/forbid_provider_self_invalidation.sh (regex +
-      # rationale documented there, not in this YAML). Each legitimate call is
-      # unblocked by a `// cycle-safe: <reason>` annotation, never by weakening
-      # the gate. Exits 0 when clean, 1 on the first un-annotated offender.
+      # 2026-06-18: no un-annotated cross-provider invalidate/refresh inside notifiers.
+      # why: docs/ci/static-guards.md#provider-self-invalidation
       - name: Forbid un-annotated provider self-invalidation
         shell: bash
         run: ./scripts/forbid_provider_self_invalidation.sh
 
-      # 2026-06-18 cycle-safeguard — forbid stubbing the cycle-closing providers
-      # in notifier/integration tests. The 2026-06-18 logout regression shipped
-      # because those tests stubbed masterProfile/servicesList/serviceRepository,
-      # breaking the real watch edge so the debug cycle assert had nothing to
-      # fire on. The check lives in scripts/forbid_cycle_stub_in_tests.sh; each
-      # legitimate stub is unblocked by a `// cycle-stub-ok: <reason>` annotation.
+      # 2026-06-18: no stubs of the cycle-closing providers in notifier/integration tests.
+      # why: docs/ci/static-guards.md#cycle-stub-in-tests
       - name: Forbid cycle-closing-provider stubs in notifier/integration tests
         shell: bash
         run: ./scripts/forbid_cycle_stub_in_tests.sh
 
-      # 2026-06-18 — self-test the two cycle-guard gates above. Their awk
-      # comment/multiline detection is load-bearing; this pins it against
-      # fixture snippets (plain offender → flagged, annotated → pass, plus each
-      # former known false-negative from findings 1/2/4 → now flagged). Pure
-      # bash + awk, no extra dependency. See scripts/test/test_cycle_gates.sh.
+      # 2026-06-18: self-test of the two cycle-guard gates above.
+      # why: docs/ci/static-guards.md#cycle-gates-self-test
       - name: Self-test cycle-guard gates
         shell: bash
         run: ./scripts/test/test_cycle_gates.sh
@@ -445,40 +348,26 @@ jobs:
             echo "::endgroup::"
           done
 
-      # 2026-06-24 drift-prevention gate — CLIENT branch-root screens must reuse
-      # the shared ClientTopBar; a per-screen Scaffold(appBar:)/AppBar() re-lays
-      # out the wordmark and makes it jump on tab hop. The check lives in
-      # scripts/forbid_client_branch_appbar.sh (enumerated branch roots +
-      # rationale documented there). Each legitimate bar is unblocked by a
-      # `// client-chrome-ok: <reason>` annotation. Exits 0 clean, 1 on offense.
+      # 2026-06-24: CLIENT branch-root screens reuse ClientTopBar, no per-screen AppBar.
+      # why: docs/ci/static-guards.md#client-branch-appbar
       - name: Forbid AppBar in CLIENT branch-root screens
         shell: bash
         run: ./scripts/forbid_client_branch_appbar.sh
 
-      # 2026-06-24 drift-prevention gate — forbid Cyrillic find.text('…') finders
-      # in tests; they become findsNothing failures the day EN ships. Locate by
-      # Key / semantics / AppLocalizations instead. Legacy files predating the
-      # gate are grandfathered in scripts/.cyrillic_finder_allow (ratchet — the
-      # baseline only shrinks); new exceptions use `// i18n-finder-ok: <reason>`.
+      # 2026-06-24: no Cyrillic find.text finders in tests (ratchet allow-list).
+      # why: docs/ci/static-guards.md#cyrillic-finder
       - name: Forbid Cyrillic find.text finders in tests
         shell: bash
         run: ./scripts/forbid_cyrillic_finder.sh
 
-      # 2026-06-24 drift-prevention gate — forbid fixed pump/pumpAndSettle(const
-      # Duration(...)) sleeps in tests; they are flaky (too short → red on slow
-      # CI, too long → slow suite). Prefer pump-until-condition. Legacy files are
-      # grandfathered in scripts/.fixed_wait_allow (ratchet — baseline only
-      # shrinks); new exceptions use `// fixed-wait-ok: <reason>`.
+      # 2026-06-24: no fixed-duration pump waits in tests (ratchet allow-list).
+      # why: docs/ci/static-guards.md#fixed-wait
       - name: Forbid fixed-duration pump waits in tests
         shell: bash
         run: ./scripts/forbid_fixed_wait.sh
 
-      # Phase 361 audit (perf P2) — a test that imports a header/shell widget
-      # (which mounts the live notification bell) must build its container with
-      # `makeTestContainer` (test/helpers/test_container.dart), never a raw
-      # `ProviderContainer(`: the real notifier's 60 s poll timer would leak
-      # past the pending-timer check. Exceptions: FILE:LINE in
-      # scripts/.raw_container_with_header_allow.
+      # Phase 361 audit (perf P2): header-importing tests use makeTestContainer.
+      # why: docs/ci/static-guards.md#raw-container-with-header
       - name: Forbid raw ProviderContainer in header-importing tests
         shell: bash
         run: ./scripts/forbid_raw_container_with_header.sh
@@ -490,22 +379,14 @@ jobs:
         shell: bash
         run: ./scripts/forbid_google_services_json.sh
 
-      # 2026-06-24 fixture-footgun gate — a test that mounts ServiceForm( must
-      # also override approvedCategoriesProvider. That provider sources from the
-      # REAL Dio (not serviceRepositoryProvider); an un-overridden mount leaks a
-      # 15s connect-timeout Timer AND paints the category field's error ring at
-      # rest (silently-wrong golden). Bit 3 fixtures already. Exceptions use
-      # `// approved-categories-ok: <reason>`.
+      # 2026-06-24: a ServiceForm test must override approvedCategoriesProvider.
+      # why: docs/ci/static-guards.md#unmocked-approved-categories
       - name: Forbid unmocked approvedCategoriesProvider in ServiceForm tests
         shell: bash
         run: ./scripts/forbid_unmocked_approved_categories.sh
 
-      # 2026-07-10 refactor-ratchet — the VelvetText font-size consolidation
-      # moved 212 inline fontSize: sites under lib/features/** onto 116 cached
-      # tokens (lib/core/theme/velvet_text.dart). This gate forbids a new inline
-      # TextStyle(fontSize:) / .copyWith(fontSize:) from silently re-fragmenting
-      # the scale. The only permitted inline sites (runtime-computed values +
-      # HubAvatar/HubPhoto ctor params) are listed in scripts/.inline_fontsize_allow.
+      # 2026-07-10: no inline fontSize under lib/features (VelvetText tokens only).
+      # why: docs/ci/static-guards.md#inline-fontsize
       - name: Forbid inline fontSize under lib/features (VelvetText tokens only)
         shell: bash
         run: ./scripts/forbid_inline_fontsize.sh
@@ -527,135 +408,50 @@ jobs:
         shell: bash
         run: ./scripts/forbid_raw_network_image.sh
 
-      # 2026-07-19 push-location safeguard — forbid a direct
-      # currentConfiguration.uri/.fullPath read in tests; go_router excludes
-      # ImperativeRouteMatch (the match kind context.push produces) from both,
-      # so a direct read after a push keeps reporting the pre-push location
-      # forever. Shipped twice for real (nav-bar-hide `ab34c0a`; the
-      # "btn-menu-master not navigating" backlog MEDIUM, which was never a
-      # real nav regression). Route through AppHarness.location/
-      # expectLocation (integration_test/support/app_harness.dart) instead.
-      # Legacy files are grandfathered in
-      # scripts/.naive_router_location_allow (ratchet — baseline only
-      # shrinks); new exceptions use `// router-location-ok: <reason>`.
+      # 2026-07-19: tests read the location via AppHarness, never currentConfiguration.
+      # why: docs/ci/static-guards.md#naive-router-location
       - name: Forbid naive currentConfiguration.uri/.fullPath reads in tests
         shell: bash
         run: ./scripts/forbid_naive_router_location.sh
 
-      # Phase 7.1 perf P4, retargeted Phase 7.9 — BookingsDayQuery.masterOwn()
-      # containment (the retired `MasterBookingsQuery.raw` this gate originally
-      # guarded is gone). `.of()` is the only normalising path: it sorts
-      # statuses/serviceIds canonically and truncates `day` to date-only, so a
-      # rail wired straight to `.masterOwn(` mints a new bookingsDayProvider
-      # family member per tap. Has to be a structural gate: nothing about the
-      # leak is visible to a test or a lint (the screen behaves correctly, it
-      # just refetches per tap).
+      # Phase 7.1 P4 / 7.9: BookingsDayQuery.masterOwn only in its declaring file.
+      # why: docs/ci/static-guards.md#raw-bookings-query
       - name: Forbid BookingsDayQuery.masterOwn outside its declaring file
         shell: bash
         run: ./scripts/forbid_raw_bookings_query.sh
 
-      # 2026-07-20 incident — an absolute DateTime.utc(2026, 7, 20, 15) anchor
-      # hand-rolled into four booking-detail specs quietly expired against the
-      # real wall clock (BookingDisplayX.isPast), turning 16 "upcoming booking"
-      # assertions into false negatives on a date, not a code change. Legacy
-      # files predating this gate are grandfathered in
-      # scripts/.stale_future_date_allow (ratchet — baseline only shrinks);
-      # new exceptions use `// future-date-ok: <reason>`.
-      #
-      # 2026-07-21 — scan widened to `integration_test/` as well. The gate was
-      # green through the recurrence because it only ever walked
-      # `test/features/booking/`, while a SECOND copy of the same expired
-      # instant sat in `integration_test/support/fake_backend.dart`
-      # (`bookingStartsAt`) and silently flipped every E2E CONFIRMED-affordance
-      # assertion. A guard that cannot see a tier does not protect it.
+      # 2026-07-20/21: no stale absolute future-date fixtures in booking + E2E tests.
+      # why: docs/ci/static-guards.md#stale-future-date
       - name: Forbid stale absolute future-date fixtures in booking + E2E tests
         shell: bash
         run: ./scripts/forbid_stale_future_date_fixture.sh
 
-      # 2026-08-02 (Phase 225 audit cycles 4 and 5, and again same day) — the
-      # dev VM this project is built on runs TZ=Europe/Kyiv, which is ALSO the
-      # business timezone (kBeauticaTimeZoneName). A bare local
-      # DateTime(2026, 6, 14, 12) resolves its underlying instant through the
-      # HOST PROCESS's own TZ, so on the dev VM it is indistinguishable from a
-      # correctly-pinned Kyiv instant and silently stops discriminating
-      # anything, while CI (TZ=UTC) or any other machine resolves it to a
-      # DIFFERENT instant — the fixture then either never fails locally no
-      # matter what the zone-conversion code does, or fails only on CI and
-      # reads as unrelated flake. This has shipped three times, most recently
-      # in `lib/core/time/clock_provider.dart`'s own doc comment, which taught
-      # the bad pattern as the canonical override example (fixed alongside
-      # this gate). Every zone-critical test file (one that touches
-      # toBeauticaTime/clockProvider/TZDateTime/beauticaZone/
-      # kBeauticaTimeZoneName) must instead pin `DateTime.utc(...)` or a
-      # `TZDateTime(...)` anchored to a named device zone. No allow-list — see
-      # the script header. Escape hatch: `// host-tz-ok: <reason>`.
+      # 2026-08-02: zone-critical tests pin DateTime.utc / TZDateTime, never host-local.
+      # why: docs/ci/static-guards.md#host-local-instant-anchor
       - name: Forbid host-local instant anchors in zone-critical tests
         shell: bash
         run: ./scripts/forbid_host_local_instant_anchor.sh
 
-      # 2026-08-02 — companion PRODUCTION-code gate to the test-only one
-      # above. The locked principle (ARCHITECTURE-mobile.md § 0.9): the
-      # device clock supplies the current INSTANT, Europe/Kyiv decides which
-      # calendar DAY it falls on. A classifying gate that only flags the
-      # BUGGY `DateTime.now()` reads is impossible by grep alone —
-      # `endAt.isBefore(DateTime.now())` (a correct absolute-instant
-      # comparison) and `dateOnly(DateTime.now())` (the bug) are
-      # syntactically identical at the call site; they differ only in what
-      # the RESULT flows into. So this is a DECLARATION gate instead: it
-      # flags every live-code `DateTime.now` reference under `lib/` — call
-      # form and bare tear-off alike — unless it is annotated
-      # `// instant-ok: <reason>` or is the ONE hard-coded exemption
-      # (`clock_provider.dart`'s own seam definition). See the script header
-      # for the full rationale and for why a `dateOnly(` gate was rejected
-      # (real false positives: `days.map(dateOnly)`,
-      # `bookings_day_query.dart`).
+      # 2026-08-02: every DateTime.now under lib/ carries `// instant-ok:` (ARCH § 0.9).
+      # why: docs/ci/static-guards.md#raw-clock-read
       - name: Forbid un-annotated raw clock reads in production code
         shell: bash
         run: ./scripts/forbid_raw_clock_read.sh
 
-      # 2026-07-22 — `tester.enterText` is a SILENT NO-OP in profile/release
-      # unless the harness registers the test text-input mock: the editing
-      # state is posted with client id -1 (both
-      # IntegrationTestWidgetsFlutterBinding and PatrolBinding override
-      # `registerTestTextInput => false`), and the -1 escape hatch in
-      # TextInput._handleTextInputInvocation lives inside an
-      # `assert(() {...}())` block that non-debug builds strip. Every field
-      # then stays empty and the flow fails downstream with a misleading tap
-      # error. 16 integration flows call enterText and ALL boot through
-      # AppHarness.boot, so one deleted line silently guts the
-      # `integration-profile` job. Invisible to analyze, to lints, and to the
-      # debug suite (debug keeps the assert) — hence a structural gate.
+      # 2026-07-22: integration harnesses register the test text-input mock.
+      # why: docs/ci/static-guards.md#missing-test-text-input
       - name: Forbid missing testTextInput.register() in integration harnesses
         shell: bash
         run: ./scripts/forbid_missing_test_text_input.sh
 
-      # 2026-07-22 vacuous-assertion audit — `RouteNames.home` is '/', and
-      # AppHarness.expectLocation matched with `startsWith`, so
-      # `expectLocation(router, RouteNames.home)` reduced to `startsWith('/')`:
-      # satisfied by every one of the ~59 routes in the app. TWO login flows
-      # shipped it as their closing assertion (auth_login_patrol_test.dart,
-      # auth_login_flow_test.dart) — one of them with a comment recording the
-      # vacuity and the assertion left in place. The helper now matches
-      # segment-aware AND rejects '/' at runtime; this gate is the static half,
-      # and also catches a freshly hand-rolled local copy of the helper that
-      # would not inherit the runtime guard.
-      #
-      # Distinct from forbid_naive_router_location.sh, the near-miss above:
-      # that gate governs WHERE the location is read from and says nothing
-      # about WHAT it is compared against. Zero baseline — no allow-list.
+      # 2026-07-22: no vacuous expectLocation(..., RouteNames.home).
+      # why: docs/ci/static-guards.md#expectlocation-home
       - name: Forbid vacuous expectLocation(..., RouteNames.home) assertions
         shell: bash
         run: ./scripts/forbid_expectlocation_home.sh
 
-      # 2026-07-22 — forbid '/' inside a patrolTest description.
-      # AndroidTestOrchestrator names a per-test output file after the
-      # description and Context.openFileOutput rejects path separators, so one
-      # slash kills the orchestrator PROCESS. It surfaces only as
-      # "Instrumentation run failed due to Process crashed" with zero failed
-      # assertions — indistinguishable at a glance from the unrelated emulator
-      # device-loss issue, and completely invisible to analyze/format/test,
-      # since nothing host-side touches the orchestrator. Static gate is the
-      # only place this can be caught cheaply. Zero baseline, no allow-list.
+      # 2026-07-22: no '/' in a patrolTest description (kills the orchestrator).
+      # why: docs/ci/static-guards.md#slash-in-patrol-test-name
       - name: Forbid slashes in patrol test names
         shell: bash
         run: ./scripts/forbid_slash_in_patrol_test_name.sh
@@ -667,173 +463,74 @@ jobs:
         shell: bash
         run: ./scripts/forbid_schedule_in_pr_validate.sh
 
-      # 2026-07-31 — forbid a bare pumpAndSettle() straight after a
-      # results-screen tap. SearchResultsScreen keeps an INDETERMINATE
-      # _LoadMoreSpinner mounted while data.hasMore (FakeBackend seeds
-      # totalPages: 2), so quiescence never arrives and the settle times out
-      # MID-PUMP — tripping !_expectingFrame in postTest, which kills every
-      # LATER test in the file with '!inTest' before they execute a line. That
-      # is how 7 tests in client_search_flow_test.dart had never once been
-      # observed running. The hazard was documented in comments six times in
-      # that one file and still recurred on the seventh flow; prose does not
-      # gate. Deliberately NARROW (local tap→settle adjacency only) — the true
-      # condition is runtime `hasMore`, which no grep can see; see the script
-      # header's KNOWN BLIND SPOTS. Zero baseline, no allow-list.
+      # 2026-07-31: no bare pumpAndSettle right after a results-screen tap.
+      # why: docs/ci/static-guards.md#results-bare-pump-and-settle
       - name: Forbid bare pumpAndSettle after a results-screen tap
         shell: bash
         run: ./scripts/forbid_results_bare_pump_and_settle.sh
 
-      # 2026-07-31 — forbid a direct cast on a queryParameters read inside
-      # integration_test/support. The generated OpenAPI client sends repeatable
-      # params as a Dio ListParam, and WHICH params are repeatable is decided by
-      # the backend spec — so a param that is scalar today flips under any
-      # ./scripts/regenerate_api.sh with no mobile code change. The cast then
-      # throws INSIDE the DioAdapter route callback, which never reads as "the
-      # fake is broken": the request fails, the provider goes AsyncError, and
-      # the screen paints an error body, so the failure surfaces as unrelated
-      # downstream assertions in other files. This exact bug has shipped THREE
-      # times in one file (status, then serviceId on working-days, then
-      # serviceId on slots — the last reddened 4 tests across 2 flows). Reads
-      # must route through _multiQueryParam / _scalarQueryParam, which tolerate
-      # ListParam / List / scalar / absent alike. Zero baseline, same-line
-      # `// query-param-cast-ok:` escape hatch.
+      # 2026-07-31: no raw casts on queryParameters reads in test fakes.
+      # why: docs/ci/static-guards.md#raw-query-param-cast
       - name: Forbid raw casts on queryParameters reads in test fakes
         shell: bash
         run: ./scripts/forbid_raw_query_param_cast.sh
 
-      # 2026-07-31 — forbid a blind tester.tap on a booking-calendar-day-* cell.
-      # MonthCalendar sits in a SingleChildScrollView; on the 800x600 test
-      # surface the scroll fold is at y~419 while the last two grid rows centre
-      # at y~440/490. A blind tap on a below-the-fold cell does NOT throw — the
-      # finder resolves, tap() computes a centre, and the tap lands on the
-      # summary bar and is silently swallowed, failing later on an unrelated
-      # assertion. Crucially it is DATE-DEPENDENT (tests tap DateTime.now().day),
-      # so the suite is green ~18 days a month and red the last ~12 — it reads
-      # as flake and gets re-run rather than fixed. Enabled-cell taps must go
-      # through tester.tapCalendarDay (ensureVisible first). Tests proving a
-      # cell is INERT keep tapping directly and declare it with
-      # `warnIfMissed: false` — that is the exemption token. Zero baseline.
+      # 2026-07-31: enabled calendar-day taps go through tester.tapCalendarDay.
+      # why: docs/ci/static-guards.md#blind-calendar-tap
       - name: Forbid blind taps on calendar day cells
         shell: bash
         run: ./scripts/forbid_blind_calendar_tap.sh
 
-      # 2026-07-31 — every CLIENT shell branch screen must carry the stable
-      # `client-branch-<slug>` Key its placeholder exposed. Shell E2Es target
-      # those keys to assert which branch is showing (text would couple them to
-      # UA copy). The Phase 13.7 placeholder->HomeHubScreen migration dropped
-      # `client-branch-home` while every sibling carried theirs over, leaving
-      # two shell flows quietly red for a reason that looked like a navigation
-      # bug. The widget tier is structurally blind to this: its branch-key
-      # assertions pump the PLACEHOLDER, not the replacement. The branch->screen
-      # mapping is derived from app_router.dart, so placeholder-served branches
-      # are skipped automatically and a graduating branch is covered the day it
-      # graduates - no allow-list to maintain.
+      # 2026-07-31: each CLIENT shell branch screen keeps its client-branch-<slug> Key.
+      # why: docs/ci/static-guards.md#client-branch-key
       - name: Forbid a client shell branch screen missing its branch Key
         shell: bash
         run: ./scripts/forbid_missing_client_branch_key.sh
 
-      # 2026-08-22 — the page-title typography unification (mobile-qa)
-      # consolidated the four INDEPENDENT_MASTER tab-root titles (which had
-      # silently diverged onto three different sizes — heading() 21sp, the
-      # deleted one-off masterBookingsTitle 22sp, subheading() 14sp) onto ONE
-      # token, VelvetText.pageTitle. Nothing stopped a future edit from
-      # repointing one screen at a different token, or reintroducing a new
-      # one-off title token, so this gate makes both mechanical. Rule A: no
-      # new *Title-shaped VelvetText token outside the baselined allow-list
-      # (scripts/.page_title_token_allow). Rule B: each of the four known
-      # title call sites stays on VelvetText.pageTitle.
+      # 2026-08-22: tab-root titles stay on VelvetText.pageTitle; no new title token.
+      # why: docs/ci/static-guards.md#page-title-token-fork
       - name: Forbid a page-title VelvetText token fork
         shell: bash
         run: ./scripts/forbid_page_title_token_fork.sh
 
-      # 2026-08-14 — the calendar-consolidation change (mobile-backlog D5)
-      # collapsed every month/week calendar surface onto ONE shared file
-      # (`lib/shared/widgets/calendar_grid.dart`) precisely so a future D1–D4-
-      # style fix lands everywhere at once — before it, `period_range_picker
-      # .dart` had silently forked ~250 lines of `month_calendar.dart`'s
-      # weekday-bar/week-row/day-cell logic, which is why those fixes had to
-      # be re-applied there by hand once discovered. This gate makes the
-      # single-implementation property mechanical: no second definition of
-      # the shared primitives, no hardcoded copy of the weekendMuted hex, and
-      # no raw Color hex literal in any of the three known calendar-grid
-      # consumers. Zero baseline.
+      # 2026-08-14: one shared calendar-grid implementation (mobile-backlog D5).
+      # why: docs/ci/static-guards.md#forked-calendar-grid
       - name: Forbid a forked calendar-grid implementation
         shell: bash
         run: ./scripts/forbid_forked_calendar_grid.sh
 
-      # 2026-08-22 (Phase 271 D5) — the per-master salon booking submit
-      # notifier was deleted after being harvested for its pinned test
-      # behaviour (Phase 277's *Test cases*). It had already been deleted
-      # once (MO-4) and come back once via a `git checkout` of an ancestor
-      # commit (Phase 268's restore) — this gate makes a repeat of that same
-      # move fail CI instead of shipping. Zero occurrences under lib/ of the
-      # notifier's filename, its class, or its per-appointment status enum.
+      # Phase 271 D5: the deleted per-master salon submit notifier stays deleted.
+      # why: docs/ci/static-guards.md#salon-booking-submit-notifier
       - name: Forbid the deleted per-master salon booking submit notifier
         shell: bash
         run: ./scripts/forbid_salon_booking_submit_notifier.sh
 
-      # 2026-09-10 — phase 317 points the three services screens at a salon
-      # master through ONE `ProviderScope` overriding `serviceTargetProvider`.
-      # Riverpod 3 does not inherit scope transitively, so the whole watcher
-      # chain carries an explicit `dependencies:` declaration. A provider
-      # added to that chain later WITHOUT one does not crash — riverpod's
-      # "may be scoped" assert is kDebugMode-only and `riverpod_lint` was
-      # removed on 2026-08-18 — it silently resolves to ROOT, rendering the
-      # operator's own catalogue under the salon master's heading and
-      # dispatching `DELETE /services/{id}` against the SHARED salon service
-      # definition on a delete. This gate makes the missing declaration fail
-      # CI instead.
+      # 2026-09-10 (phase 317): scoped-services providers declare `dependencies:`.
+      # why: docs/ci/static-guards.md#undeclared-scoped-service-dep
       - name: Forbid an undeclared scoped-services provider dependency
         shell: bash
         run: ./scripts/forbid_undeclared_scoped_service_dep.sh
 
-      # 2026-09-17 (mobile-security S-L2) — enforce the path-encoding
-      # invariant `lib/core/network/path_segment.dart` had only ASSERTED.
-      # That file's promotion comment claimed the encoder moved to core "so a
-      # fix reaches every raw path in the app at once"; it had not — four
-      # sites kept a bare `Uri.encodeComponent` (which does not escape `.`, so
-      # `..` survives into Dio's `normalizePath()` and retargets the request
-      # on the bearer-token-carrying Dio) and two more interpolated an id with
-      # no encoding at all. All six were fixed in the same commit that added
-      # this gate, AFTER watching it catch every one of them on the unfixed
-      # tree. It checks hand-built `/api/v1/…` literals only — the provenance
-      # half of the invariant stays a code-review obligation, and the guard's
-      # header says so.
-      #
-      # 2026-09-17, same day: the first revision scanned ONE LINE AT A TIME
-      # and was therefore blind to a path `dart format` had wrapped into
-      # ADJACENT STRING LITERALS — which is how two of the six fixed sites
-      # (`location_repository.dart:96`, `:107`) are spelled, so the gate could
-      # not re-detect a regression at them. The scan is now group-aware and
-      # both directions are sentinelled in `--self-test`; see the guard's
-      # header, section "MULTI-LINE, and why that is not a detail".
+      # 2026-09-17 (mobile-security S-L2): hand-built /api/v1 paths encode every id.
+      # why: docs/ci/static-guards.md#unencoded-path-interpolation
       - name: Forbid unencoded interpolation into a hand-built API path
         shell: bash
         run: ./scripts/forbid_unencoded_path_interpolation.sh
 
-      # 2026-09-24 (Phase 348 re-audit INFO-1) — every generated beautica_api
-      # enum now decodes an unknown wire value to `unknownDefaultOpenApi`
-      # (`enumUnknownDefaultCase=true`). The ONE reading of that fallback is
-      # `lib/core/network/api_enum_names.dart`; a `<GeneratedEnum>.valueOf(`
-      # or a stray `unknownDefaultOpenApi` literal in lib/ is a second, drifting
-      # reading of it. Enum names derived from api/lib on every run.
+      # Phase 348 INFO-1: the generated-enum fallback is read only in api_enum_names.dart.
+      # why: docs/ci/static-guards.md#api-enum-fallback
       - name: Forbid reading the generated-enum fallback outside api_enum_names
         shell: bash
         run: ./scripts/forbid_api_enum_fallback.sh
 
-      # 2026-10-02 (Phase 300) — CI goldens discard layer opacity (Phase 299),
-      # so a dim under an `Opacity`/`AnimatedOpacity` can look golden-covered
-      # while never observed. Every layer-opacity site under lib/ must carry
-      # `// dim-gated: <test>` or `// dim-decorative: <why>`; there is no
-      # allow-list (Phase 301 burned it down) — any unclassified site fails.
+      # Phase 300: every layer-opacity site is `dim-gated:` or `dim-decorative:`.
+      # why: docs/ci/static-guards.md#unclassified-layer-dim
       - name: Forbid unclassified layer-opacity dims
         shell: bash
         run: ./scripts/forbid_unclassified_layer_dim.sh
 
-      # Phase 300 — end-to-end harness for the guard above (runs the shipped
-      # script as a subprocess in temp trees: injection, path confinement,
-      # CRLF, comment handling, no-allow-list). Modelled on
-      # test_cycle_gates.sh.
+      # Phase 300: end-to-end harness for the layer-dim guard above.
+      # why: docs/ci/static-guards.md#layer-dim-harness
       - name: Self-test layer-dim guard (harness)
         shell: bash
         run: ./scripts/test/test_layer_dim_guard.sh
@@ -843,18 +540,8 @@ jobs:
         shell: bash
         run: ./scripts/test/test_raw_network_image_guard.sh
 
-      # Phase 1.4 — enforce go_router-only navigation in feature code.
-      # Direct Navigator calls bypass the route table and are a mobile-qa HIGH
-      # finding. lib/features/ is fully populated now — this gate is live.
-      # Comment-only lines are excluded: ported-screen file headers routinely
-      # document the design-preview's imperative `Navigator.push`/`maybePop`
-      # → go_router swap as part of the REUSE-FIRST port record (see
-      # move_admin_salon_screen.dart, staff_settings_screen.dart), and failing
-      # CI for documenting compliance with the rule is backwards. A line is
-      # skipped only when its FIRST non-whitespace characters are a comment
-      # marker (`//`, `///`, `/*`, or a `*` block-comment continuation) — real
-      # code with a trailing comment (`Navigator.push(ctx); // TODO`) is still
-      # flagged.
+      # Phase 1.4: go_router-only navigation in lib/features; comment-only lines skipped.
+      # why: docs/ci/static-guards.md#direct-navigator
       - name: Forbid direct Navigator usage in features
         run: |
           MATCHES=$(grep -rnE 'Navigator\.(push|pop|of)\b' lib/features/ 2>/dev/null | awk -F: '
@@ -872,11 +559,8 @@ jobs:
             exit 1
           fi
 
-      # MS1 — SharedPreferences must never be used for tokens or PII in feature
-      # code. flutter_secure_storage is the only approved secure store.
-      # lib/features/ is currently empty so this always passes; the gate becomes
-      # live as soon as Phase 2.2 creates the auth feature directory.
-      # `2>/dev/null` suppresses "no such file" noise when the dir doesn't exist.
+      # MS1: no SharedPreferences in lib/features (flutter_secure_storage only).
+      # why: docs/ci/static-guards.md#shared-preferences
       - name: Forbid SharedPreferences in features (MS1)
         run: |
           MATCHES=$(grep -rE "SharedPreferences|shared_preferences" lib/features/ 2>/dev/null | grep -v "^\s*//") || true
@@ -886,12 +570,9 @@ jobs:
             exit 1
           fi
 
-  # ---------------------------------------------------------------------------
-  # gates (phase 402 D1; was `validate`) — static checks only: codegen verify,
-  # OpenAPI --check, format, analyze and every forbid_*.sh. No tests and no APK,
-  # so it goes red in ~5 min instead of after the whole run. The grep-only forbid_* guards moved to `gates-fast` (audit F1) so they go red in ~1 min; what stays here needs the Flutter toolchain or the generated *.g.dart files. Starts at once
-  # (needs nothing): the cheap checks never wait for `plan`.
-  # ---------------------------------------------------------------------------
+  # gates (phase 402 D1; was `validate`): codegen, OpenAPI --check, format, analyze and the
+  # guards that need Flutter or *.g.dart. Starts at once (needs nothing).
+  # why: docs/ci/README.md#job-gates
   gates:
     name: Analyze & Gates
     runs-on: ubuntu-latest
@@ -915,42 +596,21 @@ jobs:
       # every fresh checkout before analyze/test can succeed.)
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
-      # Phase 3.1 — OpenAPI client drift gate.
-      # Regenerates the Dart client from the COMMITTED spec snapshot
-      # (tool/openapi/api-spec.json) into a temp dir, then diffs against the
-      # committed api/.  Fails if they diverge — no live backend needed.
-      # Tool setup: openapi_generator_cli is activated on the first run and
-      # its JAR is cached in .dart_tool/openapi_generator_cache/.
+      # Phase 3.1: OpenAPI drift gate (regenerate from the committed spec, diff api/).
+      # why: docs/ci/static-guards.md#openapi-drift
       - name: Install openapi-generator-cli
         # Pinned to 6.1.0 (wraps JAR 7.9.0) — must match scripts/regenerate_api.sh.
         # Update both locations together to avoid spec-drift between local and CI.
         run: dart pub global activate openapi_generator_cli 6.1.0
 
       - name: Verify built_value codegen is internally consistent
-        # Named, dependency-free guard for a live incident (2026-07-02): a
-        # build_runner incremental-cache staleness bug let two generated
-        # .g.dart files silently fall behind their .dart sources (a missing
-        # Builder setter broke the compile; a missing @SerializersFor
-        # registration would have caused a silent runtime "Serializer not
-        # found" failure). Runs before the slower JAR-based check below so a
-        # codegen-consistency break fails fast. See scripts/verify_builtvalue_codegen.sh
-        # --self-test and the struck-through row in docs/mobile-phases/mobile-backlog.md.
+        # Incident 2026-07-02: built_value codegen consistency, before the slower JAR check.
+        # why: docs/ci/static-guards.md#builtvalue-codegen
         run: ./scripts/verify_builtvalue_codegen.sh
 
       - name: Verify OpenAPI client is up to date
-        # Contract-drift gate (Fix 3, 2026-06-02): regenerates the Dart client
-        # from the committed spec and fails on any diff vs api/. The companion
-        # static guard test/core/config/app_config_path_test.dart (run by the
-        # Test step below) pins the other half of the contract — that
-        # AppConfig.baseUrl never carries an /api/v1 prefix and the generated
-        # client paths resolve to a SINGLE /api/v1/ segment (no double-prefix).
-        # Run locally with:  ./scripts/regenerate_api.sh --check
-        #
-        # timeout-minutes (2026-09-27, PR #73): the `validate` job carries no
-        # job-level timeout (GitHub default 6h), and this step's first-run
-        # openapi_generator_cli JAR download can stall — job 108694409797's
-        # PR-event run sat here >27min while the push run on the SAME commit
-        # finished it in 63s. Fail fast instead of burning the 6h default.
+        # Fix 3 (2026-06-02) drift gate; 10 min step timeout since PR #73 (JAR download stall).
+        # why: docs/ci/static-guards.md#openapi-check-timeout
         timeout-minutes: 10
         run: ./scripts/regenerate_api.sh --check
 
@@ -960,94 +620,30 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos --fatal-warnings
 
-      # 2026-08-18 — a `dart run custom_lint` step used to sit here. It was
-      # deleted, along with the custom_lint / custom_lint_builder /
-      # riverpod_lint dependencies, because it gated NOTHING: `custom_lint`
-      # was archived upstream 2026-03-24 and riverpod_lint had already left
-      # it in 3.1.0, so the host loaded ZERO plugins and still exited 0.
-      # Falsified with a probe violating three riverpod_lint rules at once —
-      # `No issues found!`, exit 0, `--format=json` -> `{"diagnostics":[]}`.
-      #
-      # Re-homing riverpod_lint on Dart's native analyzer-plugin path was
-      # attempted in the same pass and abandoned: the rules fire, but their
-      # diagnostics are unsuppressable on this toolchain, so 33 pre-existing
-      # findings would make the `Analyze` step permanently red with no way
-      # to annotate a deliberate exception. See pubspec.yaml's lints block
-      # for the evidence and the revisit condition. No lint plugin is
-      # configured today; `analysis_options.yaml` declares none.
+      # 2026-08-18: the custom_lint step was deleted (it loaded zero plugins); no lint plugin today.
+      # why: docs/ci/static-guards.md#custom-lint-removed
 
-      # 2026-08-18 — the REAL `no_raw_ui_strings` gate. AST-based (the
-      # Phase 1.3 checker, unchanged and covered by 19 unit tests), driven by
-      # `tool/lints/no_raw_ui_strings.dart` behind the house-pattern shell
-      # guard. Escape comment: `// raw-ui-string-ok: <reason>`
-      # (`// ignore: no_raw_ui_strings` also honoured). Legacy offenders are
-      # grandfathered in `scripts/.raw_ui_strings_allow` — shrink-only ratchet.
+      # 2026-08-18: AST-based no_raw_ui_strings gate (runs dart; shrink-only allow-list).
+      # why: docs/ci/static-guards.md#raw-ui-strings
       - name: Forbid raw user-visible string literals under lib/
         shell: bash
         run: ./scripts/forbid_raw_ui_strings.sh
 
-      # 2026-08-21 — this track closed a `ProviderSubscription`-closed crash
-      # class: a keepAlive family member drops to ZERO listeners not because
-      # its screen was popped, but because the SAME still-mounted screen
-      # swapped which family key it watches via local state (a rail tap, a
-      # sort toggle, a week page). `invalidateSelf()` then severs the
-      # keepAlive link and queues disposal on a zero-duration Timer, racing
-      # the next frame's re-subscribe to the SAME key. The proven remedy —
-      # gate on "was this key pinned?", invalidate, THEN eagerly re-read so
-      # the keepAlive link is re-touched before the queued disposal fires —
-      # is applied at four sites (bookingsDay, master/salon reviews,
-      # effectiveSchedule). This gate makes a bare cross-file family
-      # invalidation fail CI instead of silently reintroducing the race.
-      # Allow-list: scripts/.keepalive_family_invalidation_allow.
+      # 2026-08-21: no bare keepAlive-family cross-invalidation (reads *.g.dart).
+      # why: docs/ci/static-guards.md#keepalive-family-invalidation
       - name: Forbid a bare keepalive-family cross-invalidation
         shell: bash
         run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
 
-      # 2026-06-24 — self-test the drift gates above. Each gate's
-      # comment/annotation detection is load-bearing; --self-test pins it against
-      # fixture snippets (plain offender → flagged, annotated/commented → pass).
-      #
-      # 2026-08-18 — this used to be 22 hand-written `--self-test` lines, one
-      # per guard. That list was itself an un-gated gap: a guard added
-      # without someone remembering to append its line here would have a
-      # --self-test that never ran anywhere, looking covered while being
-      # verified by nothing — the same silent-green class as the two bugs
-      # found today (`no_raw_ui_strings` shipped as a never-loaded
-      # `custom_lint` plugin; `riverpod_lint` silently stopped loading when
-      # `custom_lint` was archived).
-      #
-      # `verify_guards.sh --self-test` derives the list from the SAME
-      # discovery glob normal mode uses (`scripts/forbid_*.sh`), so adding a
-      # guard enrols it automatically — there is no second place to forget.
-      # It requires every discovered guard to BOTH exit 0 AND print
-      # `SELF-TEST OK: <basename>` (exit 0 alone is exactly the failure mode
-      # being retired), asserts sentinel count == discovered count, and
-      # names any guard that produced no sentinel.
+      # Self-test every scripts/forbid_*.sh: glob discovery + sentinel per guard.
+      # why: docs/ci/static-guards.md#verify-guards-self-test
       - name: Self-test drift-prevention gates
         shell: bash
         run: ./scripts/verify_guards.sh --self-test
 
 
-  # ---------------------------------------------------------------------------
-  # Selector tests (phase 400 audit L1): `dart test` for the affected-test
-  # selector package, including the D8 wiring pins in workflow_wiring_test.dart
-  # (no actions/cache in `plan`, exact selector-step conditions). Own job, off
-  # the `plan` critical path (needs nothing), so a red here never delays the
-  # selection. Runs on EVERY non-noop event like `gates` (no path gate:
-  # a path filter is one more thing a PR could route around, and the run is
-  # ~1 min). Same uncached Dart as the plan's selector step (D8): SHA-pinned
-  # setup-dart, the same pinned SDK, no actions/cache, no PUB_* overrides.
-  # ci-gate needs this job; a failure is `result=failure` => RED (gate.sh).
-  # ---------------------------------------------------------------------------
-  #
-  # Audit F6: the job sits on ci-gate's path (it is required), and one serial
-  # `dart test` was its longest pole (~10 min on 4 cores). Now THREE parallel
-  # legs of the SAME job id, split by test tag (dart_test.yaml): `fast` runs
-  # everything not tagged `e2e` (-x e2e), `e2e-a` / `e2e-b` run the four
-  # pipeline_e2e_*_test.dart files (the CPU-bound scenarios that execute the real
-  # workflow steps), two files each (-t e2e-a / -t e2e-b). A test file lands in
-  # exactly one leg by construction (new files are `fast` unless tagged), and
-  # every leg runs `--concurrency=$(nproc)`.
+  # Selector tests (phase 400 L1, audit F6): required, uncached (D8); 3 tag legs.
+  # why: docs/ci/README.md#job-selector-tests
   selector-tests:
     name: Selector tests (${{ matrix.leg }})
     runs-on: ubuntu-latest
@@ -1065,10 +661,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # pipeline_e2e_test.dart (parity group) diffs the full branches against the last
-      # pre-400 workflow; the depth-1 checkout lacks that commit, so fetch
-      # exactly it (public repo, anonymous; on dev via PR #81). A failed fetch
-      # is RED: the parity test fails on CI instead of skipping.
+      # The parity test needs the pre-400 commit: fetch exactly it. A failed fetch is RED.
+      # why: docs/ci/README.md#selector-tests-pre400-fetch
       - name: Fetch pre-400 parity commit
         shell: bash
         run: git fetch --no-tags --depth=1 origin 7b85cb18c809319fa1fd8519349e307dc9498cf4
@@ -1092,22 +686,9 @@ jobs:
             *) echo "unknown selector-tests leg '$LEG'"; exit 1 ;;
           esac
 
-  # ---------------------------------------------------------------------------
-  # Test & build, split (phase 402 D1; was the single `test` job): `unit`,
-  # `tz-sweeps`, `goldens` and `apk` run in parallel, each `needs: plan`
-  # (run_all / the selection / `native`), each with the shared flutter-setup.
-  # `apk` also needs `gates-fast`, an ordering-only dependency (audit cycle 2 N2).
-  # mode=none (docs-only) skips all but `apk`, which a native-surface PR still
-  # needs (phase 400 D4/D5).
-  #
-  # unit (D2/D3/D3a): FILE-level shards by our selector, never Flutter's
-  # --total-shards (that splits test cases after every shard compiled every
-  # suite). The lists are written by `plan` (base-owned) and run through
-  # run_list.sh (phase 400), which fails on a missing/empty list, a listed file
-  # that never loads, a failing test or 0 passes. Full = 4 shards of
-  # `--all`; selective = ceil(count / 80), max 4. `tests-ran` re-proves from the
-  # base side that the shards partition the universe (tool/ci/verify_shards.sh).
-  # ---------------------------------------------------------------------------
+  # Test split (phase 402 D1): unit / tz-sweeps / goldens / apk in parallel, `needs: plan`.
+  # unit (D2/D3/D3a): file-level shards from `plan` via run_list.sh; tests-ran re-proves them.
+  # why: docs/ci/README.md#job-unit
   unit:
     name: Unit tests (shard ${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -1141,12 +722,8 @@ jobs:
           name: ci-unit-shards
           path: ${{ runner.temp }}/shards
 
-      # --file-reporter writes the JSON event stream alongside the unchanged
-      # console reporter; `tests-ran` proves real (non-skipped) tests passed.
-      # Per-shard command parity with the pre-sharding step: `--coverage
-      # --exclude-tags golden` in full mode (selective: no --coverage, coverage
-      # is only uploaded for whole-suite runs), over the shard's file list.
-      # The "whole" branch is the pre-400 command byte for byte.
+      # Per-shard parity with the pre-sharding step; the "whole" branch is the pre-400 command.
+      # why: docs/ci/README.md#unit-test-step
       - name: Test
         shell: bash
         env:
@@ -1162,10 +739,8 @@ jobs:
             bash tool/ci/run_list.sh "$RUNNER_TEMP/shards/unit-shard-$SHARD.txt" "unit-$SHARD-events" "${flags[@]}"
           fi
 
-      # The "tests actually ran" verdict is NOT computed here: this job runs PR
-      # test code, which could delete/replace any checker on disk. The event
-      # stream is handed to the `tests-ran` job (no PR code, base-owned script).
-      # always() so a failed Test still hands over its stream.
+      # The tests-ran verdict is NOT computed here (PR code runs here); always() hands it over.
+      # why: docs/ci/README.md#unit-events-handoff
       - name: Upload unit event stream
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -1185,10 +760,8 @@ jobs:
           retention-days: 3
           if-no-files-found: error
 
-  # tz-sweeps (D1): one leg per zone. The three zone steps below keep their
-  # names, their STEP-level `env: TZ:` (never job-level, see the DST step) and
-  # their commands; a matrix leg only selects which one runs. Zones are
-  # independent processes, so they no longer queue behind each other.
+  # tz-sweeps (D1): one leg per zone; the zone steps keep names, STEP-level TZ, commands.
+  # why: docs/ci/tz-sweeps.md#job-tz-sweeps
   tz-sweeps:
     name: TZ sweep (${{ matrix.zone }})
     runs-on: ubuntu-latest
@@ -1220,20 +793,9 @@ jobs:
           name: ci-selection
           path: ${{ runner.temp }}/sel
 
-      # The day rail's two RENDERED DST guards can only observe the bug they
-      # exist to catch on a host whose UTC offset actually changes across the
-      # transition. A UTC runner SKIPS them in the unit shards; this leg re-runs
-      # that one file under the market zone so they genuinely execute on CI.
-      #
-      # Deliberately scoped to a single file rather than set as a job-level
-      # `env: TZ`. The booking formatters are pinned to Europe/Kyiv in code and
-      # `slot_time_tz_regression_test.dart` proves it by asserting Kyiv
-      # wall-clocks on a NON-Kyiv runner — under `TZ=Europe/Kyiv` a regression
-      # to `.toLocal()` passes that suite silently (verified by mutation). The
-      # unit shards must therefore stay UTC.
-      #
-      # Pinned by test/ci/dst_rail_ci_coverage_test.dart — renaming or dropping
-      # this step fails that test.
+      # Kyiv DST leg: the rail's rendered DST guards execute only under the market zone.
+      # STEP-level TZ only (unit shards stay UTC). Pinned by test/ci/dst_rail_ci_coverage_test.dart.
+      # why: docs/ci/tz-sweeps.md#dst-rail
       - name: DST rail guards (market zone)
         if: matrix.zone == 'kyiv-dst'
         shell: bash
@@ -1250,128 +812,9 @@ jobs:
             echo "day-rail file not in the selection; nothing to run under Europe/Kyiv"
           fi
 
-      # 2026-08-02 — a third CI zone, distinct from BOTH the main suite (UTC)
-      # and the DST-rail step above (Europe/Kyiv). The main suite's UTC run
-      # lets slot_time_tz_regression_test.dart PROVE Kyiv-pinning by asserting
-      # Kyiv wall-clocks on a non-Kyiv host — under Kyiv itself a regression to
-      # `.toLocal()` passes that suite silently (mutation-verified). But UTC
-      # and Europe/Kyiv are BOTH zones this codebase's own market anchor cares
-      # about, so a bug that reads the raw device/host clock instead of
-      # converting through toBeauticaTime can still coincidentally agree with
-      # the correct Kyiv-derived value on either of them. A zone with NO
-      # relationship to Kyiv at all closes that gap: any host-clock leak fails
-      # loudly here regardless of which of the other two zones it happened to
-      # slip past.
-      #
-      # Asia/Tokyo specifically: UTC+9, and — unlike Europe/Kyiv — it observes
-      # NO DST, so its offset is constant year-round. That makes the verdict a
-      # property of the CODE under test, never of the CALENDAR DATE the runner
-      # happens to execute on. A larger-skew zone that also carried DST would
-      # make day-boundary divergence fire depending on the HOUR CI happens to
-      # run — flaky-by-clock, exactly the failure mode this whole track exists
-      # to eliminate.
-      #
-      # DIRECTION (2026-08-04, measured — see the Pacific/Honolulu step that
-      # follows this one). Asia/Tokyo is EAST of Kyiv, so it only ever pushes a
-      # host-local fixture BACKWARD across the Kyiv day boundary, and only for
-      # a bounded band of fixture hours. For a bare `DateTime(Y,M,D,H)` on a
-      # host at UTC+O, the Kyiv hour is `H - O + 3`; the Kyiv calendar day
-      # differs from D only when that falls outside [0,24). At O=+9 that means
-      # H < 6 — Tokyo can ONLY catch a host-local anchor whose named hour is
-      # 00:00-05:59. It is structurally blind to every afternoon/evening
-      # fixture, which is most of them in a booking app. That blindness is why
-      # the Honolulu step below was ADDED rather than swapped in: the two zones
-      # catch DISJOINT hour bands and neither subsumes the other. Both
-      # directions were proven by executed mutation, not derived — see the
-      # Honolulu step's own comment for the two probes and their verdicts.
-      #
-      # Scoped to the same date/time-sensitive directories as the rest of this
-      # workflow's zone-specific coverage, not the whole suite — running
-      # obviously zone-independent tests (widget layout, form validation, …)
-      # under a third zone would add CI time without adding any signal.
-      #
-      # MEASURED, not estimated (2026-08-02) — a prior version of this comment
-      # asserted "measured GREEN … (2,343 tests)" for a scope that included
-      # test/shared/widgets/, but that number was never actually run: an
-      # independent static grep of this exact directory list counted ~2,093
-      # top-level test( / testWidgets( calls, and a separate cited run logged
-      # 1,824 tests. Three numbers, none agreeing, because none of them came
-      # from executing the committed scope. This directory list was then
-      # ACTUALLY RUN, twice, against the exact `flutter test` invocation below:
-      #   - with test/shared/widgets/ included: 2,404 passed, 5 skipped,
-      #     0 failed, real 3m56.138s (TZ=Asia/Tokyo).
-      #   - with test/shared/widgets/ dropped (the scope actually committed
-      #     below): 2,311 passed, 5 skipped, 0 failed, real 3m44.128s
-      #     (TZ=Asia/Tokyo). The 5 skips are the DST-rail guards in
-      #     bookings_day_rail_test.dart, which only fire on a host whose UTC
-      #     offset changes across the transition — Asia/Tokyo observes no DST,
-      #     same reason they skip on the main UTC step.
-      # Both runs were 0 failures, so no latent host-clock leak was found by
-      # running this — this scope is a GATE against a future regression, not
-      # a speculative ratchet against a hypothetical one. ~3m44s is well
-      # inside the ~5 minute budget this step was designed around.
-      #
-      # SCOPE DECISION (2026-08-02, on the measurement above): test/shared/
-      # widgets/ is DROPPED, every other directory KEPT. 0 of its 12 files
-      # match scripts/forbid_host_local_instant_anchor.sh's own zone-critical
-      # classifier (toBeauticaTime|clockProvider|TZDateTime|beauticaZone|
-      # kBeauticaTimeZoneName), and 9 of 12 contain no time-related symbol at
-      # all. The remaining 3 (period_range_picker_*_test.dart,
-      # velvet_bottom_nav_bar_mount_parity_test.dart) touch DateTime only for
-      # a "today" ring / a booked-day set fixture, and period_range_picker_
-      # span_cap_test.dart's own header already documents its cases as
-      # identical under TZ=UTC and TZ=Europe/Kyiv (calendar-only DateTime(y,
-      # m, d) literals, not host-clock reads) — not the host-local-instant-
-      # anchor bug class this sweep exists to catch.
-      #
-      # The OTHER directories in this list do NOT all score higher on that
-      # same classifier — measured per directory (zone-critical files /
-      # total files), 2026-08-02:
-      #   test/features/booking/    8/91   test/shared/formatters/   1/8
-      #   test/features/schedule/   0/19   test/shared/time/         1/1
-      #   test/features/home/       1/18   test/shared/calendar/     1/1
-      #   test/routing/             0/17   test/core/time/           1/1
-      # test/features/schedule/ (0/19) and test/routing/ (0/17) score
-      # IDENTICALLY to the dropped test/shared/widgets/ on the classifier
-      # metric alone. They stay in scope anyway, on DOMAIN RELEVANCE rather
-      # than classifier score: the classifier only sees what a TEST FIXTURE
-      # references, not what the production widget/screen under test calls
-      # internally. test/features/schedule/ renders calendar/weekly-template
-      # UI, and test/routing/ contains auth_redirect_test.dart /
-      # booking_route_guard_test.dart — both plausible homes for a screen or
-      # guard calling DateTime.now() directly without the test file ever
-      # naming toBeauticaTime. test/shared/widgets/ was dropped instead
-      # because it is generic UI atoms (rating stars, error states,
-      # swipe-back gestures) and was MANUALLY confirmed non-time-domain file
-      # by file — the per-file check two paragraphs up, a stronger signal
-      # than the classifier score alone. Do not re-derive a "0/N ⇒ safe to
-      # drop" rule from the table above; test/features/schedule/ and
-      # test/routing/ are the standing counterexample.
-      #
-      # REJECTED ALTERNATIVE: trimming to a curated file list (e.g. just the
-      # ~106 files that touch a time-related symbol, or the 13 that are
-      # zone-critical). Rejected because a hardcoded file list silently stops
-      # covering a file added LATER — exactly the "guard that stops guarding"
-      # failure class scripts/forbid_host_local_instant_anchor.sh's own header
-      # was written to eliminate, and it would need manual upkeep forever.
-      # Directory-level scope auto-covers new files the day they're added, at
-      # a measured cost (~3m44s) this step's budget already accepts. Do not
-      # re-litigate this without a fresh measurement of the CURRENT committed
-      # list — see the numbers above and re-run:
-      #   time TZ=Asia/Tokyo flutter test <the directories below> --reporter=expanded
-      #
-      # Step-level `env:` — see the DST rail guards step above for why this
-      # must never become a job-level override; test/ci/dst_rail_ci_coverage_test.dart
-      # asserts there is no job-level `env:` anywhere in this file.
-      # 2026-08-02 — test/features/calendar/ ADDED to the sweep. It was not
-      # previously in this list even though `working_hours_repository.dart`
-      # (`_todayKyiv()`) became genuinely zone-critical in the same change
-      # that added `scripts/forbid_raw_clock_read.sh` — the working-hours
-      # repository's window-selection logic now derives "today" through the
-      # Kyiv-anchored clock seam, exactly the class of code this sweep exists
-      # to catch a host-clock-leak regression in. See
-      # `test/features/calendar/data/working_hours_repository_test.dart`'s
-      # own "Kyiv-anchored" test group for the Tokyo-pinned regression case.
+      # Asia/Tokyo (2026-08-02): host-clock leak detector, no DST, directory-level scope.
+      # STEP-level TZ only; pinned by test/ci/dst_rail_ci_coverage_test.dart.
+      # why: docs/ci/tz-sweeps.md#tokyo
       - name: Third-timezone sweep (host-clock leak detector)
         if: matrix.zone == 'tokyo'
         shell: bash
@@ -1395,101 +838,9 @@ jobs:
             bash tool/ci/run_list.sh "$RUNNER_TEMP/sel/tz_sweep.txt" tz-tokyo-events
           fi
 
-      # 2026-08-04 — a FOURTH CI zone, WEST of Kyiv. Added, not swapped in for
-      # Asia/Tokyo, because measurement showed the two are complementary rather
-      # than redundant.
-      #
-      # WHAT THIS CATCHES THAT NO GREP CAN
-      # ----------------------------------
-      # scripts/forbid_host_local_instant_anchor.sh's six rules are all
-      # single-file text rules. The bug class they structurally cannot see is
-      # CROSS-FILE DATAFLOW: a test file names a host-local instant, hands it to
-      # a widget, and the widget converts it through Europe/Kyiv somewhere the
-      # test file never references. On 2026-08-04 an attempt to widen that
-      # script's Rule 1 to reach this class was MEASURED AND REFUSED — with its
-      # stage-1 classifier disabled the matcher returned 74 hits / 1 genuine
-      # defect / 73 inert, 1.4% precision, i.e. 73 rubber-stamped annotations
-      # (commit 030ddb18, and the refusal is recorded in that script's header).
-      # The single defect was found instead by EXECUTING the suite under
-      # TZ=Pacific/Honolulu, at precision 1/1 with zero annotations. This step
-      # is that execution, wired. It cannot be rubber-stamped: there is no
-      # marker to add, only a passing or failing test.
-      #
-      # WHY HONOLULU IN ADDITION TO TOKYO — MEASURED IN BOTH DIRECTIONS
-      # --------------------------------------------------------------
-      # For a bare `DateTime(Y,M,D,H)` on a host at UTC+O, the Kyiv wall-clock
-      # hour is `H - O + 3`, so the Kyiv calendar day differs from D only when
-      # that leaves [0,24). Per zone that is a band of FIXTURE HOURS:
-      #   Europe/Kyiv (+3)      none      — the dev VM; blind by construction
-      #   UTC          (0)      H >= 21   — the main suite
-      #   Asia/Tokyo   (+9)     H <  6    — the step above
-      #   Pacific/Honolulu (-10) H >= 11  — this step
-      # Tokyo's band and Honolulu's band are DISJOINT, so neither subsumes the
-      # other and a swap would lose real coverage. Honolulu's band strictly
-      # contains the main UTC suite's.
-      #
-      # Proven by executed mutation on booking_confirm_test.dart, not derived
-      # (2026-08-04). Its `_kStartAt`/`_kEndAt` were reverted to the pre-
-      # 030ddb18 host-local spelling and the file run under all four zones:
-      #   PROBE A  DateTime(2026,7,20,14)  Kyiv PASS  UTC PASS  Tokyo PASS
-      #                                    Honolulu FAIL
-      #     — the real defect 030ddb18 fixed. booking_confirm_screen.dart:248
-      #       keys its bookingsDayProvider invalidation off
-      #       `dateOnly(toBeauticaTime(startAt))`; under Honolulu that instant
-      #       is 03:00 the NEXT Kyiv day, so the invalidation targeted a family
-      #       member the test never subscribed to. Failure was
-      #       `Expected: <2> Actual: <1>` on the "REGRESSION GUARD — ...
-      #       invalidates bookingsDayProvider" test. Tokyo does NOT see it.
-      #   PROBE B  DateTime(2026,7,20,2)   Kyiv PASS  UTC PASS  Honolulu PASS
-      #                                    Tokyo FAIL
-      #     — the mirror direction, same defect shape at an early-morning
-      #       fixture hour. This is what earns Asia/Tokyo its slot: Honolulu
-      #       does NOT see it. Do not "consolidate" the two sweeps into one.
-      # A THIRD probe records the residual gap honestly rather than claiming
-      # full coverage:
-      #   PROBE C  DateTime(2026,7,20,8)   Tokyo PASS  Honolulu PASS
-      # Fixture hours 06:00-10:59 are caught by NO zone in this workflow. Only
-      # a maximal pair (Pacific/Kiritimati UTC+14 with Pacific/Niue UTC-11)
-      # would close it — verified: probe C is RED under Pacific/Kiritimati.
-      # Deliberately NOT adopted: it would mean retiring Asia/Tokyo as the CI
-      # host zone while a dozen test files still use `tz.getLocation('Asia/
-      # Tokyo')` as this codebase's canonical "other zone" idiom, for five
-      # fixture hours. Revisit only WITH a fresh full-sweep measurement under
-      # both replacement zones — neither has ever been run at this scope.
-      #
-      # Pacific/Honolulu specifically: UTC-10 and — like Asia/Tokyo, unlike
-      # Europe/Kyiv — it observes NO DST, so its offset is constant year-round
-      # and the verdict stays a property of the CODE, never of the calendar
-      # date the runner happens to execute on.
-      #
-      # COST, MEASURED (2026-08-04, dev VM, this exact scope, current tree):
-      #   TZ=Asia/Tokyo        2413 passed, 5 skipped, 0 failed, real 6m01.457s
-      #   TZ=Pacific/Honolulu  2413 passed, 5 skipped, 0 failed, real 5m56.630s
-      # The two zones cost the same, so this step adds ~1x the Tokyo step.
-      #
-      # It does NOT "double test wall time" — a claim made when this step was
-      # first proposed, and measured to be wrong. The denominator was measured
-      # too, same machine, same tree: the main `Test` step above
-      # (`flutter test --coverage --exclude-tags golden`, the whole suite) is
-      # 5493 passed, 3 skipped, real 22m47.850s. So the zone-sensitive part of
-      # this job goes from ~29m (main + Kyiv rail file + Tokyo) to ~35m — about
-      # +20%, not +100%. Re-measure both numbers before re-litigating the cost;
-      # the earlier 3m44s Tokyo figure in the step above is from the 2026-08-02
-      # tree and no longer comparable (2311 tests then, 2413 now).
-      #
-      # The 5 skips are bookings_day_rail_test.dart's DST-transition guards, which
-      # need a host whose offset changes — same reason they skip under Tokyo
-      # and under the main UTC suite. It is GREEN on the current tree: the
-      # defect it originally found is already fixed in 030ddb18, so this is a
-      # gate against regression, not a live bug hunt. Scope is deliberately the
-      # SAME directory list as the Tokyo step — see that step's SCOPE DECISION
-      # and REJECTED ALTERNATIVE notes; both apply verbatim here, and the two
-      # lists must be kept identical so a directory added to one is not
-      # silently uncovered in the other direction.
-      #
-      # Step-level `env:` — never job-level, for the reason spelled out on the
-      # DST rail guards step. Pinned by test/ci/dst_rail_ci_coverage_test.dart;
-      # deleting this step fails that test.
+      # Pacific/Honolulu (2026-08-04): west of Kyiv, catches an hour band Tokyo cannot.
+      # Directory list identical to Tokyo's; STEP-level TZ only (dst_rail_ci_coverage_test).
+      # why: docs/ci/tz-sweeps.md#honolulu
       - name: Fourth-timezone sweep (west-of-Kyiv day-boundary detector)
         if: matrix.zone == 'honolulu'
         shell: bash
@@ -1551,13 +902,8 @@ jobs:
           name: ci-selection
           path: ${{ runner.temp }}/sel
 
-      # Phase 17.4 — Golden regression suite.
-      # Runs the alchemist CI goldens (obscureText=true, renderShadows=false)
-      # against the committed masters in test/golden/goldens/.
-      # On failure, golden-diff PNGs are collected from the framework's default
-      # failures/ subdirectory (alchemist writes isolatedDiff, maskedDiff,
-      # masterImage, testImage to <test-file-dir>/failures/) and uploaded so
-      # reviewers can inspect regressions without pulling the branch locally.
+      # Phase 17.4: alchemist CI goldens vs test/golden/goldens/; diffs uploaded on failure.
+      # why: docs/ci/README.md#goldens-step
       - name: Golden regression tests
         shell: bash
         env:
@@ -1590,35 +936,17 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
-  # apk (D1): native packaging only (~9.5 min); Analyze already proves Dart
-  # compiles. Always in full mode, in selective/none mode only when the PR
-  # touches a native surface (plan.native covers android/**, pubspec.yaml,
-  # lib/main.dart, routing, patrol, this workflow) — phase 400 D4/D5. The
-  # job-level `if` carries that condition, so Java and every build step need none.
-  #
-  # Audit F5: a 2-leg matrix (debug | release), one APK build per runner, so the
-  # two ~9 min builds run side by side. The JOB id stays `apk` (ci-gate, gate.sh,
-  # the `test` aggregator and jobRuns() all read needs.apk.result, which is red
-  # if either leg fails). Signing secrets stay on the release leg of non-PR
-  # events only: the debug leg never touches them.
+  # apk (D1, phase 400 D4/D5, audit F5): debug | release legs; full mode or native PR.
+  # why: docs/ci/README.md#job-apk
   apk:
     name: Build APKs (${{ matrix.variant }})
     runs-on: ubuntu-latest
-    # Audit cycle 2 N2: `gates-fast` (checkout + greps, ~1 min) is a cheap
-    # ordering dependency. ~16 jobs start at once and the account caps
-    # concurrent runners at 20, so without it the off-critical-path APK legs
-    # compete with the unit shards for the first runners; with it they are
-    # claimed only after the unit shards (which need `plan`, ~2 min) are
-    # already running. `apk` stays required by ci-gate (gate.sh), and a failed
-    # gates-fast skips it, which is RED through gates-fast anyway.
+    # Audit cycle 2 N2: `gates-fast` is an ordering-only dependency (runner cap).
+    # why: docs/ci/README.md#apk-needs-gates-fast
     needs: [plan, gates-fast]
-    # Audit cycle 2 N-L2: the signing secrets live in the `ci-trusted-secrets`
-    # Environment (branch policy dev/main), so a workflow_dispatch from any
-    # other branch cannot read them. ONLY the signed release leg off
-    # pull_request names it: a pull_request run (and the debug leg) evaluates
-    # to the empty string = no environment, so it neither waits for approval
-    # nor fails the branch policy. One-time setup: phase doc 402, "Manual
-    # setup required".
+    # Audit cycle 2 N-L2: signing secrets live in `ci-trusted-secrets`; only the release leg
+    # off pull_request names it. One-time setup: phase doc 402.
+    # why: docs/ci/README.md#apk-environment
     environment: ${{ (github.event_name != 'pull_request' && matrix.variant == 'release') && 'ci-trusted-secrets' || '' }}
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
@@ -1645,10 +973,8 @@ jobs:
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
 
-      # Decode the release keystore from the base64 secret. NEVER on
-      # pull_request: PR-controlled Gradle runs in the release build below and
-      # must not see signing secrets (security audit 2026-10-10). Real signing
-      # happens only on push (dev/main) and workflow_dispatch.
+      # Decode the release keystore: NEVER on pull_request (security audit 2026-10-10).
+      # why: docs/ci/README.md#apk-keystore
       - name: Decode keystore
         if: github.event_name != 'pull_request' && matrix.variant == 'release'
         env:
@@ -1662,28 +988,20 @@ jobs:
             echo "BEAUTICA_KEYSTORE_BASE64 not set — skipping release signing"
           fi
 
-      # Phase 400 D4 — the APK builds (~9.5 min) prove native packaging, not
-      # Dart logic (Analyze already proves Dart compiles): always in full mode,
-      # in selective/none mode only when the PR touches a native surface
-      # (plan.native covers android/**, pubspec.yaml, lib/main.dart, routing,
-      # patrol, this workflow).
+      # Phase 400 D4: the APK builds prove native packaging, not Dart logic.
+      # why: docs/ci/README.md#apk-build-debug
       - name: Build APK (debug)
         if: matrix.variant == 'debug'
         env:
-          # NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
-          # already prepend /api/v1/. A suffix here double-prefixes every URL
-          # (.../api/v1/api/v1/...) → 404. Contract pinned by
-          # test/core/config/app_config_path_test.dart.
+          # NO /api/v1 suffix (double prefix -> 404); pinned by app_config_path_test.dart.
+          # why: docs/ci/README.md#apk-base-url
           BEAUTICA_BASE_URL: https://beautica-backend-production.up.railway.app
         run: |
           flutter build apk --debug \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
-      # PRs: compile-only release build, NO secrets. android/app/build.gradle.kts
-      # falls back to the debug key; BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE=1 tells
-      # its CI distribution guard that this artifact is never distributed
-      # (APK uploads are disabled), so release-only breakage (R8, proguard) is
-      # still caught on PRs.
+      # PRs: compile-only release build, NO secrets (debug key, never distributed).
+      # why: docs/ci/README.md#apk-release-compile-check
       - name: Build APK (release, compile check, no secrets)
         if: github.event_name == 'pull_request' && matrix.variant == 'release'
         env:
@@ -1706,28 +1024,11 @@ jobs:
           flutter build apk --release \
             --dart-define=BEAUTICA_BASE_URL="$BEAUTICA_BASE_URL"
 
-      # APK artifact uploads are intentionally disabled (2026-07-06) to save
-      # GitHub Actions artifact storage quota — the builds above already
-      # confirm the debug/release APKs compile cleanly, which is all this job
-      # needs pre-release. Re-enable both `actions/upload-artifact` steps
-      # (see git history for this file) once we're close to a release and
-      # need a downloadable build.
+      # APK artifact uploads intentionally disabled (2026-07-06, storage quota).
+      # why: docs/ci/README.md#apk-uploads-disabled
 
-  # coverage (D4): full mode only (a partial run would report false coverage
-  # drops, phase 397 D5). Merges the per-shard lcov files the `unit` shards
-  # uploaded and sends ONE report to codecov. The merged line totals are written
-  # to the job summary: the acceptance check compares them with the pre-phase
-  # single run (within +-0.5 %).
-  #
-  # NON-BLOCKING (audit F2): this job only produces an informational codecov
-  # report (fail_ci_if_error: false), so it must never be what ci-gate waits
-  # for. It needs only `unit` (not tz-sweeps / goldens), so it runs side by side
-  # with `tests-ran`; it has no checkout (nothing in the tree is read: the
-  # inputs are the lcov artifacts), installs lcov at a PINNED version without
-  # recommended packages, and `continue-on-error: true` makes its job result
-  # `success` even when a step fails, so neither an old nor the new base
-  # gate.sh can be turned red by it (the new gate.sh also demotes a
-  # failed / cancelled / skipped coverage to a ::warning::).
+  # coverage (D4, audit F2): full mode only, merges shard lcov; NON-BLOCKING.
+  # why: docs/ci/README.md#job-coverage
   coverage:
     name: Coverage (merge shards)
     runs-on: ubuntu-latest
@@ -1737,11 +1038,8 @@ jobs:
       && needs.plan.outputs.run_all == 'true' && needs.unit.result == 'success'
     continue-on-error: true
     timeout-minutes: 15
-    # Audit cycle 2 N-L2: CODECOV_TOKEN lives in the `ci-trusted-secrets`
-    # Environment (branch policy dev/main), so a workflow_dispatch from another
-    # branch cannot read it. A pull_request run evaluates to '' = no
-    # environment (never waits for approval, never trips the branch policy).
-    # One-time setup: phase doc 402, "Manual setup required".
+    # Audit cycle 2 N-L2: CODECOV_TOKEN lives in `ci-trusted-secrets`; '' on pull_request.
+    # why: docs/ci/README.md#coverage-environment
     environment: ${{ github.event_name != 'pull_request' && 'ci-trusted-secrets' || '' }}
     # Read-only token (S-L2): this job never writes to the repo or the API.
     permissions:
@@ -1781,21 +1079,9 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # Audit cycle 2 N-L1: PR coverage is BEST-EFFORT. codecov-action v4
-      # needs a token for a tokenless upload to be accepted for most
-      # repositories; on a pull_request we deliberately pass none (S-L2), so
-      # that upload is likely rejected. `fail_ci_if_error: false` keeps it
-      # harmless. The authoritative coverage numbers are the dev / main runs
-      # (push + dispatch), which upload WITH the token. Do not bump to an
-      # unpinned v5: a bump must SHA-pin a released tag verified with
-      # `git ls-remote https://github.com/codecov/codecov-action <tag>`.
-      #
-      # Phase 397 D5 — partial (selective) runs would report false coverage
-      # drops, so only whole-suite runs upload (this job runs only for those).
-      # Audit S-L2: the upload token is passed ONLY on trusted events (push to
-      # dev/main, manual / nightly dispatch). A pull_request run uploads
-      # tokenless: a PR's own workflow/tree can never be handed the secret (the
-      # step does not run its `with: token`, and fork PRs get no secrets anyway).
+      # Audit N-L1: PR coverage is BEST-EFFORT (tokenless, fail_ci_if_error false); the
+      # authoritative numbers are the dev / main runs. Phase 397 D5, audit S-L2.
+      # why: docs/ci/README.md#coverage-upload
       - name: Upload coverage (pull_request, tokenless)
         if: github.event_name == 'pull_request'
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238  # v4
@@ -1811,12 +1097,8 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Bootstrap bridge, REMOVE once the base commit's tool/ci/gate.sh checks the
-  # split jobs (phase 402 follow-up): an OLD base gate.sh still demands a `test`
-  # job with result=success when tests are expected, and on the PR that
-  # introduces the split the gate script comes from the OLD base. The real
-  # verdicts are unit / tz-sweeps / goldens / apk / tests-ran (`coverage` is
-  # non-blocking since audit F2 and deliberately NOT a need of this job).
+  # Bootstrap bridge (phase 402): REMOVE once the base gate.sh checks the split jobs.
+  # why: docs/ci/README.md#job-test-aggregate
   test:
     name: Test & Build (aggregate)
     runs-on: ubuntu-latest
@@ -1831,22 +1113,9 @@ jobs:
         run: |
           printf '%s' "$NEEDS_JSON" | jq -e 'to_entries | map(select(.value.result == "failure" or .value.result == "cancelled")) | length == 0' >/dev/null
 
-  # ---------------------------------------------------------------------------
-  # tests-ran (audit 2026-10-10, N2/N3; phase 402): proves the split test jobs
-  # executed real (non-skipped) tests. Deliberately a SEPARATE job: the test
-  # jobs run PR test code, which can rewrite anything in its workspace, so the
-  # checker, its floor and the verdict must live where no PR code ever
-  # executes. This job checks out ONLY the BASE commit (three scripts +
-  # floor), downloads every event stream and the base-owned shard lists, and
-  # judges them. No PR checkout, read-only token, no secrets.
-  # Bootstrap (base lacks the script) is decided from the base checkout alone;
-  # script present on base but stream missing/empty => RED (fail closed).
-  #
-  # Phase 402: the unit streams arrive PER SHARD (events-unit-<i>), merged here
-  # by artifact. Count invariant (full AND selective): tool/ci/verify_shards.sh
-  # proves the shards ran a partition of the base-computed list; in full mode
-  # the joined streams must also clear the min_tests.txt floor.
-  # ---------------------------------------------------------------------------
+  # tests-ran (audit N2/N3, phase 402): a base-only checkout judges every event stream;
+  # no PR checkout, read-only token, no secrets; fail closed.
+  # why: docs/ci/README.md#job-tests-ran
   tests-ran:
     name: Tests actually ran
     runs-on: ubuntu-latest
@@ -1873,11 +1142,8 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      # Audit S-L1: NOT merge-multiple. Each `events-*` artifact lands in its
-      # own sub-directory of events-dl/, and the base-owned collect_events.sh
-      # (in the verify step) accepts from it only the ONE file name derived from
-      # the artifact's own name. A shard that uploads another job's stream name
-      # is rejected, never merged over it.
+      # Audit S-L1: NOT merge-multiple; collect_events.sh takes one file per artifact.
+      # why: docs/ci/README.md#tests-ran-download
       - name: Download event streams
         id: dl
         continue-on-error: true
@@ -1955,10 +1221,8 @@ jobs:
             if [ "$UNIT_SHARDS" = '["whole"]' ]; then
               ev=events/unit-events.json
             else
-              # Full: the SUM over all shards against the base-owned floor
-              # (unchanged by phases 400/402; never relaxed for selective runs).
-              # Joined only for that floor; verify_unit already judged each
-              # stream on its own.
+              # Full: the SUM over all shards against the base-owned floor (never relaxed).
+              # why: docs/ci/README.md#tests-ran-full-floor
               shopt -s nullglob
               : >events/unit-joined.ndjson
               for st in events/unit-*-events.json; do cat "$st" >>events/unit-joined.ndjson; done
@@ -1968,11 +1232,8 @@ jobs:
           elif [ "$TEST_COUNT" = "0" ]; then
             echo "empty test selection (mode none, or integration-only): nothing is expected to run"
           elif [[ "$TEST_COUNT" =~ ^[1-9][0-9]*$ ]]; then
-            # Selective: the floor would always trip on a subset, so the
-            # check is ">= 1 real test passed" PER selective stream (unit
-            # shards, golden, Kyiv rail, Tokyo, Honolulu): an all-skipped list
-            # is RED even when another stream passed (run_list.sh also checks
-            # each list at run time, incl. every listed file loading as a suite).
+            # Selective: >= 1 real test passed PER stream; an all-skipped list is RED.
+            # why: docs/ci/README.md#tests-ran-selective
             shopt -s nullglob
             streams=(events/*-events.json)
             if [ "${#streams[@]}" -eq 0 ]; then
@@ -2020,27 +1281,9 @@ jobs:
             echo "::error::tests-ran RED: run_all='$RUN_ALL' with test_count='$TEST_COUNT' (fail closed)"; exit 1
           fi
 
-  # ---------------------------------------------------------------------------
-  # End-to-end integration tests (Fix 4, 2026-06-02).
-  #
-  # integration_test/ drives the REAL app widget tree (real screens + real
-  # notifiers + real repository + real generated client + real serialization)
-  # with ONLY the Dio transport socket faked by http_mock_adapter — no live
-  # backend. IntegrationTestWidgetsFlutterBinding requires a device, so this job
-  # boots a headless Android emulator (KVM-accelerated on the runner) and runs
-  # the two aggregating files all_tests_part1.dart + all_tests_part2.dart.
-  #
-  # Phase 401: on a `selective` PR only the flows whose own code path changed
-  # run, through a generated, gitignored integration_test/ci_selected_tests.dart
-  # (tool/ci/affected_tests/bin/gen_integration_entry.dart, run from the BASE
-  # commit). D3: when the selection covers >= 70% of a part, or any hub changed,
-  # the two part files run unchanged. FULL mode (push, dispatch, nightly, any
-  # fail-safe) runs exactly the two part files, command lines unchanged.
-  # D4: skipped when the selector found no flow (ci-gate treats a skip as ok).
-  #
-  # Run locally against a connected emulator (see scripts/connect_adb.sh) with:
-  #   flutter test integration_test/edit_profile_flow_test.dart
-  # ---------------------------------------------------------------------------
+  # End-to-end integration tests (Fix 4, 2026-06-02): the real app on a headless emulator.
+  # Phase 401 D3/D4: selective PRs run the selected flows; FULL runs the two parts.
+  # why: docs/ci/emulator-integration.md#job-integration
   integration:
     name: Integration tests (emulator)
     runs-on: ubuntu-latest
@@ -2048,10 +1291,8 @@ jobs:
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'full-ci' || github.event.label.name == 'run-patrol')
       && (needs.plan.outputs.mode == 'full' || needs.plan.outputs.integration_count != '0')
-    # Backstop for the backstop. Each of the six invocations below is
-    # individually `timeout`-bounded (see part 1 attempt 1), so this only has
-    # to cover the case where the emulator action itself wedges outside the
-    # `script:` block. Without it the job inherits GitHub's 6-HOUR default.
+    # Backstop for the per-invocation `timeout`s (else GitHub's 6 h default).
+    # why: docs/ci/emulator-integration.md#integration-timeout
     timeout-minutes: 180
     steps:
       - name: Checkout
@@ -2117,11 +1358,8 @@ jobs:
           fi
           echo "trusted/ = $got"
 
-      # P2: Gradle's downloads/transforms for the app build. RESTORE ONLY on
-      # pull_request: a PR can never write the cache other runs read (the save
-      # step below runs on push/dispatch/nightly only). This feeds the APK build,
-      # which is PR-controlled code anyway, never the selector (400 D8, see the
-      # phase 401 doc D6). The key hashes the files that decide Gradle inputs.
+      # P2: Gradle cache RESTORE ONLY on pull_request; save runs on push / dispatch only.
+      # why: docs/ci/emulator-integration.md#gradle-cache
       - name: Restore Gradle cache
         id: gradle-cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
@@ -2133,16 +1371,9 @@ jobs:
           restore-keys: |
             gradle-it-${{ runner.os }}-
 
-      # entry=selected only when the trusted generator ran cleanly and wrote
-      # integration_test/ci_selected_tests.dart, and the trusted attempt script
-      # exists. EVERYTHING else (generator or script missing on the base, crash,
-      # no/odd entry= or count= line, `none`, D3/cap fallback) is `parts`: the
-      # two part files, i.e. the pre-401 run. Fail-safe to FULL (400 D7).
-      # S1: the target is removed first (a PR-committed dangling symlink would
-      # redirect the write). S3: `--packages=<empty config>` makes the generator
-      # ignore the PR's .dart_tool/package_config.json (it has no imports;
-      # `/dev/null` itself is rejected by dart as an empty packages file).
-      # P3: bound = clamp(420 + 45 * flows, 600, 1500) seconds.
+      # entry=selected only after a clean trusted generator run; else `parts` (400 D7).
+      # S1/S3 hardening; P3 bound = clamp(420 + 45 * flows, 600, 1500) s.
+      # why: docs/ci/emulator-integration.md#choose-entry
       - name: Choose integration entry (selected flows or the two parts)
         id: entry
         if: needs.plan.outputs.mode == 'selective'
@@ -2202,78 +1433,9 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      # ROOT CAUSE + FIX (2026-07-07 — see docs/ci_investigation_notes.md for
-      # the full overnight investigation trail). This step used to run once.
-      # A 2026-07-01 incident found it crashing the emulator at final
-      # teardown ("adb: device offline" right after the LAST flow's own
-      # assertions all logged ✅) and bisected it to commit 7307721. The
-      # 2026-07-06/07 follow-up investigation falsified that bisection and
-      # several other theories (Home-Hub-specific rendering, cumulative
-      # relaunch count, API 34/35 instability, Flutter SDK drift) via
-      # systematic isolation, then confirmed the real mechanism: GitHub's
-      # headless emulator (goldfish-opengl / swiftshader_indirect) releases
-      # an app relaunch's GL ColorBuffer handles ASYNCHRONOUSLY host-side; a
-      # NEW relaunch starting before that cleanup finishes crashes the WHOLE
-      # emulator (`Failed to find ColorBuffer` -> `adb: device offline`,
-      # unrecoverable — `adb emu kill` itself can't connect) instead of just
-      # logging a warning. This is a documented, UNRESOLVED upstream bug —
-      # see ReactiveCircus/android-emulator-runner#358 and
-      # flutter/flutter#153445/#140001/#146890 (Google's own LUCI CI hits the
-      # identical crash class with no confirmed permanent fix).
-      #
-      # Mitigations, layered (see docs/ci_investigation_notes.md for the full
-      # trail, including two rounds that turned out NOT to fully explain it):
-      #   1. A 2s settle delay in `AppHarness.tearDownHarness()` /
-      #      `PatrolHarness.tearDownHarness()` (integration_test/support/,
-      #      integration_test/patrol/support/) — the ONE shared choke point
-      #      every flow file already calls via
-      #      `tearDown(AppHarness.tearDownHarness)`. Reduces (but does not
-      #      eliminate) the incidence of the stall.
-      #   2. `sleep 15` between the two `flutter test` invocations below —
-      #      harmless, but confirmed NOT to be the deciding factor: the crash
-      #      still fires WITHIN `all_tests_part1.dart` itself (the 1st→2nd
-      #      relaunch transition inside that one process), never actually
-      #      reaching this sleep.
-      #   3. THE ACTUAL FIX — success detection by log content, not shell
-      #      exit code. Confirmed on repeated samples: the 1st→2nd relaunch
-      #      transition inside `all_tests_part1.dart` always logs `Failed to
-      #      find ColorBuffer`, stalls ~35-40s, then EVERY ONE of the file's
-      #      39 relaunches completes and logs ✅ — but the adb/emulator link
-      #      is left wedged, so the file's OWN final teardown/uninstall then
-      #      fails hard (`adb: device offline`, unrecoverable — `adb emu
-      #      kill` itself can't connect), well AFTER every real assertion in
-      #      the file already passed. This can ALSO kill `flutter test`
-      #      itself before it prints its own `🎉 N tests passed.` summary
-      #      (confirmed: a run with all 39 ✅ present had NO 🎉 in the log,
-      #      so gating on that marker alone is too fragile — it depends on
-      #      the process surviving long enough to flush it). A real
-      #      assertion failure, by contrast, ALWAYS prints `EXCEPTION CAUGHT
-      #      BY FLUTTER TEST FRAMEWORK` synchronously, at the moment of
-      #      failure — unaffected by anything that happens later (confirmed
-      #      via the unrelated logout_flow_test.dart bug found during this
-      #      investigation, backlogged separately). So: capture each
-      #      invocation's own output, and gate on the ABSENCE of that
-      #      exception banner (plus a sanity check that at least one ✅ was
-      #      logged at all, in case of a crash before any test could run) —
-      #      not the process exit code, which is polluted by this separate,
-      #      well-documented, UNRESOLVED upstream emulator bug
-      #      (ReactiveCircus/android-emulator-runner#358,
-      #      flutter/flutter#153445/#140001/#146890 — Google's own LUCI CI
-      #      hits the identical crash class with no confirmed permanent fix)
-      #      that fires strictly AFTER the tests it's supposedly reporting on.
-      # Retry the WHOLE step (fresh emulator boot each attempt) up to 3 times
-      # regardless, as defense-in-depth for the rarer case where the crash
-      # happens mid-run rather than at final teardown (no ✅ ever logged, or
-      # a real exception banner) — genuinely not masked by mitigation 3
-      # and still fails the attempt).
-      # DECOUPLED PART BOOTS (2026-07-07, round 6): part1 and part2 EACH get
-      # their own independent emulator boot + 3x retry, instead of sharing
-      # one boot with a sleep in between. Confirmed necessary: part1's crash
-      # doesn't just wedge the adb link, it kills the WHOLE emulator process
-      # (part2 then fails with flutter's own "No supported devices
-      # connected" — no `sleep` duration fixes that, since there's no
-      # device left to wait for). Splitting into separate boots means
-      # part1's crash has zero effect on part2's own fresh attempts.
+      # 2026-07-07: upstream emulator ColorBuffer crash AFTER the tests; gate on log
+      # content, retry with a fresh boot, separate boots per part.
+      # why: docs/ci/emulator-integration.md#root-cause-2026-07-07
       - name: Run integration tests — part 1 (attempt 1)
         id: it-part1-attempt-1
         if: steps.entry.outputs.entry != 'selected'
@@ -2283,41 +1445,13 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # ram-size/heap-size (2026-07-01): harmless baseline bump, kept even
-          # though investigation showed memory pressure was never the actual
-          # cause. cores is left at the action default (2) since GitHub-hosted
-          # ubuntu-latest runners have 2 vCPUs.
+          # ram-size/heap-size (2026-07-01): harmless baseline bump.
+          # why: docs/ci/emulator-integration.md#ram-size
           ram-size: 4096M
           heap-size: 512M
-          # NOTE: directory-mode batching (`flutter test integration_test/`) does
-          # NOT work — it launches the app once and cannot relaunch between files
-          # ("Unable to start the app on the device" after the first flow). Each
-          # AGGREGATING FILE below works the same way the original single file
-          # did: one isolate per invocation, harness re-launches per testWidgets.
-          #
-          # The PROFILE-MODE drive leg that used to run here was split into the
-          # separate `integration-profile` job below (2026-06-18, finding 6) so
-          # its slow AOT compile no longer blocks every PR's critical path. This
-          # fast debug pass stays per-PR.
-          #
-          # EXTERNAL `timeout` (2026-08-17) — on every one of the six invocations
-          # below, not just this one. An `integration_test/` flow CAN hang with
-          # no bound whatsoever: `IntegrationTestWidgetsFlutterBinding` sets
-          # `defaultTestTimeout = Timeout.none`, and every bound the harness owns
-          # (`AppHarness.settle`'s `Future.timeout`, `pumpAndSettle`'s internal
-          # deadline, the `pumpUntil*` poll deadlines, an explicit per-test
-          # `Timeout`) is a TIMER — none of which tick once a synchronous
-          # allocating build loop has starved the isolate's event loop. That is
-          # not theoretical: `master_archive_flow_test.dart` scenario 2 ran
-          # unbounded on 2026-08-17 and nothing in-isolate could stop it. A
-          # bound OUTSIDE the process is the only kind that works, which is why
-          # this is `timeout(1)` and not another Dart-side constant.
-          #
-          # 1500 s is per INVOCATION (one aggregated part, ~15 flows in one
-          # isolate) — generous against a healthy run, useless as a hang. It
-          # also composes with the per-attempt retry design: a hung attempt 1
-          # aborts at 25 min and attempt 2 still gets its own fresh emulator,
-          # which a job-level bound alone could not give.
+          # One aggregating file per invocation (directory mode cannot relaunch).
+          # EXTERNAL `timeout` (2026-08-17): no in-isolate bound survives event-loop starvation.
+          # why: docs/ci/emulator-integration.md#external-timeout
           script: |
             timeout --signal=TERM --kill-after=60 1500 flutter test integration_test/all_tests_part1.dart > part1.log 2>&1; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then cat part1.log; echo "PART 1: TIMED OUT after 1500s (rc=$RC). This bound is EXTERNAL on purpose: no in-isolate bound can catch event-loop starvation. Future.timeout, pumpAndSettle's own deadline, pumpUntil* poll deadlines and defaultTestTimeout are ALL timers, and a timer never fires while a synchronous allocating loop holds the isolate (see AppHarness.settle's doc). A healthy part is far under this bound, so treat 124/137 as a HANG, not slowness: find the last flow that logged and look for an unbounded synchronous build (e.g. a per-hour/per-row loop driven by out-of-window data)."; exit 1; fi; true
             cat part1.log
@@ -2403,14 +1537,9 @@ jobs:
             cat part2.log
             grep -q "EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK" part2.log && { echo "PART 2: FAILED — a real test assertion/exception was logged."; exit 1; }; grep -q "✅" part2.log || { echo "PART 2: FAILED — no test assertions logged at all (crashed before any test could even start)."; exit 1; }; echo "PART 2: no test failures logged (any process-level crash after this point is the known upstream emulator teardown bug, not a real failure)."
 
-      # Selected-flow attempts (audit cycle 1). The pass/fail decision, the
-      # scaled timeout (P3) and the deterministic-failure detection (P5) live in
-      # ONE base-owned script, tool/ci/run_it_attempt.sh, run from trusted/ (P7).
-      # Attempt 3 is skipped when attempts 1 and 2 failed with the SAME failing
-      # tests (`deterministic=true` output of attempt 2); crash/hang/offline
-      # flakes keep all three attempts. Pass/fail is judged from the host-side JSON
-      # test protocol (`--file-reporter json:$RUNNER_TEMP/it-sel/events.json`, needs
-      # jq) -- never from stdout, which a test's print() can forge (audit cycle 4).
+      # Selected-flow attempts: pass/fail in base-owned run_it_attempt.sh (P3/P5/P7),
+      # judged from the JSON test protocol, never stdout.
+      # why: docs/ci/emulator-integration.md#selected-attempts
       - name: Run integration tests — selected flows (attempt 1)
         id: it-sel-attempt-1
         if: steps.entry.outputs.entry == 'selected'
@@ -2525,53 +1654,9 @@ jobs:
           # key than the one restored: key drift).
           key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
 
-  # ---------------------------------------------------------------------------
-  # Profile-mode integration drive (2026-06-18 debug↔release divergence
-  # safeguard; finding 6).
-  #
-  # `flutter test` ALWAYS runs JIT/debug with asserts ON; it has no
-  # `--profile`/`--release` flag (verified: "Could not find an option named
-  # --profile"). So the fast `integration` job above only catches "debug-fails /
-  # release-works" (our logout CircularDependencyError). To ALSO catch the
-  # INVERSE — "release-fails / debug-works", where a STRIPPED assert changes
-  # behaviour on a critical flow — we re-run the logout/auth-cascade flow in
-  # PROFILE mode via `flutter drive` (asserts stripped, AOT, release-like). It is
-  # scoped to logout_flow_test (the critical auth-cascade flow) to keep the AOT
-  # compile bounded.
-  #
-  # WHAT THIS JOB ACTUALLY RE-GUARDS (corrected 2026-07-22 — the earlier
-  # wording above overstated it). It does NOT re-guard the
-  # CircularDependencyError that `logout_flow_test.dart` was written for:
-  # Riverpod's `_debugAssertCanDependOn` is `kDebugMode`-only, so with asserts
-  # stripped that specific regression CANNOT fire here — in profile this test
-  # can never fail for its own stated reason. What the job legitimately is:
-  # a "does the critical auth flow still work end-to-end with asserts OFF"
-  # smoke test. Its value is the assert-stripping-changes-behaviour class in
-  # general, and it has already paid for itself once — it is how the silent
-  # `enterText` drop was found (`tester.enterText` no-ops in profile unless the
-  # harness registers the text-input mock; see
-  # `scripts/forbid_missing_test_text_input.sh`). Do not describe this job as
-  # the profile-mode counterpart of the cyclic-invalidation guard; it isn't.
-  #
-  # DO NOT ADD SCREENSHOT CAPTURE HERE — it will only ever produce black
-  # frames. `LoginScreen.initState` acquires `screenProtectionProvider`, whose
-  # `_enable()` starts with `if (kDebugMode) return;` (see
-  # `lib/core/security/screen_protection.dart`). So FLAG_SECURE is set in
-  # PROFILE but not in debug, and `adb shell screencap` on this job returns an
-  # all-black image (confirmed on a physical device, 2026-07-22). Debug this
-  # job from `adb logcat` / the driver's stdout, not from screenshots.
-  #
-  # WHY THIS JOB IS GATED (not per-PR), matching the `patrol` job idiom exactly:
-  #   The profile AOT compile adds ~1.5–3 min to the critical path on every PR.
-  #   The inverse-divergence class it guards is rare and the auth flow changes
-  #   seldom, so per-PR cost is not justified. It therefore runs only on:
-  #     • the nightly (nightly.yml -> workflow_dispatch on dev),
-  #     • manual `workflow_dispatch`,
-  #     • PRs explicitly labelled `run-patrol` (the same opt-in label the patrol
-  #       native-E2E job uses — both are the heavy emulator-AOT tier).
-  #   It is a SEPARATE job, so it never blocks the fast `gates` /
-  #   `integration` jobs, and the per-PR debug `flutter test integration_test/
-  #   all_tests.dart` pass in `integration` is untouched.
+  # Profile-mode drive (2026-06-18, finding 6): logout flow with asserts stripped.
+  # Gated (dispatch / run-patrol). No screenshots: FLAG_SECURE makes them black.
+  # why: docs/ci/emulator-integration.md#job-integration-profile
   integration-profile:
     name: Integration profile drive (emulator)
     runs-on: ubuntu-latest
@@ -2618,70 +1703,22 @@ jobs:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          # AOT, asserts stripped, release-like — the inverse of the debug
-          # `flutter test` pass. Uses the standard host driver in
-          # test_driver/integration_test.dart.
-          #
-          # ONE PHYSICAL LINE, deliberately — do NOT reformat with backslash
-          # continuations for readability. android-emulator-runner executes each
-          # physical line of `script:` as its own `sh -c` invocation, so a
-          # trailing `\` is passed as a literal argument rather than continuing
-          # the command: `flutter drive \` alone yields `Target file "\" not
-          # found.` and the job dies before the driver starts. The `integration`
-          # job above follows the same rule (long single lines joined with `;`).
-          # This bit us for real: the job is label-gated, so the break sat
-          # undetected from 2026-07-07 until a `run-patrol` label first ran it.
+          # AOT, asserts stripped. ONE PHYSICAL LINE: emulator-runner runs each line via `sh -c`.
+          # why: docs/ci/emulator-integration.md#profile-one-line
           script: |
             timeout --signal=TERM --kill-after=60 900 flutter drive --profile --driver=test_driver/integration_test.dart --target=integration_test/logout_flow_test.dart; RC=$?; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PROFILE DRIVE: TIMED OUT after 900s (rc=$RC). External bound — an in-isolate one cannot catch event-loop starvation; see the part1/part2 note in the integration job above."; fi; exit $RC
 
-  # ---------------------------------------------------------------------------
-  # Patrol native E2E (Phase 17.5).
-  #
-  # Covers OS-level surfaces integration_test cannot reach (deep-link intents,
-  # permission dialogs, notifications, WebViews) via patrol's `$.native.*`.
-  # Tests live under integration_test/patrol/ and run through native
-  # instrumentation (PatrolJUnitRunner) driven by the patrol_cli global tool —
-  # NOT `flutter test`. The headless `integration` job above is unaffected: the
-  # all_tests.dart aggregator does not import anything under patrol/.
-  #
-  # WHY THIS JOB IS GATED (not per-PR):
-  #   The native compile builds the androidTest variant + AndroidX Test
-  #   Orchestrator and boots a full emulator — materially slower than the fast
-  #   jobs. Running it on every PR is not justified, so it runs only on:
-  #     • the nightly (nightly.yml -> workflow_dispatch on dev),
-  #     • manual `workflow_dispatch`,
-  #     • PRs explicitly labelled `run-patrol`,
-  #     • PRs that touch a native surface (see the `plan` job / tool/ci/plan.sh).
-  #   It is a SEPARATE job, so it never blocks or merges into the fast
-  #   `gates` / `integration` jobs.
-  #
-  #   The last clause was added because label-only opt-in meant a PR that broke
-  #   App Link routing merged green — nobody remembers to add a label for a
-  #   regression they do not know they are introducing.
-  #
-  # EXPECTED OUTCOME PER TRIGGER (all four cases the `if:` must get right):
-  #   1. workflow_dispatch   -> RUNS (manual or nightly; never gated on a diff)
-  #   2. PR + `run-patrol`   -> RUNS (clause 3, label branch)
-  #   4. PR touching native  -> RUNS (clause 3, changed-paths branch)
-  #   5. any other PR / push -> SKIPPED (no clause matches; `push` is
-  #                             deliberately absent — its PR already covered it)
+  # Patrol native E2E (phase 17.5): OS-level surfaces via native instrumentation.
+  # Runs on dispatch, `run-patrol`, or a native-surface PR (per-trigger table in the doc).
+  # why: docs/ci/patrol.md#job-patrol
   patrol:
     name: Patrol native E2E (emulator) (API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
-    # Bound the job. Without this it inherits GitHub's 6-hour default, and a
-    # hung emulator burns six hours of runner time before anyone notices. On
-    # 2026-07-22 this job sat ~90 minutes on the test step before the emulator
-    # died; a healthy run is well under 30. 45 gives generous headroom for a
-    # cold native compile without letting a hang run away.
+    # 45 min bound (2026-07-22: a hung emulator sat ~90 min).
+    # why: docs/ci/patrol.md#patrol-timeout
     timeout-minutes: 45
-    # Matrix axis: API 34 only. API 29 was dropped — its x86_64 system image
-    # crashes with a native jemalloc SIGSEGV during native-thread creation
-    # (art::Thread::CreateNativeThread → je_malloc) before any patrol test runs.
-    # The same APK runs clean on API 34, so the crash is the emulator image, not
-    # app code. The deep-link test asserts App Links routing, and the strict
-    # path that can actually break is Android 12+ (API 31+) — already covered by
-    # API 34. (minSdk is 26; re-add API 29 pinned to a known-good image on a
-    # continue-on-error leg if pre-12 coverage is later needed.)
+    # API 34 only: the API 29 x86_64 image crashes (jemalloc SIGSEGV) before any test.
+    # why: docs/ci/patrol.md#patrol-matrix
     strategy:
       fail-fast: false
       matrix:
@@ -2715,24 +1752,9 @@ jobs:
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
 
-      # patrol_cli is a GLOBAL tool — intentionally not a repo dependency.
-      #
-      # PIN THE EXACT VERSION. patrol_cli and the `patrol` package ship a
-      # hard compatibility check: the CLI refuses to run against a package
-      # version it does not declare support for, and the pairing is exact,
-      # not semver-compatible. patrol_cli 4.5.x requires `patrol` 4.7.0
-      # ("This version requires version `4.7.0` of `patrol` package", CLI
-      # 4.5.0 changelog); 4.4.0 paired with patrol 4.6.x.
-      #
-      # This line previously read `dart pub global activate patrol_cli` with
-      # NO constraint, while the comment above it claimed a major-version
-      # pin. It was unpinned in fact. On 2026-07-22 the CLI moved to 4.5.1
-      # while pubspec still had `patrol: ^4.6.1`, and the job died with
-      # "Patrol version 4.6.1 ... is not compatible with patrol_cli version
-      # 4.5.1". Because the job is `run-patrol`-gated it had never run on an
-      # ordinary PR, so the break surfaced only when the label was applied.
-      #
-      # Bump BOTH together, never one: this pin and `patrol:` in pubspec.yaml.
+      # patrol_cli is a GLOBAL tool, EXACT-pinned to the `patrol` package (2026-07-22 break).
+      # Bump BOTH together: this pin and `patrol:` in pubspec.yaml.
+      # why: docs/ci/patrol.md#patrol-cli-pin
       - name: Install patrol_cli
         run: |
           dart pub global activate patrol_cli 4.5.1
@@ -2755,120 +1777,33 @@ jobs:
           api-level: ${{ matrix.api-level }}
           arch: x86_64
           profile: pixel_6
-          # Scope to integration_test/patrol so patrol only bundles the
-          # patrolTest flows. With test_directory: integration_test in
-          # pubspec.yaml, a bare `patrol test` would also discover the 5
-          # non-patrol flow files + all_tests.dart (testWidgets, not
-          # patrolTest) — those stay on the fast headless `integration` job.
-          # The FCM cases are skip-marked at the Dart level (Firebase deferred)
-          # so they report as skipped, not failed.
+          # Scope to integration_test/patrol (non-patrol flows stay on `integration`).
+          # why: docs/ci/patrol.md#patrol-scope
           script: |
-            # Capture full device logcat in the background so a crash stack
-            # (Process crashed → FATAL EXCEPTION) survives — patrol/gradle only
-            # surface "Process crashed", not the device-side stack. Backgrounded
-            # on its own line so it survives this line's sh -c exit.
+            # Background device logcat (own line, so it survives this line's sh -c).
+            # why: docs/ci/patrol.md#patrol-logcat-capture
             adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
             # Keep the ADB-install verifier out of the way during patrol's reinstall.
             adb shell settings put global verifier_verify_adb_installs 0 || true
-            # BACKGROUND RE-APPROVAL LOOP (load-bearing fix). patrol test rebuilds +
-            # reinstalls the app right before running, which WIPES App Link approval,
-            # so a one-shot pre-approval is gone by the time openUrl fires (deep-link
-            # test runs 3rd). This loop re-asserts STATE_APPROVED for both default
-            # and user scope, so whenever patrol's reinstall lands the domain is
-            # re-approved before the intent is fired.
-            #
-            # CADENCE IS 5s, NOT 1s — do not tighten it back. On 2026-07-22, the
-            # first run in which this job ever reached the tests (a CLI version
-            # mismatch had killed it earlier, so the loop had never actually run in
-            # anger), the emulator died mid-suite with
-            # `device 'emulator-5554' not found` and
-            # `[EmulatorConsole]: Failed to start Emulator console for 5554` BEFORE
-            # any test started. Patrol reported 0 test failures — 1 passed, 2
-            # skipped, and the run simply lost its device. In that SAME workflow
-            # run, on the same runner image, same emulator-runner action and same
-            # API 34, the `integration` job — which runs NO adb loop — passed a
-            # 15-minute suite on its own emulator.
-            #
-            # CADENCE IS 1s AND MUST STAY 1s. It was introduced at 1s by
-            # 3e7dc9c ("keep App Link approved during patrol run") precisely to
-            # win the race against patrol's reinstall, and it is the reason the
-            # deep-link test passes at all.
-            #
-            # DO NOT SLOW IT DOWN. On 2026-07-22 it was cut 5x (1s -> 5s) on a
-            # hypothesis that adb contention from this loop was killing the
-            # emulator. That hypothesis was TESTED AND DISPROVEN — the next run
-            # failed byte-for-byte identically, same test, ~87s, same
-            # `device 'emulator-5554' not found`. The device loss is unrelated
-            # to this loop (it is bisect-confirmed to be the CLIENT test's
-            # client-shell mount; see auth_login_patrol_test.dart).
-            #
-            # But the slowdown was not free: the deep-link test failed on every
-            # run while the cadence was 5s. Losing the approval race means the
-            # URL opens in a BROWSER, the app is backgrounded, and the Flutter
-            # engine stops producing frames — so the test does not fail fast, it
-            # HANGS, because `pump()` blocks forever waiting for a frame that
-            # never comes. That is what the 900s `timeout` below caught.
-            #
-            # Lesson worth keeping: this loop is load-bearing for the deep-link
-            # test, and it was slowed to chase a defect in a different test.
-            #
-            # What the evidence actually shows, for whoever picks this up: the
-            # failure is DETERMINISTIC, not the intermittent flake this repo has
-            # classified it as since 2026-07-01. Two runs on two commits both
-            # died at the same point — test 1 passes in 6s, test 2 kills the
-            # device — with patrol reporting ZERO failed assertions. The captured
-            # logcat contains no `beautica` lines at all and ends during boot
-            # chatter, so the background `adb logcat` lost the device before the
-            # app even started, and `[EmulatorConsole]: Failed to start Emulator
-            # console for 5554` prints before any test runs. `patrol doctor` also
-            # reports `Program adb not found` while $ANDROID_HOME is set, so
-            # patrol_cli, the emulator-runner action and Gradle's ddmlib may not
-            # all be resolving the same adb. That mismatch is UNVERIFIED — it is
-            # a direction, not a diagnosis.
-            #
-            # It STOPS the instant patrol finishes, via the sentinel file written on
-            # the patrol line below — the emulator-runner action waits for backgrounded
-            # children, so a loop that kept spinning would hang the step for minutes
-            # after the tests already passed (observed). Each adb call is `timeout`-
-            # bounded so a call can never wedge, and the loop is iteration-capped as a
-            # final backstop. NOT pkill'd — `pkill -f` would match its own argv and
-            # SIGTERM the cleanup shell ("exit code null"). Must be ONE self-contained
-            # line so the `&` background survives this line's own sh -c.
+            # BACKGROUND RE-APPROVAL LOOP (load-bearing): cadence MUST stay 1s; stops via
+            # the sentinel file; ONE self-contained line.
+            # why: docs/ci/patrol.md#approve-loop
             rm -f /tmp/patrol_approve_done || true
             ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do out1=$(timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app 2>&1); rc1=$?; out2=$(timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app 2>&1); rc2=$?; if [ "$rc1" -ne 0 ] || [ -n "$out1" ] || [ "$rc2" -ne 0 ] || [ -n "$out2" ]; then echo "APPROVE-LOOP iter=$i set-app-links rc=$rc1 out=[$out1] user-selection rc=$rc2 out=[$out2]" >> /tmp/patrol_approve.log; fi; i=$((i+1)); sleep 1; done ) &
             patrol build android --target integration_test/patrol
-            # DIAGNOSTIC: the real domain-verification state, right before the
-            # suite runs. If the deep-link test still routes to a browser, this
-            # is the line that says why — look for the domain under "Selection
-            # state" / whether it reads as approved for user 0.
+            # DIAGNOSTIC: domain-verification state right before the suite.
+            # why: docs/ci/patrol.md#pre-test-app-links
             echo "=== pm get-app-links (pre-test) ==="; adb shell pm get-app-links com.beautica.beautica_mobile 2>&1 || true
-            # GALLERY SEED (PR #79): avatar_pick_patrol_test selects a photo in the
-            # system Photo Picker, and a device test cannot write MediaStore — the
-            # host must seed it. Unseeded, the picker grid is empty: the test fails
-            # «no photo cell found», the picker stays in front with the app
-            # backgrounded, and the NEXT test hangs to the 900s bound. Fail the step
-            # here (not 15 min later) if the seed or its MediaStore row is missing.
+            # GALLERY SEED (PR #79): fail here if the MediaStore fixture row is missing.
+            # why: docs/ci/patrol.md#gallery-seed
             timeout 60 ./scripts/seed_gallery_fixture.sh && timeout 30 adb shell content query --uri content://media/external/images/media --projection _data | grep -q beautica_avatar_fixture.jpg || { echo "GALLERY SEED FAILED: no MediaStore row for beautica_avatar_fixture.jpg"; exit 1; }
-            # Run patrol, capture its exit, signal the loop to stop, then exit with
-            # patrol's real code — all on ONE line so the exit status carries
-            # (android-emulator-runner runs each line in its own sh -c, so a separate
-            # CODE=$?/exit would not). This makes the step's result equal patrol's.
+            # Run patrol, stop the loop, exit with patrol's code: ONE line (sh -c per line).
+            # why: docs/ci/patrol.md#patrol-exit
             timeout --signal=TERM --kill-after=60 900 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 900s (rc=$RC). A healthy suite is ~10min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
 
       - name: Collect emulator host-side diagnostics
-        # The gfxstream/swiftshader ColorBuffer race this repo has chased for
-        # weeks announces itself on the EMULATOR PROCESS's own stdout
-        # ("Failed to find ColorBuffer"), which is NOT reachable from here: the
-        # emulator is launched by android-emulator-runner, so its stdout goes to
-        # that action's log group and there is nothing to tee. Do not add a
-        # `| tee` to the script expecting to catch it — it will silently capture
-        # nothing, which is worse than not trying.
-        #
-        # What IS reachable is collected below: the emulator's host-side log and
-        # crash files, plus the GL/gfxstream chatter that does reach logcat
-        # (EGL_emulation / emuglGLESv2 / gralloc tags). Combined with the always-
-        # uploaded device logcat, that is the best evidence available without
-        # patching the action itself.
+        # The ColorBuffer race prints on the emulator's stdout (unreachable); collect the rest.
+        # why: docs/ci/patrol.md#host-diagnostics
         if: always()
         continue-on-error: true
         shell: bash
@@ -2891,17 +1826,8 @@ jobs:
           echo "collected:"; find emulator-diag -type f | head -40
 
       - name: Upload patrol device logcat
-        # `always()`, NOT `failure()`. This gate cost a real investigation:
-        # runs #292/#293 lost the emulator mid-suite, but `patrol test` HUNG on
-        # its post-run uninstall and the jobs were cancelled rather than failing.
-        # `failure()` is FALSE on cancellation, so neither run uploaded anything,
-        # and the newest artifact on the shelf was from #291 — a run that had
-        # died on a CLI version check before any test executed. Its logcat held
-        # ten seconds of boot chatter and zero app lines, which was then read as
-        # evidence about a failure it had never observed.
-        #
-        # A diagnostic artifact must survive the failure modes it exists to
-        # diagnose. Cancellation and timeout are exactly when it is needed most.
+        # `always()`, NOT `failure()`: diagnostics must survive cancellation and timeout.
+        # why: docs/ci/patrol.md#logcat-always
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
@@ -2914,36 +1840,16 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # ---------------------------------------------------------------------------
-  # ci-gate (phase 397) — the ONLY required status check on dev and main.
-  #
-  # `if: always()` so it reports even when upstream jobs are skipped. A skipped
-  # job reports success, so a failed `plan` (which skips everything downstream)
-  # would otherwise leave a green PR: the gate turns that red. `skipped` jobs
-  # (patrol off, selective jobs with an empty list) are NOT failures, EXCEPT
-  # when EXPECT_TESTS=true: then `tests-ran`, `gates-fast` and `gates` must be
-  # success and, in a FULL run, so must unit / tz-sweeps / goldens / apk (phase
-  # 402). `coverage` is non-blocking (audit F2): a failed one is a warning. The
-  # `test` aggregator exists only for an old base gate.sh and is not consulted
-  # by the new one. Verdict logic lives in tool/ci/gate.sh (table-tested).
-  # Every new job MUST be added to `needs:`.
-  #
-  # NEVER SKIPPED, not even on an irrelevant-label (noop) event: a skipped
-  # required check counts as passing and the newest same-named check wins, so a
-  # skipped ci-gate could mask a red/pending real one. On noop events every other
-  # job is skipped and ci-gate MIRRORS the real run for the same head SHA
-  # (tool/ci/mirror.sh, base-owned), waiting for it and passing only on success.
-  # ---------------------------------------------------------------------------
+  # ci-gate (phase 397): the ONLY required check; never skipped (mirrors on noop).
+  # Verdict in tool/ci/gate.sh. Every new job MUST be added to `needs:`.
+  # why: docs/ci/README.md#job-ci-gate
   ci-gate:
     name: ci-gate
     if: always()
     needs: [plan, gates-fast, gates, selector-tests, unit, tz-sweeps, goldens, apk, coverage, test, tests-ran, integration, integration-profile, patrol]
     runs-on: ubuntu-latest
-    # Normally seconds; a noop-label event waits for the real run it mirrors:
-    # up to 3 min polling for it to appear + the watch below (200 min =
-    # the slowest real job, `integration` at 180, plus runner QUEUE time, which
-    # the job timeout does not cover) + verdict. Must stay
-    # ABOVE both, or the gate dies before the thing it is mirroring.
+    # 205 min: a noop mirror waits for the real run (integration 180 + queue).
+    # why: docs/ci/README.md#ci-gate-timeout
     timeout-minutes: 205
     permissions:
       actions: read
