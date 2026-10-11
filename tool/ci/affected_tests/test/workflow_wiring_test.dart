@@ -1519,6 +1519,63 @@ void main() {
       expect(head, isNot(contains('#   flutter test integration_test/\n')));
     });
   }, skip: skip);
+
+  // Phase 402 D14: a workflow comment is <= 3 lines (what/why + a
+  // `# why: docs/ci/<topic>.md#<anchor>` pointer); narratives live in docs/ci.
+  group('phase 402 D14 comment hygiene', () {
+    test('no run of more than 4 consecutive comment lines', () {
+      final offenders = longCommentRuns(wfFile.readAsStringSync(), 4);
+      expect(offenders, isEmpty, reason: 'move the text to docs/ci/');
+    });
+
+    test('the gate itself flags a 5-line run and passes a 4-line one', () {
+      String block(int n) => [for (var i = 0; i < n; i++) '  # c$i'].join('\n');
+      expect(longCommentRuns('a: 1\n${block(4)}\nb: 2', 4), isEmpty);
+      expect(longCommentRuns('a: 1\n${block(5)}\nb: 2', 4), ['2-6 (5)']);
+      // Comment lines inside a `run:` body count too, and EOF closes a run.
+      expect(longCommentRuns('run: |\n${block(5)}', 4), ['2-6 (5)']);
+    });
+
+    test('every `# why:` pointer names an existing docs/ci file + anchor', () {
+      final docs = p.join(wfFile.parent.parent.parent.path, 'docs', 'ci');
+      final ptr = RegExp(r'# why: docs/ci/([\w.-]+\.md)#([\w-]+)\s*$');
+      final bad = <String>[];
+      var n = 0;
+      for (final l in wfFile.readAsLinesSync()) {
+        if (!l.contains('# why:')) continue;
+        n++;
+        final m = ptr.firstMatch(l);
+        final f = m == null ? null : File(p.join(docs, m[1]));
+        if (m == null ||
+            !f!.existsSync() ||
+            !f.readAsStringSync().contains('<a id="${m[2]}"></a>')) {
+          bad.add(l.trim());
+        }
+      }
+      expect(n, greaterThan(50));
+      expect(bad, isEmpty);
+    });
+  }, skip: skip);
+}
+
+/// 1-based `start-end (length)` of every run of consecutive comment lines
+/// (first non-blank char `#`) in [src] longer than [max].
+List<String> longCommentRuns(String src, int max) {
+  final out = <String>[];
+  final lines = src.split('\n');
+  var start = -1;
+  for (var i = 0; i <= lines.length; i++) {
+    final isComment = i < lines.length && lines[i].trimLeft().startsWith('#');
+    if (isComment) {
+      if (start < 0) start = i;
+      continue;
+    }
+    if (start >= 0 && i - start > max) {
+      out.add('${start + 1}-$i (${i - start})');
+    }
+    start = -1;
+  }
+  return out;
 }
 
 /// `needs` of a job node as a list.
