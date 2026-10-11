@@ -1550,6 +1550,49 @@ void main() {
     });
   }, skip: skip);
 
+  // Phase 402 D14: one `Enable KVM` composite for the three emulator jobs; a
+  // local `uses: ./` loads from the PR head, so never in the trusted jobs.
+  group('phase 402 D14 enable-kvm composite', () {
+    List<YamlMap> steps(String job) =>
+        ((jobs[job] as YamlMap)['steps'] as YamlList).cast<YamlMap>().toList();
+
+    test('integration, integration-profile and patrol use it; no inline '
+        'udevadm left', () {
+      for (final j in ['integration', 'integration-profile', 'patrol']) {
+        final kvm = step(j, 'Enable KVM');
+        expect(kvm['uses'], './.github/actions/enable-kvm', reason: j);
+        expect(kvm.containsKey('run'), isFalse, reason: j);
+      }
+      expect(wfFile.readAsStringSync(), isNot(contains('udevadm')));
+      final action = File(
+        p.join(
+          wfFile.parent.parent.path,
+          'actions',
+          'enable-kvm',
+          'action.yml',
+        ),
+      );
+      final y = loadYaml(action.readAsStringSync()) as YamlMap;
+      expect((y['runs'] as YamlMap)['using'], 'composite');
+      expect(
+        action.readAsStringSync(),
+        contains('udevadm trigger --name-match=kvm'),
+      );
+    });
+
+    test('no local `uses: ./` in plan, tests-ran or ci-gate', () {
+      for (final j in ['plan', 'tests-ran', 'ci-gate']) {
+        for (final st in steps(j)) {
+          expect(
+            (st['uses'] ?? '').toString(),
+            isNot(startsWith('./')),
+            reason: '$j: ${st['name']}',
+          );
+        }
+      }
+    });
+  }, skip: skip);
+
   // Phase 402 D14: a workflow comment is <= 3 lines (what/why + a
   // `# why: docs/ci/<topic>.md#<anchor>` pointer); narratives live in docs/ci.
   group('phase 402 D14 comment hygiene', () {

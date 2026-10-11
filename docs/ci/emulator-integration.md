@@ -4,6 +4,13 @@
 The 2026-07-07 root-cause notes below are the ONLY copy. The original comments cited
 `docs/ci_investigation_notes.md`, which never existed in either repo.
 
+<a id="enable-kvm"></a>
+
+`Enable KVM` (KVM is required for hardware-accelerated emulator boot on the runner) is one
+composite, `.github/actions/enable-kvm`, used by `integration`, `integration-profile` and `patrol`
+(phase 402 D14). `workflow_wiring_test.dart` pins that and that no `udevadm` is left in the
+workflow.
+
 Moved verbatim from `pr-validate.yml` comments, in file order.
 
 <a id="job-integration"></a>
