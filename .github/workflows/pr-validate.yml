@@ -130,9 +130,9 @@ jobs:
             } | tee -a "$GITHUB_OUTPUT"
           fi
 
-      # Independent of the planner/selector (which a PR could try to subvert):
-      # plain workflow shell, base-owned diff. Any change to CI machinery forces
-      # FULL regardless of what the planner decided.
+      # Base-owned tool/ci/ci_paths_guard.sh (D14): a CI-machinery change forces FULL, a forbidden
+      # path fails the plan. PR copy only while the base lacks the script (bootstrap, warned).
+      # why: docs/ci/README.md#plan-guard
       - name: Guard - CI machinery changes force full
         id: guard
         if: github.event_name == 'pull_request'
@@ -142,46 +142,12 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ steps.tree.outputs.sha }}
         run: |
-          set -euo pipefail
-          force() { { echo "mode=full"; echo "run_all=true"; } >> "$GITHUB_OUTPUT"; echo "::notice::mode forced to full: $1"; }
-          # Kept as a standalone function: scripts/test/plan_sh_test.sh extracts
-          # and table-tests it. CI machinery AND test-execution config.
-          is_forced() {
-            case "$1" in
-              scripts/perf/*) return 1 ;;
-              .github/* | tool/ci/* | scripts/*) return 0 ;;
-              trusted | trusted/*) return 0 ;;
-              analysis_options.yaml | pubspec.yaml | pubspec.lock | dart_test.yaml | build.yaml) return 0 ;;
-              test/flutter_test_config.dart | test_driver/*) return 0 ;;
-              test/helpers/* | test/ci/* | integration_test/support/*) return 0 ;;
-              android/gradle/wrapper/* | android/gradle.properties) return 0 ;;
-            esac
-            return 1
-          }
-          # Never-committed paths (build/, .dart_tool/, trusted/) fail the plan; not force-full.
-          # why: docs/ci/README.md#plan-guard-forbidden
-          is_forbidden() {
-            case "$1" in
-              build/* | .dart_tool/* | trusted | trusted/*) return 0 ;;
-            esac
-            return 1
-          }
-          # NUL-delimited + unquoted (core.quotepath=false): a non-ASCII or
-          # odd path must reach is_forced verbatim, not as an octal-quoted string.
-          raw="$RUNNER_TEMP/guard-files.bin"
-          if ! mb="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" ||
-             ! git -c core.quotepath=false diff -z --no-renames --name-only "$mb" "$HEAD_SHA" >"$raw"; then
-            force "diff unavailable"; exit 0
+          g="$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh"
+          if [ ! -f "$g" ]; then
+            echo "::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy"
+            g="$GITHUB_WORKSPACE/pr/tool/ci/ci_paths_guard.sh"
           fi
-          forced=0
-          while IFS= read -r -d '' f; do
-            if is_forbidden "$f"; then
-              echo "::error::PR diff contains a build artefact path (path withheld: PR-controlled); build/, .dart_tool/ and trusted/ are never committed (fail closed)"
-              exit 1
-            fi
-            if is_forced "$f"; then forced=1; fi
-          done <"$raw"
-          if [ "$forced" -eq 1 ]; then force "CI machinery / test config changed"; fi
+          bash "$g"
 
       - name: Upload changed-file list
         if: github.event_name == 'pull_request'

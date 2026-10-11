@@ -1520,6 +1520,36 @@ void main() {
     });
   }, skip: skip);
 
+  // Phase 402 D14 + security review: the CI-paths guard is base-owned like the
+  // planner/selector; the PR copy runs only behind the base-lacks-it check.
+  group('phase 402 D14 base-owned CI-paths guard', () {
+    test('guard step runs trusted/ ci_paths_guard.sh, PR copy only as a '
+        'warned bootstrap fallback', () {
+      final g = step('plan', 'Guard - CI machinery changes force full');
+      expect(g['id'], 'guard');
+      expect(g['working-directory'], 'pr');
+      expect(cond(g), "github.event_name == 'pull_request'");
+      expect((g['env'] as YamlMap).keys.toSet(), {'BASE_SHA', 'HEAD_SHA'});
+      final lines = [
+        for (final l in g['run'].toString().split('\n'))
+          if (l.trim().isNotEmpty) l.trim(),
+      ];
+      expect(lines, [
+        r'g="$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh"',
+        r'if [ ! -f "$g" ]; then',
+        'echo "::warning::ci_paths_guard bootstrap: base lacks the script, '
+            'using PR copy"',
+        r'g="$GITHUB_WORKSPACE/pr/tool/ci/ci_paths_guard.sh"',
+        'fi',
+        r'bash "$g"',
+      ]);
+      // trusted/ is the base commit and carries tool/ci (sparse checkout).
+      final t = step('plan', 'Checkout trusted tooling (base commit)');
+      expect((t['with'] as YamlMap)['path'], 'trusted');
+      expect((t['with'] as YamlMap)['sparse-checkout'], 'tool/ci');
+    });
+  }, skip: skip);
+
   // Phase 402 D14: a workflow comment is <= 3 lines (what/why + a
   // `# why: docs/ci/<topic>.md#<anchor>` pointer); narratives live in docs/ci.
   group('phase 402 D14 comment hygiene', () {

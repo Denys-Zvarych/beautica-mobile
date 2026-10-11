@@ -40,7 +40,8 @@ points here with `# why: docs/ci/<topic>.md#<anchor>`.
 ## Trust summary
 
 - **Base-owned** (checked out from the PR base commit as `trusted/` or by a base-only sparse
-  checkout): the planner, selector, resolver and shard script (`plan`), the integration entry
+  checkout): the planner, CI-paths guard, selector, resolver and shard script (`plan`; the guard
+  falls back to the PR copy only while the base lacks it), the integration entry
   generator and `run_it_attempt.sh` (`integration`), the tests-ran checker and floor
   (`tests-ran`), and `gate.sh` / `mirror.sh` (`ci-gate`). A PR cannot edit the code that judges it.
 - **PR head**: the workflow file itself (protect `.github/**` with CODEOWNERS / required review),
@@ -145,6 +146,26 @@ from `trusted/` = the BASE commit, against the PR tree in `pr/`.
 (The workflow file itself is the PR's own on pull_request; protect it
 with CODEOWNERS / required review on .github/**.)
 For push / workflow_dispatch both checkouts are the same trusted ref.
+
+<a id="plan-guard"></a>
+
+### plan guard: `tool/ci/ci_paths_guard.sh` (phase 402 D14)
+
+Independent of the planner/selector (which a PR could try to subvert):
+plain workflow shell, base-owned diff. Any change to CI machinery forces
+FULL regardless of what the planner decided.
+
+Phase 402 D14 moved the step body into `tool/ci/ci_paths_guard.sh`. The step keeps its name and
+`id: guard`. Like the planner and the selector in the same job, the guard is **base-owned**: the
+step runs `$GITHUB_WORKSPACE/trusted/tool/ci/ci_paths_guard.sh` (the base-commit checkout). Only
+when the base commit does not have the script yet (bootstrap: the PR that introduces it) does it
+fall back to the `pr/` copy, with
+`::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy`. `trusted/` is the base
+SHA, so a PR cannot choose the branch. The PR tree is data only: `BASE_SHA` / `HEAD_SHA` arrive by
+env and the working directory is `pr/`. Sourcing the script only defines `is_forced` /
+`is_forbidden`; `scripts/test/plan_sh_test.sh` table-tests both and runs the step body against
+both branches, and `guard_parity_test.dart` checks `is_forced` against `rules.yaml`. Changes to
+the script (and to `.github/actions/**`) force FULL through the `tool/ci/*` and `.github/*` arms.
 
 <a id="plan-guard-forbidden"></a>
 

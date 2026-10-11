@@ -159,36 +159,34 @@ case_gate "mode=none, count unknown -> red"     1 none      unknown "$ok"
 case_gate "mode=none, count 3 -> red"           1 none      3       "$ok"
 case_gate "mode=none, count missing -> red"     1 none      ""      "$ok"
 
-# Workflow guard (`is_forced` in pr-validate.yml `plan` job): extracted verbatim
-# and table-tested, so the inline CI-machinery guard cannot silently lose a path.
+# CI-paths guard (`is_forced` / `is_forbidden`, phase 402 D14: moved out of the
+# pr-validate.yml `plan` step into tool/ci/ci_paths_guard.sh). Sourced (main is
+# guarded), so the table below tests the exact functions CI runs.
 wf="$repo/.github/workflows/pr-validate.yml"
-# extract_fn <name>: pull one shell function out of the workflow and LOAD it.
-# Fails loudly (returns 1, prints why) when the extraction cannot be trusted: a
-# reformat/rename that makes sed match nothing, a truncated range, a duplicate
-# definition, a syntax error, or a body that does not define <name>.
-extract_fn() {
-  local name="$1" out="$tmp/$1.sh" n
-  n="$(grep -cE "^ *${name}\(\) \{\$" "$wf" || true)"
-  if [ "$n" != "1" ]; then echo "  FAIL  extract: expected exactly 1 '$name() {' in pr-validate.yml, found $n"; return 1; fi
-  sed -n "/^ *${name}() {\$/,/^ *}\$/p" "$wf" >"$out"
-  if [ ! -s "$out" ]; then echo "  FAIL  extract: $name() extracted EMPTY"; return 1; fi
-  if [ "$(wc -l <"$out")" -lt 3 ]; then echo "  FAIL  extract: $name() extracted <3 lines"; return 1; fi
-  local first last arms
-  first="$(head -n1 "$out")"
-  last="$(tail -n1 "$out")"
-  if ! [[ "$first" =~ ^\ *${name}\(\)\ \{$ ]]; then echo "  FAIL  extract: $name() first line is not its definition"; return 1; fi
-  if ! [[ "$last" =~ ^\ *\}$ ]]; then echo "  FAIL  extract: $name() last line is not a closing brace"; return 1; fi
-  # A truncated-but-parsable range would still pass bash -n: require the body to
-  # keep at least the current number of case arms (is_forced has 6; floor = 6).
-  if [ "$name" = is_forced ]; then
-    arms="$(grep -cE '\) return [01] ;;$' "$out" || true)"
-    if [ "$arms" -lt 6 ]; then echo "  FAIL  extract: $name() has $arms case arms, expected >= 6 (truncated?)"; return 1; fi
-  fi
-  if ! bash -n "$out" 2>/dev/null; then echo "  FAIL  extract: $name() does not parse (truncated range?)"; return 1; fi
+guard="$repo/tool/ci/ci_paths_guard.sh"
+# load_guard: source the script ONCE and prove it is trustworthy. Fails loudly
+# (returns 1, prints why) on a missing/unparsable script, a sourcing side effect
+# (main must not run), a missing function, or a truncated is_forced.
+guard_loaded=0
+load_guard() {
+  if [ "$guard_loaded" = 1 ]; then return 0; fi
+  if [ ! -f "$guard" ]; then echo "  FAIL  load: $guard missing"; return 1; fi
+  if ! bash -n "$guard" 2>/dev/null; then echo "  FAIL  load: ci_paths_guard.sh does not parse"; return 1; fi
+  local side
+  side="$(env -u GITHUB_OUTPUT -u BASE_SHA -u HEAD_SHA bash -c '. "$1"; echo sourced-ok' _ "$guard" 2>&1)"
+  if [ "$side" != "sourced-ok" ]; then echo "  FAIL  load: sourcing ci_paths_guard.sh ran code: $side"; return 1; fi
+  local arms
+  arms="$(sed -n '/^is_forced() {$/,/^}$/p' "$guard" | grep -cE '\) return [01] ;;$' || true)"
+  if [ "$arms" -lt 6 ]; then echo "  FAIL  load: is_forced has $arms case arms, expected >= 6 (truncated?)"; return 1; fi
   # shellcheck disable=SC1090
-  . "$out"
-  if ! declare -F "$name" >/dev/null; then echo "  FAIL  extract: sourcing did not define $name"; return 1; fi
-  echo "  PASS  extract: $name() loaded from pr-validate.yml"
+  . "$guard"
+  guard_loaded=1
+  echo "  PASS  load: ci_paths_guard.sh sourced without running main"
+}
+extract_fn() { # <name>: the function must be defined by the sourced guard script
+  load_guard || return 1
+  if ! declare -F "$1" >/dev/null; then echo "  FAIL  load: sourcing did not define $1"; return 1; fi
+  echo "  PASS  load: $1() defined by ci_paths_guard.sh"
 }
 if extract_fn is_forced; then
   case_forced() { # <name> <want 0|1> <path>
@@ -196,6 +194,9 @@ if extract_fn is_forced; then
     if [ "$got" -eq "$2" ]; then printf '  PASS  guard: %s\n' "$1"; else printf '  FAIL  guard: %s (%s want %s got %s)\n' "$1" "$3" "$2" "$got"; rc=1; fi
   }
   case_forced "workflow forces full"       0 .github/workflows/pr-validate.yml
+  case_forced "guard script itself forces full (D14)" 0 tool/ci/ci_paths_guard.sh
+  case_forced "local composite action forces full (D14)" 0 .github/actions/enable-kvm/action.yml
+  case_forced "nested .github/actions file forces full" 0 .github/actions/flutter-setup/sub/x.sh
   case_forced "CODEOWNERS forces full"     0 .github/CODEOWNERS
   case_forced "tool/ci forces full"        0 tool/ci/plan.sh
   case_forced "scripts forces full"        0 scripts/forbid_x.sh
@@ -239,7 +240,30 @@ if extract_fn is_forced; then
     rc=1
   fi
   # The guard must fail (exit 1) on a forbidden path, before any force-full.
-  grep -qE 'is_forbidden "\$f"' "$wf" && echo "  PASS  guard calls is_forbidden" || { echo "  FAIL  guard does not call is_forbidden"; rc=1; }
+  grep -qE 'is_forbidden "\$f"' "$guard" && echo "  PASS  guard calls is_forbidden" || { echo "  FAIL  guard does not call is_forbidden"; rc=1; }
+  # The plan step runs the BASE copy (trusted/), and the PR copy only when the
+  # base lacks it (bootstrap, warned). Run the real step body against a fake
+  # workspace whose two copies only report which one ran.
+  step_body="$(awk '
+    /^      - name: Guard - CI machinery changes force full$/ { in_step=1; next }
+    in_step && /^        run: \|$/ { in_run=1; next }
+    in_run && /^$/ { exit }
+    in_run { sub(/^          /, ""); print }' "$wf")"
+  if [ -z "$step_body" ]; then
+    echo "  FAIL  guard step: run body not found in pr-validate.yml"; rc=1
+  else
+    gws="$tmp/guard-ws"
+    for side in trusted pr; do
+      mkdir -p "$gws/$side/tool/ci"
+      printf 'echo "ran=%s"\n' "$side" >"$gws/$side/tool/ci/ci_paths_guard.sh"
+    done
+    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)"
+    if [ "$out" = "ran=trusted" ]; then echo "  PASS  guard step: base copy present -> trusted/ runs, no warning"; else echo "  FAIL  guard step: base copy present, got: $out"; rc=1; fi
+    rm "$gws/trusted/tool/ci/ci_paths_guard.sh"
+    out="$(GITHUB_WORKSPACE="$gws" bash -c "$step_body" 2>&1)"
+    want="$(printf '%s\n%s' "::warning::ci_paths_guard bootstrap: base lacks the script, using PR copy" "ran=pr")"
+    if [ "$out" = "$want" ]; then echo "  PASS  guard step: base copy absent -> PR copy + bootstrap warning"; else echo "  FAIL  guard step: base copy absent, got: $out"; rc=1; fi
+  fi
 else
   rc=1
 fi

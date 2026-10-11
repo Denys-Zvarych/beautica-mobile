@@ -8,8 +8,8 @@ import 'support.dart';
 
 /// 398 R1 — guard ⊆ rules parity.
 ///
-/// The `plan` job's `is_forced` shell guard (`.github/workflows/pr-validate.yml`)
-/// forces FULL independently of the selector. For the replay to predict what
+/// The `plan` job's `is_forced` shell guard (`tool/ci/ci_paths_guard.sh`, run
+/// by the workflow's `Guard - CI machinery changes force full` step) forces FULL independently of the selector. For the replay to predict what
 /// CI actually does, every path the guard forces must also classify as FULL
 /// in rules.yaml (and `scripts/perf/*`, which the guard exempts, must not).
 /// The direction is one-way: rules.yaml may force FULL for more paths than
@@ -40,15 +40,15 @@ RegExp caseGlob(String pattern) {
 }
 
 /// Parses the single `is_forced() { case "$1" in … esac; return 1; }` body.
-List<GuardArm> parseIsForced(String workflow) {
-  final lines = workflow.split('\n');
+List<GuardArm> parseIsForced(String script) {
+  final lines = script.split('\n');
   final starts = [
     for (var i = 0; i < lines.length; i++)
       if (RegExp(r'^\s*is_forced\(\) \{\s*$').hasMatch(lines[i])) i,
   ];
   if (starts.length != 1) {
     throw StateError(
-      'expected exactly 1 is_forced() in the workflow, '
+      'expected exactly 1 is_forced() in the guard script, '
       'found ${starts.length}',
     );
   }
@@ -88,16 +88,15 @@ void main() {
   final repoRoot = p.normalize(
     p.join(Directory.current.path, '..', '..', '..'),
   );
-  final wfFile = File(
-    p.join(repoRoot, '.github', 'workflows', 'pr-validate.yml'),
-  );
-  final haveRepo = wfFile.existsSync();
+  // Phase 402 D14: the guard moved out of pr-validate.yml into this script.
+  final guardFile = File(p.join(repoRoot, 'tool', 'ci', 'ci_paths_guard.sh'));
+  final haveRepo = guardFile.existsSync();
   final skip = haveRepo ? false : 'not inside the beautica-mobile tree';
 
   group('398 R1 is_forced ⊆ rules.yaml full', () {
     late final List<GuardArm> arms;
     setUpAll(() {
-      if (haveRepo) arms = parseIsForced(wfFile.readAsStringSync());
+      if (haveRepo) arms = parseIsForced(guardFile.readAsStringSync());
     });
 
     test('the guard parses into arms (extraction cannot silently shrink)', () {
@@ -170,7 +169,7 @@ void main() {
   group('401 S2: trusted/ is never a PR path', () {
     late final List<GuardArm> arms;
     setUpAll(() {
-      if (haveRepo) arms = parseIsForced(wfFile.readAsStringSync());
+      if (haveRepo) arms = parseIsForced(guardFile.readAsStringSync());
     });
 
     test(
@@ -188,10 +187,10 @@ void main() {
     test(
       'is_forbidden (fail-closed, red plan) lists trusted and trusted/*',
       () {
-        final wf = wfFile.readAsStringSync();
+        final src = guardFile.readAsStringSync();
         final body = RegExp(
           r'is_forbidden\(\) \{[\s\S]*?\n\s*\}\n',
-        ).firstMatch(wf)!.group(0)!;
+        ).firstMatch(src)!.group(0)!;
         expect(body, contains('trusted | trusted/*'));
         // Run the real function.
         for (final (path, want) in [
