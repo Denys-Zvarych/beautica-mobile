@@ -424,12 +424,23 @@ void main() {
         isTrue,
         reason: '$publicMaster builds a rail',
       );
-      // Every read-only / public screen near the portfolio (incl. the public
-      // salon profile, whose own rail 406 moves onto PortfolioRail) must
-      // pass no editor argument.
+      // Phase 406 — the public salon profile builds the shared rail too (its
+      // private rail is gone), so the check below now really
+      // scans a rail construction there instead of passing vacuously.
+      const String publicSalon =
+          'lib/features/salon/presentation/public_salon_profile_screen.dart';
+      expect(
+        _railCallRe.hasMatch(
+          _stripComments(File(publicSalon).readAsStringSync()),
+        ),
+        isTrue,
+        reason: '$publicSalon builds a rail',
+      );
+      // Every read-only / public screen near the portfolio must pass no
+      // editor argument.
       for (final String path in <String>[
         publicMaster,
-        'lib/features/salon/presentation/public_salon_profile_screen.dart',
+        publicSalon,
         'lib/features/salon/presentation/salon_staff_profile_screen.dart',
       ]) {
         expect(

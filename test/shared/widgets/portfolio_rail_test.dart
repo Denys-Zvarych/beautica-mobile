@@ -36,20 +36,25 @@
 import 'dart:io';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_controller.dart'
     show PendingPortfolioUpload;
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart'
     show UploadNetworkFailure, kPortfolioMaxPhotos;
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/widgets/upload_state_overlay.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import 'package:flutter/gestures.dart' show kPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../helpers/fake_media_cache.dart';
 import '../../helpers/pump_app.dart';
+import '../../helpers/rendered_image_url.dart';
 
 /// UA copy resolved from the ARB (no Cyrillic literals in finders).
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
@@ -831,6 +836,260 @@ void main() {
       expect(find.byKey(addKey), findsNothing);
       expect(find.byType(PortfolioTile), findsNWidgets(6));
       expect(find.text(_l10n.masterPortfolioLabel), findsOneWidget);
+    });
+  });
+
+  group('PortfolioRail — initialVisibleCount + show-all (phase 406, D1)', () {
+    List<PortfolioPhoto> photos(int n) => <PortfolioPhoto>[
+      for (int i = 0; i < n; i++)
+        PortfolioPhoto(id: 'c$i', url: 'https://media.test/c$i.webp'),
+    ];
+
+    int listItemCount(WidgetTester tester) =>
+        // ListView.separated → items + (items - 1) separators.
+        ((tester
+                    .widget<ListView>(find.byType(ListView))
+                    .childrenDelegate
+                    .estimatedChildCount ??
+                0) +
+            1) ~/
+        2;
+
+    testWidgets('over the count: collapsed = 8 tiles + «+N»; tapping it '
+        'expands inline to every photo and the tile disappears', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photos(12), initialVisibleCount: 8),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(listItemCount(tester), 9, reason: '8 photos + the show-all tile');
+      final Finder showAll = find.byKey(PortfolioRail.showAllKey);
+      expect(
+        find.byKey(const Key('portfolio-photo-c8'), skipOffstage: false),
+        findsNothing,
+      );
+      await tester.drag(find.byType(ListView), const Offset(-20000, 0));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('portfolio-photo-c7')), findsOneWidget);
+      expect(
+        find.descendant(of: showAll, matching: find.text('+4')),
+        findsOneWidget,
+      );
+      expect(
+        tester.getSemantics(showAll).label,
+        contains(_l10n.salonPortfolioShowAll),
+      );
+
+      await tester.tap(showAll);
+      await tester.pumpAndSettle();
+
+      expect(listItemCount(tester), 12);
+      expect(showAll, findsNothing);
+      await tester.drag(find.byType(ListView), const Offset(-20000, 0));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('portfolio-photo-c11')), findsOneWidget);
+    });
+
+    testWidgets('the 30 cap still applies: 35 photos → «+22», expanded to 30', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photos(35), initialVisibleCount: 8),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView), const Offset(-20000, 0));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioRail.showAllKey),
+          matching: find.text('+${kPortfolioMaxPhotos - 8}'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioRail.showAllKey));
+      await tester.pumpAndSettle();
+      expect(listItemCount(tester), kPortfolioMaxPhotos);
+    });
+
+    testWidgets('at or under the count: no show-all tile, every photo', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photos(8), initialVisibleCount: 8),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(PortfolioRail.showAllKey), findsNothing);
+      expect(listItemCount(tester), 8);
+    });
+
+    testWidgets('null (default): no show-all tile, unchanged', (tester) async {
+      await tester.pumpApp(Scaffold(body: PortfolioRail(photos: photos(12))));
+      await tester.pumpAndSettle();
+      expect(find.byKey(PortfolioRail.showAllKey), findsNothing);
+      expect(listItemCount(tester), 12);
+    });
+  });
+
+  group('PortfolioTile — look (phase 406, D2)', () {
+    BoxDecoration decorationOf(WidgetTester tester) =>
+        tester
+                .widget<AnimatedContainer>(find.byType(AnimatedContainer))
+                .decoration
+            as BoxDecoration;
+
+    testWidgets('gradient (default): gradient fill + the light lift', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Scaffold(
+          body: PortfolioTile(index: 0, imageUrl: 'https://evil.test/x.png'),
+        ),
+      );
+      final BoxDecoration d = decorationOf(tester);
+      expect(d.gradient, isNotNull);
+      expect(d.boxShadow, isNotEmpty, reason: 'the light lift pair');
+      expect(d.boxShadow, isNot(VelvetShadows.extrudedSmall));
+      expect(find.byIcon(Icons.photo_outlined), findsOneWidget);
+    });
+
+    testWidgets('raisedPhoto: no fill, extrudedSmall shadow, broken-image '
+        'fallback, read-only rail passes it to every photo tile', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const Scaffold(
+          body: PortfolioRail(
+            photos: <PortfolioPhoto>[
+              PortfolioPhoto(id: 'x', url: 'https://evil.test/x.png'),
+            ],
+            tileLook: PortfolioTileLook.raisedPhoto,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final BoxDecoration d = decorationOf(tester);
+      expect(d.gradient, isNull);
+      expect(d.color, isNull);
+      expect(d.boxShadow, VelvetShadows.extrudedSmall);
+      expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.photo_outlined), findsNothing);
+    });
+  });
+
+  // ── Phase 406 audit cycle 1 ─────────────────────────────────────────────
+  group('PortfolioTile — renderedImageUrls through the cover decode (T1)', () {
+    const String host = 'pub-abc.r2.dev';
+    const String url = 'https://$host/cover.webp';
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{host};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+    });
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+
+    testWidgets('a decodeToCover tile yields its URL (not [])', (tester) async {
+      const Key tileKey = Key('cover-tile');
+      await tester.pumpApp(
+        const Scaffold(
+          body: PortfolioTile(
+            key: tileKey,
+            index: 0,
+            imageUrl: url,
+            decodeToCover: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      // Non-vacuous: the tile really renders through the cover wrapper (not
+      // ResizeImage), i.e. the path the helper used to return [] for.
+      final ImageProvider rendered = tester
+          .widget<Image>(
+            find.descendant(
+              of: find.byKey(tileKey),
+              matching: find.byType(Image),
+            ),
+          )
+          .image;
+      expect(rendered, isNot(isA<ResizeImage>()));
+      expect(debugUnwrapCoverResized(rendered), isNotNull);
+      expect(renderedImageUrls(tester, within: find.byKey(tileKey)), <String>[
+        url,
+      ]);
+    });
+
+    test('debugUnwrapCoverResized: null for a non-cover provider', () {
+      expect(
+        debugUnwrapCoverResized(beauticaResizedProvider(url, 72, 72)),
+        isNull,
+      );
+      expect(debugUnwrapCoverResized(MemoryImage(kTransparentPng)), isNull);
+    });
+  });
+
+  group('PortfolioTile — press rebuilds (T2)', () {
+    /// Builds of PortfolioTile's element across one full tap (down → up).
+    Future<int> tileBuildsAcrossTap(
+      WidgetTester tester,
+      PortfolioTileLook look,
+    ) async {
+      const Key tileKey = Key('press-tile');
+      await tester.pumpApp(
+        Scaffold(
+          body: Center(
+            child: PortfolioTile(key: tileKey, index: 0, look: look),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      int builds = 0;
+      debugOnRebuildDirtyWidget = (Element e, bool builtOnce) {
+        if (e.widget is PortfolioTile) builds++;
+      };
+      try {
+        final TestGesture g = await tester.startGesture(
+          tester.getCenter(find.byKey(tileKey)),
+        );
+        // Past the tap-down deadline: onTapDown fires while held.
+        await tester.pump(kPressTimeout + const Duration(milliseconds: 1));
+        if (look == PortfolioTileLook.gradient) {
+          // The gradient look's press feedback is unchanged: lift drops.
+          final BoxDecoration held =
+              tester
+                      .widget<AnimatedContainer>(find.byType(AnimatedContainer))
+                      .decoration
+                  as BoxDecoration;
+          expect(held.boxShadow, isNull, reason: 'pressed → lift removed');
+        }
+        await g.up();
+        await tester.pumpAndSettle();
+      } finally {
+        debugOnRebuildDirtyWidget = null;
+      }
+      return builds;
+    }
+
+    testWidgets('raisedPhoto: a tap does NOT rebuild the tile', (tester) async {
+      expect(
+        await tileBuildsAcrossTap(tester, PortfolioTileLook.raisedPhoto),
+        0,
+      );
+    });
+
+    testWidgets('gradient: a tap rebuilds on down and up (counter is live)', (
+      tester,
+    ) async {
+      expect(await tileBuildsAcrossTap(tester, PortfolioTileLook.gradient), 2);
     });
   });
 }

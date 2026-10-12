@@ -4555,17 +4555,45 @@ final class FakeBackend {
   /// `PageMediaFileResponse`'s built_value deserializer expects — Spring's
   /// default Page shape (`content`/`totalElements`/…), NOT the custom
   /// `PageResponse` shape [_searchEnvelope] builds.
-  Map<String, dynamic> _salonPortfolioEnvelope() => _ok(<String, dynamic>{
-    'content': _salonPortfolioPhotos,
-    'totalElements': _salonPortfolioPhotos.length,
-    'totalPages': 1,
-    'size': _salonPortfolioPhotos.length,
-    'number': 0,
-    'first': true,
-    'last': true,
-    'numberOfElements': _salonPortfolioPhotos.length,
-    'empty': false,
-  });
+  Map<String, dynamic> _salonPortfolioEnvelope() {
+    final List<Map<String, dynamic>> photos = _servedSalonPortfolioPhotos();
+    return _ok(<String, dynamic>{
+      'content': photos,
+      'totalElements': photos.length,
+      'totalPages': 1,
+      'size': photos.length,
+      'number': 0,
+      'first': true,
+      'last': true,
+      'numberOfElements': photos.length,
+      'empty': photos.isEmpty,
+    });
+  }
+
+  /// Phase 406 QA (mobile-qa) — overrides how many photos `salon-xyz`'s
+  /// public portfolio read serves. `null` (default) → the three-photo
+  /// [_salonPortfolioPhotos] fixture every pre-existing flow sees, unchanged.
+  /// Non-null → that many generated photos `media-big-1`..`media-big-<n>`
+  /// (served in that order) on the `media.test` host, so a flow that allow-lists it gets REAL rendered
+  /// images; `0` → an empty portfolio. Set BEFORE the profile is opened.
+  int? salonPortfolioPhotoCount;
+
+  List<Map<String, dynamic>> _servedSalonPortfolioPhotos() {
+    final int? n = salonPortfolioPhotoCount;
+    if (n == null) return _salonPortfolioPhotos;
+    return <Map<String, dynamic>>[
+      for (int i = 1; i <= n; i++)
+        <String, dynamic>{
+          'id': 'media-big-$i',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://media.test/portfolio/salon-xyz/$i.jpg',
+          'createdAt':
+              '2026-05-${(i + 10).toString().padLeft(2, '0')}T10:00:00Z',
+        },
+    ];
+  }
 
   // ── My-bookings / booking-detail / cancel state (track 14.x) ───────────────
   //

@@ -63,6 +63,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -650,9 +651,15 @@ void main() {
           find.descendant(of: railFinder, matching: find.byType(Image)),
           findsNWidgets(threePhotos.length),
         );
+        // ...and each Image ACTUALLY fetches its own photo's URL, in order
+        // (through the tile's cover decode) — a count alone passes with
+        // swapped, duplicated or dropped URLs.
+        expect(renderedImageUrls(tester, within: railFinder), <String>[
+          for (final PortfolioPhoto photo in threePhotos) photo.url,
+        ]);
         for (final PortfolioPhoto photo in threePhotos) {
           expect(
-            find.byKey(Key('salon-portfolio-photo-${photo.id}')),
+            find.byKey(Key('portfolio-photo-${photo.id}')),
             findsOneWidget,
           );
         }
@@ -680,7 +687,7 @@ void main() {
           find.byKey(const Key('salon-about-text')),
         );
         final Rect firstTileRect = tester.getRect(
-          find.byKey(Key('salon-portfolio-photo-${threePhotos.first.id}')),
+          find.byKey(Key('portfolio-photo-${threePhotos.first.id}')),
         );
         final Rect railRect = tester.getRect(railFinder);
         final Rect instagramRect = tester.getRect(
@@ -732,7 +739,7 @@ void main() {
     });
 
     // SEC (mobile-security LOW follow-up): pins the `isHttps` guard in
-    // [_SalonPortfolioTile.build] — `Image.network` uses its own
+    // [PortfolioTile] (the shared rail's tile, via [RemoteImage]) — `Image.network` uses its own
     // `HttpClient`, not the pinned Dio, so a plaintext `http://` photo URL
     // would leak the request over an unencrypted connection if ever allowed
     // through. No [mockNetworkImagesFor] wrapper needed here: a correctly
@@ -757,7 +764,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final Finder tileFinder = find.byKey(
-          const Key('salon-portfolio-photo-photo-insecure'),
+          const Key('portfolio-photo-photo-insecure'),
         );
         expect(tileFinder, findsOneWidget);
 
@@ -779,10 +786,79 @@ void main() {
       },
     );
 
-    // Eager-build cap regression (mirrors the masters-tab precedent above,
+    // SEC (mobile-security INFO, phase 406) — the HOST half of the same
+    // guard: an https URL whose host is OFF the media allowlist
+    // (`cdn.beautica.ua` only, per this group's setUp) must never reach a
+    // network image either. Load-bearing: mutation-probed by short-circuiting
+    // the host check in `isAllowedMediaUrl` — this test goes red.
+    testWidgets(
+      'an https photo URL on a host off the allowlist renders the fallback '
+      'tile, never a network Image',
+      (tester) async {
+        const List<PortfolioPhoto> offAllowlist = <PortfolioPhoto>[
+          PortfolioPhoto(id: 'photo-evil', url: 'https://evil.example/x.jpg'),
+        ];
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(portfolio: () async => offAllowlist),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder rail = find.byKey(const Key('salon-about-portfolio'));
+        final Finder tile = find.byKey(const Key('portfolio-photo-photo-evil'));
+        expect(tile, findsOneWidget, reason: 'the tile itself must build');
+        expect(
+          find.descendant(of: rail, matching: find.byType(Image)),
+          findsNothing,
+          reason: 'an off-allowlist host must never construct a network Image',
+        );
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byIcon(Icons.broken_image_outlined),
+          ),
+          findsOneWidget,
+          reason: 'the raised-photo fallback tile renders instead',
+        );
+      },
+    );
+
+    // Error state (M3) — a failed portfolio read hides the optional rail
+    // entirely and never blanks the rest of the «Про салон» tab. Async throw
+    // (M13): the real Dio-backed repository always fails asynchronously.
+    testWidgets('a failed portfolio read renders no rail and leaves the '
+        'description + contacts intact', (tester) async {
+      int portfolioCalls = 0;
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => salonWithInstagram,
+            portfolio: () async {
+              portfolioCalls++;
+              throw const NetworkFailure();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(portfolioCalls, greaterThanOrEqualTo(1));
+      expect(find.byKey(const Key('salon-about-portfolio')), findsNothing);
+      expect(find.byKey(const Key('portfolio-show-all')), findsNothing);
+      expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
+      expect(find.byKey(const Key('salon-contact-instagram')), findsOneWidget);
+      expect(find.byType(ErrorState), findsNothing);
+    });
+
+    // Initial-batch cap (mirrors the masters-tab precedent above,
     // `'more than 6 masters renders only the first 6 plus a show-all
-    // button...'`) — the rail is a plain `Row` inside a horizontal
-    // `SingleChildScrollView`, not a lazily-built viewport, so with more
+    // button...'`). Phase 406 — the rail is the shared lazy [PortfolioRail]
+    // with `initialVisibleCount: kSalonPortfolioInitialCount` (D1); with more
     // fixture photos than `kSalonPortfolioInitialCount` (8) this pins that
     // only the first 8 tiles build up front, a "show all" tile appears with
     // the correct remaining count, and tapping it reveals the rest while the
@@ -811,14 +887,14 @@ void main() {
 
           for (int i = 1; i <= 8; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsOneWidget,
               reason: 'the first 8 photos must render up front',
             );
           }
           for (int i = 9; i <= 10; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsNothing,
               reason:
                   'photos beyond the initial batch of 8 must NOT be built '
@@ -826,9 +902,7 @@ void main() {
             );
           }
 
-          final Finder showAll = find.byKey(
-            const Key('salon-portfolio-show-all'),
-          );
+          final Finder showAll = find.byKey(const Key('portfolio-show-all'));
           expect(
             showAll,
             findsOneWidget,
@@ -845,11 +919,26 @@ void main() {
           await tester.tap(showAll);
           await tester.pumpAndSettle();
 
-          for (int i = 1; i <= 10; i++) {
+          // The rail is LAZY (shared PortfolioRail, phase 406): the revealed
+          // tail builds as it scrolls into view — swipe the rail to its end.
+          final Finder rail = find.descendant(
+            of: find.byKey(const Key('salon-about-portfolio')),
+            matching: find.byType(ListView),
+          );
+          for (int i = 1; i <= 8; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsOneWidget,
-              reason: 'all 10 photos must render after tapping show-all',
+              reason: 'the first 8 photos stay after tapping show-all',
+            );
+          }
+          await tester.drag(rail, const Offset(-20000, 0));
+          await tester.pumpAndSettle();
+          for (int i = 9; i <= 10; i++) {
+            expect(
+              find.byKey(Key('portfolio-photo-photo-$i')),
+              findsOneWidget,
+              reason: 'the revealed photos render after tapping show-all',
             );
           }
           expect(

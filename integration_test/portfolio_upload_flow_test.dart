@@ -96,14 +96,9 @@ Finder _pendingTile() =>
 /// Every delete badge on screen (for "none on a public profile").
 Finder _anyBadge() => _keyed('portfolio-photo-delete-');
 
-/// A public salon tile for [id] — today's private rail
-/// (`salon-portfolio-photo-<id>`) or the shared [PortfolioRail]
-/// (`portfolio-photo-<id>`) once phase 406 moves the public salon onto it.
-Finder _publicSalonPhoto(String id) => find.byWidgetPredicate(
-  (Widget w) =>
-      w.key == Key('salon-portfolio-photo-$id') ||
-      w.key == Key('portfolio-photo-$id'),
-);
+/// A public salon tile for [id] — the shared [PortfolioRail]'s
+/// `portfolio-photo-<id>` (phase 406 moved the public salon onto it).
+Finder _publicSalonPhoto(String id) => find.byKey(Key('portfolio-photo-$id'));
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

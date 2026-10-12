@@ -291,6 +291,14 @@ ImageProvider debugCoverResizedProviderOver(
   required int height,
 }) => _CoverResizeImage(inner, width: width, height: height);
 
+/// Test seam: the inner provider of a [beauticaCoverResizedProvider] wrapper,
+/// or `null` when [provider] is not one. Lets test helpers unwrap the
+/// cover decode down to the fetching provider (as they do `ResizeImage`).
+/// Production code never unwraps — test/ only.
+@visibleForTesting
+ImageProvider? debugUnwrapCoverResized(ImageProvider provider) =>
+    provider is _CoverResizeImage ? provider.imageProvider : null;
+
 /// Cache key for [_CoverResizeImage]: a record, so equality is structural
 /// (no hand-written `==`). The leading tag keeps it distinct from any other
 /// provider's key in the shared `ImageCache`.

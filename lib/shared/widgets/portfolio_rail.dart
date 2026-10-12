@@ -68,6 +68,16 @@ import 'package:beautica_mobile/shared/widgets/prompt_link_text.dart';
 ///   • [showCount] — «Портфоліо · n/30» (n = stored + pending).
 /// Only owner-context screens may pass them — pinned by
 /// `test/core/media/portfolio/portfolio_owner_call_sites_test.dart`.
+///
+/// Phase 406 (9.11, D1/D2) — the public salon profile's former private
+/// rail, promoted onto this one, additively (both default
+/// to "off", so every other caller renders exactly as before):
+///   • [initialVisibleCount] — on the read-only real-photo path, when the
+///     (capped) list holds MORE than this many photos, only the first
+///     [initialVisibleCount] render, followed by a trailing
+///     [PortfolioShowAllTile] («+N») that expands the rail inline (once; the
+///     list stays lazy and capped at [kPortfolioMaxPhotos]);
+///   • [tileLook] — the photo tiles' shell ([PortfolioTileLook]).
 class PortfolioRail extends StatelessWidget {
   const PortfolioRail({
     super.key,
@@ -83,7 +93,12 @@ class PortfolioRail extends StatelessWidget {
     this.onRetryPending,
     this.onDiscardPending,
     this.showCount = false,
-  });
+    this.initialVisibleCount,
+    this.tileLook = PortfolioTileLook.gradient,
+  }) : assert(
+         initialVisibleCount == null || initialVisibleCount > 0,
+         'initialVisibleCount must be positive',
+       );
 
   /// Maps a portfolio read onto the rail — the ONE place the D2 state
   /// mapping lives, shared by every real-photo call site:
@@ -179,6 +194,15 @@ class PortfolioRail extends StatelessWidget {
 
   /// Phase 405 (D6) — label reads «Портфоліо · n/[kPortfolioMaxPhotos]».
   final bool showCount;
+
+  /// Phase 406 (D1) — non-null → collapse the read-only real-photo rail to
+  /// this many tiles plus a trailing «+N» [PortfolioShowAllTile]. `null`
+  /// (default) → every photo (up to the cap), as before.
+  final int? initialVisibleCount;
+
+  /// Phase 406 (D2) — the photo tiles' shell. Default
+  /// [PortfolioTileLook.gradient] = the pre-406 look of every other caller.
+  final PortfolioTileLook tileLook;
 
   @override
   Widget build(BuildContext context) {
@@ -282,21 +306,29 @@ class PortfolioRail extends StatelessWidget {
           // trailing gap, zero padding — so on-screen pixels are unchanged.
           // A horizontal list inside the profile's vertical scroll view does
           // not compete for drags: each scrollable claims only its own axis.
-          SizedBox(
-            height: 72,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              physics: const BouncingScrollPhysics(),
-              padding: EdgeInsets.zero,
-              // R2 — render at most the product cap. The server may return
-              // more (up to 50); the list is newest-first, so the first
-              // [kPortfolioMaxPhotos] are the newest.
-              itemCount: math.min(real.length, kPortfolioMaxPhotos),
-              separatorBuilder: (BuildContext _, int _) =>
-                  const SizedBox(width: VelvetSpacing.md),
-              itemBuilder: (BuildContext _, int i) => _photoTile(real, i),
-            ),
-          )
+          if (initialVisibleCount case final int initial when shown > initial)
+            // Phase 406 (D1) — collapsed to [initial] + «+N»; same lazy list.
+            _CollapsibleRail(
+              shown: shown,
+              initialVisibleCount: initial,
+              photoTile: (int i) => _photoTile(real, i),
+            )
+          else
+            SizedBox(
+              height: 72,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.zero,
+                // R2 — render at most the product cap. The server may return
+                // more (up to 50); the list is newest-first, so the first
+                // [kPortfolioMaxPhotos] are the newest.
+                itemCount: math.min(real.length, kPortfolioMaxPhotos),
+                separatorBuilder: (BuildContext _, int _) =>
+                    const SizedBox(width: VelvetSpacing.md),
+                itemBuilder: (BuildContext _, int i) => _photoTile(real, i),
+              ),
+            )
         else
           SizedBox(
             height: 72,
@@ -321,6 +353,9 @@ class PortfolioRail extends StatelessWidget {
   }
 
   static const Key _addTileKey = Key('portfolio-add-tile');
+
+  /// Phase 406 — the trailing «+N» tile of a collapsed rail.
+  static const Key showAllKey = Key('portfolio-show-all');
   static Key _pendingKey(String id) => Key('portfolio-pending-$id');
   static Key _photoKey(String id) => Key('portfolio-photo-$id');
 
@@ -335,6 +370,7 @@ class PortfolioRail extends StatelessWidget {
       decodeToCover: true,
       onRemove: delete == null ? null : () => delete(photo),
       removeKey: Key('portfolio-photo-delete-${photo.id}'),
+      look: tileLook,
     );
   }
 
@@ -411,6 +447,117 @@ class PortfolioRail extends StatelessWidget {
       ),
     ];
   }
+}
+
+/// Phase 406 (D1) — the read-only real-photo rail, collapsed to
+/// [initialVisibleCount] tiles plus a trailing [PortfolioShowAllTile] until
+/// the viewer taps it; then every one of the [shown] (already capped) photos.
+/// Same lazy `ListView.separated` + geometry as [PortfolioRail]'s read-only
+/// branch: 72 dp tiles, `md` gaps, no trailing gap, zero padding.
+class _CollapsibleRail extends StatefulWidget {
+  const _CollapsibleRail({
+    required this.shown,
+    required this.initialVisibleCount,
+    required this.photoTile,
+  });
+
+  final int shown;
+  final int initialVisibleCount;
+  final Widget Function(int index) photoTile;
+
+  @override
+  State<_CollapsibleRail> createState() => _CollapsibleRailState();
+}
+
+class _CollapsibleRailState extends State<_CollapsibleRail> {
+  // One-way: a user-triggered build of the remainder is an acceptable cost;
+  // only the unconditional first-paint build is bounded.
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool collapsed = !_expanded;
+    final int initial = widget.initialVisibleCount;
+    return SizedBox(
+      height: PortfolioTile.size,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: EdgeInsets.zero,
+        itemCount: collapsed ? initial + 1 : widget.shown,
+        separatorBuilder: (BuildContext _, int _) =>
+            const SizedBox(width: VelvetSpacing.md),
+        itemBuilder: (BuildContext _, int i) => collapsed && i == initial
+            ? PortfolioShowAllTile(
+                key: PortfolioRail.showAllKey,
+                remaining: widget.shown - initial,
+                onTap: () => setState(() => _expanded = true),
+              )
+            : widget.photoTile(i),
+      ),
+    );
+  }
+}
+
+/// Phase 406 (9.11, D1) — PROMOTED from the public salon profile's private
+/// «show all» tile: a trailing 72 dp raised tile on the faint fill
+/// reading «+[remaining]» that reveals the rest of a collapsed
+/// [PortfolioRail] inline (the horizontal-rail equivalent of a «show all»
+/// button).
+class PortfolioShowAllTile extends StatelessWidget {
+  const PortfolioShowAllTile({
+    super.key,
+    required this.remaining,
+    required this.onTap,
+  });
+
+  /// How many photos are hidden behind the tile.
+  final int remaining;
+
+  final VoidCallback onTap;
+
+  static const BorderRadius _radius = BorderRadius.all(
+    Radius.circular(VelvetRadii.field),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: AppLocalizations.of(context).salonPortfolioShowAll,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: SizedBox(
+          height: PortfolioTile.size,
+          width: PortfolioTile.size,
+          child: DecoratedBox(
+            decoration: const BoxDecoration(
+              color: BrandColors.faint,
+              borderRadius: _radius,
+              boxShadow: VelvetShadows.extrudedSmall,
+            ),
+            child: Center(
+              child: Text('+$remaining', style: VelvetText.bodyStrong()),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Phase 406 (9.11, D2) — the shell a real photo sits in.
+enum PortfolioTileLook {
+  /// The default (pre-406) tile: camel→mocha gradient fill (the loading fill),
+  /// the light [_kTileLift] pair that flattens while pressed, and a photo
+  /// glyph on the gradient as the error / disallowed-URL fallback.
+  gradient,
+
+  /// The public salon profile's tile (formerly its own private tile): no fill behind the photo, the
+  /// [VelvetShadows.extrudedSmall] raised pair (static — no press state), and
+  /// a faint tile with a broken-image glyph as the fallback.
+  raisedPhoto,
 }
 
 /// Phase 405 (9.10, D1/D2) — the leading «add photo» tile of an editor's
@@ -577,6 +724,7 @@ class PortfolioTile extends StatefulWidget {
     this.onRemove,
     this.removeKey,
     this.removeSemanticLabel,
+    this.look = PortfolioTileLook.gradient,
   });
 
   /// The tile's side, in dp.
@@ -619,12 +767,22 @@ class PortfolioTile extends StatefulWidget {
   /// «Видалити фото роботи n».
   final String? removeSemanticLabel;
 
+  /// Phase 406 (D2) — the photo shell; default = the pre-406 look.
+  final PortfolioTileLook look;
+
   @override
   State<PortfolioTile> createState() => _PortfolioTileState();
 }
 
 class _PortfolioTileState extends State<PortfolioTile> {
   bool _pressed = false;
+
+  /// Only the gradient look reads [_pressed] (its lift drops on press); the
+  /// raised look's decoration is const, so a press there must not rebuild.
+  void _setPressed(bool v) {
+    if (widget.look == PortfolioTileLook.raisedPhoto || _pressed == v) return;
+    setState(() => _pressed = v);
+  }
 
   static const List<List<Color>> _fills = <List<Color>>[
     <Color>[Color(0xFFD4B896), Color(0xFF8A6840)],
@@ -641,6 +799,20 @@ class _PortfolioTileState extends State<PortfolioTile> {
 
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(VelvetRadii.field),
+  );
+
+  static final Widget _raisedFallback = DecoratedBox(
+    decoration: const BoxDecoration(
+      color: BrandColors.faint,
+      borderRadius: _radius,
+    ),
+    child: Center(
+      child: Icon(
+        Icons.broken_image_outlined,
+        color: BrandColors.white.withValues(alpha: 0.85),
+        size: 26,
+      ),
+    ),
   );
 
   Widget _pendingContent(File file, Widget glyph) {
@@ -673,9 +845,13 @@ class _PortfolioTileState extends State<PortfolioTile> {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String? url = widget.imageUrl;
     final File? preview = widget.previewFile;
+    final bool raised = widget.look == PortfolioTileLook.raisedPhoto;
     final Widget glyph = Center(
       child: Icon(Icons.photo_outlined, color: _glyphColor, size: 22),
     );
+    // Phase 406 (D2) — the raised look's fallback is its own faint tile; the
+    // gradient look's is the glyph on the gradient fill.
+    final Widget fallback = raised ? _raisedFallback : glyph;
     final double? progress = widget.progress;
     final Widget tile = Semantics(
       label: preview != null && widget.uploading
@@ -688,27 +864,32 @@ class _PortfolioTileState extends State<PortfolioTile> {
           : null,
       image: true,
       child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) => setState(() => _pressed = false),
+        onTapDown: (_) => _setPressed(true),
+        onTapCancel: () => _setPressed(false),
+        onTapUp: (_) => _setPressed(false),
         child: RepaintBoundary(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 130),
             height: _size,
             width: _size,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(VelvetRadii.field),
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: fill,
-              ),
-              boxShadow: _pressed ? null : _kTileLift,
-            ),
+            decoration: raised
+                ? const BoxDecoration(
+                    borderRadius: _radius,
+                    boxShadow: VelvetShadows.extrudedSmall,
+                  )
+                : BoxDecoration(
+                    borderRadius: BorderRadius.circular(VelvetRadii.field),
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: fill,
+                    ),
+                    boxShadow: _pressed ? null : _kTileLift,
+                  ),
             child: preview != null
                 ? _pendingContent(preview, glyph)
                 : url == null
-                ? glyph
+                ? fallback
                 : RemoteImage(
                     url: url,
                     width: _size,
@@ -716,7 +897,7 @@ class _PortfolioTileState extends State<PortfolioTile> {
                     borderRadius: _radius,
                     excludeFromSemantics: true,
                     decodeToCover: widget.decodeToCover,
-                    fallback: glyph,
+                    fallback: fallback,
                   ),
           ),
         ),
