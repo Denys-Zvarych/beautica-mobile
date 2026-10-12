@@ -87,6 +87,7 @@ import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
+import 'portfolio_data_layer_flow_test.dart' as portfolio_data_layer;
 import 'notification_bell_flow_test.dart' as notification_bell;
 import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
@@ -364,6 +365,8 @@ void main() {
   group('velvet_snack_flow', velvet_snack.main);
   // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
   group('media_avatar_upload_flow', media_avatar_upload.main);
+  // Phase 403 — portfolio data layer: upload/delete/limit/busy, salon + master.
+  group('portfolio_data_layer_flow', portfolio_data_layer.main);
   group('master_avatar_upload', master_avatar_upload.main);
   // Phase 367 — own-avatar for owner/admin/client + role × surface matrix.
   group('owner_admin_avatar_upload', owner_admin_avatar_upload.main);

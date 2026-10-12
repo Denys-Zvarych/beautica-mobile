@@ -50,6 +50,8 @@ import 'dart:developer';
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo_mapper.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/network/path_segment.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -63,7 +65,6 @@ import '../domain/bookable_master_assignment.dart';
 import '../domain/salon_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
-import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
@@ -221,7 +222,7 @@ abstract interface class SalonRepository {
   ///
   /// Wraps `GET /salons/{salonId}/portfolio` (public, unauthenticated). Returns
   /// an empty list when the salon has no portfolio photos.
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId);
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId);
 
   /// Applies a partial update to salon [salonId] (Phase 21.2 — owner/admin
   /// editable profile).
@@ -719,9 +720,19 @@ final class HttpSalonRepository implements SalonRepository {
   }
 
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) async {
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async {
+    // Phase 403 audit S1: the GENERATED client interpolates path params RAW
+    // (see [encodePathSegment]'s doc), so the id is encoded — and a
+    // dot-segment rejected — here, exactly like `getMasterPortfolio`. A
+    // pre-encoded segment is NOT re-encoded by the generated client; encoding
+    // a server-issued UUID is a no-op.
+    final String salonSegment = encodePathSegment(
+      salonId,
+      'salonId',
+      logTag: 'salon.repository',
+    );
     try {
-      final res = await _mediaApi.getSalonPortfolio(salonId: salonId);
+      final res = await _mediaApi.getSalonPortfolio(salonId: salonSegment);
       // WIRE-FORMAT NOTE: unlike [getSalonMasters]/[getSalonReviews] above
       // (which decode the hand-rolled custom `PageResponse` shape via
       // `.data?.data`), this read goes through the GENERATED
@@ -729,7 +740,7 @@ final class HttpSalonRepository implements SalonRepository {
       // Spring's DEFAULT `Page<T>` JSON shape — the row list lives under
       // `content`, not `data`.
       final content = res.data?.data?.content ?? const <MediaFileResponse>[];
-      return SalonPortfolioMapper.fromDtoList(content);
+      return PortfolioPhotoMapper.fromDtoList(content);
     } on Failure {
       rethrow;
     } on DioException catch (e, st) {

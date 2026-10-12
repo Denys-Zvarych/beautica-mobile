@@ -42,7 +42,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -230,7 +230,7 @@ class _FakeSalonRepository implements SalonRepository {
     Future<List<SalonServiceCategoryEntry>> Function()? catalog,
     Future<SalonReviewSummary> Function()? summary,
     Future<List<SalonReviewItem>> Function(SalonReviewSort sort)? reviews,
-    Future<List<SalonPortfolioPhoto>> Function()? portfolio,
+    Future<List<PortfolioPhoto>> Function()? portfolio,
   }) : _salon = salon ?? (() async => _stubSalon),
        _masters = masters ?? (() async => _stubMasters),
        _catalog = catalog ?? (() async => _stubCatalog),
@@ -241,14 +241,14 @@ class _FakeSalonRepository implements SalonRepository {
        // a real Image.network round trip — only the portfolio-specific tests
        // below opt in with a non-empty fixture (wrapped in
        // mockNetworkImagesFor).
-       _portfolio = portfolio ?? (() async => const <SalonPortfolioPhoto>[]);
+       _portfolio = portfolio ?? (() async => const <PortfolioPhoto>[]);
 
   final Future<Salon> Function() _salon;
   final Future<List<SalonMasterSummary>> Function() _masters;
   final Future<List<SalonServiceCategoryEntry>> Function() _catalog;
   final Future<SalonReviewSummary> Function() _summary;
   final Future<List<SalonReviewItem>> Function(SalonReviewSort sort) _reviews;
-  final Future<List<SalonPortfolioPhoto>> Function() _portfolio;
+  final Future<List<PortfolioPhoto>> Function() _portfolio;
 
   /// Sort values passed to [getSalonReviews], in call order — asserted by the
   /// sort-sheet test.
@@ -290,7 +290,7 @@ class _FakeSalonRepository implements SalonRepository {
   }
 
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) =>
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) =>
       _portfolio();
 
   // `salonMasterServiceCoverageProvider` (the salon-service → masters filter
@@ -603,16 +603,16 @@ void main() {
       MediaConfig.debugAllowedHosts = null;
     });
 
-    const List<SalonPortfolioPhoto> threePhotos = <SalonPortfolioPhoto>[
-      SalonPortfolioPhoto(
+    const List<PortfolioPhoto> threePhotos = <PortfolioPhoto>[
+      PortfolioPhoto(
         id: 'photo-1',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/1.jpg',
       ),
-      SalonPortfolioPhoto(
+      PortfolioPhoto(
         id: 'photo-2',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/2.jpg',
       ),
-      SalonPortfolioPhoto(
+      PortfolioPhoto(
         id: 'photo-3',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/3.jpg',
       ),
@@ -650,7 +650,7 @@ void main() {
           find.descendant(of: railFinder, matching: find.byType(Image)),
           findsNWidgets(threePhotos.length),
         );
-        for (final SalonPortfolioPhoto photo in threePhotos) {
+        for (final PortfolioPhoto photo in threePhotos) {
           expect(
             find.byKey(Key('salon-portfolio-photo-${photo.id}')),
             findsOneWidget,
@@ -699,7 +699,7 @@ void main() {
         overrides: _overrides(
           repo: _FakeSalonRepository(
             salon: () async => salonWithInstagram,
-            portfolio: () async => const <SalonPortfolioPhoto>[],
+            portfolio: () async => const <PortfolioPhoto>[],
           ),
         ),
       );
@@ -729,8 +729,8 @@ void main() {
     testWidgets(
       'a non-https photo URL renders the fallback tile, never Image.network',
       (tester) async {
-        const List<SalonPortfolioPhoto> insecurePhoto = <SalonPortfolioPhoto>[
-          SalonPortfolioPhoto(
+        const List<PortfolioPhoto> insecurePhoto = <PortfolioPhoto>[
+          PortfolioPhoto(
             id: 'photo-insecure',
             url: 'http://insecure.example/x.jpg',
           ),
@@ -779,9 +779,9 @@ void main() {
       'more than 8 photos renders only the first 8 plus a show-all tile, '
       'which reveals the rest on tap',
       (tester) async {
-        final List<SalonPortfolioPhoto> tenPhotos = List.generate(
+        final List<PortfolioPhoto> tenPhotos = List.generate(
           10,
-          (i) => SalonPortfolioPhoto(
+          (i) => PortfolioPhoto(
             id: 'photo-${i + 1}',
             url: 'https://cdn.beautica.ua/portfolio/salon-1/${i + 1}.jpg',
           ),

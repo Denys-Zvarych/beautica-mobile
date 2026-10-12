@@ -6827,6 +6827,15 @@
       }
     }
   },
+  "uploadErrorPortfolioLimit": "Limit reached: a portfolio holds up to {max} photos",
+  "@uploadErrorPortfolioLimit": {
+    "description": "Phase 403 (D5) — HTTP 409 PORTFOLIO_LIMIT_REACHED on a portfolio photo upload, or the client-side pre-check (the salon / master portfolio already holds the maximum number of photos).",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "serviceEditOwnerPerformedHint": "The salon owner performs this service, so only they can change its name and category.",
   "@serviceEditOwnerPerformedHint": {
     "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."

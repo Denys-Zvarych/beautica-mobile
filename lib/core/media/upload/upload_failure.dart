@@ -6,6 +6,11 @@
 
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
+/// Phase 403 (D5) — the per-portfolio photo cap, mirroring backend 362's
+/// `MAX_PORTFOLIO_PHOTOS` (salon and independent master alike). Used for the
+/// client-side pre-check; the server's 409 stays authoritative.
+const int kPortfolioMaxPhotos = 30;
+
 /// Why a media upload (or delete) failed.
 sealed class UploadFailure implements Exception {
   const UploadFailure();
@@ -86,6 +91,35 @@ final class UploadForbiddenFailure extends UploadFailure {
 /// sent again (Phase 369).
 final class UploadConflictFailure extends UploadFailure {
   const UploadConflictFailure();
+
+  @override
+  String message(AppLocalizations l10n) => l10n.uploadErrorConflict;
+}
+
+/// Phase 403 (D5) — HTTP 409 with `data.code == "PORTFOLIO_LIMIT_REACHED"`
+/// on a portfolio upload: the salon / master already holds
+/// [kPortfolioMaxPhotos] photos. Mapped on the CODE, never on the bare 409
+/// (backend 362 D5). Also raised by the client-side pre-check. Not retryable:
+/// a photo has to be deleted first.
+final class PortfolioLimitReachedFailure extends UploadFailure {
+  const PortfolioLimitReachedFailure();
+
+  @override
+  String message(AppLocalizations l10n) =>
+      l10n.uploadErrorPortfolioLimit(kPortfolioMaxPhotos);
+}
+
+/// Phase 403 — HTTP 503 WITH a `Retry-After` on a portfolio upload: the
+/// server's portfolio row lock timed out under a concurrent upload (backend
+/// 362 F6a, `Retry-After: 2`). Transient — the same photo may be re-sent.
+/// Deliberately distinct from [PortfolioLimitReachedFailure] (a race must
+/// never read as "limit reached") and from [UploadStorageUnavailableFailure]
+/// (a 503 WITHOUT `Retry-After`: storage switched off). [retryAfterSeconds]
+/// is `null` when the header value is unusable.
+final class UploadBusyFailure extends UploadFailure {
+  const UploadBusyFailure({this.retryAfterSeconds});
+
+  final int? retryAfterSeconds;
 
   @override
   String message(AppLocalizations l10n) => l10n.uploadErrorConflict;

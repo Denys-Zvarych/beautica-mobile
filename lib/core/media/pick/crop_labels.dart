@@ -27,7 +27,9 @@ final class CropLabels {
   /// other kind gets [CropLabels.of].
   factory CropLabels.forKind(AppLocalizations l10n, MediaKind kind) {
     final String title = switch (kind) {
-      MediaKind.avatar || MediaKind.servicePhoto => l10n.cropTitle,
+      MediaKind.avatar ||
+      MediaKind.servicePhoto ||
+      MediaKind.portfolio => l10n.cropTitle,
       MediaKind.salonLogo => l10n.cropTitleSalonLogo,
       MediaKind.salonCover => l10n.cropTitleSalonCover,
     };

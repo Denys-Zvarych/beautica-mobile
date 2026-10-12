@@ -143,11 +143,11 @@ Class | Method | HTTP request | Description
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertOverride**](doc/MasterControllerApi.md#upsertoverride) | **PUT** /api/v1/masters/{masterId}/overrides/{date} | 
 [*MasterControllerApi*](doc/MasterControllerApi.md) | [**upsertWorkingHours**](doc/MasterControllerApi.md#upsertworkinghours) | **PATCH** /api/v1/masters/{masterId}/working-hours | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**deleteAvatar**](doc/MediaControllerApi.md#deleteavatar) | **DELETE** /api/v1/media/avatar | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deletePortfolioPhoto**](doc/MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**deletePortfolioPhoto**](doc/MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | Remove a photo from the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**getMasterPortfolio**](doc/MediaControllerApi.md#getmasterportfolio) | **GET** /api/v1/masters/{masterId}/portfolio | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**getSalonPortfolio**](doc/MediaControllerApi.md#getsalonportfolio) | **GET** /api/v1/salons/{salonId}/portfolio | 
 [*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadAvatar**](doc/MediaControllerApi.md#uploadavatar) | **POST** /api/v1/media/avatar | 
-[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadPortfolioPhoto**](doc/MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | 
+[*MediaControllerApi*](doc/MediaControllerApi.md) | [**uploadPortfolioPhoto**](doc/MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | Add a photo to the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
 [*NotificationsApi*](doc/NotificationsApi.md) | [**listFeed**](doc/NotificationsApi.md#listfeed) | **GET** /api/v1/notifications | The recipient&#39;s own notification feed, newest first
 [*NotificationsApi*](doc/NotificationsApi.md) | [**markAllRead**](doc/NotificationsApi.md#markallread) | **PATCH** /api/v1/notifications/read-all | Marks every still-unread item created at or before the given cutoff (default: now) read
 [*NotificationsApi*](doc/NotificationsApi.md) | [**markRead**](doc/NotificationsApi.md#markread) | **PATCH** /api/v1/notifications/{id}/read | Marks one item read — idempotent; 404 for a missing or foreign id (never 403)
@@ -183,7 +183,9 @@ Class | Method | HTTP request | Description
 [*SalonControllerApi*](doc/SalonControllerApi.md) | [**updateSalon**](doc/SalonControllerApi.md#updatesalon) | **PATCH** /api/v1/salons/{salonId} | 
 [*SalonMasterControllerApi*](doc/SalonMasterControllerApi.md) | [**removeMaster**](doc/SalonMasterControllerApi.md#removemaster) | **DELETE** /api/v1/salons/{salonId}/masters/{masterId} | 
 [*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**deleteSalonImage**](doc/SalonMediaControllerApi.md#deletesalonimage) | **DELETE** /api/v1/salons/{salonId}/media/{slot} | Remove the salon logo or cover (SALON_OWNER of this salon only)
+[*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**deleteSalonPortfolioPhoto**](doc/SalonMediaControllerApi.md#deletesalonportfoliophoto) | **DELETE** /api/v1/salons/{salonId}/portfolio/{mediaId} | Remove a photo from the salon portfolio (SALON_OWNER or the salon&#39;s SALON_ADMIN)
 [*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**uploadSalonImage**](doc/SalonMediaControllerApi.md#uploadsalonimage) | **POST** /api/v1/salons/{salonId}/media/{slot} | Upload or replace the salon logo or cover (SALON_OWNER of this salon only)
+[*SalonMediaControllerApi*](doc/SalonMediaControllerApi.md) | [**uploadSalonPortfolioPhoto**](doc/SalonMediaControllerApi.md#uploadsalonportfoliophoto) | **POST** /api/v1/salons/{salonId}/portfolio | Add a photo to the salon portfolio (SALON_OWNER or the salon&#39;s SALON_ADMIN)
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchMasters**](doc/SearchControllerApi.md#searchmasters) | **GET** /api/v1/search/masters | 
 [*SearchControllerApi*](doc/SearchControllerApi.md) | [**searchSalons**](doc/SearchControllerApi.md#searchsalons) | **GET** /api/v1/search/salons | 
 [*SearchSuggestionControllerApi*](doc/SearchSuggestionControllerApi.md) | [**suggest**](doc/SearchSuggestionControllerApi.md#suggest) | **GET** /api/v1/search/suggestions | Autocomplete suggestions for the search box

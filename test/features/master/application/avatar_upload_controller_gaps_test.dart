@@ -9,6 +9,8 @@ import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
 import 'package:beautica_mobile/core/media/pick/media_kind.dart';
 import 'package:beautica_mobile/core/media/pick/pending_pick_store.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
@@ -126,6 +128,21 @@ class _Uploads implements MediaUploadRepository {
 
   @override
   Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) =>
+      throw UnimplementedError();
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
       throw UnimplementedError();
 }
 

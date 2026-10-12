@@ -11,12 +11,26 @@
 // Phase 369 adds the salon logo / cover methods ([uploadSalonImage] /
 // [deleteSalonImage], `POST`/`DELETE /salons/{salonId}/media/{logo|cover}`,
 // SALON_OWNER only) on that same `_upload`.
+//
+// Phase 403 (9.8, D4) adds the portfolio methods ([getMasterPortfolio],
+// [uploadPortfolioPhoto], [deletePortfolioPhoto]) — salon
+// (`/salons/{salonId}/portfolio[/{mediaId}]`, owner or bound admin) and
+// independent master (`/media/portfolio[/{mediaId}]`, self-only) — again on
+// that same `_upload`. Portfolio uploads declare the file's REAL content type
+// (sniffed from its magic bytes) instead of the avatar path's fixed JPEG, and
+// map 409 / 503 portfolio-specifically (see [mapUploadFailure]'s
+// `portfolio:`).
 
 import 'dart:async';
 import 'dart:developer';
 import 'dart:io';
 
+import 'package:beautica_api/beautica_api.dart'
+    show MediaControllerApi, MediaFileResponse, standardSerializers;
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo_mapper.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
@@ -38,6 +52,9 @@ const Duration kUploadSendTimeout = Duration(seconds: 60);
 
 /// Multipart part name the backend binds (`@RequestPart("file")`).
 const String kUploadPartName = 'file';
+
+/// Phase 403 — the `data.code` backend 362 sends with a portfolio-cap 409.
+const String kPortfolioLimitReachedCode = 'PORTFOLIO_LIMIT_REACHED';
 
 /// Minimum progress step (1 %) so listeners rebuild cheaply.
 const double _kProgressStep = 0.01;
@@ -77,6 +94,29 @@ abstract interface class MediaUploadRepository {
 
   /// Phase 369 — removes [salonId]'s [slot] image (owner only, `204`).
   Future<void> deleteSalonImage(String salonId, SalonImageSlot slot);
+
+  /// Phase 403 — the independent master [masterId]'s public portfolio
+  /// (`GET /masters/{masterId}/portfolio`, newest first, at most 50). The
+  /// SALON read stays on `SalonRepository.getSalonPortfolio`. Throws a
+  /// [Failure].
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId);
+
+  /// Phase 403 (D4) — uploads [file] to [owner]'s portfolio. Master →
+  /// `POST /media/portfolio` (INDEPENDENT_MASTER, self); salon →
+  /// `POST /salons/{salonId}/portfolio` (owner or the admin bound to it). The
+  /// task resolves to the stored photo; over the cap it errors with
+  /// [PortfolioLimitReachedFailure], under lock contention with
+  /// [UploadBusyFailure].
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  );
+
+  /// Phase 403 (D4) — deletes portfolio photo [mediaId] of [owner] (`204`).
+  /// Master → `DELETE /media/portfolio/{mediaId}` (own rows only; anyone
+  /// else's is a 404); salon → `DELETE /salons/{salonId}/portfolio/{mediaId}`
+  /// (any salon manager, whoever uploaded it).
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId);
 }
 
 /// HTTP implementation. Inject via [mediaUploadRepositoryProvider].
@@ -86,10 +126,14 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
     bool Function()? isSessionLive,
     String? Function()? currentUserId,
   }) : _dio = dio,
+       _mediaApi = MediaControllerApi(dio, standardSerializers),
        _isSessionLive = isSessionLive ?? _alwaysLive,
        _currentUserId = currentUserId;
 
   final Dio _dio;
+
+  /// The generated read client over the SAME [_dio] (no second Dio).
+  final MediaControllerApi _mediaApi;
 
   /// `false` once the session has ended (e.g. `RefreshInterceptor` failed and
   /// forced a logout) — the 401 retry is then pointless and is skipped.
@@ -211,6 +255,96 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
       '${encodePathSegment(salonId, 'salonId', logTag: _tag)}'
       '/media/${encodePathSegment(slot.wire, 'slot', logTag: _tag)}';
 
+  // Phase 403 — the independent master's own portfolio (self, by JWT).
+  static const _masterPortfolioPath = '/api/v1/media/portfolio';
+
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) async {
+    // The generated client interpolates path params RAW (`path_segment.dart`)
+    // — gate the id through the encoder first (throws a [Failure]).
+    final String id = encodePathSegment(masterId, 'masterId', logTag: _tag);
+    try {
+      final res = await _mediaApi.getMasterPortfolio(masterId: id);
+      // Spring's default `Page<T>` shape: rows under `content`.
+      return PortfolioPhotoMapper.fromDtoList(
+        res.data?.data?.content ?? const <MediaFileResponse>[],
+      );
+    } on DioException catch (e) {
+      _logFailure('getMasterPortfolio', e);
+      final Object? mapped = e.error;
+      // ErrorMapperInterceptor has already typed every transport / status
+      // case; an untyped error is a bug, not a user condition.
+      if (mapped is Failure) throw mapped;
+      throw UnknownFailure(cause: e);
+    }
+  }
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) {
+    final String path;
+    try {
+      path = _portfolioPath(owner);
+    } on Failure {
+      // Unreachable for a server-issued UUID; never open a request for it.
+      return UploadTask<PortfolioPhoto>(
+        progress: const Stream<double>.empty(),
+        result: Future<PortfolioPhoto>.error(const UploadUnknownFailure()),
+        onCancel: () {},
+      );
+    }
+    return _upload<PortfolioPhoto>(
+      path,
+      file,
+      // Placeholders: [part] replaces both with the sniffed real type.
+      filename: 'portfolio.jpg',
+      contentType: MediaType('image', 'jpeg'),
+      part: () => sniffImagePart(file, 'portfolio'),
+      portfolio: true,
+      parse: (Object? body) =>
+          body is Map ? PortfolioPhotoMapper.fromJson(body['data']) : null,
+    );
+  }
+
+  @override
+  Future<void> deletePortfolioPhoto(
+    PortfolioOwner owner,
+    String mediaId,
+  ) async {
+    final String path;
+    try {
+      path =
+          '${_portfolioPath(owner)}/'
+          '${encodePathSegment(mediaId, 'mediaId', logTag: _tag)}';
+    } on Failure {
+      throw const UploadUnknownFailure();
+    }
+    try {
+      await _dio.delete<Object?>(
+        path,
+        // Like the uploads: a redirect on an authenticated write must never
+        // re-send the Bearer token elsewhere.
+        options: Options(followRedirects: false),
+      );
+    } on DioException catch (e) {
+      _logFailure('deletePortfolioPhoto', e);
+      throw mapUploadFailure(e, portfolio: true);
+    }
+  }
+
+  /// The portfolio collection path of [owner] — ids encoded as ONE path
+  /// segment each (throws a [Failure] for an empty / dot-segment id).
+  static String _portfolioPath(PortfolioOwner owner) => switch (owner) {
+    // Self-only: the backend resolves the master from the JWT.
+    final PortfolioOwnerMasterSelf _ => _masterPortfolioPath,
+    final PortfolioOwnerSalon o =>
+      '/api/v1/salons/'
+          '${encodePathSegment(o.salonId, 'salonId', logTag: _tag)}'
+          '/portfolio',
+  };
+
   /// A salon-image 403 always means "not the owner" (D6).
   static UploadFailure _asSalonFailure(UploadFailure f) =>
       f is UploadForbiddenFailure
@@ -224,6 +358,8 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
     required String filename,
     required MediaType contentType,
     required T? Function(Object? body) parse,
+    Future<ImagePart> Function()? part,
+    bool portfolio = false,
   }) {
     final cancelToken = CancelToken();
     final controller = StreamController<double>.broadcast();
@@ -257,6 +393,10 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
         throw const UploadUnknownFailure();
       }
       if (size > kMaxUploadBytes) throw const UploadTooLargeFailure();
+      // Phase 403 — the real filename / content type, when the caller sniffs.
+      final ImagePart resolved =
+          await part?.call() ??
+          ImagePart(filename: filename, contentType: contentType);
       if (cancelToken.isCancelled) throw const UploadCancelledFailure();
 
       // FormData is single-use (finalised on send), so every attempt builds a
@@ -271,8 +411,8 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
               data: FormData.fromMap(<String, Object>{
                 kUploadPartName: await MultipartFile.fromFile(
                   file.path,
-                  filename: filename,
-                  contentType: contentType,
+                  filename: resolved.filename,
+                  contentType: resolved.contentType,
                 ),
               }),
               options: Options(
@@ -296,7 +436,8 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
             return parsed;
           },
           isUnauthorized: (e) =>
-              mapUploadFailure(e) is UploadUnauthorizedFailure,
+              mapUploadFailure(e, portfolio: portfolio)
+                  is UploadUnauthorizedFailure,
           isSessionLive: () => _isSessionLive() && sameUser(),
           onRetry: (e) {
             _logFailure('upload(401, retrying)', e);
@@ -306,7 +447,7 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
         );
       } on DioException catch (e) {
         _logFailure('upload', e);
-        throw mapUploadFailure(e);
+        throw mapUploadFailure(e, portfolio: portfolio);
       }
     }
 
@@ -331,14 +472,78 @@ final class HttpMediaUploadRepository implements MediaUploadRepository {
   }
 }
 
+/// The multipart file part's declared name and type.
+final class ImagePart {
+  const ImagePart({required this.filename, required this.contentType});
+
+  final String filename;
+  final MediaType contentType;
+}
+
+/// Phase 403 — the declared type of [file], sniffed from its magic bytes (the
+/// same JPEG / PNG / WebP set the backend accepts — it re-validates by magic
+/// bytes regardless). [stem] names the part (`portfolio.png`). Anything else
+/// is rejected client-side with [UploadUnsupportedFormatFailure] instead of
+/// being sent under a false type; an unreadable file is
+/// [UploadUnknownFailure]. Exposed for tests.
+@visibleForTesting
+Future<ImagePart> sniffImagePart(File file, String stem) async {
+  final List<int> head = <int>[];
+  try {
+    await for (final List<int> chunk in file.openRead(0, 12)) {
+      head.addAll(chunk);
+    }
+  } on FileSystemException {
+    throw const UploadUnknownFailure();
+  }
+  bool at(int offset, List<int> magic) {
+    if (head.length < offset + magic.length) return false;
+    for (var i = 0; i < magic.length; i++) {
+      if (head[offset + i] != magic[i]) return false;
+    }
+    return true;
+  }
+
+  if (at(0, const <int>[0xFF, 0xD8, 0xFF])) {
+    return ImagePart(
+      filename: '$stem.jpg',
+      contentType: MediaType('image', 'jpeg'),
+    );
+  }
+  if (at(0, const <int>[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) {
+    return ImagePart(
+      filename: '$stem.png',
+      contentType: MediaType('image', 'png'),
+    );
+  }
+  // RIFF....WEBP
+  if (at(0, const <int>[0x52, 0x49, 0x46, 0x46]) &&
+      at(8, const <int>[0x57, 0x45, 0x42, 0x50])) {
+    return ImagePart(
+      filename: '$stem.webp',
+      contentType: MediaType('image', 'webp'),
+    );
+  }
+  throw const UploadUnsupportedFormatFailure();
+}
+
 /// Maps a [DioException] (already passed through `ErrorMapperInterceptor`, so
 /// `e.error` may be a typed [Failure]) to an [UploadFailure].
 ///
 /// Status codes the mapper has no dedicated [Failure] for (413, 403, 503
 /// semantics) are read from the retained response; transport and 401/404
 /// semantics reuse the mapper's [Failure]. Exposed for tests.
+///
+/// Phase 403 — [portfolio] (the portfolio upload / delete paths only, D5)
+/// adds two mappings and changes nothing else:
+///   • 409 whose `data.code` is [kPortfolioLimitReachedCode] →
+///     [PortfolioLimitReachedFailure] (any other 409 stays
+///     [UploadConflictFailure] — never "limit reached" on the bare status);
+///   • 503 carrying a `Retry-After` header → [UploadBusyFailure] (the
+///     portfolio lock timed out); a 503 without one stays
+///     [UploadStorageUnavailableFailure].
 @visibleForTesting
-UploadFailure mapUploadFailure(DioException e) {
+UploadFailure mapUploadFailure(DioException e, {bool portfolio = false}) {
   if (e.type == DioExceptionType.cancel) return const UploadCancelledFailure();
   if (e.type == DioExceptionType.badCertificate) {
     return const UploadCertificateFailure();
@@ -348,6 +553,16 @@ UploadFailure mapUploadFailure(DioException e) {
   if (failure is UnauthorizedFailure) return const UploadUnauthorizedFailure();
 
   final status = e.response?.statusCode;
+  if (portfolio) {
+    if (status == 409 && _errorCode(e) == kPortfolioLimitReachedCode) {
+      return const PortfolioLimitReachedFailure();
+    }
+    // Presence of the header is the signal — its VALUE may be unusable, which
+    // only drops the number ([uploadRetryAfterSeconds] → null, never 0).
+    if (status == 503 && e.response?.headers.value('retry-after') != null) {
+      return UploadBusyFailure(retryAfterSeconds: uploadRetryAfterSeconds(e));
+    }
+  }
   switch (status) {
     case 413:
       return const UploadTooLargeFailure();
@@ -386,6 +601,16 @@ UploadFailure mapUploadFailure(DioException e) {
     case DioExceptionType.unknown:
       return UploadUnknownFailure(status);
   }
+}
+
+/// `data.code` of an error envelope, or `null`.
+String? _errorCode(DioException e) {
+  final Object? body = e.response?.data;
+  if (body is! Map) return null;
+  final Object? data = body['data'];
+  if (data is! Map) return null;
+  final Object? code = data['code'];
+  return code is String ? code : null;
 }
 
 /// The `Retry-After` of a 429 (integer seconds — the backend never sends the

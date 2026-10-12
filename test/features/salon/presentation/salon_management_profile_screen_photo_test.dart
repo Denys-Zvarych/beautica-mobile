@@ -13,6 +13,8 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
@@ -152,6 +154,21 @@ class _Uploads implements MediaUploadRepository {
     final UploadFailure? f = deleteFailure;
     if (f != null) throw f;
   }
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
+      throw UnimplementedError();
 }
 
 /// Interleaves real-async turns (the pick pipeline does real file I/O) with

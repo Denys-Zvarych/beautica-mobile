@@ -65,8 +65,8 @@ class MediaControllerApi {
     return _response;
   }
 
-  /// deletePortfolioPhoto
-  ///
+  /// Remove a photo from the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
+  /// Only rows of the caller&#39;s own master portfolio; a salon photo is 404 here (use DELETE /api/v1/salons/{salonId}/portfolio/{mediaId}).
   ///
   /// Parameters:
   /// * [mediaId]
@@ -369,8 +369,8 @@ class MediaControllerApi {
     );
   }
 
-  /// uploadPortfolioPhoto
-  ///
+  /// Add a photo to the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
+  /// Multipart field &#x60;file&#x60;: JPEG, PNG or WebP (detected by magic bytes), max 5 MB. A portfolio holds at most 30 photos; the next upload is rejected with 409 (&#x60;data.code&#x60; &#x3D; &#x60;PORTFOLIO_LIMIT_REACHED&#x60;). Salon portfolios use POST /api/v1/salons/{salonId}/portfolio.
   ///
   /// Parameters:
   /// * [file]

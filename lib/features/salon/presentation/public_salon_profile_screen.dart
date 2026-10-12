@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -66,7 +67,6 @@ import '../application/salon_service_catalog_notifier.dart';
 import '../application/salon_service_filter_notifier.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
-import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_service_catalog.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
@@ -1169,11 +1169,11 @@ class _SalonPortfolioRailState extends ConsumerState<_SalonPortfolioRail> {
 
   @override
   Widget build(BuildContext context) {
-    final AsyncValue<List<SalonPortfolioPhoto>> async = ref.watch(
+    final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
       salonPortfolioProvider(widget.salonId),
     );
     return async.when(
-      data: (List<SalonPortfolioPhoto> photos) =>
+      data: (List<PortfolioPhoto> photos) =>
           photos.isEmpty ? const SizedBox.shrink() : _rail(context, photos),
       loading: () => const SizedBox.shrink(),
       error: (Object e, StackTrace st) {
@@ -1191,10 +1191,10 @@ class _SalonPortfolioRailState extends ConsumerState<_SalonPortfolioRail> {
     );
   }
 
-  Widget _rail(BuildContext context, List<SalonPortfolioPhoto> photos) {
+  Widget _rail(BuildContext context, List<PortfolioPhoto> photos) {
     final l10n = AppLocalizations.of(context);
     final bool hasMore = photos.length > kSalonPortfolioInitialCount;
-    final List<SalonPortfolioPhoto> visible = hasMore && !_showAll
+    final List<PortfolioPhoto> visible = hasMore && !_showAll
         ? photos.sublist(0, kSalonPortfolioInitialCount)
         : photos;
 
@@ -1300,7 +1300,7 @@ class _ShowAllPortfolioTile extends StatelessWidget {
 class _SalonPortfolioTile extends StatelessWidget {
   const _SalonPortfolioTile({required this.photo, required this.index});
 
-  final SalonPortfolioPhoto photo;
+  final PortfolioPhoto photo;
   final int index;
 
   static const double _size = 72;
