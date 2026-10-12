@@ -95,8 +95,9 @@ class _LocalPreviewImageState extends State<LocalPreviewImage> {
     final bool allowed = isMediaScratchFile(widget.file);
     assert(
       allowed,
-      'LocalPreviewImage only renders files from the media_upload scratch dir, '
-      'got ${widget.file.path}',
+      // 405 audit S4 — no file path in the message (it can carry the
+      // user's directory layout into logs / crash reports).
+      'LocalPreviewImage only renders files from the media_upload scratch dir',
     );
     if (!allowed) {
       return SizedBox(

@@ -371,7 +371,12 @@ class PortfolioEditController extends _$PortfolioEditController {
       _prependStored(gen, photo);
       return const AvatarChangeSucceeded();
     } on UploadFailure catch (f) {
-      if (f is! UploadCancelledFailure && _alive(gen)) {
+      // A 403 (the role changed mid-session) keeps NO failed tile: its retry
+      // could only 403 again (405 audit S3) — the entry and file are dropped
+      // like a cancel; the caller shows the snack and re-reads the list.
+      if (f is! UploadCancelledFailure &&
+          f is! UploadForbiddenFailure &&
+          _alive(gen)) {
         keepFile = true;
         _put(
           gen,

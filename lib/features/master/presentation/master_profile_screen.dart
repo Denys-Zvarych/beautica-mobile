@@ -44,6 +44,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_actions.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_controller.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
@@ -270,6 +272,18 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         ),
         data: (master) {
           _startReveal();
+          // Phase 405 (9.10) — CONTROLLER LIFETIME: the portfolio write
+          // controller is auto-dispose, and disposing it cancels an in-flight
+          // upload. The rail watches it, but the rail unmounts on a tab
+          // switch — so the SCREEN keeps it alive for as long as it shows an
+          // independent master's profile. `listen`, not `watch`: a progress
+          // tick must not rebuild the whole screen.
+          if (master.type == MasterType.independentMaster) {
+            ref.listen<List<PendingPortfolioUpload>>(
+              portfolioEditControllerProvider(_ownPortfolioOwner(master.id)),
+              (_, _) {},
+            );
+          }
           return _ProfileBody(
             master: master,
             tabNotifier: profileTabNotifier,
@@ -652,22 +666,75 @@ class _ProfileBody extends StatelessWidget {
 // _OwnPortfolioRail — phase 404 (9.9, D2/D3): the independent master's own
 // portfolio. Loading → placeholder tiles (existing look); error → inline
 // retry line; empty → «Додайте перші фото робіт»; data → real tiles.
+//
+// Phase 405 (9.10) — the master EDITS it here: add tile, remove badges,
+// pending uploads, «Портфоліо · n/30». The flows are the shared
+// [PortfolioEditActions] (same as the salon «Про салон» rail).
 // ---------------------------------------------------------------------------
 
-class _OwnPortfolioRail extends ConsumerWidget {
+/// The ONE `PortfolioOwner.masterSelf` construction in this file — the
+/// independent master's OWN portfolio (callers gate on
+/// `MasterType.independentMaster`).
+PortfolioOwner _ownPortfolioOwner(String masterId) =>
+    PortfolioOwner.masterSelf(masterId);
+
+class _OwnPortfolioRail extends ConsumerStatefulWidget {
   const _OwnPortfolioRail({required this.masterId});
 
   final String masterId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final PortfolioOwner owner = PortfolioOwner.masterSelf(masterId);
+  ConsumerState<_OwnPortfolioRail> createState() => _OwnPortfolioRailState();
+}
+
+class _OwnPortfolioRailState extends ConsumerState<_OwnPortfolioRail> {
+  /// Stored photos whose delete is in flight (optimistic hide, D5).
+  final Set<String> _hidden = <String>{};
+
+  PortfolioOwner get _owner => _ownPortfolioOwner(widget.masterId);
+
+  PortfolioEditActions get _actions => PortfolioEditActions(
+    host: this,
+    owner: _owner,
+    readController: () =>
+        ref.read(portfolioEditControllerProvider(_owner).notifier),
+    setHidden: (String id, {required bool hidden}) {
+      if (!mounted) return;
+      setState(() => hidden ? _hidden.add(id) : _hidden.remove(id));
+    },
+    // Snacks outlive the rail (a tab switch mid-upload): the SCREEN keeps
+    // the controller alive, so its context carries the result. No
+    // dependency registered (rebuild-free).
+    resultHost: () =>
+        context.findAncestorStateOfType<_MasterProfileScreenState>(),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final PortfolioOwner owner = _owner;
+    final List<PendingPortfolioUpload> pending = ref.watch(
+      portfolioEditControllerProvider(owner),
+    );
     final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
       portfolioProvider(owner),
     );
+    final PortfolioEditActions actions = _actions;
     return PortfolioRail.fromAsync(
-      async,
+      _hidden.isEmpty
+          ? async
+          : async.whenData(
+              (List<PortfolioPhoto> l) => <PortfolioPhoto>[
+                for (final PortfolioPhoto p in l)
+                  if (!_hidden.contains(p.id)) p,
+              ],
+            ),
       onRetry: () => ref.invalidate(portfolioProvider(owner)),
+      onAdd: actions.add,
+      onDelete: actions.delete,
+      pending: pending,
+      onRetryPending: actions.retry,
+      onDiscardPending: actions.discard,
+      showCount: true,
     );
   }
 }

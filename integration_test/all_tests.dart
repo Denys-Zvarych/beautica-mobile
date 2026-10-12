@@ -234,6 +234,7 @@ import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
+import 'portfolio_upload_flow_test.dart' as portfolio_upload;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 
@@ -796,4 +797,7 @@ void main() {
   // Phase 386 — owner/admin rate the client (wired late, 393).
   group('salon_staff_client_review_flow', salon_staff_client_review.main);
   group('portfolio_render_flow', portfolio_render.main);
+  // Phase 405 — add / delete portfolio photos: master, owner + admin on one
+  // salon, cap / 409, 503 retry / discard, 403 re-read, tab-switch survival.
+  group('portfolio_upload_flow', portfolio_upload.main);
 }

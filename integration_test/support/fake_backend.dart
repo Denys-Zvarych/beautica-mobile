@@ -411,6 +411,7 @@ final class FakeBackend {
     this.masterSalonId,
     this.wireOwnRowServices = false,
     this.wirePortfolio = false,
+    this.portfolioUploadDelay,
     this.ownRowServicesSeed,
     this.wireOwnRowSchedule = false,
     this.listOwnerRowWhenBookable = false,
@@ -492,6 +493,13 @@ final class FakeBackend {
   /// ([masterRowId]); see [_wirePortfolio]. Off by default, so every
   /// pre-existing flow's (unmatched) owner-salon portfolio read is unchanged.
   final bool wirePortfolio;
+
+  /// Phase 405 QA (mobile-qa) — holds every successful-or-failed portfolio
+  /// UPLOAD reply for this long (the row is stored BEFORE the delay — the
+  /// `replyCallback` body runs first), so a flow can observe the pending tile
+  /// and keep an upload in flight across a tab switch. `null` (default) =
+  /// immediate, so every pre-405 flow is unchanged.
+  final Duration? portfolioUploadDelay;
 
   /// Phase 380 (mobile-qa) — rows the [wireOwnRowServices] catalogue boots
   /// with. Each seeded definition id also gets its own-row band `PATCH` +
@@ -11805,7 +11813,9 @@ final class FakeBackend {
     );
 
     // Phase 404 QA — the admin's own salon and the public `master-aaa`
-    // reads (READ-only; no write route, so a stray write fails loudly).
+    // reads. Phase 405 QA adds `salon-admin-1`'s WRITE routes (an admin
+    // manages their bound salon's portfolio, O1) — see the upload / delete
+    // wiring below; `master-aaa` stays read-only.
     _adapter.onRoute(
       '/api/v1/salons/salon-admin-1/portfolio',
       (server) => server.replyCallback(200, (RequestOptions options) {
@@ -11860,6 +11870,13 @@ final class FakeBackend {
       ownerSalonPortfolioRows,
     );
     wireDelete(RegExp('$masterWritePath/[^/]+\$'), masterPortfolioRows);
+    // Phase 405 QA — `salon-admin-1` ([kAdminSalonId]) is the admin's bound
+    // salon; a flow may also list it in [mySalons] to make the OWNER manage
+    // the SAME salon (photos belong to the salon, never the uploader — O3).
+    wireDelete(
+      RegExp('/api/v1/salons/$kAdminSalonId/portfolio/[^/]+\$'),
+      adminSalonPortfolioRows,
+    );
   }
 
   void _wirePortfolioUploads() {
@@ -11879,34 +11896,43 @@ final class FakeBackend {
     ) {
       _adapter.onRoute(
         path,
-        (server) => server.replyCallback(fail ?? 201, (RequestOptions options) {
-          portfolioUploadUris.add(options.uri);
-          final Object? body = options.data;
-          portfolioUploadPartNames.add(
-            body is FormData
-                ? <String>[
-                    for (final MapEntry<String, String> f in body.fields) f.key,
-                    for (final MapEntry<String, MultipartFile> f in body.files)
-                      f.key,
-                  ]
-                : <String>['<non-multipart:${body.runtimeType}>'],
-          );
-          portfolioUploadContentTypes.add(
-            body is FormData && body.files.isNotEmpty
-                ? body.files.first.value.contentType?.mimeType
-                : null,
-          );
-          if (fail != null) {
-            return <String, dynamic>{
-              'success': false,
-              'message': 'fake portfolio failure',
-              'data': ?(code == null ? null : <String, dynamic>{'code': code}),
-            };
-          }
-          final Map<String, dynamic> row = portfolioRow(entityType, entityId);
-          rows.insert(0, row);
-          return _ok(row);
-        }, headers: headers),
+        (server) => server.replyCallback(
+          fail ?? 201,
+          (RequestOptions options) {
+            portfolioUploadUris.add(options.uri);
+            final Object? body = options.data;
+            portfolioUploadPartNames.add(
+              body is FormData
+                  ? <String>[
+                      for (final MapEntry<String, String> f in body.fields)
+                        f.key,
+                      for (final MapEntry<String, MultipartFile> f
+                          in body.files)
+                        f.key,
+                    ]
+                  : <String>['<non-multipart:${body.runtimeType}>'],
+            );
+            portfolioUploadContentTypes.add(
+              body is FormData && body.files.isNotEmpty
+                  ? body.files.first.value.contentType?.mimeType
+                  : null,
+            );
+            if (fail != null) {
+              return <String, dynamic>{
+                'success': false,
+                'message': 'fake portfolio failure',
+                'data': ?(code == null
+                    ? null
+                    : <String, dynamic>{'code': code}),
+              };
+            }
+            final Map<String, dynamic> row = portfolioRow(entityType, entityId);
+            rows.insert(0, row);
+            return _ok(row);
+          },
+          headers: headers,
+          delay: portfolioUploadDelay,
+        ),
         request: const Request(method: RequestMethods.post, data: Matchers.any),
       );
     }
@@ -11922,6 +11948,12 @@ final class FakeBackend {
       masterPortfolioRows,
       'MASTER',
       masterRowId,
+    );
+    wireUpload(
+      '/api/v1/salons/$kAdminSalonId/portfolio',
+      adminSalonPortfolioRows,
+      'SALON',
+      kAdminSalonId,
     );
   }
 }

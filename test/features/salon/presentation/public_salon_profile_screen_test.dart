@@ -656,6 +656,18 @@ void main() {
             findsOneWidget,
           );
         }
+        // Phase 405 — a client-facing rail never carries a write affordance.
+        expect(find.byKey(const Key('portfolio-add-tile')), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith(
+                  'portfolio-photo-delete-',
+                ),
+          ),
+          findsNothing,
+        );
 
         // Structural ordering: description → portfolio rail → Instagram
         // contact tile, top to bottom. Uses the first TILE's rect (not the

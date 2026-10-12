@@ -406,6 +406,23 @@ void main() {
     );
   });
 
+  test(
+    'S3 — a 403 on add keeps NO failed entry (its retry could only 403 '
+    'again) and deletes the file; the result still carries the 403',
+    () async {
+      final PortfolioEditController c = ctrl(_salonA);
+      final Future<AvatarChangeResult> f = c.add(MediaPickSource.gallery);
+      await until(() => uploads.uploaded.isNotEmpty);
+      final File sent = uploads.uploaded.single.$2;
+      uploads.results.single.completeError(const UploadForbiddenFailure());
+      final AvatarChangeResult r = await f;
+      expect((r as AvatarChangeFailed).failure, isA<UploadForbiddenFailure>());
+      expect(pending(_salonA), isEmpty);
+      expect(sent.existsSync(), isFalse);
+      expect(c.canAdd, isTrue);
+    },
+  );
+
   test('discard drops a failed entry and deletes its file', () async {
     final PortfolioEditController c = ctrl(_salonA);
     final Future<AvatarChangeResult> f = c.add(MediaPickSource.gallery);

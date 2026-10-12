@@ -114,9 +114,15 @@ String _stripComments(String src) {
 /// read-only) screen builds `PortfolioOwner.masterSelf(viewedMasterId)` for a
 /// master who is NOT the viewer; a write there would be JWT-resolved to the
 /// VIEWER's own portfolio while the cache showed the viewed master's list.
+///
+/// Phase 405 audit S1 — also the two names that WRAP those writes:
+/// `PortfolioEditController` (the controller class) and
+/// `PortfolioEditActions` (the editor tap flows). A file that references
+/// either holds a write path under a new name; the gate must see it.
 final RegExp _portfolioWriteRe = RegExp(
   r'\bportfolioEditControllerProvider\b|\buploadPortfolioPhoto\b|'
-  r'\bdeletePortfolioPhoto\b',
+  r'\bdeletePortfolioPhoto\b|\bPortfolioEditActions\b|'
+  r'\bPortfolioEditController\b',
 );
 
 /// Phase 404 audit S2 — ALLOW-list of files in `lib/` that may reference a
@@ -124,7 +130,7 @@ final RegExp _portfolioWriteRe = RegExp(
 /// staff/booking/review screen, a `presentation/widgets/` helper, anything —
 /// fails the gate. Today only the declaring/internal `lib/core/media/` files.
 ///
-/// Phase 405 (add + delete) will add exactly
+/// Phase 405 (add + delete) adds exactly
 ///   `lib/features/master/presentation/master_profile_screen.dart` and
 ///   `lib/features/salon/presentation/salon_management_profile_screen.dart`
 /// — owner-context screens where `PortfolioOwner` names the VIEWER's own
@@ -134,7 +140,58 @@ const Set<String> _portfolioWriteAllowed = <String>{
   'lib/core/media/upload/media_upload_repository.dart',
   // Declares `portfolioEditControllerProvider`; calls the two writes.
   'lib/core/media/portfolio/portfolio_edit_controller.dart',
+  // Phase 405 — declares `PortfolioEditActions` (the editor flows over a
+  // caller-supplied `PortfolioEditController`; reaches no write by itself).
+  'lib/core/media/portfolio/portfolio_edit_actions.dart',
+  // Phase 405 — the independent master's OWN profile (masterSelf, gated on
+  // MasterType.independentMaster).
+  'lib/features/master/presentation/master_profile_screen.dart',
+  // Phase 405 — salon management «Про салон» (owner of this salon / its
+  // admin, D3).
+  'lib/features/salon/presentation/salon_management_profile_screen.dart',
 };
+
+/// Phase 405 — the rail's EDITOR affordances. A read-only / public screen
+/// that passed `onAdd` / `onDelete` (or the pending-upload hooks) to
+/// `PortfolioRail` would offer a write button that is JWT-resolved to the
+/// VIEWER's portfolio. Only [_portfolioWriteAllowed] screens may pass them;
+/// the declaring file (which forwards them in `fromAsync`) is exempt.
+const String _railDeclaringFile = 'lib/shared/widgets/portfolio_rail.dart';
+
+/// A construction of the rail or of one of its editor tiles.
+final RegExp _railCallRe = RegExp(
+  r'\b(?:PortfolioRail(?:\s*\.\s*fromAsync)?|PortfolioTile|PortfolioAddTile)'
+  r'\s*\(',
+);
+
+/// An editor argument inside such a construction.
+final RegExp _railEditorArgRe = RegExp(
+  r'\b(?:onAdd|onDelete|pending|onRetryPending|onDiscardPending|showCount|'
+  r'onRemove|previewFile)\s*:',
+);
+
+/// The argument text of the call whose `(` is at [open] — up to its matching
+/// `)` (string literals with parentheses are rare enough here to ignore).
+String _callArgs(String src, int open) {
+  var depth = 0;
+  for (var i = open; i < src.length; i++) {
+    if (src[i] == '(') depth++;
+    if (src[i] == ')' && --depth == 0) return src.substring(open, i + 1);
+  }
+  return src.substring(open);
+}
+
+/// Whether [src] (comment-stripped) builds the rail / a rail tile with an
+/// editor affordance. `PortfolioAddTile(...)` is an editor affordance by
+/// itself.
+bool _passesRailEditorArgs(String src) {
+  for (final RegExpMatch m in _railCallRe.allMatches(src)) {
+    final String call = m.group(0) ?? '';
+    if (call.startsWith('PortfolioAddTile')) return true;
+    if (_railEditorArgRe.hasMatch(_callArgs(src, m.end - 1))) return true;
+  }
+  return false;
+}
 
 /// Every hand-written `.dart` file under `lib/` (generated code excluded).
 Iterable<String> _libSources() sync* {
@@ -248,10 +305,24 @@ void main() {
         isTrue,
         reason: '$writer calls the repository write methods',
       );
+      // S1 — the wrapper file is seen too (real source, not a sample).
+      const String wrapper =
+          'lib/core/media/portfolio/portfolio_edit_actions.dart';
+      expect(
+        _portfolioWriteRe.hasMatch(
+          _stripComments(File(wrapper).readAsStringSync()),
+        ),
+        isTrue,
+        reason: '$wrapper wraps the controller',
+      );
       for (final String s in <String>[
         'ref.read(portfolioEditControllerProvider(owner).notifier)',
         'repo.uploadPortfolioPhoto(owner, file)',
         'repo.deletePortfolioPhoto(owner, id)',
+        // S1 — the wrappers, under their own names.
+        'final PortfolioEditActions a = PortfolioEditActions(host: this)',
+        'PortfolioEditController Function() readController',
+        'ref.read(someAlias.notifier) as PortfolioEditController',
       ]) {
         expect(
           _portfolioWriteRe.hasMatch(_stripComments(s)),
@@ -259,12 +330,19 @@ void main() {
           reason: s,
         );
       }
-      expect(
-        _portfolioWriteRe.hasMatch(
-          _stripComments('// portfolioEditControllerProvider'),
-        ),
-        isFalse,
-      );
+      for (final String s in <String>[
+        '// portfolioEditControllerProvider',
+        '/* PortfolioEditActions */',
+        '// [PortfolioEditController]',
+        // Word-bounded: a longer identifier is not the wrapper.
+        'MyPortfolioEditActionsX()',
+      ]) {
+        expect(
+          _portfolioWriteRe.hasMatch(_stripComments(s)),
+          isFalse,
+          reason: s,
+        );
+      }
     });
 
     test('the scanned set is not vacuously empty — it covers the public '
@@ -304,6 +382,79 @@ void main() {
             'PortfolioOwner.masterSelf names the VIEWED master, while the '
             'write would be JWT-resolved to the VIEWER\'s own portfolio.',
       );
+    });
+  });
+
+  group('PortfolioRail editor affordances (onAdd / onDelete / pending) are '
+      'passed ONLY by write-allowed screens (phase 405)', () {
+    test('self-check: the extractor fires on every editor spelling and '
+        'ignores read-only constructions and comments', () {
+      for (final String s in <String>[
+        'PortfolioRail(onAdd: _add)',
+        'PortfolioRail.fromAsync(async, onDelete: (p) {})',
+        'PortfolioRail.fromAsync(a, railKey: k, onRetry: () => f(x), '
+            'pending: p)',
+        'PortfolioRail(photos: x, showCount: true)',
+        'PortfolioTile(index: 0, onRemove: () {})',
+        'PortfolioAddTile(onTap: () {})',
+      ]) {
+        expect(_passesRailEditorArgs(_stripComments(s)), isTrue, reason: s);
+      }
+      for (final String s in <String>[
+        'PortfolioRail(photos: x, hideWhenEmpty: true)',
+        'PortfolioRail.fromAsync(a, onRetry: () => go(onAdd))',
+        "PortfolioRail.fromAsync(a, railKey: const Key('x'))",
+        '// PortfolioRail(onAdd: _add)',
+        'PortfolioRail(photos: x); Foo(onAdd: y)',
+      ]) {
+        expect(_passesRailEditorArgs(_stripComments(s)), isFalse, reason: s);
+      }
+    });
+
+    test('the public / read-only rail call sites are scanned (not vacuous) '
+        'and pass NO editor argument', () {
+      // The client-facing master profile builds the shared rail today —
+      // proves the scan sees a real read-only call site.
+      const String publicMaster =
+          'lib/features/master/presentation/public_master_profile_screen.dart';
+      expect(
+        _railCallRe.hasMatch(
+          _stripComments(File(publicMaster).readAsStringSync()),
+        ),
+        isTrue,
+        reason: '$publicMaster builds a rail',
+      );
+      // Every read-only / public screen near the portfolio (incl. the public
+      // salon profile, whose own rail 406 moves onto PortfolioRail) must
+      // pass no editor argument.
+      for (final String path in <String>[
+        publicMaster,
+        'lib/features/salon/presentation/public_salon_profile_screen.dart',
+        'lib/features/salon/presentation/salon_staff_profile_screen.dart',
+      ]) {
+        expect(
+          _passesRailEditorArgs(_stripComments(File(path).readAsStringSync())),
+          isFalse,
+          reason: path,
+        );
+      }
+    });
+
+    test('every file passing an editor argument is an allow-listed '
+        'owner-context screen — and both of them do', () {
+      final Set<String> found = <String>{
+        for (final String path in _libSources())
+          if (path != _railDeclaringFile &&
+              _passesRailEditorArgs(
+                _stripComments(File(path).readAsStringSync()),
+              ))
+            path,
+      };
+      expect(found, <String>{
+        'lib/features/master/presentation/master_profile_screen.dart',
+        'lib/features/salon/presentation/salon_management_profile_screen.dart',
+      });
+      expect(found.difference(_portfolioWriteAllowed), isEmpty);
     });
   });
 

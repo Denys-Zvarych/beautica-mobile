@@ -164,6 +164,19 @@ UserRole? authUserRoleOrNull(AsyncValue<AuthSession> session) =>
       Unauthenticated() || null => null,
     };
 
+/// The selector for a call site that only cares WHICH SALON the signed-in
+/// user is bound to (`User.salonId` — meaningful for a SALON_ADMIN /
+/// SALON_MASTER only; callers gate on the role first). The LENIENT
+/// counterpart of [authUserSalonIdSettledOrNull]: a seamless refresh keeps
+/// the previous value instead of reading `null`, so a UI affordance paired
+/// with [authUserRoleOrNull] does not flicker off (and tear down what it
+/// keeps alive) on every token refresh. Write gates use the settled variant.
+String? authUserSalonIdOrNull(AsyncValue<AuthSession> session) =>
+    switch (session.value) {
+      Authenticated(:final User user) => user.salonId,
+      Unauthenticated() || null => null,
+    };
+
 /// The STRICT counterpart to [authUserRoleOrNull], for a call site that must
 /// treat anything short of a settled, authenticated session as "no role" —
 /// a write-gate, not a nav-target pick.

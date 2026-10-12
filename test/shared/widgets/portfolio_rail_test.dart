@@ -33,10 +33,15 @@
 // pumps via the shared `pumpApp` helper (installs the overflow guard,
 // configures l10n).
 
+import 'dart:io';
+
 import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_controller.dart'
+    show PendingPortfolioUpload;
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart'
-    show kPortfolioMaxPhotos;
+    show UploadNetworkFailure, kPortfolioMaxPhotos;
+import 'package:beautica_mobile/core/widgets/upload_state_overlay.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +50,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../helpers/pump_app.dart';
+
+/// UA copy resolved from the ARB (no Cyrillic literals in finders).
+final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
 
 void main() {
   group('PortfolioRail — onSeeAll contract', () {
@@ -529,6 +537,300 @@ void main() {
             .any((PortfolioTile t) => t.decodeToCover),
         isFalse,
       );
+    });
+  });
+
+  // ── Phase 405 (9.10) — editor affordances (D1/D2/D6) ─────────────────────
+  group('PortfolioRail — editor affordances (phase 405)', () {
+    List<PortfolioPhoto> photosOf(int n) => <PortfolioPhoto>[
+      for (int i = 0; i < n; i++)
+        PortfolioPhoto(id: 'p$i', url: 'https://media.test/$i.webp'),
+    ];
+    // A path shaped like the scratch dir (debug shape check) that does not
+    // exist — the tile renders its gradient fallback, no file I/O.
+    final File scratch = File('/nonexistent/media_upload/kept.jpg');
+    PendingPortfolioUpload uploading([double progress = 0.4]) =>
+        PendingPortfolioUpload(id: 'u1', file: scratch, progress: progress);
+    PendingPortfolioUpload failed() => PendingPortfolioUpload(
+      id: 'f1',
+      file: scratch,
+      failure: const UploadNetworkFailure(),
+    );
+    const Key addKey = Key('portfolio-add-tile');
+
+    testWidgets('read-only (no editor params): no add tile, no remove badge, '
+        'no pending tile, plain label', (tester) async {
+      await tester.pumpApp(Scaffold(body: PortfolioRail(photos: photosOf(3))));
+      await tester.pump();
+      expect(find.byType(PortfolioAddTile), findsNothing);
+      expect(find.byKey(const Key('portfolio-photo-delete-p0')), findsNothing);
+      expect(find.byType(UploadProgressOverlay), findsNothing);
+      expect(find.text(_l10n.masterPortfolioLabel), findsOneWidget);
+    });
+
+    testWidgets('P1 — inserting a pending tile (and removing it again) MOVES '
+        'the existing photo tiles: same State, never rebuilt from scratch', (
+      tester,
+    ) async {
+      final ValueNotifier<List<PendingPortfolioUpload>> pending =
+          ValueNotifier<List<PendingPortfolioUpload>>(
+            const <PendingPortfolioUpload>[],
+          );
+      addTearDown(pending.dispose);
+      await tester.pumpApp(
+        Scaffold(
+          body: ValueListenableBuilder<List<PendingPortfolioUpload>>(
+            valueListenable: pending,
+            builder: (BuildContext _, List<PendingPortfolioUpload> p, _) =>
+                PortfolioRail(photos: photosOf(2), onAdd: () {}, pending: p),
+          ),
+        ),
+      );
+      await tester.pump();
+      const Key p0 = Key('portfolio-photo-p0');
+      const Key p1 = Key('portfolio-photo-p1');
+      final State<StatefulWidget> before0 = tester.state(find.byKey(p0));
+      final State<StatefulWidget> before1 = tester.state(find.byKey(p1));
+      final State<StatefulWidget> addBefore = tester.state(find.byKey(addKey));
+
+      pending.value = <PendingPortfolioUpload>[uploading()];
+      await tester.pump();
+      expect(find.byKey(const Key('portfolio-pending-u1')), findsOneWidget);
+      expect(tester.state(find.byKey(p0)), same(before0));
+      expect(tester.state(find.byKey(p1)), same(before1));
+      expect(tester.state(find.byKey(addKey)), same(addBefore));
+
+      pending.value = const <PendingPortfolioUpload>[];
+      await tester.pump();
+      expect(find.byKey(const Key('portfolio-pending-u1')), findsNothing);
+      expect(tester.state(find.byKey(p0)), same(before0));
+      expect(tester.state(find.byKey(p1)), same(before1));
+    });
+
+    testWidgets('onAdd → a LEADING add tile that fires onAdd', (tester) async {
+      int adds = 0;
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photosOf(2), onAdd: () => adds++),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.byKey(addKey)).dx,
+        lessThan(
+          tester.getTopLeft(find.byKey(const Key('portfolio-photo-p0'))).dx,
+        ),
+      );
+      await tester.tap(find.byKey(addKey));
+      await tester.pump();
+      expect(adds, 1);
+    });
+
+    testWidgets('the add tile hides at the cap — stored photos AND pending '
+        'uploads count', (tester) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(kPortfolioMaxPhotos - 1),
+            onAdd: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsOneWidget, reason: '29 → still room');
+
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(kPortfolioMaxPhotos - 1),
+            pending: <PendingPortfolioUpload>[failed()],
+            onAdd: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsNothing, reason: '29 + 1 pending = 30');
+
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(kPortfolioMaxPhotos),
+            onAdd: () {},
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsNothing, reason: '30 stored');
+    });
+
+    testWidgets('onDelete → a remove badge on EVERY photo, firing with THAT '
+        'photo', (tester) async {
+      final List<PortfolioPhoto> deleted = <PortfolioPhoto>[];
+      final List<PortfolioPhoto> photos = photosOf(3);
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photos, onDelete: deleted.add),
+        ),
+      );
+      await tester.pump();
+      for (final PortfolioPhoto p in photos) {
+        expect(
+          find.byKey(Key('portfolio-photo-delete-${p.id}')),
+          findsOneWidget,
+        );
+      }
+      expect(find.byType(PortfolioAddTile), findsNothing);
+      await tester.tap(find.byKey(const Key('portfolio-photo-delete-p1')));
+      await tester.pump();
+      expect(deleted, <PortfolioPhoto>[photos[1]]);
+    });
+
+    testWidgets('pending upload: progress overlay after the add tile; the add '
+        'tile is inert while it uploads; no discard badge', (tester) async {
+      int adds = 0;
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(1),
+            pending: <PendingPortfolioUpload>[uploading()],
+            onAdd: () => adds++,
+            onDiscardPending: (_) {},
+          ),
+        ),
+      );
+      await tester.pump();
+      final Finder tile = find.byKey(const Key('portfolio-pending-u1'));
+      expect(tile, findsOneWidget);
+      expect(
+        find.descendant(of: tile, matching: find.byType(UploadProgressOverlay)),
+        findsOneWidget,
+      );
+      expect(
+        tester.getTopLeft(tile).dx,
+        greaterThan(tester.getTopLeft(find.byKey(addKey)).dx),
+      );
+      expect(
+        tester.getTopLeft(tile).dx,
+        lessThan(
+          tester.getTopLeft(find.byKey(const Key('portfolio-photo-p0'))).dx,
+        ),
+      );
+      expect(
+        find.byKey(const Key('portfolio-pending-discard-u1')),
+        findsNothing,
+      );
+      await tester.tap(find.byKey(addKey));
+      await tester.pump();
+      expect(adds, 0, reason: 'one upload at a time — the tile is inert');
+    });
+
+    testWidgets('failed upload: retry overlay → onRetryPending; discard badge '
+        '→ onDiscardPending; the add tile is live again', (tester) async {
+      final List<String> retried = <String>[];
+      final List<String> discarded = <String>[];
+      int adds = 0;
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(1),
+            pending: <PendingPortfolioUpload>[failed()],
+            onAdd: () => adds++,
+            onRetryPending: (PendingPortfolioUpload p) => retried.add(p.id),
+            onDiscardPending: (PendingPortfolioUpload p) => discarded.add(p.id),
+          ),
+        ),
+      );
+      await tester.pump();
+      final Finder tile = find.byKey(const Key('portfolio-pending-f1'));
+      expect(
+        find.descendant(of: tile, matching: find.byType(UploadFailedOverlay)),
+        findsOneWidget,
+      );
+      await tester.tap(
+        find.descendant(
+          of: tile,
+          matching: find.byKey(const Key('upload-retry')),
+        ),
+      );
+      await tester.pump();
+      expect(retried, <String>['f1']);
+      await tester.tap(find.byKey(const Key('portfolio-pending-discard-f1')));
+      await tester.pump();
+      expect(discarded, <String>['f1']);
+      await tester.tap(find.byKey(addKey));
+      await tester.pump();
+      expect(adds, 1);
+    });
+
+    testWidgets('showCount → «Портфоліо · n/30» counting pending; off → the '
+        'plain label', (tester) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(2),
+            pending: <PendingPortfolioUpload>[uploading()],
+            onAdd: () {},
+            showCount: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(
+        find.text(_l10n.portfolioLabelWithCount(3, kPortfolioMaxPhotos)),
+        findsOneWidget,
+      );
+      expect(find.text(_l10n.masterPortfolioLabel), findsNothing);
+    });
+
+    testWidgets('empty portfolio + onAdd: the «Додайте перші фото» hint AND '
+        'the add tile', (tester) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: const <PortfolioPhoto>[], onAdd: () {}),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(const Key('portfolio-rail-empty')), findsOneWidget);
+      expect(find.byKey(addKey), findsOneWidget);
+    });
+
+    testWidgets('fromAsync: editor params ride on DATA only — loading shows '
+        'the placeholders, no add tile', (tester) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail.fromAsync(
+            AsyncData<List<PortfolioPhoto>>(photosOf(2)),
+            onAdd: () {},
+            onDelete: (_) {},
+            showCount: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsOneWidget);
+      expect(
+        find.byKey(const Key('portfolio-photo-delete-p1')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(_l10n.portfolioLabelWithCount(2, kPortfolioMaxPhotos)),
+        findsOneWidget,
+      );
+
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail.fromAsync(
+            const AsyncLoading<List<PortfolioPhoto>>(),
+            onAdd: () {},
+            showCount: true,
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byKey(addKey), findsNothing);
+      expect(find.byType(PortfolioTile), findsNWidgets(6));
+      expect(find.text(_l10n.masterPortfolioLabel), findsOneWidget);
     });
   });
 }

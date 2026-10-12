@@ -55,6 +55,9 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/pump_app.dart';
 
+/// UA copy resolved from the ARB (no Cyrillic literals in finders).
+final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
+
 /// Mock [UrlLauncherPlatform] — `url_launcher` 6.x routes every
 /// `launchUrl(uri, mode: ...)` through `UrlLauncherPlatform.instance.launchUrl`,
 /// so swapping the platform instance lets us assert the EXACT (canonicalised)
@@ -1488,7 +1491,16 @@ void main() {
       );
       for (final PortfolioPhoto p in photos) {
         expect(find.byKey(Key('portfolio-photo-${p.id}')), findsOneWidget);
+        // Phase 405 — a client-facing rail never carries a write affordance.
+        expect(find.byKey(Key('portfolio-photo-delete-${p.id}')), findsNothing);
       }
+      expect(find.byKey(const Key('portfolio-add-tile')), findsNothing);
+      expect(find.byType(PortfolioAddTile), findsNothing);
+      expect(
+        find.text(_l10n.masterPortfolioLabel),
+        findsOneWidget,
+        reason: 'no counter',
+      );
     });
 
     testWidgets('independentMaster with an EMPTY portfolio — no section at '

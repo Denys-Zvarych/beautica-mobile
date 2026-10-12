@@ -6,7 +6,7 @@
 /// cancellation/notification and completed-history consequences an admin
 /// does not — both endpoints hard-delete the user's account (Phase 299 made
 /// the admin endpoint a hard delete too). All three route through the same
-/// [_DialogShell] below.
+/// [ConfirmDialogShell] (promoted to `shared/widgets/confirm_dialog_shell.dart`, phase 405) below.
 ///
 /// ## Chrome — mirrored from the shipped app, not invented
 ///
@@ -41,10 +41,9 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
-import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/confirm_dialog_shell.dart';
 import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
 
 /// Opens the destructive «Видалити майстра?» confirmation for the master
@@ -108,9 +107,9 @@ class RemoveAdminDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    return _DialogShell(
+    return ConfirmDialogShell(
       dialogKey: const Key('remove-admin-dialog'),
-      badge: const _ActionBadge(
+      badge: const ConfirmDialogBadge(
         icon: Icons.person_remove_outlined,
         tint: BrandColors.error,
         // The destructive badge takes the error tone — the same line
@@ -158,9 +157,9 @@ class RemoveMasterDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    return _DialogShell(
+    return ConfirmDialogShell(
       dialogKey: const Key('dialog-remove-master'),
-      badge: const _ActionBadge(
+      badge: const ConfirmDialogBadge(
         icon: Icons.person_remove_outlined,
         tint: BrandColors.error,
         alpha: 0.16,
@@ -196,9 +195,9 @@ class MoveAdminDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    return _DialogShell(
+    return ConfirmDialogShell(
       dialogKey: const Key('move-admin-dialog'),
-      badge: const _ActionBadge(
+      badge: const ConfirmDialogBadge(
         icon: Icons.swap_horiz_rounded,
         tint: BrandColors.accentDeep,
         alpha: 0.14,
@@ -213,106 +212,6 @@ class MoveAdminDialog extends StatelessWidget {
       ),
       dismissKey: const Key('move-admin-dismiss'),
       dismissLabel: l10n.actionCancel,
-    );
-  }
-}
-
-/// The chrome both dialogs share — see this library's header for why it is
-/// this shape and not the preview's two-button row.
-class _DialogShell extends StatelessWidget {
-  const _DialogShell({
-    required this.dialogKey,
-    required this.badge,
-    required this.title,
-    required this.message,
-    required this.action,
-    required this.dismissKey,
-    required this.dismissLabel,
-  });
-
-  final Key dialogKey;
-  final Widget badge;
-  final String title;
-  final String message;
-  final Widget action;
-  final Key dismissKey;
-  final String dismissLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      elevation: 0,
-      insetPadding: const EdgeInsets.symmetric(
-        horizontal: VelvetSpacing.lg,
-        vertical: VelvetSpacing.xl,
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: NeumorphicCard(
-          key: dialogKey,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                Center(child: badge),
-                const SizedBox(height: VelvetSpacing.md),
-                Text(
-                  title,
-                  textAlign: TextAlign.center,
-                  style: VelvetText.subheading(),
-                ),
-                const SizedBox(height: VelvetSpacing.xs),
-                Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: VelvetText.bookSuccessSubline,
-                ),
-                const SizedBox(height: VelvetSpacing.md),
-                action,
-                const SizedBox(height: VelvetSpacing.xs),
-                QuietAction(
-                  key: dismissKey,
-                  label: dismissLabel,
-                  onPressed: () => dismissOverlay(context),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The badge circle above the title — the preview's own 52 dp tinted disc
-/// (`admin_settings_screen.dart:160-168`), which is also the shape
-/// `_DestructiveBadge`/`_ConflictBadge` already use at 56 dp. The preview's
-/// diameter is kept.
-class _ActionBadge extends StatelessWidget {
-  const _ActionBadge({
-    required this.icon,
-    required this.tint,
-    required this.alpha,
-  });
-
-  final IconData icon;
-  final Color tint;
-  final double alpha;
-
-  static const double _diameter = 52;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: _diameter,
-      width: _diameter,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: tint.withValues(alpha: alpha),
-      ),
-      child: Icon(icon, size: 24, color: tint),
     );
   }
 }

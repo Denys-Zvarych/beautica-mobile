@@ -6856,5 +6856,62 @@
         "type": "int"
       }
     }
+  },
+  "portfolioAddPhoto": "Add photo",
+  "@portfolioAddPhoto": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the leading add tile on an editor's portfolio rail (opens the gallery / camera sheet)."
+  },
+  "portfolioLabelWithCount": "Portfolio · {count}/{max}",
+  "@portfolioLabelWithCount": {
+    "description": "Phase 405 (9.10, D6) — the «Портфоліо» section label on an EDITOR's rail, with the number of photos (stored + uploading) out of the cap. Public rails keep masterPortfolioLabel.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioDeletePhotoSemantics": "Delete work photo {index}",
+  "@portfolioDeletePhotoSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the small remove badge on a portfolio photo tile (1-based position).",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioUploadingSemantics": "Photo is uploading",
+  "@portfolioUploadingSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of a pending portfolio tile while it uploads; the percentage is exposed as the semantics value."
+  },
+  "portfolioDiscardUploadSemantics": "Remove the photo that failed to upload",
+  "@portfolioDiscardUploadSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the remove badge on a FAILED pending portfolio tile (drops the photo without uploading it)."
+  },
+  "portfolioDeleteDialogTitle": "Delete photo?",
+  "@portfolioDeleteDialogTitle": {
+    "description": "Phase 405 (9.10, D5) — title of the destructive confirmation before deleting a portfolio photo."
+  },
+  "portfolioDeleteDialogBody": "The photo will disappear from the portfolio and the public profile. This can't be undone.",
+  "@portfolioDeleteDialogBody": {
+    "description": "Phase 405 (9.10, D5) — body of the delete-portfolio-photo confirmation."
+  },
+  "portfolioDeleteConfirm": "Yes, delete photo",
+  "@portfolioDeleteConfirm": {
+    "description": "Phase 405 (9.10, D5) — the red confirm of the delete-portfolio-photo dialog."
+  },
+  "portfolioPhotoAdded": "Photo added",
+  "@portfolioPhotoAdded": {
+    "description": "Phase 405 (9.10, D4) — success snack after a portfolio photo upload."
+  },
+  "portfolioPhotoDeleted": "Photo deleted",
+  "@portfolioPhotoDeleted": {
+    "description": "Phase 405 (9.10, D5) — success snack after a portfolio photo delete."
+  },
+  "portfolioDeleteFailed": "Couldn't delete the photo. Try again",
+  "@portfolioDeleteFailed": {
+    "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
   }
 }
