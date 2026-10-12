@@ -37,12 +37,28 @@ const String _declaringFile = 'lib/core/media/portfolio/portfolio_owner.dart';
 const Map<String, int> _salonSites = <String, int>{
   // D3 delegate — the public salon profile's portfolio rail.
   'lib/features/salon/application/salon_portfolio_notifier.dart': 1,
+  // Phase 404 — «Про салон» in salon management (owner + bound admin).
+  'lib/features/salon/presentation/salon_management_profile_screen.dart': 1,
 };
 
 /// Allowed `PortfolioOwner.masterSelf` construction sites → occurrence count.
-/// Empty in phase 403 (no UI yet); 404 / 405 add the independent master's
-/// own-profile sites here.
-const Map<String, int> _masterSites = <String, int>{};
+/// Phase 404 — both sites are gated on `MasterType.independentMaster`:
+///   • the master's own profile (`_AboutTab` → `_OwnPortfolioRail`);
+///   • the client-facing public profile (`isIndependent` → read only; D2
+///     keys the same family entry so the two share one cache).
+///
+/// Phase 404 audit R5 — this map pins WHICH FILES may construct the variant
+/// and how many times; it cannot see the `MasterType.independentMaster` gate
+/// around each construction. That gate is covered behaviourally instead: the
+/// owner / admin / salon-master "no portfolio request" screen tests
+/// (`owner_own_profile_screen_test.dart`, `admin_own_profile_screen_test.dart`,
+/// `salon_master_profile_screen_test.dart`,
+/// `public_master_profile_screen_test.dart`) and
+/// `integration_test/portfolio_render_flow_test.dart`.
+const Map<String, int> _masterSites = <String, int>{
+  'lib/features/master/presentation/master_profile_screen.dart': 1,
+  'lib/features/master/presentation/public_master_profile_screen.dart': 1,
+};
 
 final RegExp _salonRe = RegExp(
   r'\bPortfolioOwner\s*\.\s*salon\b|\bPortfolioOwnerSalon\s*\(',
@@ -92,6 +108,46 @@ String _stripComments(String src) {
     out.write(c);
   }
   return out.toString();
+}
+
+/// Phase 404 audit R4 — portfolio WRITE entry points. A public (client-facing,
+/// read-only) screen builds `PortfolioOwner.masterSelf(viewedMasterId)` for a
+/// master who is NOT the viewer; a write there would be JWT-resolved to the
+/// VIEWER's own portfolio while the cache showed the viewed master's list.
+final RegExp _portfolioWriteRe = RegExp(
+  r'\bportfolioEditControllerProvider\b|\buploadPortfolioPhoto\b|'
+  r'\bdeletePortfolioPhoto\b',
+);
+
+/// Phase 404 audit S2 — ALLOW-list of files in `lib/` that may reference a
+/// portfolio WRITE entry point. Any other file — a public screen, a read-only
+/// staff/booking/review screen, a `presentation/widgets/` helper, anything —
+/// fails the gate. Today only the declaring/internal `lib/core/media/` files.
+///
+/// Phase 405 (add + delete) will add exactly
+///   `lib/features/master/presentation/master_profile_screen.dart` and
+///   `lib/features/salon/presentation/salon_management_profile_screen.dart`
+/// — owner-context screens where `PortfolioOwner` names the VIEWER's own
+/// portfolio (or the salon they manage). Never a client-facing screen.
+const Set<String> _portfolioWriteAllowed = <String>{
+  // Declares `uploadPortfolioPhoto` / `deletePortfolioPhoto`.
+  'lib/core/media/upload/media_upload_repository.dart',
+  // Declares `portfolioEditControllerProvider`; calls the two writes.
+  'lib/core/media/portfolio/portfolio_edit_controller.dart',
+};
+
+/// Every hand-written `.dart` file under `lib/` (generated code excluded).
+Iterable<String> _libSources() sync* {
+  for (final FileSystemEntity e in Directory('lib').listSync(recursive: true)) {
+    if (e is! File) continue;
+    final String path = e.path.replaceAll(r'\', '/');
+    if (!path.endsWith('.dart') ||
+        path.endsWith('.g.dart') ||
+        path.endsWith('.freezed.dart')) {
+      continue;
+    }
+    yield path;
+  }
 }
 
 Map<String, int> _sites(RegExp re) {
@@ -176,6 +232,79 @@ void main() {
     for (final String path in found.keys) {
       expect(path, startsWith('lib/features/master/'));
     }
+  });
+
+  group('portfolio WRITE entry points are referenced ONLY by allow-listed '
+      'files (R4 / S2)', () {
+    test('positive control: the write matcher fires on real source and on '
+        'every spelling, and ignores comments', () {
+      // Real file on disk — proves the reader + matcher see production code.
+      const String writer =
+          'lib/core/media/portfolio/portfolio_edit_controller.dart';
+      expect(
+        _portfolioWriteRe.hasMatch(
+          _stripComments(File(writer).readAsStringSync()),
+        ),
+        isTrue,
+        reason: '$writer calls the repository write methods',
+      );
+      for (final String s in <String>[
+        'ref.read(portfolioEditControllerProvider(owner).notifier)',
+        'repo.uploadPortfolioPhoto(owner, file)',
+        'repo.deletePortfolioPhoto(owner, id)',
+      ]) {
+        expect(
+          _portfolioWriteRe.hasMatch(_stripComments(s)),
+          isTrue,
+          reason: s,
+        );
+      }
+      expect(
+        _portfolioWriteRe.hasMatch(
+          _stripComments('// portfolioEditControllerProvider'),
+        ),
+        isFalse,
+      );
+    });
+
+    test('the scanned set is not vacuously empty — it covers the public '
+        'and other read-only screens and presentation/widgets/', () {
+      final List<String> scanned = _libSources().toList();
+      expect(
+        scanned,
+        containsAll(<String>[
+          'lib/features/master/presentation/public_master_profile_screen.dart',
+          'lib/features/salon/presentation/public_salon_profile_screen.dart',
+          ..._portfolioWriteAllowed,
+        ]),
+      );
+      expect(
+        scanned.where((String p) => p.contains('/presentation/widgets/')),
+        isNotEmpty,
+      );
+    });
+
+    test('no file outside _portfolioWriteAllowed references '
+        'portfolioEditControllerProvider, uploadPortfolioPhoto or '
+        'deletePortfolioPhoto', () {
+      final Set<String> found = <String>{
+        for (final String path in _libSources())
+          if (_portfolioWriteRe.hasMatch(
+            _stripComments(File(path).readAsStringSync()),
+          ))
+            path,
+      };
+      expect(found, isNotEmpty, reason: 'gate would pass vacuously');
+      expect(
+        found.difference(_portfolioWriteAllowed),
+        isEmpty,
+        reason:
+            'Only owner-context screens may write a portfolio (phase 405 '
+            'adds them here deliberately). On a public / read-only screen '
+            'PortfolioOwner.masterSelf names the VIEWED master, while the '
+            'write would be JWT-resolved to the VIEWER\'s own portfolio.',
+      );
+    });
   });
 
   test('the allow-lists themselves respect the context split', () {

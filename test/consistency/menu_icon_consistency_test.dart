@@ -33,6 +33,7 @@
 // Icons that are intentionally different per role (e.g. the role-select
 // glyphs) do NOT belong here. This file guards *convergence*, not *identity*.
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/theme/beautica_icons.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -51,6 +52,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/pump_app.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Stub auth notifier (INDEPENDENT_MASTER session; no network)
@@ -123,6 +125,8 @@ class _FakeServiceRepository extends Fake implements ServiceRepository {
 /// always present (not gated on AsyncValue state), so we only need the
 /// profile and service providers to be non-null.
 List<Object> _masterProfileOverrides() => [
+  // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+  portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
   authProvider.overrideWith(() => _StubAuthNotifier()),
   masterProfileProvider.overrideWith(() => _StubMasterProfileNotifier()),
   masterRepositoryProvider.overrideWithValue(_FakeMasterRepository()),

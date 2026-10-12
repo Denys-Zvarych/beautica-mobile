@@ -15,6 +15,9 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -49,6 +52,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/pump_app.dart';
 
 /// Mock [UrlLauncherPlatform] — `url_launcher` 6.x routes every
@@ -158,9 +162,19 @@ class _StubAuthNotifier extends AuthNotifier {
 // Overrides
 // ---------------------------------------------------------------------------
 
+/// Phase 404 — the independent master's portfolio (one photo by default so
+/// an independent master's section renders, as it always has).
+const List<PortfolioPhoto> _kPortfolio = <PortfolioPhoto>[
+  PortfolioPhoto(id: 'ph-1', url: 'https://media.test/1.webp'),
+];
+
 List<Object> _overrides(
-  FutureOr<PublicMasterProfileData> Function(Ref ref) create,
-) => <Object>[
+  FutureOr<PublicMasterProfileData> Function(Ref ref) create, {
+  FakeMediaUploadRepository? media,
+}) => <Object>[
+  mediaUploadRepositoryProvider.overrideWithValue(
+    media ?? FakeMediaUploadRepository(masterPortfolio: _kPortfolio),
+  ),
   authProvider.overrideWith(_StubAuthNotifier.new),
   publicMasterProfileProvider(_kMasterId).overrideWith(create),
   // The read-only service-categories section (ServiceCategoryCardList) watches
@@ -1411,6 +1425,163 @@ void main() {
         findsOneWidget,
       );
     });
+
+    // Phase 404 — real photos + the locked context rule.
+    Future<FakeMediaUploadRepository> pumpWithMedia(
+      WidgetTester tester,
+      MasterType type,
+      FakeMediaUploadRepository media,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final Master master = _stubMaster.copyWith(type: type);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (master, _stubServices), media: media),
+      );
+      await tester.pumpAndSettle();
+      return media;
+    }
+
+    for (final MasterType type in <MasterType>[
+      MasterType.salonMaster,
+      MasterType.salonOwner,
+    ]) {
+      testWidgets('context isolation: ${type.name} — no portfolio endpoint is '
+          'ever requested and no rail renders (locked rule, D6)', (
+        tester,
+      ) async {
+        final FakeMediaUploadRepository media = await pumpWithMedia(
+          tester,
+          type,
+          FakeMediaUploadRepository(masterPortfolio: _kPortfolio),
+        );
+
+        expect(media.masterPortfolioReads, isEmpty);
+        expect(find.byType(PortfolioRail), findsNothing);
+        expect(find.byType(PortfolioTile), findsNothing);
+      });
+    }
+
+    testWidgets('independentMaster with photos — one real tile per photo, '
+        'in order, read by the public master id', (tester) async {
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'a', url: 'https://media.test/a.webp'),
+        PortfolioPhoto(id: 'b', url: 'https://media.test/b.webp'),
+        PortfolioPhoto(id: 'c', url: 'https://media.test/c.webp'),
+      ];
+      final FakeMediaUploadRepository media = await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolio: photos),
+      );
+
+      expect(media.masterPortfolioReads, isNotEmpty);
+      expect(media.masterPortfolioReads, everyElement(_kMasterId));
+      expect(
+        tester
+            .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+            .map((PortfolioTile t) => t.imageUrl),
+        photos.map((PortfolioPhoto p) => p.url),
+      );
+      for (final PortfolioPhoto p in photos) {
+        expect(find.byKey(Key('portfolio-photo-${p.id}')), findsOneWidget);
+      }
+    });
+
+    testWidgets('independentMaster with an EMPTY portfolio — no section at '
+        'all (a client never sees an empty portfolio)', (tester) async {
+      final FakeMediaUploadRepository media = await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(),
+      );
+
+      // The read DID happen — the section is hidden because it came back
+      // empty, not because it was never requested.
+      expect(media.masterPortfolioReads, isNotEmpty);
+      expect(media.masterPortfolioReads, everyElement(_kMasterId));
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('portfolio-rail-empty')), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    });
+
+    testWidgets('independentMaster whose portfolio read FAILS — section '
+        'hidden, no retry chrome for the client', (tester) async {
+      final FakeMediaUploadRepository media = await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolioError: const NetworkFailure()),
+      );
+
+      // The read DID happen (and failed) — not a never-fired read.
+      expect(media.masterPortfolioReads, isNotEmpty);
+      expect(media.masterPortfolioReads, everyElement(_kMasterId));
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+      expect(find.byKey(const Key('portfolio-rail-error')), findsNothing);
+    });
+
+    // mobile-qa (404 re-check) — the RETRY WINDOW. A transient failure is
+    // retried once (`beauticaProviderRetry`); while that retry is in flight
+    // the state is `AsyncLoading(error:, retrying)`, NOT `AsyncError`. The
+    // settled "FAILS" test above never observes it. Pins: the client sees
+    // no section (not a flash of placeholder tiles) during the retry, and the
+    // real tiles once the retry succeeds. Load-bearing on the screen's
+    // `hasError` check — `async is AsyncError` would render placeholders here.
+    testWidgets('independentMaster — while a failed read is being RETRIED the '
+        'section stays hidden; a successful retry then shows the photos', (
+      tester,
+    ) async {
+      final _RetryingMediaRepository media = _RetryingMediaRepository();
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final Master master = _stubMaster.copyWith(
+        type: MasterType.independentMaster,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => (master, _stubServices), media: media),
+      );
+      // Inside the first-retry backoff (200 ms): every read so far failed.
+      await tester.pump();
+      // fixed-wait-ok: fake clock; must stay INSIDE the 200 ms retry backoff.
+      await tester.pump(const Duration(milliseconds: 50));
+      final int failedReads = media.masterPortfolioReads.length;
+      expect(failedReads, greaterThan(0));
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+
+      // Past the backoff: the retry is now IN FLIGHT (hangs).
+      media.hangFromNow = true;
+      // fixed-wait-ok: fake clock; must cross the 200 ms retry backoff.
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pump();
+      expect(media.masterPortfolioReads, hasLength(failedReads + 1));
+      expect(media.masterPortfolioReads, everyElement(_kMasterId));
+      expect(
+        find.byKey(const Key('public-master-profile-portfolio')),
+        findsNothing,
+      );
+      expect(find.byType(PortfolioTile), findsNothing);
+
+      media.secondAttempt.complete(const <PortfolioPhoto>[
+        PortfolioPhoto(id: 'r1', url: 'https://media.test/r1.webp'),
+      ]);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('portfolio-photo-r1')), findsOneWidget);
+    });
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -2083,4 +2254,26 @@ void main() {
       },
     );
   });
+}
+
+/// First portfolio read fails with a transient [NetworkFailure] (so the
+/// production retry policy schedules one retry); the retry hangs on
+/// [secondAttempt] until the test completes it.
+class _RetryingMediaRepository extends FakeMediaUploadRepository {
+  _RetryingMediaRepository()
+    : super(masterPortfolioError: const NetworkFailure());
+
+  /// Set by the test once the initial reads have failed: the NEXT read (the
+  /// retry) hangs on [secondAttempt] instead of failing.
+  bool hangFromNow = false;
+
+  final Completer<List<PortfolioPhoto>> secondAttempt =
+      Completer<List<PortfolioPhoto>>();
+
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) {
+    if (!hangFromNow) return super.getMasterPortfolio(masterId);
+    masterPortfolioReads.add(masterId);
+    return secondAttempt.future;
+  }
 }

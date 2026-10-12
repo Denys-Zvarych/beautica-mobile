@@ -233,6 +233,7 @@ import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
+import 'portfolio_render_flow_test.dart' as portfolio_render;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 
@@ -794,4 +795,5 @@ void main() {
   group('pending_actions_count_wiring', pending_actions_count.main);
   // Phase 386 — owner/admin rate the client (wired late, 393).
   group('salon_staff_client_review_flow', salon_staff_client_review.main);
+  group('portfolio_render_flow', portfolio_render.main);
 }

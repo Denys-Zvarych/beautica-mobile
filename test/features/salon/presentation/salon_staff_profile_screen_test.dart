@@ -30,6 +30,11 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -2809,6 +2814,42 @@ void main() {
       },
     );
   });
+
+  // Phase 404 (9.9) — CONTEXT ISOLATION (locked rule: "salon photos only
+  // related to the salon, not owner or admin or masters"; O4: no personal
+  // portfolio for owner/admin). This surface must never request ANY
+  // portfolio endpoint — salon or master — and must render no rail.
+  testWidgets(
+    'context isolation: the salon staff (master member) profile requests no portfolio and '
+    'renders no PortfolioRail (phase 404)',
+    (tester) async {
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository();
+      final FakeSalonRepository salons = FakeSalonRepository(
+        salon: const Salon(id: 'isolation-salon', name: 'Салон'),
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            _kMasterId,
+            (ref) async => (_masterMember, _masterServices),
+          ),
+          mediaUploadRepositoryProvider.overrideWithValue(media),
+          salonRepositoryProvider.overrideWithValue(salons),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(media.masterPortfolioReads, isEmpty);
+      expect(salons.salonPortfolioReads, isEmpty);
+      expect(find.byType(PortfolioRail), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

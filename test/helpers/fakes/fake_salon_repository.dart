@@ -267,9 +267,17 @@ class FakeSalonRepository implements SalonRepository {
     int size = kSalonReviewsPageSize,
   }) async => const <SalonReviewItem>[];
 
+  /// Phase 404 — what [getSalonPortfolio] returns (default: empty, as
+  /// before) and every salon id it was read for (context-isolation tests
+  /// assert the latter stays empty off salon surfaces).
+  List<PortfolioPhoto> salonPortfolio = const <PortfolioPhoto>[];
+  final List<String> salonPortfolioReads = <String>[];
+
   @override
-  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async =>
-      const <PortfolioPhoto>[];
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async {
+    salonPortfolioReads.add(salonId);
+    return salonPortfolio;
+  }
 
   @override
   Future<List<BookableMasterAssignment>> getBookableMasters({

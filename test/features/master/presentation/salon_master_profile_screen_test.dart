@@ -24,6 +24,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
@@ -1303,6 +1306,39 @@ void main() {
   });
 
   _avatarUploadNoReloadTests();
+
+  // Phase 404 (9.9) — CONTEXT ISOLATION (locked rule: "salon photos only
+  // related to the salon, not owner or admin or masters"; O4: no personal
+  // portfolio for owner/admin). This surface must never request ANY
+  // portfolio endpoint — salon or master — and must render no rail.
+  testWidgets(
+    'context isolation: the salon master own profile requests no portfolio and '
+    'renders no PortfolioRail (phase 404)',
+    (tester) async {
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository();
+      final FakeSalonRepository salons = FakeSalonRepository(
+        salon: const Salon(id: 'isolation-salon', name: 'Салон'),
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: <Object>[
+          ..._overrides((_master, _services, _salon)),
+          mediaUploadRepositoryProvider.overrideWithValue(media),
+          salonRepositoryProvider.overrideWithValue(salons),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(media.masterPortfolioReads, isEmpty);
+      expect(salons.salonPortfolioReads, isEmpty);
+      expect(find.byType(PortfolioRail), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------

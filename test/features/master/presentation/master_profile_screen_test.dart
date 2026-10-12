@@ -38,6 +38,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -78,6 +80,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
+
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
 
 import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/pump_app.dart';
@@ -402,8 +406,13 @@ List<Object> _buildOverrides({
   required _MockMasterRepository repo,
   required _MockServiceRepository serviceRepo,
   List<ServiceCategoryOption> categories = const <ServiceCategoryOption>[],
+  FakeMediaUploadRepository? media,
 }) {
   return <Object>[
+    // Phase 404 — the «Про майстра» tab reads the master's own portfolio.
+    mediaUploadRepositoryProvider.overrideWithValue(
+      media ?? FakeMediaUploadRepository(),
+    ),
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
     masterProfileProvider.overrideWith(
       () => _StubMasterProfileNotifier(masterState),
@@ -477,16 +486,56 @@ void main() {
       expect(find.text(_stubMaster.bio!), findsOneWidget);
     });
 
-    // mobile-qa gap-closure (shared-widget promotion, 2026-09-01) — this
-    // screen's own PortfolioRail call site (`master_profile_screen.dart:591`,
-    // `onSeeAll: () {}` — link VISIBLE, the one call site that differs from
-    // the other two consumers) had ZERO portfolio assertions before this
-    // test, on the old private tile as well as the promoted shared one.
-    testWidgets(
-      'renders the portfolio rail with 6 tiles and the «Всі фото» link '
-      '(onSeeAll supplied — the master\'s own editable profile keeps the '
-      'link the other two consumers omit)',
-      (tester) async {
+    // Phase 404 (9.9) — the own rail now renders the master's REAL portfolio
+    // (`PortfolioOwner.masterSelf(master.id)`), and D4 removed the no-op
+    // «Всі фото» stub.
+    group('portfolio rail (phase 404)', () {
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'p1', url: 'https://media.test/1.webp'),
+        PortfolioPhoto(id: 'p2', url: 'https://media.test/2.webp'),
+        PortfolioPhoto(id: 'p3', url: 'https://media.test/3.webp'),
+      ];
+
+      testWidgets('with photos: one real tile per photo, in order, read for '
+          'the own master id; no «Всі фото» link (D4)', (tester) async {
+        final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+          masterPortfolio: photos,
+        );
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: media,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Read for the OWN id only (the auth stub settling may re-key the
+        // read once — every read is still this master's id).
+        expect(media.masterPortfolioReads, isNotEmpty);
+        expect(media.masterPortfolioReads, everyElement(_stubMaster.id));
+        expect(find.byType(PortfolioRail), findsOneWidget);
+        final List<PortfolioTile> tiles = tester
+            .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+            .toList();
+        expect(
+          tiles.map((PortfolioTile t) => t.imageUrl),
+          photos.map((PortfolioPhoto p) => p.url),
+        );
+        for (final PortfolioPhoto p in photos) {
+          expect(find.byKey(Key('portfolio-photo-${p.id}')), findsOneWidget);
+        }
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterAllPhotos), findsNothing);
+      });
+
+      testWidgets('empty: label + «Додайте перші фото робіт», no tiles (D3)', (
+        tester,
+      ) async {
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
@@ -497,15 +546,95 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.byType(PortfolioRail), findsOneWidget);
-        expect(find.byType(PortfolioTile), findsNWidgets(6));
+        expect(find.byKey(const Key('portfolio-rail-empty')), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNothing);
+      });
 
-        final AppLocalizations l10n = AppLocalizations.of(
-          tester.element(find.byType(MasterProfileScreen)),
+      testWidgets('read failure: inline retry line; tapping it re-reads', (
+        tester,
+      ) async {
+        final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+          masterPortfolioError: const NetworkFailure(),
         );
-        expect(find.text(l10n.masterAllPhotos), findsOneWidget);
-      },
-    );
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          retry: (_, _) => null,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: media,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('portfolio-rail-error')), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNothing);
+
+        final int readsBeforeRetry = media.masterPortfolioReads.length;
+        media
+          ..masterPortfolioError = null
+          ..masterPortfolio = photos;
+        await tester.ensureVisible(
+          find.byKey(const Key('portfolio-rail-retry')),
+        );
+        await tester.tap(find.byKey(const Key('portfolio-rail-retry')));
+        await tester.pumpAndSettle();
+
+        expect(
+          media.masterPortfolioReads.length,
+          greaterThan(readsBeforeRetry),
+        );
+        expect(find.byType(PortfolioTile), findsNWidgets(3));
+      });
+
+      testWidgets('loading: the existing placeholder tiles', (tester) async {
+        final Completer<void> never = Completer<void>();
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: _HangingMedia(never.future),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(PortfolioTile), findsNWidgets(6));
+        expect(
+          tester
+              .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+              .every((PortfolioTile t) => t.imageUrl == null),
+          isTrue,
+        );
+      });
+
+      for (final MasterType type in <MasterType>[
+        MasterType.salonOwner,
+        MasterType.salonMaster,
+      ]) {
+        testWidgets('context isolation: a ${type.name} row never requests or '
+            'shows a portfolio (locked rule, D6)', (tester) async {
+          final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+            masterPortfolio: photos,
+          );
+          await tester.pumpApp(
+            const MasterProfileScreen(),
+            overrides: _buildOverrides(
+              masterState: AsyncData<Master>(_stubMaster.copyWith(type: type)),
+              repo: repo,
+              serviceRepo: mockServiceRepo,
+              media: media,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(media.masterPortfolioReads, isEmpty);
+          expect(find.byType(PortfolioRail), findsNothing);
+        });
+      }
+    });
 
     // ── Qase defect #25: «Записів місяця» tile ────────────────────────────
     //
@@ -3882,5 +4011,18 @@ class _ProfilePushObserver extends NavigatorObserver {
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     final String? name = route.settings.name;
     if (name != null) routes.add(name);
+  }
+}
+
+/// A media repository whose portfolio read never settles (loading state).
+class _HangingMedia extends FakeMediaUploadRepository {
+  _HangingMedia(this._never);
+
+  final Future<void> _never;
+
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) async {
+    await _never;
+    return const <PortfolioPhoto>[];
   }
 }

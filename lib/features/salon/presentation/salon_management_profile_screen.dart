@@ -60,6 +60,8 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -1027,6 +1029,25 @@ class _ManagementHeroCard extends ConsumerWidget {
 // screens reached from the settings hub — see the file-header EDIT note)
 // ---------------------------------------------------------------------------
 
+/// Phase 404 (9.9, D2/D3) — the salon's portfolio on «Про салон» for an
+/// owner or bound admin. Loading → placeholder tiles (existing look); error →
+/// inline retry line; empty → «Додайте перші фото робіт»; data → real tiles.
+class _SalonManagePortfolioRail extends ConsumerWidget {
+  const _SalonManagePortfolioRail({required this.salonId});
+
+  final String salonId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final PortfolioOwner owner = PortfolioOwner.salon(salonId);
+    return PortfolioRail.fromAsync(
+      ref.watch(portfolioProvider(owner)),
+      railKey: const Key('salon-manage-portfolio'),
+      onRetry: () => ref.invalidate(portfolioProvider(owner)),
+    );
+  }
+}
+
 class _AboutReadView extends StatelessWidget {
   const _AboutReadView({
     required this.salon,
@@ -1097,13 +1118,12 @@ class _AboutReadView extends StatelessWidget {
               key: const Key('salon-manage-about-text'),
               style: VelvetText.feedback(BrandColors.muted),
             ),
-          // REUSE-FIRST — [PortfolioRail] promoted from the independent
-          // master's profile screen (shared/widgets/portfolio_rail.dart):
-          // same 6 gradient placeholder tiles, no «Всі фото» link (no
-          // gallery route yet) and no owner "+" add-photo tile (upload is
-          // deferred pending R2 storage — see the file header comment).
+          // Phase 404 (9.9) — the SALON's real portfolio (locked rule: salon
+          // photos show only in salon contexts). Owner and bound admin alike.
+          // REUSE-FIRST — [PortfolioRail] (shared/widgets/portfolio_rail.dart);
+          // no «Всі фото» link (viewer = 407), no add tile yet (405).
           const SizedBox(height: VelvetSpacing.xl),
-          const PortfolioRail(railKey: Key('salon-manage-portfolio')),
+          _SalonManagePortfolioRail(salonId: salon.id),
           if (phone != null ||
               instagram != null ||
               showAddInstagram) ...<Widget>[

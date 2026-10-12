@@ -44,6 +44,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -646,6 +649,30 @@ class _ProfileBody extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// _OwnPortfolioRail — phase 404 (9.9, D2/D3): the independent master's own
+// portfolio. Loading → placeholder tiles (existing look); error → inline
+// retry line; empty → «Додайте перші фото робіт»; data → real tiles.
+// ---------------------------------------------------------------------------
+
+class _OwnPortfolioRail extends ConsumerWidget {
+  const _OwnPortfolioRail({required this.masterId});
+
+  final String masterId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final PortfolioOwner owner = PortfolioOwner.masterSelf(masterId);
+    final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
+      portfolioProvider(owner),
+    );
+    return PortfolioRail.fromAsync(
+      async,
+      onRetry: () => ref.invalidate(portfolioProvider(owner)),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _AboutTab — «Про майстра»: bio (or the AddLink empty-state) + portfolio +
 // contacts (phone/Instagram).
 // ---------------------------------------------------------------------------
@@ -658,6 +685,9 @@ class _AboutTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // D6 / locked rule — only an INDEPENDENT_MASTER has a personal portfolio
+    // (owners and admins have none, O4; salon photos never show here).
+    final bool isIndependent = master.type == MasterType.independentMaster;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -699,17 +729,15 @@ class _AboutTab extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // Portfolio section: placeholder tiles (Phase 4.4 ships real ones).
-        // REUSE-FIRST — [PortfolioRail] promoted to
-        // shared/widgets/portfolio_rail.dart; also used by
-        // public_master_profile_screen.dart and the salon owner/admin
-        // «Про салон» tab.
-        PortfolioRail(
-          onSeeAll: () {
-            // Phase 4.4 — portfolio gallery route.
-          },
-        ),
-        const SizedBox(height: VelvetSpacing.xl),
+        // Portfolio section — phase 404 (9.9): the master's real portfolio.
+        // REUSE-FIRST — [PortfolioRail] (shared/widgets/portfolio_rail.dart),
+        // also used by public_master_profile_screen.dart and the salon
+        // owner/admin «Про салон» tab. D4: no «Всі фото» link (the no-op stub
+        // is gone; the full viewer arrives with 407).
+        if (isIndependent) ...<Widget>[
+          _OwnPortfolioRail(masterId: master.id),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
 
         // Contacts section: phone and Instagram from domain model; both
         // fall back to '—' when the field is not set by the master.

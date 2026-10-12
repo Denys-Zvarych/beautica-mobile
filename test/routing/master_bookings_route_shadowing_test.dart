@@ -44,6 +44,7 @@
 // restoring the original order turns them back GREEN. A pin that would not
 // fail on that reorder would be worthless — this one does.
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 
@@ -90,6 +91,7 @@ import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — mirrors app_router_test.dart's authenticated-redirect fixtures.
@@ -262,6 +264,8 @@ void main() {
       final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
+          // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
           ),

@@ -30,8 +30,17 @@ part 'portfolio_owner.freezed.dart';
 /// The owner of a portfolio. Value-equal, so it keys provider families.
 @Freezed(toStringOverride: false)
 sealed class PortfolioOwner with _$PortfolioOwner {
-  /// The signed-in INDEPENDENT_MASTER's own portfolio ([masterId] = own
-  /// master id, from `masterProfileProvider`).
+  /// An INDEPENDENT_MASTER's portfolio. Written only by that master (self,
+  /// JWT-resolved) from their own profile; read by [masterId] both there and
+  /// on their public profile (phase 404 D2 — one family entry, one cache).
+  /// Never built for a salon owner or salon master.
+  ///
+  /// Does NOT authorise writes for a VIEWED master: the public profile builds
+  /// it with another master's id purely to read (and share the cache entry).
+  /// Every write is resolved server-side from the caller's JWT, so a write
+  /// wired there would hit the VIEWER's own portfolio while the cache showed
+  /// the viewed master's list. Writes belong only on the master's own
+  /// profile; pinned by `portfolio_owner_call_sites_test.dart` (R4).
   const factory PortfolioOwner.masterSelf(String masterId) =
       PortfolioOwnerMasterSelf;
 

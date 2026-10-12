@@ -6839,5 +6839,22 @@
   "serviceEditOwnerPerformedHint": "The salon owner performs this service, so only they can change its name and category.",
   "@serviceEditOwnerPerformedHint": {
     "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
+  },
+  "portfolioEmptyOwn": "Add your first work photos",
+  "@portfolioEmptyOwn": {
+    "description": "Phase 404 (9.9, D3) — muted line under the «Портфоліо» label on the OWNER's own surfaces (independent master's own profile, salon management «Про салон») when the portfolio has no photos yet. Never shown to clients — public rails hide when empty."
+  },
+  "portfolioLoadError": "Couldn't load photos.",
+  "@portfolioLoadError": {
+    "description": "Phase 404 (9.9, D2) — inline prompt under the «Портфоліо» label on the owner's own surfaces when the portfolio read fails; followed by the retryLabel link."
+  },
+  "portfolioPhotoSemantics": "Work photo {index}",
+  "@portfolioPhotoSemantics": {
+    "description": "Phase 404 (9.9, D5) — accessibility label for a REAL portfolio photo tile (1-based position). Placeholder tiles keep masterPortfolioTileSemantics.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
   }
 }

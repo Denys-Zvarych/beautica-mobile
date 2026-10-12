@@ -11697,6 +11697,18 @@ final class FakeBackend {
   final List<Map<String, dynamic>> masterPortfolioRows =
       <Map<String, dynamic>>[];
 
+  /// Phase 404 QA (mobile-qa) — the SALON_ADMIN's own salon (`salon-admin-1`)
+  /// portfolio rows, read by `GET /salons/salon-admin-1/portfolio` on the
+  /// admin's «Про салон». Read-only here (an admin's write path is 405's).
+  final List<Map<String, dynamic>> adminSalonPortfolioRows =
+      <Map<String, dynamic>>[];
+
+  /// Phase 404 QA (mobile-qa) — the PUBLIC portfolio of the client-facing
+  /// search fixture master `master-aaa`, read by
+  /// `GET /masters/master-aaa/portfolio` on its public profile.
+  final List<Map<String, dynamic>> publicMasterPortfolioRows =
+      <Map<String, dynamic>>[];
+
   /// Every portfolio upload request URI (salon or master, any status).
   final List<Uri> portfolioUploadUris = <Uri>[];
 
@@ -11791,6 +11803,27 @@ final class FakeBackend {
       }),
       request: const Request(method: RequestMethods.get),
     );
+
+    // Phase 404 QA — the admin's own salon and the public `master-aaa`
+    // reads (READ-only; no write route, so a stray write fails loudly).
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/portfolio',
+      (server) => server.replyCallback(200, (RequestOptions options) {
+        portfolioReadUris.add(options.uri);
+        return _portfolioPage(adminSalonPortfolioRows);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    if (masterRowId != 'master-aaa') {
+      _adapter.onRoute(
+        '/api/v1/masters/master-aaa/portfolio',
+        (server) => server.replyCallback(200, (RequestOptions options) {
+          portfolioReadUris.add(options.uri);
+          return _portfolioPage(publicMasterPortfolioRows);
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
 
     _wirePortfolioDeletes();
     _wirePortfolioUploads();
