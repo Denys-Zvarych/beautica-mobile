@@ -39,6 +39,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
@@ -94,6 +95,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/route_pump.dart';
 import '../helpers/test_container.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 const String _kOwnerUserId = 'user-owner-U';
 const String _kOwnerMasterRowId = 'master-row-owner-M';
@@ -313,6 +315,8 @@ void main() {
     final ProviderContainer container = makeTestContainer(
       retry: (_, _) => null,
       overrides: <Object>[
+        // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+        portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
         authProvider.overrideWith(auth),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),

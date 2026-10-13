@@ -96,6 +96,19 @@ enum MediaKind {
       maxHeight: 900,
       finalQuality: 80,
     ),
+  ),
+
+  /// Phase 403 (D6) — a portfolio photo (salon or independent master): 1:1
+  /// locked square (the rail tile is a 72dp square), final ≤ 1600×1600 at the
+  /// default q85.
+  portfolio(
+    MediaSpec(
+      aspectX: 1,
+      aspectY: 1,
+      circle: false,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    ),
   );
 
   const MediaKind(this.spec);

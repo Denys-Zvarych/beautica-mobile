@@ -24,6 +24,12 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -1191,6 +1197,10 @@ void main() {
             () => _SettledClientEditProfile(_admin),
           ),
           _salonDetailOverride(_SalonRead.settled),
+          // Phase 404 — the INDEPENDENT_MASTER bounce lands on
+          // MasterProfileScreen, whose «Про майстра» tab reads the own
+          // portfolio; timer-free fixed portfolio (container outlives tree).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           // ── The BOUNCE DESTINATIONS ────────────────────────────────────
           // Every denial below lands the router on a REAL landing screen, and
           // an unsettled one fires live Dio and leaves a connect-timeout Timer
@@ -1950,6 +1960,39 @@ void main() {
       });
     });
   });
+
+  // Phase 404 (9.9) — CONTEXT ISOLATION (locked rule: "salon photos only
+  // related to the salon, not owner or admin or masters"; O4: no personal
+  // portfolio for owner/admin). This surface must never request ANY
+  // portfolio endpoint — salon or master — and must render no rail.
+  testWidgets(
+    'context isolation: the admin own profile requests no portfolio and '
+    'renders no PortfolioRail (phase 404)',
+    (tester) async {
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository();
+      final FakeSalonRepository salons = FakeSalonRepository(
+        salon: const Salon(id: 'isolation-salon', name: 'Салон'),
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const AdminOwnProfileScreen(embedded: true),
+        overrides: <Object>[
+          ..._overrides(_admin),
+          mediaUploadRepositoryProvider.overrideWithValue(media),
+          salonRepositoryProvider.overrideWithValue(salons),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(media.masterPortfolioReads, isEmpty);
+      expect(salons.salonPortfolioReads, isEmpty);
+      expect(find.byType(PortfolioRail), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    },
+  );
 }
 
 /// Settles to an [Authenticated] session for [user], then lets the test body

@@ -60,6 +60,11 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_actions.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_controller.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -85,6 +90,7 @@ import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -339,6 +345,32 @@ class _SalonManagementProfileScreenState
           ),
         );
     if (ownsSalon) _scheduleLostPickRecovery();
+    // Phase 405 (9.10, D3) — who edits the SALON portfolio: the owner of
+    // THIS salon (same settled-ownership rule as [ownsSalon]) or the salon's
+    // admin (bound-salon check: `salonManageGuard`). The logo / cover stay
+    // owner-only ([ownsSalon] → canEditMedia, unchanged). No uploader
+    // branching anywhere (D8): a manager edits every salon photo.
+    // 405 audit S2 — the admin arm checks the SESSION's bound salon too (the
+    // same `canManageSalon` rule), so an admin moved to another salon
+    // mid-session loses the affordances at once, not on the next navigation.
+    // Narrow select → a String?, watched only for an admin; the lenient
+    // selector (paired with the lenient role above) so a token refresh never
+    // flips the editor off mid-upload. The backend stays the gate (D7).
+    final bool canEditPortfolio = isOwner
+        ? ownsSalon
+        : role == UserRole.salonAdmin &&
+              ref.watch(authProvider.select(authUserSalonIdOrNull)) ==
+                  widget.salonId;
+    if (canEditPortfolio) {
+      // CONTROLLER LIFETIME — the write controller is auto-dispose and
+      // disposing it cancels an in-flight upload. The «Про салон» rail
+      // watches it, but unmounts on a tab switch — so the SCREEN keeps it
+      // alive while an editor is here. `listen`: no screen rebuild per tick.
+      ref.listen<List<PendingPortfolioUpload>>(
+        portfolioEditControllerProvider(_salonPortfolioOwner(widget.salonId)),
+        (_, _) {},
+      );
+    }
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );
@@ -443,6 +475,7 @@ class _SalonManagementProfileScreenState
                     onTabSelected: _onTabSelected,
                     canEdit: isOwner,
                     canEditMedia: ownsSalon,
+                    canEditPortfolio: canEditPortfolio,
                     onOpenSettings: _openSettings,
                     onOpenStaffMember: _openStaffMember,
                     onInviteStaff: _openInviteStaff,
@@ -530,6 +563,7 @@ class _LoadedBody extends StatelessWidget {
     required this.onTabSelected,
     required this.canEdit,
     required this.canEditMedia,
+    this.canEditPortfolio = false,
     required this.onOpenSettings,
     required this.onOpenStaffMember,
     required this.onInviteStaff,
@@ -557,6 +591,9 @@ class _LoadedBody extends StatelessWidget {
   /// `mySalonsProvider` list contains [salonId]. See
   /// [_CoverAndHero.canEditMedia].
   final bool canEditMedia;
+
+  /// Phase 405 (D3) — see [_SalonManagePortfolioRail.editable].
+  final bool canEditPortfolio;
 
   final VoidCallback onOpenSettings;
   final ValueChanged<SalonStaffMember> onOpenStaffMember;
@@ -614,6 +651,7 @@ class _LoadedBody extends StatelessWidget {
               child: _AboutReadView(
                 salon: salon,
                 canEdit: canEdit,
+                canEditPortfolio: canEditPortfolio,
                 onAddDescription: onAddDescription,
                 onAddInstagram: onAddInstagram,
               ),
@@ -1027,15 +1065,121 @@ class _ManagementHeroCard extends ConsumerWidget {
 // screens reached from the settings hub — see the file-header EDIT note)
 // ---------------------------------------------------------------------------
 
+/// The ONE `PortfolioOwner.salon` construction in this file — the salon's
+/// own portfolio (locked rule: salon photos belong to the salon only).
+PortfolioOwner _salonPortfolioOwner(String salonId) =>
+    PortfolioOwner.salon(salonId);
+
+/// Phase 404 (9.9, D2/D3) — the salon's portfolio on «Про салон» for an
+/// owner or bound admin. Loading → placeholder tiles (existing look); error →
+/// inline retry line; empty → «Додайте перші фото робіт»; data → real tiles.
+///
+/// Phase 405 (9.10) — [editable] adds the add tile, remove badges on EVERY
+/// photo (D8), pending uploads and «Портфоліо · n/30», driven by the shared
+/// [PortfolioEditActions] (same flow as the master's own rail).
+class _SalonManagePortfolioRail extends ConsumerStatefulWidget {
+  const _SalonManagePortfolioRail({
+    required this.salonId,
+    this.editable = false,
+  });
+
+  final String salonId;
+
+  /// The viewer manages this salon's portfolio — the screen's
+  /// `canEditPortfolio` (D3). `false` → the 404 read-only rail.
+  final bool editable;
+
+  @override
+  ConsumerState<_SalonManagePortfolioRail> createState() =>
+      _SalonManagePortfolioRailState();
+}
+
+class _SalonManagePortfolioRailState
+    extends ConsumerState<_SalonManagePortfolioRail> {
+  /// Stored photos whose delete is in flight (optimistic hide, D5).
+  final Set<String> _hidden = <String>{};
+
+  PortfolioOwner get _owner => _salonPortfolioOwner(widget.salonId);
+
+  @override
+  Widget build(BuildContext context) {
+    final PortfolioOwner owner = _owner;
+    final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
+      portfolioProvider(owner),
+    );
+    if (!widget.editable) {
+      return PortfolioRail.fromAsync(
+        async,
+        railKey: const Key('salon-manage-portfolio'),
+        onRetry: () => ref.invalidate(portfolioProvider(owner)),
+        // Phase 407 (D3) — the read-only rail opens the viewer too.
+        onPhotoTap: (int i) => showPortfolioPhotoViewer(
+          context,
+          async.value ?? const <PortfolioPhoto>[],
+          i,
+        ),
+      );
+    }
+    final List<PendingPortfolioUpload> pending = ref.watch(
+      portfolioEditControllerProvider(owner),
+    );
+    final PortfolioEditActions actions = PortfolioEditActions(
+      host: this,
+      owner: owner,
+      readController: () =>
+          ref.read(portfolioEditControllerProvider(_owner).notifier),
+      setHidden: (String id, {required bool hidden}) {
+        if (!mounted) return;
+        setState(() => hidden ? _hidden.add(id) : _hidden.remove(id));
+      },
+      // Snacks outlive the rail (a tab switch mid-upload): the SCREEN keeps
+      // the controller alive, so its context carries the result. No
+      // dependency registered (rebuild-free).
+      resultHost: () =>
+          context.findAncestorStateOfType<_SalonManagementProfileScreenState>(),
+    );
+    final AsyncValue<List<PortfolioPhoto>> shown = _hidden.isEmpty
+        ? async
+        : async.whenData(
+            (List<PortfolioPhoto> l) => <PortfolioPhoto>[
+              for (final PortfolioPhoto p in l)
+                if (!_hidden.contains(p.id)) p,
+            ],
+          );
+    return PortfolioRail.fromAsync(
+      shown,
+      railKey: const Key('salon-manage-portfolio'),
+      onRetry: () => ref.invalidate(portfolioProvider(owner)),
+      onAdd: actions.add,
+      onDelete: actions.delete,
+      pending: pending,
+      onRetryPending: actions.retry,
+      onDiscardPending: actions.discard,
+      showCount: true,
+      // Phase 407 (D3/D5) — the viewer gets the list this rail SHOWS.
+      onPhotoTap: (int i) => showPortfolioPhotoViewer(
+        context,
+        shown.value ?? const <PortfolioPhoto>[],
+        i,
+      ),
+    );
+  }
+}
+
 class _AboutReadView extends StatelessWidget {
   const _AboutReadView({
     required this.salon,
     required this.canEdit,
+    this.canEditPortfolio = false,
     required this.onAddDescription,
     required this.onAddInstagram,
   });
 
   final Salon salon;
+
+  /// Phase 405 (D3) — owner of THIS salon or its admin: the portfolio rail
+  /// gets its editor affordances. Independent of [canEdit] (owner-only).
+  final bool canEditPortfolio;
 
   /// `true` only for a `SALON_OWNER` — the two "add" links below push the
   /// `/manage/settings/{profile-edit,contacts-edit}` routes, which are gated
@@ -1097,13 +1241,15 @@ class _AboutReadView extends StatelessWidget {
               key: const Key('salon-manage-about-text'),
               style: VelvetText.feedback(BrandColors.muted),
             ),
-          // REUSE-FIRST — [PortfolioRail] promoted from the independent
-          // master's profile screen (shared/widgets/portfolio_rail.dart):
-          // same 6 gradient placeholder tiles, no «Всі фото» link (no
-          // gallery route yet) and no owner "+" add-photo tile (upload is
-          // deferred pending R2 storage — see the file header comment).
+          // Phase 404 (9.9) — the SALON's real portfolio (locked rule: salon
+          // photos show only in salon contexts). Owner and bound admin alike.
+          // REUSE-FIRST — [PortfolioRail] (shared/widgets/portfolio_rail.dart);
+          // no «Всі фото» link (viewer = 407), no add tile yet (405).
           const SizedBox(height: VelvetSpacing.xl),
-          const PortfolioRail(railKey: Key('salon-manage-portfolio')),
+          _SalonManagePortfolioRail(
+            salonId: salon.id,
+            editable: canEditPortfolio,
+          ),
           if (phone != null ||
               instagram != null ||
               showAddInstagram) ...<Widget>[

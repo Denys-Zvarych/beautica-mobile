@@ -44,6 +44,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_actions.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_controller.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -66,6 +71,7 @@ import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -267,6 +273,18 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
         ),
         data: (master) {
           _startReveal();
+          // Phase 405 (9.10) — CONTROLLER LIFETIME: the portfolio write
+          // controller is auto-dispose, and disposing it cancels an in-flight
+          // upload. The rail watches it, but the rail unmounts on a tab
+          // switch — so the SCREEN keeps it alive for as long as it shows an
+          // independent master's profile. `listen`, not `watch`: a progress
+          // tick must not rebuild the whole screen.
+          if (master.type == MasterType.independentMaster) {
+            ref.listen<List<PendingPortfolioUpload>>(
+              portfolioEditControllerProvider(_ownPortfolioOwner(master.id)),
+              (_, _) {},
+            );
+          }
           return _ProfileBody(
             master: master,
             tabNotifier: profileTabNotifier,
@@ -646,6 +664,90 @@ class _ProfileBody extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// _OwnPortfolioRail — phase 404 (9.9, D2/D3): the independent master's own
+// portfolio. Loading → placeholder tiles (existing look); error → inline
+// retry line; empty → «Додайте перші фото робіт»; data → real tiles.
+//
+// Phase 405 (9.10) — the master EDITS it here: add tile, remove badges,
+// pending uploads, «Портфоліо · n/30». The flows are the shared
+// [PortfolioEditActions] (same as the salon «Про салон» rail).
+// ---------------------------------------------------------------------------
+
+/// The ONE `PortfolioOwner.masterSelf` construction in this file — the
+/// independent master's OWN portfolio (callers gate on
+/// `MasterType.independentMaster`).
+PortfolioOwner _ownPortfolioOwner(String masterId) =>
+    PortfolioOwner.masterSelf(masterId);
+
+class _OwnPortfolioRail extends ConsumerStatefulWidget {
+  const _OwnPortfolioRail({required this.masterId});
+
+  final String masterId;
+
+  @override
+  ConsumerState<_OwnPortfolioRail> createState() => _OwnPortfolioRailState();
+}
+
+class _OwnPortfolioRailState extends ConsumerState<_OwnPortfolioRail> {
+  /// Stored photos whose delete is in flight (optimistic hide, D5).
+  final Set<String> _hidden = <String>{};
+
+  PortfolioOwner get _owner => _ownPortfolioOwner(widget.masterId);
+
+  PortfolioEditActions get _actions => PortfolioEditActions(
+    host: this,
+    owner: _owner,
+    readController: () =>
+        ref.read(portfolioEditControllerProvider(_owner).notifier),
+    setHidden: (String id, {required bool hidden}) {
+      if (!mounted) return;
+      setState(() => hidden ? _hidden.add(id) : _hidden.remove(id));
+    },
+    // Snacks outlive the rail (a tab switch mid-upload): the SCREEN keeps
+    // the controller alive, so its context carries the result. No
+    // dependency registered (rebuild-free).
+    resultHost: () =>
+        context.findAncestorStateOfType<_MasterProfileScreenState>(),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final PortfolioOwner owner = _owner;
+    final List<PendingPortfolioUpload> pending = ref.watch(
+      portfolioEditControllerProvider(owner),
+    );
+    final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
+      portfolioProvider(owner),
+    );
+    final PortfolioEditActions actions = _actions;
+    final AsyncValue<List<PortfolioPhoto>> shown = _hidden.isEmpty
+        ? async
+        : async.whenData(
+            (List<PortfolioPhoto> l) => <PortfolioPhoto>[
+              for (final PortfolioPhoto p in l)
+                if (!_hidden.contains(p.id)) p,
+            ],
+          );
+    return PortfolioRail.fromAsync(
+      shown,
+      onRetry: () => ref.invalidate(portfolioProvider(owner)),
+      onAdd: actions.add,
+      onDelete: actions.delete,
+      pending: pending,
+      onRetryPending: actions.retry,
+      onDiscardPending: actions.discard,
+      showCount: true,
+      // Phase 407 (D3/D5) — the viewer gets the list this rail SHOWS.
+      onPhotoTap: (int i) => showPortfolioPhotoViewer(
+        context,
+        shown.value ?? const <PortfolioPhoto>[],
+        i,
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _AboutTab — «Про майстра»: bio (or the AddLink empty-state) + portfolio +
 // contacts (phone/Instagram).
 // ---------------------------------------------------------------------------
@@ -658,6 +760,9 @@ class _AboutTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    // D6 / locked rule — only an INDEPENDENT_MASTER has a personal portfolio
+    // (owners and admins have none, O4; salon photos never show here).
+    final bool isIndependent = master.type == MasterType.independentMaster;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -699,17 +804,15 @@ class _AboutTab extends StatelessWidget {
         ),
         const SizedBox(height: VelvetSpacing.xl),
 
-        // Portfolio section: placeholder tiles (Phase 4.4 ships real ones).
-        // REUSE-FIRST — [PortfolioRail] promoted to
-        // shared/widgets/portfolio_rail.dart; also used by
-        // public_master_profile_screen.dart and the salon owner/admin
-        // «Про салон» tab.
-        PortfolioRail(
-          onSeeAll: () {
-            // Phase 4.4 — portfolio gallery route.
-          },
-        ),
-        const SizedBox(height: VelvetSpacing.xl),
+        // Portfolio section — phase 404 (9.9): the master's real portfolio.
+        // REUSE-FIRST — [PortfolioRail] (shared/widgets/portfolio_rail.dart),
+        // also used by public_master_profile_screen.dart and the salon
+        // owner/admin «Про салон» tab. D4: no «Всі фото» link (the no-op stub
+        // is gone; the full viewer arrives with 407).
+        if (isIndependent) ...<Widget>[
+          _OwnPortfolioRail(masterId: master.id),
+          const SizedBox(height: VelvetSpacing.xl),
+        ],
 
         // Contacts section: phone and Instagram from domain model; both
         // fall back to '—' when the field is not set by the master.

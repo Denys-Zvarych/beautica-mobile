@@ -6827,8 +6827,119 @@
       }
     }
   },
+  "uploadErrorPortfolioLimit": "Limit reached: a portfolio holds up to {max} photos",
+  "@uploadErrorPortfolioLimit": {
+    "description": "Phase 403 (D5) — HTTP 409 PORTFOLIO_LIMIT_REACHED on a portfolio photo upload, or the client-side pre-check (the salon / master portfolio already holds the maximum number of photos).",
+    "placeholders": {
+      "max": {
+        "type": "int"
+      }
+    }
+  },
   "serviceEditOwnerPerformedHint": "The salon owner performs this service, so only they can change its name and category.",
   "@serviceEditOwnerPerformedHint": {
     "description": "Phase 377 (24.4) — SalonNoticeCard body above the service edit form when a salon admin edits a shared service the salon OWNER also performs (backend 345 403s the shared-definition PATCH). Paired with staffSettingsMasterOwnerOnlyTitle."
+  },
+  "portfolioEmptyOwn": "Add your first work photos",
+  "@portfolioEmptyOwn": {
+    "description": "Phase 404 (9.9, D3) — muted line under the «Портфоліо» label on the OWNER's own surfaces (independent master's own profile, salon management «Про салон») when the portfolio has no photos yet. Never shown to clients — public rails hide when empty."
+  },
+  "portfolioLoadError": "Couldn't load photos.",
+  "@portfolioLoadError": {
+    "description": "Phase 404 (9.9, D2) — inline prompt under the «Портфоліо» label on the owner's own surfaces when the portfolio read fails; followed by the retryLabel link."
+  },
+  "portfolioPhotoSemantics": "Work photo {index}",
+  "@portfolioPhotoSemantics": {
+    "description": "Phase 404 (9.9, D5) — accessibility label for a REAL portfolio photo tile (1-based position). Placeholder tiles keep masterPortfolioTileSemantics.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioAddPhoto": "Add photo",
+  "@portfolioAddPhoto": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the leading add tile on an editor's portfolio rail (opens the gallery / camera sheet)."
+  },
+  "portfolioLabelWithCount": "Portfolio · {count}/{max}",
+  "@portfolioLabelWithCount": {
+    "description": "Phase 405 (9.10, D6) — the «Портфоліо» section label on an EDITOR's rail, with the number of photos (stored + uploading) out of the cap. Public rails keep masterPortfolioLabel.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioDeletePhotoSemantics": "Delete work photo {index}",
+  "@portfolioDeletePhotoSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the small remove badge on a portfolio photo tile (1-based position).",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioUploadingSemantics": "Photo is uploading",
+  "@portfolioUploadingSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of a pending portfolio tile while it uploads; the percentage is exposed as the semantics value."
+  },
+  "portfolioDiscardUploadSemantics": "Remove the photo that failed to upload",
+  "@portfolioDiscardUploadSemantics": {
+    "description": "Phase 405 (9.10, D1) — accessibility label of the remove badge on a FAILED pending portfolio tile (drops the photo without uploading it)."
+  },
+  "portfolioDeleteDialogTitle": "Delete photo?",
+  "@portfolioDeleteDialogTitle": {
+    "description": "Phase 405 (9.10, D5) — title of the destructive confirmation before deleting a portfolio photo."
+  },
+  "portfolioDeleteDialogBody": "The photo will disappear from the portfolio and the public profile. This can't be undone.",
+  "@portfolioDeleteDialogBody": {
+    "description": "Phase 405 (9.10, D5) — body of the delete-portfolio-photo confirmation."
+  },
+  "portfolioDeleteConfirm": "Yes, delete photo",
+  "@portfolioDeleteConfirm": {
+    "description": "Phase 405 (9.10, D5) — the red confirm of the delete-portfolio-photo dialog."
+  },
+  "portfolioPhotoAdded": "Photo added",
+  "@portfolioPhotoAdded": {
+    "description": "Phase 405 (9.10, D4) — success snack after a portfolio photo upload."
+  },
+  "portfolioPhotoDeleted": "Photo deleted",
+  "@portfolioPhotoDeleted": {
+    "description": "Phase 405 (9.10, D5) — success snack after a portfolio photo delete."
+  },
+  "portfolioDeleteFailed": "Couldn't delete the photo. Try again",
+  "@portfolioDeleteFailed": {
+    "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
+  },
+  "portfolioViewerClose": "Close photo viewer",
+  "@portfolioViewerClose": {
+    "description": "Phase 407 (9.12, D1) — accessibility label / tooltip of the close button in the full-screen portfolio photo viewer."
+  },
+  "portfolioViewerCounter": "{index} / {total}",
+  "@portfolioViewerCounter": {
+    "description": "Phase 407 (9.12, D1) — the visible «n / N» page indicator in the full-screen portfolio photo viewer (1-based position of the shown photo / number of photos). Screen readers hear portfolioViewerPosition instead.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioViewerPosition": "Photo {index} of {total}",
+  "@portfolioViewerPosition": {
+    "description": "Phase 407 (9.12, D1) — accessibility announcement of the full-screen portfolio photo viewer's page indicator (1-based position / total).",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

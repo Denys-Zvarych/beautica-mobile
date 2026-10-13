@@ -52,6 +52,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -108,6 +109,7 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/test_container.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -404,6 +406,8 @@ void main() {
       final container = makeTestContainer(
         retry: (_, _) => null,
         overrides: [
+          // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),

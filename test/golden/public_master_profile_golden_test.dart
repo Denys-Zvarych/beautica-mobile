@@ -20,6 +20,7 @@
 // scenarios were unaffected (the shelf already rendered for them) and were
 // NOT regenerated.
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:alchemist/alchemist.dart' show PumpWidget;
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
@@ -38,6 +39,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/golden_pump.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -105,6 +107,11 @@ class _StubAuthNotifier extends AuthNotifier {
 }
 
 List<Object> _overrides({required PublicMasterProfileData data}) => <Object>[
+  // Phase 404 — portfolio held in its D2 LOADING state: placeholder tiles,
+  // i.e. the pre-404 render. This baseline is the screen-level proof that
+  // the rail's placeholder path is unchanged; real-photo / empty-state
+  // renders are pinned in portfolio_rail_golden_test.dart.
+  portfolioProvider.overrideWith(LoadingPortfolioNotifier.new),
   authProvider.overrideWith(_StubAuthNotifier.new),
   publicMasterProfileProvider(_kMasterId).overrideWith((ref) async => data),
   approvedCategoriesProvider.overrideWith(

@@ -48,9 +48,13 @@
 // See dio_provider.dart's pinning header for the reciprocal pointer back here.
 // ===========================================================================
 
+import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:http/io_client.dart';
@@ -154,6 +158,21 @@ set debugMediaCacheManager(BaseCacheManager? manager) =>
 /// The caller is expected to treat this as best-effort and tolerate any error.
 Future<void> purgeBeauticaMediaCache() => _activeMediaCacheManager.emptyCache();
 
+/// Drops every DECODED image from Flutter's in-memory [ImageCache] — the
+/// pending, completed AND live-tracked entries.
+///
+/// The memory twin of [purgeBeauticaMediaCache] (phase 407 audit S1): the
+/// disk purge alone leaves the previous account's decoded avatars / photos
+/// (client faces — PII) resident in the process, where the next session's
+/// screens would paint them straight from memory. Called on sign-out next to
+/// the disk purge (see `AuthNotifier.logout`); synchronous, and like the disk
+/// purge the caller treats it as best-effort.
+void purgeBeauticaDecodedImages() {
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
+}
+
 // ---------------------------------------------------------------------------
 // The guard — control #3 of the ADR. One home for the check that was
 // duplicated (and, at the salon portfolio site, incompletely) across four
@@ -208,6 +227,182 @@ ImageProvider beauticaResizedProvider(String url, int width, int height) =>
       height: height,
       policy: ResizeImagePolicy.fit,
     );
+
+/// Longest side of a [beauticaCoverResizedProvider] decode, as a multiple of
+/// the box's longer side. Bounds the bitmap for extreme aspect ratios (a
+/// panorama) — beyond it the short side may drop under the box, an
+/// acceptable softness for a pathological source.
+@visibleForTesting
+const int kCoverDecodeMaxLongSideFactor = 4;
+
+/// The decode size that makes an [intrinsicWidth]×[intrinsicHeight] source
+/// COVER a [width]×[height] box with no upscaling: scaled so its short side
+/// (relative to the box) matches the box, aspect ratio preserved. A source
+/// whose short side is already under the box decodes at its intrinsic size.
+/// Either way the long side is clamped to [kCoverDecodeMaxLongSideFactor] ×
+/// the box's longer side, so a panorama never decodes at full resolution.
+///
+/// Exposed for a pure unit test of the arithmetic.
+@visibleForTesting
+ui.TargetImageSize coverDecodeSize(
+  int intrinsicWidth,
+  int intrinsicHeight,
+  int width,
+  int height,
+) {
+  if (intrinsicWidth <= 0 || intrinsicHeight <= 0) {
+    return ui.TargetImageSize(width: width, height: height);
+  }
+  final double scale = math.max(
+    width / intrinsicWidth,
+    height / intrinsicHeight,
+  );
+  // Never upscale at decode time: a source already no larger than the box
+  // keeps its intrinsic size (the widget's BoxFit does the rest).
+  int targetWidth = scale >= 1
+      ? intrinsicWidth
+      : (intrinsicWidth * scale).ceil();
+  int targetHeight = scale >= 1
+      ? intrinsicHeight
+      : (intrinsicHeight * scale).ceil();
+  final int maxLong = math.max(width, height) * kCoverDecodeMaxLongSideFactor;
+  if (targetWidth > maxLong || targetHeight > maxLong) {
+    final double clamp = maxLong / math.max(targetWidth, targetHeight);
+    targetWidth = math.max(1, (targetWidth * clamp).floor());
+    targetHeight = math.max(1, (targetHeight * clamp).floor());
+  }
+  return ui.TargetImageSize(width: targetWidth, height: targetHeight);
+}
+
+/// [beauticaMediaProvider] decoded to COVER a [width]×[height] box (see
+/// [coverDecodeSize]) rather than fit inside it.
+///
+/// [beauticaResizedProvider]'s `ResizeImagePolicy.fit` bounds BOTH axes, so a
+/// non-square source decodes with its short side UNDER the box and the
+/// widget's `BoxFit.cover` then upscales it — visibly soft on a small square
+/// thumbnail. Flutter has no cover policy and the source aspect is unknown
+/// until decode, so this wraps the inner provider's decoder with a
+/// `getTargetSize` callback, exactly as `ResizeImage` does internally.
+///
+/// Callers MUST gate on [isAllowedMediaUrl] first — this builds a fetching
+/// provider for whatever [url] it is given (as [beauticaMediaProvider] does).
+/// [RemoteImage] does so before choosing it.
+///
+/// Value-equal over `(url, width, height)` and keyed synchronously when the
+/// inner provider is (mirroring `ResizeImage`), so a rebuild that constructs a
+/// fresh provider with the same arguments does NOT make `Image` re-resolve —
+/// which, with `gaplessPlayback: false`, would blank the tile for a frame.
+ImageProvider beauticaCoverResizedProvider(String url, int width, int height) =>
+    _CoverResizeImage(beauticaMediaProvider(url), width: width, height: height);
+
+/// Test seam: the cover-decode wrapper over an arbitrary [inner] provider, so
+/// `obtainKey`'s synchronous and asynchronous paths can be pinned with an
+/// in-memory / deferred inner key. Production code uses
+/// [beauticaCoverResizedProvider].
+@visibleForTesting
+ImageProvider debugCoverResizedProviderOver(
+  ImageProvider<Object> inner, {
+  required int width,
+  required int height,
+}) => _CoverResizeImage(inner, width: width, height: height);
+
+/// Test seam: the inner provider of a [beauticaCoverResizedProvider] wrapper,
+/// or `null` when [provider] is not one. Lets test helpers unwrap the
+/// cover decode down to the fetching provider (as they do `ResizeImage`).
+/// Production code never unwraps — test/ only.
+@visibleForTesting
+ImageProvider? debugUnwrapCoverResized(ImageProvider provider) =>
+    provider is _CoverResizeImage ? provider.imageProvider : null;
+
+/// Cache key for [_CoverResizeImage]: a record, so equality is structural
+/// (no hand-written `==`). The leading tag keeps it distinct from any other
+/// provider's key in the shared `ImageCache`.
+typedef _CoverResizeKey = ({String tag, Object inner, int width, int height});
+
+class _CoverResizeImage extends ImageProvider<_CoverResizeKey> {
+  const _CoverResizeImage(
+    this.imageProvider, {
+    required this.width,
+    required this.height,
+  });
+
+  final ImageProvider<Object> imageProvider;
+  final int width;
+  final int height;
+
+  _CoverResizeKey _keyFor(Object inner) =>
+      (tag: 'beautica-cover', inner: inner, width: width, height: height);
+
+  /// Mirrors `ResizeImage.obtainKey`: when the inner provider resolves its key
+  /// synchronously (a `SynchronousFuture`, as `CachedNetworkImageProvider`
+  /// does), so does this — `Image` then resolves within the same frame
+  /// instead of waiting a microtask. Otherwise falls back to an async future.
+  @override
+  Future<_CoverResizeKey> obtainKey(ImageConfiguration configuration) {
+    Completer<_CoverResizeKey>? completer;
+    SynchronousFuture<_CoverResizeKey>? result;
+    imageProvider
+        .obtainKey(configuration)
+        .then(
+          (Object inner) {
+            final Completer<_CoverResizeKey>? pending = completer;
+            if (pending == null) {
+              // The inner key was available synchronously.
+              result = SynchronousFuture<_CoverResizeKey>(_keyFor(inner));
+            } else {
+              pending.complete(_keyFor(inner));
+            }
+          },
+          onError: (Object error, StackTrace stack) {
+            final Completer<_CoverResizeKey> pending = completer ??=
+                Completer<_CoverResizeKey>();
+            pending.completeError(error, stack);
+          },
+        );
+    final SynchronousFuture<_CoverResizeKey>? sync = result;
+    if (sync != null) return sync;
+    return (completer ??= Completer<_CoverResizeKey>()).future;
+  }
+
+  @override
+  ImageStreamCompleter loadImage(
+    _CoverResizeKey key,
+    ImageDecoderCallback decode,
+  ) {
+    Future<ui.Codec> decodeCover(
+      ui.ImmutableBuffer buffer, {
+      ui.TargetImageSizeCallback? getTargetSize,
+    }) {
+      assert(
+        getTargetSize == null,
+        '_CoverResizeImage cannot be composed with another resizing provider.',
+      );
+      return decode(
+        buffer,
+        getTargetSize: (int w, int h) => coverDecodeSize(w, h, width, height),
+      );
+    }
+
+    return imageProvider.loadImage(key.inner, decodeCover);
+  }
+
+  // Hand-written (not freezed): an `ImageProvider` subclass, like Flutter's
+  // own `ResizeImage`. Every field that affects the decode participates.
+  @override
+  bool operator ==(Object other) =>
+      other is _CoverResizeImage &&
+      other.imageProvider == imageProvider &&
+      other.width == width &&
+      other.height == height;
+
+  @override
+  int get hashCode => Object.hash(imageProvider, width, height);
+
+  @override
+  String toString() =>
+      '${objectRuntimeType(this, '_CoverResizeImage')}'
+      '($imageProvider, $width×$height, cover)';
+}
 
 /// Warms the image cache with the SAME provider (and decode bound) that a
 /// [RemoteImage] of [width]×[height] will request, so the swap from a local
@@ -284,6 +479,7 @@ class RemoteImage extends StatelessWidget {
     this.borderRadius,
     this.fit = BoxFit.cover,
     this.excludeFromSemantics = false,
+    this.decodeToCover = false,
   }) : assert(
          shape != RemoteImageShape.roundedRect || borderRadius != null,
          'roundedRect requires a borderRadius',
@@ -313,6 +509,13 @@ class RemoteImage extends StatelessWidget {
   /// variants (the surrounding widget already provides the a11y label).
   final bool excludeFromSemantics;
 
+  /// Decode via [beauticaCoverResizedProvider] (short side covers the box)
+  /// instead of [beauticaResizedProvider] (fits inside it). Opt-in, `false`
+  /// by default so every existing site decodes exactly as before; set it for
+  /// a `BoxFit.cover` thumbnail of a possibly NON-square photo (the portfolio
+  /// tile), where a fit decode would be upscaled and look soft.
+  final bool decodeToCover;
+
   @override
   Widget build(BuildContext context) {
     if (!isAllowedMediaUrl(url)) {
@@ -325,7 +528,9 @@ class RemoteImage extends StatelessWidget {
     final int h = (height * dpr).round();
 
     Widget image = Image(
-      image: beauticaResizedProvider(allowed, w, h),
+      image: decodeToCover
+          ? beauticaCoverResizedProvider(allowed, w, h)
+          : beauticaResizedProvider(allowed, w, h),
       fit: fit,
       excludeFromSemantics: excludeFromSemantics,
       errorBuilder: (_, _, _) => fallback,

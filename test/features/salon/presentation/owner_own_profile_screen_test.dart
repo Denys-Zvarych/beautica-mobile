@@ -27,10 +27,16 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:beautica_mobile/features/salon/data/salon_repository.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -85,6 +91,7 @@ import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/test_container.dart';
 
 const _owner = User(
@@ -1183,6 +1190,39 @@ void main() {
     // bought for zero extra signal; the INDEPENDENT_MASTER case above already
     // proves the deny arm.
   });
+
+  // Phase 404 (9.9) — CONTEXT ISOLATION (locked rule: "salon photos only
+  // related to the salon, not owner or admin or masters"; O4: no personal
+  // portfolio for owner/admin). This surface must never request ANY
+  // portfolio endpoint — salon or master — and must render no rail.
+  testWidgets(
+    'context isolation: the owner own profile requests no portfolio and '
+    'renders no PortfolioRail (phase 404)',
+    (tester) async {
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository();
+      final FakeSalonRepository salons = FakeSalonRepository(
+        salon: const Salon(id: 'isolation-salon', name: 'Салон'),
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const OwnerOwnProfileScreen(embedded: true),
+        overrides: <Object>[
+          ..._overrides((owner: _owner, master: (_master, _services))),
+          mediaUploadRepositoryProvider.overrideWithValue(media),
+          salonRepositoryProvider.overrideWithValue(salons),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(media.masterPortfolioReads, isEmpty);
+      expect(salons.salonPortfolioReads, isEmpty);
+      expect(find.byType(PortfolioRail), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    },
+  );
 }
 
 /// Mounts [OwnerOwnProfileScreen] inside a raw [IndexedStack] and flips which
@@ -1323,6 +1363,21 @@ class _HeldUploads implements MediaUploadRepository {
   @override
   Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) =>
       throw UnimplementedError();
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
+      throw UnimplementedError();
 }
 
 void _avatarUploadNoReloadTests() {
@@ -1334,8 +1389,8 @@ void _avatarUploadNoReloadTests() {
       final Directory scratch = Directory.systemTemp.createTempSync('own_av');
       final Directory outside = Directory.systemTemp.createTempSync('own_av_o');
       addTearDown(() {
-        scratch.deleteSync(recursive: true);
-        outside.deleteSync(recursive: true);
+        deleteScratchDir(scratch);
+        deleteScratchDir(outside);
       });
       final ScriptedPickGateway gw = ScriptedPickGateway(
         scratch: scratch,

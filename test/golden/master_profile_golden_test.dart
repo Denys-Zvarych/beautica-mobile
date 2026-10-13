@@ -28,6 +28,7 @@
 //   • pumpAndSettle lets the animation controller quiesce; a Services/Reviews
 //     cell then taps the matching tab.
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:alchemist/alchemist.dart' show PumpWidget;
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
@@ -49,6 +50,7 @@ import 'package:mocktail/mocktail.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import 'helpers/golden_pump.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -121,6 +123,11 @@ class _StubAuthNotifier extends AuthNotifier {
 List<Object> _overrides() {
   final repo = _MockMasterRepository();
   return <Object>[
+    // Phase 404 — portfolio held in its D2 LOADING state: placeholder tiles,
+    // i.e. the pre-404 render. This baseline is the screen-level proof that
+    // the rail's placeholder path is unchanged; real-photo / empty-state
+    // renders are pinned in portfolio_rail_golden_test.dart.
+    portfolioProvider.overrideWith(LoadingPortfolioNotifier.new),
     authProvider.overrideWith(_StubAuthNotifier.new),
     masterProfileProvider.overrideWith(_StubMasterProfileNotifier.new),
     masterRepositoryProvider.overrideWithValue(repo),

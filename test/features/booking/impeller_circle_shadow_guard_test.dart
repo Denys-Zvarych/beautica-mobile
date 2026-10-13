@@ -442,6 +442,12 @@ void main() {
       'lib/features/booking/presentation/widgets/calendar_button.dart',
       'lib/features/booking/presentation/widgets/master_booking_card.dart',
       'lib/features/booking/presentation/widgets/master_column_strip.dart',
+      // 2026-10-13 — the portfolio photo tiles (public salon `raisedPhoto`
+      // tile, the «+N» show-all tile, the gradient tile + its remove badge)
+      // shipped the artifact on `extrudedSmall` AND on a file-local offset
+      // `_kTileLift` pair — the latter invisible to the recipe check above,
+      // hence the inline-`BoxShadow(` check below.
+      'lib/shared/widgets/portfolio_rail.dart',
     ];
 
     Map<String, String> recipes() => _shadowRecipes(_readStripped(tokensFile));
@@ -547,6 +553,33 @@ void main() {
             'them. If the shadowed surface moved, repoint `surfaceFiles`; if '
             'the shadow was removed on purpose, drop the file from the list. '
             'Vacuous entr(ies): ${vacuous.join(', ')}.',
+      );
+    });
+
+    test('no guarded surface declares an inline offset-opaque BoxShadow — '
+        'file-local constants included (not just VelvetShadows recipes)', () {
+      final List<String> hits = <String>[];
+      for (final String path in surfaceFiles) {
+        final List<String> shadows = _ctorArgs(
+          _readStripped(path),
+          'BoxShadow',
+        );
+        for (final String shadow in shadows) {
+          if (_recipeIsUnsafe('BoxShadow($shadow)')) {
+            hits.add('$path → BoxShadow(${shadow.trim()})');
+          }
+        }
+      }
+      expect(
+        hits,
+        isEmpty,
+        reason:
+            'An inline BoxShadow in a rounded surface pairs an OPAQUE color '
+            'with a non-zero Offset — the Impeller-GLES corner-square '
+            'trigger. A file-local `const List<BoxShadow>` is NOT a '
+            'VelvetShadows recipe, so only this check sees it. Use a single '
+            'non-offset, alpha-attenuated shadow (cf. `borderedButton`). '
+            '${hits.length} hit(s): ${hits.join(' | ')}.',
       );
     });
 

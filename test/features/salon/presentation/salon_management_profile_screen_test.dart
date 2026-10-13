@@ -24,6 +24,10 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -60,6 +64,7 @@ import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:dio/dio.dart' show CancelToken;
@@ -68,10 +73,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/test_container.dart';
 import '../../../helpers/overflow_guard.dart';
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -1414,6 +1422,11 @@ void main() {
         overrides: [
           authProvider.overrideWith(_StubAuthNotifier.new),
           salonRepositoryProvider.overrideWithValue(repo),
+          // Phase 404 — this test keeps the scope mounted past its body
+          // (UncontrolledProviderScope), so the real portfolio notifier's
+          // 5-minute keep-alive timer would still be pending at the
+          // invariant check. A timer-free fixed portfolio isolates it.
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
         ],
       );
 
@@ -2017,6 +2030,115 @@ void main() {
             'exact position the design specifies '
             '(salon_management_profile_screen.dart:849)',
       );
+    });
+
+    // Phase 404 (9.9) — the SALON's real portfolio, for owner and admin.
+    const List<PortfolioPhoto> salonPhotos = <PortfolioPhoto>[
+      PortfolioPhoto(id: 's1', url: 'https://media.test/s1.webp'),
+      PortfolioPhoto(id: 's2', url: 'https://media.test/s2.webp'),
+      PortfolioPhoto(id: 's3', url: 'https://media.test/s3.webp'),
+    ];
+
+    for (final bool owner in <bool>[true, false]) {
+      testWidgets('${owner ? 'owner' : 'admin'} sees the salon photos — one '
+          'real tile per photo, in order, read for THIS salon', (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon)
+          ..salonPortfolio = salonPhotos;
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: owner ? _overrides(repo) : _adminOverrides(repo),
+        );
+        await tester.pumpAndSettle();
+
+        expect(repo.salonPortfolioReads, isNotEmpty);
+        expect(repo.salonPortfolioReads, everyElement(_stubSalon.id));
+        expect(
+          tester
+              .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+              .map((PortfolioTile t) => t.imageUrl),
+          salonPhotos.map((PortfolioPhoto p) => p.url),
+        );
+        for (final PortfolioPhoto p in salonPhotos) {
+          expect(find.byKey(Key('portfolio-photo-${p.id}')), findsOneWidget);
+        }
+      });
+    }
+
+    // Phase 407 (9.12, D3/D5) — the salon rail opens the viewer on the
+    // tapped photo, paging only this salon's photos.
+    testWidgets('tapping a salon photo opens the viewer on it', (tester) async {
+      // Let RemoteImage build its Image (allow-listed host, no network).
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      final repo = FakeSalonRepository(salon: _stubSalon)
+        ..salonPortfolio = salonPhotos;
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final Finder tile = find.byKey(const Key('portfolio-photo-s1'));
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getBottomLeft(tile) + const Offset(12, -12));
+      await tester.pumpAndSettle();
+
+      final Finder viewer = find.byType(PortfolioPhotoViewer);
+      expect(viewer, findsOneWidget);
+      // Q1 — the SHOWN page renders the tapped photo (not a field assert).
+      final Finder page = find.byKey(PortfolioPhotoViewer.pageKey('s1'));
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[
+        salonPhotos[0].url,
+      ]);
+      final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+          matching: find.text(l10n.portfolioViewerCounter(1, 3)),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(viewer, findsNothing);
+    });
+
+    testWidgets('empty salon portfolio: label + «Додайте перші фото робіт», '
+        'no tiles (D3)', (tester) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      expect(portfolioRail, findsOneWidget);
+      expect(find.byKey(const Key('portfolio-rail-empty')), findsOneWidget);
+      expect(find.byType(PortfolioTile), findsNothing);
+    });
+
+    testWidgets('failed read: inline retry line; tapping it re-reads and '
+        'renders the photos', (tester) async {
+      final repo = _FlakyPortfolioSalonRepository(salon: _stubSalon)
+        ..salonPortfolio = salonPhotos;
+      // Retry off: the production policy would silently re-read a transient
+      // failure before the error ever surfaced.
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: _overrides(repo),
+        retry: (_, _) => null,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('portfolio-rail-error')), findsOneWidget);
+      final Finder retry = find.byKey(const Key('portfolio-rail-retry'));
+      await tester.ensureVisible(retry);
+      await tester.pumpAndSettle();
+      await tester.tap(retry);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('portfolio-rail-error')), findsNothing);
+      expect(find.byType(PortfolioTile), findsNWidgets(3));
     });
 
     testWidgets(
@@ -2682,4 +2804,20 @@ void main() {
       );
     });
   });
+}
+
+/// Phase 404 — fails the FIRST salon-portfolio read, then serves normally.
+class _FlakyPortfolioSalonRepository extends FakeSalonRepository {
+  _FlakyPortfolioSalonRepository({required super.salon});
+
+  bool _failed = false;
+
+  @override
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async {
+    if (!_failed) {
+      _failed = true;
+      throw const NetworkFailure();
+    }
+    return super.getSalonPortfolio(salonId);
+  }
 }

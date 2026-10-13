@@ -410,6 +410,8 @@ final class FakeBackend {
     this.masterRowId = 'user-master-1',
     this.masterSalonId,
     this.wireOwnRowServices = false,
+    this.wirePortfolio = false,
+    this.portfolioUploadDelay,
     this.ownRowServicesSeed,
     this.wireOwnRowSchedule = false,
     this.listOwnerRowWhenBookable = false,
@@ -445,6 +447,7 @@ final class FakeBackend {
     _wire();
     _wireNotifications();
     _wireDeviceTokens();
+    if (wirePortfolio) _wirePortfolio();
   }
 
   /// The Master-ROW UUID that `GET /masters/me` reports for the authenticated
@@ -484,6 +487,19 @@ final class FakeBackend {
   /// [masterSalonId]) so the hard-wired `salon-xyz/master-removable` pairs
   /// never collide with a second registration of the same path.
   final bool wireOwnRowServices;
+
+  /// Phase 403 (9.8) — wires the portfolio WRITE + read routes for the owner
+  /// salon ([kOwnerSalonId]) and the independent master's own portfolio
+  /// ([masterRowId]); see [_wirePortfolio]. Off by default, so every
+  /// pre-existing flow's (unmatched) owner-salon portfolio read is unchanged.
+  final bool wirePortfolio;
+
+  /// Phase 405 QA (mobile-qa) — holds every successful-or-failed portfolio
+  /// UPLOAD reply for this long (the row is stored BEFORE the delay — the
+  /// `replyCallback` body runs first), so a flow can observe the pending tile
+  /// and keep an upload in flight across a tab switch. `null` (default) =
+  /// immediate, so every pre-405 flow is unchanged.
+  final Duration? portfolioUploadDelay;
 
   /// Phase 380 (mobile-qa) — rows the [wireOwnRowServices] catalogue boots
   /// with. Each seeded definition id also gets its own-row band `PATCH` +
@@ -4539,17 +4555,45 @@ final class FakeBackend {
   /// `PageMediaFileResponse`'s built_value deserializer expects — Spring's
   /// default Page shape (`content`/`totalElements`/…), NOT the custom
   /// `PageResponse` shape [_searchEnvelope] builds.
-  Map<String, dynamic> _salonPortfolioEnvelope() => _ok(<String, dynamic>{
-    'content': _salonPortfolioPhotos,
-    'totalElements': _salonPortfolioPhotos.length,
-    'totalPages': 1,
-    'size': _salonPortfolioPhotos.length,
-    'number': 0,
-    'first': true,
-    'last': true,
-    'numberOfElements': _salonPortfolioPhotos.length,
-    'empty': false,
-  });
+  Map<String, dynamic> _salonPortfolioEnvelope() {
+    final List<Map<String, dynamic>> photos = _servedSalonPortfolioPhotos();
+    return _ok(<String, dynamic>{
+      'content': photos,
+      'totalElements': photos.length,
+      'totalPages': 1,
+      'size': photos.length,
+      'number': 0,
+      'first': true,
+      'last': true,
+      'numberOfElements': photos.length,
+      'empty': photos.isEmpty,
+    });
+  }
+
+  /// Phase 406 QA (mobile-qa) — overrides how many photos `salon-xyz`'s
+  /// public portfolio read serves. `null` (default) → the three-photo
+  /// [_salonPortfolioPhotos] fixture every pre-existing flow sees, unchanged.
+  /// Non-null → that many generated photos `media-big-1`..`media-big-<n>`
+  /// (served in that order) on the `media.test` host, so a flow that allow-lists it gets REAL rendered
+  /// images; `0` → an empty portfolio. Set BEFORE the profile is opened.
+  int? salonPortfolioPhotoCount;
+
+  List<Map<String, dynamic>> _servedSalonPortfolioPhotos() {
+    final int? n = salonPortfolioPhotoCount;
+    if (n == null) return _salonPortfolioPhotos;
+    return <Map<String, dynamic>>[
+      for (int i = 1; i <= n; i++)
+        <String, dynamic>{
+          'id': 'media-big-$i',
+          'entityType': 'SALON',
+          'entityId': 'salon-xyz',
+          'mediaType': 'PORTFOLIO',
+          'url': 'https://media.test/portfolio/salon-xyz/$i.jpg',
+          'createdAt':
+              '2026-05-${(i + 10).toString().padLeft(2, '0')}T10:00:00Z',
+        },
+    ];
+  }
 
   // ── My-bookings / booking-detail / cancel state (track 14.x) ───────────────
   //
@@ -11667,5 +11711,277 @@ final class FakeBackend {
         ),
       );
     }
+  }
+
+  // ── Portfolio (Phase 403, 9.8) ────────────────────────────────────────────
+  //
+  // Opt-in via [wirePortfolio]. Mirrors backend 362: salon
+  // `POST`/`GET /salons/{kOwnerSalonId}/portfolio`,
+  // `DELETE /salons/{kOwnerSalonId}/portfolio/{mediaId}`; independent master
+  // `POST /media/portfolio`, `DELETE /media/portfolio/{mediaId}` (self, by
+  // JWT) and the public read `GET /masters/{masterRowId}/portfolio`. A
+  // successful upload answers 201 with the stored `MediaFileResponse` and
+  // PREPENDS the row (reads are newest first), so every later read reflects
+  // it; a delete removes the row and answers 204.
+
+  /// The owner salon's stored portfolio rows (newest first), read at REQUEST
+  /// time — a flow may seed it before the first read.
+  final List<Map<String, dynamic>> ownerSalonPortfolioRows =
+      <Map<String, dynamic>>[];
+
+  /// The independent master's own stored portfolio rows (newest first).
+  final List<Map<String, dynamic>> masterPortfolioRows =
+      <Map<String, dynamic>>[];
+
+  /// Phase 404 QA (mobile-qa) — the SALON_ADMIN's own salon (`salon-admin-1`)
+  /// portfolio rows, read by `GET /salons/salon-admin-1/portfolio` on the
+  /// admin's «Про салон». Read-only here (an admin's write path is 405's).
+  final List<Map<String, dynamic>> adminSalonPortfolioRows =
+      <Map<String, dynamic>>[];
+
+  /// Phase 404 QA (mobile-qa) — the PUBLIC portfolio of the client-facing
+  /// search fixture master `master-aaa`, read by
+  /// `GET /masters/master-aaa/portfolio` on its public profile.
+  final List<Map<String, dynamic>> publicMasterPortfolioRows =
+      <Map<String, dynamic>>[];
+
+  /// Every portfolio upload request URI (salon or master, any status).
+  final List<Uri> portfolioUploadUris = <Uri>[];
+
+  /// The multipart part NAMES of every portfolio upload, one list per
+  /// request (must be exactly `['file']`).
+  final List<List<String>> portfolioUploadPartNames = <List<String>>[];
+
+  /// The declared content type of every portfolio upload's file part.
+  final List<String?> portfolioUploadContentTypes = <String?>[];
+
+  /// Every portfolio delete request URI.
+  final List<Uri> portfolioDeleteUris = <Uri>[];
+
+  /// Every portfolio READ request URI (salon or master).
+  final List<Uri> portfolioReadUris = <Uri>[];
+
+  int? _portfolioFailStatus;
+  String? _portfolioFailCode;
+  int? _portfolioRetryAfterSeconds;
+  int? _portfolioDeleteFailStatus;
+  int _portfolioSeq = 0;
+
+  /// Makes every portfolio DELETE answer [status] (null = 204 again) with an
+  /// error envelope, leaving the stored rows untouched — e.g. 404 for "already
+  /// gone". The request is still recorded in [portfolioDeleteUris].
+  /// RE-REGISTERS the delete routes (the LAST registration wins).
+  void failPortfolioDeletes(int? status) {
+    _portfolioDeleteFailStatus = status;
+    _wirePortfolioDeletes();
+  }
+
+  /// Makes every portfolio UPLOAD answer [status] (null = succeed again) with
+  /// an error envelope whose `data.code` is [code] (e.g.
+  /// `PORTFOLIO_LIMIT_REACHED`) and, when [retryAfterSeconds] is non-null, a
+  /// `Retry-After` header. RE-REGISTERS the upload routes (a `replyCallback`
+  /// status and headers are fixed when wired; the LAST registration wins).
+  void failPortfolioUploads(
+    int? status, {
+    String? code,
+    int? retryAfterSeconds,
+  }) {
+    _portfolioFailStatus = status;
+    _portfolioFailCode = code;
+    _portfolioRetryAfterSeconds = retryAfterSeconds;
+    _wirePortfolioUploads();
+  }
+
+  Map<String, dynamic> _portfolioPage(List<Map<String, dynamic>> rows) =>
+      _ok(<String, dynamic>{
+        'content': rows,
+        'totalElements': rows.length,
+        'totalPages': 1,
+        'size': 50,
+        'number': 0,
+        'first': true,
+        'last': true,
+        'numberOfElements': rows.length,
+        'empty': rows.isEmpty,
+      });
+
+  /// A stored portfolio row of [entityType]/[entityId] (the `MediaFileResponse`
+  /// shape). Exposed so a flow can seed [ownerSalonPortfolioRows] /
+  /// [masterPortfolioRows] with the same shape the upload route stores.
+  Map<String, dynamic> portfolioRow(String entityType, String entityId) {
+    final int n = ++_portfolioSeq;
+    return <String, dynamic>{
+      'id': 'pf-$n',
+      'entityType': entityType,
+      'entityId': entityId,
+      'mediaType': 'PORTFOLIO',
+      'url': 'https://media.test/portfolio/$entityId/$n.jpg',
+      'createdAt': '2026-05-01T10:00:${(n % 60).toString().padLeft(2, '0')}Z',
+    };
+  }
+
+  void _wirePortfolio() {
+    const String salonPath = '/api/v1/salons/$kOwnerSalonId/portfolio';
+
+    _adapter.onRoute(
+      salonPath,
+      (server) => server.replyCallback(200, (RequestOptions options) {
+        portfolioReadUris.add(options.uri);
+        return _portfolioPage(ownerSalonPortfolioRows);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/masters/$masterRowId/portfolio',
+      (server) => server.replyCallback(200, (RequestOptions options) {
+        portfolioReadUris.add(options.uri);
+        return _portfolioPage(masterPortfolioRows);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 404 QA — the admin's own salon and the public `master-aaa`
+    // reads. Phase 405 QA adds `salon-admin-1`'s WRITE routes (an admin
+    // manages their bound salon's portfolio, O1) — see the upload / delete
+    // wiring below; `master-aaa` stays read-only.
+    _adapter.onRoute(
+      '/api/v1/salons/salon-admin-1/portfolio',
+      (server) => server.replyCallback(200, (RequestOptions options) {
+        portfolioReadUris.add(options.uri);
+        return _portfolioPage(adminSalonPortfolioRows);
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+    if (masterRowId != 'master-aaa') {
+      _adapter.onRoute(
+        '/api/v1/masters/master-aaa/portfolio',
+        (server) => server.replyCallback(200, (RequestOptions options) {
+          portfolioReadUris.add(options.uri);
+          return _portfolioPage(publicMasterPortfolioRows);
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+
+    _wirePortfolioDeletes();
+    _wirePortfolioUploads();
+  }
+
+  void _wirePortfolioDeletes() {
+    const String masterWritePath = '/api/v1/media/portfolio';
+    final int? fail = _portfolioDeleteFailStatus;
+
+    void wireDelete(Pattern route, List<Map<String, dynamic>> rows) {
+      _adapter.onRoute(
+        route,
+        (server) => server.replyCallback(fail ?? 204, (RequestOptions options) {
+          portfolioDeleteUris.add(options.uri);
+          if (fail != null) {
+            return <String, dynamic>{
+              'success': false,
+              'message': 'fake portfolio delete failure',
+            };
+          }
+          final String id = options.uri.pathSegments.last;
+          rows.removeWhere((Map<String, dynamic> r) => r['id'] == id);
+          return null;
+        }),
+        request: const Request(
+          method: RequestMethods.delete,
+          data: Matchers.any,
+        ),
+      );
+    }
+
+    wireDelete(
+      RegExp('/api/v1/salons/$kOwnerSalonId/portfolio/[^/]+\$'),
+      ownerSalonPortfolioRows,
+    );
+    wireDelete(RegExp('$masterWritePath/[^/]+\$'), masterPortfolioRows);
+    // Phase 405 QA — `salon-admin-1` ([kAdminSalonId]) is the admin's bound
+    // salon; a flow may also list it in [mySalons] to make the OWNER manage
+    // the SAME salon (photos belong to the salon, never the uploader — O3).
+    wireDelete(
+      RegExp('/api/v1/salons/$kAdminSalonId/portfolio/[^/]+\$'),
+      adminSalonPortfolioRows,
+    );
+  }
+
+  void _wirePortfolioUploads() {
+    final int? fail = _portfolioFailStatus;
+    final String? code = _portfolioFailCode;
+    final int? retryAfter = _portfolioRetryAfterSeconds;
+    final Map<String, List<String>> headers = <String, List<String>>{
+      Headers.contentTypeHeader: <String>[Headers.jsonContentType],
+      if (retryAfter != null) 'retry-after': <String>['$retryAfter'],
+    };
+
+    void wireUpload(
+      String path,
+      List<Map<String, dynamic>> rows,
+      String entityType,
+      String entityId,
+    ) {
+      _adapter.onRoute(
+        path,
+        (server) => server.replyCallback(
+          fail ?? 201,
+          (RequestOptions options) {
+            portfolioUploadUris.add(options.uri);
+            final Object? body = options.data;
+            portfolioUploadPartNames.add(
+              body is FormData
+                  ? <String>[
+                      for (final MapEntry<String, String> f in body.fields)
+                        f.key,
+                      for (final MapEntry<String, MultipartFile> f
+                          in body.files)
+                        f.key,
+                    ]
+                  : <String>['<non-multipart:${body.runtimeType}>'],
+            );
+            portfolioUploadContentTypes.add(
+              body is FormData && body.files.isNotEmpty
+                  ? body.files.first.value.contentType?.mimeType
+                  : null,
+            );
+            if (fail != null) {
+              return <String, dynamic>{
+                'success': false,
+                'message': 'fake portfolio failure',
+                'data': ?(code == null
+                    ? null
+                    : <String, dynamic>{'code': code}),
+              };
+            }
+            final Map<String, dynamic> row = portfolioRow(entityType, entityId);
+            rows.insert(0, row);
+            return _ok(row);
+          },
+          headers: headers,
+          delay: portfolioUploadDelay,
+        ),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+    }
+
+    wireUpload(
+      '/api/v1/salons/$kOwnerSalonId/portfolio',
+      ownerSalonPortfolioRows,
+      'SALON',
+      kOwnerSalonId,
+    );
+    wireUpload(
+      '/api/v1/media/portfolio',
+      masterPortfolioRows,
+      'MASTER',
+      masterRowId,
+    );
+    wireUpload(
+      '/api/v1/salons/$kAdminSalonId/portfolio',
+      adminSalonPortfolioRows,
+      'SALON',
+      kAdminSalonId,
+    );
   }
 }

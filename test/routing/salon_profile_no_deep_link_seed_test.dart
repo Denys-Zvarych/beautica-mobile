@@ -68,7 +68,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -231,8 +231,8 @@ class _CountingSalonRepository implements SalonRepository {
   }) async => const <SalonReviewItem>[];
 
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) async =>
-      const <SalonPortfolioPhoto>[];
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async =>
+      const <PortfolioPhoto>[];
 
   @override
   Future<List<BookableMasterAssignment>> getBookableMasters({

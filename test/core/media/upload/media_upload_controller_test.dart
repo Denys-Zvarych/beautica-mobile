@@ -18,6 +18,8 @@ import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/media/pick/pending_pick_store.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
 import 'package:beautica_mobile/core/media/upload/salon_image_upload_controller.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
@@ -131,6 +133,21 @@ class _FakeUploads implements MediaUploadRepository {
     final UploadFailure? f = salonDeleteFailure;
     if (f != null) throw f;
   }
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
+      throw UnimplementedError();
 }
 
 // ── Phase 369 — salon logo / cover fixtures ────────────────────────────────

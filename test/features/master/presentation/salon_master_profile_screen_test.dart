@@ -24,9 +24,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_salon_repository.dart';
 import 'package:beautica_mobile/core/media/pick/image_source_sheet.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_upload_controller.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -75,6 +80,7 @@ import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 
 const Master _master = Master(
   id: 'm-9',
@@ -1301,6 +1307,39 @@ void main() {
   });
 
   _avatarUploadNoReloadTests();
+
+  // Phase 404 (9.9) — CONTEXT ISOLATION (locked rule: "salon photos only
+  // related to the salon, not owner or admin or masters"; O4: no personal
+  // portfolio for owner/admin). This surface must never request ANY
+  // portfolio endpoint — salon or master — and must render no rail.
+  testWidgets(
+    'context isolation: the salon master own profile requests no portfolio and '
+    'renders no PortfolioRail (phase 404)',
+    (tester) async {
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository();
+      final FakeSalonRepository salons = FakeSalonRepository(
+        salon: const Salon(id: 'isolation-salon', name: 'Салон'),
+      );
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const SalonMasterProfileScreen(),
+        overrides: <Object>[
+          ..._overrides((_master, _services, _salon)),
+          mediaUploadRepositoryProvider.overrideWithValue(media),
+          salonRepositoryProvider.overrideWithValue(salons),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(media.masterPortfolioReads, isEmpty);
+      expect(salons.salonPortfolioReads, isEmpty);
+      expect(find.byType(PortfolioRail), findsNothing);
+      expect(find.byType(PortfolioTile), findsNothing);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -1371,6 +1410,21 @@ class _HeldUploads implements MediaUploadRepository {
   @override
   Future<void> deleteSalonImage(String salonId, SalonImageSlot slot) =>
       throw UnimplementedError();
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
+      throw UnimplementedError();
 }
 
 void _avatarUploadNoReloadTests() {
@@ -1383,8 +1437,8 @@ void _avatarUploadNoReloadTests() {
       final Directory scratch = Directory.systemTemp.createTempSync('sm_av');
       final Directory outside = Directory.systemTemp.createTempSync('sm_av_o');
       addTearDown(() {
-        scratch.deleteSync(recursive: true);
-        outside.deleteSync(recursive: true);
+        deleteScratchDir(scratch);
+        deleteScratchDir(outside);
       });
       final ScriptedPickGateway gw = ScriptedPickGateway(
         scratch: scratch,

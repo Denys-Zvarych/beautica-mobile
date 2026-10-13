@@ -13,6 +13,8 @@ import 'dart:io';
 
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
 import 'package:beautica_mobile/core/media/upload/upload_task.dart';
@@ -38,6 +40,7 @@ import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
@@ -152,6 +155,21 @@ class _Uploads implements MediaUploadRepository {
     final UploadFailure? f = deleteFailure;
     if (f != null) throw f;
   }
+
+  // Phase 403 — portfolio methods; not exercised by this suite.
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) =>
+      throw UnimplementedError();
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<void> deletePortfolioPhoto(PortfolioOwner owner, String mediaId) =>
+      throw UnimplementedError();
 }
 
 /// Interleaves real-async turns (the pick pipeline does real file I/O) with
@@ -186,8 +204,8 @@ void main() {
   tearDown(() {
     debugMediaCacheManager = null;
     MediaConfig.debugAllowedHosts = null;
-    scratch.deleteSync(recursive: true);
-    outside.deleteSync(recursive: true);
+    deleteScratchDir(scratch);
+    deleteScratchDir(outside);
   });
 
   Future<void> pump(

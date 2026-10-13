@@ -37,7 +37,16 @@
 //   • Use [pumpApp] from `test/helpers/pump_app.dart` for l10n + Riverpod.
 
 import 'dart:async';
+import 'dart:io';
 
+import 'package:beautica_mobile/core/media/pick/media_pick_service.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/upload/upload_failure.dart';
+import 'package:beautica_mobile/core/media/upload/upload_task.dart';
+import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/widgets/upload_state_overlay.dart';
+import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
@@ -70,6 +79,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -79,8 +89,13 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../core/media/pick/scripted_pick_gateway.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fakes/fake_secure_storage.dart';
+
 import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
@@ -402,8 +417,13 @@ List<Object> _buildOverrides({
   required _MockMasterRepository repo,
   required _MockServiceRepository serviceRepo,
   List<ServiceCategoryOption> categories = const <ServiceCategoryOption>[],
+  FakeMediaUploadRepository? media,
 }) {
   return <Object>[
+    // Phase 404 — the «Про майстра» tab reads the master's own portfolio.
+    mediaUploadRepositoryProvider.overrideWithValue(
+      media ?? FakeMediaUploadRepository(),
+    ),
     authProvider.overrideWith(() => _StubAuthNotifier(_stubUser)),
     masterProfileProvider.overrideWith(
       () => _StubMasterProfileNotifier(masterState),
@@ -477,16 +497,56 @@ void main() {
       expect(find.text(_stubMaster.bio!), findsOneWidget);
     });
 
-    // mobile-qa gap-closure (shared-widget promotion, 2026-09-01) — this
-    // screen's own PortfolioRail call site (`master_profile_screen.dart:591`,
-    // `onSeeAll: () {}` — link VISIBLE, the one call site that differs from
-    // the other two consumers) had ZERO portfolio assertions before this
-    // test, on the old private tile as well as the promoted shared one.
-    testWidgets(
-      'renders the portfolio rail with 6 tiles and the «Всі фото» link '
-      '(onSeeAll supplied — the master\'s own editable profile keeps the '
-      'link the other two consumers omit)',
-      (tester) async {
+    // Phase 404 (9.9) — the own rail now renders the master's REAL portfolio
+    // (`PortfolioOwner.masterSelf(master.id)`), and D4 removed the no-op
+    // «Всі фото» stub.
+    group('portfolio rail (phase 404)', () {
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'p1', url: 'https://media.test/1.webp'),
+        PortfolioPhoto(id: 'p2', url: 'https://media.test/2.webp'),
+        PortfolioPhoto(id: 'p3', url: 'https://media.test/3.webp'),
+      ];
+
+      testWidgets('with photos: one real tile per photo, in order, read for '
+          'the own master id; no «Всі фото» link (D4)', (tester) async {
+        final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+          masterPortfolio: photos,
+        );
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: media,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Read for the OWN id only (the auth stub settling may re-key the
+        // read once — every read is still this master's id).
+        expect(media.masterPortfolioReads, isNotEmpty);
+        expect(media.masterPortfolioReads, everyElement(_stubMaster.id));
+        expect(find.byType(PortfolioRail), findsOneWidget);
+        final List<PortfolioTile> tiles = tester
+            .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+            .toList();
+        expect(
+          tiles.map((PortfolioTile t) => t.imageUrl),
+          photos.map((PortfolioPhoto p) => p.url),
+        );
+        for (final PortfolioPhoto p in photos) {
+          expect(find.byKey(Key('portfolio-photo-${p.id}')), findsOneWidget);
+        }
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+        expect(find.text(l10n.masterAllPhotos), findsNothing);
+      });
+
+      testWidgets('empty: label + «Додайте перші фото робіт», no tiles (D3)', (
+        tester,
+      ) async {
         await tester.pumpApp(
           const MasterProfileScreen(),
           overrides: _buildOverrides(
@@ -497,15 +557,139 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.byType(PortfolioRail), findsOneWidget);
-        expect(find.byType(PortfolioTile), findsNWidgets(6));
+        expect(find.byKey(const Key('portfolio-rail-empty')), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNothing);
+      });
 
+      // Phase 407 (9.12) — the EDITOR rail opens the viewer on a photo body
+      // tap; the delete badge stays the only delete affordance.
+      testWidgets('tapping a photo opens the full-screen viewer at that '
+          'photo; the delete badge opens the delete dialog, not the viewer', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: FakeMediaUploadRepository(masterPortfolio: photos),
+          ),
+        );
+        await tester.pumpAndSettle();
         final AppLocalizations l10n = AppLocalizations.of(
           tester.element(find.byType(MasterProfileScreen)),
         );
-        expect(find.text(l10n.masterAllPhotos), findsOneWidget);
-      },
-    );
+
+        await tester.ensureVisible(find.byKey(const Key('portfolio-photo-p1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('portfolio-photo-delete-p1')));
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsNothing);
+        expect(find.text(l10n.portfolioDeleteDialogTitle), findsOneWidget);
+        await tester.tap(find.byKey(const Key('portfolio-delete-dismiss')));
+        await tester.pumpAndSettle();
+
+        await tester.tapAt(
+          tester.getBottomLeft(find.byKey(const Key('portfolio-photo-p2'))) +
+              const Offset(12, -12),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+        expect(
+          find.text(l10n.portfolioViewerCounter(2, photos.length)),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsNothing);
+      });
+
+      testWidgets('read failure: inline retry line; tapping it re-reads', (
+        tester,
+      ) async {
+        final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+          masterPortfolioError: const NetworkFailure(),
+        );
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          retry: (_, _) => null,
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: media,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('portfolio-rail-error')), findsOneWidget);
+        expect(find.byType(PortfolioTile), findsNothing);
+
+        final int readsBeforeRetry = media.masterPortfolioReads.length;
+        media
+          ..masterPortfolioError = null
+          ..masterPortfolio = photos;
+        await tester.ensureVisible(
+          find.byKey(const Key('portfolio-rail-retry')),
+        );
+        await tester.tap(find.byKey(const Key('portfolio-rail-retry')));
+        await tester.pumpAndSettle();
+
+        expect(
+          media.masterPortfolioReads.length,
+          greaterThan(readsBeforeRetry),
+        );
+        expect(find.byType(PortfolioTile), findsNWidgets(3));
+      });
+
+      testWidgets('loading: the existing placeholder tiles', (tester) async {
+        final Completer<void> never = Completer<void>();
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: _HangingMedia(never.future),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(PortfolioTile), findsNWidgets(6));
+        expect(
+          tester
+              .widgetList<PortfolioTile>(find.byType(PortfolioTile))
+              .every((PortfolioTile t) => t.imageUrl == null),
+          isTrue,
+        );
+      });
+
+      for (final MasterType type in <MasterType>[
+        MasterType.salonOwner,
+        MasterType.salonMaster,
+      ]) {
+        testWidgets('context isolation: a ${type.name} row never requests or '
+            'shows a portfolio (locked rule, D6)', (tester) async {
+          final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+            masterPortfolio: photos,
+          );
+          await tester.pumpApp(
+            const MasterProfileScreen(),
+            overrides: _buildOverrides(
+              masterState: AsyncData<Master>(_stubMaster.copyWith(type: type)),
+              repo: repo,
+              serviceRepo: mockServiceRepo,
+              media: media,
+            ),
+          );
+          await tester.pumpAndSettle();
+
+          expect(media.masterPortfolioReads, isEmpty);
+          expect(find.byType(PortfolioRail), findsNothing);
+        });
+      }
+    });
 
     // ── Qase defect #25: «Записів місяця» tile ────────────────────────────
     //
@@ -3867,6 +4051,303 @@ void main() {
       });
     },
   );
+
+  // ── Phase 405 (9.10) — the independent master EDITS their portfolio ─────
+  group('portfolio editing (phase 405)', () {
+    const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+      PortfolioPhoto(id: 'p1', url: 'https://media.test/1.webp'),
+      PortfolioPhoto(id: 'p2', url: 'https://media.test/2.webp'),
+    ];
+    const PortfolioPhoto fresh = PortfolioPhoto(
+      id: 'fresh',
+      url: 'https://media.test/fresh.webp',
+    );
+    const PortfolioOwner own = PortfolioOwner.masterSelf('user-1');
+    final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+    late Directory scratch;
+    late Directory outside;
+    late ScriptedPickGateway gw;
+    late _ScriptedPortfolioMedia media;
+
+    setUp(() {
+      scratch = Directory.systemTemp.createTempSync('master_portfolio_scr');
+      outside = Directory.systemTemp.createTempSync('master_portfolio_out');
+      gw = ScriptedPickGateway(scratch: scratch, outside: outside);
+      media = _ScriptedPortfolioMedia(photos);
+    });
+    tearDown(() {
+      deleteScratchDir(scratch);
+      deleteScratchDir(outside);
+    });
+
+    Future<void> pumpOwn(WidgetTester tester) async {
+      await tester.pumpApp(
+        const MasterProfileScreen(),
+        overrides: <Object>[
+          ..._buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: media,
+          ),
+          secureStorageProvider.overrideWithValue(FakeSecureStorage()),
+          mediaPickServiceProvider.overrideWithValue(
+            MediaPickService(gw, tempDir: () async => scratch),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> realTurnsUntil(
+      WidgetTester tester,
+      bool Function() cond,
+    ) async {
+      for (int i = 0; i < 300 && !cond(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 2)),
+        );
+        // fixed-wait-ok: one frame per real-async turn inside a bounded poll.
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(cond(), isTrue, reason: 'condition never held');
+    }
+
+    testWidgets('own profile: add tile, a remove badge per photo, '
+        '«Портфоліо · 2/30»', (tester) async {
+      await pumpOwn(tester);
+      expect(find.byKey(const Key('portfolio-add-tile')), findsOneWidget);
+      for (final PortfolioPhoto p in photos) {
+        expect(
+          find.byKey(Key('portfolio-photo-delete-${p.id}')),
+          findsOneWidget,
+        );
+      }
+      expect(
+        find.text(l10n.portfolioLabelWithCount(2, kPortfolioMaxPhotos)),
+        findsOneWidget,
+      );
+    });
+
+    Future<void> startUpload(WidgetTester tester) async {
+      final Finder add = find.byKey(const Key('portfolio-add-tile'));
+      await tester.ensureVisible(add);
+      await tester.pumpAndSettle();
+      await tester.tap(add);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('image-source-gallery')));
+      await realTurnsUntil(tester, () => media.uploaded.isNotEmpty);
+      await tester.pump();
+    }
+
+    Future<void> awaitSnack(WidgetTester tester) async {
+      await realTurnsUntil(
+        tester,
+        () => find.byType(VelvetSnack).evaluate().isNotEmpty,
+      );
+      await pumpVelvetSnackIn(tester);
+    }
+
+    /// Scrolls [f] into view, taps it, settles.
+    Future<void> tapSettled(WidgetTester tester, Finder f) async {
+      await tester.ensureVisible(f);
+      await tester.pumpAndSettle();
+      await tester.tap(f);
+      await tester.pumpAndSettle();
+    }
+
+    /// Switches to profile tab [index]. The tab bar sits under the sticky
+    /// header after the rail scroll — centre it first.
+    Future<void> switchTab(WidgetTester tester, int index) async {
+      final Finder tab = find.byKey(Key('master-profile-tab-$index'));
+      await Scrollable.ensureVisible(tester.element(tab), alignment: 0.5);
+      await tester.pumpAndSettle();
+      await tester.tap(tab);
+      await tester.pumpAndSettle();
+    }
+
+    /// Ten 16 ms frames — frames DURING the upload / while the rail is
+    /// unmounted are the point of the lifetime test.
+    Future<void> pumpFrames(WidgetTester tester) async {
+      for (int i = 0; i < 10; i++) {
+        // fixed-wait-ok: bounded frame run, the frames themselves are tested.
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+    }
+
+    /// Delete badge of photo [id] → the confirm dialog's confirm button.
+    Future<void> confirmDelete(WidgetTester tester, String id) async {
+      await tapSettled(tester, find.byKey(Key('portfolio-photo-delete-$id')));
+      await tester.tap(find.byKey(const Key('portfolio-delete-confirm')));
+      await tester.pumpAndSettle();
+    }
+
+    /// Add tile → the source sheet → dismissed via its modal barrier.
+    Future<void> openAndCloseSourceSheet(WidgetTester tester) async {
+      await tapSettled(tester, find.byKey(const Key('portfolio-add-tile')));
+      expect(find.byKey(const Key('image-source-gallery')), findsOneWidget);
+      await tester.tapAt(const Offset(8, 8)); // the modal barrier
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('image-source-gallery')), findsNothing);
+    }
+
+    /// Delete badge of photo [id] → the dialog → dismissed.
+    Future<void> openAndDismissDeleteDialog(
+      WidgetTester tester,
+      String id,
+    ) async {
+      await tapSettled(tester, find.byKey(Key('portfolio-photo-delete-$id')));
+      expect(find.byKey(const Key('portfolio-delete-dialog')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('portfolio-delete-dismiss')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('portfolio-delete-dialog')), findsNothing);
+    }
+
+    testWidgets('Q5 — a failed add keeps a failed tile with retry + the '
+        'failure snack', (tester) async {
+      await pumpOwn(tester);
+      await startUpload(tester);
+      media.result.completeError(const UploadNetworkFailure());
+      await awaitSnack(tester);
+      expectVelvetSnack(
+        const UploadNetworkFailure().message(l10n),
+        variant: VelvetSnackVariant.error,
+      );
+      expect(find.byType(UploadFailedOverlay), findsOneWidget);
+      expect(find.byKey(const Key('upload-retry')), findsOneWidget);
+      expect(
+        find.text(l10n.portfolioLabelWithCount(3, kPortfolioMaxPhotos)),
+        findsOneWidget,
+        reason: 'the failed upload still counts toward the cap',
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('Q5 — a server 409 limit → the limit warning snack', (
+      tester,
+    ) async {
+      await pumpOwn(tester);
+      await startUpload(tester);
+      media.result.completeError(const PortfolioLimitReachedFailure());
+      await awaitSnack(tester);
+      expectVelvetSnack(
+        l10n.uploadErrorPortfolioLimit(kPortfolioMaxPhotos),
+        variant: VelvetSnackVariant.warning,
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('Q5 — optimistic: the photo hides while the delete is in '
+        'flight; a failure brings it back with the delete-failed snack', (
+      tester,
+    ) async {
+      final Completer<void> hold = Completer<void>();
+      media
+        ..holdDelete = hold
+        ..deleteFailure = const UploadNetworkFailure();
+      await pumpOwn(tester);
+      await confirmDelete(tester, 'p2');
+      expect(media.deletes, <(PortfolioOwner, String)>[(own, 'p2')]);
+      expect(
+        find.byKey(const Key('portfolio-photo-p2')),
+        findsNothing,
+        reason: 'hidden while the delete is in flight',
+      );
+
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('portfolio-photo-p2')), findsOneWidget);
+      expectVelvetSnack(
+        l10n.portfolioDeleteFailed,
+        variant: VelvetSnackVariant.error,
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('Q1 — an upload that lands while «Послуги» is open (the rail '
+        'is unmounted) still shows «Фото додано»', (tester) async {
+      await pumpOwn(tester);
+      await startUpload(tester);
+      await switchTab(tester, 1);
+      expect(find.byType(PortfolioRail), findsNothing);
+
+      media.result.complete(fresh);
+      await awaitSnack(tester);
+      expect(find.byType(PortfolioRail), findsNothing, reason: 'still away');
+      expectVelvetSnack(
+        l10n.portfolioPhotoAdded,
+        variant: VelvetSnackVariant.success,
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('delete: badge → confirm → request for the OWN portfolio → '
+        'tile gone', (tester) async {
+      await pumpOwn(tester);
+      await confirmDelete(tester, 'p2');
+      expect(media.deletes, <(PortfolioOwner, String)>[(own, 'p2')]);
+      expect(find.byKey(const Key('portfolio-photo-p2')), findsNothing);
+      expect(find.byKey(const Key('portfolio-photo-p1')), findsOneWidget);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('perf (cycle 2) — after a delete, pushing / popping the add '
+        'sheet and the delete dialog does NOT rebuild the rail (the result '
+        'sink registers no route-status dependency)', (tester) async {
+      await pumpOwn(tester);
+      // `_OwnPortfolioRailState.build` returns a fresh PortfolioRail every
+      // time: the SAME instance afterwards means the rail state never rebuilt.
+      Widget rail() => tester.widget(find.byType(PortfolioRail));
+
+      // A completed delete runs the result sink (`resultHost` resolved).
+      await confirmDelete(tester, 'p2');
+      expect(media.deletes, <(PortfolioOwner, String)>[(own, 'p2')]);
+      await pumpPastVelvetSnack(tester);
+
+      final Widget before = rail();
+      await openAndCloseSourceSheet(tester);
+      expect(rail(), same(before), reason: 'sheet push / pop rebuilt the rail');
+
+      await openAndDismissDeleteDialog(tester, 'p1');
+      expect(
+        rail(),
+        same(before),
+        reason: 'dialog push / pop rebuilt the rail',
+      );
+      expect(media.deletes, hasLength(1), reason: 'dismiss deletes nothing');
+    });
+
+    testWidgets('CONTROLLER LIFETIME — an in-flight upload survives frames '
+        'and a switch to «Послуги» and back; never cancelled, then lands', (
+      tester,
+    ) async {
+      await pumpOwn(tester);
+      await startUpload(tester);
+      expect(media.uploaded.single, own);
+      media.progress.add(0.5);
+      await pumpFrames(tester);
+      expect(find.byType(UploadProgressOverlay), findsOneWidget);
+      expect(media.cancelCalls, 0);
+
+      await switchTab(tester, 1);
+      expect(find.byType(PortfolioRail), findsNothing);
+      await pumpFrames(tester);
+      expect(media.cancelCalls, 0, reason: 'the screen keeps it alive');
+
+      await switchTab(tester, 0);
+      expect(find.byType(UploadProgressOverlay), findsOneWidget);
+      media.result.complete(fresh);
+      await realTurnsUntil(
+        tester,
+        () => find
+            .byKey(const Key('portfolio-photo-fresh'))
+            .evaluate()
+            .isNotEmpty,
+      );
+      expect(media.cancelCalls, 0);
+      await pumpPastVelvetSnack(tester);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -3882,5 +4363,62 @@ class _ProfilePushObserver extends NavigatorObserver {
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     final String? name = route.settings.name;
     if (name != null) routes.add(name);
+  }
+}
+
+/// A media repository whose portfolio read never settles (loading state).
+class _HangingMedia extends FakeMediaUploadRepository {
+  _HangingMedia(this._never);
+
+  final Future<void> _never;
+
+  @override
+  Future<List<PortfolioPhoto>> getMasterPortfolio(String masterId) async {
+    await _never;
+    return const <PortfolioPhoto>[];
+  }
+}
+
+/// Phase 405 — scripted portfolio writes over the shared read fake.
+class _ScriptedPortfolioMedia extends FakeMediaUploadRepository {
+  _ScriptedPortfolioMedia(List<PortfolioPhoto> photos)
+    : super(masterPortfolio: photos);
+
+  final List<PortfolioOwner> uploaded = <PortfolioOwner>[];
+  final List<(PortfolioOwner, String)> deletes = <(PortfolioOwner, String)>[];
+  Completer<PortfolioPhoto> result = Completer<PortfolioPhoto>();
+  StreamController<double> progress = StreamController<double>.broadcast();
+  int cancelCalls = 0;
+  UploadFailure? deleteFailure;
+  Completer<void>? holdDelete;
+
+  @override
+  UploadTask<PortfolioPhoto> uploadPortfolioPhoto(
+    PortfolioOwner owner,
+    File file,
+  ) {
+    uploaded.add(owner);
+    final Completer<PortfolioPhoto> c = result = Completer<PortfolioPhoto>();
+    progress = StreamController<double>.broadcast();
+    return UploadTask<PortfolioPhoto>(
+      progress: progress.stream,
+      result: c.future,
+      onCancel: () {
+        cancelCalls++;
+        if (!c.isCompleted) c.completeError(const UploadCancelledFailure());
+      },
+    );
+  }
+
+  @override
+  Future<void> deletePortfolioPhoto(
+    PortfolioOwner owner,
+    String mediaId,
+  ) async {
+    deletes.add((owner, mediaId));
+    final Completer<void>? hold = holdDelete;
+    if (hold != null) await hold.future;
+    final UploadFailure? f = deleteFailure;
+    if (f != null) throw f;
   }
 }

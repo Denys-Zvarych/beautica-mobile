@@ -32,6 +32,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -56,6 +57,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../../../helpers/fakes/fake_media_upload_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -160,6 +162,8 @@ ProviderScope _buildApp({
   return ProviderScope(
     retry: beauticaProviderRetry,
     overrides: [
+      // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+      portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
       // Phase 363 — the profile header now mounts the live notification bell,
       // whose real notifier would start a 60 s poll timer (see
       // `helpers/no_unread_notifications.dart`).
