@@ -95,6 +95,7 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 
 import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
@@ -4075,8 +4076,8 @@ void main() {
       media = _ScriptedPortfolioMedia(photos);
     });
     tearDown(() {
-      scratch.deleteSync(recursive: true);
-      outside.deleteSync(recursive: true);
+      deleteScratchDir(scratch);
+      deleteScratchDir(outside);
     });
 
     Future<void> pumpOwn(WidgetTester tester) async {

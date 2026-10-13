@@ -40,6 +40,7 @@ import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
@@ -203,8 +204,8 @@ void main() {
   tearDown(() {
     debugMediaCacheManager = null;
     MediaConfig.debugAllowedHosts = null;
-    scratch.deleteSync(recursive: true);
-    outside.deleteSync(recursive: true);
+    deleteScratchDir(scratch);
+    deleteScratchDir(outside);
   });
 
   Future<void> pump(

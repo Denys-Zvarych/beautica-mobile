@@ -32,6 +32,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/until.dart';
 import '../pick/scripted_pick_gateway.dart';
 
@@ -186,9 +187,11 @@ void main() {
       ],
     );
     addTearDown(() {
+      // Dispose fires un-awaited deletes of every kept pick inside
+      // `scratch`; racing them with a plain recursive delete flakes on CI.
       container.dispose();
-      scratch.deleteSync(recursive: true);
-      outside.deleteSync(recursive: true);
+      deleteScratchDir(scratch);
+      deleteScratchDir(outside);
     });
     await container.read(authProvider.future);
   });

@@ -54,6 +54,7 @@ import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/rendered_image_url.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 /// UA copy resolved from the ARB (no Cyrillic literals in finders).
@@ -305,8 +306,8 @@ void main() {
   tearDown(() {
     debugMediaCacheManager = null;
     MediaConfig.debugAllowedHosts = null;
-    scratch.deleteSync(recursive: true);
-    outside.deleteSync(recursive: true);
+    deleteScratchDir(scratch);
+    deleteScratchDir(outside);
   });
 
   Future<void> pump(

@@ -91,6 +91,7 @@ import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/test_container.dart';
 
 const _owner = User(
@@ -1388,8 +1389,8 @@ void _avatarUploadNoReloadTests() {
       final Directory scratch = Directory.systemTemp.createTempSync('own_av');
       final Directory outside = Directory.systemTemp.createTempSync('own_av_o');
       addTearDown(() {
-        scratch.deleteSync(recursive: true);
-        outside.deleteSync(recursive: true);
+        deleteScratchDir(scratch);
+        deleteScratchDir(outside);
       });
       final ScriptedPickGateway gw = ScriptedPickGateway(
         scratch: scratch,

@@ -80,6 +80,7 @@ import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/avatar_badge_geometry.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/scratch_dir.dart';
 
 const Master _master = Master(
   id: 'm-9',
@@ -1436,8 +1437,8 @@ void _avatarUploadNoReloadTests() {
       final Directory scratch = Directory.systemTemp.createTempSync('sm_av');
       final Directory outside = Directory.systemTemp.createTempSync('sm_av_o');
       addTearDown(() {
-        scratch.deleteSync(recursive: true);
-        outside.deleteSync(recursive: true);
+        deleteScratchDir(scratch);
+        deleteScratchDir(outside);
       });
       final ScriptedPickGateway gw = ScriptedPickGateway(
         scratch: scratch,
