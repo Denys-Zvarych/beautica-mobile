@@ -15,6 +15,14 @@
 // default — a test passing its OWN override for that provider wins (e.g. a
 // cache-window test pinning the real 60 s).
 //
+// Phase 404 (CI fix) — it ALSO defaults `portfolioCacheTtlProvider` to
+// [Duration.zero] ([withDefaultNoPortfolioCacheTtl]): the master profile and
+// salon management screens now watch `portfolioProvider`, whose production
+// 5-minute keepAlive timer would otherwise be pending at the same invariant
+// check. Only the TIMER goes — the real read path (fake repositories) still
+// feeds the rail. A test overriding `portfolioCacheTtlProvider` itself, or
+// `portfolioProvider` wholesale (e.g. `FixedPortfolioNotifier`), wins.
+//
 // It also installs [beauticaProviderRetry] — the production retry predicate,
 // the same default `pumpApp` / `pumpRoutedApp` use — and registers
 // `container.dispose` via `addTearDown`, so the caller must NOT dispose again.
@@ -27,6 +35,7 @@ import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 
 import 'no_unread_notifications.dart';
@@ -42,8 +51,8 @@ ProviderContainer makeTestContainer({
       beauticaProviderRetry,
 }) {
   final ProviderContainer container = ProviderContainer(
-    overrides: withDefaultNoSalonProfileCacheWindow(
-      withDefaultNoUnread(overrides),
+    overrides: withDefaultNoPortfolioCacheTtl(
+      withDefaultNoSalonProfileCacheWindow(withDefaultNoUnread(overrides)),
     ).cast<Override>(),
     retry: retry,
   );
@@ -65,6 +74,20 @@ List<Object> withDefaultNoSalonProfileCacheWindow(List<Object> overrides) {
           salonManagementProfileCacheWindowProvider.overrideWithValue(
             Duration.zero,
           ),
+          ...overrides,
+        ];
+}
+
+/// Prepends a zero `portfolioCacheTtlProvider` override to [overrides] UNLESS
+/// the caller already overrides that provider.
+List<Object> withDefaultNoPortfolioCacheTtl(List<Object> overrides) {
+  final bool callerOverrides = overrides.any(
+    (Object o) => o is Override && o.origin == portfolioCacheTtlProvider,
+  );
+  return callerOverrides
+      ? overrides
+      : <Object>[
+          portfolioCacheTtlProvider.overrideWithValue(Duration.zero),
           ...overrides,
         ];
 }

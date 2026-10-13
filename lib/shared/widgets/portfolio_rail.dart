@@ -548,10 +548,13 @@ class PortfolioShowAllTile extends StatelessWidget {
           height: PortfolioTile.size,
           width: PortfolioTile.size,
           child: DecoratedBox(
-            decoration: const BoxDecoration(
+            // Non-offset recipe: an opaque OFFSET shadow on a rounded box
+            // paints hard corner squares on Impeller-GLES (guarded by
+            // impeller_circle_shadow_guard_test).
+            decoration: BoxDecoration(
               color: BrandColors.faint,
               borderRadius: _radius,
-              boxShadow: VelvetShadows.extrudedSmall,
+              boxShadow: VelvetShadows.borderedButton,
             ),
             child: Center(
               child: Text('+$remaining', style: VelvetText.bodyStrong()),
@@ -566,12 +569,12 @@ class PortfolioShowAllTile extends StatelessWidget {
 /// Phase 406 (9.11, D2) — the shell a real photo sits in.
 enum PortfolioTileLook {
   /// The default (pre-406) tile: camel→mocha gradient fill (the loading fill),
-  /// the light [_kTileLift] pair that flattens while pressed, and a photo
+  /// the soft non-offset [_kTileLift] that fades while pressed, and a photo
   /// glyph on the gradient as the error / disallowed-URL fallback.
   gradient,
 
   /// The public salon profile's tile (formerly its own private tile): no fill behind the photo, the
-  /// [VelvetShadows.extrudedSmall] raised pair (static — no press state), and
+  /// non-offset [VelvetShadows.borderedButton] lift (static — no press state), and
   /// a faint tile with a broken-image glyph as the fallback.
   raisedPhoto,
 }
@@ -676,7 +679,7 @@ class _TileRemoveBadge extends StatelessWidget {
             child: Container(
               height: _disc,
               width: _disc,
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 color: BrandColors.white,
                 shape: BoxShape.circle,
                 boxShadow: _kTileLift,
@@ -694,19 +697,23 @@ class _TileRemoveBadge extends StatelessWidget {
   }
 }
 
-/// The raised photo tile's paired light/dark lift (also the remove badge's).
-const List<BoxShadow> _kTileLift = <BoxShadow>[
+/// The gradient photo tile's lift (also the remove badge's). ONE non-offset,
+/// alpha-attenuated shadow: the former opaque `Offset(±2, ±2)` light/dark
+/// pair painted hard corner squares on Impeller-GLES (the background showed
+/// at the tile corners; Skia — hence goldens — cannot see it).
+final List<BoxShadow> _kTileLift = <BoxShadow>[
   BoxShadow(
-    color: BrandColors.shadowDarkButton,
-    offset: Offset(2, 2),
+    color: BrandColors.shadowDarkButton.withValues(alpha: 0.45),
     blurRadius: 5,
-    spreadRadius: -1,
   ),
+];
+
+/// [_kTileLift] while pressed: same geometry at alpha 0, so the
+/// `AnimatedContainer` fades the lift (shadow lerp) instead of dropping it.
+final List<BoxShadow> _kTileLiftPressed = <BoxShadow>[
   BoxShadow(
-    color: BrandColors.shadowLightStrong,
-    offset: Offset(-2, -2),
+    color: BrandColors.shadowDarkButton.withValues(alpha: 0),
     blurRadius: 5,
-    spreadRadius: -1,
   ),
 ];
 
@@ -803,7 +810,7 @@ class _PortfolioTileState extends State<PortfolioTile> {
   bool _pressed = false;
 
   /// Only the gradient look reads [_pressed] (its lift drops on press); the
-  /// raised look's decoration is const, so a press there must not rebuild.
+  /// raised look's decoration is static, so a press there must not rebuild.
   void _setPressed(bool v) {
     if (widget.look == PortfolioTileLook.raisedPhoto || _pressed == v) return;
     setState(() => _pressed = v);
@@ -824,6 +831,13 @@ class _PortfolioTileState extends State<PortfolioTile> {
 
   static const BorderRadius _radius = BorderRadius.all(
     Radius.circular(VelvetRadii.field),
+  );
+
+  /// The `raisedPhoto` decoration — built once, so the look's
+  /// no-press-rebuild path (phase 406) never allocates one per build.
+  static final BoxDecoration _raisedDecoration = BoxDecoration(
+    borderRadius: _radius,
+    boxShadow: VelvetShadows.borderedButton,
   );
 
   static final Widget _raisedFallback = DecoratedBox(
@@ -900,10 +914,7 @@ class _PortfolioTileState extends State<PortfolioTile> {
             height: _size,
             width: _size,
             decoration: raised
-                ? const BoxDecoration(
-                    borderRadius: _radius,
-                    boxShadow: VelvetShadows.extrudedSmall,
-                  )
+                ? _raisedDecoration
                 : BoxDecoration(
                     borderRadius: BorderRadius.circular(VelvetRadii.field),
                     gradient: LinearGradient(
@@ -911,7 +922,7 @@ class _PortfolioTileState extends State<PortfolioTile> {
                       end: Alignment.bottomRight,
                       colors: fill,
                     ),
-                    boxShadow: _pressed ? null : _kTileLift,
+                    boxShadow: _pressed ? _kTileLiftPressed : _kTileLift,
                   ),
             child: preview != null
                 ? _pendingContent(preview, glyph)

@@ -39,6 +39,14 @@ part 'portfolio_notifier.g.dart';
 /// How long a loaded portfolio stays cached without a listener.
 const Duration kPortfolioCacheTtl = Duration(minutes: 5);
 
+/// The cache TTL [PortfolioNotifier.build] (and the `salonPortfolioProvider`
+/// delegate) arms. Production uses [kPortfolioCacheTtl]; `makeTestContainer`
+/// defaults it to [Duration.zero] — no keepAlive, no timer outliving
+/// flutter_test's pending-timer check — unless a test overrides it itself.
+/// Mirrors `salonManagementProfileCacheWindowProvider` (phase 384).
+@riverpod
+Duration portfolioCacheTtl(Ref ref) => kPortfolioCacheTtl;
+
 /// [owner]'s portfolio, newest first (at most 50 — above the 30-photo cap).
 ///
 /// A class notifier (not a plain future provider) only so the write
@@ -51,10 +59,9 @@ class PortfolioNotifier extends _$PortfolioNotifier {
   Future<List<PortfolioPhoto>> build(PortfolioOwner owner) async {
     // Keep the link alive across an away-and-back tab switch, then close it
     // so a stale gallery eventually refetches. The timer is cancelled on
-    // dispose so it can never fire after the provider is gone.
-    final link = ref.keepAlive();
-    final Timer timer = Timer(kPortfolioCacheTtl, link.close);
-    ref.onDispose(timer.cancel);
+    // dispose so it can never fire after the provider is gone. A zero TTL
+    // (the shared test container's default) arms neither link nor timer.
+    keepAliveFor(ref, ref.read(portfolioCacheTtlProvider));
 
     return switch (owner) {
       final PortfolioOwnerSalon o =>
@@ -99,4 +106,13 @@ class PortfolioNotifier extends _$PortfolioNotifier {
     );
     return true;
   }
+}
+
+/// Holds [ref] alive for [ttl], then releases it; the timer is cancelled on
+/// dispose. A non-positive [ttl] is a no-op (plain autoDispose).
+void keepAliveFor(Ref ref, Duration ttl) {
+  if (ttl <= Duration.zero) return;
+  final link = ref.keepAlive();
+  final Timer timer = Timer(ttl, link.close);
+  ref.onDispose(timer.cancel);
 }

@@ -955,12 +955,12 @@ void main() {
       );
       final BoxDecoration d = decorationOf(tester);
       expect(d.gradient, isNotNull);
-      expect(d.boxShadow, isNotEmpty, reason: 'the light lift pair');
+      expect(d.boxShadow, isNotEmpty, reason: 'the soft lift');
       expect(d.boxShadow, isNot(VelvetShadows.extrudedSmall));
       expect(find.byIcon(Icons.photo_outlined), findsOneWidget);
     });
 
-    testWidgets('raisedPhoto: no fill, extrudedSmall shadow, broken-image '
+    testWidgets('raisedPhoto: no fill, borderedButton shadow, broken-image '
         'fallback, read-only rail passes it to every photo tile', (
       tester,
     ) async {
@@ -978,9 +978,86 @@ void main() {
       final BoxDecoration d = decorationOf(tester);
       expect(d.gradient, isNull);
       expect(d.color, isNull);
-      expect(d.boxShadow, VelvetShadows.extrudedSmall);
+      expect(d.boxShadow, VelvetShadows.borderedButton);
       expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
       expect(find.byIcon(Icons.photo_outlined), findsNothing);
+    });
+  });
+
+  // 2026-10-13 — Impeller-GLES corner artifact: an OPAQUE shadow at a
+  // non-zero offset on a rounded box paints hard corner squares (the
+  // background showed at the photo-tile corners). Skia goldens cannot see it,
+  // so pin the decoration itself. Static twin:
+  // impeller_circle_shadow_guard_test (portfolio_rail.dart is guarded).
+  group('PortfolioRail — Impeller-safe tile shadows', () {
+    void expectImpellerSafe(BoxDecoration d, String what) {
+      final List<BoxShadow>? shadows = d.boxShadow;
+      expect(shadows, isNotEmpty, reason: '$what has a lift (non-vacuous)');
+      for (final BoxShadow b in shadows!) {
+        expect(b.offset, Offset.zero, reason: '$what: non-offset shadow');
+        expect(b.color.a, lessThan(1.0), reason: '$what: attenuated shadow');
+      }
+    }
+
+    testWidgets('raisedPhoto tile, «+N» tile and gradient tile: every '
+        'boxShadow is Offset.zero with alpha < 1', (tester) async {
+      await tester.pumpApp(
+        Scaffold(
+          body: Column(
+            children: <Widget>[
+              PortfolioRail(
+                photos: <PortfolioPhoto>[
+                  for (int i = 0; i < 10; i++)
+                    PortfolioPhoto(id: 's$i', url: 'https://evil.test/$i.png'),
+                ],
+                tileLook: PortfolioTileLook.raisedPhoto,
+                initialVisibleCount: 8,
+              ),
+              const PortfolioTile(
+                key: Key('gradient-tile'),
+                index: 0,
+                imageUrl: 'https://evil.test/g.png',
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder raised = find.descendant(
+        of: find.byType(PortfolioRail),
+        matching: find.byType(AnimatedContainer),
+      );
+      expect(raised, findsWidgets);
+      for (final Element e in raised.evaluate()) {
+        expectImpellerSafe(
+          (e.widget as AnimatedContainer).decoration! as BoxDecoration,
+          'raisedPhoto tile',
+        );
+      }
+
+      final Finder showAll = find.descendant(
+        of: find.byType(PortfolioShowAllTile),
+        matching: find.byType(DecoratedBox),
+      );
+      expect(showAll, findsOneWidget);
+      expectImpellerSafe(
+        tester.widget<DecoratedBox>(showAll).decoration as BoxDecoration,
+        '«+N» tile',
+      );
+
+      expectImpellerSafe(
+        tester
+                .widget<AnimatedContainer>(
+                  find.descendant(
+                    of: find.byKey(const Key('gradient-tile')),
+                    matching: find.byType(AnimatedContainer),
+                  ),
+                )
+                .decoration!
+            as BoxDecoration,
+        'gradient tile',
+      );
     });
   });
 
@@ -1063,13 +1140,20 @@ void main() {
         // Past the tap-down deadline: onTapDown fires while held.
         await tester.pump(kPressTimeout + const Duration(milliseconds: 1));
         if (look == PortfolioTileLook.gradient) {
-          // The gradient look's press feedback is unchanged: lift drops.
+          // The gradient look's press feedback: the lift fades to alpha 0
+          // (same non-offset geometry — never a null shadow).
           final BoxDecoration held =
               tester
                       .widget<AnimatedContainer>(find.byType(AnimatedContainer))
                       .decoration
                   as BoxDecoration;
-          expect(held.boxShadow, isNull, reason: 'pressed → lift removed');
+          final List<BoxShadow>? shadows = held.boxShadow;
+          expect(shadows, isNotNull, reason: 'pressed → lift faded, kept');
+          expect(
+            shadows!.every((BoxShadow b) => b.color.a == 0),
+            isTrue,
+            reason: 'pressed → lift fully transparent',
+          );
         }
         await g.up();
         await tester.pumpAndSettle();
@@ -1293,7 +1377,11 @@ void main() {
                         )
                         .decoration
                     as BoxDecoration;
-            expect(held.boxShadow, isNull, reason: 'pressed → lift removed');
+            expect(
+              held.boxShadow!.every((BoxShadow b) => b.color.a == 0),
+              isTrue,
+              reason: 'pressed → lift faded to transparent',
+            );
           }
           await g.up();
           await tester.pumpAndSettle();

@@ -224,6 +224,32 @@ final Finder _anyPendingTile = find.byWidgetPredicate(
   },
 );
 
+/// Waits until every pending tile's local preview has finished decoding.
+/// The decode is REAL file I/O racing the test: landing the upload unmounts
+/// the tile and deletes the staged scratch file, and a decode still in flight
+/// then fails with NO error listener left (`ImageCache` adds none), so Flutter
+/// reports a `PathNotFoundException` into the test (CI-only flake, phase 407
+/// D4). Polls the tile's OWN provider key until the load is no longer
+/// pending in the cache.
+Future<void> _settlePendingPreviews(WidgetTester tester) async {
+  final Finder images = find.descendant(
+    of: _anyPendingTile,
+    matching: find.byType(Image),
+  );
+  expect(images, findsWidgets, reason: 'no pending preview to settle');
+  final ImageCache cache = tester.binding.imageCache;
+  for (final Element e in images.evaluate().toList()) {
+    final ImageProvider<Object> provider = (e.widget as Image).image;
+    final Object key = await provider.obtainKey(
+      createLocalImageConfiguration(e),
+    );
+    // Settled = no longer pending: decoded, or failed while the tile's
+    // `Image` was still listening (its errorBuilder handled it — the
+    // fixture's staged bytes are not a decodable image).
+    await _pumpUntil(tester, () => !cache.statusForKey(key).pending);
+  }
+}
+
 /// Pumps until a VelvetSnack is up, then plays its entrance.
 Future<void> _awaitSnack(WidgetTester tester) async {
   await _pumpUntil(
@@ -549,6 +575,7 @@ void main() {
       await tester.tap(find.byKey(const Key('image-source-gallery')));
       await _pumpUntil(tester, () => uploads.uploaded.isNotEmpty);
       await tester.pump();
+      await _settlePendingPreviews(tester);
     }
 
     testWidgets('admin: add tile → sheet → upload to THIS salon → progress '
@@ -759,6 +786,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('image-source-gallery')));
       await _pumpUntil(tester, () => _anyPendingTile.evaluate().isNotEmpty);
+      await _settlePendingPreviews(tester);
       // Q3 — a real tap at the tile's centre (no `warnIfMissed: false`,
       // which would let a tap that missed the tile pass silently).
       final Finder pending = _anyPendingTile.first;

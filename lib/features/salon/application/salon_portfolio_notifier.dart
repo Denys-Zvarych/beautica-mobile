@@ -10,8 +10,6 @@
 // `PortfolioOwner.salon` (D9 — pinned by
 // `test/core/media/portfolio/portfolio_owner_call_sites_test.dart`).
 
-import 'dart:async';
-
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
@@ -31,8 +29,6 @@ Future<List<PortfolioPhoto>> salonPortfolio(Ref ref, String salonId) {
   // It watches the shared provider's `.future`, so an upload / delete — the
   // controller's local prepend / remove, or its invalidate fallback — reaches
   // it while it is alive (pinned by portfolio_edit_controller_test).
-  final link = ref.keepAlive();
-  final Timer timer = Timer(kPortfolioCacheTtl, link.close);
-  ref.onDispose(timer.cancel);
+  keepAliveFor(ref, ref.read(portfolioCacheTtlProvider));
   return ref.watch(portfolioProvider(PortfolioOwner.salon(salonId)).future);
 }
