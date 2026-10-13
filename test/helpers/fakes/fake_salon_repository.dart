@@ -66,7 +66,7 @@ import 'package:beautica_mobile/features/salon/domain/invite_status.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -267,9 +267,17 @@ class FakeSalonRepository implements SalonRepository {
     int size = kSalonReviewsPageSize,
   }) async => const <SalonReviewItem>[];
 
+  /// Phase 404 — what [getSalonPortfolio] returns (default: empty, as
+  /// before) and every salon id it was read for (context-isolation tests
+  /// assert the latter stays empty off salon surfaces).
+  List<PortfolioPhoto> salonPortfolio = const <PortfolioPhoto>[];
+  final List<String> salonPortfolioReads = <String>[];
+
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) async =>
-      const <SalonPortfolioPhoto>[];
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async {
+    salonPortfolioReads.add(salonId);
+    return salonPortfolio;
+  }
 
   @override
   Future<List<BookableMasterAssignment>> getBookableMasters({

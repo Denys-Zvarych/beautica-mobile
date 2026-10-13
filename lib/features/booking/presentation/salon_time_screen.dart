@@ -654,7 +654,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
   /// edge case: the bookable-masters read for that service no longer lists
   /// this master — e.g. they deactivated the assignment, or lost their
   /// usable schedule, a step ago). Dropping just the one broken schedule —
-  /// logged, never thrown — mirrors `SalonPortfolioMapper.fromDtoList`'s "one
+  /// logged, never thrown — mirrors `PortfolioPhotoMapper.fromDtoList`'s "one
   /// broken entry must not blank the whole list" precedent elsewhere in this
   /// codebase. A partially-resolved [orderedMasterServiceIds] (some services
   /// resolved, others not) is refused outright rather than silently trimmed

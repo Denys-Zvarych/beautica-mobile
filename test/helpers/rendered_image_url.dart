@@ -1,9 +1,10 @@
 // Test helper — the URLs of the network images a subtree ACTUALLY renders.
 //
-// Asserts on the rendered `ImageProvider` (unwrapping `ResizeImage` down to the
-// `CachedNetworkImageProvider`), not on a widget field: a widget-field assert
+// Asserts on the rendered `ImageProvider` (unwrapping `ResizeImage` and the
+// cover-decode wrapper down to the `CachedNetworkImageProvider`), not on a widget field: a widget-field assert
 // is vacuous because it passes even when the image never reaches the screen.
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -35,8 +36,14 @@ void expectAvatarFallback(WidgetTester tester, Finder card) {
 
 String? _urlOf(ImageProvider provider) {
   ImageProvider current = provider;
-  while (current is ResizeImage) {
-    current = current.imageProvider;
+  while (true) {
+    if (current is ResizeImage) {
+      current = current.imageProvider;
+      continue;
+    }
+    final ImageProvider? coverInner = debugUnwrapCoverResized(current);
+    if (coverInner == null) break;
+    current = coverInner;
   }
   return current is CachedNetworkImageProvider ? current.url : null;
 }

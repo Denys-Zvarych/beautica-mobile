@@ -58,6 +58,9 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -77,6 +80,7 @@ import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -572,6 +576,50 @@ class _PublicProfileBody extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// _PublicPortfolioRail — phase 404 (9.9, D2): an INDEPENDENT master's
+// portfolio as a client sees it. A client never sees an empty section: empty
+// or failed → nothing at all (incl. the section gap); loading → placeholder
+// tiles (D2, existing look); data → the real tiles.
+// ---------------------------------------------------------------------------
+
+class _PublicPortfolioRail extends ConsumerWidget {
+  const _PublicPortfolioRail({required this.masterId});
+
+  final String masterId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // D2: the public read keys the SAME family entry the master's own
+    // profile uses, so a master previewing their public page shares one
+    // cache (and 405's write patches reach both). Only the read path uses
+    // [masterId]; nothing here can write.
+    final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
+      portfolioProvider(PortfolioOwner.masterSelf(masterId)),
+    );
+    final List<PortfolioPhoto>? photos = async.value;
+    final bool hidden = photos == null ? async.hasError : photos.isEmpty;
+    if (hidden) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const SizedBox(height: VelvetSpacing.xl),
+        PortfolioRail.fromAsync(
+          async,
+          railKey: const Key('public-master-profile-portfolio'),
+          hideWhenEmpty: true,
+          // Phase 407 (D3/D5) — this master's photos only.
+          onPhotoTap: (int i) => showPortfolioPhotoViewer(
+            context,
+            photos ?? const <PortfolioPhoto>[],
+            i,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // _AboutTab — "Про майстра": bio (or the empty-state text) + portfolio +
 // Instagram contact, the last two INDEPENDENT_MASTER-only.
 // ---------------------------------------------------------------------------
@@ -628,15 +676,13 @@ class _AboutTab extends StatelessWidget {
             style: VelvetText.feedback(BrandColors.muted),
           ),
 
-        // Portfolio rail (placeholder tiles until the gallery phase).
-        // INDEPENDENT_MASTER only — hidden entirely for salon-affiliated
-        // masters. REUSE-FIRST — [PortfolioRail] promoted to
-        // shared/widgets/portfolio_rail.dart; no `onSeeAll` here (this
-        // read-only view has no gallery route), matching prior behaviour.
-        if (isIndependent) ...<Widget>[
-          const SizedBox(height: VelvetSpacing.xl),
-          const PortfolioRail(railKey: Key('public-master-profile-portfolio')),
-        ],
+        // Portfolio rail — phase 404 (9.9): the independent master's real
+        // portfolio. INDEPENDENT_MASTER only (D6) — a salon owner's or salon
+        // master's public profile never requests or shows any portfolio
+        // (locked rule: salon photos belong to the salon). REUSE-FIRST —
+        // [PortfolioRail] (shared/widgets/portfolio_rail.dart); no
+        // `onSeeAll` (the viewer arrives with 407).
+        if (isIndependent) _PublicPortfolioRail(masterId: master.id),
 
         // Contacts (Instagram only; omitted when not set).
         if (instagram != null) ...<Widget>[

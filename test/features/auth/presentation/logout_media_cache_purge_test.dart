@@ -29,6 +29,8 @@
 // in a widget test. So "purge the ACTIVE manager" is the testable, correct
 // shape — this test asserts exactly that.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -37,6 +39,7 @@ import 'package:beautica_mobile/features/auth/domain/auth_tokens.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:flutter/painting.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,11 +56,16 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 // hit; emptyCache is the ONE method under test and it must record, not throw.
 // ---------------------------------------------------------------------------
 class _SpyMediaCacheManager implements BaseCacheManager {
+  _SpyMediaCacheManager({this.throwOnEmpty = false});
+
+  /// Makes the disk purge fail (a wedged sqflite store).
+  final bool throwOnEmpty;
   int emptyCacheCalls = 0;
 
   @override
   Future<void> emptyCache() async {
     emptyCacheCalls++;
+    if (throwOnEmpty) throw StateError('disk cache wedged');
   }
 
   @override
@@ -109,6 +117,8 @@ _makeAuthenticatedContainer() async {
 }
 
 void main() {
+  // S1 reads PaintingBinding.instance.imageCache.
+  TestWidgetsFlutterBinding.ensureInitialized();
   late _SpyMediaCacheManager spy;
 
   setUp(() {
@@ -182,6 +192,65 @@ void main() {
             'like the token wipe, the media purge must be best-effort and '
             'unconditional: a failed server revocation must not leave the '
             'previous account\'s cached faces on disk.',
+      );
+    });
+    // Phase 407 audit S1 — the disk purge alone left the decoded copies of the
+    // previous account's photos in Flutter's in-memory ImageCache.
+    test('logout() also drops decoded images from the in-memory ImageCache '
+        '(cached AND live entries)', () async {
+      final ImageCache cache = PaintingBinding.instance.imageCache;
+      addTearDown(cache.clear);
+      const Object key = 'previous-account-face';
+      final ImageStreamCompleter? decoded = cache.putIfAbsent(
+        key,
+        () => OneFrameImageStreamCompleter(Completer<ImageInfo>().future),
+      );
+      expect(decoded, isNotNull);
+      // A listener = an Image widget still showing it (a LIVE entry).
+      decoded?.addListener(ImageStreamListener((ImageInfo _, bool _) {}));
+      expect(cache.containsKey(key), isTrue, reason: 'precondition');
+      expect(cache.liveImageCount, greaterThan(0), reason: 'precondition');
+
+      final (container, _) = await _makeAuthenticatedContainer();
+      await container.read(authProvider.notifier).logout();
+      await pumpEventQueue();
+
+      expect(cache.containsKey(key), isFalse);
+      expect(cache.pendingImageCount, 0);
+      expect(cache.liveImageCount, 0);
+      expect(spy.emptyCacheCalls, greaterThanOrEqualTo(1));
+    });
+
+    // The in-memory purge has its OWN best-effort guard (auth_notifier.dart):
+    // a failing disk purge must not skip it — the decoded faces would stay
+    // resident even though the disk copy was the one that failed.
+    test('a FAILING disk purge does not skip the in-memory purge', () async {
+      spy = _SpyMediaCacheManager(throwOnEmpty: true);
+      debugMediaCacheManager = spy;
+      final ImageCache cache = PaintingBinding.instance.imageCache;
+      addTearDown(
+        () => cache
+          ..clear()
+          ..clearLiveImages(),
+      );
+      // Its own key: the S1 test above leaves a LIVE entry behind on a
+      // mutant, which a shared key would pick up here.
+      const Object key = 'face-behind-a-failed-disk-purge';
+      cache.putIfAbsent(
+        key,
+        () => OneFrameImageStreamCompleter(Completer<ImageInfo>().future),
+      );
+      expect(cache.containsKey(key), isTrue, reason: 'precondition');
+
+      final (container, _) = await _makeAuthenticatedContainer();
+      await container.read(authProvider.notifier).logout();
+      await pumpEventQueue();
+
+      expect(spy.emptyCacheCalls, 1, reason: 'the disk purge was attempted');
+      expect(cache.containsKey(key), isFalse);
+      expect(
+        container.read(authProvider).value,
+        equals(const AuthSession.unauthenticated()),
       );
     });
   });

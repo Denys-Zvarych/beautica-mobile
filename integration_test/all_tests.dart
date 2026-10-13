@@ -223,6 +223,7 @@ import 'support_contact_flow_test.dart' as support_contact;
 import 'swipe_to_delete_salon_flow_test.dart' as swipe_to_delete_salon;
 import 'velvet_snack_flow_test.dart' as velvet_snack;
 import 'media_avatar_upload_flow_test.dart' as media_avatar_upload;
+import 'portfolio_data_layer_flow_test.dart' as portfolio_data_layer;
 import 'notification_bell_flow_test.dart' as notification_bell;
 import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
@@ -232,6 +233,9 @@ import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
+import 'portfolio_render_flow_test.dart' as portfolio_render;
+import 'portfolio_upload_flow_test.dart' as portfolio_upload;
+import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 
@@ -770,6 +774,8 @@ void main() {
   group('velvet_snack_flow', velvet_snack.main);
   // Phase 361 — shared notification bell: dot iff unread > 0, tap -> /notifications.
   group('media_avatar_upload_flow', media_avatar_upload.main);
+  // Phase 403 — portfolio data layer: upload/delete/limit/busy, salon + master.
+  group('portfolio_data_layer_flow', portfolio_data_layer.main);
   group('master_avatar_upload', master_avatar_upload.main);
   // Phase 367 — own-avatar for owner/admin/client + role × surface matrix.
   group('owner_admin_avatar_upload', owner_admin_avatar_upload.main);
@@ -791,4 +797,11 @@ void main() {
   group('pending_actions_count_wiring', pending_actions_count.main);
   // Phase 386 — owner/admin rate the client (wired late, 393).
   group('salon_staff_client_review_flow', salon_staff_client_review.main);
+  group('portfolio_render_flow', portfolio_render.main);
+  // Phase 405 — add / delete portfolio photos: master, owner + admin on one
+  // salon, cap / 409, 503 retry / discard, 403 re-read, tab-switch survival.
+  group('portfolio_upload_flow', portfolio_upload.main);
+  // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
+  // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
+  group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
 }

@@ -40,7 +40,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -49,6 +49,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/golden_pump.dart';
+import 'helpers/photo_state_golden.dart';
 
 // ---------------------------------------------------------------------------
 // Fixtures — trimmed subset of `public_salon_profile_screen_test.dart`'s.
@@ -150,6 +151,11 @@ class _FakeFavoriteRepository implements FavoriteRepository {
 /// the 4 client-facing reads are ever exercised by this golden; every
 /// owner/admin write throws loudly if accidentally reached.
 class _FakeSalonRepository implements SalonRepository {
+  _FakeSalonRepository({this.portfolio = const <PortfolioPhoto>[]});
+
+  /// Phase 406 — the salon's portfolio (default empty: the original cells).
+  final List<PortfolioPhoto> portfolio;
+
   @override
   Future<void> create({required SalonCreateDto dto}) async {}
 
@@ -181,8 +187,8 @@ class _FakeSalonRepository implements SalonRepository {
   }) async => _stubReviews(sort);
 
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) async =>
-      const <SalonPortfolioPhoto>[];
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) async =>
+      portfolio;
 
   @override
   Future<List<BookableMasterAssignment>> getBookableMasters({
@@ -243,9 +249,13 @@ class _FakeSalonRepository implements SalonRepository {
       throw UnimplementedError('owner/admin only');
 }
 
-List<Object> _overrides() => <Object>[
+List<Object> _overrides({
+  List<PortfolioPhoto> portfolio = const <PortfolioPhoto>[],
+}) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
-  salonRepositoryProvider.overrideWithValue(_FakeSalonRepository()),
+  salonRepositoryProvider.overrideWithValue(
+    _FakeSalonRepository(portfolio: portfolio),
+  ),
   favoriteRepositoryProvider.overrideWithValue(_FakeFavoriteRepository()),
 ];
 
@@ -272,6 +282,8 @@ PumpWidget _pumpTab({required double width, int? tapTabIndex}) {
 // ---------------------------------------------------------------------------
 
 void main() {
+  _portfolioGoldens();
+
   for (final width in kGoldenWidths) {
     for (final scale in kGoldenTextScales) {
       final suffix = widthScaleSuffix(width, scale);
@@ -295,4 +307,82 @@ void main() {
       );
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 406 (9.11) — public salon PORTFOLIO baselines, captured BEFORE the
+// private salon portfolio rail was replaced by the shared `PortfolioRail`.
+// They are the acceptance evidence for that REUSE-FIRST promotion: after the
+// swap these PNGs must pass UNREGENERATED.
+//
+// Wide cells (all tiles + the trailing «+N» tile fit on screen, so the
+// collapsed vs expanded difference is in frame) plus one phone-width cell.
+// Photos come from the shared photo-golden harness (allow-listed host, fake
+// cache serving a solid image); the `fallback` cell uses a non-allow-listed
+// URL so the tile's error/fallback look is pinned too.
+// ---------------------------------------------------------------------------
+
+const double _kPortfolioWideWidth = 1160;
+
+List<PortfolioPhoto> _photos(int n, {String url = kGoldenAllowedUrl}) =>
+    <PortfolioPhoto>[
+      for (int i = 0; i < n; i++) PortfolioPhoto(id: 'photo-$i', url: url),
+    ];
+
+PumpWidget _pumpPortfolio({
+  required List<PortfolioPhoto> portfolio,
+  double width = _kPortfolioWideWidth,
+  bool expand = false,
+}) {
+  final PumpWidget base = goldenPumpWidget(
+    overrides: _overrides(portfolio: portfolio),
+    width: width,
+  );
+  return (WidgetTester tester, Widget alchemistWidget) async {
+    await base(tester, alchemistWidget);
+    if (expand) {
+      // By the «+N» label, not by key — the key is not part of the pixels
+      // this baseline pins and may move with the promotion.
+      await tester.tap(find.text('+${portfolio.length - 8}'));
+      await tester.pumpAndSettle();
+    }
+    // Let the fake-cache image decodes finish off the fake clock.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 150)),
+    );
+    await tester.pumpAndSettle();
+  };
+}
+
+void _portfolioGoldens() {
+  group('public salon portfolio (phase 406 baseline)', () {
+    registerPhotoGoldenMedia();
+
+    void cell(
+      String name,
+      List<PortfolioPhoto> portfolio, {
+      double width = _kPortfolioWideWidth,
+      bool expand = false,
+    }) {
+      goldenTest(
+        'public_salon_portfolio $name',
+        fileName: 'public_salon_portfolio_$name',
+        constraints: BoxConstraints.tight(Size(width, kGoldenHeight)),
+        pumpWidget: _pumpPortfolio(
+          portfolio: portfolio,
+          width: width,
+          expand: expand,
+        ),
+        builder: () => const PublicSalonProfileScreen(salonId: _kSalonId),
+      );
+    }
+
+    cell('0', _photos(0));
+    cell('3', _photos(3));
+    cell('8', _photos(8));
+    cell('12_collapsed', _photos(12));
+    cell('12_expanded', _photos(12), expand: true);
+    cell('12_collapsed_360', _photos(12), width: 360);
+    cell('3_fallback', _photos(3, url: kGoldenDisallowedUrl));
+  });
 }

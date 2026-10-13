@@ -71,18 +71,20 @@ void main() {
   late _MockDio dio;
   late _MockSalonApi salonApi;
   late _MockMasterApi masterApi;
+  late _MockMediaApi mediaApi;
   late HttpSalonRepository repository;
 
   setUp(() {
     dio = _MockDio();
     salonApi = _MockSalonApi();
     masterApi = _MockMasterApi();
+    mediaApi = _MockMediaApi();
     repository = HttpSalonRepository(
       dio,
       salonApi,
       _MockServiceApi(),
       _MockReviewApi(),
-      _MockMediaApi(),
+      mediaApi,
       masterApi,
     );
   });
@@ -931,6 +933,45 @@ void main() {
   // every test in this group green. The hoist is a style choice; these
   // assertions are the contract.
   group('path hardening', () {
+    // Phase 403 audit S1 — the portfolio read goes through the GENERATED
+    // client, which interpolates path params raw.
+    test('getSalonPortfolio rejects a ".." salonId before any request', () {
+      expect(
+        () => repository.getSalonPortfolio('..'),
+        throwsA(
+          isA<UnknownFailure>().having(
+            (UnknownFailure f) => f.cause,
+            'cause',
+            isA<ArgumentError>().having(
+              (ArgumentError e) => e.name,
+              'name',
+              'salonId',
+            ),
+          ),
+        ),
+      );
+      verifyNever(
+        () => mediaApi.getSalonPortfolio(salonId: any(named: 'salonId')),
+      );
+    });
+
+    test('getSalonPortfolio hands the generated client the ENCODED '
+        'salonId', () async {
+      when(
+        () => mediaApi.getSalonPortfolio(salonId: any(named: 'salonId')),
+      ).thenThrow(
+        DioException(
+          requestOptions: RequestOptions(path: '/x'),
+          type: DioExceptionType.connectionError,
+        ),
+      );
+      await expectLater(
+        repository.getSalonPortfolio('a b/c'),
+        throwsA(isA<Failure>()),
+      );
+      verify(() => mediaApi.getSalonPortfolio(salonId: 'a%20b%2Fc')).called(1);
+    });
+
     test('getSalonMasters rejects a ".." salonId before any request', () {
       expect(
         () => repository.getSalonMasters('..'),

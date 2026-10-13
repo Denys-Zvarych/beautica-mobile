@@ -25,6 +25,7 @@
 
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/network/api_client_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -49,6 +50,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../helpers/fakes/fake_auth_repository.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/test_container.dart';
 
@@ -169,6 +171,10 @@ void main() {
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         masterApiProvider.overrideWithValue(masterApi),
         salonManagementProfileProvider.overrideWith(_SettledEmptyRoster.new),
+        // The salon management screen's portfolio rail (phase 404) would
+        // otherwise read through the REAL salon repository → a live Dio
+        // request still pending at the timer invariant.
+        portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
       ],
     );
     return container;

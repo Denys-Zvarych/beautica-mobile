@@ -30,7 +30,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
-import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -56,6 +56,8 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -66,7 +68,6 @@ import '../application/salon_service_catalog_notifier.dart';
 import '../application/salon_service_filter_notifier.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
-import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_service_catalog.dart';
 import 'widgets/salon_cover_widgets.dart';
 import 'widgets/salon_master_card.dart';
@@ -1037,7 +1038,7 @@ class _AboutTab extends StatelessWidget {
                 ? VelvetText.feedback(BrandColors.muted)
                 : VelvetText.bodyStrong(),
           ),
-          _SalonPortfolioRail(salonId: salon.id),
+          _SalonAboutPortfolio(salonId: salon.id),
           // Each contact row is gated INDEPENDENTLY and the section heading on
           // "either is present" — structure mirrored verbatim from
           // `salon_management_profile_screen.dart`'s `_AboutReadView`, which
@@ -1125,238 +1126,65 @@ class _AboutTab extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// _SalonPortfolioRail — "Про салон" tab: real photo rail (Phase 13.6
-// follow-up — GET /salons/{salonId}/portfolio, previously unwired).
+// «Про салон» portfolio — the shared [PortfolioRail] (phase 406 / 9.11; was
+// this screen's own private rail, tile and «+N» tile, promoted
+// pixel-identically — golden-pinned by
+// `test/golden/public_salon_profile_golden_test.dart`'s portfolio cells).
 // ---------------------------------------------------------------------------
 
-/// Loads and renders the salon's real portfolio photo rail. Own independent
-/// [AsyncValue] (mirrors [_ServicesTab]/[SalonReviewsSection]) so a broken
-/// gallery read never blanks the description/Instagram sections around it.
-///
-/// Renders NOTHING — no heading, no empty rail, no error chrome — whenever
-/// the salon has zero photos, the read is still loading, or the read fails:
-/// this is fully optional chrome on top of the description, the same way the
-/// hero card's address lines hide entirely when absent (see
-/// [_SalonHeroCard._localityLine] / [_SalonHeroCard._streetLine]).
-/// How many portfolio photos render up front before the "show all"
-/// affordance is needed (mobile-perf MEDIUM fix, mirrors
-/// [kSalonMastersInitialCount]'s "show all" precedent exactly). The rail
-/// sits in a plain `Row` inside a `SingleChildScrollView` (not lazy — no
-/// viewport culling), and `getSalonPortfolio` carries no `page`/`size`
-/// contract to bound the fetch itself the way `getSalonMasters`/
-/// `getSalonReviews` do — so every returned photo would otherwise fire its
-/// `Image.network` request simultaneously on first paint regardless of how
-/// large the salon's full gallery is. Capping the initial render bounds that
-/// burst; the rest builds only once the user explicitly asks for them.
+/// How many portfolio photos render up front before the «+N» show-all tile
+/// (mobile-perf MEDIUM fix, mirrors [kSalonMastersInitialCount]'s "show all"
+/// precedent). Since phase 406 the rail is the shared LAZY [PortfolioRail]
+/// (capped at `kPortfolioMaxPhotos`), so off-screen tiles no longer fetch on
+/// first paint anyway; the collapsed count is kept as the screen's look (D3).
 const int kSalonPortfolioInitialCount = 8;
 
-class _SalonPortfolioRail extends ConsumerStatefulWidget {
-  const _SalonPortfolioRail({required this.salonId});
+/// The salon's real portfolio — READ-ONLY (no editor params, pinned by
+/// `portfolio_owner_call_sites_test.dart`). Own independent [AsyncValue] so
+/// a broken gallery read never blanks the description/contacts around it.
+///
+/// Renders NOTHING — no heading, no gap, no error chrome — while loading, on
+/// a failed read, or for an empty portfolio: optional chrome on top of the
+/// description, the same way the hero card's address lines hide when absent.
+class _SalonAboutPortfolio extends ConsumerWidget {
+  const _SalonAboutPortfolio({required this.salonId});
 
   final String salonId;
 
   @override
-  ConsumerState<_SalonPortfolioRail> createState() =>
-      _SalonPortfolioRailState();
-}
-
-class _SalonPortfolioRailState extends ConsumerState<_SalonPortfolioRail> {
-  // Flips true once the user explicitly taps "show all" — mirrors
-  // [_MastersTabState._showAll] exactly: a one-time, user-triggered build of
-  // the remainder is an acceptable cost; only the unconditional first-paint
-  // build is guarded against.
-  bool _showAll = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final AsyncValue<List<SalonPortfolioPhoto>> async = ref.watch(
-      salonPortfolioProvider(widget.salonId),
-    );
-    return async.when(
-      data: (List<SalonPortfolioPhoto> photos) =>
-          photos.isEmpty ? const SizedBox.shrink() : _rail(context, photos),
-      loading: () => const SizedBox.shrink(),
-      error: (Object e, StackTrace st) {
-        if (kDebugMode) {
-          log(
-            'salon portfolio load failed — hiding the optional rail',
-            name: 'feature.salon.public',
-            level: 900,
-            error: e,
-            stackTrace: st,
-          );
-        }
-        return const SizedBox.shrink();
-      },
-    );
-  }
-
-  Widget _rail(BuildContext context, List<SalonPortfolioPhoto> photos) {
-    final l10n = AppLocalizations.of(context);
-    final bool hasMore = photos.length > kSalonPortfolioInitialCount;
-    final List<SalonPortfolioPhoto> visible = hasMore && !_showAll
-        ? photos.sublist(0, kSalonPortfolioInitialCount)
-        : photos;
-
-    return Column(
-      key: const Key('salon-about-portfolio'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        const SizedBox(height: VelvetSpacing.xl),
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-          child: Text(
-            l10n.masterPortfolioLabel,
-            style: VelvetText.sectionLabel(),
-          ),
-        ),
-        SizedBox(
-          height: 72,
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.zero,
-            child: Row(
-              children: <Widget>[
-                for (int i = 0; i < visible.length; i++) ...<Widget>[
-                  _SalonPortfolioTile(photo: visible[i], index: i),
-                  if (i < visible.length - 1 || (hasMore && !_showAll))
-                    const SizedBox(width: VelvetSpacing.md),
-                ],
-                if (hasMore && !_showAll)
-                  _ShowAllPortfolioTile(
-                    remaining: photos.length - kSalonPortfolioInitialCount,
-                    onTap: () => setState(() => _showAll = true),
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ref
+        .watch(salonPortfolioProvider(salonId))
+        .when(
+          data: (List<PortfolioPhoto> photos) => photos.isEmpty
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: VelvetSpacing.xl),
+                  child: PortfolioRail(
+                    railKey: const Key('salon-about-portfolio'),
+                    photos: photos,
+                    hideWhenEmpty: true,
+                    initialVisibleCount: kSalonPortfolioInitialCount,
+                    tileLook: PortfolioTileLook.raisedPhoto,
+                    // Phase 407 (D3/D5) — salon photos only.
+                    onPhotoTap: (int i) =>
+                        showPortfolioPhotoViewer(context, photos, i),
                   ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A trailing 72dp tile appended to the portfolio rail whenever the gallery
-/// exceeds [kSalonPortfolioInitialCount], showing the remaining count.
-/// Tapping it reveals the rest of the gallery in place — the horizontal-rail
-/// equivalent of [_ShowAllMastersButton] below (same reveal-on-tap contract,
-/// different shell: an inline tile rather than a full-width button, to match
-/// this rail's tile-row vocabulary).
-class _ShowAllPortfolioTile extends StatelessWidget {
-  const _ShowAllPortfolioTile({required this.remaining, required this.onTap});
-
-  final int remaining;
-  final VoidCallback onTap;
-
-  static const double _size = 72;
-  static const BorderRadius _radius = BorderRadius.all(
-    Radius.circular(VelvetRadii.field),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    return Semantics(
-      button: true,
-      label: l10n.salonPortfolioShowAll,
-      child: GestureDetector(
-        key: const Key('salon-portfolio-show-all'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: SizedBox(
-          height: _size,
-          width: _size,
-          child: DecoratedBox(
-            decoration: const BoxDecoration(
-              color: BrandColors.faint,
-              borderRadius: _radius,
-              boxShadow: VelvetShadows.extrudedSmall,
-            ),
-            child: Center(
-              child: Text('+$remaining', style: VelvetText.bodyStrong()),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// One 72dp real-photo thumbnail in the salon's portfolio rail. Reuses the
-/// sibling [PublicMasterProfileScreen]'s `_PortfolioTile` visual shell (72dp
-/// square, [VelvetRadii.field] corner, [VelvetShadows.extrudedSmall] raised
-/// shadow) but backs it with a real [Image.network] instead of a gradient
-/// placeholder — mirroring [ResultThumbnail]'s exact network-image
-/// convention (`discovery/presentation/widgets/result_thumbnail.dart`):
-/// https-only scheme guard, decode-resolution-capped `cacheWidth`, and an
-/// [errorBuilder] fallback tile on load failure. Deliberately no
-/// `loadingBuilder`/shimmer — [SkeletonShimmerScope]'s [AnimationController]
-/// repeats forever once mounted (it has no "stop when idle" state), so
-/// wrapping this ALWAYS-VISIBLE rail in one would leave a perpetual ticker
-/// running for the rail's entire lifetime, not just while an image is
-/// actually loading — the same reason [ResultThumbnail] never uses a shimmer
-/// either.
-class _SalonPortfolioTile extends StatelessWidget {
-  const _SalonPortfolioTile({required this.photo, required this.index});
-
-  final SalonPortfolioPhoto photo;
-  final int index;
-
-  static const double _size = 72;
-  static const BorderRadius _radius = BorderRadius.all(
-    Radius.circular(VelvetRadii.field),
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    // The https-only + host-allowlist guard, decode-bounding and disk cache
-    // now live in RemoteImage (core/media/beautica_image.dart). Its shared
-    // [isAllowedMediaUrl] also RESTORES the null/empty-URL check this site's
-    // old inline `scheme == 'https'` guard omitted. `excludeFromSemantics` is
-    // set because the enclosing Semantics already labels the tile as an image.
-    return Semantics(
-      label: AppLocalizations.of(
-        context,
-      ).masterPortfolioTileSemantics(index + 1),
-      image: true,
-      child: SizedBox(
-        key: Key('salon-portfolio-photo-${photo.id}'),
-        height: _size,
-        width: _size,
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            borderRadius: _radius,
-            boxShadow: VelvetShadows.extrudedSmall,
-          ),
-          child: RemoteImage(
-            url: photo.url,
-            width: _size,
-            height: _size,
-            shape: RemoteImageShape.roundedRect,
-            borderRadius: _radius,
-            excludeFromSemantics: true,
-            fallback: _errorTile(),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _errorTile() {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        color: BrandColors.faint,
-        borderRadius: _radius,
-      ),
-      child: Center(
-        child: Icon(
-          Icons.broken_image_outlined,
-          color: BrandColors.white.withValues(alpha: 0.85),
-          size: 26,
-        ),
-      ),
-    );
+                ),
+          loading: () => const SizedBox.shrink(),
+          error: (Object e, StackTrace st) {
+            if (kDebugMode) {
+              log(
+                'salon portfolio load failed — hiding the optional rail',
+                name: 'feature.salon.public',
+                level: 900,
+                error: e,
+                stackTrace: st,
+              );
+            }
+            return const SizedBox.shrink();
+          },
+        );
   }
 }
 

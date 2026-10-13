@@ -12,6 +12,7 @@
 // Note: `test/` is excluded from the `no_raw_ui_strings` custom lint rule —
 // raw string literals in test find expressions are acceptable here.
 
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -38,6 +39,7 @@ import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
 import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import '../helpers/fakes/fake_media_upload_repository.dart';
 
 void main() {
   group('appRouter smoke tests', () {
@@ -146,6 +148,8 @@ void main() {
       final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
+          // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -263,6 +267,8 @@ void main() {
       final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
+          // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_unauthenticatedSession),
           ),
@@ -314,6 +320,8 @@ void main() {
       final container = makeTestContainer(
         retry: beauticaProviderRetry,
         overrides: [
+          // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
+          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
           ),

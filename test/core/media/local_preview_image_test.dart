@@ -234,7 +234,10 @@ void main() {
           ),
         ),
       );
-      expect(tester.takeException(), isA<AssertionError>());
+      final Object? error = tester.takeException();
+      expect(error, isA<AssertionError>());
+      // 405 audit S4 — the message never carries the file path.
+      expect(error.toString(), isNot(contains('/etc/passwd')));
     });
   });
 

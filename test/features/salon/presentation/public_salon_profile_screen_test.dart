@@ -42,7 +42,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_invite.dart';
 import 'package:beautica_mobile/features/salon/domain/bookable_master_assignment.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_master_summary.dart';
-import 'package:beautica_mobile/features/salon/domain/salon_portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/salon/presentation/public_salon_profile
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -63,6 +64,7 @@ import 'package:network_image_mock/network_image_mock.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 // ---------------------------------------------------------------------------
 // Stub data
@@ -230,7 +232,7 @@ class _FakeSalonRepository implements SalonRepository {
     Future<List<SalonServiceCategoryEntry>> Function()? catalog,
     Future<SalonReviewSummary> Function()? summary,
     Future<List<SalonReviewItem>> Function(SalonReviewSort sort)? reviews,
-    Future<List<SalonPortfolioPhoto>> Function()? portfolio,
+    Future<List<PortfolioPhoto>> Function()? portfolio,
   }) : _salon = salon ?? (() async => _stubSalon),
        _masters = masters ?? (() async => _stubMasters),
        _catalog = catalog ?? (() async => _stubCatalog),
@@ -241,14 +243,14 @@ class _FakeSalonRepository implements SalonRepository {
        // a real Image.network round trip — only the portfolio-specific tests
        // below opt in with a non-empty fixture (wrapped in
        // mockNetworkImagesFor).
-       _portfolio = portfolio ?? (() async => const <SalonPortfolioPhoto>[]);
+       _portfolio = portfolio ?? (() async => const <PortfolioPhoto>[]);
 
   final Future<Salon> Function() _salon;
   final Future<List<SalonMasterSummary>> Function() _masters;
   final Future<List<SalonServiceCategoryEntry>> Function() _catalog;
   final Future<SalonReviewSummary> Function() _summary;
   final Future<List<SalonReviewItem>> Function(SalonReviewSort sort) _reviews;
-  final Future<List<SalonPortfolioPhoto>> Function() _portfolio;
+  final Future<List<PortfolioPhoto>> Function() _portfolio;
 
   /// Sort values passed to [getSalonReviews], in call order — asserted by the
   /// sort-sheet test.
@@ -290,7 +292,7 @@ class _FakeSalonRepository implements SalonRepository {
   }
 
   @override
-  Future<List<SalonPortfolioPhoto>> getSalonPortfolio(String salonId) =>
+  Future<List<PortfolioPhoto>> getSalonPortfolio(String salonId) =>
       _portfolio();
 
   // `salonMasterServiceCoverageProvider` (the salon-service → masters filter
@@ -603,16 +605,16 @@ void main() {
       MediaConfig.debugAllowedHosts = null;
     });
 
-    const List<SalonPortfolioPhoto> threePhotos = <SalonPortfolioPhoto>[
-      SalonPortfolioPhoto(
+    const List<PortfolioPhoto> threePhotos = <PortfolioPhoto>[
+      PortfolioPhoto(
         id: 'photo-1',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/1.jpg',
       ),
-      SalonPortfolioPhoto(
+      PortfolioPhoto(
         id: 'photo-2',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/2.jpg',
       ),
-      SalonPortfolioPhoto(
+      PortfolioPhoto(
         id: 'photo-3',
         url: 'https://cdn.beautica.ua/portfolio/salon-1/3.jpg',
       ),
@@ -650,12 +652,30 @@ void main() {
           find.descendant(of: railFinder, matching: find.byType(Image)),
           findsNWidgets(threePhotos.length),
         );
-        for (final SalonPortfolioPhoto photo in threePhotos) {
+        // ...and each Image ACTUALLY fetches its own photo's URL, in order
+        // (through the tile's cover decode) — a count alone passes with
+        // swapped, duplicated or dropped URLs.
+        expect(renderedImageUrls(tester, within: railFinder), <String>[
+          for (final PortfolioPhoto photo in threePhotos) photo.url,
+        ]);
+        for (final PortfolioPhoto photo in threePhotos) {
           expect(
-            find.byKey(Key('salon-portfolio-photo-${photo.id}')),
+            find.byKey(Key('portfolio-photo-${photo.id}')),
             findsOneWidget,
           );
         }
+        // Phase 405 — a client-facing rail never carries a write affordance.
+        expect(find.byKey(const Key('portfolio-add-tile')), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (Widget w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith(
+                  'portfolio-photo-delete-',
+                ),
+          ),
+          findsNothing,
+        );
 
         // Structural ordering: description → portfolio rail → Instagram
         // contact tile, top to bottom. Uses the first TILE's rect (not the
@@ -668,7 +688,7 @@ void main() {
           find.byKey(const Key('salon-about-text')),
         );
         final Rect firstTileRect = tester.getRect(
-          find.byKey(Key('salon-portfolio-photo-${threePhotos.first.id}')),
+          find.byKey(Key('portfolio-photo-${threePhotos.first.id}')),
         );
         final Rect railRect = tester.getRect(railFinder);
         final Rect instagramRect = tester.getRect(
@@ -690,6 +710,55 @@ void main() {
       });
     });
 
+    // Phase 407 (9.12, D3/D5) — tapping a salon photo opens the full-screen
+    // viewer on it, paging ONLY this salon's photos.
+    testWidgets('tapping a photo opens the viewer on that photo', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => _stubSalon,
+            portfolio: () async => threePhotos,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder tile = find.byKey(
+        Key('portfolio-photo-${threePhotos[2].id}'),
+      );
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+
+      final Finder viewer = find.byType(PortfolioPhotoViewer);
+      expect(viewer, findsOneWidget);
+      // Q1 — the page actually SHOWN renders the tapped photo (a widget
+      // `.photos` field would pass even if the pages rendered the wrong one).
+      final Finder page = find.byKey(
+        PortfolioPhotoViewer.pageKey(threePhotos[2].id),
+      );
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[
+        threePhotos[2].url,
+      ]);
+      final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+          matching: find.text(l10n.portfolioViewerCounter(3, 3)),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(viewer, findsNothing);
+    });
+
     testWidgets('zero photos renders nothing — no heading, no empty rail', (
       tester,
     ) async {
@@ -699,7 +768,7 @@ void main() {
         overrides: _overrides(
           repo: _FakeSalonRepository(
             salon: () async => salonWithInstagram,
-            portfolio: () async => const <SalonPortfolioPhoto>[],
+            portfolio: () async => const <PortfolioPhoto>[],
           ),
         ),
       );
@@ -720,7 +789,7 @@ void main() {
     });
 
     // SEC (mobile-security LOW follow-up): pins the `isHttps` guard in
-    // [_SalonPortfolioTile.build] — `Image.network` uses its own
+    // [PortfolioTile] (the shared rail's tile, via [RemoteImage]) — `Image.network` uses its own
     // `HttpClient`, not the pinned Dio, so a plaintext `http://` photo URL
     // would leak the request over an unencrypted connection if ever allowed
     // through. No [mockNetworkImagesFor] wrapper needed here: a correctly
@@ -729,8 +798,8 @@ void main() {
     testWidgets(
       'a non-https photo URL renders the fallback tile, never Image.network',
       (tester) async {
-        const List<SalonPortfolioPhoto> insecurePhoto = <SalonPortfolioPhoto>[
-          SalonPortfolioPhoto(
+        const List<PortfolioPhoto> insecurePhoto = <PortfolioPhoto>[
+          PortfolioPhoto(
             id: 'photo-insecure',
             url: 'http://insecure.example/x.jpg',
           ),
@@ -745,7 +814,7 @@ void main() {
         await tester.pumpAndSettle();
 
         final Finder tileFinder = find.byKey(
-          const Key('salon-portfolio-photo-photo-insecure'),
+          const Key('portfolio-photo-photo-insecure'),
         );
         expect(tileFinder, findsOneWidget);
 
@@ -767,10 +836,79 @@ void main() {
       },
     );
 
-    // Eager-build cap regression (mirrors the masters-tab precedent above,
+    // SEC (mobile-security INFO, phase 406) — the HOST half of the same
+    // guard: an https URL whose host is OFF the media allowlist
+    // (`cdn.beautica.ua` only, per this group's setUp) must never reach a
+    // network image either. Load-bearing: mutation-probed by short-circuiting
+    // the host check in `isAllowedMediaUrl` — this test goes red.
+    testWidgets(
+      'an https photo URL on a host off the allowlist renders the fallback '
+      'tile, never a network Image',
+      (tester) async {
+        const List<PortfolioPhoto> offAllowlist = <PortfolioPhoto>[
+          PortfolioPhoto(id: 'photo-evil', url: 'https://evil.example/x.jpg'),
+        ];
+        await _pumpTall(tester);
+        await tester.pumpApp(
+          const PublicSalonProfileScreen(salonId: _kSalonId),
+          overrides: _overrides(
+            repo: _FakeSalonRepository(portfolio: () async => offAllowlist),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final Finder rail = find.byKey(const Key('salon-about-portfolio'));
+        final Finder tile = find.byKey(const Key('portfolio-photo-photo-evil'));
+        expect(tile, findsOneWidget, reason: 'the tile itself must build');
+        expect(
+          find.descendant(of: rail, matching: find.byType(Image)),
+          findsNothing,
+          reason: 'an off-allowlist host must never construct a network Image',
+        );
+        expect(
+          find.descendant(
+            of: tile,
+            matching: find.byIcon(Icons.broken_image_outlined),
+          ),
+          findsOneWidget,
+          reason: 'the raised-photo fallback tile renders instead',
+        );
+      },
+    );
+
+    // Error state (M3) — a failed portfolio read hides the optional rail
+    // entirely and never blanks the rest of the «Про салон» tab. Async throw
+    // (M13): the real Dio-backed repository always fails asynchronously.
+    testWidgets('a failed portfolio read renders no rail and leaves the '
+        'description + contacts intact', (tester) async {
+      int portfolioCalls = 0;
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => salonWithInstagram,
+            portfolio: () async {
+              portfolioCalls++;
+              throw const NetworkFailure();
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(portfolioCalls, greaterThanOrEqualTo(1));
+      expect(find.byKey(const Key('salon-about-portfolio')), findsNothing);
+      expect(find.byKey(const Key('portfolio-show-all')), findsNothing);
+      expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
+      expect(find.byKey(const Key('salon-contact-instagram')), findsOneWidget);
+      expect(find.byType(ErrorState), findsNothing);
+    });
+
+    // Initial-batch cap (mirrors the masters-tab precedent above,
     // `'more than 6 masters renders only the first 6 plus a show-all
-    // button...'`) — the rail is a plain `Row` inside a horizontal
-    // `SingleChildScrollView`, not a lazily-built viewport, so with more
+    // button...'`). Phase 406 — the rail is the shared lazy [PortfolioRail]
+    // with `initialVisibleCount: kSalonPortfolioInitialCount` (D1); with more
     // fixture photos than `kSalonPortfolioInitialCount` (8) this pins that
     // only the first 8 tiles build up front, a "show all" tile appears with
     // the correct remaining count, and tapping it reveals the rest while the
@@ -779,9 +917,9 @@ void main() {
       'more than 8 photos renders only the first 8 plus a show-all tile, '
       'which reveals the rest on tap',
       (tester) async {
-        final List<SalonPortfolioPhoto> tenPhotos = List.generate(
+        final List<PortfolioPhoto> tenPhotos = List.generate(
           10,
-          (i) => SalonPortfolioPhoto(
+          (i) => PortfolioPhoto(
             id: 'photo-${i + 1}',
             url: 'https://cdn.beautica.ua/portfolio/salon-1/${i + 1}.jpg',
           ),
@@ -799,14 +937,14 @@ void main() {
 
           for (int i = 1; i <= 8; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsOneWidget,
               reason: 'the first 8 photos must render up front',
             );
           }
           for (int i = 9; i <= 10; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsNothing,
               reason:
                   'photos beyond the initial batch of 8 must NOT be built '
@@ -814,9 +952,7 @@ void main() {
             );
           }
 
-          final Finder showAll = find.byKey(
-            const Key('salon-portfolio-show-all'),
-          );
+          final Finder showAll = find.byKey(const Key('portfolio-show-all'));
           expect(
             showAll,
             findsOneWidget,
@@ -833,11 +969,26 @@ void main() {
           await tester.tap(showAll);
           await tester.pumpAndSettle();
 
-          for (int i = 1; i <= 10; i++) {
+          // The rail is LAZY (shared PortfolioRail, phase 406): the revealed
+          // tail builds as it scrolls into view — swipe the rail to its end.
+          final Finder rail = find.descendant(
+            of: find.byKey(const Key('salon-about-portfolio')),
+            matching: find.byType(ListView),
+          );
+          for (int i = 1; i <= 8; i++) {
             expect(
-              find.byKey(Key('salon-portfolio-photo-photo-$i')),
+              find.byKey(Key('portfolio-photo-photo-$i')),
               findsOneWidget,
-              reason: 'all 10 photos must render after tapping show-all',
+              reason: 'the first 8 photos stay after tapping show-all',
+            );
+          }
+          await tester.drag(rail, const Offset(-20000, 0));
+          await tester.pumpAndSettle();
+          for (int i = 9; i <= 10; i++) {
+            expect(
+              find.byKey(Key('portfolio-photo-photo-$i')),
+              findsOneWidget,
+              reason: 'the revealed photos render after tapping show-all',
             );
           }
           expect(

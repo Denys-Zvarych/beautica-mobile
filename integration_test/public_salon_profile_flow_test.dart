@@ -315,18 +315,9 @@ void main() {
         findsOneWidget,
         reason: 'the About tab must render the real portfolio photo rail',
       );
-      expect(
-        find.byKey(const Key('salon-portfolio-photo-media-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('salon-portfolio-photo-media-2')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('salon-portfolio-photo-media-3')),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('portfolio-photo-media-1')), findsOneWidget);
+      expect(find.byKey(const Key('portfolio-photo-media-2')), findsOneWidget);
+      expect(find.byKey(const Key('portfolio-photo-media-3')), findsOneWidget);
 
       // ── Tab 1 «Майстри» — the real 8-master roster from the wire, capped to
       // 6 up front (mobile-perf LOW fix, Phase 13.6 audit follow-up), with a
@@ -1123,4 +1114,192 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 60)),
   );
+
+  // ── Phase 406 (9.11) QA — the collapsed rail end to end ──────────────────
+  //
+  // The default `salon-xyz` fixture serves only 3 photos, so the «+N»
+  // collapse and inline expand of the shared `PortfolioRail` were proven only
+  // at the widget tier (fake repository). These two flows drive them through
+  // the REAL generated `MediaControllerApi.getSalonPortfolio` read: a salon
+  // with 12 photos (8 + «+4», expand to all 12, read-only — no add tile, no
+  // delete badges) and a salon with none (no portfolio section at all).
+  // `FakeBackend.salonPortfolioPhotoCount` is additive (null = the 3-photo
+  // fixture every other flow sees).
+  testWidgets(
+    'a CLIENT on a 12-photo salon sees 8 tiles plus «+4»; tapping it expands '
+    'the read-only rail inline to all 12',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonPortfolioPhotoCount = 12;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        await AppHarness.settle(tester);
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+        expect(fb.getSalonPortfolioCalls, greaterThanOrEqualTo(1));
+        expect(fb.lastGetSalonPortfolioId, 'salon-xyz');
+
+        final Finder rail = await _revealPortfolioRail(tester);
+
+        // Collapsed: exactly 8 photo tiles + the «+4» tile, real images.
+        for (int i = 1; i <= 8; i++) {
+          expect(_bigPhoto(i), findsOneWidget, reason: 'photo $i up front');
+        }
+        for (int i = 9; i <= 12; i++) {
+          expect(
+            find.byKey(
+              Key('portfolio-photo-media-big-$i'),
+              skipOffstage: false,
+            ),
+            findsNothing,
+            reason: 'photo $i is behind «+4» until the client taps it',
+          );
+        }
+        expect(_railItemCount(tester, rail), 9, reason: '8 photos + «+4»');
+        final Finder showAll = find.byKey(const Key('portfolio-show-all'));
+        expect(
+          find.descendant(of: showAll, matching: find.text('+4')),
+          findsOneWidget,
+        );
+        // Real images (the fixture host is allow-listed in setUp; an
+        // off-allowlist URL would render the broken-image fallback instead).
+        _expectRealImages(rail, 8);
+        // ...each fetching its OWN photo's wire URL, in order (unwrapped
+        // through the tile's cover decode) — a count alone passes with
+        // swapped or duplicated URLs.
+        expect(renderedImageUrls(tester, within: rail), <String>[
+          for (int i = 1; i <= 8; i++) _bigPhotoUrl(i),
+        ]);
+        _expectReadOnly(rail);
+
+        // Expand inline.
+        await tester.ensureVisible(showAll);
+        await tester.pumpAndSettle();
+        await tester.tap(showAll.hitTestable());
+        await AppHarness.settle(tester);
+
+        expect(showAll, findsNothing, reason: '«+4» goes once expanded');
+        expect(_railItemCount(tester, rail), 12, reason: 'all 12 photos');
+        // The list is lazy — scroll the rail itself to bring the tail in.
+        await tester.scrollUntilVisible(
+          _bigPhoto(12),
+          200,
+          scrollable: find.descendant(
+            of: rail,
+            matching: find.byType(Scrollable),
+          ),
+        );
+        await tester.pumpAndSettle();
+        for (int i = 9; i <= 12; i++) {
+          expect(_bigPhoto(i), findsOneWidget, reason: 'photo $i revealed');
+        }
+        expect(
+          renderedImageUrls(tester, within: _bigPhoto(12)),
+          <String>[_bigPhotoUrl(12)],
+          reason: 'the revealed tail renders its own real image too',
+        );
+        _expectReadOnly(rail);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+
+  testWidgets(
+    'a CLIENT on a salon with an EMPTY portfolio sees no portfolio section',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()
+          ..currentRole = UserRole.client
+          ..salonPortfolioPhotoCount = 0;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        await AppHarness.loginAs(tester, fb, UserRole.client);
+        await AppHarness.settle(tester);
+        unawaited(router.push(RouteNames.salonPublicProfile('salon-xyz')));
+        await AppHarness.settle(tester);
+
+        expect(find.byType(PublicSalonProfileScreen), findsOneWidget);
+        // Positive controls: the read really completed and the tab rendered.
+        expect(fb.getSalonPortfolioCalls, greaterThanOrEqualTo(1));
+        expect(find.byKey(const Key('salon-about-text')), findsOneWidget);
+
+        final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+        expect(
+          find.byKey(const Key('salon-about-portfolio'), skipOffstage: false),
+          findsNothing,
+        );
+        expect(
+          find.text(l10n.masterPortfolioLabel, skipOffstage: false),
+          findsNothing,
+          reason: 'no heading for an empty portfolio',
+        );
+        expect(_keyedPrefix('portfolio-'), findsNothing);
+      });
+    },
+    timeout: const Timeout(Duration(seconds: 60)),
+  );
+}
+
+/// A photo tile of the 12-photo fixture.
+Finder _bigPhoto(int i) => find.byKey(Key('portfolio-photo-media-big-$i'));
+
+/// The wire URL `FakeBackend.salonPortfolioPhotoCount` serves for photo [i].
+String _bigPhotoUrl(int i) => 'https://media.test/portfolio/salon-xyz/$i.jpg';
+
+/// Every widget whose `ValueKey<String>` starts with [prefix] (built or not
+/// on screen).
+Finder _keyedPrefix(String prefix) => find.byWidgetPredicate(
+  (Widget w) =>
+      w.key is ValueKey<String> &&
+      (w.key! as ValueKey<String>).value.startsWith(prefix),
+  skipOffstage: false,
+);
+
+/// Scrolls the profile until the «Про салон» portfolio rail is on screen
+/// (800x600 viewport) and returns its finder.
+Future<Finder> _revealPortfolioRail(WidgetTester tester) async {
+  final Finder rail = find.byKey(const Key('salon-about-portfolio'));
+  await tester.scrollUntilVisible(
+    rail,
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.ensureVisible(rail);
+  await tester.pumpAndSettle();
+  expect(rail, findsOneWidget);
+  return rail;
+}
+
+/// Items in the rail's lazy `ListView.separated` (separators excluded).
+int _railItemCount(WidgetTester tester, Finder rail) {
+  final ListView list = tester.widget<ListView>(
+    find.descendant(of: rail, matching: find.byType(ListView)),
+  );
+  return ((list.childrenDelegate.estimatedChildCount ?? 0) + 1) ~/ 2;
+}
+
+/// Exactly [n] network images in [rail], and no fallback tile.
+void _expectRealImages(Finder rail, int n) {
+  expect(
+    find.descendant(of: rail, matching: find.byType(Image)),
+    findsNWidgets(n),
+  );
+  expect(
+    find.descendant(
+      of: rail,
+      matching: find.byIcon(Icons.broken_image_outlined),
+    ),
+    findsNothing,
+  );
+}
+
+/// A public rail is READ-ONLY: no add tile, no delete badge, no pending tile.
+void _expectReadOnly(Finder rail) {
+  expect(find.byKey(const Key('portfolio-add-tile')), findsNothing);
+  expect(_keyedPrefix('portfolio-photo-delete-'), findsNothing);
+  expect(_keyedPrefix('portfolio-pending-'), findsNothing);
 }

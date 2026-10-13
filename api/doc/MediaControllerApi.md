@@ -10,11 +10,11 @@ All URIs are relative to *http://localhost:8080*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**deleteAvatar**](MediaControllerApi.md#deleteavatar) | **DELETE** /api/v1/media/avatar | 
-[**deletePortfolioPhoto**](MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | 
+[**deletePortfolioPhoto**](MediaControllerApi.md#deleteportfoliophoto) | **DELETE** /api/v1/media/portfolio/{mediaId} | Remove a photo from the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
 [**getMasterPortfolio**](MediaControllerApi.md#getmasterportfolio) | **GET** /api/v1/masters/{masterId}/portfolio | 
 [**getSalonPortfolio**](MediaControllerApi.md#getsalonportfolio) | **GET** /api/v1/salons/{salonId}/portfolio | 
 [**uploadAvatar**](MediaControllerApi.md#uploadavatar) | **POST** /api/v1/media/avatar | 
-[**uploadPortfolioPhoto**](MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | 
+[**uploadPortfolioPhoto**](MediaControllerApi.md#uploadportfoliophoto) | **POST** /api/v1/media/portfolio | Add a photo to the caller&#39;s own master portfolio (INDEPENDENT_MASTER only)
 
 
 # **deleteAvatar**
@@ -56,7 +56,9 @@ No authorization required
 # **deletePortfolioPhoto**
 > deletePortfolioPhoto(mediaId)
 
+Remove a photo from the caller's own master portfolio (INDEPENDENT_MASTER only)
 
+Only rows of the caller's own master portfolio; a salon photo is 404 here (use DELETE /api/v1/salons/{salonId}/portfolio/{mediaId}).
 
 ### Example
 ```dart
@@ -219,7 +221,9 @@ No authorization required
 # **uploadPortfolioPhoto**
 > ApiResponseMediaFileResponse uploadPortfolioPhoto(file)
 
+Add a photo to the caller's own master portfolio (INDEPENDENT_MASTER only)
 
+Multipart field `file`: JPEG, PNG or WebP (detected by magic bytes), max 5 MB. A portfolio holds at most 30 photos; the next upload is rejected with 409 (`data.code` = `PORTFOLIO_LIMIT_REACHED`). Salon portfolios use POST /api/v1/salons/{salonId}/portfolio.
 
 ### Example
 ```dart

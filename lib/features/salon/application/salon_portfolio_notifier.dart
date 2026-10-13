@@ -1,22 +1,19 @@
 // Phase 13.6 follow-up — Salon portfolio photo-rail loader ("Про салон" tab).
 //
-// A `@riverpod` family keyed on [salonId], independent of
-// [publicSalonProfileProvider] so the "Про салон" tab's photo rail can
-// load/retry/error on its own without re-fetching the hero card or the
-// masters rail — mirrors [salonServiceCatalogProvider]'s independent-tab
-// pattern exactly.
+// Phase 403 (9.8, D3) — now a THIN DELEGATE to the shared
+// `portfolioProvider(PortfolioOwner.salon(salonId))` (core/media/portfolio),
+// which owns the read and the shared 5-minute keepAlive TTL ([kPortfolioCacheTtl]).
+// Behaviour for `public_salon_profile_screen` is unchanged: same repository
+// read (`SalonRepository.getSalonPortfolio`), same cache window.
 //
-// Cache: autoDispose by default, but [ref.keepAlive] holds the result for a
-// 5-minute TTL so switching tabs away and back within the window serves the
-// cached gallery instead of re-fetching (mirrors the other salon tab loaders'
-// TTL pattern exactly).
+// This is a salon screen's provider, so it is an allowed construction site of
+// `PortfolioOwner.salon` (D9 — pinned by
+// `test/core/media/portfolio/portfolio_owner_call_sites_test.dart`).
 
-import 'dart:async';
-
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
-
-import '../data/salon_repository.dart';
-import '../domain/salon_portfolio_photo.dart';
 
 part 'salon_portfolio_notifier.g.dart';
 
@@ -25,16 +22,13 @@ part 'salon_portfolio_notifier.g.dart';
 /// Generated provider name: `salonPortfolioProvider` — a family, call it with
 /// the target salon id.
 @riverpod
-Future<List<SalonPortfolioPhoto>> salonPortfolio(
-  Ref ref,
-  String salonId,
-) async {
-  // 5-minute cache window. Keep the link alive across an away-and-back tab
-  // switch, then close it so a stale gallery eventually refetches. The timer
-  // is cancelled on dispose so it can never fire after the provider is gone.
-  final link = ref.keepAlive();
-  final Timer timer = Timer(const Duration(minutes: 5), link.close);
-  ref.onDispose(timer.cancel);
-
-  return ref.watch(salonRepositoryProvider).getSalonPortfolio(salonId);
+Future<List<PortfolioPhoto>> salonPortfolio(Ref ref, String salonId) {
+  // The delegate keeps the SAME TTL window: were it disposed on tab-away, the
+  // re-created delegate would paint one AsyncLoading frame before reading the
+  // still-cached shared value — a change from the pre-403 instant cache hit.
+  // It watches the shared provider's `.future`, so an upload / delete — the
+  // controller's local prepend / remove, or its invalidate fallback — reaches
+  // it while it is alive (pinned by portfolio_edit_controller_test).
+  keepAliveFor(ref, ref.read(portfolioCacheTtlProvider));
+  return ref.watch(portfolioProvider(PortfolioOwner.salon(salonId)).future);
 }

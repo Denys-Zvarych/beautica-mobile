@@ -9,6 +9,7 @@ import 'package:built_value/serializer.dart';
 import 'package:dio/dio.dart';
 
 import 'package:beautica_api/src/api_util.dart';
+import 'package:beautica_api/src/model/api_response_media_file_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_response.dart';
 
 class SalonMediaControllerApi {
@@ -51,6 +52,63 @@ class SalonMediaControllerApi {
         .replaceAll(
             '{' r'slot' '}',
             encodeQueryParameter(_serializers, slot, const FullType(String))
+                .toString());
+    final _options = Options(
+      method: r'DELETE',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    return _response;
+  }
+
+  /// Remove a photo from the salon portfolio (SALON_OWNER or the salon&#39;s SALON_ADMIN)
+  /// Any manager of the salon may remove any of its photos, whoever uploaded it.
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [mediaId]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future]
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<void>> deleteSalonPortfolioPhoto({
+    required String salonId,
+    required String mediaId,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/portfolio/{mediaId}'
+        .replaceAll(
+            '{' r'salonId' '}',
+            encodeQueryParameter(_serializers, salonId, const FullType(String))
+                .toString())
+        .replaceAll(
+            '{' r'mediaId' '}',
+            encodeQueryParameter(_serializers, mediaId, const FullType(String))
                 .toString());
     final _options = Options(
       method: r'DELETE',
@@ -172,6 +230,107 @@ class SalonMediaControllerApi {
     }
 
     return Response<ApiResponseSalonResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// Add a photo to the salon portfolio (SALON_OWNER or the salon&#39;s SALON_ADMIN)
+  /// Multipart field &#x60;file&#x60;: JPEG, PNG or WebP (detected by magic bytes), max 5 MB. A portfolio holds at most 30 photos; the next upload is rejected with 409 (&#x60;data.code&#x60; &#x3D; &#x60;PORTFOLIO_LIMIT_REACHED&#x60;).
+  ///
+  /// Parameters:
+  /// * [salonId]
+  /// * [file]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [ApiResponseMediaFileResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<ApiResponseMediaFileResponse>> uploadSalonPortfolioPhoto({
+    required String salonId,
+    required MultipartFile file,
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/salons/{salonId}/portfolio'.replaceAll(
+        '{' r'salonId' '}',
+        encodeQueryParameter(_serializers, salonId, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'POST',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      contentType: 'multipart/form-data',
+      validateStatus: validateStatus,
+    );
+
+    dynamic _bodyData;
+
+    try {
+      _bodyData = FormData.fromMap(<String, dynamic>{
+        r'file': file,
+      });
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _options.compose(
+          _dio.options,
+          _path,
+        ),
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final _response = await _dio.request<Object>(
+      _path,
+      data: _bodyData,
+      options: _options,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    ApiResponseMediaFileResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(ApiResponseMediaFileResponse),
+            ) as ApiResponseMediaFileResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<ApiResponseMediaFileResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

@@ -34,7 +34,6 @@ import '../domain/invite_status.dart';
 import '../domain/salon_invite.dart';
 import '../domain/salon.dart';
 import '../domain/salon_master_summary.dart';
-import '../domain/salon_portfolio_photo.dart';
 import '../domain/salon_review.dart';
 import '../domain/salon_service_catalog.dart';
 import '../domain/salon_staff_member.dart';
@@ -543,31 +542,6 @@ abstract final class SalonServiceCatalogMapper {
           ],
         ),
       );
-    }
-    return out;
-  }
-}
-
-/// Maps `MediaFileResponse` (portfolio entries) to [SalonPortfolioPhoto].
-abstract final class SalonPortfolioMapper {
-  /// Entries with a null/empty `id` or `url` are dropped (logged) rather than
-  /// thrown — one broken photo must not blank the whole portfolio rail.
-  static List<SalonPortfolioPhoto> fromDtoList(
-    Iterable<MediaFileResponse> dtos,
-  ) {
-    final List<SalonPortfolioPhoto> out = <SalonPortfolioPhoto>[];
-    for (final MediaFileResponse dto in dtos) {
-      final String? id = dto.id;
-      final String? url = dto.url;
-      if (id == null || id.isEmpty || url == null || url.isEmpty) {
-        log(
-          'MediaFileResponse missing id/url — dropping portfolio entry',
-          name: 'feature.salon.mapper',
-          level: 900,
-        );
-        continue;
-      }
-      out.add(SalonPortfolioPhoto(id: id, url: url));
     }
     return out;
   }
