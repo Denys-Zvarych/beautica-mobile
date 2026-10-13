@@ -15,8 +15,11 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/media_upload_repository.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -53,7 +56,9 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 /// UA copy resolved from the ARB (no Cyrillic literals in finders).
 final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
@@ -1501,6 +1506,48 @@ void main() {
         findsOneWidget,
         reason: 'no counter',
       );
+    });
+
+    // Phase 407 (9.12, D3/D5) — the client opens THIS master's photos.
+    testWidgets('independentMaster: tapping a photo opens the viewer on it, '
+        'paging only this master\'s photos', (tester) async {
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'a', url: 'https://media.test/a.webp'),
+        PortfolioPhoto(id: 'b', url: 'https://media.test/b.webp'),
+      ];
+      // Let RemoteImage build its Image (allow-listed host, no network).
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolio: photos),
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('portfolio-photo-b')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('portfolio-photo-b')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      // Q1 — the SHOWN page renders the tapped photo (not a field assert).
+      final Finder page = find.byKey(PortfolioPhotoViewer.pageKey('b'));
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[photos[1].url]);
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+          matching: find.text(_l10n.portfolioViewerCounter(2, 2)),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(PortfolioPhotoViewer), findsNothing);
     });
 
     testWidgets('independentMaster with an EMPTY portfolio — no section at '

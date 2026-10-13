@@ -158,6 +158,21 @@ set debugMediaCacheManager(BaseCacheManager? manager) =>
 /// The caller is expected to treat this as best-effort and tolerate any error.
 Future<void> purgeBeauticaMediaCache() => _activeMediaCacheManager.emptyCache();
 
+/// Drops every DECODED image from Flutter's in-memory [ImageCache] — the
+/// pending, completed AND live-tracked entries.
+///
+/// The memory twin of [purgeBeauticaMediaCache] (phase 407 audit S1): the
+/// disk purge alone leaves the previous account's decoded avatars / photos
+/// (client faces — PII) resident in the process, where the next session's
+/// screens would paint them straight from memory. Called on sign-out next to
+/// the disk purge (see `AuthNotifier.logout`); synchronous, and like the disk
+/// purge the caller treats it as best-effort.
+void purgeBeauticaDecodedImages() {
+  PaintingBinding.instance.imageCache
+    ..clear()
+    ..clearLiveImages();
+}
+
 // ---------------------------------------------------------------------------
 // The guard — control #3 of the ADR. One home for the check that was
 // duplicated (and, at the salon portfolio site, incompletely) across four

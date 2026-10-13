@@ -24,6 +24,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
@@ -62,6 +64,7 @@ import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
 import 'package:dio/dio.dart' show CancelToken;
@@ -74,7 +77,9 @@ import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/fakes/fake_salon_repository.dart';
 import '../../../helpers/test_container.dart';
 import '../../../helpers/overflow_guard.dart';
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 
 const String _kSalonId = 'salon-1';
 
@@ -2058,6 +2063,48 @@ void main() {
         }
       });
     }
+
+    // Phase 407 (9.12, D3/D5) — the salon rail opens the viewer on the
+    // tapped photo, paging only this salon's photos.
+    testWidgets('tapping a salon photo opens the viewer on it', (tester) async {
+      // Let RemoteImage build its Image (allow-listed host, no network).
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      final repo = FakeSalonRepository(salon: _stubSalon)
+        ..salonPortfolio = salonPhotos;
+      await tester.pumpRoutedApp(_router(repo), overrides: _overrides(repo));
+      await tester.pumpAndSettle();
+
+      final Finder tile = find.byKey(const Key('portfolio-photo-s1'));
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tapAt(tester.getBottomLeft(tile) + const Offset(12, -12));
+      await tester.pumpAndSettle();
+
+      final Finder viewer = find.byType(PortfolioPhotoViewer);
+      expect(viewer, findsOneWidget);
+      // Q1 — the SHOWN page renders the tapped photo (not a field assert).
+      final Finder page = find.byKey(PortfolioPhotoViewer.pageKey('s1'));
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[
+        salonPhotos[0].url,
+      ]);
+      final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+          matching: find.text(l10n.portfolioViewerCounter(1, 3)),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(viewer, findsNothing);
+    });
 
     testWidgets('empty salon portfolio: label + «Додайте перші фото робіт», '
         'no tiles (D3)', (tester) async {

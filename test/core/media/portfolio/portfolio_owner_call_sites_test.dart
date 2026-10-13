@@ -353,6 +353,9 @@ void main() {
         containsAll(<String>[
           'lib/features/master/presentation/public_master_profile_screen.dart',
           'lib/features/salon/presentation/public_salon_profile_screen.dart',
+          // Phase 407 — the read-only full-screen viewer (opened from editor
+          // AND public rails) is scanned: it must never reach a write.
+          'lib/shared/widgets/portfolio_photo_viewer.dart',
           ..._portfolioWriteAllowed,
         ]),
       );
@@ -406,6 +409,10 @@ void main() {
         "PortfolioRail.fromAsync(a, railKey: const Key('x'))",
         '// PortfolioRail(onAdd: _add)',
         'PortfolioRail(photos: x); Foo(onAdd: y)',
+        // Phase 407 — the viewer tap is a READ affordance, not an editor arg.
+        'PortfolioRail(photos: x, onPhotoTap: (i) => open(x, i))',
+        'PortfolioRail.fromAsync(a, hideWhenEmpty: true, onPhotoTap: f)',
+        'PortfolioTile(index: 0, onTap: () {})',
       ]) {
         expect(_passesRailEditorArgs(_stripComments(s)), isFalse, reason: s);
       }

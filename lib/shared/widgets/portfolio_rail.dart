@@ -78,6 +78,13 @@ import 'package:beautica_mobile/shared/widgets/prompt_link_text.dart';
 ///     [PortfolioShowAllTile] («+N») that expands the rail inline (once; the
 ///     list stays lazy and capped at [kPortfolioMaxPhotos]);
 ///   • [tileLook] — the photo tiles' shell ([PortfolioTileLook]).
+///
+/// Phase 407 (9.12, D3/D4) — [onPhotoTap], additively (default `null` → the
+/// tiles stay passive, every pre-407 caller renders and behaves as before).
+/// Non-null → tapping a STORED photo tile reports its index in [photos]
+/// (the capped list); pending / failed uploads, the add tile, the «+N» tile
+/// and the remove badges never fire it. It is a READ affordance (the
+/// full-screen viewer), not an editor param — read-only screens pass it too.
 class PortfolioRail extends StatelessWidget {
   const PortfolioRail({
     super.key,
@@ -95,6 +102,7 @@ class PortfolioRail extends StatelessWidget {
     this.showCount = false,
     this.initialVisibleCount,
     this.tileLook = PortfolioTileLook.gradient,
+    this.onPhotoTap,
   }) : assert(
          initialVisibleCount == null || initialVisibleCount > 0,
          'initialVisibleCount must be positive',
@@ -119,6 +127,7 @@ class PortfolioRail extends StatelessWidget {
     ValueChanged<PendingPortfolioUpload>? onRetryPending,
     ValueChanged<PendingPortfolioUpload>? onDiscardPending,
     bool showCount = false,
+    ValueChanged<int>? onPhotoTap,
   }) {
     final List<PortfolioPhoto>? value = async.value;
     if (value != null) {
@@ -135,6 +144,7 @@ class PortfolioRail extends StatelessWidget {
         onRetryPending: onRetryPending,
         onDiscardPending: onDiscardPending,
         showCount: showCount,
+        onPhotoTap: onPhotoTap,
       );
     }
     if (async is AsyncError<List<PortfolioPhoto>>) {
@@ -203,6 +213,10 @@ class PortfolioRail extends StatelessWidget {
   /// Phase 406 (D2) — the photo tiles' shell. Default
   /// [PortfolioTileLook.gradient] = the pre-406 look of every other caller.
   final PortfolioTileLook tileLook;
+
+  /// Phase 407 (D3) — non-null → a stored photo tile's tap reports its index
+  /// in [photos]. `null` (default) → passive tiles, as before.
+  final ValueChanged<int>? onPhotoTap;
 
   @override
   Widget build(BuildContext context) {
@@ -363,6 +377,7 @@ class PortfolioRail extends StatelessWidget {
   Widget _photoTile(List<PortfolioPhoto> real, int i) {
     final PortfolioPhoto photo = real[i];
     final ValueChanged<PortfolioPhoto>? delete = onDelete;
+    final ValueChanged<int>? tap = onPhotoTap;
     return PortfolioTile(
       key: _photoKey(photo.id),
       index: i,
@@ -371,6 +386,7 @@ class PortfolioRail extends StatelessWidget {
       onRemove: delete == null ? null : () => delete(photo),
       removeKey: Key('portfolio-photo-delete-${photo.id}'),
       look: tileLook,
+      onTap: tap == null ? null : () => tap(i),
     );
   }
 
@@ -710,6 +726,10 @@ const List<BoxShadow> _kTileLift = <BoxShadow>[
 ///     [UploadFailedOverlay] with [onRetry];
 ///   • [onRemove] — a small remove badge in the top-right corner, keyed
 ///     [removeKey] (delete a stored photo / discard a failed upload).
+///
+/// Phase 407 (9.12, D3) — [onTap], additively: non-null → a tap on the tile
+/// body fires it (the badge, painted above, keeps its own tap) and the tile
+/// announces as a button. Press visuals are unchanged either way.
 class PortfolioTile extends StatefulWidget {
   const PortfolioTile({
     super.key,
@@ -725,6 +745,7 @@ class PortfolioTile extends StatefulWidget {
     this.removeKey,
     this.removeSemanticLabel,
     this.look = PortfolioTileLook.gradient,
+    this.onTap,
   });
 
   /// The tile's side, in dp.
@@ -769,6 +790,10 @@ class PortfolioTile extends StatefulWidget {
 
   /// Phase 406 (D2) — the photo shell; default = the pre-406 look.
   final PortfolioTileLook look;
+
+  /// Phase 407 (D3) — non-null → the tile body is tappable (opens the
+  /// viewer). `null` (default) → passive, as before.
+  final VoidCallback? onTap;
 
   @override
   State<PortfolioTile> createState() => _PortfolioTileState();
@@ -863,10 +888,12 @@ class _PortfolioTileState extends State<PortfolioTile> {
           ? UploadProgressSpinner.percentLabel(progress)
           : null,
       image: true,
+      button: widget.onTap != null ? true : null,
       child: GestureDetector(
         onTapDown: (_) => _setPressed(true),
         onTapCancel: () => _setPressed(false),
         onTapUp: (_) => _setPressed(false),
+        onTap: widget.onTap,
         child: RepaintBoundary(
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 130),

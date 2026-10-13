@@ -50,6 +50,7 @@ import 'package:beautica_mobile/features/salon/presentation/public_salon_profile
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_cover_widgets.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_master_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -707,6 +708,55 @@ void main() {
               'portfolio rail',
         );
       });
+    });
+
+    // Phase 407 (9.12, D3/D5) — tapping a salon photo opens the full-screen
+    // viewer on it, paging ONLY this salon's photos.
+    testWidgets('tapping a photo opens the viewer on that photo', (
+      tester,
+    ) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => _stubSalon,
+            portfolio: () async => threePhotos,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder tile = find.byKey(
+        Key('portfolio-photo-${threePhotos[2].id}'),
+      );
+      await tester.ensureVisible(tile);
+      await tester.pumpAndSettle();
+      await tester.tap(tile);
+      await tester.pumpAndSettle();
+
+      final Finder viewer = find.byType(PortfolioPhotoViewer);
+      expect(viewer, findsOneWidget);
+      // Q1 — the page actually SHOWN renders the tapped photo (a widget
+      // `.photos` field would pass even if the pages rendered the wrong one).
+      final Finder page = find.byKey(
+        PortfolioPhotoViewer.pageKey(threePhotos[2].id),
+      );
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[
+        threePhotos[2].url,
+      ]);
+      final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+      expect(
+        find.descendant(
+          of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+          matching: find.text(l10n.portfolioViewerCounter(3, 3)),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+      await tester.pumpAndSettle();
+      expect(viewer, findsNothing);
     });
 
     testWidgets('zero photos renders nothing — no heading, no empty rail', (

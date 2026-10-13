@@ -6913,5 +6913,33 @@
   "portfolioDeleteFailed": "Не вдалося видалити фото. Спробуйте ще раз",
   "@portfolioDeleteFailed": {
     "description": "Phase 405 (9.10, D5) — error snack when a portfolio photo delete fails (the photo reappears)."
+  },
+  "portfolioViewerClose": "Закрити перегляд фото",
+  "@portfolioViewerClose": {
+    "description": "Phase 407 (9.12, D1) — accessibility label / tooltip of the close button in the full-screen portfolio photo viewer."
+  },
+  "portfolioViewerCounter": "{index} / {total}",
+  "@portfolioViewerCounter": {
+    "description": "Phase 407 (9.12, D1) — the visible «n / N» page indicator in the full-screen portfolio photo viewer (1-based position of the shown photo / number of photos). Screen readers hear portfolioViewerPosition instead.",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "portfolioViewerPosition": "Фото {index} з {total}",
+  "@portfolioViewerPosition": {
+    "description": "Phase 407 (9.12, D1) — accessibility announcement of the full-screen portfolio photo viewer's page indicator (1-based position / total).",
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

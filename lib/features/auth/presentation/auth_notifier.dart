@@ -1491,6 +1491,22 @@ class AuthNotifier extends _$AuthNotifier {
           );
         }
       }
+      // Security (phase 407 audit S1) — the disk purge leaves the decoded
+      // copies of those faces in Flutter's in-memory ImageCache; drop them
+      // too. Its own best-effort guard, so a failure here can never skip the
+      // disk purge above or the wipe below.
+      try {
+        purgeBeauticaDecodedImages();
+      } catch (e) {
+        if (kDebugMode) {
+          log(
+            'Decoded-image purge on logout failed (tolerated): '
+            '${e.runtimeType}',
+            name: 'auth',
+            level: 900,
+          );
+        }
+      }
       if (!ref.mounted) return; // disposed during the purge await
       // Security (mobile-security MEDIUM) — force-clear the screen-protection
       // reference count and tear down the iOS app-switcher blur. (No FLAG_SECURE

@@ -1092,4 +1092,221 @@ void main() {
       expect(await tileBuildsAcrossTap(tester, PortfolioTileLook.gradient), 2);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Phase 407 (9.12, D3/D4) — onPhotoTap: a stored photo tile's tap reports
+  // its index; nothing else on the rail fires it; press visuals unchanged.
+  // -------------------------------------------------------------------------
+  group('PortfolioRail — onPhotoTap (phase 407)', () {
+    List<PortfolioPhoto> photosOf(int n, [String prefix = 'p']) =>
+        <PortfolioPhoto>[
+          for (int i = 0; i < n; i++)
+            PortfolioPhoto(id: '$prefix$i', url: 'https://media.test/$i.webp'),
+        ];
+    final File scratch = File('/nonexistent/media_upload/kept.jpg');
+
+    testWidgets('read-only rail: tapping a photo reports ITS index', (
+      tester,
+    ) async {
+      final List<int> taps = <int>[];
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photosOf(3), onPhotoTap: taps.add),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('portfolio-photo-p1')));
+      await tester.tap(find.byKey(const Key('portfolio-photo-p0')));
+      await tester.tap(find.byKey(const Key('portfolio-photo-p2')));
+      expect(taps, <int>[1, 0, 2]);
+    });
+
+    testWidgets('null onPhotoTap: tiles stay passive (no button semantics); '
+        'set: a photo tile announces as a button, still an image', (
+      tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpApp(Scaffold(body: PortfolioRail(photos: photosOf(1))));
+      await tester.pump();
+      SemanticsData data = tester
+          .getSemantics(find.byKey(const Key('portfolio-photo-p0')))
+          .getSemanticsData();
+      expect(data.flagsCollection.isButton, isFalse);
+
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(photos: photosOf(1), onPhotoTap: (_) {}),
+        ),
+      );
+      await tester.pump();
+      data = tester
+          .getSemantics(find.byKey(const Key('portfolio-photo-p0')))
+          .getSemanticsData();
+      expect(data.flagsCollection.isButton, isTrue);
+      expect(data.flagsCollection.isImage, isTrue);
+      expect(data.label, _l10n.portfolioPhotoSemantics(1));
+      handle.dispose();
+    });
+
+    testWidgets('editor rail (D4): pending + failed tiles and the add tile '
+        'never open the viewer; a photo body tap does, with the index into '
+        '`photos` (not the list slot)', (tester) async {
+      final List<int> taps = <int>[];
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(2),
+            onAdd: () {},
+            pending: <PendingPortfolioUpload>[
+              PendingPortfolioUpload(id: 'u1', file: scratch, progress: 0.4),
+              PendingPortfolioUpload(
+                id: 'f1',
+                file: scratch,
+                failure: const UploadNetworkFailure(),
+              ),
+            ],
+            onRetryPending: (_) {},
+            onDiscardPending: (_) {},
+            onDelete: (_) {},
+            onPhotoTap: taps.add,
+          ),
+        ),
+        width: 800,
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('portfolio-pending-u1')));
+      // The failed tile's body (its bottom-left corner — clear of the
+      // discard badge) — the retry overlay sits there, still no viewer.
+      await tester.tapAt(
+        tester.getBottomLeft(find.byKey(const Key('portfolio-pending-f1'))) +
+            const Offset(8, -8),
+      );
+      await tester.tap(find.byKey(const Key('portfolio-add-tile')));
+      await tester.pump();
+      expect(taps, isEmpty);
+      // (The add tile is inert while u1 uploads — never the viewer either.)
+
+      await tester.tapAt(
+        tester.getBottomLeft(find.byKey(const Key('portfolio-photo-p1'))) +
+            const Offset(12, -12),
+      );
+      expect(taps, <int>[1]);
+    });
+
+    testWidgets('the delete badge deletes and does NOT open the viewer', (
+      tester,
+    ) async {
+      final List<int> taps = <int>[];
+      final List<String> deletes = <String>[];
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(2),
+            onDelete: (PortfolioPhoto p) => deletes.add(p.id),
+            onPhotoTap: taps.add,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('portfolio-photo-delete-p1')));
+      expect(deletes, <String>['p1']);
+      expect(taps, isEmpty);
+    });
+
+    testWidgets('collapsed rail: «+N» expands but never opens the viewer; a '
+        'revealed tile reports its index in the full list', (tester) async {
+      final List<int> taps = <int>[];
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail(
+            photos: photosOf(4, 'c'),
+            initialVisibleCount: 2,
+            tileLook: PortfolioTileLook.raisedPhoto,
+            onPhotoTap: taps.add,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(PortfolioRail.showAllKey));
+      await tester.pumpAndSettle();
+      expect(taps, isEmpty);
+
+      await tester.tap(find.byKey(const Key('portfolio-photo-c3')));
+      expect(taps, <int>[3]);
+    });
+
+    testWidgets('fromAsync forwards onPhotoTap to the settled list', (
+      tester,
+    ) async {
+      final List<int> taps = <int>[];
+      await tester.pumpApp(
+        Scaffold(
+          body: PortfolioRail.fromAsync(
+            AsyncData<List<PortfolioPhoto>>(photosOf(2)),
+            onPhotoTap: taps.add,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('portfolio-photo-p1')));
+      expect(taps, <int>[1]);
+    });
+
+    testWidgets('press visuals unchanged: gradient lift still drops while '
+        'held; raisedPhoto still does NOT rebuild — and both fire onTap', (
+      tester,
+    ) async {
+      for (final PortfolioTileLook look in PortfolioTileLook.values) {
+        int tapped = 0;
+        final Key tileKey = Key('tap-tile-${look.name}');
+        await tester.pumpApp(
+          Scaffold(
+            body: Center(
+              child: PortfolioTile(
+                key: tileKey,
+                index: 0,
+                look: look,
+                onTap: () => tapped++,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        int builds = 0;
+        debugOnRebuildDirtyWidget = (Element e, bool builtOnce) {
+          if (e.widget is PortfolioTile) builds++;
+        };
+        try {
+          final TestGesture g = await tester.startGesture(
+            tester.getCenter(find.byKey(tileKey)),
+          );
+          await tester.pump(kPressTimeout + const Duration(milliseconds: 1));
+          if (look == PortfolioTileLook.gradient) {
+            final BoxDecoration held =
+                tester
+                        .widget<AnimatedContainer>(
+                          find.byType(AnimatedContainer),
+                        )
+                        .decoration
+                    as BoxDecoration;
+            expect(held.boxShadow, isNull, reason: 'pressed → lift removed');
+          }
+          await g.up();
+          await tester.pumpAndSettle();
+        } finally {
+          debugOnRebuildDirtyWidget = null;
+        }
+        expect(tapped, 1, reason: look.name);
+        expect(
+          builds,
+          look == PortfolioTileLook.raisedPhoto ? 0 : 2,
+          reason: look.name,
+        );
+      }
+    });
+  });
 }

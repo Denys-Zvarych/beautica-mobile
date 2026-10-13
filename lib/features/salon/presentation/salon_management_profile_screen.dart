@@ -90,6 +90,7 @@ import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_star.dart';
@@ -1111,6 +1112,12 @@ class _SalonManagePortfolioRailState
         async,
         railKey: const Key('salon-manage-portfolio'),
         onRetry: () => ref.invalidate(portfolioProvider(owner)),
+        // Phase 407 (D3) — the read-only rail opens the viewer too.
+        onPhotoTap: (int i) => showPortfolioPhotoViewer(
+          context,
+          async.value ?? const <PortfolioPhoto>[],
+          i,
+        ),
       );
     }
     final List<PendingPortfolioUpload> pending = ref.watch(
@@ -1131,15 +1138,16 @@ class _SalonManagePortfolioRailState
       resultHost: () =>
           context.findAncestorStateOfType<_SalonManagementProfileScreenState>(),
     );
+    final AsyncValue<List<PortfolioPhoto>> shown = _hidden.isEmpty
+        ? async
+        : async.whenData(
+            (List<PortfolioPhoto> l) => <PortfolioPhoto>[
+              for (final PortfolioPhoto p in l)
+                if (!_hidden.contains(p.id)) p,
+            ],
+          );
     return PortfolioRail.fromAsync(
-      _hidden.isEmpty
-          ? async
-          : async.whenData(
-              (List<PortfolioPhoto> l) => <PortfolioPhoto>[
-                for (final PortfolioPhoto p in l)
-                  if (!_hidden.contains(p.id)) p,
-              ],
-            ),
+      shown,
       railKey: const Key('salon-manage-portfolio'),
       onRetry: () => ref.invalidate(portfolioProvider(owner)),
       onAdd: actions.add,
@@ -1148,6 +1156,12 @@ class _SalonManagePortfolioRailState
       onRetryPending: actions.retry,
       onDiscardPending: actions.discard,
       showCount: true,
+      // Phase 407 (D3/D5) — the viewer gets the list this rail SHOWS.
+      onPhotoTap: (int i) => showPortfolioPhotoViewer(
+        context,
+        shown.value ?? const <PortfolioPhoto>[],
+        i,
+      ),
     );
   }
 }

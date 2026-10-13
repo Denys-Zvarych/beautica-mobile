@@ -71,6 +71,7 @@ import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/notification_bell_button.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -719,15 +720,16 @@ class _OwnPortfolioRailState extends ConsumerState<_OwnPortfolioRail> {
       portfolioProvider(owner),
     );
     final PortfolioEditActions actions = _actions;
+    final AsyncValue<List<PortfolioPhoto>> shown = _hidden.isEmpty
+        ? async
+        : async.whenData(
+            (List<PortfolioPhoto> l) => <PortfolioPhoto>[
+              for (final PortfolioPhoto p in l)
+                if (!_hidden.contains(p.id)) p,
+            ],
+          );
     return PortfolioRail.fromAsync(
-      _hidden.isEmpty
-          ? async
-          : async.whenData(
-              (List<PortfolioPhoto> l) => <PortfolioPhoto>[
-                for (final PortfolioPhoto p in l)
-                  if (!_hidden.contains(p.id)) p,
-              ],
-            ),
+      shown,
       onRetry: () => ref.invalidate(portfolioProvider(owner)),
       onAdd: actions.add,
       onDelete: actions.delete,
@@ -735,6 +737,12 @@ class _OwnPortfolioRailState extends ConsumerState<_OwnPortfolioRail> {
       onRetryPending: actions.retry,
       onDiscardPending: actions.discard,
       showCount: true,
+      // Phase 407 (D3/D5) — the viewer gets the list this rail SHOWS.
+      onPhotoTap: (int i) => showPortfolioPhotoViewer(
+        context,
+        shown.value ?? const <PortfolioPhoto>[],
+        i,
+      ),
     );
   }
 }

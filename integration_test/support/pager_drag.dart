@@ -64,20 +64,40 @@ import 'app_harness.dart';
 /// fired), some don't (callers that page in a bounded retry loop before a
 /// single eventual tap, where a pump per iteration would multiply into a
 /// needless multi-second tax). Add it at the call site when needed.
+///
+/// [slopLeadIn] (phase 407 QA, additive — `null` keeps every existing caller
+/// byte-identical): when set, the gesture first moves by that many logical
+/// pixels before the 8 samples (which then cover the rest of the 60%). A
+/// pager whose pages hold an `InteractiveViewer` (the portfolio photo
+/// viewer) needs it: the page's scale recognizer sits EARLIER in the gesture
+/// arena than the pager's drag recognizer, so a single sample that crosses
+/// both the drag slop (18) and the pan slop (36) hands the gesture to the
+/// zoom surface and the pager never turns. A lead-in inside (18, 36) — what
+/// a real finger's first samples look like — lets the pager claim it.
 Future<void> dragPagerByOnePage(
   WidgetTester tester,
   Key pagerKey, {
   required bool forward,
+  double? slopLeadIn,
 }) async {
   final Finder finder = find.byKey(pagerKey);
   final double width = tester.getRect(finder).width;
   const int steps = 8;
-  final double dx = (forward ? -1 : 1) * (width * 0.6) / steps;
+  final double sign = forward ? -1 : 1;
+  final double lead = slopLeadIn ?? 0;
+  final double dx = sign * (width * 0.6 - lead) / steps;
 
   final TestGesture gesture = await tester.startGesture(
     tester.getCenter(finder),
   );
   Duration stamp = Duration.zero;
+  if (slopLeadIn != null) {
+    stamp += const Duration(milliseconds: 40);
+    await gesture.moveBy(Offset(sign * lead, 0), timeStamp: stamp);
+    // fixed-wait-ok: advancing the pointer-sample clock in lockstep with the
+    // synthetic move timestamp, not waiting on a condition.
+    await tester.pump(const Duration(milliseconds: 40));
+  }
   for (int i = 0; i < steps; i++) {
     stamp += const Duration(milliseconds: 40);
     await gesture.moveBy(Offset(dx, 0), timeStamp: stamp);

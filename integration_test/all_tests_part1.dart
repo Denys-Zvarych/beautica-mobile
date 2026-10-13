@@ -111,6 +111,7 @@ import 'register_salon_flow_test.dart' as register_salon;
 import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
+import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
 import 'salon_admin_edit_master_schedule_flow_test.dart'
@@ -376,6 +377,9 @@ void main() {
   // write against the VIEWED master, never "me".
   group('salon_master_services_target_flow', salon_master_services_target.main);
   group('portfolio_render_flow', portfolio_render.main);
+  // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
+  // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
+  group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
   // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
   // outcomes: the happy-path 204 (anchored on the target flow above), the
   // reactive 409 refusal re-showing the blocked dialog with no optimistic

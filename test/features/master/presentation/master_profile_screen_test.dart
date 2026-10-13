@@ -79,6 +79,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import 'package:flutter/material.dart';
@@ -557,6 +558,50 @@ void main() {
 
         expect(find.byKey(const Key('portfolio-rail-empty')), findsOneWidget);
         expect(find.byType(PortfolioTile), findsNothing);
+      });
+
+      // Phase 407 (9.12) — the EDITOR rail opens the viewer on a photo body
+      // tap; the delete badge stays the only delete affordance.
+      testWidgets('tapping a photo opens the full-screen viewer at that '
+          'photo; the delete badge opens the delete dialog, not the viewer', (
+        tester,
+      ) async {
+        await tester.pumpApp(
+          const MasterProfileScreen(),
+          overrides: _buildOverrides(
+            masterState: const AsyncData<Master>(_stubMaster),
+            repo: repo,
+            serviceRepo: mockServiceRepo,
+            media: FakeMediaUploadRepository(masterPortfolio: photos),
+          ),
+        );
+        await tester.pumpAndSettle();
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterProfileScreen)),
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('portfolio-photo-p1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('portfolio-photo-delete-p1')));
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsNothing);
+        expect(find.text(l10n.portfolioDeleteDialogTitle), findsOneWidget);
+        await tester.tap(find.byKey(const Key('portfolio-delete-dismiss')));
+        await tester.pumpAndSettle();
+
+        await tester.tapAt(
+          tester.getBottomLeft(find.byKey(const Key('portfolio-photo-p2'))) +
+              const Offset(12, -12),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+        expect(
+          find.text(l10n.portfolioViewerCounter(2, photos.length)),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+        await tester.pumpAndSettle();
+        expect(find.byType(PortfolioPhotoViewer), findsNothing);
       });
 
       testWidgets('read failure: inline retry line; tapping it re-reads', (

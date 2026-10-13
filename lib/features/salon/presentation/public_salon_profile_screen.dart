@@ -56,6 +56,7 @@ import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/rating_summary_line.dart';
@@ -1165,6 +1166,9 @@ class _SalonAboutPortfolio extends ConsumerWidget {
                     hideWhenEmpty: true,
                     initialVisibleCount: kSalonPortfolioInitialCount,
                     tileLook: PortfolioTileLook.raisedPhoto,
+                    // Phase 407 (D3/D5) — salon photos only.
+                    onPhotoTap: (int i) =>
+                        showPortfolioPhotoViewer(context, photos, i),
                   ),
                 ),
           loading: () => const SizedBox.shrink(),

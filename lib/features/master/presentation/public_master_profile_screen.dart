@@ -80,6 +80,7 @@ import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_selection.dart';
@@ -606,6 +607,12 @@ class _PublicPortfolioRail extends ConsumerWidget {
           async,
           railKey: const Key('public-master-profile-portfolio'),
           hideWhenEmpty: true,
+          // Phase 407 (D3/D5) — this master's photos only.
+          onPhotoTap: (int i) => showPortfolioPhotoViewer(
+            context,
+            photos ?? const <PortfolioPhoto>[],
+            i,
+          ),
         ),
       ],
     );

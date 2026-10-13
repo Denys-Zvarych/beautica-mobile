@@ -235,6 +235,7 @@ import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
 import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
 import 'portfolio_upload_flow_test.dart' as portfolio_upload;
+import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 
@@ -800,4 +801,7 @@ void main() {
   // Phase 405 — add / delete portfolio photos: master, owner + admin on one
   // salon, cap / 409, 503 retry / discard, 403 re-read, tab-switch survival.
   group('portfolio_upload_flow', portfolio_upload.main);
+  // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
+  // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
+  group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
 }

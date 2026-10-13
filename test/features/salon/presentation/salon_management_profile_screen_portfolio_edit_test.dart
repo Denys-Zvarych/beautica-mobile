@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_rail.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
@@ -52,6 +53,7 @@ import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/rendered_image_url.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 /// UA copy resolved from the ARB (no Cyrillic literals in finders).
@@ -680,6 +682,94 @@ void main() {
         find.text(_l10n.portfolioLabelWithCount(2, kPortfolioMaxPhotos)),
         findsOneWidget,
       );
+      await pumpPastVelvetSnack(tester);
+    });
+  });
+
+  // Phase 407 (9.12) — the editor rail opens the full-screen viewer on a
+  // photo BODY tap; the remove badge stays the only delete affordance.
+  group('viewer (phase 407)', () {
+    final Finder viewer = find.byType(PortfolioPhotoViewer);
+
+    /// The «n / N» text INSIDE the viewer's indicator pill.
+    Finder viewerCounter(int n, int total) => find.descendant(
+      of: find.byKey(PortfolioPhotoViewer.indicatorKey),
+      matching: find.text(_l10n.portfolioViewerCounter(n, total)),
+    );
+
+    Future<void> tapBody(WidgetTester tester, String id) async {
+      await tester.ensureVisible(find.byKey(_photo(id)));
+      await tester.pumpAndSettle();
+      await tester.tapAt(
+        tester.getBottomLeft(find.byKey(_photo(id))) + const Offset(12, -12),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('${role.name}: a photo body tap opens the viewer on it; '
+          'the badge opens the delete dialog, never the viewer', (
+        tester,
+      ) async {
+        await pump(tester, role);
+
+        await tester.tap(find.byKey(_deleteBadge(_byAdmin.id)));
+        await tester.pumpAndSettle();
+        expect(viewer, findsNothing);
+        expect(find.text(_l10n.portfolioDeleteDialogTitle), findsOneWidget);
+        await tester.tap(find.byKey(const Key('portfolio-delete-dismiss')));
+        await tester.pumpAndSettle();
+
+        await tapBody(tester, _byAdmin.id);
+        expect(viewer, findsOneWidget);
+        // Q1 — the SHOWN page renders the tapped photo (not a field assert).
+        final Finder page = find.byKey(
+          PortfolioPhotoViewer.pageKey(_byAdmin.id),
+        );
+        expect(page.hitTestable(), findsOneWidget);
+        expect(renderedImageUrls(tester, within: page), <String>[_byAdmin.url]);
+        expect(viewerCounter(2, 2), findsOneWidget);
+        await tester.tap(find.byKey(PortfolioPhotoViewer.closeKey));
+        await tester.pumpAndSettle();
+        expect(viewer, findsNothing);
+        expect(uploads.deletes, isEmpty, reason: 'viewing never writes');
+      });
+    }
+
+    testWidgets('read-only rail (owner while mySalons settles) opens the '
+        'viewer too', (tester) async {
+      await pump(tester, UserRole.salonOwner, mySalons: _MySalonsPending.new);
+      expect(find.byKey(_addTile), findsNothing);
+      await tapBody(tester, _byOwner.id);
+      expect(viewer, findsOneWidget);
+      final Finder page = find.byKey(PortfolioPhotoViewer.pageKey(_byOwner.id));
+      expect(page.hitTestable(), findsOneWidget);
+      expect(renderedImageUrls(tester, within: page), <String>[_byOwner.url]);
+      expect(viewerCounter(1, 2), findsOneWidget);
+    });
+
+    testWidgets('a pending upload tile does not open the viewer (D4)', (
+      tester,
+    ) async {
+      await pump(tester, UserRole.salonOwner);
+      await tester.tap(find.byKey(_addTile));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('image-source-gallery')));
+      await _pumpUntil(tester, () => _anyPendingTile.evaluate().isNotEmpty);
+      // Q3 — a real tap at the tile's centre (no `warnIfMissed: false`,
+      // which would let a tap that missed the tile pass silently).
+      final Finder pending = _anyPendingTile.first;
+      expect(pending.hitTestable(), findsOneWidget);
+      await tester.tapAt(tester.getCenter(pending));
+      await tester.pump();
+      expect(viewer, findsNothing);
+
+      // Land the upload so no snack / controller work outlives the test.
+      uploads.result.complete(_fresh);
+      await _awaitSnack(tester);
       await pumpPastVelvetSnack(tester);
     });
   });
