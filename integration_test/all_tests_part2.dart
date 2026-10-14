@@ -75,6 +75,8 @@ import 'salon_admin_set_master_services_flow_test.dart'
     as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
+import 'services_catalogue_refresh_flow_test.dart'
+    as services_catalogue_refresh;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -321,6 +323,9 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  // fix/services-catalogue-refresh — an admin-approved category reaches
+  // «Мої послуги» (pull) and the add-service picker (open past the 30 s floor).
+  group('services_catalogue_refresh_flow', services_catalogue_refresh.main);
   // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
   // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
   // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited

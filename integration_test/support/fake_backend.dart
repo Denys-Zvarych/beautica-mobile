@@ -2951,6 +2951,18 @@ final class FakeBackend {
   /// Proves the picker re-queried the new category after a switch (Phase 16.5).
   int getServiceTypesCalls = 0;
   String? lastServiceTypesCategory;
+
+  /// The rows `GET /service-categories/approved` serves, read PER REQUEST so a
+  /// flow can simulate an admin approving a category mid-session (append a
+  /// row) and prove the app re-fetches. Defaults to the long-standing NAILS +
+  /// BROWS seed. Shape: ApprovedCategoryResponse { name, displayName }.
+  final List<Map<String, dynamic>> approvedCategories = <Map<String, dynamic>>[
+    <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
+    <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
+  ];
+
+  /// Count of `GET /service-categories/approved` calls.
+  int getApprovedCategoriesCalls = 0;
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -9415,15 +9427,18 @@ final class FakeBackend {
     // form). NAILS + BROWS are both seeded so the edit-flow category-switch test
     // (Phase 16.5 regression) can change category A → B. Shape: list of
     // ApprovedCategoryResponse { name, displayName }.
+    // Served from the mutable [approvedCategories] (a copy per request), so a
+    // flow can approve a category mid-session — see
+    // services_catalogue_refresh_flow_test.dart.
     _adapter.onRoute(
       '/api/v1/service-categories/approved',
-      (server) => server.reply(
-        200,
-        _okList(<Map<String, dynamic>>[
-          <String, dynamic>{'name': 'NAILS', 'displayName': 'Нігті'},
-          <String, dynamic>{'name': 'BROWS', 'displayName': 'Брови'},
-        ]),
-      ),
+      (server) => server.replyCallback(200, (_) {
+        getApprovedCategoriesCalls++;
+        return _okList(<Map<String, dynamic>>[
+          for (final Map<String, dynamic> c in approvedCategories)
+            Map<String, dynamic>.of(c),
+        ]);
+      }),
       request: const Request(method: RequestMethods.get),
     );
 

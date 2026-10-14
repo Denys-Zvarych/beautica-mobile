@@ -61,6 +61,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/master_service_input.dart';
@@ -218,6 +219,18 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+
+    // The approved-category list is a keepAlive root cache: a category an admin
+    // approved since it was last read would be missing from the picker until
+    // restart. Re-fetch on open, unless inside the 30 s entry floor or already
+    // in flight. This screen watches the provider, so the
+    // invalidate re-fetches at once (the previous value is retained while the
+    // reload is in flight — Riverpod's seamless invalidate).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        refreshCategoryCataloguesIfOlderThan(ref, kCategoryEntryFloor);
+      }
+    });
 
     // Snapshot the existing catalogue once.
     //
