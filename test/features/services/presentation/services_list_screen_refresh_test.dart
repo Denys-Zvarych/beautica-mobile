@@ -121,7 +121,16 @@ void main() {
   /// provider fetches directly and never goes through the repository.
   late int categoriesFetches;
 
+  /// When non-null the NEXT category read parks on it — lets a test hold the
+  /// pull-to-refresh spinner open on the category re-fetch alone.
+  Completer<List<ServiceCategoryOption>>? categoriesGate;
+
+  /// The display name the category override serves.
+  late String categoryLabel;
+
   setUp(() {
+    categoryLabel = 'Стрижка';
+    categoriesGate = null;
     categoriesFail = false;
     categoriesFetches = 0;
     repo = _MockServiceRepository();
@@ -168,8 +177,15 @@ void main() {
               // through `AsyncLoading(retrying: true)` on a timer that
               // outlives the test and race the assertion.
               if (categoriesFail) throw const UnauthorizedFailure();
-              return const <ServiceCategoryOption>[
-                ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+              final parked = categoriesGate;
+              if (parked != null) return parked.future;
+              // A NEW list instance per read (equal by value across reads) —
+              // the grouping-cache rows depend on equal-but-not-identical.
+              return <ServiceCategoryOption>[
+                ServiceCategoryOption(
+                  name: 'HAIRCUT',
+                  displayName: categoryLabel,
+                ),
               ];
             }),
             servicesListProvider.overrideWith(
@@ -280,9 +296,92 @@ void main() {
   // Sites 1 and 2 above still hold — the guard changes the CADENCE, not the
   // behaviour. These two rows pin the cadence itself, in both directions, so
   // "always refresh" and "never refresh" are each a red build.
-  group('entry refresh is rate-limited by kCategoryCatalogueFreshFor', () {
+  // ── 4. pull-to-refresh spinner covers the CATEGORY re-fetch ────────────────
+  //
+  // Before: `onRefresh` awaited only the services reload, so the spinner went
+  // away while the category list was still stale/in flight. Now it awaits both.
+  // The services reload is instant here, so the spinner staying up can ONLY be
+  // the category future. Anti-vacuity: the spinner is asserted GONE after the
+  // gate completes, so "never shown" cannot pass the first half.
+  testWidgets(
+    'pull-to-refresh keeps the spinner up until the category future settles',
+    (tester) async {
+      await pumpScreen(tester);
+      await tester.pump();
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byType(RefreshProgressIndicator), findsNothing);
+
+      final before = categoriesFetches;
+      categoriesGate = Completer<List<ServiceCategoryOption>>();
+
+      await tester.fling(
+        find.byType(Scrollable).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pump();
+      // Well past the services reload and the indicator's own settle time.
+      // Step in 500 ms frames, NOT one big pump: a single `pump(2s)` lands the
+      // services reload and the indicator's hide animation in the same frame,
+      // so the indicator is still painted and the assertion is vacuous
+      // (falsified: with the category await removed it still passed).
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 500));
+      }
+
+      expect(categoriesFetches, before + 1, reason: 'the pull re-fetched');
+      expect(
+        find.byType(RefreshProgressIndicator),
+        findsOneWidget,
+        reason: 'category future still pending -> spinner must stay',
+      );
+
+      categoriesGate!.complete(const <ServiceCategoryOption>[
+        ServiceCategoryOption(name: 'HAIRCUT', displayName: 'Стрижка'),
+      ]);
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byType(RefreshProgressIndicator), findsNothing);
+    },
+  );
+
+  // A FAILED category re-fetch must not fail the pull or leave the spinner up.
+  testWidgets('pull-to-refresh with a FAILING category read still completes', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+    await tester.pump();
+    await tester.pump();
+    await tester.pumpAndSettle();
+    categoriesFail = true;
+
+    await tester.fling(
+      find.byType(Scrollable).first,
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RefreshProgressIndicator), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  // UPDATED (fix/services-catalogue-refresh, audit cycle 1): ENTRY refreshes
+  // unless the last SUCCESSFUL refresh is under `kCategoryEntryFloor` (30 s)
+  // old or a category fetch is already in flight. The old 5-minute window made
+  // an admin-approved category invisible until restart; the 30 s floor is the
+  // accepted trade-off against duplicate fetches (entry -> setup open). The
+  // 5-minute throttle still guards POP-BACK (`_openAndRefresh`); pull-to-refresh
+  // is unconditional. The stamp is still written on success only. The existing
+  // remount rows step the clock 1 minute, which is past the floor, so they
+  // keep their "refetches" expectation unchanged; the rows at the end pin the
+  // floor edge itself.
+  group('entry refresh honours the 30 s floor; the stamp is success-only', () {
     testWidgets(
-      'a REMOUNT inside the freshness window does NOT bust the caches again',
+      'a REMOUNT one minute later (past the 30 s floor) busts the caches',
       (tester) async {
         DateTime now = DateTime.utc(2026, 9, 13, 12);
         final container = await pumpScreen(tester, clock: () => now);
@@ -294,6 +393,8 @@ void main() {
         // the invocations it matches).
         verify(() => repo.fetchServiceTypes('HAIRCUT')).called(greaterThan(0));
 
+        final fetchesAfterFirstEntry = categoriesFetches;
+
         // Leave the screen and come straight back, one minute later — well
         // inside the five-minute window.
         await tester.pumpWidget(const SizedBox.shrink());
@@ -304,12 +405,21 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 600));
 
-        verifyNever(() => repo.fetchServiceTypes('HAIRCUT'));
+        // CHANGED from `verifyNever`: re-entry one minute in must re-fetch.
+        verify(
+          () => repo.fetchServiceTypes('HAIRCUT'),
+        ).called(greaterThanOrEqualTo(1));
+        expect(
+          categoriesFetches,
+          fetchesAfterFirstEntry + 1,
+          reason:
+              'exactly one fresh category read per entry, inside the window',
+        );
       },
     );
 
     testWidgets(
-      'a REMOUNT after the freshness window HAS expired busts them again',
+      'a REMOUNT after the pop-back window has expired busts them again',
       (tester) async {
         DateTime now = DateTime.utc(2026, 9, 13, 12);
         final container = await pumpScreen(tester, clock: () => now);
@@ -361,9 +471,16 @@ void main() {
         // Baseline: consume the first-entry fetches.
         verify(() => repo.fetchServiceTypes('HAIRCUT')).called(greaterThan(0));
 
-        // Leave and come straight back one minute later — well INSIDE the
-        // five-minute window. The first refresh failed, so the caches are
-        // still stale and the guard must let this entry through.
+        // N1 pinned directly: entry no longer consults the stamp, so "next
+        // entry retries" alone would pass even with an EAGER stamp. The stamp
+        // (which still gates pop-back) must be unset after a failed refresh.
+        expect(
+          container.read(categoryCatalogueFreshnessProvider),
+          isNull,
+          reason: 'a FAILED category refresh must not stamp the caches fresh',
+        );
+
+        // Leave and come straight back one minute later.
         categoriesFail = false;
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
@@ -376,6 +493,8 @@ void main() {
         verify(
           () => repo.fetchServiceTypes('HAIRCUT'),
         ).called(greaterThanOrEqualTo(1));
+        // ...and the SUCCESSFUL re-entry stamps (mirror of the isNull above).
+        expect(container.read(categoryCatalogueFreshnessProvider), now);
       },
     );
 
@@ -432,10 +551,9 @@ void main() {
               'successful one, i.e. N1 is back), 2 means a second fetch crept in',
         );
 
-        // The cap holds across a remount too: the first entry SUCCEEDED, so
-        // the stamp landed and a re-entry one minute later must not read
-        // again. Without this half, "exactly one" would say nothing about the
-        // rate limit still applying in the error arm.
+        // CHANGED: entry is unthrottled, so a re-entry one minute later reads
+        // again — exactly ONE more read per entry (still neither dropped nor
+        // doubled), error arm included.
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pump();
         now = now.add(const Duration(minutes: 1));
@@ -451,12 +569,139 @@ void main() {
 
         expect(
           categoriesFetches,
-          1,
+          2,
           reason:
-              'a remount inside kCategoryCatalogueFreshFor must not issue a '
-              'second category read, error arm included',
+              'each entry issues exactly one category read in the error arm — '
+              'a remount inside kCategoryCatalogueFreshFor included',
         );
       },
     );
+  });
+
+  // ── 5. the 30 s entry floor (audit cycle 1, P1) ────────────────────────────
+  group('entry floor', () {
+    Future<void> settle(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+    }
+
+    Future<int> reenterAfter(WidgetTester tester, Duration gap) async {
+      DateTime now = DateTime.utc(2026, 10, 1, 12);
+      final container = await pumpScreen(tester, clock: () => now);
+      await settle(tester);
+      expect(
+        container.read(categoryCatalogueFreshnessProvider),
+        now,
+        reason: 'first entry stamped on success',
+      );
+      final before = categoriesFetches;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      now = now.add(gap);
+      await pumpScreen(tester, clock: () => now, reuse: container);
+      await settle(tester);
+      return categoriesFetches - before;
+    }
+
+    testWidgets('re-entry 29 s later issues NO new category fetch', (
+      tester,
+    ) async {
+      expect(await reenterAfter(tester, const Duration(seconds: 29)), 0);
+    });
+
+    testWidgets('re-entry 31 s later refetches exactly once', (tester) async {
+      expect(await reenterAfter(tester, const Duration(seconds: 31)), 1);
+    });
+
+    testWidgets('an IN-FLIGHT category fetch is not duplicated by a re-entry', (
+      tester,
+    ) async {
+      categoriesGate = Completer<List<ServiceCategoryOption>>();
+      DateTime now = DateTime.utc(2026, 10, 1, 12);
+      final container = await pumpScreen(tester, clock: () => now);
+      await settle(tester);
+      expect(categoriesFetches, 1, reason: 'first entry: one parked fetch');
+
+      // Past the floor (stamp is null anyway: nothing has succeeded), but the
+      // fetch is still parked -> must NOT invalidate and start a second one.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      now = now.add(const Duration(minutes: 2));
+      await pumpScreen(tester, clock: () => now, reuse: container);
+      await settle(tester);
+      expect(categoriesFetches, 1);
+
+      categoriesGate!.complete(const <ServiceCategoryOption>[]);
+      await tester.pump();
+    });
+
+    testWidgets('pull-to-refresh ALWAYS refetches, even inside the floor', (
+      tester,
+    ) async {
+      final now = DateTime.utc(2026, 10, 1, 12);
+      final container = await pumpScreen(tester, clock: () => now);
+      await settle(tester);
+      expect(container.read(categoryCatalogueFreshnessProvider), now);
+      final before = categoriesFetches;
+
+      await tester.fling(
+        find.byType(Scrollable).first,
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      expect(categoriesFetches, greaterThan(before));
+    });
+  });
+
+  // ── 6. grouping cache is value-equal on categories (audit cycle 1, P2) ─────
+  group('grouping cache', () {
+    Future<ProviderContainer> mountSettled(WidgetTester tester) async {
+      final container = await pumpScreen(tester);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+      return container;
+    }
+
+    testWidgets('an equal-but-NEW category list causes no regroup', (
+      tester,
+    ) async {
+      final container = await mountSettled(tester);
+      final regroups = debugRegroupCount;
+      final fetches = categoriesFetches;
+
+      container.invalidate(approvedCategoriesProvider);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(
+        categoriesFetches,
+        greaterThan(fetches),
+        reason: 'really refetched',
+      );
+      expect(debugRegroupCount, regroups);
+    });
+
+    testWidgets('a CHANGED category list DOES regroup (anti-vacuity)', (
+      tester,
+    ) async {
+      final container = await mountSettled(tester);
+      final regroups = debugRegroupCount;
+
+      categoryLabel = 'RenamedCategory';
+      container.invalidate(approvedCategoriesProvider);
+      await tester.pump();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 600));
+
+      expect(debugRegroupCount, greaterThan(regroups));
+      expect(find.text('RenamedCategory'), findsWidgets);
+    });
   });
 }

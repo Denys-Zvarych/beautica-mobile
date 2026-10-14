@@ -13,13 +13,20 @@
 // seconds.
 //
 // The screen's own reason for busting them is still valid; only its CADENCE
-// was wrong. This notifier holds the instant of the last bust so the screen
-// can collapse its two entry points into a single guarded path
-// (`_refreshCategoryCataloguesIfStale`) that refreshes at most once per
-// [kCategoryCatalogueFreshFor]. Pull-to-refresh stays UNCONDITIONAL — that is
-// an explicit user request for fresh data, not an incidental remount — and
-// stamps this notifier too, so re-entering the screen right after a pull does
-// not immediately bust the cache again.
+// was wrong. This notifier holds the instant of the last successful refresh so
+// the entry points can be throttled, on two cadences:
+//
+//  * OPEN paths (services list entry, service setup open, service edit open)
+//    use the 30 s floor [kCategoryEntryFloor] via
+//    [refreshCategoryCataloguesIfOlderThan]: skipped inside the floor or while
+//    a fetch is in flight.
+//  * The pop-back from the setup / edit flows uses the 5-minute throttle
+//    [kCategoryCatalogueFreshFor].
+//
+// Pull-to-refresh stays UNCONDITIONAL — that is an explicit user request for
+// fresh data, not an incidental remount — and stamps this notifier too, so
+// re-entering the screen right after a pull does not immediately bust the
+// cache again.
 //
 // `keepAlive: true` for the same reason the two caches it guards are: the
 // stamp must outlive the screen, otherwise every remount would see a null
@@ -32,7 +39,14 @@
 // tests pin it the same way every other time-sensitive surface in this app
 // does.
 
+import 'dart:async';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart' show WidgetRef;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/services/data/service_repository.dart';
+import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 
 part 'category_catalogue_freshness.g.dart';
 
@@ -45,6 +59,50 @@ part 'category_catalogue_freshness.g.dart';
 /// pull-to-refresh gets it immediately regardless).
 const Duration kCategoryCatalogueFreshFor = Duration(minutes: 5);
 
+/// Floor for the services-surface OPEN paths («Мої послуги» entry, service
+/// setup open, service edit open): opening any of them within this window of
+/// the last successful refresh — or while a fetch is already in flight — does
+/// NOT fetch again. Pull-to-refresh ignores it.
+const Duration kCategoryEntryFloor = Duration(seconds: 30);
+
+/// Unconditionally drops both app-wide category caches and records the
+/// freshness stamp once the refreshed approved-category read SUCCEEDS (a
+/// failed read leaves the stamp alone so the next open retries).
+///
+/// Everything touched after the `await` is captured BEFORE it, so a screen
+/// disposed mid-flight cannot make this touch a dead `ref`.
+void refreshCategoryCatalogues(WidgetRef ref) {
+  final DateTime now = ref.read(clockProvider)();
+  final CategoryCatalogueFreshness stamper = ref.read(
+    categoryCatalogueFreshnessProvider.notifier,
+  );
+  ref.invalidate(approvedCategoriesProvider);
+  // A type newly approved under an EXISTING category must appear too.
+  ref.invalidate(serviceTypesProvider);
+  final Future<Object?> read = ref.read(approvedCategoriesProvider.future);
+  unawaited(read.then<void>((_) => stamper.stamp(now), onError: (Object _) {}));
+}
+
+/// [refreshCategoryCatalogues], skipped when the last successful refresh is
+/// younger than [floor] or a category fetch is already in flight. Returns
+/// whether it refreshed.
+bool refreshCategoryCataloguesIfOlderThan(WidgetRef ref, Duration floor) {
+  // `exists` first: a cold provider is not "in flight", and reading it here
+  // would itself start the fetch and then wrongly skip the refresh.
+  if (ref.exists(approvedCategoriesProvider) &&
+      ref.read(approvedCategoriesProvider).isLoading) {
+    return false;
+  }
+  final DateTime? last = ref.read(categoryCatalogueFreshnessProvider);
+  // instant-ok: cache-age comparison between two absolute instants, not a
+  // calendar-day question.
+  if (last != null && ref.read(clockProvider)().difference(last) < floor) {
+    return false;
+  }
+  refreshCategoryCatalogues(ref);
+  return true;
+}
+
 /// The instant [approvedCategoriesProvider] / [serviceTypesProvider] were last
 /// invalidated by a services surface, or `null` if never in this session.
 @Riverpod(keepAlive: true)
@@ -54,19 +112,4 @@ class CategoryCatalogueFreshness extends _$CategoryCatalogueFreshness {
 
   /// Records that the caches were just busted at [at].
   void stamp(DateTime at) => state = at;
-
-  /// Whether a bust at [now] is due. `true` when nothing has been stamped yet
-  /// (first entry of the session) or the stamp is older than
-  /// [kCategoryCatalogueFreshFor].
-  ///
-  /// A read, not a mutation — callers [stamp] separately so the decision and
-  /// the side effect stay visible at the call site.
-  bool isStaleAt(DateTime now) {
-    final DateTime? last = state;
-    if (last == null) return true;
-    // instant-ok: a cache-age comparison between two absolute instants — this
-    // is deliberately NOT a calendar-day question, so `kyivToday` does not
-    // apply.
-    return now.difference(last) >= kCategoryCatalogueFreshFor;
-  }
 }

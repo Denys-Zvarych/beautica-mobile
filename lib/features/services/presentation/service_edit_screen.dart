@@ -26,6 +26,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_target.dart';
@@ -133,6 +134,16 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    // Same staleness fix as the setup screen: the category picker reads the
+    // keepAlive [approvedCategoriesProvider], so re-fetch it on open (skipped
+    // inside the 30 s entry floor / while in flight). The form
+    // (which watches it) mounts after the service loads and reads the fresh
+    // value; if it is already mounted the invalidate re-fetches immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        refreshCategoryCataloguesIfOlderThan(ref, kCategoryEntryFloor);
+      }
+    });
   }
 
   @override
