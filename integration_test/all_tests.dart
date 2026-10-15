@@ -231,6 +231,8 @@ import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
 import 'notifications_flow_test.dart' as notifications;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notification_category_decision_flow_test.dart'
+    as notification_category_decision;
 import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -790,6 +792,11 @@ void main() {
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 412 — category-request decision row -> tap -> «Послуги».
+  group(
+    'notification_category_decision_flow',
+    notification_category_decision.main,
+  );
   // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
   group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
   // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).

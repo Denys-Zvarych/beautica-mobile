@@ -376,6 +376,10 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen>
         showMaster: showMaster,
         onOpen: () => _open(notifier, item),
         onMarkRead: () => _markRead(notifier, item.id),
+        // Phase 412: sentence + «Причина: …» needs a third line.
+        bodyMaxLines: NotificationCopy.isCatalogDecision(item.type)
+            ? NotificationCopy.decisionBodyMaxLines
+            : NotificationTile.defaultBodyMaxLines,
       ),
     );
     _rows[item.id] = _CachedRow(item, isClient, showMaster, widget);

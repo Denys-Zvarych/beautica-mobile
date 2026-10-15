@@ -28,7 +28,7 @@ abstract class NotificationResponse
 
   @BuiltValueField(wireName: r'type')
   NotificationResponseTypeEnum? get type;
-  // enum typeEnum {  BOOKING_CREATED,  BOOKING_CANCELLED_BY_CLIENT,  BOOKING_DECLINED,  BOOKING_NOT_COMPLETED,  BOOKING_RESCHEDULED,  REVIEW_REQUESTED,  BOOKING_CANCELLED_SALON_CLOSED,  BOOKING_CANCELLED_MASTER_REMOVED,  REVIEW_RECEIVED,  INVITE_ACCEPTED,  };
+  // enum typeEnum {  BOOKING_CREATED,  BOOKING_CANCELLED_BY_CLIENT,  BOOKING_DECLINED,  BOOKING_NOT_COMPLETED,  BOOKING_RESCHEDULED,  REVIEW_REQUESTED,  BOOKING_CANCELLED_SALON_CLOSED,  BOOKING_CANCELLED_MASTER_REMOVED,  REVIEW_RECEIVED,  INVITE_ACCEPTED,  CATEGORY_REQUEST_APPROVED,  CATEGORY_REQUEST_REJECTED,  SERVICE_TYPE_SUGGESTION_APPROVED,  SERVICE_TYPE_SUGGESTION_REJECTED,  };
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
@@ -240,6 +240,18 @@ class NotificationResponseTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'INVITE_ACCEPTED')
   static const NotificationResponseTypeEnum INVITE_ACCEPTED =
       _$notificationResponseTypeEnum_INVITE_ACCEPTED;
+  @BuiltValueEnumConst(wireName: r'CATEGORY_REQUEST_APPROVED')
+  static const NotificationResponseTypeEnum CATEGORY_REQUEST_APPROVED =
+      _$notificationResponseTypeEnum_CATEGORY_REQUEST_APPROVED;
+  @BuiltValueEnumConst(wireName: r'CATEGORY_REQUEST_REJECTED')
+  static const NotificationResponseTypeEnum CATEGORY_REQUEST_REJECTED =
+      _$notificationResponseTypeEnum_CATEGORY_REQUEST_REJECTED;
+  @BuiltValueEnumConst(wireName: r'SERVICE_TYPE_SUGGESTION_APPROVED')
+  static const NotificationResponseTypeEnum SERVICE_TYPE_SUGGESTION_APPROVED =
+      _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED;
+  @BuiltValueEnumConst(wireName: r'SERVICE_TYPE_SUGGESTION_REJECTED')
+  static const NotificationResponseTypeEnum SERVICE_TYPE_SUGGESTION_REJECTED =
+      _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED;
   @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
   static const NotificationResponseTypeEnum unknownDefaultOpenApi =
       _$notificationResponseTypeEnum_unknownDefaultOpenApi;

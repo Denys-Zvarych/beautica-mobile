@@ -115,6 +115,10 @@ class _$NotificationParams extends NotificationParams {
   final String? subjectName;
   @override
   final NotificationParamsSubjectRoleEnum? subjectRole;
+  @override
+  final String? categoryName;
+  @override
+  final String? decisionReason;
 
   factory _$NotificationParams(
           [void Function(NotificationParamsBuilder)? updates]) =>
@@ -128,7 +132,9 @@ class _$NotificationParams extends NotificationParams {
       this.salonName,
       this.masterName,
       this.subjectName,
-      this.subjectRole})
+      this.subjectRole,
+      this.categoryName,
+      this.decisionReason})
       : super._();
   @override
   NotificationParams rebuild(
@@ -150,7 +156,9 @@ class _$NotificationParams extends NotificationParams {
         salonName == other.salonName &&
         masterName == other.masterName &&
         subjectName == other.subjectName &&
-        subjectRole == other.subjectRole;
+        subjectRole == other.subjectRole &&
+        categoryName == other.categoryName &&
+        decisionReason == other.decisionReason;
   }
 
   @override
@@ -164,6 +172,8 @@ class _$NotificationParams extends NotificationParams {
     _$hash = $jc(_$hash, masterName.hashCode);
     _$hash = $jc(_$hash, subjectName.hashCode);
     _$hash = $jc(_$hash, subjectRole.hashCode);
+    _$hash = $jc(_$hash, categoryName.hashCode);
+    _$hash = $jc(_$hash, decisionReason.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -178,7 +188,9 @@ class _$NotificationParams extends NotificationParams {
           ..add('salonName', salonName)
           ..add('masterName', masterName)
           ..add('subjectName', subjectName)
-          ..add('subjectRole', subjectRole))
+          ..add('subjectRole', subjectRole)
+          ..add('categoryName', categoryName)
+          ..add('decisionReason', decisionReason))
         .toString();
   }
 }
@@ -221,6 +233,15 @@ class NotificationParamsBuilder
   set subjectRole(NotificationParamsSubjectRoleEnum? subjectRole) =>
       _$this._subjectRole = subjectRole;
 
+  String? _categoryName;
+  String? get categoryName => _$this._categoryName;
+  set categoryName(String? categoryName) => _$this._categoryName = categoryName;
+
+  String? _decisionReason;
+  String? get decisionReason => _$this._decisionReason;
+  set decisionReason(String? decisionReason) =>
+      _$this._decisionReason = decisionReason;
+
   NotificationParamsBuilder() {
     NotificationParams._defaults(this);
   }
@@ -236,6 +257,8 @@ class NotificationParamsBuilder
       _masterName = $v.masterName;
       _subjectName = $v.subjectName;
       _subjectRole = $v.subjectRole;
+      _categoryName = $v.categoryName;
+      _decisionReason = $v.decisionReason;
       _$v = null;
     }
     return this;
@@ -265,6 +288,8 @@ class NotificationParamsBuilder
           masterName: masterName,
           subjectName: subjectName,
           subjectRole: subjectRole,
+          categoryName: categoryName,
+          decisionReason: decisionReason,
         );
     replace(_$result);
     return _$result;

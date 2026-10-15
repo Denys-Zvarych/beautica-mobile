@@ -86,6 +86,32 @@ List<AppNotification> _mixed() => <AppNotification>[
   ),
 ];
 
+// Phase 412 — the two decision shapes: a rejection carrying the admin's reason
+// (sentence + «Причина: …», three-line body) and an approval (no reason line).
+List<AppNotification> _decisions() => <AppNotification>[
+  notif(
+    'd1',
+    type: AppNotificationType.categoryRequestRejected,
+    createdAt: DateTime.utc(2026, 9, 30, 11, 40),
+    target: const NotificationTarget.serviceCatalog(),
+    params: const NotificationParams(
+      categoryName: 'Манікюр',
+      decisionReason: 'Така категорія вже існує',
+    ),
+  ),
+  notif(
+    'd2',
+    type: AppNotificationType.serviceTypeSuggestionApproved,
+    read: true,
+    createdAt: DateTime.utc(2026, 9, 30, 9, 5),
+    target: const NotificationTarget.serviceCatalog(),
+    params: const NotificationParams(
+      categoryName: 'Манікюр',
+      serviceName: 'Гель-лак',
+    ),
+  ),
+];
+
 List<Object> _overrides(List<AppNotification> items, int unread) => <Object>[
   authProvider.overrideWith(() => FixedRoleAuth(UserRole.salonOwner)),
   notificationRepositoryProvider.overrideWithValue(
@@ -119,6 +145,18 @@ void main() {
       pumpWidget: goldenPumpWidget(
         width: width,
         overrides: _overrides(const <AppNotification>[], 0),
+      ),
+      builder: () => const NotificationsScreen(),
+    );
+
+    goldenTest(
+      'notifications — decisions ${width.toInt()}dp x$scale',
+      fileName: 'notifications_decisions_${widthScaleSuffix(width, scale)}',
+      constraints: BoxConstraints.tight(const Size(width, 640)),
+      textScaleFactor: scale,
+      pumpWidget: goldenPumpWidget(
+        width: width,
+        overrides: _overrides(_decisions(), 1),
       ),
       builder: () => const NotificationsScreen(),
     );
