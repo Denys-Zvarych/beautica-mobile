@@ -25,6 +25,7 @@ import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -44,7 +45,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// should then show the success VelvetSnack), or `null`/`false` when the user
 /// cancelled or dismissed.
 Future<bool?> showCategoryRequestDialog(BuildContext context) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     builder: (_) => const CategoryRequestDialog(),
@@ -283,7 +284,10 @@ class _CategoryRequestDialogState extends ConsumerState<CategoryRequestDialog> {
                   label: l10n.categoryRequestSubmit,
                   icon: Icons.send_rounded,
                   loading: _submitting,
-                  onPressed: _submitting ? null : () => _handleSubmit(l10n),
+                  onPressed: null,
+                  onPressedAsync: _submitting
+                      ? null
+                      : () => _handleSubmit(l10n),
                 ),
                 const SizedBox(height: VelvetSpacing.sm),
                 Center(

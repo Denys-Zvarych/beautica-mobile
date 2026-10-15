@@ -2257,6 +2257,76 @@ void main() {
       );
     });
 
+    // 2026-10-15 behaviour-parity restore: a DROPPED same-frame archive tap
+    // (`pushOnce` rejects it and resolves `null` at once) must NOT run the
+    // `.then` invalidate — only a REAL archive close refetches, as before the
+    // single-flight sweep. FALSIFY: remove the `if (isFlightOpen(context))
+    // return;` before the push → the dropped tap refetches while the archive
+    // opens and `fetches` reads 2 before the pop.
+    testWidgets('a dropped same-frame archive tap does not refetch the count', (
+      WidgetTester tester,
+    ) async {
+      int fetches = 0;
+      stubCount(() async {
+        fetches++;
+        return 3;
+      });
+      stubRoster(<SalonMasterSummary>[_rosterMaster('m1', 'Оля', 'Коваль')]);
+      stubSalonProfile();
+      stubSalonDay(<Booking>[]);
+
+      await tester.pumpRoutedApp(
+        GoRouter(
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/',
+              builder: (_, GoRouterState s) =>
+                  const SalonBookingsScreen(salonId: _salonId),
+            ),
+            GoRoute(
+              path: RouteNames.salonStaffBookingsArchive,
+              builder: (BuildContext c, GoRouterState s) => Scaffold(
+                body: TextButton(
+                  key: const Key('stub-archive-back'),
+                  onPressed: () => c.pop(),
+                  child: const SizedBox(width: 48, height: 48),
+                ),
+              ),
+            ),
+          ],
+        ),
+        overrides: overrides(),
+      );
+      await tester.pumpAndSettle();
+      expect(fetches, 1);
+
+      final Offset centre = tester.getCenter(
+        find.byKey(const Key('master-bookings-open-archive')),
+      );
+      for (int i = 0; i < 2; i++) {
+        tester.binding.handlePointerEventForSource(
+          PointerDownEvent(pointer: 72000 + i, position: centre),
+          source: TestBindingEventSource.test,
+        );
+        tester.binding.handlePointerEventForSource(
+          PointerUpEvent(pointer: 72000 + i, position: centre),
+          source: TestBindingEventSource.test,
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stub-archive-back')), findsOneWidget);
+      expect(
+        fetches,
+        1,
+        reason: 'the dropped tap must not invalidate the count',
+      );
+
+      // The REAL close still refetches, exactly as before.
+      await tester.tap(find.byKey(const Key('stub-archive-back')));
+      await tester.pumpAndSettle();
+      expect(fetches, 2);
+    });
+
     testWidgets('a count of 0 shows no badge', (WidgetTester tester) async {
       stubCount(() async => 0);
       await mount(tester);

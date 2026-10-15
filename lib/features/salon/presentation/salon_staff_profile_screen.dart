@@ -77,9 +77,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -322,7 +322,7 @@ class _SalonStaffProfileScreenState
               key: const Key('btn-admin-settings'),
               icon: Icons.tune_rounded,
               semanticLabel: l10n.adminSettingsManageSemanticLabel,
-              onTap: () => context.push(
+              onTap: () => context.pushOnce(
                 RouteNames.salonManageStaffSettings(
                   widget.salonId,
                   widget.memberId,
@@ -334,7 +334,7 @@ class _SalonStaffProfileScreenState
               key: const Key('btn-master-settings'),
               icon: Icons.tune_rounded,
               semanticLabel: l10n.staffSettingsManageMasterSemanticLabel,
-              onTap: () => context.push(
+              onTap: () => context.pushOnce(
                 RouteNames.salonManageStaffSettings(
                   widget.salonId,
                   widget.memberId,
@@ -849,7 +849,7 @@ class _StaffProfileBody extends StatelessWidget {
                           enabled: hasMasterId,
                           onTap: !hasMasterId
                               ? () {}
-                              : () => context.push(
+                              : () => context.pushOnce(
                                   RouteNames.salonManageStaffSchedule(
                                     salonId,
                                     memberId,
@@ -961,7 +961,7 @@ class _StaffProfileBody extends StatelessWidget {
   // `ref` calls are actually scoped to.
   Future<void> _openStaffServices(BuildContext context, WidgetRef ref) async {
     final int before = ref.read(serviceCatalogueRevisionProvider);
-    await context.push<void>(
+    await context.pushOnce<void>(
       RouteNames.salonManageStaffServices(salonId, memberId),
     );
     if (!context.mounted) return;

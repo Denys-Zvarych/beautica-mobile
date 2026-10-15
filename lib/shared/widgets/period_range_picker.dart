@@ -54,6 +54,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -139,7 +140,7 @@ Future<DateTimeRange?> showPeriodRangePicker(
   int monthCount = kPeriodRangePickerDefaultMonths,
   DateTime Function()? clock,
 }) {
-  return showModalBottomSheet<DateTimeRange>(
+  return showModalBottomSheetOnce<DateTimeRange>(
     context: context,
     isScrollControlled: true,
     backgroundColor: BrandColors.base,

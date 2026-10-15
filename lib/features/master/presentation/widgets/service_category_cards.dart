@@ -28,10 +28,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/category_icons.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -334,7 +334,7 @@ class _ServiceCategoryCardState extends State<ServiceCategoryCard> {
             onCategoryTap(context, slug);
             return;
           }
-          context.push(
+          context.pushOnce(
             Uri(
               path: RouteNames.services,
               queryParameters: slug == null

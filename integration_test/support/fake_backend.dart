@@ -420,6 +420,9 @@ final class FakeBackend {
     this.deleteMyAccountFailureMessage =
         'FAKE-422: скасуйте деякі майбутні записи, щоб видалити акаунт',
     this.deleteServiceDelay,
+    this.completeBookingDelay,
+    this.declineBookingDelay,
+    this.requestCategoryDelay,
     this.forgotPasswordFailureStatusCode,
     this.mediaAvatarUploadStatus,
     this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
@@ -2771,6 +2774,21 @@ final class FakeBackend {
   /// second call that did happen.
   final Duration? deleteServiceDelay;
 
+  /// Artificial latency for `PATCH /bookings/booking-1/complete`,
+  /// `PATCH /bookings/booking-1/decline` and `POST /service-categories/requests`.
+  /// Same contract as [deleteServiceDelay]: constructor-time, `null` (default)
+  /// answers immediately, and the call COUNTER increments at dispatch (before
+  /// the delay), so a second request fired while the first is held is still
+  /// counted. Exists for `tap_reentrancy_flow_test.dart`: the screen-level
+  /// single-flight guards (`_completeInFlight` / `_declineInFlight`,
+  /// `onPressedAsync`'s busy flag) only matter while the request is IN
+  /// FLIGHT across frames — with an
+  /// immediate reply that window is sub-frame and Flutter's own
+  /// `Navigator._cancelActivePointers` hides a missing guard.
+  final Duration? completeBookingDelay;
+  final Duration? declineBookingDelay;
+  final Duration? requestCategoryDelay;
+
   /// Count of `POST /independent-masters/me/services/bulk` (first-time setup)
   /// calls, and the exact `items` list of the last one — lets a flow prove the
   /// bulk-save actually reached the network (vs. being blocked client-side).
@@ -2963,6 +2981,11 @@ final class FakeBackend {
 
   /// Count of `GET /service-categories/approved` calls.
   int getApprovedCategoriesCalls = 0;
+
+  /// Count of `POST /service-categories/requests` (suggest-a-category submit)
+  /// and the last decoded body.
+  int requestCategoryCalls = 0;
+  Map<String, dynamic>? lastCategoryRequestBody;
   int getScheduleCalls = 0;
   int postScheduleCalls = 0;
   int putScheduleCalls = 0;
@@ -9442,6 +9465,22 @@ final class FakeBackend {
       request: const Request(method: RequestMethods.get),
     );
 
+    // POST /api/v1/service-categories/requests — the «Запропонувати категорію»
+    // dialog's submit (`CategoryRequestControllerApi.submitRequest`). Counts
+    // every request so a flow can pin "one tap -> one request" (tap
+    // re-entrancy, `tap_reentrancy_flow_test.dart`). A `data: null` envelope
+    // is valid: `ApiResponseCategoryRequestResponse.data` is nullable and the
+    // repository returns void.
+    _adapter.onRoute(
+      '/api/v1/service-categories/requests',
+      (server) => server.replyCallback(201, (req) {
+        requestCategoryCalls++;
+        lastCategoryRequestBody = _decodeBody(req.data);
+        return _okVoid;
+      }, delay: requestCategoryDelay),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
     // GET /api/v1/service-types?categoryName=X — second-level picker source
     // (Phase 16.5 regression). Keyed on the `categoryName` query param so a
     // category switch genuinely re-queries and the option list repopulates for
@@ -9946,7 +9985,7 @@ final class FakeBackend {
           };
         }
         return _okVoid;
-      }),
+      }, delay: declineBookingDelay),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
 
@@ -11284,6 +11323,7 @@ final class FakeBackend {
           }
           return _okVoid;
         },
+        delay: completeBookingDelay,
       ),
       request: const Request(method: RequestMethods.patch),
     );

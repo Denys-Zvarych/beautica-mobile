@@ -160,7 +160,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNull,
       reason: 'pristine form must leave Save disabled',
     );
@@ -171,7 +171,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: 'editing firstName must enable Save',
     );
@@ -222,7 +222,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: 'the ValueListenableBuilder footer must still enable Save',
     );
@@ -244,7 +244,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: 'editing enables Save',
     );
@@ -255,7 +255,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNull,
       reason: 'reverting to the original value must disable Save again',
     );
@@ -520,7 +520,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNull,
       reason: 'Save must be disabled on a pristine form',
     );
@@ -531,7 +531,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: 'entering text in professionalTitle must enable Save',
     );
@@ -668,7 +668,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: '_saving must clear after a failure so Save is interactive again',
     );

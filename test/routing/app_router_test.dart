@@ -149,7 +149,7 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -268,7 +268,7 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_unauthenticatedSession),
           ),
@@ -321,7 +321,7 @@ void main() {
         retry: beauticaProviderRetry,
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(
             () => _FixedAuthNotifier(_authenticatedSession),
           ),

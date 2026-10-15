@@ -75,6 +75,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -92,7 +93,39 @@ import 'widgets/delete_salon_dialog.dart';
 /// the caller can flip its own `SettingsRow(loading: ...)` flag) and with
 /// `false` again only on failure — on success the screen navigates away, so
 /// there is no matching "loading=false" call to make.
+///
+/// SINGLE-FLIGHT (per salon): a repeat call for a salon whose flow is
+/// already open — confirm dialog up, or DELETE in flight — is dropped and
+/// returns immediately, so a double-tap can neither stack a second dialog
+/// nor fire a second DELETE for the SAME salon. Deliberately keyed by
+/// [salonId] and NOT a context-wide lock: a delete of a DIFFERENT salon and
+/// every other action on the calling screen (e.g. «Додати салон») stay
+/// available while one DELETE is pending, exactly as before this guard
+/// (`my_salons_screen.dart`'s concurrent swipe-delete doc).
 Future<void> runDeleteSalonFlow({
+  required BuildContext context,
+  required WidgetRef ref,
+  required String salonId,
+  required ValueChanged<bool> setLoading,
+}) async {
+  if (!_salonIdsInFlight.add(salonId)) return;
+  try {
+    await _deleteSalonFlow(
+      context: context,
+      ref: ref,
+      salonId: salonId,
+      setLoading: setLoading,
+    );
+  } finally {
+    _salonIdsInFlight.remove(salonId);
+  }
+}
+
+/// Salon ids whose [runDeleteSalonFlow] is currently open — see its
+/// SINGLE-FLIGHT doc.
+final Set<String> _salonIdsInFlight = <String>{};
+
+Future<void> _deleteSalonFlow({
   required BuildContext context,
   required WidgetRef ref,
   required String salonId,
@@ -113,7 +146,7 @@ Future<void> runDeleteSalonFlow({
       mySalonsAsync is AsyncData<List<Salon>> &&
       mySalonsAsync.value.length == 1;
 
-  final bool? confirmed = await showDialog<bool>(
+  final bool? confirmed = await showDialogOnce<bool>(
     context: context,
     builder: (_) => DeleteSalonDialog(isLastSalon: isLastSalon),
   );

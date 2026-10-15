@@ -805,7 +805,27 @@ class _ServiceFormState extends State<ServiceForm> {
 
   // --- Submit ---------------------------------------------------------------
 
+  /// Synchronous single-flight guard for [_handleSubmit], set before the
+  /// first `await`: `_submitting` only disables the CTA after a rebuild, so
+  /// same-frame taps each started a submit. It only DROPS a repeat; the CTA
+  /// keeps its plain `onPressed`, so the first tap — including how an
+  /// unexpected error propagates — behaves exactly as before.
+  bool _submitInFlight = false;
+
   Future<void> _handleSubmit(
+    BuildContext context,
+    AppLocalizations l10n,
+  ) async {
+    if (_submitInFlight) return;
+    _submitInFlight = true;
+    try {
+      await _runHandleSubmit(context, l10n);
+    } finally {
+      _submitInFlight = false;
+    }
+  }
+
+  Future<void> _runHandleSubmit(
     BuildContext context,
     AppLocalizations l10n,
   ) async {

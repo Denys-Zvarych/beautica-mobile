@@ -282,7 +282,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNull,
     );
 
@@ -292,7 +292,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
     );
   });
@@ -334,7 +334,7 @@ void main() {
     expect(
       tester
           .widget<NeumorphicButton>(find.byKey(const Key('btn-save-personal')))
-          .onPressed,
+          .onPressedAsync,
       isNotNull,
       reason: 'the ValueListenableBuilder footer must still enable Save',
     );

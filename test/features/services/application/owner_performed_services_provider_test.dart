@@ -75,7 +75,7 @@ void main() {
   }) => makeTestContainer(
     overrides: <Object>[
       viewerOwnsSalonProvider(_kSalon).overrideWithValue(viewerOwns),
-      salonManagementProfileProvider.overrideWith(() => _Roster(roster)),
+      salonManagementProfileProvider.overrideWith2((_) => _Roster(roster)),
       publicServiceRepositoryProvider.overrideWithValue(repo),
     ],
   );

@@ -1166,7 +1166,83 @@ void main() {
         );
       },
     );
+
+    // -----------------------------------------------------------------------
+    // Keyboard Enter + same-frame CTA tap → exactly ONE login.
+    // -----------------------------------------------------------------------
+    // The password field's `onSubmitted` calls `_submit` directly, outside
+    // the CTA's `onPressedAsync` busy flag; only the screen's synchronous
+    // `_submitInFlight` guard stops the second concurrent login (which would
+    // overwrite the refresh token and orphan the first session). No pump
+    // between the Enter and the tap: a pump lets `isLoading` disable both.
+    // Anti-vacuity: drop the `_submitInFlight` early-return and this goes RED
+    // with 2 calls (verified when written).
+    testWidgets(
+      'Enter + same-frame tap on login_submit → exactly 1 login call',
+      (tester) async {
+        final _GatedAuthNotifier notifier = _GatedAuthNotifier();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await tester.pumpWidget(
+          ProviderScope(
+            retry: beauticaProviderRetry,
+            overrides: [
+              authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+              secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+              authProvider.overrideWith(() => notifier),
+            ],
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+              locale: const Locale('uk'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_email')),
+          'test@example.com',
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('login_password')),
+          'Secret123',
+        );
+        await tester.ensureVisible(
+          find.byKey(const ValueKey<String>('login_submit')),
+        );
+        await tester.pump();
+
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.tap(find.byKey(const ValueKey<String>('login_submit')));
+
+        expect(notifier.loginCalls, 1);
+
+        notifier.gate.complete();
+        await tester.pumpAndSettle();
+        expect(notifier.loginCalls, 1);
+      },
+    );
   });
+}
+
+/// Counts [login] calls and keeps each one pending until [gate] completes —
+/// so the first login is still in flight when the second trigger lands.
+class _GatedAuthNotifier extends AuthNotifier {
+  final Completer<void> gate = Completer<void>();
+  int loginCalls = 0;
+
+  @override
+  Future<AuthSession> build() async => const AuthSession.unauthenticated();
+
+  @override
+  Future<void> login(String email, String password) async {
+    loginCalls++;
+    await gate.future;
+    state = const AsyncError(InvalidCredentialsFailure(), StackTrace.empty);
+  }
 }
 
 // ---------------------------------------------------------------------------

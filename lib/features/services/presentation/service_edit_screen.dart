@@ -22,6 +22,7 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -189,7 +190,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     if (_deleting) return;
     _deleting = true;
     try {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showDialogOnce<bool>(
         context: context,
         builder: (_) => const DeleteServiceDialog(),
       );
@@ -231,7 +232,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       // booking for this service. NOTHING was written — do not pop, do not
       // invalidate servicesListProvider (no optimistic removal), and offer
       // no shortcut to the blocking bookings (phase 308 stays deferred). The
-      // dialog it re-shows uses the SAME `showDialog` call site as the
+      // dialog it re-shows uses the SAME `showDialogOnce` call site as the
       // confirmation prompt above; its resolved value is discarded — the
       // blocked variant's sole action is a dismiss, never a retry.
       if (kDebugMode) {
@@ -243,7 +244,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
         );
       }
       if (context.mounted) {
-        await showDialog<bool>(
+        await showDialogOnce<bool>(
           context: context,
           builder: (_) => const DeleteServiceDialog(blocked: true),
         );
@@ -441,7 +442,7 @@ class _EditBodyState extends State<_EditBody>
   /// explicit «Вийти без збереження» keeps it.
   Future<bool> _confirmDiscard() async {
     if (!_dirty) return true;
-    final bool? leave = await showDialog<bool>(
+    final bool? leave = await showDialogOnce<bool>(
       context: context,
       builder: (_) => const UnsavedChangesDialog(),
     );

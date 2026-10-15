@@ -591,7 +591,25 @@ class _ServiceSetupScreenState extends ConsumerState<ServiceSetupScreen> {
     });
   }
 
+  /// Synchronous single-flight guard for [_save], set before the first
+  /// `await` (same pattern as `day_hours_sheet.dart`'s): the footer's
+  /// `saving` flag only bites after a rebuild, so same-frame taps each ran a
+  /// save. It only DROPS a repeat; the CTA keeps its plain `onPressed`, so
+  /// the first tap behaves exactly as before (no spinner during the 409
+  /// `_flagRowsNowOwned` refetch).
+  bool _saveInFlight = false;
+
   Future<void> _save() async {
+    if (_saveInFlight) return;
+    _saveInFlight = true;
+    try {
+      await _runSave();
+    } finally {
+      _saveInFlight = false;
+    }
+  }
+
+  Future<void> _runSave() async {
     // The 503 retry bar posts on the ROOT messenger and therefore survives a
     // pop, action and all. Without this guard a tap after leaving runs the whole
     // method against a defunct element — `AppLocalizations.of(context)` on the

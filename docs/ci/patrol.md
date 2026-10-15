@@ -148,7 +148,7 @@ run while the cadence was 5s. Losing the approval race means the
 URL opens in a BROWSER, the app is backgrounded, and the Flutter
 engine stops producing frames — so the test does not fail fast, it
 HANGS, because `pump()` blocks forever waiting for a frame that
-never comes. That is what the 900s `timeout` below caught.
+never comes. That is what the `patrol test` `timeout` below (900s then, 1200s now) caught.
 
 Lesson worth keeping: this loop is load-bearing for the deep-link
 test, and it was slowed to chase a defect in a different test.
@@ -193,7 +193,7 @@ GALLERY SEED (PR #79): avatar_pick_patrol_test selects a photo in the
 system Photo Picker, and a device test cannot write MediaStore — the
 host must seed it. Unseeded, the picker grid is empty: the test fails
 «no photo cell found», the picker stays in front with the app
-backgrounded, and the NEXT test hangs to the 900s bound. Fail the step
+backgrounded, and the NEXT test hangs to the 1200s bound. Fail the step
 here (not 15 min later) if the seed or its MediaStore row is missing.
 
 <a id="patrol-exit"></a>
@@ -204,6 +204,23 @@ Run patrol, capture its exit, signal the loop to stop, then exit with
 patrol's real code — all on ONE line so the exit status carries
 (android-emulator-runner runs each line in its own sh -c, so a separate
 CODE=$?/exit would not). This makes the step's result equal patrol's.
+
+<a id="patrol-test-bound"></a>
+
+### patrol: `patrol test` bound (1200s, raised 2026-10-15)
+
+The `timeout` on the `patrol test` line is a HANG detector, not a budget:
+a healthy suite is ~10min for the 12 cases that existed before 2026-10-15.
+`services_fab_cold_start_patrol_test.dart` (the flutter_riverpod 3.1.0
+frame-scheduler freeze regression) adds 5 cases, each a separate cold
+start under the orchestrator. Estimate per case: the comparable
+fake-backend `auth_login_patrol_test` case passes in ~6s of test body,
+plus ~10-15s of per-case orchestrator process start and three real-frame
+navigations — ~20-25s, so ~2min for the five. 900s would have left ~3min
+of headroom over a ~12min healthy run; 1200s restores ~8min while still
+catching a hang long before the 45-minute job bound
+(#patrol-timeout). If the five cases ever need trimming, 3 cases still
+catch a 50%-per-run regression 87.5% of the time (5 cases: 97%).
 
 <a id="host-diagnostics"></a>
 

@@ -50,6 +50,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -125,7 +126,7 @@ Future<bool?> showDayOffConflictDialog(
       level: 800,
     );
   }
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     barrierColor: BrandColors.text.withValues(alpha: 0.35),
@@ -343,7 +344,7 @@ class _DayOffConflictDialogState extends State<DayOffConflictDialog>
 /// conflict check), `null` on any way of backing out — same "do nothing"
 /// contract as [showDayOffConflictDialog].
 Future<bool?> showDayOffCheckErrorDialog(BuildContext context) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     barrierColor: BrandColors.text.withValues(alpha: 0.35),

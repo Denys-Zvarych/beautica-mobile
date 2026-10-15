@@ -9,10 +9,13 @@
 // confirmation needs the identical pair, and the alternative — a second red
 // pill written inside the salon feature — is exactly the fork this rule
 // exists to prevent. The code below is the ORIGINAL, moved verbatim: no
-// parameter added, no default changed, no render altered.
+// parameter added, no default changed, no render altered. (Later additive
+// param: `onPressedAsync`, default null — every existing caller unchanged.)
 //
 // `DayOffConflictDialog` (and its own widget/golden tests) now import this
 // file; nothing about how it renders changed.
+
+import 'dart:async' show unawaited;
 
 import 'package:flutter/material.dart';
 
@@ -40,12 +43,20 @@ class DestructiveButton extends StatefulWidget {
     required this.onPressed,
     this.icon = Icons.event_busy_rounded,
     this.loading = false,
+    this.onPressedAsync,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData icon;
   final bool loading;
+
+  /// SINGLE-FLIGHT async action — same contract as
+  /// [NeumorphicButton.onPressedAsync]: a busy flag set synchronously on the
+  /// tap, the [loading] visual while pending, taps ignored until the future
+  /// completes. Takes precedence over [onPressed]; null keeps the button
+  /// exactly as before.
+  final Future<void> Function()? onPressedAsync;
 
   @override
   State<DestructiveButton> createState() => _DestructiveButtonState();
@@ -54,7 +65,50 @@ class DestructiveButton extends StatefulWidget {
 class _DestructiveButtonState extends State<DestructiveButton> {
   bool _pressed = false;
 
-  bool get _enabled => widget.onPressed != null && !widget.loading;
+  /// Single-flight busy flag for [DestructiveButton.onPressedAsync].
+  bool _busy = false;
+
+  bool get _loading => widget.loading || _busy;
+
+  bool get _enabled =>
+      (widget.onPressed != null || widget.onPressedAsync != null) && !_loading;
+
+  // ASYNC path only — a plain [onPressed] is invoked synchronously from the
+  // gesture callback (see `_handleTapUp`), so a sync throw still reaches the
+  // gesture recognizer's own `FlutterError.reportError`, exactly as before
+  // `onPressedAsync` existed. This future is not awaited by the gesture: an
+  // error the async action throws (sync or async) is caught here and
+  // reported through [FlutterError.reportError] explicitly — otherwise it
+  // would surface as an unhandled zone error — and the button re-enables.
+  Future<void> _fire(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (e, st) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: st,
+          library: 'DestructiveButton',
+          context: ErrorDescription('while running onPressedAsync'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _handleTapUp(TapUpDetails _) {
+    setState(() => _pressed = false);
+    final Future<void> Function()? action = widget.onPressedAsync;
+    if (action == null) {
+      // Synchronous, un-wrapped — identical to the pre-`onPressedAsync` path.
+      widget.onPressed?.call();
+      return;
+    }
+    unawaited(_fire(action));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,12 +119,7 @@ class _DestructiveButtonState extends State<DestructiveButton> {
       child: GestureDetector(
         onTapDown: _enabled ? (_) => setState(() => _pressed = true) : null,
         onTapCancel: _enabled ? () => setState(() => _pressed = false) : null,
-        onTapUp: _enabled
-            ? (_) {
-                setState(() => _pressed = false);
-                widget.onPressed!.call();
-              }
-            : null,
+        onTapUp: _enabled ? _handleTapUp : null,
         child: AnimatedScale(
           scale: _pressed ? 0.97 : 1,
           duration: const Duration(milliseconds: 120),
@@ -86,7 +135,7 @@ class _DestructiveButtonState extends State<DestructiveButton> {
                   : VelvetShadows.destructiveLift,
             ),
             alignment: Alignment.center,
-            child: widget.loading
+            child: _loading
                 ? const SizedBox(
                     height: 20,
                     width: 20,

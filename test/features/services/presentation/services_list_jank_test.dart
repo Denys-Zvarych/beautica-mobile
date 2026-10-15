@@ -18,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/ticker_frame_callbacks.dart';
 
 class _MockServiceRepository extends Mock implements ServiceRepository {}
 
@@ -544,7 +545,7 @@ void main() {
 
       expect(find.byKey(const Key('skeleton_card_0')), findsOneWidget);
       expect(find.byKey(const Key('skeleton_card_2')), findsOneWidget);
-      expect(tester.binding.transientCallbackCount, 1);
+      expect(tickerFrameCallbacks(tester), 1);
     });
   });
 }

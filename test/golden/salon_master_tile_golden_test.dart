@@ -400,13 +400,13 @@ class _FakeBookingRepository implements BookingRepository {
 // ---------------------------------------------------------------------------
 
 List<Object> _overrides() => <Object>[
-  salonStaffMastersRosterProvider.overrideWith(
-    () => FakeSalonStaffMastersRoster(
+  salonStaffMastersRosterProvider.overrideWith2(
+    (_) => FakeSalonStaffMastersRoster(
       () => const <SalonMasterSummary>[_kMasterA, _kMasterB],
     ),
   ),
-  salonMasterServiceCoverageProvider.overrideWith(
-    () =>
+  salonMasterServiceCoverageProvider.overrideWith2(
+    (_) =>
         FakeSalonMasterServiceCoverage(() => salonCoverageOf(_coverageAOnly())),
   ),
   salonServiceCatalogProvider.overrideWith(
@@ -420,13 +420,13 @@ List<Object> _overrides() => <Object>[
 /// PHASE 341 D6 — same shape as [_overrides], multi-service catalogue +
 /// both-covering map (see the fixtures' own doc above).
 List<Object> _overridesMulti() => <Object>[
-  salonStaffMastersRosterProvider.overrideWith(
-    () => FakeSalonStaffMastersRoster(
+  salonStaffMastersRosterProvider.overrideWith2(
+    (_) => FakeSalonStaffMastersRoster(
       () => const <SalonMasterSummary>[_kMasterA, _kMasterB],
     ),
   ),
-  salonMasterServiceCoverageProvider.overrideWith(
-    () => FakeSalonMasterServiceCoverage(
+  salonMasterServiceCoverageProvider.overrideWith2(
+    (_) => FakeSalonMasterServiceCoverage(
       () => salonCoverageOf(_coverageBothFull()),
     ),
   ),

@@ -553,7 +553,7 @@ void main() {
       final ProviderContainer c = await _pump(
         tester,
         overrides: <Object>[
-          weeklyScheduleProvider.overrideWith(() => _ErrorWeekly()),
+          weeklyScheduleProvider.overrideWith2((_) => _ErrorWeekly()),
         ],
       );
       addTearDown(c.dispose);
@@ -596,7 +596,7 @@ void main() {
       addTearDown(c.dispose);
 
       expect(
-        _saveButton(tester).onPressed,
+        _saveButton(tester).onPressedAsync,
         isNull,
         reason: 'a pristine load must not enable Save (no edit yet)',
       );
@@ -611,7 +611,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        _saveButton(tester).onPressed,
+        _saveButton(tester).onPressedAsync,
         isNotNull,
         reason: 'closing a previously-open day makes the draft dirty',
       );
@@ -627,14 +627,14 @@ void main() {
 
       await tester.tap(find.byKey(const Key('weekly-toggle-1')));
       await tester.pumpAndSettle();
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onPressedAsync, isNotNull);
 
       // Toggle back on — stash restores the default 09:00–18:00, identical to
       // the loaded baseline → no longer dirty.
       await tester.tap(find.byKey(const Key('weekly-toggle-1')));
       await tester.pumpAndSettle();
       expect(
-        _saveButton(tester).onPressed,
+        _saveButton(tester).onPressedAsync,
         isNull,
         reason:
             'a toggle that returns the day to its baseline hours is a no-op '
@@ -667,12 +667,14 @@ void main() {
         final ProviderContainer c = await _pump(
           tester,
           overrides: <Object>[
-            weeklyScheduleProvider.overrideWith(
-              () => _RecordingWeeklyNotifier(
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _RecordingWeeklyNotifier(
                 _RecordingWeekly(const <WeeklySchedule>[]),
               ),
             ),
-            effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _CountingEffective(),
+            ),
           ],
         );
         addTearDown(c.dispose);
@@ -696,7 +698,7 @@ void main() {
         // Save is disabled (an all-off week with no template equals the
         // persisted NO_SCHEDULE state — legitimately nothing to persist).
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason: 'an all-off fresh draft equals NO_SCHEDULE → Save disabled',
         );
@@ -737,7 +739,7 @@ void main() {
         // Precondition: an all-off fresh draft is a clean no-op — the
         // no-changes hint is up, Save disabled.
         expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
-        expect(_saveButton(tester).onPressed, isNull);
+        expect(_saveButton(tester).onPressedAsync, isNull);
 
         // Toggle Monday ON — the stash seeds valid default hours (09:00–18:00),
         // so the draft is dirty AND error-free: a real, savable change.
@@ -748,7 +750,7 @@ void main() {
         // gate — it is enforced at submit time). No window pick needed for the
         // button to enable; the windowUnset hint is never shown.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'a first-create with one valid working day enables Save — the '
@@ -796,7 +798,7 @@ void main() {
         expect(find.byKey(const Key('schedule-stub')), findsNothing);
         // Save stays ENABLED — the gate is submit-time, not button-disable.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'Save remains enabled after the blocked submit attempt',
         );
@@ -818,7 +820,7 @@ void main() {
         addTearDown(c.dispose);
 
         // Pristine load → Save disabled, hint shown (no edit yet).
-        expect(_saveButton(tester).onPressed, isNull);
+        expect(_saveButton(tester).onPressedAsync, isNull);
         expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
 
         // Scroll Wednesday into view and toggle it OFF.
@@ -832,7 +834,7 @@ void main() {
 
         // The day-off edit is dirty → Save enables, hint clears.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'closing a previously-open day makes the draft dirty',
         );
@@ -894,7 +896,7 @@ void main() {
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'closing the last open day of a real template is dirty',
         );
@@ -961,7 +963,7 @@ void main() {
         // NEW: Save is ENABLED — the windowUnset gate is gone (Bug 2 fix).
         // Reverting the fix re-introduces the gate and this fails.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'a dirty first-create with one valid working day is saveable '
@@ -1005,7 +1007,7 @@ void main() {
         // ENABLE GATE: Save is enabled with no range — the range is not part of
         // button enablement.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'Save enablement is unchanged — one valid working day enables it '
@@ -1029,7 +1031,7 @@ void main() {
           reason: 'the submit guard blocks persistence with no range',
         );
         // Save is still enabled after the blocked attempt.
-        expect(_saveButton(tester).onPressed, isNotNull);
+        expect(_saveButton(tester).onPressedAsync, isNotNull);
       },
     );
 
@@ -1049,7 +1051,7 @@ void main() {
 
       await tester.tap(find.byKey(const Key('weekly-toggle-1')));
       await tester.pumpAndSettle();
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onPressedAsync, isNotNull);
 
       // The validity window is now REQUIRED on first create: pick a custom
       // window 15.06 → 20.06 via the active-window card BEFORE pressing Save.
@@ -1121,7 +1123,7 @@ void main() {
 
         // Save is enabled (dirty day + a staged window). Commit via the editor
         // Save — the single commit point.
-        expect(_saveButton(tester).onPressed, isNotNull);
+        expect(_saveButton(tester).onPressedAsync, isNotNull);
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
 
@@ -1164,18 +1166,20 @@ void main() {
         final ProviderContainer c = await _pump(
           tester,
           overrides: <Object>[
-            weeklyScheduleProvider.overrideWith(
-              () => _RecordingWeeklyNotifier(
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _RecordingWeeklyNotifier(
                 _RecordingWeekly(const <WeeklySchedule>[]),
               ),
             ),
-            effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _CountingEffective(),
+            ),
           ],
         );
         addTearDown(c.dispose);
 
         // Precondition — pristine all-off draft: Save disabled, no-changes hint.
-        expect(_saveButton(tester).onPressed, isNull);
+        expect(_saveButton(tester).onPressedAsync, isNull);
         expect(find.byKey(const Key('weekly-no-changes-hint')), findsOneWidget);
 
         // Toggle ONLY Monday on. The stash seeds a valid default interval
@@ -1197,7 +1201,7 @@ void main() {
         // day, no Apply-window pick. If the windowUnset gate were restored this
         // is null and the test fails.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'a dirty first-create with one valid working day must enable '
@@ -1272,7 +1276,7 @@ void main() {
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'first-create Save is enabled with one valid working day',
         );
@@ -1540,7 +1544,7 @@ void main() {
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'closing the only open day makes an all-off draft dirty',
         );
@@ -1714,7 +1718,7 @@ void main() {
         addTearDown(c.dispose);
 
         // On load (the state a non-editing viewer sees) Save cannot fire.
-        expect(_saveButton(tester).onPressed, isNull);
+        expect(_saveButton(tester).onPressedAsync, isNull);
       },
     );
   });
@@ -2088,7 +2092,7 @@ void main() {
 
         // Precondition: empty explicit day → Save disabled (error gate).
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason:
               'a working EXPLICIT_TIMES day with no times is invalid → Save '
@@ -2116,7 +2120,7 @@ void main() {
         // On the pre-fix code the host times stayed empty → hasErrors → this
         // is `null` and the test fails.
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'adding discrete times to an EXPLICIT_TIMES day must enable '
@@ -2157,7 +2161,7 @@ void main() {
         await _addWeeklyDiscreteTime(tester); // → 10:00
 
         // Save is enabled → tap it.
-        expect(_saveButton(tester).onPressed, isNotNull);
+        expect(_saveButton(tester).onPressedAsync, isNotNull);
         await tester.tap(find.byKey(const Key('btn-save-weekly-template')));
         await tester.pumpAndSettle();
 
@@ -2216,7 +2220,7 @@ void main() {
         addTearDown(c.dispose);
 
         // Pristine load of an existing template → Save disabled (no edit yet).
-        expect(_saveButton(tester).onPressed, isNull);
+        expect(_saveButton(tester).onPressedAsync, isNull);
 
         // Monday is seeded ACTIVE in INTERVAL mode (09:00–18:00). Toggle it OFF —
         // an INTERVAL-shape change that differs from the persisted baseline →
@@ -2226,7 +2230,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'an INTERVAL-mode edit on an existing template enables Save',
         );
@@ -2579,7 +2583,7 @@ void main() {
       // Reconstructing a break out of the stored window is a pure DISPLAY
       // change — it must not register as an edit.
       expect(
-        _saveButton(tester).onPressed,
+        _saveButton(tester).onPressedAsync,
         isNull,
         reason:
             'seeding the window-present regime must keep the Phase 6.2 '
@@ -2600,7 +2604,11 @@ void main() {
         );
         addTearDown(c.dispose);
 
-        expect(_saveButton(tester).onPressed, isNull, reason: 'precondition');
+        expect(
+          _saveButton(tester).onPressedAsync,
+          isNull,
+          reason: 'precondition',
+        );
 
         // ── The master's edit: "I don't want a break at the start, I just
         // want to begin at 10:00." Remove the break, then move the window
@@ -2626,7 +2634,7 @@ void main() {
         );
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'THE BUG: with an interval-only diff this state equals the '
@@ -2696,7 +2704,7 @@ void main() {
         await _removeBreak(tester, dayOfWeek: 1);
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason: 'removing a break widens the working day — a real edit',
         );
@@ -2733,7 +2741,7 @@ void main() {
               'the legacy regime must stay byte-identical',
         );
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason:
               'the seeded draft window EQUALS the baselined derived window '
@@ -2770,7 +2778,7 @@ void main() {
         expect(_wellText(tester, 'weekly-day-1-break-0-start'), '13:00');
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason:
               'the derived 09:00–18:00 window is ALSO what `_seed` baselined, '
@@ -2797,7 +2805,7 @@ void main() {
 
         expect(_wellText(tester, 'weekly-day-1-work-end'), '17:00');
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'shortening a legacy day moves its collapsed intervals AND its '
@@ -2846,7 +2854,7 @@ void main() {
         addTearDown(c.dispose);
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason: 'precondition: an untouched legacy load is pristine',
         );
@@ -2892,7 +2900,7 @@ void main() {
         expect(_wellText(tester, 'weekly-day-1-work-end'), '18:00');
 
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNotNull,
           reason:
               'THE BUG: the collapsed intervals equal the baseline, so with a '
@@ -2985,7 +2993,11 @@ void main() {
 
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
-        expect(_saveButton(tester).onPressed, isNotNull, reason: 'day closed');
+        expect(
+          _saveButton(tester).onPressedAsync,
+          isNotNull,
+          reason: 'day closed',
+        );
 
         await tester.tap(find.byKey(const Key('weekly-toggle-1')));
         await tester.pumpAndSettle();
@@ -2997,7 +3009,7 @@ void main() {
         );
         expect(_wellText(tester, 'weekly-day-1-break-0-start'), '09:00');
         expect(
-          _saveButton(tester).onPressed,
+          _saveButton(tester).onPressedAsync,
           isNull,
           reason:
               'a toggle that restores the day exactly is a no-op → Save must '
@@ -3040,12 +3052,12 @@ void main() {
       final ProviderContainer c = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          weeklyScheduleProvider.overrideWith(
-            () => _RecordingWeeklyNotifier(
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _RecordingWeeklyNotifier(
               _RecordingWeekly(<WeeklySchedule>[_template()]),
             ),
           ),
-          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
           authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
@@ -3135,12 +3147,12 @@ void main() {
       final ProviderContainer c = ProviderContainer(
         retry: beauticaProviderRetry,
         overrides: <Object>[
-          weeklyScheduleProvider.overrideWith(
-            () => _RecordingWeeklyNotifier(
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _RecordingWeeklyNotifier(
               _RecordingWeekly(<WeeklySchedule>[_template()]),
             ),
           ),
-          effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+          effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
           clockProvider.overrideWithValue(() => pinned),
           authProvider.overrideWith(_StubAuthNotifier.new),
         ].cast(),
@@ -3282,16 +3294,16 @@ Finder _dayCell(int day) => find.byWidgetPredicate(
 /// Editor overrides bound to a recording weekly notifier + a counting effective
 /// notifier (so the invalidation path is observable).
 List<Object> _overridesFor(_RecordingWeekly weekly) => <Object>[
-  weeklyScheduleProvider.overrideWith(() => _RecordingWeeklyNotifier(weekly)),
-  effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+  weeklyScheduleProvider.overrideWith2((_) => _RecordingWeeklyNotifier(weekly)),
+  effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
 ];
 
 /// Editor overrides bound to a FAILING weekly notifier (mutations land in
 /// AsyncError) + a counting effective notifier (so the absence of an
 /// invalidation on failure is observable).
 List<Object> _failingOverridesFor(_FailingWeekly weekly) => <Object>[
-  weeklyScheduleProvider.overrideWith(() => _FailingWeeklyNotifier(weekly)),
-  effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+  weeklyScheduleProvider.overrideWith2((_) => _FailingWeeklyNotifier(weekly)),
+  effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
 ];
 
 Future<ProviderContainer> _pumpLoaded(
@@ -3300,12 +3312,12 @@ Future<ProviderContainer> _pumpLoaded(
 ) => _pump(
   tester,
   overrides: <Object>[
-    weeklyScheduleProvider.overrideWith(
-      () => _RecordingWeeklyNotifier(
+    weeklyScheduleProvider.overrideWith2(
+      (_) => _RecordingWeeklyNotifier(
         _RecordingWeekly(<WeeklySchedule>[template]),
       ),
     ),
-    effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+    effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
   ],
 );
 
@@ -3315,11 +3327,11 @@ Future<ProviderContainer> _pumpLoaded(
 Future<ProviderContainer> _pumpEmpty(WidgetTester tester) => _pump(
   tester,
   overrides: <Object>[
-    weeklyScheduleProvider.overrideWith(
-      () =>
+    weeklyScheduleProvider.overrideWith2(
+      (_) =>
           _RecordingWeeklyNotifier(_RecordingWeekly(const <WeeklySchedule>[])),
     ),
-    effectiveScheduleProvider.overrideWith(() => _CountingEffective()),
+    effectiveScheduleProvider.overrideWith2((_) => _CountingEffective()),
   ],
 );
 
@@ -3327,7 +3339,7 @@ Future<ProviderContainer> _pumpLoading(WidgetTester tester) => _pump(
   tester,
   settle: false,
   overrides: <Object>[
-    weeklyScheduleProvider.overrideWith(() => _LoadingWeekly()),
+    weeklyScheduleProvider.overrideWith2((_) => _LoadingWeekly()),
   ],
 );
 

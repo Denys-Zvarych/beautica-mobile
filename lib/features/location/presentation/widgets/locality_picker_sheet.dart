@@ -20,6 +20,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -47,7 +48,7 @@ Future<T?> showLocalityPickerSheet<T>({
   required String titleLabel,
   required VoidCallback onRetry,
 }) {
-  return showModalBottomSheet<T>(
+  return showModalBottomSheetOnce<T>(
     context: context,
     isScrollControlled: true,
     // Explicit dismiss affordances: tapping the scrim closes the sheet, AND the

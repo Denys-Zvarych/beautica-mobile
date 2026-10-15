@@ -262,7 +262,7 @@ void main() {
         retry: (_, _) => null,
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(() => _FixedAuthNotifier(session)),
           authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
           secureStorageProvider.overrideWith((_) => FakeSecureStorage()),

@@ -41,7 +41,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../core/icons/category_icons.dart';
 import '../../../core/theme/brand_colors.dart';
@@ -217,7 +217,7 @@ class _ClientSearchScreenState extends ConsumerState<ClientSearchScreen> {
     final SearchFilters filters = base.copyWith(
       serviceTypeSlugs: serviceTypeSlugs,
     );
-    context.push(RouteNames.clientSearchResults, extra: filters);
+    context.pushOnce(RouteNames.clientSearchResults, extra: filters);
   }
 
   /// Mirrors a draft change made while this screen is covered back into its

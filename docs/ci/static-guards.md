@@ -559,6 +559,20 @@ effectiveSchedule). This gate makes a bare cross-file family
 invalidation fail CI instead of silently reintroducing the race.
 Allow-list: scripts/.keepalive_family_invalidation_allow.
 
+<a id="raw-push"></a>
+
+### Forbid raw push in features (2026-10-15)
+
+`scripts/forbid_raw_push.sh` — under `lib/features/`, a raw `context.push(` /
+`context.pushNamed(` / `GoRouter.of(…).push(` / `Navigator…push(` is banned;
+screen pushes go through `context.pushOnce` / `pushNamedOnce` / `runOnce`
+(`lib/core/navigation/single_flight.dart`). A rebuild-only disable lets
+same-frame taps through, and each pushed its own copy of the route (stacked
+booking-confirm screens, each minting its own idempotency key). Sites that
+already hold their own synchronous guard are listed in
+`scripts/.raw_push_allow` as `<path>:<line>:<fingerprint>`; an entry whose
+line no longer carries its fingerprint fails as STALE.
+
 <a id="verify-guards-self-test"></a>
 
 ### Self-test drift-prevention gates (2026-06-24, 2026-08-18)

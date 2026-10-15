@@ -231,8 +231,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: <Booking>[inWindow, outOfWindow],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.template,
@@ -330,8 +330,8 @@ void main() {
           bookings: <Booking>[
             _booking(id: 'orphan', startAtUtc: _kyivAtUtc(9)),
           ],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.overrideDayOff,
@@ -369,8 +369,8 @@ void main() {
         tester,
         useScheduleWindow: true,
         bookings: const <Booking>[],
-        scheduleOverride: effectiveScheduleProvider.overrideWith(
-          () => _DataSchedule(<EffectiveDay>[
+        scheduleOverride: effectiveScheduleProvider.overrideWith2(
+          (_) => _DataSchedule(<EffectiveDay>[
             EffectiveDay(
               date: _day,
               source: EffectiveSource.noSchedule,
@@ -407,8 +407,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: <Booking>[b],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _LoadingSchedule(),
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _LoadingSchedule(),
           ),
         );
 
@@ -440,8 +440,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: <Booking>[b],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _ErrorSchedule(),
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _ErrorSchedule(),
           ),
         );
 
@@ -464,8 +464,8 @@ void main() {
         tester,
         useScheduleWindow: true,
         bookings: const <Booking>[],
-        scheduleOverride: effectiveScheduleProvider.overrideWith(
-          () => _DataSchedule(<EffectiveDay>[
+        scheduleOverride: effectiveScheduleProvider.overrideWith2(
+          (_) => _DataSchedule(<EffectiveDay>[
             EffectiveDay(
               date: _day,
               source: EffectiveSource.noSchedule,
@@ -536,8 +536,8 @@ void main() {
             tester,
             useScheduleWindow: true,
             bookings: <Booking>[stray, own], // ascending by startAt
-            scheduleOverride: effectiveScheduleProvider.overrideWith(
-              verdict.build,
+            scheduleOverride: effectiveScheduleProvider.overrideWith2(
+              (_) => verdict.build(),
             ),
           );
 
@@ -690,8 +690,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: const <Booking>[],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.template,
@@ -718,8 +718,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: <Booking>[outOfWindow],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.template,
@@ -758,8 +758,8 @@ void main() {
             day: _day,
             statuses: const <BookingStatus>{BookingStatus.cancelled},
           ),
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.template,
@@ -831,8 +831,8 @@ void main() {
           tester,
           useScheduleWindow: true,
           bookings: <Booking>[_booking(id: 'inset', startAtUtc: _kyivAtUtc(9))],
-          scheduleOverride: effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(<EffectiveDay>[
+          scheduleOverride: effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(<EffectiveDay>[
               EffectiveDay(
                 date: _day,
                 source: EffectiveSource.template,

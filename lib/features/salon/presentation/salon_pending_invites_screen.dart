@@ -54,6 +54,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -77,7 +78,7 @@ class SalonPendingInvitesScreen extends ConsumerWidget {
   final String salonId;
 
   void _openInvite(BuildContext context) {
-    context.push(RouteNames.salonInviteStaff(salonId));
+    context.pushOnce(RouteNames.salonInviteStaff(salonId));
   }
 
   void _onBack(BuildContext context) {

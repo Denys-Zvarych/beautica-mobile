@@ -49,6 +49,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_wishlist_repository.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/route_pump.dart';
 
 class _MockClientControllerApi extends Mock
     implements api.ClientControllerApi {}
@@ -478,7 +479,15 @@ void main() {
           ctx,
           listen: false,
         ).invalidate(passportProvider);
-        await tester.pump();
+        // flutter_riverpod >=3.3.1 runs an invalidation's rebuild through
+        // ProviderScope's vsync: two chained `Timer(Duration.zero)` hops
+        // (provider_scope.dart:309-318 — setState, then the task). A bare
+        // `pump()` does not advance the fake clock past them (the GET count
+        // stayed at 1 after two bare pumps), so pump until the refetch has
+        // actually started. The fetch-count assertion below stays FIRST, so
+        // the strip assertion can only pass during a refresh that is
+        // genuinely in flight.
+        await pumpUntil(tester, () => call == 2);
 
         expect(call, 2, reason: 'the refresh must re-issue the real GET');
         expect(

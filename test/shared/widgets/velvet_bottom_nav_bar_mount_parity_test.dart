@@ -256,8 +256,10 @@ void main() {
       // even after the widget tree was disposed") — mirrors
       // `pumpMasterProfile`'s own override above.
       masterProfileProvider.overrideWith(_LoadingMasterProfile.new),
-      effectiveScheduleProvider.overrideWith(_LoadingEffectiveSchedule.new),
-      weeklyScheduleProvider.overrideWith(_LoadingWeeklySchedule.new),
+      effectiveScheduleProvider.overrideWith2(
+        (_) => _LoadingEffectiveSchedule(),
+      ),
+      weeklyScheduleProvider.overrideWith2((_) => _LoadingWeeklySchedule()),
     ],
   );
 

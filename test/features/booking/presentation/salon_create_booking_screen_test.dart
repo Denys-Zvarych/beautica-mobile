@@ -571,11 +571,11 @@ Future<GoRouter> _pump(
     router,
     overrides: <Object>[
       if (fakeRoster)
-        salonStaffMastersRosterProvider.overrideWith(
-          () => FakeSalonStaffMastersRoster(() => roster),
+        salonStaffMastersRosterProvider.overrideWith2(
+          (_) => FakeSalonStaffMastersRoster(() => roster),
         ),
-      salonMasterServiceCoverageProvider.overrideWith(
-        () => FakeSalonMasterServiceCoverage(
+      salonMasterServiceCoverageProvider.overrideWith2(
+        (_) => FakeSalonMasterServiceCoverage(
           () => salonCoverageOf(coverage ?? _coverageAOnly()),
         ),
       ),

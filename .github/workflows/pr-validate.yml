@@ -498,6 +498,12 @@ jobs:
         shell: bash
         run: ./scripts/forbid_unclassified_layer_dim.sh
 
+      # 2026-10-15: screen pushes in features go through the single-flight helper.
+      # why: docs/ci/static-guards.md#raw-push
+      - name: Forbid a raw push under lib/features/
+        shell: bash
+        run: ./scripts/forbid_raw_push.sh
+
       # Phase 300: end-to-end harness for the layer-dim guard above.
       # why: docs/ci/static-guards.md#layer-dim-harness
       - name: Self-test layer-dim guard (harness)
@@ -1760,7 +1766,9 @@ jobs:
             timeout 60 ./scripts/seed_gallery_fixture.sh && timeout 30 adb shell content query --uri content://media/external/images/media --projection _data | grep -q beautica_avatar_fixture.jpg || { echo "GALLERY SEED FAILED: no MediaStore row for beautica_avatar_fixture.jpg"; exit 1; }
             # Run patrol, stop the loop, exit with patrol's code: ONE line (sh -c per line).
             # why: docs/ci/patrol.md#patrol-exit
-            timeout --signal=TERM --kill-after=60 900 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 900s (rc=$RC). A healthy suite is ~10min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
+            # 1200s (was 900): services_fab_cold_start_patrol_test.dart adds 5 cold-start
+            # cases (~20-25s each). why: docs/ci/patrol.md#patrol-test-bound
+            timeout --signal=TERM --kill-after=60 1200 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 1200s (rc=$RC). A healthy suite is ~12min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
 
       - name: Collect emulator host-side diagnostics
         # The ColorBuffer race prints on the emulator's stdout (unreachable); collect the rest.

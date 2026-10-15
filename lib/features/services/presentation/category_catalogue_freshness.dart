@@ -111,5 +111,12 @@ class CategoryCatalogueFreshness extends _$CategoryCatalogueFreshness {
   DateTime? build() => null;
 
   /// Records that the caches were just busted at [at].
-  void stamp(DateTime at) => state = at;
+  ///
+  /// A no-op once this notifier is disposed: [refreshCategoryCatalogues] calls
+  /// it from a `then` on the refreshed read, which can resolve after the
+  /// owning container is torn down (app teardown, test teardown).
+  void stamp(DateTime at) {
+    if (!ref.mounted) return;
+    state = at;
+  }
 }

@@ -221,7 +221,7 @@ void main() {
       height: 900,
       overrides: <Object>[
         authProvider.overrideWith(_Auth.new),
-        salonManagementProfileProvider.overrideWith(_Manage.new),
+        salonManagementProfileProvider.overrideWith2((_) => _Manage()),
         mySalonsProvider.overrideWith(mySalons),
         hasUnreadNotificationsProvider.overrideWithValue(false),
         secureStorageProvider.overrideWithValue(FakeSecureStorage()),
@@ -438,7 +438,7 @@ void main() {
         textScaleFactor: 1.3,
         overrides: <Object>[
           authProvider.overrideWith(_Auth.new),
-          salonManagementProfileProvider.overrideWith(_Manage.new),
+          salonManagementProfileProvider.overrideWith2((_) => _Manage()),
           mySalonsProvider.overrideWith(_MySalons.new),
           hasUnreadNotificationsProvider.overrideWithValue(false),
           secureStorageProvider.overrideWithValue(FakeSecureStorage()),
@@ -530,6 +530,10 @@ void main() {
     container.invalidate(mySalonsProvider);
     await tester.pump();
     final AsyncValue<List<Salon>> refreshing = container.read(mySalonsProvider);
+    // flutter_riverpod >=3.3 delivers the rebuilt provider to widgets on a
+    // deferred vsync (`Timer(Duration.zero)` in ProviderScope), one frame
+    // after the invalidate-frame — the fix for 3.1.0's dropped-frame freeze.
+    await tester.pump();
     expect(refreshing, isA<AsyncData<List<Salon>>>());
     expect(refreshing.isLoading, isTrue);
 

@@ -407,7 +407,9 @@ void main() {
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        salonManagementProfileProvider.overrideWith(_ControlledRoster.new),
+        salonManagementProfileProvider.overrideWith2(
+          (_) => _ControlledRoster(),
+        ),
         // AUDIT cycle-2 (N3). Inert for every pre-existing row in this file:
         // they all run as SALON_ADMIN, whose arm of `salonManageGuard` and
         // `canManageSalon` reads `User.salonId` and never touches this

@@ -1426,7 +1426,7 @@ void main() {
           // (UncontrolledProviderScope), so the real portfolio notifier's
           // 5-minute keep-alive timer would still be pending at the
           // invariant check. A timer-free fixed portfolio isolates it.
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
         ],
       );
 

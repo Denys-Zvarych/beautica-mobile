@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../features/auth/presentation/accept_invite_screen.dart';
 import '../features/auth/presentation/auth_notifier.dart';
@@ -2650,7 +2651,7 @@ GoRouter appRouter(Ref ref) {
                       // step), mounted inside this shell below. `/master/*`
                       // would bounce a SALON_OWNER.
                       onCreateBooking: () =>
-                          context.push(RouteNames.ownerMasterBookingNew),
+                          context.pushOnce(RouteNames.ownerMasterBookingNew),
                       detailExtra: salonId,
                       detailRouteBuilder: RouteNames.salonStaffBookingDetail,
                       archiveRoute: RouteNames.ownerMasterBookingsArchive,

@@ -305,7 +305,7 @@ void main() {
         find.byKey(const Key('leave-review-submit')),
       );
       expect(
-        submit().onPressed,
+        submit().onPressedAsync,
         isNull,
         reason: 'the required rating is unset, so submit must be disabled',
       );
@@ -314,7 +314,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        submit().onPressed,
+        submit().onPressedAsync,
         isNotNull,
         reason: 'a rating is now set, so submit must be enabled',
       );

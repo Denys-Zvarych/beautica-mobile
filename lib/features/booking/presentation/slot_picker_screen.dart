@@ -41,6 +41,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -292,7 +293,7 @@ class _SlotDateScreenState extends ConsumerState<SlotDateScreen> {
   // .instance.addPostFrameCallback` — that would cost a frame of latency on
   // every pick for a glitch that does not occur.
   Future<void> _goToTime() async {
-    final Object? result = await context.push(
+    final Object? result = await context.pushOnce(
       RouteNames.bookingSlotsTime,
       extra: widget.args,
     );
@@ -606,7 +607,7 @@ class SlotTimeScreen extends ConsumerWidget {
     // ambiguously-failed `POST /appointments`) while backing out and re-picking
     // a new time mints a fresh key. The single `createAppointment` submit runs
     // on `BookingConfirmScreen`, not here.
-    context.push(
+    context.pushOnce(
       RouteNames.bookingConfirm,
       extra: BookingConfirmArgs(
         masterId: args.masterId,

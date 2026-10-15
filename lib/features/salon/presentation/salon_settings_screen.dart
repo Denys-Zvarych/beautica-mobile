@@ -56,6 +56,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -185,7 +186,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
   /// the session's own role regardless (see `SettingsScreen
   /// ._showDeleteSalonRow`).
   void _openAccount(bool isOwner) {
-    context.push(
+    context.pushOnce(
       RouteNames.settings,
       extra: AccountSettingsExtras(
         salonId: widget.salonId,
@@ -224,7 +225,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
                 key: const Key('row-my-salons'),
                 icon: Icons.storefront_outlined,
                 label: l10n.salonSettingsMySalons,
-                onTap: () => context.push(RouteNames.mySalons),
+                onTap: () => context.pushOnce(RouteNames.mySalons),
               ),
             ),
             const SizedBox(height: VelvetSpacing.md),
@@ -234,8 +235,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
                 key: const Key('row-salon-about'),
                 icon: Icons.storefront_outlined,
                 label: l10n.salonSettingsAbout,
-                onTap: () =>
-                    context.push(RouteNames.salonProfileEdit(widget.salonId)),
+                onTap: () => context.pushOnce(
+                  RouteNames.salonProfileEdit(widget.salonId),
+                ),
               ),
             ),
             const SizedBox(height: VelvetSpacing.md),
@@ -245,8 +247,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
                 key: const Key('row-salon-location'),
                 icon: Icons.place_outlined,
                 label: l10n.salonSettingsLocation,
-                onTap: () =>
-                    context.push(RouteNames.salonAddressEdit(widget.salonId)),
+                onTap: () => context.pushOnce(
+                  RouteNames.salonAddressEdit(widget.salonId),
+                ),
               ),
             ),
             const SizedBox(height: VelvetSpacing.md),
@@ -256,8 +259,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
                 key: const Key('row-salon-contacts'),
                 icon: Icons.phone_outlined,
                 label: l10n.salonSettingsContacts,
-                onTap: () =>
-                    context.push(RouteNames.salonContactsEdit(widget.salonId)),
+                onTap: () => context.pushOnce(
+                  RouteNames.salonContactsEdit(widget.salonId),
+                ),
               ),
             ),
             const SizedBox(height: VelvetSpacing.md),
@@ -276,8 +280,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               key: const Key('row-salon-sent-invites'),
               icon: Icons.mark_email_unread_outlined,
               label: l10n.salonSettingsSentInvites,
-              onTap: () =>
-                  context.push(RouteNames.salonPendingInvites(widget.salonId)),
+              onTap: () => context.pushOnce(
+                RouteNames.salonPendingInvites(widget.salonId),
+              ),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -304,7 +309,7 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               key: const Key('row-salon-help'),
               icon: Icons.help_outline_rounded,
               label: l10n.settingsHubHelp,
-              onTap: () => context.push(RouteNames.contactSupport),
+              onTap: () => context.pushOnce(RouteNames.contactSupport),
             ),
           ),
 

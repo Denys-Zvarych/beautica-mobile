@@ -163,7 +163,7 @@ ProviderScope _buildApp({
     retry: beauticaProviderRetry,
     overrides: [
       // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-      portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+      portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
       // Phase 363 — the profile header now mounts the live notification bell,
       // whose real notifier would start a 60 s poll timer (see
       // `helpers/no_unread_notifications.dart`).

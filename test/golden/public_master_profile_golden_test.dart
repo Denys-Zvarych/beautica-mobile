@@ -111,7 +111,7 @@ List<Object> _overrides({required PublicMasterProfileData data}) => <Object>[
   // i.e. the pre-404 render. This baseline is the screen-level proof that
   // the rail's placeholder path is unchanged; real-photo / empty-state
   // renders are pinned in portfolio_rail_golden_test.dart.
-  portfolioProvider.overrideWith(LoadingPortfolioNotifier.new),
+  portfolioProvider.overrideWith2((_) => LoadingPortfolioNotifier()),
   authProvider.overrideWith(_StubAuthNotifier.new),
   publicMasterProfileProvider(_kMasterId).overrideWith((ref) async => data),
   approvedCategoriesProvider.overrideWith(

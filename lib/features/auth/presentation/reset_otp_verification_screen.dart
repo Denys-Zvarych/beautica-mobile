@@ -251,7 +251,9 @@ class _ResetOtpVerificationScreenState
                   key: const ValueKey<String>('reset_otp_submit'),
                   label: l10n.resetOtpConfirmBtn,
                   loading: _submitting,
-                  onPressed: (value.text.length == _kOtpLength && !_submitting)
+                  onPressed: null,
+                  onPressedAsync:
+                      (value.text.length == _kOtpLength && !_submitting)
                       ? _submit
                       : null,
                 ),

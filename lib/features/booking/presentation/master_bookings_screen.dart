@@ -94,6 +94,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -369,17 +370,24 @@ class MasterBookingsScreen extends ConsumerWidget {
         // Phase 330 — see [canAddWorkingHours].
         canAddWorkingHours: canAddWorkingHours,
         onBookingTap: (Booking booking) =>
-            context.push(detailRoute(booking.id), extra: detailExtra),
+            context.pushOnce(detailRoute(booking.id), extra: detailExtra),
         // Phase 383 — see [onCreateBooking].
         onCreateBooking: onCreateBooking,
         // Phase 231 — the master «Архів» page. Additive-only wiring (see
         // `bookings_discovery_view.dart`'s `onOpenArchive` doc).
-        onOpenArchive: () => context
-            .push(archiveRoute ?? RouteNames.masterBookingsArchive)
-            .then((_) {
-              // Phase 395 — the archive is where rows get closed / rated.
-              if (context.mounted) invalidatePendingBookingActionsCount(ref);
-            }),
+        onOpenArchive: () {
+          // Single-flight: a re-tap while the archive is still open is
+          // dropped by `pushOnce`, which resolves `null` at once — return
+          // first so the `.then` invalidate below runs only on a REAL
+          // archive close, exactly as before the guard.
+          if (isFlightOpen(context)) return;
+          context
+              .pushOnce(archiveRoute ?? RouteNames.masterBookingsArchive)
+              .then((_) {
+                // Phase 395 — the archive is where rows get closed / rated.
+                if (context.mounted) invalidatePendingBookingActionsCount(ref);
+              });
+        },
         // Phase 395 — red pending-actions badge on the archive icon.
         archiveBadgeCount: archiveBadgeCount,
         // Phase 329 — the (+) add-booking button is HIDDEN (not disabled)

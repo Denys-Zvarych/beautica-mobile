@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/confirm_dialog_shell.dart';
@@ -22,7 +23,7 @@ import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
 /// Opens the delete-portfolio-photo confirmation. Resolves to `true` only
 /// when the viewer taps the red confirm; every other exit resolves to `null`.
 Future<bool?> showDeletePortfolioPhotoDialog(BuildContext context) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     builder: (_) => const DeletePortfolioPhotoDialog(),

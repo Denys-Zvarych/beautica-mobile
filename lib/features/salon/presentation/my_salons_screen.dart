@@ -67,6 +67,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -193,7 +194,7 @@ class _MySalonsScreenState extends ConsumerState<MySalonsScreen>
   /// returns cleanly to this still-scrolled hub — `mySalonsProvider` is
   /// already invalidated by that submit, so the hub re-renders the new
   /// salon on its own the moment it rebuilds, no manual refresh needed.
-  void _addSalon() => context.push(RouteNames.registerSalon);
+  void _addSalon() => context.pushOnce(RouteNames.registerSalon);
 
   /// Salon ids with an in-flight `runDeleteSalonFlow` delete call — drives
   /// the [_DeleteInFlightOverlay] over the swiped row (mobile-perf MEDIUM

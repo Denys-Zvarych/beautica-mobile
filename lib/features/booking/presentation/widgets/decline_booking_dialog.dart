@@ -49,7 +49,7 @@ Future<String?> showDeclineBookingDialog(
   Booking booking, {
   bool isAppointment = false,
 }) {
-  return showDialog<String>(
+  return showDialogOnce<String>(
     context: context,
     barrierDismissible: true,
     builder: (_) =>

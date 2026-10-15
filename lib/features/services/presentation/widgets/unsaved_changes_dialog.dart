@@ -25,9 +25,9 @@ import 'package:flutter/material.dart';
 
 /// Confirmation shown when the master tries to leave a DIRTY [ServiceForm].
 ///
-/// Show via [showDialog]:
+/// Show via `showDialogOnce` (`core/navigation/single_flight.dart`):
 /// ```dart
-/// final leave = await showDialog<bool>(
+/// final leave = await showDialogOnce<bool>(
 ///   context: context,
 ///   builder: (_) => const UnsavedChangesDialog(),
 /// );

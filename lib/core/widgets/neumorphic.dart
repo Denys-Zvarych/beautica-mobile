@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:io' show File;
 
 import 'package:flutter/material.dart';
@@ -567,12 +568,22 @@ class NeumorphicButton extends StatefulWidget {
     required this.onPressed,
     this.loading = false,
     this.icon,
+    this.onPressedAsync,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final bool loading;
   final IconData? icon;
+
+  /// SINGLE-FLIGHT async action. When set, the button holds its own busy
+  /// flag — set synchronously on the tap, BEFORE the action runs — shows the
+  /// [loading] visual while the returned future is pending, and ignores
+  /// every tap until it completes. Unlike [loading] / a null [onPressed]
+  /// (which only bite after the next rebuild), this holds for taps landing
+  /// in the same frame. Takes precedence over [onPressed]; null (the
+  /// default) keeps the button exactly as before.
+  final Future<void> Function()? onPressedAsync;
 
   @override
   State<NeumorphicButton> createState() => _NeumorphicButtonState();
@@ -597,7 +608,50 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
 
   bool _pressed = false;
 
-  bool get _enabled => widget.onPressed != null && !widget.loading;
+  /// Single-flight busy flag for [NeumorphicButton.onPressedAsync].
+  bool _busy = false;
+
+  bool get _loading => widget.loading || _busy;
+
+  bool get _enabled =>
+      (widget.onPressed != null || widget.onPressedAsync != null) && !_loading;
+
+  // ASYNC path only — a plain [onPressed] is invoked synchronously from the
+  // gesture callback (see `_handleTapUp`), so a sync throw still reaches the
+  // gesture recognizer's own `FlutterError.reportError`, exactly as before
+  // `onPressedAsync` existed. This future is not awaited by the gesture: an
+  // error the async action throws (sync or async) is caught here and
+  // reported through [FlutterError.reportError] explicitly — otherwise it
+  // would surface as an unhandled zone error — and the button re-enables.
+  Future<void> _fire(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (e, st) {
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: e,
+          stack: st,
+          library: 'NeumorphicButton',
+          context: ErrorDescription('while running onPressedAsync'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _handleTapUp(TapUpDetails _) {
+    setState(() => _pressed = false);
+    final Future<void> Function()? action = widget.onPressedAsync;
+    if (action == null) {
+      // Synchronous, un-wrapped — identical to the pre-`onPressedAsync` path.
+      widget.onPressed?.call();
+      return;
+    }
+    unawaited(_fire(action));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -610,12 +664,7 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
         child: GestureDetector(
           onTapDown: _enabled ? (_) => setState(() => _pressed = true) : null,
           onTapCancel: _enabled ? () => setState(() => _pressed = false) : null,
-          onTapUp: _enabled
-              ? (_) {
-                  setState(() => _pressed = false);
-                  widget.onPressed!.call();
-                }
-              : null,
+          onTapUp: _enabled ? _handleTapUp : null,
           child: AnimatedScale(
             scale: _pressed ? 0.97 : 1,
             duration: const Duration(milliseconds: 120),
@@ -643,7 +692,7 @@ class _NeumorphicButtonState extends State<NeumorphicButton> {
                   children: <Widget>[
                     // Label / spinner layer.
                     Center(
-                      child: widget.loading
+                      child: _loading
                           ? SizedBox(
                               height: 22,
                               width: 22,

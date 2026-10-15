@@ -12,7 +12,7 @@
 // without a Riverpod provider dependency.
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../../core/theme/velvet_geometry.dart';
 import '../../../../l10n/app_localizations.dart';
@@ -59,7 +59,7 @@ class NextAppointmentEmptyState extends StatelessWidget {
               icon: Icons.event_busy_rounded,
               message: l10n.homeHubNoUpcomingAppointments,
               ctaLabel: l10n.homeHubFindMaster,
-              onCta: () => context.push(RouteNames.clientSearch),
+              onCta: () => context.pushOnce(RouteNames.clientSearch),
             ),
           ),
         ),

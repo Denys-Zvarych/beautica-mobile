@@ -262,7 +262,24 @@ class _SalonBookingConfirmScreenState
     }
   }
 
+  /// Synchronous single-flight guard for [_submit], set before the first
+  /// `await`: the CTA's `loading:` only bites after a rebuild, so same-frame
+  /// taps each started a sequential submit. Deliberately NOT the button's
+  /// `onPressedAsync` — that would spin the CTA under the client-conflict
+  /// dialog this flow awaits.
+  bool _submitInFlight = false;
+
   Future<void> _submit() async {
+    if (_submitInFlight) return;
+    _submitInFlight = true;
+    try {
+      await _runSubmit();
+    } finally {
+      _submitInFlight = false;
+    }
+  }
+
+  Future<void> _runSubmit() async {
     FocusScope.of(context).unfocus();
     if (_failure != null) setState(() => _failure = null);
 
