@@ -11457,6 +11457,10 @@ final class FakeBackend {
     // Opt-in (default off, so every existing flow keeps its payload): the
     // performing master's name the backend adds for owner / admin recipients.
     String? masterName,
+    // Phase 412 — opt-in (default off, so every existing flow keeps its
+    // payload): the category / reject reason a catalogue-decision row carries.
+    String? categoryName,
+    String? decisionReason,
     bool read = false,
     Duration age = const Duration(hours: 1),
   }) {
@@ -11491,6 +11495,8 @@ final class FakeBackend {
             .toIso8601String(),
         'salonName': ?salonName,
         'masterName': ?masterName,
+        'categoryName': ?categoryName,
+        'decisionReason': ?decisionReason,
       },
     });
     _adapter.onRoute(

@@ -8,7 +8,9 @@
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_copy.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
-import 'package:flutter/widgets.dart' show StringCharacters;
+import 'package:flutter/material.dart';
+import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 String _c(int code) => String.fromCharCode(code);
@@ -640,6 +642,269 @@ void main() {
 
       expect(body, contains(_iso('Ірина')));
       expect(body!.contains(_c(0x202E)), isFalse);
+    });
+  });
+
+  // Phase 412 — category-request / service-type-suggestion decisions.
+  group('catalog decisions (phase 412)', () {
+    final AppLocalizationsUk uk = AppLocalizationsUk();
+
+    AppNotification row(AppNotificationType type, NotificationParams params) =>
+        AppNotification(
+          id: '00000000-0000-4000-8000-000000000001',
+          type: type,
+          createdAt: DateTime.utc(2026, 10, 14, 10),
+          read: false,
+          target: const NotificationTarget.serviceCatalog(),
+          params: params,
+        );
+
+    String? body(AppNotificationType t, NotificationParams p) =>
+        NotificationCopy.body(uk, row(t, p), isClient: false);
+
+    const NotificationParams full = NotificationParams(
+      categoryName: 'Манікюр',
+      serviceName: 'Гель-лак',
+      decisionReason: 'Дублікат',
+    );
+
+    test('should_notLeakReasonOrNamesInToString', () {
+      const String sentinel = 'SENTINEL-REASON-7f3a';
+      const NotificationParams p = NotificationParams(
+        decisionReason: sentinel,
+        categoryName: 'SENTINEL-CAT',
+        counterpartName: 'SENTINEL-CP',
+        serviceName: 'SENTINEL-SVC',
+        subjectName: 'SENTINEL-SUBJ',
+        masterName: 'SENTINEL-MASTER',
+        salonName: 'SENTINEL-SALON',
+      );
+      expect(p.toString(), isNot(contains('SENTINEL')));
+      expect(
+        AppNotification(
+          id: 'n',
+          type: AppNotificationType.categoryRequestRejected,
+          createdAt: DateTime.utc(2026),
+          read: false,
+          target: const NotificationTarget.none(),
+          params: p,
+        ).toString(),
+        isNot(contains('SENTINEL')),
+      );
+    });
+
+    test('should_renderTheFourTitles', () {
+      String t(AppNotificationType x) =>
+          NotificationCopy.title(uk, x, isClient: false);
+      expect(
+        t(AppNotificationType.categoryRequestApproved),
+        'Категорію схвалено',
+      );
+      expect(
+        t(AppNotificationType.categoryRequestRejected),
+        'Категорію відхилено',
+      );
+      expect(
+        t(AppNotificationType.serviceTypeSuggestionApproved),
+        'Тип послуги схвалено',
+      );
+      expect(
+        t(AppNotificationType.serviceTypeSuggestionRejected),
+        'Тип послуги відхилено',
+      );
+      expect(t(AppNotificationType.unknown), 'Нове сповіщення');
+    });
+
+    test('should_nameTheCategoryOrServiceType_inEachBody', () {
+      expect(
+        body(AppNotificationType.categoryRequestApproved, full),
+        'Категорія «${_iso('Манікюр')}» тепер доступна для ваших послуг',
+      );
+      expect(
+        body(AppNotificationType.serviceTypeSuggestionApproved, full),
+        'Тип послуги «${_iso('Гель-лак')}» у категорії «${_iso('Манікюр')}» '
+        'тепер доступний',
+      );
+    });
+
+    test('should_appendReasonLine_onlyOnRejectedWithReason', () {
+      expect(
+        body(AppNotificationType.categoryRequestRejected, full),
+        'Запит на категорію «${_iso('Манікюр')}» відхилено\n'
+        'Причина: ${_iso('Дублікат')}',
+      );
+      expect(
+        body(AppNotificationType.serviceTypeSuggestionRejected, full),
+        'Пропозицію типу послуги «${_iso('Гель-лак')}» (${_iso('Манікюр')}) '
+        'відхилено\nПричина: ${_iso('Дублікат')}',
+      );
+      // No reason / blank reason: no second line.
+      for (final String? reason in <String?>[null, '  ']) {
+        final String? b = body(
+          AppNotificationType.categoryRequestRejected,
+          NotificationParams(categoryName: 'Манікюр', decisionReason: reason),
+        );
+        expect(b, isNot(contains('Причина')), reason: '$reason');
+        expect(b!.contains('\n'), isFalse);
+      }
+      // An approved row never shows a reason, even if the wire carried one.
+      expect(
+        body(AppNotificationType.categoryRequestApproved, full),
+        isNot(contains('Причина')),
+      );
+      expect(
+        body(AppNotificationType.serviceTypeSuggestionApproved, full),
+        isNot(contains('Причина')),
+      );
+    });
+
+    test('should_sanitiseTheReason', () {
+      final String? b = body(
+        AppNotificationType.categoryRequestRejected,
+        NotificationParams(
+          categoryName: 'Манікюр',
+          decisionReason: 'Погано${_c(0x202E)}\nдуже',
+        ),
+      );
+      expect(b!.contains(_c(0x202E)), isFalse);
+      expect(b, endsWith('Причина: ${_iso('Погано дуже')}'));
+    });
+
+    test('should_notCutTheReasonAt80_but_stillCapNamesAt80', () {
+      final String reason250 = 'р' * 250;
+      final String? b = body(
+        AppNotificationType.categoryRequestRejected,
+        NotificationParams(categoryName: 'Манікюр', decisionReason: reason250),
+      );
+      expect(b, endsWith('Причина: ${_iso(reason250)}'));
+      expect(b, isNot(contains('…')));
+
+      // Names keep the 80-grapheme cap.
+      final String? n = body(
+        AppNotificationType.categoryRequestRejected,
+        NotificationParams(categoryName: 'н' * 250),
+      );
+      expect(n, contains('${'н' * 80}…'));
+      expect(n, isNot(contains('н' * 81)));
+    });
+
+    test('should_capTheReasonAt300Graphemes', () {
+      final String? b = body(
+        AppNotificationType.categoryRequestRejected,
+        NotificationParams(categoryName: 'Манікюр', decisionReason: 'р' * 400),
+      );
+      expect(b, contains('${'р' * 300}…'));
+      expect(b, isNot(contains('р' * 301)));
+    });
+
+    test('should_keepDefaultSanitizeCapAt80', () {
+      expect(NotificationCopy.sanitize('р' * 250), _iso('${'р' * 80}…'));
+      expect(
+        NotificationCopy.sanitize('р' * 250, maxLength: 300, maxUnits: 600),
+        _iso('р' * 250),
+      );
+    });
+
+    testWidgets('should_boundALongReasonByTheTileLineClamp', (tester) async {
+      final AppNotification item = row(
+        AppNotificationType.categoryRequestRejected,
+        NotificationParams(
+          categoryName: 'Манікюр',
+          decisionReason: List<String>.filled(40, 'довгоочікувана').join(' '),
+        ),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          supportedLocales: AppLocalizations.supportedLocales,
+          locale: const Locale('uk'),
+          home: Scaffold(
+            body: SizedBox(
+              width: 360,
+              child: NotificationTile(
+                item: item,
+                isClient: false,
+                bodyMaxLines: 3,
+              ),
+            ),
+          ),
+        ),
+      );
+      final Text text = tester.widget<Text>(
+        find.byWidgetPredicate(
+          (Widget w) => w is Text && (w.data ?? '').contains('Причина'),
+        ),
+      );
+      expect(text.maxLines, 3);
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(tester.takeException(), isNull);
+    });
+
+    test('should_fallBackToParamsGone_when_aRequiredNameIsMissing', () {
+      expect(
+        body(
+          AppNotificationType.categoryRequestApproved,
+          NotificationParams.empty,
+        ),
+        uk.notificationsParamsGone,
+      );
+      expect(
+        body(
+          AppNotificationType.categoryRequestRejected,
+          const NotificationParams(decisionReason: 'x'),
+        ),
+        uk.notificationsParamsGone,
+      );
+      // Service-type rows need BOTH names.
+      expect(
+        body(
+          AppNotificationType.serviceTypeSuggestionApproved,
+          const NotificationParams(categoryName: 'Манікюр'),
+        ),
+        uk.notificationsParamsGone,
+      );
+      expect(
+        body(
+          AppNotificationType.serviceTypeSuggestionRejected,
+          const NotificationParams(serviceName: 'Гель-лак'),
+        ),
+        uk.notificationsParamsGone,
+      );
+    });
+
+    test('should_useCheckForApprovedAndCancelForRejected', () {
+      expect(
+        NotificationCopy.glyph(AppNotificationType.categoryRequestApproved),
+        Icons.check_circle_rounded,
+      );
+      expect(
+        NotificationCopy.glyph(
+          AppNotificationType.serviceTypeSuggestionApproved,
+        ),
+        Icons.check_circle_rounded,
+      );
+      expect(
+        NotificationCopy.glyph(AppNotificationType.categoryRequestRejected),
+        Icons.cancel_rounded,
+      );
+      expect(
+        NotificationCopy.glyph(
+          AppNotificationType.serviceTypeSuggestionRejected,
+        ),
+        Icons.cancel_rounded,
+      );
+    });
+
+    test('should_flagOnlyTheFourTypesAsCatalogDecisions', () {
+      final Set<AppNotificationType> flagged = AppNotificationType.values
+          .where(NotificationCopy.isCatalogDecision)
+          .toSet();
+      expect(flagged, <AppNotificationType>{
+        AppNotificationType.categoryRequestApproved,
+        AppNotificationType.categoryRequestRejected,
+        AppNotificationType.serviceTypeSuggestionApproved,
+        AppNotificationType.serviceTypeSuggestionRejected,
+      });
     });
   });
 }

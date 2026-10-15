@@ -65,6 +65,12 @@ void main() {
         AppNotificationType.bookingCancelledMasterRemoved,
     'REVIEW_RECEIVED': AppNotificationType.reviewReceived,
     'INVITE_ACCEPTED': AppNotificationType.inviteAccepted,
+    'CATEGORY_REQUEST_APPROVED': AppNotificationType.categoryRequestApproved,
+    'CATEGORY_REQUEST_REJECTED': AppNotificationType.categoryRequestRejected,
+    'SERVICE_TYPE_SUGGESTION_APPROVED':
+        AppNotificationType.serviceTypeSuggestionApproved,
+    'SERVICE_TYPE_SUGGESTION_REJECTED':
+        AppNotificationType.serviceTypeSuggestionRejected,
   };
 
   const bookingTarget = <String, Object?>{
@@ -476,6 +482,98 @@ void main() {
         d({'v': '2', 'targetKind': 'SALON_TEAM', 'salonId': _sl1}),
       )!;
       expect(tap.target, const NotificationTarget.salonTeam(salonId: _sl1));
+    });
+  });
+
+  // Phase 412 — category-request / service-type-suggestion decisions.
+  group('catalog decisions (phase 412)', () {
+    const catalog = <String, Object?>{'kind': 'SERVICE_CATALOG'};
+
+    test('should_mapEachNewWireType_withServiceCatalogTarget', () {
+      const expected = <String, AppNotificationType>{
+        'CATEGORY_REQUEST_APPROVED':
+            AppNotificationType.categoryRequestApproved,
+        'CATEGORY_REQUEST_REJECTED':
+            AppNotificationType.categoryRequestRejected,
+        'SERVICE_TYPE_SUGGESTION_APPROVED':
+            AppNotificationType.serviceTypeSuggestionApproved,
+        'SERVICE_TYPE_SUGGESTION_REJECTED':
+            AppNotificationType.serviceTypeSuggestionRejected,
+      };
+      for (final e in expected.entries) {
+        final n = _one(_row(type: e.key, target: catalog));
+        expect(n.type, e.value, reason: e.key);
+        expect(n.target, const NotificationTarget.serviceCatalog());
+      }
+    });
+
+    test('should_carryCategoryNameAndReason_trimmed', () {
+      final n = _one(
+        _row(
+          type: 'SERVICE_TYPE_SUGGESTION_REJECTED',
+          target: catalog,
+          params: {
+            'categoryName': '  Манікюр ',
+            'serviceName': 'Гель-лак',
+            'decisionReason': ' Дублікат ',
+          },
+        ),
+      );
+      expect(n.params.categoryName, 'Манікюр');
+      expect(n.params.serviceName, 'Гель-лак');
+      expect(n.params.decisionReason, 'Дублікат');
+    });
+
+    test('should_leaveReasonNull_when_blankOrAbsent', () {
+      expect(
+        _one(
+          _row(
+            type: 'CATEGORY_REQUEST_REJECTED',
+            params: {'decisionReason': ' '},
+          ),
+        ).params.decisionReason,
+        isNull,
+      );
+      expect(
+        _one(_row(type: 'CATEGORY_REQUEST_REJECTED')).params.decisionReason,
+        isNull,
+      );
+    });
+
+    test('should_fallBackToUnknownAndNoTarget_when_typeIsUnlisted', () {
+      // Pins D6: a build that predates a type (or a fifteenth type) keeps
+      // rendering «Нове сповіщення» and never throws.
+      final n = _one(_row(type: 'A_FIFTEENTH_TYPE', target: catalog));
+      expect(n.type, AppNotificationType.unknown);
+      expect(n.target, const NotificationTarget.none());
+    });
+
+    test('should_yieldNoTarget_when_kindIsUnlisted', () {
+      final n = _one(
+        _row(
+          type: 'CATEGORY_REQUEST_APPROVED',
+          target: {'kind': 'FROM_FUTURE'},
+        ),
+      );
+      expect(n.type, AppNotificationType.categoryRequestApproved);
+      expect(n.target, const NotificationTarget.none());
+    });
+
+    test('should_mapPushData_serviceCatalogKind', () {
+      final tap = NotificationMapper.pushTapFromData(<String, dynamic>{
+        'v': '1',
+        'notificationId': _idOk,
+        'type': 'CATEGORY_REQUEST_APPROVED',
+        'targetKind': 'SERVICE_CATALOG',
+      })!;
+      expect(tap.type, AppNotificationType.categoryRequestApproved);
+      expect(tap.target, const NotificationTarget.serviceCatalog());
+      expect(
+        NotificationMapper.targetFromPushData(<String, dynamic>{
+          'targetKind': 'SERVICE_CATALOG',
+        }),
+        const NotificationTarget.serviceCatalog(),
+      );
     });
   });
 }

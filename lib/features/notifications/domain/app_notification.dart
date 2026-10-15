@@ -28,6 +28,10 @@ enum AppNotificationType {
   bookingCancelledMasterRemoved,
   reviewReceived,
   inviteAccepted,
+  categoryRequestApproved,
+  categoryRequestRejected,
+  serviceTypeSuggestionApproved,
+  serviceTypeSuggestionRejected,
 
   /// A wire value this build predates. Rendered as a generic row; never throws.
   unknown,
@@ -50,6 +54,11 @@ sealed class NotificationTarget with _$NotificationTarget {
   /// Open the salon's «Команда» tab.
   const factory NotificationTarget.salonTeam({required String salonId}) =
       SalonTeamTarget;
+
+  /// Phase 412 — open the screen where the viewer's role manages services.
+  /// Carries no id: the destination is decided by role (and, for an admin,
+  /// the session's bound salon).
+  const factory NotificationTarget.serviceCatalog() = ServiceCatalogTarget;
 
   /// Mark-read only.
   const factory NotificationTarget.none() = NoTarget;
@@ -83,9 +92,21 @@ abstract class NotificationParams with _$NotificationParams {
     /// owner/admin recipients of booking created / cancelled-by-client /
     /// rescheduled; `null` otherwise (never an error).
     String? masterName,
+
+    /// Phase 412 — category of a category-request / service-type decision.
+    String? categoryName,
+
+    /// Phase 412 — admin's optional reject reason. Never logged.
+    String? decisionReason,
   }) = _NotificationParams;
 
   const NotificationParams._();
+
+  /// Deliberately omits every field: the reject reason is free text written
+  /// by an admin and names are PII, and the freezed default would print them
+  /// into any log / failure message that stringifies the params.
+  @override
+  String toString() => 'NotificationParams(<redacted>)';
 
   /// All-null params (lost access / absent payload).
   static const NotificationParams empty = NotificationParams();

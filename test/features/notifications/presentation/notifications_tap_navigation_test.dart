@@ -45,6 +45,7 @@ import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
+import 'package:beautica_mobile/features/services/presentation/services_list_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notification_navigation.dart'
@@ -798,6 +799,111 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  // Phase 412 — a category-request / service-type decision opens the screen
+  // where the viewer's role manages services (page TYPE asserted, never a
+  // location string).
+  group('serviceCatalog target (phase 412)', () {
+    AppNotification decision(String id) => notif(
+      id,
+      type: AppNotificationType.categoryRequestApproved,
+      target: const NotificationTarget.serviceCatalog(),
+      params: const NotificationParams(categoryName: 'Манікюр'),
+    );
+
+    testWidgets('should_openServicesList_andMarkRead_when_independentMaster', (
+      WidgetTester tester,
+    ) async {
+      final _Harness h = await _open(
+        tester,
+        UserRole.independentMaster,
+        <AppNotification>[decision('n1')],
+      );
+
+      await _tapAndSettle(tester, 'n1');
+
+      expect(find.byType(ServicesListScreen), findsOneWidget);
+      expect(_isRead(h, 'n1'), isTrue);
+      expect(h.unread.calls, contains('dec:u1'));
+      // Back returns to the feed.
+      h.router.pop();
+      await _frames(tester);
+      expect(find.byType(ServicesListScreen), findsNothing);
+      expect(find.byType(NotificationsScreen), findsOneWidget);
+    });
+
+    testWidgets('should_pushOwnerMasterServicesRoute_when_salonOwner', (
+      WidgetTester tester,
+    ) async {
+      // The owner shell's own-row gate needs the full owner-master harness
+      // (owner_master_services_route_resolution_test.dart pins what MOUNTS at
+      // this route); here only the destination the tap pushes is asserted.
+      final _Harness h = await _open(
+        tester,
+        UserRole.salonOwner,
+        <AppNotification>[decision('n1')],
+      );
+
+      await _tapAndSettle(tester, 'n1');
+
+      // `push` => ImperativeRouteMatch: the root uri collapses to the parent,
+      // so read the pushed leaf's own match.
+      final RouteMatchBase? leaf =
+          h.router.routerDelegate.currentConfiguration.lastOrNull;
+      expect(leaf, isA<ImperativeRouteMatch>());
+      expect(
+        (leaf! as ImperativeRouteMatch).matches.uri.path,
+        RouteNames.ownerMasterServices,
+      );
+      expect(_isRead(h, 'n1'), isTrue);
+    });
+
+    testWidgets('should_openTeamTabOfTheBoundSalon_when_salonAdmin', (
+      WidgetTester tester,
+    ) async {
+      // `FixedRoleAuth` binds the admin to `_salonA`; the target carries no id.
+      final _Harness h = await _open(
+        tester,
+        UserRole.salonAdmin,
+        <AppNotification>[decision('n1')],
+      );
+
+      await _tapAndSettle(tester, 'n1');
+
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is SalonShellScreen && w.salonId == _salonA,
+        ),
+        findsOneWidget,
+      );
+      expect(h.container.read(salonManageTabProvider(_salonA)), 1);
+      expect(_isRead(h, 'n1'), isTrue);
+    });
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonMaster,
+      UserRole.client,
+    ]) {
+      testWidgets('should_onlyMarkRead_andStayOnFeed_when_${role.name}', (
+        WidgetTester tester,
+      ) async {
+        final _Harness h = await _open(tester, role, <AppNotification>[
+          decision('n1'),
+        ]);
+
+        await _tapAndSettle(tester, 'n1');
+
+        expect(find.byType(NotificationsScreen), findsOneWidget);
+        expect(find.byType(ServicesListScreen), findsNothing);
+        expect(find.byType(SalonShellScreen), findsNothing);
+        expect(_isRead(h, 'n1'), isTrue);
+        await tester.pump();
+        // fixed-wait-ok: one snack-entrance length; a snack would be mounted.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.byType(VelvetSnack), findsNothing);
+      });
     }
   });
 }

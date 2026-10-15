@@ -3487,6 +3487,59 @@
       "extraCount": { "type": "int" }
     }
   },
+  "notificationTitleCategoryApproved": "Category approved",
+  "@notificationTitleCategoryApproved": {
+    "description": "Phase 412 — title of a CATEGORY_REQUEST_APPROVED notification."
+  },
+  "notificationTitleCategoryRejected": "Category rejected",
+  "@notificationTitleCategoryRejected": {
+    "description": "Phase 412 — title of a CATEGORY_REQUEST_REJECTED notification."
+  },
+  "notificationTitleServiceTypeApproved": "Service type approved",
+  "@notificationTitleServiceTypeApproved": {
+    "description": "Phase 412 — title of a SERVICE_TYPE_SUGGESTION_APPROVED notification."
+  },
+  "notificationTitleServiceTypeRejected": "Service type rejected",
+  "@notificationTitleServiceTypeRejected": {
+    "description": "Phase 412 — title of a SERVICE_TYPE_SUGGESTION_REJECTED notification."
+  },
+  "notificationBodyCategoryApproved": "Category “{category}” is now available for your services",
+  "@notificationBodyCategoryApproved": {
+    "description": "Phase 412 — body of a CATEGORY_REQUEST_APPROVED notification.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyCategoryRejected": "Your request for category “{category}” was rejected",
+  "@notificationBodyCategoryRejected": {
+    "description": "Phase 412 — body of a CATEGORY_REQUEST_REJECTED notification.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyServiceTypeApproved": "Service type “{serviceType}” in category “{category}” is now available",
+  "@notificationBodyServiceTypeApproved": {
+    "description": "Phase 412 — body of a SERVICE_TYPE_SUGGESTION_APPROVED notification.",
+    "placeholders": {
+      "serviceType": { "type": "String" },
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyServiceTypeRejected": "Your suggestion for service type “{serviceType}” ({category}) was rejected",
+  "@notificationBodyServiceTypeRejected": {
+    "description": "Phase 412 — body of a SERVICE_TYPE_SUGGESTION_REJECTED notification.",
+    "placeholders": {
+      "serviceType": { "type": "String" },
+      "category": { "type": "String" }
+    }
+  },
+  "notificationDecisionReason": "Reason: {reason}",
+  "@notificationDecisionReason": {
+    "description": "Phase 412 — extra body line on a rejected decision that carries the admin's reason.",
+    "placeholders": {
+      "reason": { "type": "String" }
+    }
+  },
   "homeHubMenuLabel": "Menu",
   "@homeHubMenuLabel": {
     "description": "Accessibility label for the burger menu button in the Home Hub top bar."
