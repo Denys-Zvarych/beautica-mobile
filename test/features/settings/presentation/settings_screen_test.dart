@@ -9,7 +9,9 @@
 // surface no logout control. Coverage:
 //   A1 — Account-page controls render (language + notifications) and there is
 //        NO logout control (regression guard against the row being reintroduced).
-//   A8 — notifications toggle flips local state.
+//   A8 — notifications switch never flips locally (push unavailable → OFF);
+//        the full "mirror Android" contract is in
+//        settings_notifications_toggle_test.dart.
 //
 // The logout confirm/cancel/double-tap/failure/secure-storage-clear flow is
 // covered on the hub test (settings_hub_screen_test.dart) — that is the only
@@ -23,6 +25,7 @@ import 'dart:async';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/push/push_available_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
@@ -71,6 +74,8 @@ Widget _buildApp({
   overrides: [
     authRepositoryProvider.overrideWith((_) => repo),
     secureStorageProvider.overrideWith((_) => storage),
+    // No Firebase in this harness — the «Сповіщення» switch is OFF and inert.
+    firebaseInitializerProvider.overrideWithValue(() async => false),
   ],
   child: MaterialApp.router(
     routerConfig: router,
@@ -123,69 +128,58 @@ void main() {
     );
 
     // A8 -----------------------------------------------------------------------
-    testWidgets('A8. notifications toggle flips its local state', (
-      tester,
-    ) async {
-      final router = _makeRouter();
-      addTearDown(router.dispose);
+    // The switch used to be a local-state placeholder (ON, tap flips). It now
+    // mirrors the real Android notification permission — full coverage lives
+    // in settings_notifications_toggle_test.dart. Here: with push unavailable
+    // (no Firebase, as on this test host) it renders OFF and a tap never flips
+    // it locally.
+    testWidgets(
+      'A8. push unavailable → notifications switch OFF, disabled, tap inert',
+      (tester) async {
+        final router = _makeRouter();
+        addTearDown(router.dispose);
 
-      await tester.pumpWidget(
-        _buildApp(
-          router: router,
-          repo: FakeAuthRepository(),
-          storage: FakeSecureStorage(),
-        ),
-      );
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          _buildApp(
+            router: router,
+            repo: FakeAuthRepository(),
+            storage: FakeSecureStorage(),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      // WHAT CHANGED (2026-07-22 vacuous-assertion audit)
-      // -------------------------------------------------
-      // This test used to read `row.initialValue` BEFORE the tap and then
-      // assert only that the switch widget still existed AFTER it.
-      // `initialValue` is a constructor parameter, not live state — it cannot
-      // change — so the whole test passed with a completely no-op `onChanged`.
-      // A test named "flips its local state" verified no flip at all.
-      //
-      // The switch is `_NeumorphicSwitch` (private, so unreachable by type) and
-      // is NOT a Material `Switch`, so there is no `Switch.value` to read. The
-      // live state IS exposed as the `Semantics(toggled: _on)` wrapper on
-      // SettingsToggleRow — the same signal a screen reader consumes — so the
-      // assertion reads that, before and after.
-      //
-      // MUTATION-VERIFIED: replacing `_NeumorphicSwitch.onChanged` with a no-op
-      // in lib/features/master/presentation/widgets/settings_row.dart turns
-      // this test red. Restored immediately; not committed.
-      // Disposed inline at the end of the body, NOT via addTearDown —
-      // flutter_test's end-of-test semantics-handle verification runs BEFORE
-      // tearDown callbacks and would fail the test.
-      final SemanticsHandle handle = tester.ensureSemantics();
+        // Disposed inline at the end of the body, NOT via addTearDown —
+        // flutter_test's end-of-test semantics-handle verification runs BEFORE
+        // tearDown callbacks and would fail the test.
+        final SemanticsHandle handle = tester.ensureSemantics();
 
-      final toggle = find.byKey(const Key('row-notifications'));
-      expect(toggle, findsOneWidget);
+        final toggle = find.byKey(const Key('row-notifications'));
+        expect(toggle, findsOneWidget);
+        // Disabled (not merely OFF): with push unavailable there is nothing to
+        // open, so the tap below can never reach the opener or flip anything.
+        expect(
+          tester.getSemantics(toggle),
+          isSemantics(
+            isToggled: false,
+            hasEnabledState: true,
+            isEnabled: false,
+          ),
+        );
 
-      // Initial state is ON.
-      expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
+        await tester.tap(find.byKey(const Key('switch-notifications')));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('switch-notifications')));
-      await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(toggle),
+          isSemantics(isToggled: false),
+          reason:
+              'the switch mirrors the OS permission; a tap must never flip it '
+              'locally',
+        );
 
-      // The observable toggle state must actually have flipped.
-      expect(
-        tester.getSemantics(toggle),
-        isSemantics(isToggled: false),
-        reason:
-            'tapping switch-notifications must flip the row\'s toggled state; '
-            'a no-op onChanged must not pass this test',
-      );
-
-      // And back again — pins that the flip is a real toggle, not a one-way
-      // latch that happens to satisfy the assertion above.
-      await tester.tap(find.byKey(const Key('switch-notifications')));
-      await tester.pumpAndSettle();
-      expect(tester.getSemantics(toggle), isSemantics(isToggled: true));
-
-      handle.dispose();
-    });
+        handle.dispose();
+      },
+    );
 
     // Beautica OTP task Phase B5 -----------------------------------------------
     testWidgets(

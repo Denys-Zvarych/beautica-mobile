@@ -7,7 +7,8 @@
 //                      from the navigational rows — meaning carried by colour AND
 //                      the distinct logout glyph, never hue alone.
 // [SettingsToggleRow] — a row carrying an inline neumorphic switch instead of a
-//                      chevron (e.g. notifications). Placeholder local state.
+//                      chevron (e.g. notifications). Local state by default;
+//                      pass [value] to drive it from outside (controlled).
 //
 // Design source: `docs/signup-designs/ProfileSettingsHub/lib/widgets/
 // settings_widgets.dart` — ported 1:1, swapping VelvetColors → BrandColors and
@@ -165,10 +166,12 @@ class SettingsToggleRow extends StatefulWidget {
     super.key,
     required this.icon,
     required this.label,
-    required this.initialValue,
+    this.initialValue = false,
     this.iconWidget,
     this.subtitle,
     this.switchKey,
+    this.value,
+    this.onChanged,
   });
 
   final IconData icon;
@@ -179,11 +182,24 @@ class SettingsToggleRow extends StatefulWidget {
   /// identically to the Material fallback and the sibling [SettingsRow] glyphs.
   final Widget? iconWidget;
   final String label;
+
+  /// Seed for the local state (uncontrolled mode only; ignored when [value]
+  /// is set).
   final bool initialValue;
   final String? subtitle;
 
   /// Optional key for the switch (used by widget tests).
   final Key? switchKey;
+
+  /// Controlled mode. When non-null the switch SHOWS this value and a tap never
+  /// flips it locally — it only calls [onChanged] with the requested value; the
+  /// owner decides whether [value] changes. `null` (the default) keeps the
+  /// local-state behaviour seeded by [initialValue].
+  final bool? value;
+
+  /// Called with the requested value on tap. In controlled mode a `null`
+  /// [onChanged] makes the switch inert (and reported disabled to semantics).
+  final ValueChanged<bool>? onChanged;
 
   @override
   State<SettingsToggleRow> createState() => _SettingsToggleRowState();
@@ -199,11 +215,19 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
 
   static final TextStyle _subtitleStyle = VelvetText.body12;
 
+  void _handleTap(bool requested) {
+    if (widget.value == null) setState(() => _on = requested);
+    widget.onChanged?.call(requested);
+  }
+
   @override
   Widget build(BuildContext context) {
     final String? subtitle = widget.subtitle;
+    final bool on = widget.value ?? _on;
+    final bool inert = widget.value != null && widget.onChanged == null;
     return Semantics(
-      toggled: _on,
+      toggled: on,
+      enabled: inert ? false : null,
       label: widget.label,
       child: DecoratedBox(
         decoration: const BoxDecoration(
@@ -238,8 +262,8 @@ class _SettingsToggleRowState extends State<SettingsToggleRow> {
               const SizedBox(width: VelvetSpacing.sm),
               _NeumorphicSwitch(
                 switchKey: widget.switchKey,
-                value: _on,
-                onChanged: (bool v) => setState(() => _on = v),
+                value: on,
+                onChanged: _handleTap,
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 // Account page («Акаунт») — reached from the master settings hub's Account row.
 // A richer account surface: a Мова (language → "Українська") placeholder row and
-// a Сповіщення (notifications) toggle placeholder.
+// a Сповіщення (notifications) switch mirroring the real Android notification
+// permission (see [_NotificationsToggleRow]).
 //
 // No Save button — each control acts immediately (the placeholders show a hint).
 //
@@ -50,6 +51,8 @@
 // Design source: `docs/signup-designs/ProfileSettingsHub/lib/screens/
 // account_screen.dart` — ported with real l10n.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -57,6 +60,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/icons/app_icon.dart';
 import '../../../core/icons/beautica_asset_icons.dart';
+import '../../../core/push/notification_permission_provider.dart';
+import '../../../core/push/notification_tray_provider.dart';
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
 import '../../../core/theme/velvet_geometry.dart';
@@ -69,6 +74,7 @@ import '../../../features/master/presentation/widgets/section_scaffold.dart';
 import '../../../features/master/presentation/widgets/settings_row.dart';
 import '../../../features/salon/presentation/delete_salon_flow.dart';
 import '../../../features/settings/presentation/delete_account_flow.dart';
+import '../../../features/settings/presentation/notification_permission_notifier.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
@@ -332,25 +338,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
-          _reveal(
-            _anim2,
-            SettingsToggleRow(
-              key: const Key('row-notifications'),
-              switchKey: const Key('switch-notifications'),
-              icon: Icons.notifications_none_rounded,
-              // Match the top-bar idle bell (NotificationBellButton): the dotless
-              // `notificationPlain` SVG, tinted + sized to the settings-row
-              // glyph spec (19 px, accentDeep) so it sits identically.
-              iconWidget: const AppIcon(
-                BeauticaAssetIcons.notificationPlain,
-                size: 19,
-                color: BrandColors.accentDeep,
-              ),
-              label: l10n.accountNotificationsLabel,
-              subtitle: l10n.accountNotificationsSubtitle,
-              initialValue: true,
-            ),
-          ),
+          _reveal(_anim2, const _NotificationsToggleRow()),
           const SizedBox(height: VelvetSpacing.md),
           // Beautica OTP task Phase B5 — "Change password" entry point. Opens
           // the SAME generalized ResetOtpVerificationScreen the forgot-password
@@ -456,6 +444,114 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ],
         ],
       ),
+    );
+  }
+}
+
+/// «Сповіщення» — mirrors the REAL Android notification permission.
+///
+/// * Shows ON only when the OS reports it granted; denied / not-determined show
+///   OFF with the «off» subtitle.
+/// * A tap (either direction) opens Android's per-app notification settings and
+///   never flips the switch itself — an app cannot change its own permission.
+///   The switch follows reality on the next read: every screen visit
+///   (auto-dispose notifier) and every [AppLifecycleState.resumed].
+/// * Never prompts: the ask-once decision stays in
+///   `push_registration_notifier.dart`.
+/// * Push unavailable (no Firebase in the build): shown OFF and inert — there
+///   is nothing to mirror and no push to enable.
+/// * While a visit's read is in flight: inert, showing the last reading this
+///   session ([lastNotificationPermissionProvider]) or OFF on the first visit.
+/// * Resume re-reads only while this page is the current route.
+class _NotificationsToggleRow extends ConsumerStatefulWidget {
+  const _NotificationsToggleRow();
+
+  @override
+  ConsumerState<_NotificationsToggleRow> createState() =>
+      _NotificationsToggleRowState();
+}
+
+class _NotificationsToggleRowState
+    extends ConsumerState<_NotificationsToggleRow>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// A resume arrived while another route covered the Account page; replayed
+  /// in [didChangeDependencies] once the page is current again.
+  bool _resumedWhileCovered = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // Only while the Account page is the visible route — read here, not
+    // subscribed in build. The `ModalRoute.of` call also registers the
+    // route-status dependency that lets a covered page replay the resume.
+    if (ModalRoute.of(context)?.isCurrent == true) {
+      _refresh();
+    } else {
+      _resumedWhileCovered = true;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_resumedWhileCovered && ModalRoute.of(context)?.isCurrent == true) {
+      _resumedWhileCovered = false;
+      _refresh();
+    }
+  }
+
+  void _refresh() =>
+      unawaited(ref.read(notificationPermissionProvider.notifier).refresh());
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final NotificationPermissionStatus? fresh = ref
+        .watch(notificationPermissionProvider)
+        .value;
+    // Until this visit's read lands, show the last known reading (disabled) so
+    // a revisit doesn't flash OFF; the very first visit shows OFF (disabled).
+    final NotificationPermissionStatus? status =
+        fresh ?? ref.watch(lastNotificationPermissionProvider);
+    final bool interactive =
+        fresh != null && fresh != NotificationPermissionStatus.unavailable;
+    // Anything but granted reads as off — including the unresolved first
+    // read — except push-unavailable, which keeps the neutral subtitle.
+    final bool off =
+        status != NotificationPermissionStatus.granted &&
+        status != NotificationPermissionStatus.unavailable;
+    return SettingsToggleRow(
+      key: const Key('row-notifications'),
+      switchKey: const Key('switch-notifications'),
+      icon: Icons.notifications_none_rounded,
+      // Match the top-bar idle bell (NotificationBellButton): the dotless
+      // `notificationPlain` SVG, tinted + sized to the settings-row
+      // glyph spec (19 px, accentDeep) so it sits identically.
+      iconWidget: const AppIcon(
+        BeauticaAssetIcons.notificationPlain,
+        size: 19,
+        color: BrandColors.accentDeep,
+      ),
+      label: l10n.accountNotificationsLabel,
+      subtitle: off
+          ? l10n.accountNotificationsOffSubtitle
+          : l10n.accountNotificationsSubtitle,
+      value: status == NotificationPermissionStatus.granted,
+      onChanged: interactive
+          ? (_) => ref.read(notificationSettingsOpenerProvider)()
+          : null,
     );
   }
 }

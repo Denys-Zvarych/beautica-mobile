@@ -2937,6 +2937,10 @@
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
   },
+  "accountNotificationsOffSubtitle": "Turned off in Android settings",
+  "@accountNotificationsOffSubtitle": {
+    "description": "Account page notifications row subtitle while the Android notification permission is off; tapping the switch opens Android settings."
+  },
 
   "discreteTimesSegmentInterval": "Interval",
   "@discreteTimesSegmentInterval": {
