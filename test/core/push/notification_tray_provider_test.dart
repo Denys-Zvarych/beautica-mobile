@@ -58,4 +58,48 @@ void main() {
     addTearDown(c.dispose);
     await expectLater(c.read(notificationTrayClearerProvider)(), completes);
   });
+
+  group('notificationSettingsOpener («Сповіщення» switch)', () {
+    test('invokes openNotificationSettings on Android', () async {
+      final List<String> methods = <String>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_ch, (MethodCall m) async {
+            methods.add(m.method);
+            return null;
+          });
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final ProviderContainer c = ProviderContainer();
+      addTearDown(c.dispose);
+      await c.read(notificationSettingsOpenerProvider)();
+      expect(methods, <String>['openNotificationSettings']);
+    });
+
+    test('is a no-op off Android (channel never called)', () async {
+      int calls = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_ch, (_) async {
+            calls++;
+            return null;
+          });
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      final ProviderContainer c = ProviderContainer();
+      addTearDown(c.dispose);
+      await c.read(notificationSettingsOpenerProvider)();
+      expect(calls, 0);
+    });
+
+    test('never throws when the channel fails', () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_ch, (_) async {
+            throw PlatformException(code: 'settings');
+          });
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      final ProviderContainer c = ProviderContainer();
+      addTearDown(c.dispose);
+      await expectLater(
+        c.read(notificationSettingsOpenerProvider)(),
+        completes,
+      );
+    });
+  });
 }

@@ -98,10 +98,15 @@ abstract final class PatrolHarness {
   /// Applies the SAME [applyE2eBootPolicy] as `AppHarness.boot` — including the
   /// splash-gate priming that lets the auth redirect settle to /login on the
   /// first settle — then pumps through patrol's tester.
+  ///
+  /// [extraOverrides] are appended after the shared E2E overrides (same
+  /// contract as `AppHarness.boot`); empty by default, so every existing
+  /// caller boots exactly as before.
   static Future<GoRouter> boot(
     PatrolIntegrationTester $,
-    FakeBackend fakeBackend,
-  ) async {
+    FakeBackend fakeBackend, {
+    List<Object> extraOverrides = const <Object>[],
+  }) async {
     // ── SHARED BOOT POLICY — ONE definition, BOTH E2E tiers ─────────────────
     //
     // Overflow guard, off-screen-tap guard
@@ -126,10 +131,10 @@ abstract final class PatrolHarness {
         // Cast a plain Object list so this file need not import Riverpod's
         // Override type — same shape as AppHarness.boot.
         // ignore: avoid_dynamic_calls
-        overrides: e2eProviderOverrides(
-          fakeBackend: fakeBackend,
-          storage: storage,
-        ).cast(),
+        overrides: <Object>[
+          ...e2eProviderOverrides(fakeBackend: fakeBackend, storage: storage),
+          ...extraOverrides,
+        ].cast(),
         child: const E2eHarnessApp(),
       ),
     );
