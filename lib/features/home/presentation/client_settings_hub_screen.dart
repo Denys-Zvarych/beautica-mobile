@@ -24,6 +24,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -151,7 +152,7 @@ class _ClientSettingsHubScreenState
               key: const Key('row-personal'),
               icon: Icons.person_outline_rounded,
               label: l10n.settingsHubPersonal,
-              onTap: () => context.push(RouteNames.clientEditPersonal),
+              onTap: () => context.pushOnce(RouteNames.clientEditPersonal),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -161,7 +162,7 @@ class _ClientSettingsHubScreenState
               key: const Key('row-contacts'),
               icon: Icons.call_outlined,
               label: l10n.settingsHubContacts,
-              onTap: () => context.push(RouteNames.clientEditContacts),
+              onTap: () => context.pushOnce(RouteNames.clientEditContacts),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -176,7 +177,7 @@ class _ClientSettingsHubScreenState
                 color: BrandColors.accentDeep,
               ),
               label: l10n.settingsHubLocation,
-              onTap: () => context.push(RouteNames.clientEditLocation),
+              onTap: () => context.pushOnce(RouteNames.clientEditLocation),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -186,7 +187,7 @@ class _ClientSettingsHubScreenState
               key: const Key('row-account'),
               icon: Icons.settings_outlined,
               label: l10n.settingsHubAccount,
-              onTap: () => context.push(RouteNames.settings),
+              onTap: () => context.pushOnce(RouteNames.settings),
             ),
           ),
           const SizedBox(height: VelvetSpacing.md),
@@ -198,7 +199,7 @@ class _ClientSettingsHubScreenState
               key: const Key('row-help'),
               icon: Icons.help_outline_rounded,
               label: l10n.settingsHubHelp,
-              onTap: () => context.push(RouteNames.contactSupport),
+              onTap: () => context.pushOnce(RouteNames.contactSupport),
             ),
           ),
 

@@ -41,6 +41,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../core/security/screen_protection.dart';
 import '../../../core/theme/brand_colors.dart';
@@ -238,7 +239,7 @@ class _HomeHubBody extends ConsumerWidget {
                       context,
                     ).goBranch(kClientPassportBranch),
                     // Rating lives OUTSIDE the shell — a normal push is correct.
-                    onRating: () => context.push(RouteNames.myRating),
+                    onRating: () => context.pushOnce(RouteNames.myRating),
                   ),
                 ),
                 const SizedBox(height: VelvetSpacing.md),
@@ -287,7 +288,7 @@ class _HomeHubBody extends ConsumerWidget {
                       // `onSeeAll` is optional and left null so no trailing
                       // link renders.
                       onOpenBooking: (String bookingId) =>
-                          context.push(RouteNames.bookingDetail(bookingId)),
+                          context.pushOnce(RouteNames.bookingDetail(bookingId)),
                     ),
                     loading: () => const _SectionSkeleton(),
                     error: (Object e, _) => _CardErrorState(
@@ -375,7 +376,7 @@ class _NextAppointmentSection extends ConsumerWidget {
                 key: ValueKey<String>('next-appointment-booking-${booking.id}'),
                 booking: booking,
                 onOpenDetails: () =>
-                    context.push(RouteNames.bookingDetail(booking.id)),
+                    context.pushOnce(RouteNames.bookingDetail(booking.id)),
               ),
             ),
             const SizedBox(height: VelvetSpacing.sm),
@@ -389,7 +390,8 @@ class _NextAppointmentSection extends ConsumerWidget {
               child: HubSeeAllLink(
                 key: const Key('next_appointment_details_link'),
                 label: l10n.homeHubNextAppointmentDetailsLink,
-                onTap: () => context.push(RouteNames.bookingDetail(booking.id)),
+                onTap: () =>
+                    context.pushOnce(RouteNames.bookingDetail(booking.id)),
               ),
             ),
           ],

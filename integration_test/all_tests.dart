@@ -242,6 +242,7 @@ import 'portfolio_upload_flow_test.dart' as portfolio_upload;
 import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
+import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -816,4 +817,7 @@ void main() {
   // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
   // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
   group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
+  // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
+  // the five riskiest surfaces opens ONE route / sends ONE request.
+  group('tap_reentrancy_flow', tap_reentrancy.main);
 }

@@ -647,7 +647,7 @@ class _Form extends StatelessWidget {
   final bool submitting;
   final int maxChars;
   final ValueChanged<int> onRatingChanged;
-  final VoidCallback onSubmit;
+  final Future<void> Function() onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -707,7 +707,8 @@ class _Form extends StatelessWidget {
               label: l10n.clientReviewSubmitCta,
               icon: Icons.send_rounded,
               loading: submitting,
-              onPressed: value > 0 ? onSubmit : null,
+              onPressed: null,
+              onPressedAsync: value > 0 ? onSubmit : null,
             ),
           ),
         ),

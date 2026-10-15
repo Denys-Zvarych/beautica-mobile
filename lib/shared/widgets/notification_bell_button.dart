@@ -12,10 +12,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
@@ -120,7 +120,7 @@ class ConnectedNotificationBell extends ConsumerWidget {
     final String label = hasUnread
         ? l10n.notificationBellUnreadLabel
         : l10n.notificationBellLabel;
-    void onTap() => context.push(RouteNames.notifications);
+    void onTap() => context.pushOnce(RouteNames.notifications);
 
     final NotificationBellBuilder? custom = builder;
     if (custom != null) return custom(context, hasUnread, label, onTap);

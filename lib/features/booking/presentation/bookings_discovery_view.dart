@@ -149,8 +149,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -1403,7 +1403,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
       hostHandler();
       return;
     }
-    context.push(RouteNames.masterBookingNew);
+    context.pushOnce(RouteNames.masterBookingNew);
   }
 
   // ── Build ───────────────────────────────────────────────────────────────

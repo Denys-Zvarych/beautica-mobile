@@ -296,7 +296,7 @@ void main() {
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        salonManagementProfileProvider.overrideWith(_StubRoster.new),
+        salonManagementProfileProvider.overrideWith2((_) => _StubRoster()),
         dioProvider.overrideWithValue(mockDio),
         serviceApiProvider.overrideWithValue(mockServiceApi),
         categoryRequestApiProvider.overrideWithValue(mockCategoryApi),

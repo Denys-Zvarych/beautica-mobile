@@ -181,8 +181,8 @@ void main() {
         bookingRepositoryProvider.overrideWithValue(repo),
         bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
         clockProvider.overrideWithValue(() => _fixedNow),
-        effectiveScheduleProvider.overrideWith(
-          () => _DataSchedule(scheduleDays),
+        effectiveScheduleProvider.overrideWith2(
+          (_) => _DataSchedule(scheduleDays),
         ),
       ],
     );

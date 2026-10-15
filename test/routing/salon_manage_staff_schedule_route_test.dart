@@ -170,11 +170,13 @@ void main() {
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
         masterApiProvider.overrideWithValue(masterApi),
-        salonManagementProfileProvider.overrideWith(_SettledEmptyRoster.new),
+        salonManagementProfileProvider.overrideWith2(
+          (_) => _SettledEmptyRoster(),
+        ),
         // The salon management screen's portfolio rail (phase 404) would
         // otherwise read through the REAL salon repository → a live Dio
         // request still pending at the timer invariant.
-        portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+        portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
       ],
     );
     return container;

@@ -184,7 +184,7 @@ void main() {
           bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
           clockProvider.overrideWithValue(() => _fixedNow),
           if (useScheduleWindow)
-            effectiveScheduleProvider.overrideWith(_CountingSchedule.new),
+            effectiveScheduleProvider.overrideWith2((_) => _CountingSchedule()),
         ],
       );
 

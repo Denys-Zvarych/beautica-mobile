@@ -49,6 +49,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -307,7 +308,7 @@ class _SalonMasterSelectionScreenState
           .toList(growable: false);
       if (ids.isNotEmpty) assignments[m.masterId] = ids;
     }
-    context.push(
+    context.pushOnce(
       RouteNames.salonBookingTime,
       extra: SalonBookingTimeArgs(
         salonId: widget.args.salonId,

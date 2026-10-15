@@ -37,6 +37,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -68,7 +69,7 @@ part 'decline_booking_dialog.dart';
 /// but wrote nothing) when the cancellation is confirmed, and to `null` when
 /// they backed out by any means. `null` means *do nothing*.
 Future<String?> showCancelBookingDialog(BuildContext context, Booking booking) {
-  return showDialog<String>(
+  return showDialogOnce<String>(
     context: context,
     barrierDismissible: true,
     builder: (_) => CancelBookingDialog(booking: booking),

@@ -20,9 +20,9 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 
 /// Confirmation dialog for the destructive salon-delete action.
 ///
-/// Show via [showDialog]:
+/// Show via `showDialogOnce` (`core/navigation/single_flight.dart`):
 /// ```dart
-/// final confirmed = await showDialog<bool>(
+/// final confirmed = await showDialogOnce<bool>(
 ///   context: context,
 ///   builder: (_) => const DeleteSalonDialog(),
 /// );

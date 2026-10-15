@@ -88,6 +88,7 @@ import '../../../helpers/fakes/fake_service_repository.dart';
 import '../../../helpers/test_container.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/reveal_boundary.dart';
+import '../../../helpers/ticker_frame_callbacks.dart';
 
 const String _kSalonId = 'salon-admin-1';
 
@@ -1067,6 +1068,8 @@ void main() {
     // (`TickerMode.of(context)`, or the screen's own `visible`) would be
     // vacuous: it reports what was CONFIGURED, never whether a ticker stopped
     // asking for frames.
+    // Read through `tickerFrameCallbacks`, which subtracts the one callback
+    // every ProviderScope parks (flutter_riverpod >=3.3).
     //
     // MUTATION-VERIFIED (2026-09-05) — replacing the `TickerMode(enabled:
     // widget.visible, child: …)` wrapper with its bare `child` makes the
@@ -1102,7 +1105,7 @@ void main() {
             'under test and the count below would be zero for free.',
       );
       expect(
-        tester.binding.transientCallbackCount,
+        tickerFrameCallbacks(tester),
         0,
         reason:
             'a muted Ticker unregisters its frame callback. Any non-zero '
@@ -1114,7 +1117,7 @@ void main() {
       await tester.pump();
 
       expect(
-        tester.binding.transientCallbackCount,
+        tickerFrameCallbacks(tester),
         greaterThan(0),
         reason:
             'and it must ACTUALLY TICK once shown — without this half, a '
@@ -1200,7 +1203,7 @@ void main() {
           // Phase 404 — the INDEPENDENT_MASTER bounce lands on
           // MasterProfileScreen, whose «Про майстра» tab reads the own
           // portfolio; timer-free fixed portfolio (container outlives tree).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           // ── The BOUNCE DESTINATIONS ────────────────────────────────────
           // Every denial below lands the router on a REAL landing screen, and
           // an unsettled one fires live Dio and leaves a connect-timeout Timer

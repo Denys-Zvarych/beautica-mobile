@@ -96,7 +96,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../../routing/route_names.dart';
 import '../../../booking/domain/booking_entry_args.dart';
@@ -116,6 +116,9 @@ mixin WishlistRebookHost<T extends ConsumerStatefulWidget> on ConsumerState<T> {
   /// header for why there is no pre-flight check and why the refresh is
   /// deliberately unconditional and deferred to AFTER the push resolves.
   Future<void> rebook(WishlistService item) async {
+    // Single-flight: a re-tap while the booking flow is open is dropped by
+    // `pushOnce` below; return before the unconditional refresh too.
+    if (isFlightOpen(context)) return;
     switch (item.sourceType) {
       case WishlistSourceType.master:
         final String? masterId = item.masterId;
@@ -126,7 +129,7 @@ mixin WishlistRebookHost<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           "mapper's per-arm null-guard should have refused to build this row",
         );
         if (masterId == null || masterServiceId == null) return;
-        await context.push(
+        await context.pushOnce(
           RouteNames.bookingNew,
           extra: BookingEntryArgs(
             masterId: masterId,
@@ -142,7 +145,7 @@ mixin WishlistRebookHost<T extends ConsumerStatefulWidget> on ConsumerState<T> {
           "mapper's per-arm null-guard should have refused to build this row",
         );
         if (salonId == null || serviceDefId == null) return;
-        await context.push(
+        await context.pushOnce(
           RouteNames.salonBookingMasters,
           extra: SalonBookingMasterSelectionArgs(
             salonId: salonId,

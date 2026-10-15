@@ -11,6 +11,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -22,7 +23,7 @@ Future<T?> showVelvetSheet<T>(
   BuildContext context, {
   required WidgetBuilder builder,
 }) {
-  return showModalBottomSheet<T>(
+  return showModalBottomSheetOnce<T>(
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: false,

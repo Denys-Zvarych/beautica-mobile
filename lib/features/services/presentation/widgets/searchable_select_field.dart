@@ -31,6 +31,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -319,7 +320,7 @@ class SearchableSelectField<T> extends StatelessWidget {
   );
 
   Future<void> _openMenu(BuildContext context) async {
-    final T? picked = await showModalBottomSheet<T>(
+    final T? picked = await showModalBottomSheetOnce<T>(
       context: context,
       isScrollControlled: true,
       isDismissible: true,

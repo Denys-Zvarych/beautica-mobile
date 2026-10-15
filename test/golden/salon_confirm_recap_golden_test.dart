@@ -320,12 +320,13 @@ class _FakeBookingRepository implements BookingRepository {
 // ---------------------------------------------------------------------------
 
 List<Object> _overrides(List<SalonServiceCategoryEntry> catalog) => <Object>[
-  salonStaffMastersRosterProvider.overrideWith(
-    () =>
+  salonStaffMastersRosterProvider.overrideWith2(
+    (_) =>
         FakeSalonStaffMastersRoster(() => const <SalonMasterSummary>[_kMaster]),
   ),
-  salonMasterServiceCoverageProvider.overrideWith(
-    () => FakeSalonMasterServiceCoverage(() => salonCoverageOf(_coverageAll())),
+  salonMasterServiceCoverageProvider.overrideWith2(
+    (_) =>
+        FakeSalonMasterServiceCoverage(() => salonCoverageOf(_coverageAll())),
   ),
   salonServiceCatalogProvider.overrideWith(
     (ref, String salonId) async => catalog,

@@ -10,6 +10,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -90,7 +91,7 @@ class MasterReviewSortSheet extends StatelessWidget {
     BuildContext context,
     MasterReviewSort active,
   ) {
-    return showModalBottomSheet<MasterReviewSort>(
+    return showModalBottomSheetOnce<MasterReviewSort>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (BuildContext ctx) => MasterReviewSortSheet(active: active),

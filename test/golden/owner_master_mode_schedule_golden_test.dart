@@ -125,10 +125,10 @@ class _Roster extends SalonManagementProfile {
 
 List<Object> _overrides() => <Object>[
   authProvider.overrideWith(_OwnerAuth.new),
-  effectiveScheduleProvider.overrideWith(_Days.new),
-  weeklyScheduleProvider.overrideWith(_Weekly.new),
+  effectiveScheduleProvider.overrideWith2((_) => _Days()),
+  weeklyScheduleProvider.overrideWith2((_) => _Weekly()),
   mySalonsProvider.overrideWith(_MySalons.new),
-  salonManagementProfileProvider.overrideWith(_Roster.new),
+  salonManagementProfileProvider.overrideWith2((_) => _Roster()),
 ];
 
 void main() {

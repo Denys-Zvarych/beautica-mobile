@@ -41,6 +41,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -80,7 +81,7 @@ Future<Object?> showApplyScheduleSheet(
   required DateTime today,
   ScheduleScope? scope,
 }) {
-  return showModalBottomSheet<Object?>(
+  return showModalBottomSheetOnce<Object?>(
     context: context,
     isScrollControlled: true,
     backgroundColor: BrandColors.base,
@@ -526,7 +527,8 @@ class _ApplyScheduleSheetState extends ConsumerState<ApplyScheduleSheet> {
                       label: l10n.applyScheduleCta,
                       icon: Icons.check_rounded,
                       loading: _saving,
-                      onPressed: _saving ? null : _apply,
+                      onPressed: null,
+                      onPressedAsync: _saving ? null : _apply,
                     ),
                   ),
                 ),

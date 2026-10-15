@@ -142,7 +142,7 @@ List<Object> _overrides() {
     ownerMasterBookedDaysProvider.overrideWith(
       (ref) async => <DateTime>{_today},
     ),
-    effectiveScheduleProvider.overrideWith(_Days.new),
+    effectiveScheduleProvider.overrideWith2((_) => _Days()),
     masterServiceCatalogProvider.overrideWith(
       (ref) async => const <MasterService>[],
     ),

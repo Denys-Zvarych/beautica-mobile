@@ -87,6 +87,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart'
@@ -278,7 +279,7 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
   }
 
   void _openMove() {
-    context.push(
+    context.pushOnce(
       RouteNames.salonManageAdminMove(widget.salonId, widget.memberId),
     );
   }
@@ -727,7 +728,7 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
               key: const Key('row-master-services'),
               icon: Icons.design_services_rounded,
               label: l10n.masterServicesLabel,
-              onTap: () => context.push(
+              onTap: () => context.pushOnce(
                 RouteNames.salonManageStaffServices(
                   widget.salonId,
                   widget.memberId,
@@ -742,7 +743,7 @@ class _StaffSettingsScreenState extends ConsumerState<StaffSettingsScreen>
               key: const Key('row-master-schedule'),
               icon: Icons.calendar_month_rounded,
               label: l10n.scheduleTitle,
-              onTap: () => context.push(
+              onTap: () => context.pushOnce(
                 RouteNames.salonManageStaffSchedule(
                   widget.salonId,
                   widget.memberId,

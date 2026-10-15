@@ -31,6 +31,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -216,7 +217,7 @@ class _Form extends StatelessWidget {
   final bool submitting;
   final int maxChars;
   final ValueChanged<int> onRatingChanged;
-  final VoidCallback onSubmit;
+  final Future<void> Function() onSubmit;
 
   @override
   Widget build(BuildContext context) {
@@ -279,7 +280,7 @@ class _Form extends StatelessWidget {
                   // back with the half-typed comment intact.
                   onTap: masterId.isEmpty
                       ? null
-                      : () => context.push(
+                      : () => context.pushOnce(
                           RouteNames.masterPublicReviews(masterId),
                         ),
                 ),
@@ -303,7 +304,8 @@ class _Form extends StatelessWidget {
             label: l10n.reviewSubmitCta,
             icon: Icons.send_rounded,
             loading: submitting,
-            onPressed: rating > 0 ? onSubmit : null,
+            onPressed: null,
+            onPressedAsync: rating > 0 ? onSubmit : null,
           ),
         ),
       ],

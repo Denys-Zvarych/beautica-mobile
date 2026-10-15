@@ -169,7 +169,8 @@ class _SalonContactsEditScreenState
         label: l10n.masterSaveButton,
         icon: Icons.check_rounded,
         loading: _saving,
-        onPressed: _saving ? null : () => _save(salon),
+        onPressed: null,
+        onPressedAsync: _saving ? null : () => _save(salon),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

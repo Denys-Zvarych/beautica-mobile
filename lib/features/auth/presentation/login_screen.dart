@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../core/errors/failures.dart';
 import '../../../core/security/screen_protection.dart';
@@ -163,7 +164,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   // Submit logic
   // ---------------------------------------------------------------------------
 
+  /// Synchronous single-flight guard for the WHOLE [_submit], set before the
+  /// first `await`. The CTA's `onPressedAsync` busy flag guards only taps on
+  /// the button: the password field's keyboard `onSubmitted` calls [_submit]
+  /// directly, so Enter plus a same-frame tap started two concurrent logins —
+  /// the second overwrote the stored refresh token and orphaned the first.
+  bool _submitInFlight = false;
+
   Future<void> _submit() async {
+    if (_submitInFlight) return;
+    _submitInFlight = true;
+    try {
+      await _runSubmit();
+    } finally {
+      _submitInFlight = false;
+    }
+  }
+
+  Future<void> _runSubmit() async {
     final l10n = AppLocalizations.of(context);
 
     // Inline validation — sets errorText on each NeumorphicTextField.
@@ -295,7 +313,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               color: BrandColors.accent,
               message: l10n.loginUnverifiedMessage,
               actionLabel: l10n.loginUnverifiedAction,
-              onAction: () => context.push(
+              onAction: () => context.pushOnce(
                 RouteNames.verification,
                 extra: _unverifiedEmail ?? _emailController.text.trim(),
               ),
@@ -365,7 +383,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               key: const ValueKey<String>('login_forgot'),
               onTap: isLoading
                   ? null
-                  : () => context.push(RouteNames.forgotPassword),
+                  : () => context.pushOnce(RouteNames.forgotPassword),
               child: Padding(
                 padding: const EdgeInsets.all(VelvetSpacing.xs),
                 child: Text(l10n.loginForgotPassword, style: VelvetText.link()),
@@ -380,7 +398,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             key: const ValueKey<String>('login_submit'),
             label: l10n.loginSubmit,
             loading: isLoading,
-            onPressed: isLoading ? null : _submit,
+            onPressed: null,
+            onPressedAsync: isLoading ? null : _submit,
           ),
 
           const SizedBox(height: VelvetSpacing.lg),
@@ -392,7 +411,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             linkKey: const ValueKey<String>('login_signup'),
             onTap: isLoading
                 ? null
-                : () => context.push(RouteNames.registerRole),
+                : () => context.pushOnce(RouteNames.registerRole),
           ),
         ],
       ),

@@ -93,6 +93,7 @@ import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/scratch_dir.dart';
 import '../../../helpers/test_container.dart';
+import '../../../helpers/ticker_frame_callbacks.dart';
 
 const _owner = User(
   id: 'u-1',
@@ -678,6 +679,8 @@ void main() {
   // Reading `TickerMode.of(context)` or the screen's own `visible` field
   // would be vacuous: those report what was CONFIGURED, never whether a
   // ticker stopped asking for frames.
+  // Read through `tickerFrameCallbacks`, which subtracts the one callback
+  // every ProviderScope parks (flutter_riverpod >=3.3).
   //
   // MUTATION-VERIFIED (2026-09-05) on the identical wrapper in
   // `admin_own_profile_screen.dart` — replacing `TickerMode(enabled:
@@ -717,7 +720,7 @@ void main() {
           'under test and the count below would be zero for free.',
     );
     expect(
-      tester.binding.transientCallbackCount,
+      tickerFrameCallbacks(tester),
       0,
       reason:
           'a muted Ticker unregisters its frame callback. Any non-zero count '
@@ -729,7 +732,7 @@ void main() {
     await tester.pump();
 
     expect(
-      tester.binding.transientCallbackCount,
+      tickerFrameCallbacks(tester),
       greaterThan(0),
       reason:
           'and it must ACTUALLY TICK once shown — without this half, a '

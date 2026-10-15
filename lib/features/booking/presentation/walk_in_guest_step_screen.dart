@@ -23,6 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -89,7 +90,7 @@ class _WalkInGuestStepScreenState extends ConsumerState<WalkInGuestStepScreen> {
     final String lastName = _lastNameCtrl.text.trim();
     if (firstName.isEmpty || lastName.isEmpty) return;
 
-    context.push(
+    context.pushOnce(
       widget.servicesRoute ?? RouteNames.masterBookingNewServices,
       extra: WalkInGuest(name: firstName, surname: lastName, phone: phone),
     );

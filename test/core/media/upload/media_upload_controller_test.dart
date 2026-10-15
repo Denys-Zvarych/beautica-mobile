@@ -209,7 +209,7 @@ void main() {
         masterProfileProvider.overrideWith(_CountingProfile.new),
         secureStorageProvider.overrideWithValue(storage),
         authProvider.overrideWith(_Auth.new),
-        salonManagementProfileProvider.overrideWith(_Manage.new),
+        salonManagementProfileProvider.overrideWith2((_) => _Manage()),
         mySalonsProvider.overrideWith(_MySalons.new),
       ],
     );

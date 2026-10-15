@@ -159,7 +159,26 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
+  /// Synchronous single-flight guard for the WHOLE [_submit], set before the
+  /// first `await` — mirrors `login_screen.dart`'s. It only DROPS a repeat
+  /// entry (a same-frame tap, or any future caller such as an OTP
+  /// auto-submit) so a second concurrent `verifyEmail` with the same
+  /// single-use code never starts; the CTA itself keeps its plain
+  /// `onPressed` (no async spinner/disabled window during
+  /// `_saveProviderProfile`), so the first tap behaves exactly as before.
+  bool _submitInFlight = false;
+
   Future<void> _submit() async {
+    if (_submitInFlight) return;
+    _submitInFlight = true;
+    try {
+      await _runSubmit();
+    } finally {
+      _submitInFlight = false;
+    }
+  }
+
+  Future<void> _runSubmit() async {
     if (!_isOtpComplete) return;
     final l10n = AppLocalizations.of(context);
 

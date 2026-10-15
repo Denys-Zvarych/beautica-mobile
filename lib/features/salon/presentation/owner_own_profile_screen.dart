@@ -67,6 +67,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -365,7 +366,7 @@ class _OwnerOwnProfileScreenState extends ConsumerState<OwnerOwnProfileScreen>
             icon: Icons.tune_rounded,
             semanticLabel: l10n.ownerOwnProfileSettingsSemanticLabel,
             // Phase 137 (21.15) — opens the Owner Settings Hub.
-            onTap: () => context.push(RouteNames.ownerSettings),
+            onTap: () => context.pushOnce(RouteNames.ownerSettings),
           ),
         ],
       ),

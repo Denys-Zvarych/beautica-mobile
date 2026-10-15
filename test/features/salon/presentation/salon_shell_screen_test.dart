@@ -155,7 +155,7 @@ class _SettledSalonManagementProfile extends SalonManagementProfile {
 
 List<Object> _ownerOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-  portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+  portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_OwnedMySalons.new),
   salonManagementProfileProvider(
@@ -177,7 +177,7 @@ class _SettledClientEditProfile extends ClientEditProfile {
 
 List<Object> _adminOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-  portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+  portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
   authProvider.overrideWith(_AdminAuthNotifier.new),
   clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
   salonManagementProfileProvider(
@@ -206,7 +206,7 @@ class _MultiOwnedMySalons extends MySalons {
 
 List<Object> _ownerOverridesMultiSalon() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-  portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+  portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_MultiOwnedMySalons.new),
   salonManagementProfileProvider(
@@ -803,7 +803,7 @@ void main() {
       (tester) async {
         final ProviderContainer container = await pumpRouted(tester, <Object>[
           // Phase 404 — timer-free portfolio (the container outlives the tree).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(_PendingAuthNotifier.new),
           clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
           salonManagementProfileProvider(
@@ -1587,7 +1587,7 @@ void main() {
       final container = makeTestContainer(
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -1719,7 +1719,7 @@ void main() {
       final container = makeTestContainer(
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -1882,7 +1882,7 @@ void main() {
       final container = makeTestContainer(
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -2186,7 +2186,7 @@ void main() {
       final container = makeTestContainer(
         overrides: <Object>[
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(_OwnerAuthNotifier.new),
           mySalonsProvider.overrideWith(() => _CompleterMySalons(salons)),
           salonManagementProfileProvider(
@@ -2244,7 +2244,7 @@ void main() {
       final container = makeTestContainer(
         overrides: <Object>[
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-          portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+          portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
           authProvider.overrideWith(_OwnerAuthNotifier.new),
           mySalonsProvider.overrideWith(_OtherOnlyMySalons.new),
           salonManagementProfileProvider(

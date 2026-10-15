@@ -85,6 +85,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../core/media/upload/avatar_editor_binding.dart';
 import '../../../core/icons/app_icon.dart';
@@ -167,7 +168,7 @@ class _PassportScreenState extends ConsumerState<PassportScreen>
   void _onShowAllFavourites() {
     // `push`, not `go`: this is a pushed leaf on the passport branch's own
     // navigator, so swipe-back returns to the still-scrolled passport page.
-    context.push(RouteNames.clientWishlist);
+    context.pushOnce(RouteNames.clientWishlist);
   }
 
   @override

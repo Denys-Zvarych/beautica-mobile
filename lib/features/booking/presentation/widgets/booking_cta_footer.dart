@@ -24,10 +24,14 @@ class BookingCtaFooter extends StatelessWidget {
     required this.label,
     required this.enabled,
     required this.loading,
-    required this.onPressed,
+    this.onPressed,
     required this.buttonKey,
     this.icon = Icons.check_circle_outline_rounded,
-  });
+    this.onPressedAsync,
+  }) : assert(
+         onPressed != null || onPressedAsync != null,
+         'BookingCtaFooter needs onPressed or onPressedAsync',
+       );
 
   /// CTA caption — caller-driven (e.g. «Записатись» / «Повторити» / loading).
   final String label;
@@ -39,7 +43,13 @@ class BookingCtaFooter extends StatelessWidget {
   /// [NeumorphicButton]) blocks re-taps.
   final bool loading;
 
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
+
+  /// Single-flight async submit, passed straight through to
+  /// [NeumorphicButton.onPressedAsync] (busy flag set before the first
+  /// `await`; same-frame re-taps dropped). Gated by [enabled] like
+  /// [onPressed]. Null (default) keeps every existing caller unchanged.
+  final Future<void> Function()? onPressedAsync;
 
   /// Key applied to the inner [NeumorphicButton] — distinct per flow
   /// (`booking-confirm-submit-cta` / `salon-confirm-submit-cta`).
@@ -87,6 +97,7 @@ class BookingCtaFooter extends StatelessWidget {
             icon: loading ? null : icon,
             loading: loading,
             onPressed: enabled ? onPressed : null,
+            onPressedAsync: enabled ? onPressedAsync : null,
           ),
         ),
       ),

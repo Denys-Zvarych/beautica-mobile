@@ -2921,11 +2921,11 @@ void main() {
       );
 
       testWidgets(
-        'should_notAddScreenOwnedGuard_when_clientCreatePath — user-locked: '
-        'the client path is UNCHANGED by this phase, so a double tap with '
-        'no pump between still fires TWO createAppointment calls (the same '
-        'pre-existing window phase-262 D5 documents but does not close '
-        'here)',
+        'should_notAddScreenOwnedGuard_when_clientCreatePath — user-locked '
+        '(phase-262 D5): the client path has NO screen-owned guard, so two '
+        'taps dispatched in ONE synchronous burst (no frame, no microtask '
+        'between them) fire TWO createAppointment calls — both carrying the '
+        'SAME idempotency key, which is the real guarantee (server dedupes)',
         (tester) async {
           final appointments = _FakeAppointmentRepository(
             appointmentToReturn: _appointmentFixture(),
@@ -2938,11 +2938,24 @@ void main() {
             bookings: bookings,
           );
 
-          final Finder cta = find.byKey(
-            const Key('booking-confirm-submit-cta'),
+          // A same-frame burst, NOT two `await tester.tap`s: an awaited tap
+          // lets the first submit's microtask-resolved fake COMPLETE before
+          // the second tap lands, so it reads 2 even with a guard on this
+          // path. Only a synchronous burst sees a same-frame guard (pattern
+          // from `integration_test/tap_reentrancy_flow_test.dart`).
+          final Offset centre = tester.getCenter(
+            find.byKey(const Key('booking-confirm-submit-cta')),
           );
-          await tester.tap(cta);
-          await tester.tap(cta);
+          for (int i = 0; i < 2; i++) {
+            tester.binding.handlePointerEventForSource(
+              PointerDownEvent(pointer: 70000 + i, position: centre),
+              source: TestBindingEventSource.test,
+            );
+            tester.binding.handlePointerEventForSource(
+              PointerUpEvent(pointer: 70000 + i, position: centre),
+              source: TestBindingEventSource.test,
+            );
+          }
           await tester.pumpAndSettle();
 
           expect(
@@ -2950,8 +2963,17 @@ void main() {
             hasLength(2),
             reason:
                 'pins the ABSENCE of a screen-owned guard on the client '
-                'path — the user locked this behaviour as unchanged; if '
-                'this ever drops to 1, a guard leaked onto the client path',
+                'path — the user locked this behaviour as unchanged (D5); '
+                'if this ever drops to 1, a guard leaked onto the client path',
+          );
+          expect(
+            appointments.requests
+                .map((CreateAppointmentRequest r) => r.idempotencyKey)
+                .toSet(),
+            <String>{_kIdemKey},
+            reason:
+                'one confirm screen = one idempotency key: every POST of a '
+                'burst must carry it so the server dedupes them',
           );
         },
       );

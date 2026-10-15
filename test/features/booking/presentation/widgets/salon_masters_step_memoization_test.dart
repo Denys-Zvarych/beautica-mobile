@@ -139,13 +139,13 @@ Future<_HostController> _pump(WidgetTester tester) async {
   await tester.pumpApp(
     _Host(state: c),
     overrides: <Object>[
-      salonStaffMastersRosterProvider.overrideWith(
-        () => FakeSalonStaffMastersRoster(
+      salonStaffMastersRosterProvider.overrideWith2(
+        (_) => FakeSalonStaffMastersRoster(
           () => <SalonMasterSummary>[_kMasterA, _kMasterB],
         ),
       ),
-      salonMasterServiceCoverageProvider.overrideWith(
-        () => FakeSalonMasterServiceCoverage(
+      salonMasterServiceCoverageProvider.overrideWith2(
+        (_) => FakeSalonMasterServiceCoverage(
           () => salonCoverageOf(_coverageBoth()),
         ),
       ),

@@ -72,6 +72,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/errors/resource_unavailable.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -197,6 +198,23 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// [BookingDetailScreen.onUnavailable] fires at most once per screen.
   bool _unavailableFired = false;
 
+  /// Single-flight guards for the PROVIDER close actions — one PER ACTION:
+  /// [_declineInFlight] for «Скасувати», [_completeInFlight] for
+  /// «Завершити». Each is set synchronously before its dialog opens and
+  /// cleared after its write settles, so a double-tap — or a second tap while
+  /// the first write is still in flight and the footer has not re-rendered —
+  /// can neither stack a second dialog nor fire a second PATCH of the SAME
+  /// action. Deliberately NOT one shared flag: each guard only drops a repeat
+  /// of its OWN action, so an in-flight decline never blocks «Завершити»
+  /// (or vice versa) — that cross-action behaviour is exactly as before.
+  bool _declineInFlight = false;
+  bool _completeInFlight = false;
+
+  /// Same guard as `booking_success_screen.dart`'s `_calendarInFlight`: a
+  /// double-tap on «Додати в календар» must not stack two platform
+  /// activities.
+  bool _calendarInFlight = false;
+
   @override
   void initState() {
     super.initState();
@@ -243,6 +261,16 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// The dialog is NOT told `isAppointment` here (its copy stays per-service):
   /// only this one service is being declined, not the whole visit.
   Future<void> _confirmDecline(BuildContext context, Booking booking) async {
+    if (_declineInFlight) return;
+    _declineInFlight = true;
+    try {
+      await _runDecline(context, booking);
+    } finally {
+      _declineInFlight = false;
+    }
+  }
+
+  Future<void> _runDecline(BuildContext context, Booking booking) async {
     final String? comment = await showDeclineBookingDialog(context, booking);
     if (comment == null || !mounted) return; // backed out — nothing happened.
 
@@ -319,8 +347,18 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// guarded only the visit's `startsAt`, so a sibling starting hours later
   /// was completed with no temporal guard at all.
   Future<void> _confirmComplete(BuildContext context, Booking booking) async {
+    if (_completeInFlight) return;
+    _completeInFlight = true;
+    try {
+      await _runComplete(context, booking);
+    } finally {
+      _completeInFlight = false;
+    }
+  }
+
+  Future<void> _runComplete(BuildContext context, Booking booking) async {
     final bool isAppointment = booking.appointmentId != null;
-    final bool? confirmed = await showDialog<bool>(
+    final bool? confirmed = await showDialogOnce<bool>(
       context: context,
       builder: (_) => CompleteBookingDialog(isAppointment: isAppointment),
     );
@@ -396,7 +434,17 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// [Booking.startAt]/[Booking.endAt] are non-nullable, so the CONFIRMED-only
   /// [Booking.canAddToCalendar] gate is the sole precondition — no null guard
   /// is reachable here.
-  Future<void> _onAddToCalendar(BuildContext context, Booking booking) {
+  Future<void> _onAddToCalendar(BuildContext context, Booking booking) async {
+    if (_calendarInFlight) return;
+    _calendarInFlight = true;
+    try {
+      await _addToCalendar(context, booking);
+    } finally {
+      _calendarInFlight = false;
+    }
+  }
+
+  Future<void> _addToCalendar(BuildContext context, Booking booking) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     // A salon booking names the SALON; an independent-master booking names the
     // MASTER (mirrors the recap card + notes heading's atSalon split).
@@ -478,10 +526,10 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         context,
         AppLocalizations.of(context).bookingRebookServiceUnavailable,
       );
-      context.push(RouteNames.bookingNew, extra: booking.masterId);
+      context.pushOnce(RouteNames.bookingNew, extra: booking.masterId);
       return;
     }
-    context.push(
+    context.pushOnce(
       RouteNames.bookingNew,
       extra: BookingEntryArgs(
         masterId: booking.masterId,
@@ -495,7 +543,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// onto the Записи branch (swipe-back returns here). Gated on
   /// `booking.canReview` at the call site (the CTA is only built then).
   void _onLeaveReview(Booking booking) {
-    context.push(
+    context.pushOnce(
       (widget.leaveReviewRouteBuilder ?? RouteNames.bookingReview)(booking.id),
     );
   }
@@ -506,7 +554,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `booking.providerCanReviewClient` is `true` — see
   /// `_DetailBody._providerActions`'s doc.
   void _onLeaveClientFeedback(Booking booking) {
-    context.push(
+    context.pushOnce(
       (widget.clientReviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
     );
   }

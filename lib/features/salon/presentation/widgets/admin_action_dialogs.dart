@@ -40,6 +40,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -56,7 +57,7 @@ import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
 /// same contract [showRemoveAdminDialog] gives, because backing out must
 /// never be the risky path in a destructive confirmation.
 Future<bool?> showRemoveMasterDialog(BuildContext context, String masterName) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     builder: (_) => RemoveMasterDialog(masterName: masterName),
@@ -69,7 +70,7 @@ Future<bool?> showRemoveMasterDialog(BuildContext context, String masterName) {
 /// Resolves to `true` only when the viewer taps the red confirm; every other
 /// exit resolves to `null`, meaning *do nothing*.
 Future<bool?> showRemoveAdminDialog(BuildContext context, String adminName) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     builder: (_) => RemoveAdminDialog(adminName: adminName),
@@ -86,7 +87,7 @@ Future<bool?> showMoveAdminDialog(
   required String adminName,
   required String destinationSalonName,
 }) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     builder: (_) => MoveAdminDialog(

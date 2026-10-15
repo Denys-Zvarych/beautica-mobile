@@ -26,6 +26,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -369,7 +370,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     final ScheduleScope scope =
         widget.scope ?? ref.read(ownScheduleScopeProvider);
     if (scope is SalonMasterScheduleScope) {
-      context.push(
+      context.pushOnce(
         RouteNames.salonManageStaffScheduleWeekly(
           scope.salonId,
           scope.masterId,
@@ -382,7 +383,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
     // `weekly-schedules` data path the calendar reads), NOT the deprecated
     // `working_hours` editor at [RouteNames.workingHours]. Byte-identical to
     // before Phase 312 for every `ScheduleScope.own` viewer (D1).
-    context.push(RouteNames.scheduleWeeklyEditor);
+    context.pushOnce(RouteNames.scheduleWeeklyEditor);
   }
 
   /// Phase 15.4 — opens the per-date override modal sheet ([DayHoursSheet]) for

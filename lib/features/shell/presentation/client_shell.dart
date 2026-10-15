@@ -29,6 +29,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -109,12 +110,14 @@ class _ClientShellState extends State<ClientShell> {
   /// Opens the CLIENT settings hub (/client/menu) — the burger-menu mirror of
   /// the master settings hub. Role-gated to CLIENT in auth_redirect.dart. The
   /// hub's Account row routes onward to the shared SettingsScreen (/settings).
-  void _onBurger(BuildContext context) => context.push(RouteNames.clientMenu);
+  void _onBurger(BuildContext context) =>
+      context.pushOnce(RouteNames.clientMenu);
 
   /// Phase 361 — opens the notification feed. The dot itself comes from the
   /// GLOBAL `hasUnreadNotificationsProvider`, watched by the `bell` slot's
   /// [ConnectedNotificationBell] (whose own tap does the same push).
-  void _onBell(BuildContext context) => context.push(RouteNames.notifications);
+  void _onBell(BuildContext context) =>
+      context.pushOnce(RouteNames.notifications);
 
   @override
   Widget build(BuildContext context) {

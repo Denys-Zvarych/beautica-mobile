@@ -246,6 +246,9 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
   late final ScreenProtectionManager _screenProtection;
 
+  /// True while a destination pushed by [_openAndRefresh] is still open.
+  bool _opening = false;
+
   @override
   void initState() {
     super.initState();
@@ -302,8 +305,19 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// leaks — the exact bug that shipped when [ServiceSetupScreen] exited with
   /// `go`. That screen now pops (see its `_leave`), which is why this hook is
   /// sound for both the FAB and the empty-state CTA.
+  ///
+  /// SINGLE-FLIGHT: [_opening] drops every tap that lands while a pushed
+  /// destination is still open. Without it, taps queued during a stalled frame
+  /// (or a fast double-tap) each pushed their own setup / edit page, stacking
+  /// several copies. Same guard as `NotificationsScreen._opening`.
   Future<void> _openAndRefresh(String location) async {
-    await context.push<void>(location);
+    if (_opening) return;
+    _opening = true;
+    try {
+      await context.push<void>(location);
+    } finally {
+      _opening = false;
+    }
     if (mounted) _refreshCategoryCataloguesIfStale();
   }
 
