@@ -498,6 +498,12 @@ jobs:
         shell: bash
         run: ./scripts/forbid_unclassified_layer_dim.sh
 
+      # 2026-10-15: screen pushes in features go through the single-flight helper.
+      # why: docs/ci/static-guards.md#raw-push
+      - name: Forbid a raw push under lib/features/
+        shell: bash
+        run: ./scripts/forbid_raw_push.sh
+
       # Phase 300: end-to-end harness for the layer-dim guard above.
       # why: docs/ci/static-guards.md#layer-dim-harness
       - name: Self-test layer-dim guard (harness)
@@ -607,12 +613,6 @@ jobs:
       - name: Forbid a bare keepalive-family cross-invalidation
         shell: bash
         run: ./scripts/forbid_bare_keepalive_family_invalidation.sh
-
-      # 2026-10-15: screen pushes in features go through the single-flight helper.
-      # why: docs/ci/static-guards.md#raw-push
-      - name: Forbid a raw push under lib/features/
-        shell: bash
-        run: ./scripts/forbid_raw_push.sh
 
       # Self-test every scripts/forbid_*.sh: glob discovery + sentinel per guard.
       # why: docs/ci/static-guards.md#verify-guards-self-test
