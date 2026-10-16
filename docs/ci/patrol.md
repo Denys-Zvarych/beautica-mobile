@@ -213,8 +213,10 @@ CODE=$?/exit would not). This makes the step's result equal patrol's.
 image does not ship. Gradle then downloads it mid-build, and on PR #95
 attempt 3 that download failed 8s into `patrol build` ("Failed to install the
 following SDK components"). The `.github/actions/android-sdk-platform`
-composite runs `sdkmanager --install` first, quiet on success and failing the
-job loudly (non-zero sdkmanager, or the platform dir missing). It runs in every
+composite runs `sdkmanager --install` first: skipped if `android.jar` is already
+present, 3 attempts with 10 s / 30 s backoff (download cache and partial dir
+cleared between), the log tail always printed on failure, loud failure after
+the last attempt. It runs in every
 job whose Gradle build happens on an emulator runner: `integration`,
 `integration-profile`, `patrol`. `apk` is excluded: it is not an emulator job,
 and a failed download there fails a plain build that is simply re-run.
