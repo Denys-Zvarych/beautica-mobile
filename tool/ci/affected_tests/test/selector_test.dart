@@ -180,6 +180,7 @@ void main() {
 
     // full_before_none: carve-outs of android/** that beat the none glob.
     const fullBeforeNoneCases = {
+      '.github/PULL_REQUEST_TEMPLATE/release.md': '.github/**/*.md',
       'android/gradle/wrapper/gradle-wrapper.properties':
           'android/gradle/wrapper/**',
       'android/gradle.properties': 'android/gradle.properties',
