@@ -22,7 +22,11 @@ graph_roots: [lib, api/lib, test, integration_test]
 # wrapper / properties are build-toolchain config the `apk` job's APK builds
 # consume, so the guard forces FULL even though android/** is otherwise
 # patrol-only. Pinned by test/guard_parity_test.dart.
+# '.github/**/*.md': the guard forces FULL for every .github/* path, but
+# '**/*.md' would otherwise swallow .github/PULL_REQUEST_TEMPLATE/*.md as none
+# (398 R1 parity). Non-.md .github files already classify full.
 full_before_none:
+  - '.github/**/*.md'
   - 'android/gradle/wrapper/**'
   - 'android/gradle.properties'
 

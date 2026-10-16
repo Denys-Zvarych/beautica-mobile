@@ -4,6 +4,7 @@
 /.github/**   @Denys-Zvarych
 /tool/ci/**   @Denys-Zvarych
 /scripts/**   @Denys-Zvarych
+/.gitattributes @Denys-Zvarych
 /android/app/build.gradle.kts @Denys-Zvarych
 /android/app/proguard-rules.pro @Denys-Zvarych
 # Test-execution config + harness: a PR that skips/neuters tests here would
