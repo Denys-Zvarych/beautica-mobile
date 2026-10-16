@@ -58,7 +58,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$here/.." && pwd)"
 ALLOWED="promotion-source.yml"
 # SHA-256 of .github/workflows/promotion-source.yml. Update in the SAME PR as any edit to it.
-EXPECTED_SHA256="581e0d3fd49d7c9241d2bacc4499849c56899556d615a76bd8490765d86cf97c"
+EXPECTED_SHA256="416782498a328d5c4a2f7cbceaf18e5e266ff9a5688e07dd313994c4f3e8753f"
 # Test-only: honoured solely by self_test (it sets this to 1 around structural cases). Hard-reset
 # here so an inherited environment variable of the same name can never switch the pin off.
 PIN_BYPASS=0
@@ -140,13 +140,25 @@ def trigger_set(f, doc):
     if len(keys) != 1:
         err(f, "expected exactly one 'on' key, found %d" % len(keys))
         return None
+    for k in doc:  # a tagged key (!!null / !!bool / verbatim tag) can hide a trigger; only str or the YAML-1.1 `on` (True) are legitimate
+        if not isinstance(k, str) and k is not True:
+            err(f, "non-string top-level key (%s), failing closed (a tagged key can hide a trigger)" % ("null" if k is None else type(k).__name__))
+            return None
     on = doc[keys[0]]
     if isinstance(on, str):
-        return {on.lower()}, on
-    if isinstance(on, list):
-        return {str(x).lower() for x in on}, on
-    if isinstance(on, dict):
-        return {str(k).lower() for k in on}, on
+        raw = [on]
+    elif isinstance(on, list):
+        raw = list(on)
+    elif isinstance(on, dict):
+        raw = list(on)
+    else:
+        raw = None
+    if raw is not None:
+        for t in raw:
+            if not isinstance(t, str):
+                err(f, "non-string trigger (%s), failing closed (a !!null/!!bool tag can hide a trigger name)" % ("null" if t is None else type(t).__name__))
+                return None
+        return {t.lower() for t in raw}, on
     err(f, "'on' is neither string, list nor map")
     return None
 
@@ -449,6 +461,40 @@ EOF
 on: [pull_request_review]
 EOF
   run_case pr_review 1
+  other null_tag_denied <<'EOF2'
+on:
+  !!null workflow_run:
+    workflows: [x]
+EOF2
+  run_case null_tag_denied 1 "non-string trigger (null)"
+  other bool_tag_denied <<'EOF2'
+on:
+  !!bool issue_comment:
+EOF2
+  run_case bool_tag_denied 1 "unparseable YAML, failing closed"  # PyYAML rejects !!bool on a non-bool word; Java parses it to a Boolean
+  other bool_tag_trigger <<'EOF2'
+on:
+  !!bool yes:
+EOF2
+  run_case bool_tag_trigger 1 "non-string trigger (bool)"
+  other bool_tag_list <<'EOF2'
+on: [push, !!bool no]
+EOF2
+  run_case bool_tag_list 1 "non-string trigger (bool)"
+  other bool_toplevel_key <<'EOF2'
+on: push
+!!bool no: x
+EOF2
+  run_case bool_toplevel_key 1 "non-string top-level key (bool)"
+  other null_tag_list <<'EOF2'
+on: [push, !!null workflow_run]
+EOF2
+  run_case null_tag_list 1 "non-string trigger (null)"
+  other verbatim_null_tag <<'EOF2'
+!<tag:yaml.org,2002:null> workflow_run: x
+on: push
+EOF2
+  run_case verbatim_null_tag 1 "non-string top-level key (null)"
   mk guard_has_workflow_run; sed -i 's/^on:$/on:\n  workflow_run:\n    workflows: [x]/' "$tmp/guard_has_workflow_run/$ALLOWED"; run_case guard_has_workflow_run 1
 
   # --- [MEDIUM 2] expression opener outside the 3 allowed line shapes (auditor cases: fold, strip, single, cmt)

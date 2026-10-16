@@ -205,6 +205,50 @@ patrol's real code — all on ONE line so the exit status carries
 (android-emulator-runner runs each line in its own sh -c, so a separate
 CODE=$?/exit would not). This makes the step's result equal patrol's.
 
+<a id="sdk-preinstall"></a>
+
+### patrol: SDK platform preinstall (2026-10-17)
+
+`:add_2_calendar` compiles against `platforms;android-33`, which the runner
+image does not ship. Gradle then downloads it mid-build, and on PR #95
+attempt 3 that download failed 8s into `patrol build` ("Failed to install the
+following SDK components"). The `.github/actions/android-sdk-platform`
+composite runs `sdkmanager --install` first: skipped if `android.jar` is already
+present, 3 attempts with 10 s / 30 s backoff (download cache and partial dir
+cleared between), the log tail always printed on failure, loud failure after
+the last attempt. It runs in every
+job whose Gradle build happens on an emulator runner: `integration`,
+`integration-profile`, `patrol`. `apk` is excluded: it is not an emulator job,
+and a failed download there fails a plain build that is simply re-run.
+
+<a id="patrol-retry"></a>
+
+### patrol: retry once on a lost device only (2026-10-17)
+
+The emulator process occasionally dies mid-suite (the ColorBuffer crash in
+`docs/ci/emulator-integration.md`), showing up as `device 'emulator-5554' not
+found` / `AdbCommandRejectedException`. Attempt 1 runs with
+`continue-on-error` and its output goes to `patrol-attempt-1.log`. The
+`patrol-gate` step runs `scripts/ci/patrol_retry_gate.sh` on that log: exit 0
+(retry) only for a lost-device signature (`device 'emulator-N' not found`,
+`AdbCommandRejectedException`, `device offline` AFTER the seed line, or a
+Gradle SDK-install failure). Veto markers come in two groups. HARD assertion
+markers (`EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK`, `TestFailure`,
+`Expected:`/`Actual:`, `AssertionError`, `Unhandled Exception`) always win over
+a signature, so a real failure is never retried. `Unhandled Exception` is the
+capital-E Dart engine form only: the lowercase `Unhandled exception:` is
+patrol_cli itself crashing on a dead adb link, which is infrastructure noise.
+`PATROL TIMED OUT` (a hang) vetoes UNLESS a hard device-lost signature
+(`device 'emulator-N' not found` or `AdbCommandRejectedException`, nothing else:
+not `device offline`) is also present: then the emulator died (ColorBuffer
+crash) and patrol hung on the dead link, so it is retried. A timeout alone, or
+timeout plus a hard assertion marker, is never retried. Attempt 2 is a fresh emulator-runner step. The
+`Verify patrol passed` step judges attempt 2 when it ran, else attempt 1.
+The gate's fixture matrix is `scripts/ci/patrol_retry_gate.sh --self-test`,
+run in the `gates-fast` job. The step log is replayed with `cat` after each
+command (no `| tee`: a lingering adb/gradle daemon holding the pipe would
+hang the step).
+
 <a id="patrol-test-bound"></a>
 
 ### patrol: `patrol test` bound (1200s, raised 2026-10-15)
