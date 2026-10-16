@@ -232,10 +232,17 @@ found` / `AdbCommandRejectedException`. Attempt 1 runs with
 `patrol-gate` step runs `scripts/ci/patrol_retry_gate.sh` on that log: exit 0
 (retry) only for a lost-device signature (`device 'emulator-N' not found`,
 `AdbCommandRejectedException`, `device offline` AFTER the seed line, or a
-Gradle SDK-install failure). Any test-failure marker (`EXCEPTION CAUGHT BY
-FLUTTER TEST FRAMEWORK`, `TestFailure`, `Expected:`/`Actual:`, `AssertionError`,
-`Unhandled Exception`, `PATROL TIMED OUT`) wins over a signature, so a real
-failure is never retried. Attempt 2 is a fresh emulator-runner step. The
+Gradle SDK-install failure). Veto markers come in two groups. HARD assertion
+markers (`EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK`, `TestFailure`,
+`Expected:`/`Actual:`, `AssertionError`, `Unhandled Exception`) always win over
+a signature, so a real failure is never retried. `Unhandled Exception` is the
+capital-E Dart engine form only: the lowercase `Unhandled exception:` is
+patrol_cli itself crashing on a dead adb link, which is infrastructure noise.
+`PATROL TIMED OUT` (a hang) vetoes UNLESS a hard device-lost signature
+(`device 'emulator-N' not found` or `AdbCommandRejectedException`, nothing else:
+not `device offline`) is also present: then the emulator died (ColorBuffer
+crash) and patrol hung on the dead link, so it is retried. A timeout alone, or
+timeout plus a hard assertion marker, is never retried. Attempt 2 is a fresh emulator-runner step. The
 `Verify patrol passed` step judges attempt 2 when it ran, else attempt 1.
 The gate's fixture matrix is `scripts/ci/patrol_retry_gate.sh --self-test`,
 run in the `gates-fast` job. The step log is replayed with `cat` after each

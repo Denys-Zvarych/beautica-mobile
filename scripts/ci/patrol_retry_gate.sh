@@ -6,7 +6,9 @@
 #
 # Retry ONLY a lost device / failed SDK download (infrastructure), never a test.
 # Fail closed: anything not positively a lost-device signature, an unreadable or
-# empty log, or ANY test-failure marker (even next to a lost-device one) => 1.
+# empty log, or ANY hard assertion marker (even next to a lost-device one) => 1.
+# A bare `PATROL TIMED OUT` (a hang) also => 1, unless a HARD device-lost
+# signature explains it (emulator died, patrol then hung on the dead adb link).
 # why: docs/ci/patrol.md#patrol-retry
 set -u
 
@@ -16,8 +18,17 @@ RETRY_ANYWHERE="device '(emulator-[0-9]+)' not found|AdbCommandRejectedException
 # is still booting and the line is boot noise (the step is retried by the runner).
 OFFLINE_RE="device offline"
 SEED_RE="seeded"
-# A real test failure, or a hang. Wins over every retry signature.
-VETO_RE="EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK|TestFailure|(^|[^[:alnum:]])(Expected|Actual):|AssertionError|Unhandled [Ee]xception|PATROL TIMED OUT"
+# HARD assertion markers: a real test failure. Always veto, win over every retry
+# signature. `Unhandled Exception` is scoped to the capital-E form: that is the
+# Dart engine/test-runner spelling ("Unhandled Exception: ..."). The lowercase
+# `Unhandled exception:` is the Dart CLI top-level handler, i.e. patrol_cli itself
+# crashing on a dead adb link (ProcessException ... device not found) -> infra
+# noise, so it is deliberately NOT a marker. Java/ddmlib/Gradle never emit either.
+HARD_VETO_RE="EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK|TestFailure|(^|[^[:alnum:]])(Expected|Actual):|AssertionError|Unhandled Exception"
+# A hang. Vetoes UNLESS a hard device-lost signature is present (emulator died,
+# patrol then hung until the timeout). `device offline` is NOT accepted here.
+TIMEOUT_RE="PATROL TIMED OUT"
+DEVICE_LOST_RE="device '(emulator-[0-9]+)' not found|AdbCommandRejectedException"
 
 gate() {
   local log="$1" clean
@@ -29,8 +40,16 @@ gate() {
   # Strip ANSI escapes and CRs so colour codes cannot split a signature.
   sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g' -e 's/\r//g' "$log" > "$clean"
 
-  if grep -aEq "$VETO_RE" "$clean"; then
+  if grep -aEq "$HARD_VETO_RE" "$clean"; then
     echo "patrol-retry-gate: test-failure marker present -> no retry (fail closed)"
+    rm -f "$clean"; return 1
+  fi
+  if grep -aEq "$TIMEOUT_RE" "$clean"; then
+    if grep -aEq "$DEVICE_LOST_RE" "$clean"; then
+      echo "patrol-retry-gate: timeout with a device-lost signature (emulator died, patrol hung) -> retry"
+      rm -f "$clean"; return 0
+    fi
+    echo "patrol-retry-gate: timeout without a device-lost signature (hang) -> no retry (fail closed)"
     rm -f "$clean"; return 1
   fi
   if grep -aEq "$RETRY_ANYWHERE" "$clean"; then
@@ -92,9 +111,25 @@ self_test() {
   printf '%s\n' 'adb: device offline' > "$d/off_noseed"
   expect "device offline, no seed line" 1 "$d/off_noseed"
 
-  # 7 timeout is a hang, not a lost device -> no retry even with a signature
-  { printf '%s\n' 'PATROL TIMED OUT after 1200s (rc=124).'; cat "$d/lost"; } > "$d/timeout"
-  expect "timeout + lost device" 1 "$d/timeout"
+  # 7 timeout: a hang alone -> no retry; with a hard device-lost signature the
+  #   emulator died and patrol hung on the dead link -> retry; an assertion wins
+  printf '%s\n' 'seeded /sdcard/x.jpg' 'PATROL TIMED OUT after 1200s (rc=124).' > "$d/timeout_alone"
+  expect "timeout alone" 1 "$d/timeout_alone"
+  { cat "$d/lost"; printf '%s\n' 'PATROL TIMED OUT after 1200s (rc=124).'; } > "$d/timeout"
+  expect "timeout + lost device" 0 "$d/timeout"
+  { cat "$d/assert"; cat "$d/timeout"; } > "$d/timeout_assert"
+  expect "timeout + lost device + assertion" 1 "$d/timeout_assert"
+  printf '%s\n' 'seeded /sdcard/x.jpg' 'adb: device offline' 'PATROL TIMED OUT after 1200s (rc=124).' > "$d/timeout_off"
+  expect "timeout + device offline (not a hard signature)" 1 "$d/timeout_off"
+
+  # 7b Unhandled Exception: the lowercase patrol_cli crash on a dead adb link is
+  #   infra noise next to a lost device -> retry; the capital-E engine form is
+  #   an app/test failure -> no retry even with a lost device.
+  { cat "$d/lost"; printf '%s\n' 'Unhandled exception:' \
+      "ProcessException: adb: device 'emulator-5554' not found" '#0 _runAdb (package:patrol_cli/x.dart:1)'; } > "$d/unh_noise"
+  expect "lost device + Unhandled exception (patrol_cli adb noise)" 0 "$d/unh_noise"
+  { cat "$d/lost"; printf '%s\n' '[ERROR:flutter/runtime/dart_vm_initializer.cc(41)] Unhandled Exception: Bad state'; } > "$d/unh_real"
+  expect "lost device + Unhandled Exception (engine)" 1 "$d/unh_real"
 
   # 8 unrelated failure, missing and empty logs -> no retry
   printf '%s\n' 'seeded /sdcard/x.jpg' 'some other build error' > "$d/other"
