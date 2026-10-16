@@ -432,6 +432,15 @@ jobs:
         shell: bash
         run: ./scripts/forbid_schedule_in_pr_validate.sh
 
+      # Phase 370 D5: pull_request_target only in the hardened promotion-source.yml.
+      - name: Forbid privileged PR trigger outside the promotion guard
+        shell: bash
+        run: |
+          # The guard parses workflow YAML with PyYAML and FAILS CLOSED without it; the ubuntu-latest
+          # image readme does not list python3-yaml, so make sure it is there.
+          python3 -c 'import yaml' 2>/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq python3-yaml; }
+          ./scripts/forbid_pull_request_target_outside_promotion.sh
+
       # 2026-07-31: no bare pumpAndSettle right after a results-screen tap.
       # why: docs/ci/static-guards.md#results-bare-pump-and-settle
       - name: Forbid bare pumpAndSettle after a results-screen tap
