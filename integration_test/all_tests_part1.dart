@@ -122,6 +122,7 @@ import 'salon_owner_unassign_master_service_flow_test.dart'
     as salon_owner_unassign_master_service;
 import 'salon_owner_edit_master_schedule_flow_test.dart'
     as salon_owner_edit_master_schedule;
+import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -393,4 +394,7 @@ void main() {
     'salon_owner_edit_master_schedule_flow',
     salon_owner_edit_master_schedule.main,
   );
+  // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
+  // the five riskiest surfaces opens ONE route / sends ONE request.
+  group('tap_reentrancy_flow', tap_reentrancy.main);
 }

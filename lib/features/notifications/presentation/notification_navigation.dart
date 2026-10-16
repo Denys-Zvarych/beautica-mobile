@@ -125,10 +125,16 @@ Future<bool> _salonOwnershipVerified(
 /// [type] (phase 391, optional): a `REVIEW_RECEIVED` booking item for an
 /// owner/admin opens the booking's salon on «Відгуки»
 /// (`salonShell(id, openReviews: true)`) instead of the booking detail.
+///
+/// [adminSalonId] (phase 412, optional): the salon a SALON_ADMIN is bound to
+/// (`User.salonId`). Only a [ServiceCatalogTarget] for an admin reads it — an
+/// admin has no services screen of their own, so the tap opens that salon's
+/// «Команда» tab. `null`/blank → no route (never a guess).
 String? routeFor(
   NotificationTarget target,
   UserRole? role, {
   AppNotificationType? type,
+  String? adminSalonId,
 }) {
   if (role == null) return null;
   final String? reviewsSalonId = _salonReviewsSalonId(target, role, type);
@@ -152,6 +158,16 @@ String? routeFor(
       UserRole.salonAdmin => RouteNames.salonShell(salonId, openTeam: true),
       _ => null,
     },
+    ServiceCatalogTarget() => switch (role) {
+      UserRole.independentMaster => RouteNames.services,
+      UserRole.salonOwner => RouteNames.ownerMasterServices,
+      UserRole.salonAdmin =>
+        (adminSalonId == null || adminSalonId.trim().isEmpty)
+            ? null
+            : RouteNames.salonShell(adminSalonId, openTeam: true),
+      // Salon masters and clients cannot request, so never receive one.
+      UserRole.salonMaster || UserRole.client => null,
+    },
     NoTarget() => null,
   };
 }
@@ -168,7 +184,12 @@ bool isBookingNotificationType(AppNotificationType type) => switch (type) {
   AppNotificationType.bookingCancelledSalonClosed ||
   AppNotificationType.bookingCancelledMasterRemoved ||
   AppNotificationType.reviewReceived => true,
-  AppNotificationType.inviteAccepted || AppNotificationType.unknown => false,
+  AppNotificationType.inviteAccepted ||
+  AppNotificationType.categoryRequestApproved ||
+  AppNotificationType.categoryRequestRejected ||
+  AppNotificationType.serviceTypeSuggestionApproved ||
+  AppNotificationType.serviceTypeSuggestionRejected ||
+  AppNotificationType.unknown => false,
 };
 
 /// Whether [item] is a booking-type item known up front to lead nowhere: its
@@ -244,7 +265,9 @@ Future<void> openNotificationTarget({
       // a DIFFERENT item (its tap was already marked read) must not vanish:
       // it goes straight to its own non-salon destination.
       if (notificationId == null || notificationId == _verifyInFlightId) return;
-      final String? own = fallbackRoute ?? routeFor(target, role);
+      final String? own =
+          fallbackRoute ??
+          routeFor(target, role, adminSalonId: _adminSalonId(context, role));
       if (own != null) await _pushFallback(context, own);
       return;
     }
@@ -291,7 +314,12 @@ Future<void> openNotificationTarget({
     // Unverified -> today's booking-detail route (never an unverified salon).
     if (!verified) routeType = null;
   }
-  final String? route = routeFor(target, role, type: routeType);
+  final String? route = routeFor(
+    target,
+    role,
+    type: routeType,
+    adminSalonId: _adminSalonId(context, role),
+  );
   if (route == null) {
     if (fallbackRoute != null) await _pushFallback(context, fallbackRoute);
     return;
@@ -304,6 +332,20 @@ Future<void> openNotificationTarget({
     fallbackRoute: fallbackRoute,
     reviewsRoute: _salonReviewsSalonId(target, role, routeType) != null,
   );
+}
+
+/// The signed-in admin's bound salon id (`User.salonId`); `null` for any other
+/// role or when the session cannot be read. Same session source the salon
+/// route guards use — no new provider.
+String? _adminSalonId(BuildContext context, UserRole? role) {
+  if (role != UserRole.salonAdmin) return null;
+  try {
+    return authUserSalonIdOrNull(
+      ProviderScope.containerOf(context).read(authProvider),
+    );
+  } on Object {
+    return null;
+  }
 }
 
 /// A fingerprint of where the user is: the current URI plus the depth of the
@@ -401,6 +443,10 @@ Future<void> _push(
       // Only the salon board mount reads it (`extra` = the booking's salon, for
       // the board dot set). Harmless on every other mount.
       if (salonId != null && salonId.isNotEmpty) extra = salonId;
+    case ServiceCatalogTarget():
+      // Phase 412 — a plain push of the role's services screen; nothing rides
+      // along (D5: freshness is the services screen's own job).
+      break;
     case BookingReviewTarget() || NoTarget():
       break;
   }

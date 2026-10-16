@@ -2937,6 +2937,10 @@
   "@accountNotificationsSubtitle": {
     "description": "Account page notifications toggle row subtitle."
   },
+  "accountNotificationsOffSubtitle": "Вимкнено в налаштуваннях Android",
+  "@accountNotificationsOffSubtitle": {
+    "description": "Account page notifications row subtitle while the Android notification permission is off; tapping the switch opens Android settings."
+  },
 
   "discreteTimesSegmentInterval": "Інтервал",
   "@discreteTimesSegmentInterval": {
@@ -3485,6 +3489,59 @@
     "placeholders": {
       "service": { "type": "String" },
       "extraCount": { "type": "int" }
+    }
+  },
+  "notificationTitleCategoryApproved": "Категорію схвалено",
+  "@notificationTitleCategoryApproved": {
+    "description": "Phase 412 — title of a CATEGORY_REQUEST_APPROVED notification."
+  },
+  "notificationTitleCategoryRejected": "Категорію відхилено",
+  "@notificationTitleCategoryRejected": {
+    "description": "Phase 412 — title of a CATEGORY_REQUEST_REJECTED notification."
+  },
+  "notificationTitleServiceTypeApproved": "Тип послуги схвалено",
+  "@notificationTitleServiceTypeApproved": {
+    "description": "Phase 412 — title of a SERVICE_TYPE_SUGGESTION_APPROVED notification."
+  },
+  "notificationTitleServiceTypeRejected": "Тип послуги відхилено",
+  "@notificationTitleServiceTypeRejected": {
+    "description": "Phase 412 — title of a SERVICE_TYPE_SUGGESTION_REJECTED notification."
+  },
+  "notificationBodyCategoryApproved": "Категорія «{category}» тепер доступна для ваших послуг",
+  "@notificationBodyCategoryApproved": {
+    "description": "Phase 412 — body of a CATEGORY_REQUEST_APPROVED notification.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyCategoryRejected": "Запит на категорію «{category}» відхилено",
+  "@notificationBodyCategoryRejected": {
+    "description": "Phase 412 — body of a CATEGORY_REQUEST_REJECTED notification.",
+    "placeholders": {
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyServiceTypeApproved": "Тип послуги «{serviceType}» у категорії «{category}» тепер доступний",
+  "@notificationBodyServiceTypeApproved": {
+    "description": "Phase 412 — body of a SERVICE_TYPE_SUGGESTION_APPROVED notification.",
+    "placeholders": {
+      "serviceType": { "type": "String" },
+      "category": { "type": "String" }
+    }
+  },
+  "notificationBodyServiceTypeRejected": "Пропозицію типу послуги «{serviceType}» ({category}) відхилено",
+  "@notificationBodyServiceTypeRejected": {
+    "description": "Phase 412 — body of a SERVICE_TYPE_SUGGESTION_REJECTED notification.",
+    "placeholders": {
+      "serviceType": { "type": "String" },
+      "category": { "type": "String" }
+    }
+  },
+  "notificationDecisionReason": "Причина: {reason}",
+  "@notificationDecisionReason": {
+    "description": "Phase 412 — extra body line on a rejected decision that carries the admin's reason.",
+    "placeholders": {
+      "reason": { "type": "String" }
     }
   },
   "homeHubMenuLabel": "Меню",

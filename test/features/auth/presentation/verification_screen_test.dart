@@ -510,6 +510,39 @@ void main() {
     });
 
     // -----------------------------------------------------------------------
+    // Test 4a — _submit is single-flight on its own, not only behind the
+    //           CTA's rebuild-driven disabled state (mobile-security INFO).
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '4a. two same-frame entries into submit send exactly one verifyEmail',
+      (tester) async {
+        // Calls the CTA's callback twice in one synchronous turn, before any
+        // rebuild can disable it, so only the screen's
+        // `_submitInFlight` stands between the two. Anti-vacuity: drop the
+        // `if (_submitInFlight) return;` line and this goes RED with 2 calls.
+        final repo = FakeAuthRepository();
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        await _pumpVerification(tester, repo: repo, router: router);
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+
+        final VoidCallback submit = tester
+            .widget<NeumorphicButton>(
+              find.byKey(const ValueKey<String>('verify_submit')),
+            )
+            .onPressed!;
+        submit();
+        submit();
+        await tester.pumpAndSettle();
+
+        expect(repo.verifyEmailCalls, hasLength(1));
+        expect(find.text('home'), findsOneWidget);
+      },
+    );
+
+    // -----------------------------------------------------------------------
     // Test 4b — Verify success persists refresh token and arrives at home.
     // -----------------------------------------------------------------------
     testWidgets(
@@ -1634,6 +1667,114 @@ void main() {
             locationNote: '3 поверх',
           ),
         ).called(1);
+      },
+    );
+
+    // -----------------------------------------------------------------------
+    // Test 14a — the CTA shows NO spinner while the post-verify locality save
+    //            is pending (2026-10-15 behaviour-parity restore). The CTA
+    //            stays on a plain `onPressed`, exactly as before the single-
+    //            flight sweep; only the screen's `_submitInFlight` drops
+    //            repeats. Anti-vacuity: put the CTA back on `onPressedAsync`
+    //            and the button's own busy spinner shows here → RED.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '14a. with the locality save pending, verify_submit shows no spinner',
+      (tester) async {
+        final repo = FakeAuthRepository();
+        final userRepo = _MockUserRepository();
+        final Completer<void> save = Completer<void>();
+        when(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).thenAnswer((_) => save.future);
+
+        final router = _makeRouter();
+        addTearDown(router.dispose);
+
+        final storage = FakeSecureStorage();
+        final container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: [
+            authRepositoryProvider.overrideWith((_) => repo),
+            secureStorageProvider.overrideWith((_) => storage),
+            userRepositoryProvider.overrideWith((_) => userRepo),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        container.read(registerDraftProvider.notifier)
+          ..start(UserRole.client)
+          ..updateStep1(
+            email: _testEmail,
+            password: 'Password1!',
+            confirmPassword: 'Password1!',
+          )
+          ..updateStep2(
+            firstName: 'Аня',
+            lastName: 'Коваль',
+            phone: '+380501112233',
+          )
+          ..updateStep3(
+            cityId: 'city-1',
+            districtId: 'district-1',
+            street: 'вул. Хрещатик',
+            buildingNo: '12А',
+            locationNote: '3 поверх',
+          );
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp.router(
+              routerConfig: router,
+              localizationsDelegates: AppLocalizations.localizationsDelegates,
+              supportedLocales: AppLocalizations.supportedLocales,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await _fillOtp(tester, '654321');
+        await tester.pumpAndSettle();
+        final Finder cta = find.byKey(const ValueKey<String>('verify_submit'));
+        await tester.ensureVisible(cta);
+        await tester.pumpAndSettle();
+        await tester.tap(cta);
+        await tester.pump();
+        await tester.pump();
+
+        // verifyEmail has resolved; the locality PATCH is held open.
+        expect(repo.verifyEmailCalls, hasLength(1));
+        verify(
+          () => userRepo.updateLocality(
+            cityId: any(named: 'cityId'),
+            districtId: any(named: 'districtId'),
+            street: any(named: 'street'),
+            buildingNo: any(named: 'buildingNo'),
+            locationNote: any(named: 'locationNote'),
+          ),
+        ).called(1);
+        expect(cta, findsOneWidget);
+        expect(
+          find.descendant(
+            of: cta,
+            matching: find.byType(CircularProgressIndicator),
+          ),
+          findsNothing,
+          reason:
+              'the locality save must not put a spinner on verify_submit — '
+              'there was none before the single-flight sweep',
+        );
+
+        save.complete();
+        await tester.pumpAndSettle();
+        expect(find.text('home'), findsOneWidget);
       },
     );
 

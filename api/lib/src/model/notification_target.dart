@@ -21,7 +21,7 @@ abstract class NotificationTarget
     implements Built<NotificationTarget, NotificationTargetBuilder> {
   @BuiltValueField(wireName: r'kind')
   NotificationTargetKindEnum? get kind;
-  // enum kindEnum {  BOOKING,  BOOKING_REVIEW,  SALON_TEAM,  NONE,  };
+  // enum kindEnum {  BOOKING,  BOOKING_REVIEW,  SALON_TEAM,  SERVICE_CATALOG,  NONE,  };
 
   @BuiltValueField(wireName: r'bookingId')
   String? get bookingId;
@@ -181,6 +181,9 @@ class NotificationTargetKindEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SALON_TEAM')
   static const NotificationTargetKindEnum SALON_TEAM =
       _$notificationTargetKindEnum_SALON_TEAM;
+  @BuiltValueEnumConst(wireName: r'SERVICE_CATALOG')
+  static const NotificationTargetKindEnum SERVICE_CATALOG =
+      _$notificationTargetKindEnum_SERVICE_CATALOG;
   @BuiltValueEnumConst(wireName: r'NONE')
   static const NotificationTargetKindEnum NONE =
       _$notificationTargetKindEnum_NONE;

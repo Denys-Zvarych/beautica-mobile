@@ -2,7 +2,11 @@ package com.beautica.beautica_mobile
 
 import android.os.Build
 import android.app.NotificationManager
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -22,9 +26,36 @@ class MainActivity : FlutterActivity() {
                 } catch (e: Exception) {
                     result.error("tray", e.javaClass.simpleName, null)
                 }
+            } else if (call.method == "openNotificationSettings") {
+                // «Акаунт» → «Сповіщення» switch: an app cannot grant or revoke its
+                // own notification permission, so the switch opens the OS screen.
+                try {
+                    openNotificationSettings()
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error("settings", e.javaClass.simpleName, null)
+                }
             } else {
                 result.notImplemented()
             }
+        }
+    }
+
+    // Opens Android's per-app notification settings for Beautica (API 26+, which
+    // is minSdk — no pre-O branch needed). Falls back to the app-details screen
+    // when an OEM build resolves no activity for ACTION_APP_NOTIFICATION_SETTINGS.
+    private fun openNotificationSettings() {
+        val notifications = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        try {
+            startActivity(notifications)
+        } catch (e: ActivityNotFoundException) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null),
+                ),
+            )
         }
     }
 

@@ -88,7 +88,7 @@ class _MySalons extends MySalons {
 
 List<Object> _screenOverrides() => <Object>[
   authProvider.overrideWith(_Auth.new),
-  salonManagementProfileProvider.overrideWith(_Manage.new),
+  salonManagementProfileProvider.overrideWith2((_) => _Manage()),
   mySalonsProvider.overrideWith(_MySalons.new),
   hasUnreadNotificationsProvider.overrideWithValue(false),
   secureStorageProvider.overrideWithValue(FakeSecureStorage()),

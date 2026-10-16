@@ -15,9 +15,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
@@ -133,7 +133,7 @@ class SalonResultCard extends ConsumerWidget {
         key: Key('salon_card_${salon.salonId}'),
         onTap: () {
           _openProfile(ref);
-          context.push(RouteNames.salonPublicProfile(salon.salonId));
+          context.pushOnce(RouteNames.salonPublicProfile(salon.salonId));
         },
         child: NeumorphicCard(
           padding: const EdgeInsets.all(VelvetSpacing.md),

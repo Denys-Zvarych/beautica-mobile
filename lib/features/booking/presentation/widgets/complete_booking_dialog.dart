@@ -21,9 +21,9 @@ import 'package:flutter/material.dart';
 /// Confirmation dialog for marking ONE booking COMPLETED — either a
 /// standalone booking or a single service line of a multi-service visit.
 ///
-/// Show via [showDialog]:
+/// Show via `showDialogOnce` (`core/navigation/single_flight.dart`):
 /// ```dart
-/// final confirmed = await showDialog<bool>(
+/// final confirmed = await showDialogOnce<bool>(
 ///   context: context,
 ///   builder: (_) => CompleteBookingDialog(isAppointment: booking.appointmentId != null),
 /// );

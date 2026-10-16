@@ -212,6 +212,8 @@ import 'salon_admin_set_master_services_flow_test.dart'
     as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
+import 'services_catalogue_refresh_flow_test.dart'
+    as services_catalogue_refresh;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -229,6 +231,8 @@ import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
 import 'notifications_flow_test.dart' as notifications;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notification_category_decision_flow_test.dart'
+    as notification_category_decision;
 import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'wishlist_flow_test.dart' as wishlist;
 import 'wishlist_rebook_flow_test.dart' as wishlist_rebook;
@@ -238,6 +242,7 @@ import 'portfolio_upload_flow_test.dart' as portfolio_upload;
 import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
+import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
 
 void main() {
   // Initialise the integration binding ONCE for the whole aggregated run.
@@ -738,6 +743,9 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  // fix/services-catalogue-refresh — an admin-approved category reaches
+  // «Мої послуги» (pull) and the add-service picker (open past the 30 s floor).
+  group('services_catalogue_refresh_flow', services_catalogue_refresh.main);
   group('salon_master_services_target_flow', salon_master_services_target.main);
   // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
   // outcomes: the happy-path 204 (anchored on the target flow above), the
@@ -785,6 +793,11 @@ void main() {
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 412 — category-request decision row -> tap -> «Послуги».
+  group(
+    'notification_category_decision_flow',
+    notification_category_decision.main,
+  );
   // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
   group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
   // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).
@@ -804,4 +817,7 @@ void main() {
   // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
   // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
   group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
+  // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
+  // the five riskiest surfaces opens ONE route / sends ONE request.
+  group('tap_reentrancy_flow', tap_reentrancy.main);
 }

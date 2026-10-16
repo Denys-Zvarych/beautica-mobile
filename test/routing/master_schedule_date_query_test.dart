@@ -97,8 +97,8 @@ GoRouter _router({required String location}) => GoRouter(
 
 List<Object> _overrides() => <Object>[
   authProvider.overrideWith(() => _FixedAuth()),
-  effectiveScheduleProvider.overrideWith(() => _EmptySchedule()),
-  weeklyScheduleProvider.overrideWith(() => _EmptyWeekly()),
+  effectiveScheduleProvider.overrideWith2((_) => _EmptySchedule()),
+  weeklyScheduleProvider.overrideWith2((_) => _EmptyWeekly()),
 ];
 
 void main() {

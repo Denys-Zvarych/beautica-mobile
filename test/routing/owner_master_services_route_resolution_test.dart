@@ -316,7 +316,7 @@ void main() {
       retry: (_, _) => null,
       overrides: <Object>[
         // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
-        portfolioProvider.overrideWith(FixedPortfolioNotifier.new),
+        portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
         authProvider.overrideWith(auth),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
@@ -326,7 +326,7 @@ void main() {
         approvedCategoriesProvider.overrideWith(
           (ref) async => const <ServiceCategoryOption>[],
         ),
-        salonManagementProfileProvider.overrideWith(roster),
+        salonManagementProfileProvider.overrideWith2((_) => roster()),
         ...extraOverrides,
       ],
     );

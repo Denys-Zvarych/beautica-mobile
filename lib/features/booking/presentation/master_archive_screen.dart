@@ -95,6 +95,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -526,7 +527,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   }
 
   void _openDetail(Booking booking) {
-    context.push(
+    context.pushOnce(
       (widget.detailRouteBuilder ?? RouteNames.masterBookingDetail)(booking.id),
       extra: widget.detailExtra,
     );
@@ -626,6 +627,10 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
   /// invalidate there would cost a real refetch of data that screen is actively
   /// rendering.
   Future<void> _openReview(Booking booking) async {
+    // Single-flight: a re-tap while the review route is still open is dropped
+    // by `pushOnce` below — skip the warm-up invalidate for it too, or every
+    // dropped tap would refetch the detail the open screen is rendering.
+    if (isFlightOpen(context)) return;
     ref.invalidate(bookingDetailProvider(booking.id));
     final ProviderSubscription<AsyncValue<Booking>> warmup = ref.listenManual(
       bookingDetailProvider(booking.id),
@@ -634,7 +639,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
     // Captured BEFORE the post-frame close is scheduled so the synchronous
     // push→schedule ordering the warm-up depends on is exactly as it was; the
     // await happens only after both have run.
-    final Future<bool?> popped = context.push<bool>(
+    final Future<bool?> popped = context.pushOnce<bool>(
       (widget.reviewRouteBuilder ?? RouteNames.clientReview)(booking.id),
       extra: ClientReviewEntry.masterArchive,
     );
@@ -785,7 +790,7 @@ class _MasterArchiveScreenState extends ConsumerState<MasterArchiveScreen> {
       final bool? confirmed;
       dialogVisible.begin();
       try {
-        confirmed = await showDialog<bool>(
+        confirmed = await showDialogOnce<bool>(
           context: context,
           builder: (_) => CompleteBookingDialog(isAppointment: isAppointment),
         );

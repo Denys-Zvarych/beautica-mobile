@@ -54,7 +54,13 @@ class NotificationTile extends StatefulWidget {
     this.showMaster = false,
     this.onOpen,
     this.onMarkRead,
+    this.bodyMaxLines = defaultBodyMaxLines,
   });
+
+  /// Today's body clamp. A row whose body can carry a second line (phase 412:
+  /// the reject reason) passes a larger [bodyMaxLines]; every other caller
+  /// renders exactly as before.
+  static const int defaultBodyMaxLines = 2;
 
   /// Key of the ✓ button on the row for [id].
   static Key markReadKey(String id) => Key('notification-mark-read-$id');
@@ -72,6 +78,9 @@ class NotificationTile extends StatefulWidget {
 
   /// ✓ tap. The button renders only while the row is unread.
   final VoidCallback? onMarkRead;
+
+  /// Body line clamp; defaults to [defaultBodyMaxLines].
+  final int bodyMaxLines;
 
   static const Duration _flip = Duration(milliseconds: 320);
   static const Curve _curve = Curves.easeOutCubic;
@@ -235,7 +244,7 @@ class _NotificationTileState extends State<NotificationTile> {
                     Text(
                       body,
                       style: VelvetText.body(),
-                      maxLines: 2,
+                      maxLines: widget.bodyMaxLines,
                       overflow: TextOverflow.ellipsis,
                     ),
                   if (hasMeta)

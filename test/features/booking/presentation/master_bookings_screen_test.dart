@@ -1951,8 +1951,8 @@ void main() {
             screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
             bookingRepositoryProvider.overrideWithValue(repo),
             bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
-            effectiveScheduleProvider.overrideWith(
-              () => _NoScheduleFake(_kyivToday),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _NoScheduleFake(_kyivToday),
             ),
           ],
         );

@@ -71,7 +71,7 @@ void main() {
 
       final Finder saveButton = find.byKey(const Key('btn-save-personal'));
       expect(
-        tester.widget<NeumorphicButton>(saveButton).onPressed,
+        tester.widget<NeumorphicButton>(saveButton).onPressedAsync,
         isNotNull,
         reason:
             'typing a bio into an empty field must dirty the form and '

@@ -66,6 +66,7 @@ import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -181,14 +182,14 @@ class _SalonManagementProfileScreenState
   int _tab = 0;
 
   void _openSettings() {
-    context.push(RouteNames.salonManageSettings(widget.salonId));
+    context.pushOnce(RouteNames.salonManageSettings(widget.salonId));
   }
 
   void _openProfileEdit() =>
-      context.push(RouteNames.salonProfileEdit(widget.salonId));
+      context.pushOnce(RouteNames.salonProfileEdit(widget.salonId));
 
   void _openContactsEdit() =>
-      context.push(RouteNames.salonContactsEdit(widget.salonId));
+      context.pushOnce(RouteNames.salonContactsEdit(widget.salonId));
 
   /// Handles an in-screen tab tap. Updates local state only in the
   /// uncontrolled case, then ALWAYS reports upward so a controlled caller can
@@ -222,17 +223,17 @@ class _SalonManagementProfileScreenState
         UserRole.client => null,
       };
       if (personal != null) {
-        context.push(personal);
+        context.pushOnce(personal);
         return;
       }
     }
-    context.push(
+    context.pushOnce(
       RouteNames.salonManageStaffMember(widget.salonId, member.userId),
     );
   }
 
   void _openInviteStaff() =>
-      context.push(RouteNames.salonInviteStaff(widget.salonId));
+      context.pushOnce(RouteNames.salonInviteStaff(widget.salonId));
 
   // mobile-security LOW follow-up (2026-08-28) — `salonManageGuard`'s
   // `SALON_OWNER` arm (`app_router.dart`) admits a cold deep link BEFORE

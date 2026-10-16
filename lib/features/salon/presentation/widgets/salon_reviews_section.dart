@@ -18,6 +18,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -193,7 +194,7 @@ class _SortSheet extends StatelessWidget {
     BuildContext context,
     SalonReviewSort active,
   ) {
-    return showModalBottomSheet<SalonReviewSort>(
+    return showModalBottomSheetOnce<SalonReviewSort>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (BuildContext ctx) => _SortSheet(active: active),

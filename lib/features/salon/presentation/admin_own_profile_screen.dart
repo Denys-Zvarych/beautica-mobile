@@ -104,9 +104,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -349,7 +349,7 @@ class _AdminOwnProfileScreenState extends ConsumerState<AdminOwnProfileScreen>
             semanticLabel: l10n.adminOwnProfileSettingsSemanticLabel,
             // Opens the admin's own settings hub — see the file header's THE
             // TRAILING TUNE note.
-            onTap: () => context.push(RouteNames.adminSettings),
+            onTap: () => context.pushOnce(RouteNames.adminSettings),
           ),
         ],
       ),

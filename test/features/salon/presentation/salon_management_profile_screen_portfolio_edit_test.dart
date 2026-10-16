@@ -322,7 +322,7 @@ void main() {
       height: 1200,
       overrides: <Object>[
         authProvider.overrideWith(_Auth.new),
-        salonManagementProfileProvider.overrideWith(_Manage.new),
+        salonManagementProfileProvider.overrideWith2((_) => _Manage()),
         mySalonsProvider.overrideWith(mySalons),
         hasUnreadNotificationsProvider.overrideWithValue(false),
         secureStorageProvider.overrideWithValue(FakeSecureStorage()),
@@ -330,7 +330,7 @@ void main() {
           MediaPickService(gw, tempDir: () async => scratch),
         ),
         mediaUploadRepositoryProvider.overrideWithValue(uploads),
-        portfolioProvider.overrideWith(_Portfolio.new),
+        portfolioProvider.overrideWith2((_) => _Portfolio()),
       ],
     );
     await tester.pumpAndSettle();

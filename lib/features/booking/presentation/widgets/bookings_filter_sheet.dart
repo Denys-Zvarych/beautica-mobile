@@ -57,6 +57,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -310,7 +311,7 @@ class BookingsFilterSheet extends StatefulWidget {
     required List<MasterService> services,
     List<MasterFilterOption> masters = const <MasterFilterOption>[],
   }) {
-    return showModalBottomSheet<BookingsFilterSelection>(
+    return showModalBottomSheetOnce<BookingsFilterSelection>(
       context: context,
       backgroundColor: Colors.transparent,
       // The service catalogue is unbounded, so the sheet must be able to grow

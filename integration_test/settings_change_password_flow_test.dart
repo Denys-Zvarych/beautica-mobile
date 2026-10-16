@@ -11,10 +11,19 @@
 // the forgot-password journey uses (see forgot_password_otp_flow_test.dart),
 // exercised through its authenticated entry point instead.
 //
+// Second test: the Account page «Сповіщення» switch round trip through the
+// REAL router + lifecycle — OFF while the (faked) OS permission is denied, a
+// tap opens Android settings without flipping, the user grants there and the
+// app resume turns it ON; a resume while «Змінити пароль» covers Account is
+// replayed on pop; a revisit re-reads the permission.
+//
 // All taps are key-based — no raw Ukrainian find.text() tap drivers. See
 // integration_test/support/app_harness.dart for the policy rationale.
 
+import 'package:beautica_mobile/core/push/notification_permission_provider.dart';
+import 'package:beautica_mobile/core/push/notification_tray_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +32,48 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+
+/// The faked OS side of the «Сповіщення» switch: what Android currently
+/// allows, how often the app read it, how often it opened Android settings.
+class _Os {
+  NotificationPermissionStatus status = NotificationPermissionStatus.denied;
+  int reads = 0;
+  int opens = 0;
+}
+
+/// Leaves the app (e.g. into Android settings) and comes back — the only legal
+/// lifecycle order (`AppLifecycleListener` asserts on a direct jump).
+Future<void> _leaveAndReturn(WidgetTester tester) async {
+  for (final AppLifecycleState s in <AppLifecycleState>[
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ]) {
+    tester.binding.handleAppLifecycleStateChanged(s);
+  }
+  await tester.pumpAndSettle();
+}
+
+final AppLocalizationsUk _l10n = AppLocalizationsUk();
+const Key _row = Key('row-notifications');
+
+void _expectSwitch(WidgetTester tester, {required bool on}) {
+  expect(tester.getSemantics(find.byKey(_row)), isSemantics(isToggled: on));
+  expect(
+    find.descendant(
+      of: find.byKey(_row),
+      matching: find.text(
+        on
+            ? _l10n.accountNotificationsSubtitle
+            : _l10n.accountNotificationsOffSubtitle,
+      ),
+    ),
+    findsOneWidget,
+  );
+}
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -122,6 +173,80 @@ void main() {
 
       await tester.pumpAndSettle();
       AppHarness.expectLocation(router, RouteNames.login);
+    },
+  );
+
+  testWidgets(
+    'settings notifications switch: master menu → Account → «Сповіщення» OFF '
+    '(denied) → tap opens Android settings, no flip → user grants → resume → '
+    'ON; resume while covered replays on pop; revisit re-reads',
+    (tester) async {
+      final _Os os = _Os();
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      final GoRouter router = await AppHarness.boot(
+        tester,
+        fb,
+        extraOverrides: <Object>[
+          notificationPermissionReaderProvider.overrideWithValue(() async {
+            os.reads++;
+            return os.status;
+          }),
+          notificationSettingsOpenerProvider.overrideWithValue(() async {
+            os.opens++;
+          }),
+        ],
+      );
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      // ── Step 1 — reach Account; the switch mirrors «denied» ──────────────
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('btn-menu-master')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('row-account')));
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.settings);
+      _expectSwitch(tester, on: false);
+
+      // ── Step 2 — tap opens Android settings; never flips optimistically ─
+      await tester.tap(find.byKey(const Key('switch-notifications')));
+      await tester.pumpAndSettle();
+      expect(os.opens, equals(1));
+      _expectSwitch(tester, on: false);
+      AppHarness.expectLocation(router, RouteNames.settings);
+
+      // ── Step 3 — the user enables notifications there and comes back ────
+      os.status = NotificationPermissionStatus.granted;
+      await _leaveAndReturn(tester);
+      _expectSwitch(tester, on: true);
+      expect(os.opens, equals(1), reason: 'a resume never re-opens settings');
+
+      // ── Step 4 — a resume while «Змінити пароль» covers Account is not
+      // read then, but replayed once Account is on top again.
+      await tester.ensureVisible(find.byKey(const Key('row-change-password')));
+      await tester.tap(find.byKey(const Key('row-change-password')));
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.changePassword);
+      final int readsWhileCovered = os.reads;
+      os.status = NotificationPermissionStatus.denied;
+      await _leaveAndReturn(tester);
+      expect(os.reads, equals(readsWhileCovered), reason: 'covered → no read');
+      router.pop();
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.settings);
+      expect(os.reads, equals(readsWhileCovered + 1));
+      _expectSwitch(tester, on: false);
+
+      // ── Step 5 — leave Account and revisit: the visit re-reads ──────────
+      router.pop();
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.masterMenu);
+      os.status = NotificationPermissionStatus.granted;
+      await tester.tap(find.byKey(const Key('row-account')));
+      await tester.pumpAndSettle();
+      AppHarness.expectLocation(router, RouteNames.settings);
+      _expectSwitch(tester, on: true);
+      expect(os.opens, equals(1));
+      handle.dispose();
     },
   );
 }

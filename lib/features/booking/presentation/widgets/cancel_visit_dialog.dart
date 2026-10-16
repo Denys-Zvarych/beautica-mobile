@@ -36,7 +36,7 @@ Future<String?> showCancelVisitDialog(
   required String dateLabel,
   required String timeDetail,
 }) {
-  return showDialog<String>(
+  return showDialogOnce<String>(
     context: context,
     barrierDismissible: true,
     builder: (_) => CancelVisitDialog(

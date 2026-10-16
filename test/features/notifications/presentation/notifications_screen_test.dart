@@ -22,6 +22,7 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/my_bookings_states.dart';
 import 'package:beautica_mobile/features/notifications/data/notification_repository.dart';
 import 'package:beautica_mobile/features/notifications/domain/app_notification.dart';
+import 'package:beautica_mobile/features/notifications/presentation/notification_copy.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_feed_notifier.dart';
 import 'package:beautica_mobile/features/notifications/presentation/notifications_screen.dart';
 import 'package:beautica_mobile/features/notifications/presentation/unread_notifications_notifier.dart';
@@ -169,6 +170,9 @@ Future<void> _scrollToEnd(WidgetTester tester) async {
   await tester.pump();
   await tester.pump();
 }
+
+/// A server string as the feed shows it (sanitised + bidi-isolated).
+String _iso(String raw) => NotificationCopy.sanitize(raw)!;
 
 void main() {
   setUp(() => _clockNow = _start);
@@ -1494,6 +1498,166 @@ void main() {
 
       expect(find.text('New booking'), findsOneWidget);
       expect(find.text('Mark all as read'), findsOneWidget);
+    });
+  });
+
+  // Phase 412 — category-request / service-type decisions: the rejected row
+  // carries a second «Причина: …» line, the approved one never does.
+  group('catalog decisions (phase 412)', () {
+    testWidgets('should_renderTitleBodyAndReasonLine_when_rejectedWithReason', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[
+          notif(
+            'rej',
+            type: AppNotificationType.categoryRequestRejected,
+            read: true,
+            target: const NotificationTarget.serviceCatalog(),
+            params: const NotificationParams(
+              categoryName: 'Манікюр',
+              decisionReason: 'Дублікат',
+            ),
+          ),
+        ]),
+        width: 400,
+        height: 1200,
+      );
+
+      expect(find.text(uk.notificationTitleCategoryRejected), findsOneWidget);
+      expect(
+        find.text(
+          '${uk.notificationBodyCategoryRejected(_iso('Манікюр'))}\n'
+          '${uk.notificationDecisionReason(_iso('Дублікат'))}',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Причина: '), findsOneWidget);
+    });
+
+    testWidgets('should_renderNoReasonLine_when_approved', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[
+          notif(
+            'ok',
+            type: AppNotificationType.serviceTypeSuggestionApproved,
+            read: true,
+            target: const NotificationTarget.serviceCatalog(),
+            params: const NotificationParams(
+              categoryName: 'Манікюр',
+              serviceName: 'Гель-лак',
+              // Even a stray reason is never shown on an approval.
+              decisionReason: 'Дублікат',
+            ),
+          ),
+        ]),
+        width: 400,
+        height: 1200,
+      );
+
+      expect(
+        find.text(uk.notificationTitleServiceTypeApproved),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          uk.notificationBodyServiceTypeApproved(
+            _iso('Гель-лак'),
+            _iso('Манікюр'),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Причина'), findsNothing);
+    });
+
+    testWidgets('should_renderNoReasonLine_when_rejectedWithoutReason', (
+      WidgetTester tester,
+    ) async {
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[
+          notif(
+            'rej0',
+            type: AppNotificationType.serviceTypeSuggestionRejected,
+            read: true,
+            target: const NotificationTarget.serviceCatalog(),
+            params: const NotificationParams(
+              categoryName: 'Манікюр',
+              serviceName: 'Гель-лак',
+            ),
+          ),
+        ]),
+        width: 400,
+        height: 1200,
+      );
+
+      expect(
+        find.text(
+          uk.notificationBodyServiceTypeRejected(
+            _iso('Гель-лак'),
+            _iso('Манікюр'),
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Причина'), findsNothing);
+    });
+
+    testWidgets('should_showTheReasonLine_evenWhenTheSentenceWrapsToTwoLines', (
+      WidgetTester tester,
+    ) async {
+      // Narrow row, category: the sentence takes two lines, so the reason
+      // only shows if the clamp is widened to three (the default 2 would eat it).
+      const String category = 'Манікюр';
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[
+          notif(
+            'with',
+            type: AppNotificationType.categoryRequestRejected,
+            read: true,
+            target: const NotificationTarget.serviceCatalog(),
+            params: const NotificationParams(
+              categoryName: category,
+              decisionReason: 'Дублікат',
+            ),
+          ),
+          notif(
+            'without',
+            type: AppNotificationType.categoryRequestRejected,
+            read: true,
+            target: const NotificationTarget.serviceCatalog(),
+            params: const NotificationParams(categoryName: category),
+          ),
+        ]),
+        width: 280,
+        height: 1200,
+      );
+
+      expect(
+        tester.getSize(_tile('with')).height,
+        greaterThan(tester.getSize(_tile('without')).height),
+        reason: 'the reason line adds a third body line instead of clipping',
+      );
+    });
+
+    testWidgets('should_keepEveryOtherRowClampedAtTwoLines', (
+      WidgetTester tester,
+    ) async {
+      // bodyMaxLines is additive: a booking row (long name, narrow width) is
+      // still capped at two body lines.
+      await _pumpFeed(
+        tester,
+        _repoOf(<AppNotification>[notif('long', read: true)]),
+        width: 280,
+        height: 1200,
+      );
+      expect(tester.getSize(_tile('long')).height, lessThanOrEqualTo(96));
     });
   });
 }

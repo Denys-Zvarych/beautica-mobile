@@ -22,10 +22,12 @@
 import 'dart:developer';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_target.dart';
@@ -133,6 +135,16 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     // SEC MEDIUM: ref-counted screenshot guard (single app-wide owner;
     // the manager is internally !kDebugMode-guarded).
     _screenProtection = ref.read(screenProtectionProvider)..acquire();
+    // Same staleness fix as the setup screen: the category picker reads the
+    // keepAlive [approvedCategoriesProvider], so re-fetch it on open (skipped
+    // inside the 30 s entry floor / while in flight). The form
+    // (which watches it) mounts after the service loads and reads the fresh
+    // value; if it is already mounted the invalidate re-fetches immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        refreshCategoryCataloguesIfOlderThan(ref, kCategoryEntryFloor);
+      }
+    });
   }
 
   @override
@@ -178,7 +190,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
     if (_deleting) return;
     _deleting = true;
     try {
-      final confirmed = await showDialog<bool>(
+      final confirmed = await showDialogOnce<bool>(
         context: context,
         builder: (_) => const DeleteServiceDialog(),
       );
@@ -220,7 +232,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
       // booking for this service. NOTHING was written — do not pop, do not
       // invalidate servicesListProvider (no optimistic removal), and offer
       // no shortcut to the blocking bookings (phase 308 stays deferred). The
-      // dialog it re-shows uses the SAME `showDialog` call site as the
+      // dialog it re-shows uses the SAME `showDialogOnce` call site as the
       // confirmation prompt above; its resolved value is discarded — the
       // blocked variant's sole action is a dismiss, never a retry.
       if (kDebugMode) {
@@ -232,7 +244,7 @@ class _ServiceEditScreenState extends ConsumerState<ServiceEditScreen> {
         );
       }
       if (context.mounted) {
-        await showDialog<bool>(
+        await showDialogOnce<bool>(
           context: context,
           builder: (_) => const DeleteServiceDialog(blocked: true),
         );
@@ -430,7 +442,7 @@ class _EditBodyState extends State<_EditBody>
   /// explicit «Вийти без збереження» keeps it.
   Future<bool> _confirmDiscard() async {
     if (!_dirty) return true;
-    final bool? leave = await showDialog<bool>(
+    final bool? leave = await showDialogOnce<bool>(
       context: context,
       builder: (_) => const UnsavedChangesDialog(),
     );

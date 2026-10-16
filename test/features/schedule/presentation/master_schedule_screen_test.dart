@@ -1023,9 +1023,9 @@ List<Object> _editableData(List<EffectiveDay> days) => <Object>[
   ownScheduleScopeProvider.overrideWithValue(
     const ScheduleScope.own(masterId: 'msst-test-master'),
   ),
-  effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-  weeklyScheduleProvider.overrideWith(
-    () => _WeeklyData(<WeeklySchedule>[_template()]),
+  effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+  weeklyScheduleProvider.overrideWith2(
+    (_) => _WeeklyData(<WeeklySchedule>[_template()]),
   ),
 ];
 
@@ -1041,8 +1041,8 @@ List<Object> _withWeekly(
   ownScheduleScopeProvider.overrideWithValue(
     const ScheduleScope.own(masterId: 'msst-test-master'),
   ),
-  effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-  weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
+  effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+  weeklyScheduleProvider.overrideWith2((_) => _WeeklyData(templates)),
 ];
 
 AppLocalizations _l10n(WidgetTester tester) =>
@@ -2208,13 +2208,13 @@ void main() {
               masterId: masterId,
             ),
           ),
-          effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-          weeklyScheduleProvider.overrideWith(
-            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
           mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
-          salonManagementProfileProvider.overrideWith(
-            () => _SettledSalonRosterWithMaster(),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _SettledSalonRosterWithMaster(),
           ),
         ],
       );
@@ -2523,8 +2523,10 @@ void main() {
               ownScheduleScopeProvider.overrideWithValue(
                 const ScheduleScope.own(masterId: 'msst-test-master'),
               ),
-              effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-              weeklyScheduleProvider.overrideWith(() => _LoadingWeekly()),
+              effectiveScheduleProvider.overrideWith2(
+                (_) => _DataSchedule(days),
+              ),
+              weeklyScheduleProvider.overrideWith2((_) => _LoadingWeekly()),
             ].cast(),
             child: MaterialApp.router(
               routerConfig: _router(),
@@ -2561,8 +2563,8 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-            weeklyScheduleProvider.overrideWith(() => _ErrorWeekly()),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2((_) => _ErrorWeekly()),
           ],
         );
 
@@ -2588,9 +2590,9 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(() => _LoadingSchedule()),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            effectiveScheduleProvider.overrideWith2((_) => _LoadingSchedule()),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
           ].cast(),
           child: MaterialApp.router(
@@ -2645,11 +2647,11 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(
-              () => _MonthAwareSchedule(month1, days),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _MonthAwareSchedule(month1, days),
             ),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
           ],
         );
@@ -2745,9 +2747,9 @@ void main() {
           ownScheduleScopeProvider.overrideWithValue(
             const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
-          effectiveScheduleProvider.overrideWith(() => _ErrorSchedule()),
-          weeklyScheduleProvider.overrideWith(
-            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          effectiveScheduleProvider.overrideWith2((_) => _ErrorSchedule()),
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
         ],
       );
@@ -3262,11 +3264,11 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(
-              () => _MonthAwareSchedule(month1, days),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _MonthAwareSchedule(month1, days),
             ),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
           ],
         );
@@ -3615,9 +3617,9 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
           ],
         );
@@ -3749,11 +3751,11 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(
-              () => _PerWeekdayRangeSchedule(),
+            effectiveScheduleProvider.overrideWith2(
+              (_) => _PerWeekdayRangeSchedule(),
             ),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
           ],
         );
@@ -3886,11 +3888,11 @@ void main() {
           ownScheduleScopeProvider.overrideWithValue(
             const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
-          effectiveScheduleProvider.overrideWith(
-            () => _PerWeekdayRangeSchedule(),
+          effectiveScheduleProvider.overrideWith2(
+            (_) => _PerWeekdayRangeSchedule(),
           ),
-          weeklyScheduleProvider.overrideWith(
-            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
         ],
       );
@@ -4009,11 +4011,11 @@ void main() {
           ownScheduleScopeProvider.overrideWithValue(
             const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
-          effectiveScheduleProvider.overrideWith(
-            () => _PendingNewRangeSchedule(),
+          effectiveScheduleProvider.overrideWith2(
+            (_) => _PendingNewRangeSchedule(),
           ),
-          weeklyScheduleProvider.overrideWith(
-            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
         ],
       );
@@ -4605,9 +4607,9 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
             _fakeWorkingHours(),
           ],
@@ -4639,9 +4641,9 @@ void main() {
             ownScheduleScopeProvider.overrideWithValue(
               const ScheduleScope.own(masterId: 'msst-test-master'),
             ),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-            weeklyScheduleProvider.overrideWith(
-              () => _WeeklyData(<WeeklySchedule>[_template()]),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
             _fakeWorkingHours(),
           ],
@@ -4673,11 +4675,11 @@ void main() {
           ownScheduleScopeProvider.overrideWithValue(
             const ScheduleScope.own(masterId: 'msst-test-master'),
           ),
-          effectiveScheduleProvider.overrideWith(
-            () => _DataSchedule(const <EffectiveDay>[]),
+          effectiveScheduleProvider.overrideWith2(
+            (_) => _DataSchedule(const <EffectiveDay>[]),
           ),
-          weeklyScheduleProvider.overrideWith(
-            () => _WeeklyData(<WeeklySchedule>[_template()]),
+          weeklyScheduleProvider.overrideWith2(
+            (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
           _fakeWorkingHours(),
         ],
@@ -4775,11 +4777,11 @@ void main() {
           retry: beauticaProviderRetry,
           overrides: <Object>[
             authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
-            effectiveScheduleProvider.overrideWith(() => _DataSchedule(days)),
-            weeklyScheduleProvider.overrideWith(() => _WeeklyData(templates)),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2((_) => _WeeklyData(templates)),
             mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
-            salonManagementProfileProvider.overrideWith(
-              () => _SettledSalonRosterWithMaster(),
+            salonManagementProfileProvider.overrideWith2(
+              (_) => _SettledSalonRosterWithMaster(),
             ),
             _fakeWorkingHours(),
           ].cast(),

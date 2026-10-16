@@ -59,6 +59,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -182,7 +183,7 @@ class DayHoursSheet extends ConsumerStatefulWidget {
     DateTime Function()? clock,
     ScheduleScope? scope,
   }) {
-    return showModalBottomSheet<DateTime>(
+    return showModalBottomSheetOnce<DateTime>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -272,7 +273,24 @@ class _DayHoursSheetState extends ConsumerState<DayHoursSheet> {
   static const int _kMaxConflictCheckAttempts = 2;
 
   // ── Persistence ──────────────────────────────────────────────────────────
+  /// Synchronous single-flight guard for [_save], set before the first
+  /// `await`: `onPressed: _saving ? null : _save` only bites after a rebuild,
+  /// so same-frame taps each ran a check/save round. Deliberately NOT the
+  /// button's `onPressedAsync` — `_saving`'s spinner must stay OFF while the
+  /// conflict dialog waits for the master (see [_saveWithConflictCheck]).
+  bool _saveInFlight = false;
+
   Future<void> _save() async {
+    if (_saveInFlight) return;
+    _saveInFlight = true;
+    try {
+      await _runSave();
+    } finally {
+      _saveInFlight = false;
+    }
+  }
+
+  Future<void> _runSave() async {
     // Phase 311 D2 — belt-and-braces: the Save button that reaches this
     // handler is already hidden for a non-editable viewer (see `build`), but
     // refuse the write here too so a bypass of the hidden control can't

@@ -91,12 +91,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -278,7 +278,7 @@ class _SalonMasterProfileScreenState
             key: const Key('btn-menu-salon-master'),
             icon: Icons.tune_rounded,
             semanticLabel: l10n.settingsHubMenuButton,
-            onTap: () => context.push(RouteNames.salonMasterSettings),
+            onTap: () => context.pushOnce(RouteNames.salonMasterSettings),
           ),
         ],
       ),
@@ -656,7 +656,8 @@ class _SalonMasterAboutTab extends StatelessWidget {
               AddLink(
                 key: const Key('salon-master-profile-add-bio'),
                 label: l10n.salonManageAddDescriptionLink,
-                onTap: () => context.push(RouteNames.salonMasterEditPersonal),
+                onTap: () =>
+                    context.pushOnce(RouteNames.salonMasterEditPersonal),
               ),
           ],
         ),

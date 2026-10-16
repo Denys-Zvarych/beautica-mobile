@@ -467,8 +467,8 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -499,8 +499,8 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kOtherSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -527,8 +527,8 @@ void main() {
       final container = _makeContainerFor(
         _AuthenticatedAs(_userWith(UserRole.salonAdmin, salonId: _kSalonId)),
         extraOverrides: [
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -550,8 +550,8 @@ void main() {
           _userWith(UserRole.salonAdmin, salonId: _kOtherSalonId),
         ),
         extraOverrides: [
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -580,8 +580,8 @@ void main() {
       final container = _makeContainerFor(
         _AuthenticatedAs(_userWith(UserRole.salonMaster)),
         extraOverrides: [
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -613,8 +613,8 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithoutMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithoutMaster),
           ),
         ],
       );
@@ -646,8 +646,8 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithOwnerAsMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithOwnerAsMaster),
           ),
         ],
       );
@@ -679,8 +679,8 @@ void main() {
         final container = _makeContainerFor(
           _AuthenticatedAs(_userWith(UserRole.salonAdmin, salonId: _kSalonId)),
           extraOverrides: [
-            salonManagementProfileProvider.overrideWith(
-              () => _FixedRoster(_kRosterWithOwnerAsMaster),
+            salonManagementProfileProvider.overrideWith2(
+              (_) => _FixedRoster(_kRosterWithOwnerAsMaster),
             ),
           ],
         );
@@ -708,8 +708,8 @@ void main() {
           _AuthenticatedAs(_userWith(UserRole.salonOwner)),
           extraOverrides: [
             mySalonsProvider.overrideWith(_UnresolvedMySalons.new),
-            salonManagementProfileProvider.overrideWith(
-              () => _FixedRoster(_kRosterWithMaster),
+            salonManagementProfileProvider.overrideWith2(
+              (_) => _FixedRoster(_kRosterWithMaster),
             ),
           ],
         );
@@ -759,8 +759,8 @@ void main() {
         _AuthenticatedAs(_userWith(UserRole.salonOwner)),
         extraOverrides: [
           mySalonsProvider.overrideWith(() => notifier),
-          salonManagementProfileProvider.overrideWith(
-            () => _FixedRoster(_kRosterWithMaster),
+          salonManagementProfileProvider.overrideWith2(
+            (_) => _FixedRoster(_kRosterWithMaster),
           ),
         ],
       );
@@ -818,7 +818,7 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(() => rosterNotifier),
+          salonManagementProfileProvider.overrideWith2((_) => rosterNotifier),
         ],
       );
       await container.read(authProvider.future);
@@ -872,7 +872,7 @@ void main() {
           mySalonsProvider.overrideWith(
             () => _SettledMySalons(const <Salon>[_kSalon]),
           ),
-          salonManagementProfileProvider.overrideWith(() => rosterNotifier),
+          salonManagementProfileProvider.overrideWith2((_) => rosterNotifier),
         ],
       );
       await container.read(authProvider.future);

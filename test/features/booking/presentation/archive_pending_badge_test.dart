@@ -352,6 +352,96 @@ void main() {
       expect(find.byKey(_kBadge), findsNothing);
     });
 
+    // 2026-10-15 behaviour-parity restore: a DROPPED archive tap (a second
+    // same-frame tap `pushOnce` rejects, resolving `null` at once) must NOT
+    // run the `.then` invalidate — only a REAL archive close refetches, as
+    // before the single-flight sweep. FALSIFY: remove the
+    // `if (isFlightOpen(context)) return;` before the push and the dropped
+    // tap's `.then` refetches the count while the archive is opening → the
+    // `verifyNever` below sees a second fetch.
+    testWidgets('a dropped same-frame archive tap does not refetch the count', (
+      tester,
+    ) async {
+      when(
+        () => repo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((_) async => 2);
+
+      await tester.pumpRoutedApp(
+        GoRouter(
+          routes: <RouteBase>[
+            GoRoute(
+              path: '/',
+              builder: (BuildContext c, GoRouterState s) =>
+                  const MasterBookingsScreen(),
+            ),
+            GoRoute(
+              path: RouteNames.masterBookingsArchive,
+              builder: (BuildContext c, GoRouterState s) => Scaffold(
+                body: TextButton(
+                  key: const Key('stub-archive-back'),
+                  onPressed: () => c.pop(),
+                  child: const SizedBox(width: 48, height: 48),
+                ),
+              ),
+            ),
+          ],
+        ),
+        overrides: <Object>[
+          ...overrides(),
+          authProvider.overrideWith(
+            () => _StubAuth(
+              AuthSession.authenticated(
+                user: _user(UserRole.independentMaster),
+                accessToken: 't',
+              ),
+            ),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      verify(
+        () => repo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+
+      // Two taps in ONE synchronous turn: the first pushes, the second is
+      // dropped by `pushOnce`.
+      final Offset centre = tester.getCenter(find.byKey(_kArchive));
+      for (int i = 0; i < 2; i++) {
+        tester.binding.handlePointerEventForSource(
+          PointerDownEvent(pointer: 71000 + i, position: centre),
+          source: TestBindingEventSource.test,
+        );
+        tester.binding.handlePointerEventForSource(
+          PointerUpEvent(pointer: 71000 + i, position: centre),
+          source: TestBindingEventSource.test,
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('stub-archive-back')), findsOneWidget);
+      verifyNever(
+        () => repo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      );
+
+      // The REAL close still refetches, exactly as before.
+      await tester.tap(find.byKey(const Key('stub-archive-back')));
+      await tester.pumpAndSettle();
+      verify(
+        () => repo.getPendingActionsCount(
+          any(),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).called(1);
+    });
+
     testWidgets('a failed count shows no badge', (tester) async {
       when(
         () => repo.getPendingActionsCount(

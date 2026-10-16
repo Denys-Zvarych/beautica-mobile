@@ -31,6 +31,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -94,7 +95,7 @@ class _MyBookingsScreenState extends ConsumerState<MyBookingsScreen>
   }
 
   void _openDetails(String bookingId) {
-    context.push(RouteNames.bookingDetail(bookingId));
+    context.pushOnce(RouteNames.bookingDetail(bookingId));
   }
 
   void _onFindMaster() => context.go(RouteNames.clientSearch);

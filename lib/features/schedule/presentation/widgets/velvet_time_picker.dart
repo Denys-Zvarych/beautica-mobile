@@ -22,6 +22,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -50,7 +51,7 @@ Future<TimeOfDay?> showVelvetTimePicker(
     minuteStep >= 1 && minuteStep <= 60 && 60 % minuteStep == 0,
     'minuteStep must be a positive divisor of 60',
   );
-  return showModalBottomSheet<TimeOfDay>(
+  return showModalBottomSheetOnce<TimeOfDay>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

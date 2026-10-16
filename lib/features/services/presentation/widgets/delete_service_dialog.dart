@@ -39,9 +39,9 @@ import 'package:flutter/material.dart';
 /// Confirmation dialog for the service deactivation (soft-delete) action, and
 /// the refusal surface for the reactive 409 that supersedes it (phase 319).
 ///
-/// Show via [showDialog]:
+/// Show via `showDialogOnce` (`core/navigation/single_flight.dart`):
 /// ```dart
-/// final confirmed = await showDialog<bool>(
+/// final confirmed = await showDialogOnce<bool>(
 ///   context: context,
 ///   builder: (_) => const DeleteServiceDialog(),
 /// );
@@ -51,7 +51,7 @@ import 'package:flutter/material.dart';
 /// With [blocked] true, re-show it as the refusal (no confirmation is being
 /// asked, so its resolved value is never `true`):
 /// ```dart
-/// await showDialog<bool>(
+/// await showDialogOnce<bool>(
 ///   context: context,
 ///   builder: (_) => const DeleteServiceDialog(blocked: true),
 /// );

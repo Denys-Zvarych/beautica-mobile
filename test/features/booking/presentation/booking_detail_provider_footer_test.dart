@@ -34,6 +34,8 @@
 // Finders are key-first; all copy is asserted through l10n, never a raw
 // Cyrillic literal (CI no-raw-string gate).
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
@@ -668,6 +670,84 @@ void main() {
 
       verify(() => repo.completeBooking(booking.id)).called(1);
       expect(find.byKey(const Key('complete-booking-dialog')), findsNothing);
+    });
+
+    // 2026-10-15 re-entrancy sweep: «Завершити» is single-flight across the
+    // WHOLE close flow (dialog + PATCH). The footer keeps «Завершити» live
+    // until the refetch lands, so taps made while the write is in flight used
+    // to open a second dialog and fire a second PATCH. All multi-taps below
+    // are fired with NO pump between them.
+    // Anti-vacuity: drop `if (_completeInFlight) return;` from
+    // `_confirmComplete` and a second dialog opens (verified when written).
+    testWidgets('«Завершити» x3, then x2 more while the PATCH is in flight '
+        '-> 1 dialog, 1 completeBooking call', (tester) async {
+      final repo = _MockBookingRepository();
+      final Booking booking = startedBooking();
+      final Completer<void> write = Completer<void>();
+      when(
+        () => repo.completeBooking(booking.id),
+      ).thenAnswer((_) => write.future);
+      await _pumpDetail(tester, booking, repo: repo);
+
+      final Finder complete = find.byKey(const Key('booking-detail-complete'));
+      await tester.tap(complete);
+      await tester.tap(complete, warnIfMissed: false);
+      await tester.tap(complete, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('complete-booking-dialog')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('complete-booking-confirm')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('complete-booking-dialog')), findsNothing);
+
+      // PATCH still in flight; the footer CTA is still on screen.
+      await tester.tap(complete);
+      await tester.tap(complete);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('complete-booking-dialog')), findsNothing);
+
+      write.complete();
+      await tester.pumpAndSettle();
+      verify(() => repo.completeBooking(booking.id)).called(1);
+    });
+
+    // 2026-10-15 behaviour-parity restore: the close guards are PER ACTION
+    // (`_declineInFlight` / `_completeInFlight`), so a decline still in
+    // flight never blocks «Завершити» — exactly as before the sweep.
+    // Anti-vacuity: fold the two flags back into one shared flag and
+    // «Завершити» is silently dropped here → RED.
+    testWidgets('with a decline PATCH in flight, «Завершити» still opens its '
+        'dialog', (tester) async {
+      final repo = _MockBookingRepository();
+      final Booking booking = startedBooking();
+      final Completer<void> decline = Completer<void>();
+      when(
+        () => repo.declineBooking(any(), comment: any(named: 'comment')),
+      ).thenAnswer((_) => decline.future);
+      await _pumpDetail(tester, booking, repo: repo);
+
+      await tester.tap(find.byKey(const Key('booking-detail-decline')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('decline-booking-confirm')));
+      await tester.pumpAndSettle();
+      verify(() => repo.declineBooking(booking.id, comment: null)).called(1);
+
+      // Decline PATCH still pending; «Завершити» is still on screen.
+      final Finder complete = find.byKey(const Key('booking-detail-complete'));
+      expect(complete, findsOneWidget);
+      await tester.tap(complete);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('complete-booking-dialog')),
+        findsOneWidget,
+        reason:
+            'an in-flight decline must not block «Завершити» — each guard '
+            'drops only a repeat of its own action',
+      );
+
+      await tester.tap(find.byKey(const Key('complete-booking-keep')));
+      decline.complete();
+      await tester.pumpAndSettle();
     });
 
     testWidgets('backing out calls nothing', (tester) async {

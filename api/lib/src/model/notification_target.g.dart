@@ -12,6 +12,8 @@ const NotificationTargetKindEnum _$notificationTargetKindEnum_BOOKING_REVIEW =
     const NotificationTargetKindEnum._('BOOKING_REVIEW');
 const NotificationTargetKindEnum _$notificationTargetKindEnum_SALON_TEAM =
     const NotificationTargetKindEnum._('SALON_TEAM');
+const NotificationTargetKindEnum _$notificationTargetKindEnum_SERVICE_CATALOG =
+    const NotificationTargetKindEnum._('SERVICE_CATALOG');
 const NotificationTargetKindEnum _$notificationTargetKindEnum_NONE =
     const NotificationTargetKindEnum._('NONE');
 const NotificationTargetKindEnum
@@ -26,6 +28,8 @@ NotificationTargetKindEnum _$notificationTargetKindEnumValueOf(String name) {
       return _$notificationTargetKindEnum_BOOKING_REVIEW;
     case 'SALON_TEAM':
       return _$notificationTargetKindEnum_SALON_TEAM;
+    case 'SERVICE_CATALOG':
+      return _$notificationTargetKindEnum_SERVICE_CATALOG;
     case 'NONE':
       return _$notificationTargetKindEnum_NONE;
     case 'unknownDefaultOpenApi':
@@ -40,6 +44,7 @@ final BuiltSet<NotificationTargetKindEnum> _$notificationTargetKindEnumValues =
   _$notificationTargetKindEnum_BOOKING,
   _$notificationTargetKindEnum_BOOKING_REVIEW,
   _$notificationTargetKindEnum_SALON_TEAM,
+  _$notificationTargetKindEnum_SERVICE_CATALOG,
   _$notificationTargetKindEnum_NONE,
   _$notificationTargetKindEnum_unknownDefaultOpenApi,
 ]);
@@ -53,6 +58,7 @@ class _$NotificationTargetKindEnumSerializer
     'BOOKING': 'BOOKING',
     'BOOKING_REVIEW': 'BOOKING_REVIEW',
     'SALON_TEAM': 'SALON_TEAM',
+    'SERVICE_CATALOG': 'SERVICE_CATALOG',
     'NONE': 'NONE',
     'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
@@ -60,6 +66,7 @@ class _$NotificationTargetKindEnumSerializer
     'BOOKING': 'BOOKING',
     'BOOKING_REVIEW': 'BOOKING_REVIEW',
     'SALON_TEAM': 'SALON_TEAM',
+    'SERVICE_CATALOG': 'SERVICE_CATALOG',
     'NONE': 'NONE',
     'unknown_default_open_api': 'unknownDefaultOpenApi',
   };

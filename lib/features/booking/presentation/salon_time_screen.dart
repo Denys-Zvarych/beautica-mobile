@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -189,7 +190,7 @@ class _SalonTimeScreenState extends ConsumerState<SalonTimeScreen> {
               ),
         ];
     if (appointments.isEmpty) return;
-    context.push(
+    context.pushOnce(
       RouteNames.salonBookingConfirm,
       extra: SalonBookingConfirmArgs(
         salonId: widget.args.salonId,

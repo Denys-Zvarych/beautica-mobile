@@ -1,0 +1,25 @@
+# Allow-list for scripts/forbid_raw_push.sh — <path>:<line>:<fingerprint>.
+#
+# Each entry is a raw push that ALREADY carries its own synchronous
+# single-flight guard (audited in the 2026-10-15 re-entrancy sweep's SAFE
+# list), so routing it through `pushOnce` would add nothing. The fingerprint
+# must appear on that exact line or the gate fails the entry as STALE —
+# renumber by INSPECTION (the entry must still point at the guarded call),
+# never by "whatever line makes it green". New raw pushes are not added here:
+# use context.pushOnce / runOnce.
+#
+# _submitting flag set before the request, held across the push.
+lib/features/auth/presentation/forgot_password_request_screen.dart:129:context.push(RouteNames.resetOtpVerification
+# bookingRescheduleInFlightProvider guards the whole fetch-then-push.
+lib/features/booking/presentation/reschedule_navigation.dart:260:context.push(
+# NotificationsScreen._opening guards every feed-row tap; push-tap dispatch is not a user tap.
+lib/features/notifications/presentation/notification_navigation.dart:405:GoRouter.of(context).push<Object?>(fallbackRoute)
+lib/features/notifications/presentation/notification_navigation.dart:455:router.push<Object?>(location, extra: extra)
+# ServicesListScreen._opening (held until the pushed screen pops; then refreshes).
+lib/features/services/presentation/services_list_screen.dart:317:context.push<void>(location)
+# _requestingChangePasswordOtp flag guards the OTP request that precedes the push.
+lib/features/settings/presentation/settings_screen.dart:214:context.push(RouteNames.changePassword)
+# EXCEPTION (NOT a guarded site): user rule 2026-10-15 + phase-262 D5 keep
+# booking_confirm_screen.dart byte-identical to HEAD, so its «Відгуки» link
+# stays a raw push. Remove this entry if that file is ever cleared for pushOnce.
+lib/features/booking/presentation/booking_confirm_screen.dart:931:onTap: () => context.push(

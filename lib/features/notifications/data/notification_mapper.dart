@@ -62,6 +62,20 @@ abstract final class NotificationMapper {
     if (dto == api.NotificationResponseTypeEnum.INVITE_ACCEPTED) {
       return AppNotificationType.inviteAccepted;
     }
+    if (dto == api.NotificationResponseTypeEnum.CATEGORY_REQUEST_APPROVED) {
+      return AppNotificationType.categoryRequestApproved;
+    }
+    if (dto == api.NotificationResponseTypeEnum.CATEGORY_REQUEST_REJECTED) {
+      return AppNotificationType.categoryRequestRejected;
+    }
+    if (dto ==
+        api.NotificationResponseTypeEnum.SERVICE_TYPE_SUGGESTION_APPROVED) {
+      return AppNotificationType.serviceTypeSuggestionApproved;
+    }
+    if (dto ==
+        api.NotificationResponseTypeEnum.SERVICE_TYPE_SUGGESTION_REJECTED) {
+      return AppNotificationType.serviceTypeSuggestionRejected;
+    }
     return AppNotificationType.unknown;
   }
 
@@ -112,6 +126,9 @@ abstract final class NotificationMapper {
     }
     if (kind == api.NotificationTargetKindEnum.SALON_TEAM && salonId != null) {
       return NotificationTarget.salonTeam(salonId: salonId);
+    }
+    if (kind == api.NotificationTargetKindEnum.SERVICE_CATALOG) {
+      return const NotificationTarget.serviceCatalog();
     }
     return const NotificationTarget.none();
   }
@@ -176,6 +193,8 @@ abstract final class NotificationMapper {
       subjectName: _nonBlank(dto.subjectName),
       subjectRole: knownEnumName(dto.subjectRole),
       masterName: _nonBlank(dto.masterName),
+      categoryName: _nonBlank(dto.categoryName),
+      decisionReason: _nonBlank(dto.decisionReason),
     );
   }
 

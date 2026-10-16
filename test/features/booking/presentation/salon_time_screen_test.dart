@@ -865,6 +865,59 @@ void main() {
     },
   );
 
+  // 2026-10-15 re-entrancy sweep (HIGH): «Підтвердити» is single-flight.
+  // Each push minted fresh idempotency keys for every appointment, so stacked
+  // confirm screens meant duplicate visits after "back". Taps fired with NO
+  // pump between them (a pump lets the pushed route cover the CTA).
+  // Anti-vacuity: `pushOnce` -> `push` in `SalonTimeScreen._confirm` gives 3
+  // confirm screens (verified when written).
+  testWidgets('«Підтвердити» x3 with no pump between -> exactly 1 confirm '
+      'route', (tester) async {
+    await _pumpTall(tester);
+    const args = SalonBookingTimeArgs(
+      salonId: _kSalonId,
+      selectedServiceIds: <String>['svc-1'],
+      assignedServiceIdsByMaster: <String, List<String>>{
+        'm1': <String>['svc-1'],
+      },
+    );
+    final DateTime today = kyivToday(DateTime.now);
+    final DateTime slotStart = DateTime(today.year, today.month, today.day, 9);
+    final fake = _FakeSlotRepository(<BookingSlot>[
+      BookingSlot(
+        startAt: slotStart,
+        endAt: DateTime(today.year, today.month, today.day, 10, 30),
+        available: true,
+      ),
+    ]);
+    int reached = 0;
+
+    await tester.pumpRoutedApp(
+      _router(args: args, onReachedConfirm: (_) => reached++),
+      overrides: _baseOverrides(
+        slotRepository: fake,
+        selectedServiceIds: const <String>['svc-1'],
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tapCalendarDay(today.day);
+    await tester.pumpAndSettle();
+    await _tapNextCta(tester);
+    await tester.tap(
+      find.byKey(Key('salon-slot-chip-${slotStart.toIso8601String()}')),
+    );
+    await tester.pumpAndSettle();
+
+    final Finder cta = find.byKey(const Key('schedule-confirm-cta'));
+    await tester.tap(cta);
+    await tester.tap(cta);
+    await tester.tap(cta);
+    await tester.pumpAndSettle();
+
+    expect(find.text('confirm-reached', skipOffstage: false), findsOneWidget);
+    expect(reached, 1);
+  });
+
   // mobile-perf audit follow-up (Phase 14.16/14.17, Finding A — HIGH):
   // `_SalonTimeScreenState.build()` used to `ref.watch` the whole
   // `salonBookingScheduleProvider` map at the screen's top level, so ANY

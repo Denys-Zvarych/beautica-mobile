@@ -33,7 +33,6 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
-import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -45,7 +44,6 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/services/domain/service_category_option.dart';
 import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/features/services/presentation/service_catalogue_invalidation.dart';
-import 'package:beautica_mobile/features/services/presentation/service_types_provider.dart';
 import 'package:beautica_mobile/features/services/presentation/widgets/service_category_list.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -248,6 +246,9 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   // 3.x using `ref` in dispose() throws. Hold the keepAlive manager instead.
   late final ScreenProtectionManager _screenProtection;
 
+  /// True while a destination pushed by [_openAndRefresh] is still open.
+  bool _opening = false;
+
   @override
   void initState() {
     super.initState();
@@ -261,110 +262,26 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
     // are handled by [_openAndRefresh], since initState does NOT re-fire on
     // pop-back.)
     //
-    // 2026-09-13 audit (M8) — entry and pop-back now share ONE path,
-    // [_refreshCategoryCataloguesIfStale], which is rate-limited by
-    // [kCategoryCatalogueFreshFor]. Unconditional busting cost a salon
-    // operator three app-wide category fetches for a single
-    // `services → edit → back → edit → back` sitting.
+    // Entry refreshes unless the last successful refresh is under
+    // [kCategoryEntryFloor] old or a fetch is already in flight (so entry →
+    // setup/edit open inside 30 s costs ONE fetch). An admin-approved category
+    // therefore shows up on every open past the floor; pull-to-refresh forces
+    // it regardless. Pop-back keeps the coarser [kCategoryCatalogueFreshFor]
+    // throttle via [_openAndRefresh] (setup / edit refresh on their own open).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _refreshCategoryCataloguesIfStale();
+      if (mounted) {
+        refreshCategoryCataloguesIfOlderThan(ref, kCategoryEntryFloor);
+      }
     });
   }
 
-  /// Drops the two APP-WIDE category caches — but at most once per
-  /// [kCategoryCatalogueFreshFor].
-  ///
-  /// Both caches are root-scoped `keepAlive` providers shared with the service
-  /// form, the client discovery filters and every other salon-scoped mount of
-  /// this screen, so an unconditional bust here is an app-wide cost paid for a
-  /// list that only changes when an admin approves a category server-side.
-  ///
-  /// Returns `true` when it actually refreshed — used by the tests that pin
-  /// the guard, and deliberately NOT used to drive any UI.
-  bool _refreshCategoryCataloguesIfStale() {
-    final DateTime now = ref.read(clockProvider)();
-    if (!ref.read(categoryCatalogueFreshnessProvider.notifier).isStaleAt(now)) {
-      return false;
-    }
-    _refreshCategoryCatalogues(now);
-    return true;
-  }
-
-  /// The unconditional bust. Pull-to-refresh calls this directly: an explicit
-  /// user request for fresh data is never rate-limited.
-  ///
-  /// AUDIT cycle-2 (N1, mobile-perf LOW) — the freshness marker is stamped on
-  /// SUCCESS ONLY, never eagerly.
-  ///
-  /// Stamping before the refetch settled meant a FAILED category read still
-  /// marked the caches fresh for [kCategoryCatalogueFreshFor]: the screen kept
-  /// rendering humanized-slug fallback labels (`SERVICE_TYPE` instead of «Тип
-  /// послуги») with NO automatic retry for five minutes, and pull-to-refresh
-  /// was the only escape — which nobody discovers as the remedy for wrong
-  /// labels. Before the rate limit shipped, every entry retried; the guard
-  /// must not turn a transient failure into a five-minute stale window.
-  ///
-  /// So the stamp hangs off the refreshed read settling successfully. The
-  /// `.future` read is what FORCES that refetch to happen (an `invalidate`
-  /// alone is lazy, and a refresh nobody awaits has no observable outcome to
-  /// key the stamp on).
-  ///
-  /// AUDIT cycle-3 (C2) — what that forced read actually costs, per arm.
-  /// The earlier wording ("merely PRE-fetches what that body is about to
-  /// ask for") was TRUE of two arms and FALSE of the third:
-  ///
-  ///   • LOADED (non-empty list) — no extra round trip. `_LoadedBody` watches
-  ///     [approvedCategoriesProvider] on every build, so the refetch happens
-  ///     regardless; the `.future` read only joins the one already in flight.
-  ///   • EMPTY — a genuine PRE-fetch. `_EmptyState`'s only affordance is the
-  ///     «Додати послугу» CTA into the setup screen, whose category picker
-  ///     reads this same provider, so the fetch is MOVED EARLIER, not added.
-  ///   • ERROR — a NET-NEW request. Nothing on the error scaffold watches
-  ///     [approvedCategoriesProvider], so before the stamp existed this arm
-  ///     issued ZERO category reads and now issues exactly one.
-  ///
-  /// That net-new read in the error arm is ACCEPTED DELIBERATELY, not an
-  /// oversight:
-  ///
-  ///   • Skipping it here is the cycle-2 N1 bug through a side door. With no
-  ///     settled read to key on, the stamp either goes back to being written
-  ///     EAGERLY — a failed refresh marks the caches fresh for five minutes,
-  ///     which is exactly what N1 removed — or never lands at all in this
-  ///     arm, which makes the rate limit a no-op and undoes M8.
-  ///   • It is capped at ONE per [kCategoryCatalogueFreshFor] per container,
-  ///     on a screen the user is already blocked on.
-  ///   • It is not wasted on the recovery path, which is the likely one:
-  ///     «Повторити» re-fetches the services list, `_LoadedBody` mounts, and
-  ///     it reads this now-warm cache instead of issuing its own fetch.
-  ///
-  /// Pinned by "the ERROR state issues EXACTLY ONE category read" in
-  /// `services_list_screen_refresh_test.dart`, so neither dropping it (0) nor
-  /// doubling it (2) can land unnoticed.
-  ///
-  /// `mounted` is re-checked in the continuation: the screen can be popped
-  /// while the refetch is in flight, and touching `ref` after dispose throws
-  /// under Riverpod 3.x.
-  void _refreshCategoryCatalogues(DateTime now) {
-    ref.invalidate(approvedCategoriesProvider);
-    // Also drop the whole service-types family (no arg = all categories):
-    // a type newly approved under an EXISTING category must appear on entry.
-    ref.invalidate(serviceTypesProvider);
-    unawaited(_stampWhenRefreshSucceeds(now));
-  }
-
-  /// Settles on the refreshed [approvedCategoriesProvider] read and records
-  /// the freshness stamp only when it actually resolved. A failure returns
-  /// silently — leaving the caches STALE is the whole point, so the very next
-  /// entry retries instead of waiting out the window.
-  Future<void> _stampWhenRefreshSucceeds(DateTime now) async {
-    try {
-      await ref.read(approvedCategoriesProvider.future);
-    } on Object {
-      return;
-    }
-    if (!mounted) return;
-    ref.read(categoryCatalogueFreshnessProvider.notifier).stamp(now);
-  }
+  /// Pop-back path: refreshes both APP-WIDE category caches at most once per
+  /// [kCategoryCatalogueFreshFor] (and never while a fetch is in flight). The
+  /// stamp is written on SUCCESS only, so a failed read retries on the next
+  /// open instead of waiting out the window. Pull-to-refresh bypasses this via
+  /// [refreshCategoryCatalogues].
+  void _refreshCategoryCataloguesIfStale() =>
+      refreshCategoryCataloguesIfOlderThan(ref, kCategoryCatalogueFreshFor);
 
   @override
   void dispose() {
@@ -388,8 +305,19 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
   /// leaks — the exact bug that shipped when [ServiceSetupScreen] exited with
   /// `go`. That screen now pops (see its `_leave`), which is why this hook is
   /// sound for both the FAB and the empty-state CTA.
+  ///
+  /// SINGLE-FLIGHT: [_opening] drops every tap that lands while a pushed
+  /// destination is still open. Without it, taps queued during a stalled frame
+  /// (or a fast double-tap) each pushed their own setup / edit page, stacking
+  /// several copies. Same guard as `NotificationsScreen._opening`.
   Future<void> _openAndRefresh(String location) async {
-    await context.push<void>(location);
+    if (_opening) return;
+    _opening = true;
+    try {
+      await context.push<void>(location);
+    } finally {
+      _opening = false;
+    }
     if (mounted) _refreshCategoryCataloguesIfStale();
   }
 
@@ -438,18 +366,31 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
       body: AppRefreshIndicator(
         // Pull-to-refresh refreshes BOTH the master's own services AND the
         // approved-category cache, so a category approved by an admin appears
-        // on the next pull without a cold restart. `refresh()` awaits the
-        // services reload; the category provider is invalidated (re-fetches
-        // lazily on the next watch) — both are kicked off here.
+        // on the next pull without a cold restart. The spinner covers both
+        // re-fetches.
         onRefresh: () async {
-          // UNCONDITIONAL (unlike entry / pop-back): a pull is an explicit
-          // request for fresh data. Stamping through the same helper keeps a
-          // re-entry moments later from busting the caches all over again.
-          _refreshCategoryCatalogues(ref.read(clockProvider)());
-          // approvedCategoriesProvider and serviceTypesProvider are intentionally
-          // NOT awaited: their stale humanized-label fallback degrades gracefully,
-          // and the spinner dismissal is gated only on the services re-fetch below.
-          await ref.read(servicesListProvider.notifier).refresh();
+          // UNCONDITIONAL (unlike pop-back): a pull is an explicit request for
+          // fresh data. Stamping through the same helper keeps a pop-back
+          // moments later from busting the caches all over again.
+          refreshCategoryCatalogues(ref);
+          // `refresh()` stays: self-invalidating the list is forbidden
+          // (`forbid_provider_self_invalidation.sh`). A failed category read
+          // must not fail the pull — the picker has its own retry.
+          await Future.wait<Object?>(<Future<Object?>>[
+            ref.read(servicesListProvider.notifier).refresh(),
+            ref.read(approvedCategoriesProvider.future).catchError((Object e) {
+              if (kDebugMode) {
+                // Runtime type only — never the exception object, which
+                // can carry server data in its message.
+                log(
+                  'category refresh failed: ${e.runtimeType}',
+                  name: 'feature.services',
+                  level: 900,
+                );
+              }
+              return const <ServiceCategoryOption>[];
+            }),
+          ]);
         },
         child: asyncServices.when(
           loading: () => const _LoadingBody(),
@@ -720,9 +661,15 @@ class _LoadedBody extends ConsumerStatefulWidget {
   ConsumerState<_LoadedBody> createState() => _LoadedBodyState();
 }
 
+/// How many times the list regrouped its services (cache MISSES in
+/// `_resolveGroups`). Test-only observability for the grouping memo.
+@visibleForTesting
+int debugRegroupCount = 0;
+
 class _LoadedBodyState extends ConsumerState<_LoadedBody> {
   // PERF A2 (MEDIUM): the memoized grouping. Re-run [_group] only when the
-  // identity of (services, categories.value) changes, so a label-only category
+  // services list changes by identity or the categories list changes by value
+  // equality (`listEquals`), so a label-only category
   // refresh ([approvedCategoriesProvider] invalidated on entry / return / pull)
   // does not re-bucket. Living in [State] keeps the cache alive across the
   // frequent rebuilds those invalidations trigger.
@@ -834,8 +781,14 @@ class _LoadedBodyState extends ConsumerState<_LoadedBody> {
     final bool hit =
         _cachedGroups != null &&
         identical(_cachedServices, widget.services) &&
-        identical(_cachedCategories, categoriesValue);
+        // Value equality (ServiceCategoryOption is freezed): an equal-but-new
+        // list from a re-fetch must not regroup.
+        listEquals(_cachedCategories, categoriesValue);
     if (hit) return _cachedGroups!;
+    assert(() {
+      debugRegroupCount++;
+      return true;
+    }());
 
     final List<CategoryGroup> groups = groupServicesByCategory(
       services: widget.services,

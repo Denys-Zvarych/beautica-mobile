@@ -12,6 +12,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../../core/icons/app_icon.dart';
 import '../../../../core/icons/beautica_asset_icons.dart';
@@ -159,7 +160,7 @@ class _QuickTileState extends State<_QuickTile> {
             StatefulNavigationShell.of(context).goBranch(branchIndex);
           } else {
             // Non-shell route: a normal push is correct.
-            context.push(widget.def.route);
+            context.pushOnce(widget.def.route);
           }
         },
         behavior: HitTestBehavior.opaque,

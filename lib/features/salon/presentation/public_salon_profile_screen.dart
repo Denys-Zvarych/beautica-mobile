@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -1485,7 +1486,7 @@ class _MastersTabState extends ConsumerState<_MastersTab> {
                     : '—',
                 avatarIndex: i,
                 imageUrl: master.avatarUrl,
-                onTap: () => context.push(
+                onTap: () => context.pushOnce(
                   RouteNames.masterPublicProfile(master.masterId),
                 ),
               );
@@ -1879,8 +1880,10 @@ class _BookingShelf extends StatelessWidget {
             key: const Key('salon-book-cta'),
             label: l10n.salonBookingCta,
             icon: Icons.event_available_rounded,
-            onPressed: () =>
-                context.push(RouteNames.salonBookingServices, extra: salon.id),
+            onPressed: () => context.pushOnce(
+              RouteNames.salonBookingServices,
+              extra: salon.id,
+            ),
           ),
         ),
       ),

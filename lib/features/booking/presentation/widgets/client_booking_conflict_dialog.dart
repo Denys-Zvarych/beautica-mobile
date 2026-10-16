@@ -41,6 +41,7 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/overlay_navigation.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -94,7 +95,7 @@ Future<bool?> showClientBookingConflictDialog(
   BuildContext context,
   ClientBookingConflictPreview preview,
 ) {
-  return showDialog<bool>(
+  return showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
     barrierColor: BrandColors.text.withValues(alpha: 0.35),

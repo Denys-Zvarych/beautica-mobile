@@ -8,6 +8,7 @@ import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/upload_failure.dart'
     show kPortfolioMaxPhotos;
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -33,12 +34,20 @@ Future<void> showPortfolioPhotoViewer(
   final List<PortfolioPhoto> shown = List<PortfolioPhoto>.unmodifiable(
     photos.take(kPortfolioMaxPhotos),
   );
-  return Navigator.of(context, rootNavigator: true).push<void>(
-    MaterialPageRoute<void>(
-      fullscreenDialog: true,
-      builder: (BuildContext _) =>
-          PortfolioPhotoViewer(photos: shown, initialIndex: initialIndex),
-    ),
+  final MaterialPageRoute<void> route = MaterialPageRoute<void>(
+    fullscreenDialog: true,
+    builder: (BuildContext _) =>
+        PortfolioPhotoViewer(photos: shown, initialIndex: initialIndex),
+  );
+  // Single-flight: a double-tapped tile opens ONE viewer. The probe lets a
+  // viewer removed without its future completing (stack replaced under it)
+  // release the lock.
+  return runOnce<void>(
+    context,
+    () => Navigator.of(context, rootNavigator: true).push<void>(route),
+    // null until pushed (no navigator yet); then up / gone.
+    present: () =>
+        route.isActive ? true : (route.navigator == null ? null : false),
   );
 }
 

@@ -15,7 +15,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../../../../core/theme/brand_colors.dart';
 import '../../../../core/theme/velvet_geometry.dart';
@@ -68,7 +68,7 @@ class FavoriteMastersCard extends ConsumerWidget {
               : HubSeeAllLink(
                   key: const Key('favorite_masters_see_all'),
                   label: l10n.homeHubFavoriteMastersSeeAll(totalCount),
-                  onTap: () => context.push('/favorites'),
+                  onTap: () => context.pushOnce('/favorites'),
                 ),
         ),
         const SizedBox(height: VelvetSpacing.md),
@@ -109,7 +109,7 @@ class FavoriteMastersCard extends ConsumerWidget {
                   master: masters[i],
                   // Phase 13.5 — the /masters/:id public-profile route is now
                   // registered (CLIENT-guarded), so tapping the card opens it.
-                  onTap: () => context.push(
+                  onTap: () => context.pushOnce(
                     RouteNames.masterPublicProfile(masters[i].masterId),
                   ),
                   onUnlike: () => ref

@@ -20,6 +20,8 @@ part 'notification_params.g.dart';
 /// * [masterName]
 /// * [subjectName]
 /// * [subjectRole]
+/// * [categoryName]
+/// * [decisionReason]
 @BuiltValue()
 abstract class NotificationParams
     implements Built<NotificationParams, NotificationParamsBuilder> {
@@ -47,6 +49,12 @@ abstract class NotificationParams
   @BuiltValueField(wireName: r'subjectRole')
   NotificationParamsSubjectRoleEnum? get subjectRole;
   // enum subjectRoleEnum {  CLIENT,  SALON_OWNER,  SALON_ADMIN,  SALON_MASTER,  INDEPENDENT_MASTER,  };
+
+  @BuiltValueField(wireName: r'categoryName')
+  String? get categoryName;
+
+  @BuiltValueField(wireName: r'decisionReason')
+  String? get decisionReason;
 
   NotificationParams._();
 
@@ -129,6 +137,20 @@ class _$NotificationParamsSerializer
         object.subjectRole,
         specifiedType:
             const FullType.nullable(NotificationParamsSubjectRoleEnum),
+      );
+    }
+    if (object.categoryName != null) {
+      yield r'categoryName';
+      yield serializers.serialize(
+        object.categoryName,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.decisionReason != null) {
+      yield r'decisionReason';
+      yield serializers.serialize(
+        object.decisionReason,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -219,6 +241,22 @@ class _$NotificationParamsSerializer
           ) as NotificationParamsSubjectRoleEnum?;
           if (valueDes == null) continue;
           result.subjectRole = valueDes;
+          break;
+        case r'categoryName':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.categoryName = valueDes;
+          break;
+        case r'decisionReason':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.decisionReason = valueDes;
           break;
         default:
           unhandled.add(key);

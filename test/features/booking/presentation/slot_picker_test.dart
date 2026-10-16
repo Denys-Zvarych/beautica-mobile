@@ -1798,6 +1798,33 @@ void main() {
       expect(find.textContaining(':booking-99'), findsOneWidget);
     });
 
+    // ── 2026-10-15 re-entrancy sweep (HIGH) — «Підтвердити» is single-flight.
+    // Each push mints a NEW idempotency key, so stacked confirm screens meant
+    // a duplicate booking after "back". Taps fired with NO pump between them
+    // (a pump lets the pushed route cover the CTA and hides the bug).
+    // Anti-vacuity: `pushOnce` -> `push` in `SlotTimeScreen._confirm` gives 3
+    // confirm screens (verified when written).
+    testWidgets('«Підтвердити» x3 with no pump between -> exactly 1 confirm '
+        'route', (tester) async {
+      await pumpTimeScreen(tester, args: _args());
+
+      await tester.tap(
+        find.byWidgetPredicate((Widget w) => w is SlotChip && w.available),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder cta = find.byKey(const Key('booking-summary-cta'));
+      await tester.tap(cta);
+      await tester.tap(cta);
+      await tester.tap(cta);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('confirm-stub:', skipOffstage: false),
+        findsOneWidget,
+      );
+    });
+
     // ── Phase 258 — the confirm args forward the guest seed verbatim ──────
     testWidgets('should_forwardGuestAndHideFlag_when_slotTimeScreenConfirms', (
       tester,

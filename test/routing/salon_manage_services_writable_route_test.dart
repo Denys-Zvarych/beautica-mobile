@@ -49,6 +49,8 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/time/clock_provider.dart';
+import 'package:beautica_mobile/features/services/presentation/category_catalogue_freshness.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
@@ -283,19 +285,28 @@ void main() {
 
   tearDown(AppStartTime.resetForTest);
 
-  ProviderContainer makeContainer({List<dynamic> extraOverrides = const []}) {
+  ProviderContainer makeContainer({
+    List<dynamic> extraOverrides = const [],
+    // Additive: lets a test count / vary the category fetch. Default keeps the
+    // original empty list, so every existing caller is unchanged.
+    Future<List<ServiceCategoryOption>> Function()? categoriesBody,
+  }) {
     final container = makeTestContainer(
       overrides: [
         authProvider.overrideWith(_MutableAuthNotifier.new),
         authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
         secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
-        salonManagementProfileProvider.overrideWith(_StubRoster.new),
+        salonManagementProfileProvider.overrideWith2((_) => _StubRoster()),
         dioProvider.overrideWithValue(mockDio),
         serviceApiProvider.overrideWithValue(mockServiceApi),
         categoryRequestApiProvider.overrideWithValue(mockCategoryApi),
         serviceCatalogApiProvider.overrideWithValue(mockCatalogApi),
         approvedCategoriesProvider.overrideWith(
-          (_) async => const <ServiceCategoryOption>[],
+          (_) =>
+              categoriesBody?.call() ??
+              Future<List<ServiceCategoryOption>>.value(
+                const <ServiceCategoryOption>[],
+              ),
         ),
         ...extraOverrides.cast<Object>(),
       ],
@@ -956,5 +967,57 @@ void main() {
     await pumpUntilFound(tester, find.byType(ServiceSetupScreen));
     expect(find.byType(ServiceSetupScreen), findsOneWidget);
     expect(find.byType(ServicesListScreen), findsNothing);
+  });
+
+  // fix/services-catalogue-refresh — real provider graph, salon-scoped route.
+  //
+  // An admin managing a staff member's services reaches the list and the setup
+  // form through the salon-scoped leaves. A category approved while they were
+  // away must show in the setup picker on open. The freshness stamp is
+  // root-scoped and shared; open skips only inside the 30 s entry floor. The
+  // test advances the pinned clock PAST the floor between list entry and setup
+  // open (a real-clock run would sit inside it and correctly skip), so the
+  // refresh happens in THIS scope too. Anti-vacuity: the fetch counter must move
+  // on the setup open (list entry already warmed the cache with the STALE list).
+  testWidgets('salon-scoped: opening the setup form re-fetches the approved '
+      'categories and shows a newly approved one', (tester) async {
+    var fetches = 0;
+    var served = const <ServiceCategoryOption>[
+      ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+    ];
+    var now = DateTime.utc(2026, 10, 1, 12);
+    final container = makeContainer(
+      extraOverrides: [clockProvider.overrideWithValue(() => now)],
+      categoriesBody: () async {
+        fetches++;
+        return served;
+      },
+    );
+    final router = await pumpRouter(tester, container);
+
+    router.go(RouteNames.salonManageStaffServices(_kSalonId, _kMemberUserId));
+    await pumpUntilFound(tester, countHeader());
+    expect(fetches, greaterThanOrEqualTo(1), reason: 'list entry fetched');
+    final afterListEntry = fetches;
+
+    // An admin approves BROWS while the operator is on the list; the operator
+    // opens setup past the 30 s entry floor.
+    now = now.add(kCategoryEntryFloor + const Duration(seconds: 1));
+    served = const <ServiceCategoryOption>[
+      ServiceCategoryOption(name: 'MANICURE', displayName: 'Манікюр'),
+      ServiceCategoryOption(name: 'BROWS', displayName: 'Брови'),
+    ];
+    unawaited(
+      router.push(
+        RouteNames.salonManageStaffServiceSetup(_kSalonId, _kMemberUserId),
+      ),
+    );
+    await pumpUntilFound(
+      tester,
+      find.byKey(const ValueKey<String>('cat_BROWS')),
+    );
+
+    expect(find.byType(ServiceSetupScreen), findsOneWidget);
+    expect(fetches, greaterThan(afterListEntry));
   });
 }

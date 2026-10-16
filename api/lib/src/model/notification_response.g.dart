@@ -37,6 +37,18 @@ const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_INVITE_ACCEPTED =
     const NotificationResponseTypeEnum._('INVITE_ACCEPTED');
 const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_CATEGORY_REQUEST_APPROVED =
+    const NotificationResponseTypeEnum._('CATEGORY_REQUEST_APPROVED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_CATEGORY_REQUEST_REJECTED =
+    const NotificationResponseTypeEnum._('CATEGORY_REQUEST_REJECTED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED =
+    const NotificationResponseTypeEnum._('SERVICE_TYPE_SUGGESTION_APPROVED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED =
+    const NotificationResponseTypeEnum._('SERVICE_TYPE_SUGGESTION_REJECTED');
+const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_unknownDefaultOpenApi =
     const NotificationResponseTypeEnum._('unknownDefaultOpenApi');
 
@@ -63,6 +75,14 @@ NotificationResponseTypeEnum _$notificationResponseTypeEnumValueOf(
       return _$notificationResponseTypeEnum_REVIEW_RECEIVED;
     case 'INVITE_ACCEPTED':
       return _$notificationResponseTypeEnum_INVITE_ACCEPTED;
+    case 'CATEGORY_REQUEST_APPROVED':
+      return _$notificationResponseTypeEnum_CATEGORY_REQUEST_APPROVED;
+    case 'CATEGORY_REQUEST_REJECTED':
+      return _$notificationResponseTypeEnum_CATEGORY_REQUEST_REJECTED;
+    case 'SERVICE_TYPE_SUGGESTION_APPROVED':
+      return _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED;
+    case 'SERVICE_TYPE_SUGGESTION_REJECTED':
+      return _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED;
     case 'unknownDefaultOpenApi':
       return _$notificationResponseTypeEnum_unknownDefaultOpenApi;
     default:
@@ -83,6 +103,10 @@ final BuiltSet<NotificationResponseTypeEnum>
   _$notificationResponseTypeEnum_BOOKING_CANCELLED_MASTER_REMOVED,
   _$notificationResponseTypeEnum_REVIEW_RECEIVED,
   _$notificationResponseTypeEnum_INVITE_ACCEPTED,
+  _$notificationResponseTypeEnum_CATEGORY_REQUEST_APPROVED,
+  _$notificationResponseTypeEnum_CATEGORY_REQUEST_REJECTED,
+  _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED,
+  _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED,
   _$notificationResponseTypeEnum_unknownDefaultOpenApi,
 ]);
 
@@ -103,6 +127,10 @@ class _$NotificationResponseTypeEnumSerializer
     'BOOKING_CANCELLED_MASTER_REMOVED': 'BOOKING_CANCELLED_MASTER_REMOVED',
     'REVIEW_RECEIVED': 'REVIEW_RECEIVED',
     'INVITE_ACCEPTED': 'INVITE_ACCEPTED',
+    'CATEGORY_REQUEST_APPROVED': 'CATEGORY_REQUEST_APPROVED',
+    'CATEGORY_REQUEST_REJECTED': 'CATEGORY_REQUEST_REJECTED',
+    'SERVICE_TYPE_SUGGESTION_APPROVED': 'SERVICE_TYPE_SUGGESTION_APPROVED',
+    'SERVICE_TYPE_SUGGESTION_REJECTED': 'SERVICE_TYPE_SUGGESTION_REJECTED',
     'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
@@ -116,6 +144,10 @@ class _$NotificationResponseTypeEnumSerializer
     'BOOKING_CANCELLED_MASTER_REMOVED': 'BOOKING_CANCELLED_MASTER_REMOVED',
     'REVIEW_RECEIVED': 'REVIEW_RECEIVED',
     'INVITE_ACCEPTED': 'INVITE_ACCEPTED',
+    'CATEGORY_REQUEST_APPROVED': 'CATEGORY_REQUEST_APPROVED',
+    'CATEGORY_REQUEST_REJECTED': 'CATEGORY_REQUEST_REJECTED',
+    'SERVICE_TYPE_SUGGESTION_APPROVED': 'SERVICE_TYPE_SUGGESTION_APPROVED',
+    'SERVICE_TYPE_SUGGESTION_REJECTED': 'SERVICE_TYPE_SUGGESTION_REJECTED',
     'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 

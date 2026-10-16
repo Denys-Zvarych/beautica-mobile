@@ -41,7 +41,6 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_actions.dart';
@@ -51,6 +50,7 @@ import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/upload/avatar_editor_binding.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/icons/app_icon.dart';
 import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
@@ -245,7 +245,7 @@ class _MasterProfileScreenState extends ConsumerState<MasterProfileScreen>
             key: const Key('btn-menu-master'),
             icon: BeauticaIcons.menuBurger,
             semanticLabel: l10n.settingsHubMenuButton,
-            onTap: () => context.push(RouteNames.masterMenu),
+            onTap: () => context.pushOnce(RouteNames.masterMenu),
           ),
         ],
       ),
@@ -798,7 +798,7 @@ class _AboutTab extends StatelessWidget {
               AddLink(
                 key: const Key('master-profile-add-bio'),
                 label: l10n.salonManageAddDescriptionLink,
-                onTap: () => context.push(RouteNames.masterEditPersonal),
+                onTap: () => context.pushOnce(RouteNames.masterEditPersonal),
               ),
           ],
         ),

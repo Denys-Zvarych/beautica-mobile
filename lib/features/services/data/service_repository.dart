@@ -1831,13 +1831,14 @@ ServiceCatalogControllerApi serviceCatalogApi(Ref ref) =>
 /// than re-fetched on every watch.
 ///
 /// Because the cache is long-lived, an admin approving a category out-of-band
-/// would otherwise go unseen until a cold restart. The services-list screen
-/// therefore invalidates this provider explicitly so the picker stays fresh:
-///   • on first entry (post-frame callback in `ServicesListScreen.initState`);
-///   • on return from the create / edit / request-category flows (the screen
-///     awaits each `context.push(...)` and invalidates on pop-back — the
-///     /services route is kept alive, so `initState` does not re-fire there);
-///   • on pull-to-refresh (alongside the services reload).
+/// would otherwise go unseen until a cold restart. The services surfaces
+/// therefore refresh it (`category_catalogue_freshness.dart`):
+///   • on «Мої послуги» entry and on service setup / edit open — skipped when
+///     the last successful refresh is under 30 s old or a fetch is in flight;
+///   • on return from the create / edit / request-category flows — throttled
+///     to once per 5 minutes (the /services route is kept alive, so
+///     `initState` does not re-fire there);
+///   • on pull-to-refresh — always, unconditionally.
 /// A successful [ServiceRepository.requestCategory] does NOT itself add a row:
 /// a freshly-requested category is PENDING admin review and only appears once
 /// an admin approves it and one of the refresh paths above re-fetches.

@@ -1181,5 +1181,98 @@ void main() {
         );
       },
     );
+
+    // 2026-10-15 behaviour-parity restore (C1): `runDeleteSalonFlow`'s
+    // single-flight is PER SALON, never a context-wide lock — while salon A's
+    // DELETE is pending, a swipe on salon B still opens B's dialog and
+    // «Додати салон» still pushes, exactly as before the sweep. FALSIFY:
+    // wrap the flow in a context-wide `runOnce(context, ...)` again and B's
+    // swipe opens no dialog / the CTA push is dropped → RED.
+    testWidgets(
+      'while salon A\'s DELETE is pending, swiping salon B opens B\'s dialog '
+      'and «Додати салон» still pushes the register route',
+      (tester) async {
+        final Completer<void> gate = Completer<void>();
+        final repo = FakeSalonRepository(salon: _swipeSalonA)
+          ..deleteSalonGate = gate;
+        final GoRouter router = _router();
+        addTearDown(router.dispose);
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            mySalonsProvider.overrideWith(
+              () => _StubMySalons(
+                () async => <Salon>[_swipeSalonA, _swipeSalonB],
+              ),
+            ),
+            isSalonOwnerProvider.overrideWithValue(true),
+            salonRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_AuthenticatedAsOwner.new),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Salon A: swipe → confirm → DELETE held open by the gate.
+        await _swipeSalonADismissible(tester);
+        await tester.pumpAndSettle();
+        await tester.tap(_confirmDeleteButton);
+        // Bounded pumps — the in-flight overlay spinner never settles.
+        await tester.pump();
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(repo.deleteCalls, 1);
+        expect(repo.lastDeleteSalonId, _swipeSalonA.id);
+        expect(_deleteDialog, findsNothing);
+
+        // Salon B: its own swipe must still reach its confirm dialog.
+        await tester.fling(
+          find.byKey(
+            const ValueKey<String>('my_salons_dismissible_salon-swipe-b'),
+          ),
+          const Offset(-500, 0),
+          1000,
+        );
+        await tester.pump();
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(
+          _deleteDialog,
+          findsOneWidget,
+          reason:
+              'a pending DELETE of salon A must not block salon B\'s delete '
+              'flow — the guard is per salon',
+        );
+        await tester.tap(find.byKey(const Key('btn-cancel-delete-salon')));
+        await tester.pump();
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(_deleteDialog, findsNothing);
+        expect(repo.deleteCalls, 1);
+
+        // «Додати салон» must still push while A's DELETE is pending.
+        await tester.tap(find.byKey(const Key('my_salons_add_cta')));
+        await tester.pump();
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(find.text('register-salon-screen'), findsOneWidget);
+
+        // Release A so its flow (and the per-salon guard) settles.
+        gate.complete();
+        await tester.pump();
+        // fixed-wait-ok: A's in-flight spinner never settles, so
+        // pumpAndSettle cannot run; this steps a route/dialog transition.
+        await tester.pump(const Duration(milliseconds: 400));
+      },
+    );
   });
 }

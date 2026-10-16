@@ -88,9 +88,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -554,7 +554,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
     // which `BookingDetailResponse` does not carry. Same
     // `extra`-carries-the-salon-id contract `_onCreateBooking` below already
     // uses for the sibling `new` route on this exact prefix.
-    context.push(
+    context.pushOnce(
       RouteNames.salonStaffBookingDetail(booking.id),
       extra: widget.salonId,
     );
@@ -588,7 +588,7 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
   /// board, exactly like `_onBookingTap`'s own "routes this deliberately is
   /// NOT" note).
   void _openCreateBooking() {
-    context.push(RouteNames.salonStaffBookingNew, extra: widget.salonId);
+    context.pushOnce(RouteNames.salonStaffBookingNew, extra: widget.salonId);
   }
 
   @override
@@ -842,12 +842,22 @@ class _SalonBookingsScreenState extends ConsumerState<SalonBookingsScreen> {
         // depends on. The salon id rides `extra` because nothing on
         // `/salon/bookings/archive` carries it — the same contract
         // `/salon/bookings/new` already uses from this very screen.
-        onOpenArchive: () => context
-            .push(RouteNames.salonStaffBookingsArchive, extra: widget.salonId)
-            .then((_) {
-              // Phase 395 — the archive is where rows get closed / rated.
-              if (mounted) invalidatePendingBookingActionsCount(ref);
-            }),
+        onOpenArchive: () {
+          // Single-flight: a re-tap while the archive is still open is
+          // dropped by `pushOnce`, which resolves `null` at once — return
+          // first so the `.then` invalidate below runs only on a REAL
+          // archive close, exactly as before the guard.
+          if (isFlightOpen(context)) return;
+          context
+              .pushOnce(
+                RouteNames.salonStaffBookingsArchive,
+                extra: widget.salonId,
+              )
+              .then((_) {
+                // Phase 395 — the archive is where rows get closed / rated.
+                if (mounted) invalidatePendingBookingActionsCount(ref);
+              });
+        },
         // Phase 395 — red pending-actions badge on the archive icon (this
         // board is reachable only past the `canManageSalonProvider` gate).
         archiveBadgeCount: ref.watch(

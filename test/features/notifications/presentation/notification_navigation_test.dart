@@ -172,6 +172,67 @@ void main() {
     });
   });
 
+  group('routeFor serviceCatalog (phase 412)', () {
+    const NotificationTarget catalog = NotificationTarget.serviceCatalog();
+
+    test('should_openServices_when_independentMaster', () {
+      expect(routeFor(catalog, UserRole.independentMaster), '/services');
+      expect(
+        routeFor(catalog, UserRole.independentMaster),
+        RouteNames.services,
+      );
+    });
+
+    test('should_openOwnerMasterServices_when_salonOwner', () {
+      expect(
+        routeFor(catalog, UserRole.salonOwner),
+        RouteNames.ownerMasterServices,
+      );
+      expect(routeFor(catalog, UserRole.salonOwner), '/owner/master/services');
+      // The owner's destination does not depend on any salon id.
+      expect(
+        routeFor(catalog, UserRole.salonOwner, adminSalonId: _salon),
+        RouteNames.ownerMasterServices,
+      );
+    });
+
+    test('should_openTeamTabOfBoundSalon_when_salonAdmin', () {
+      expect(
+        routeFor(catalog, UserRole.salonAdmin, adminSalonId: _salon),
+        RouteNames.salonShell(_salon, openTeam: true),
+      );
+    });
+
+    test('should_returnNull_when_salonAdminHasNoBoundSalon', () {
+      expect(routeFor(catalog, UserRole.salonAdmin), isNull);
+      expect(routeFor(catalog, UserRole.salonAdmin, adminSalonId: ''), isNull);
+      expect(
+        routeFor(catalog, UserRole.salonAdmin, adminSalonId: '  '),
+        isNull,
+      );
+    });
+
+    test('should_returnNull_when_salonMasterClientOrSignedOut', () {
+      expect(
+        routeFor(catalog, UserRole.salonMaster, adminSalonId: _salon),
+        isNull,
+      );
+      expect(routeFor(catalog, UserRole.client, adminSalonId: _salon), isNull);
+      expect(routeFor(catalog, null, adminSalonId: _salon), isNull);
+    });
+
+    test('should_notTreatTheFourTypesAsBookingTypes', () {
+      for (final AppNotificationType t in <AppNotificationType>[
+        AppNotificationType.categoryRequestApproved,
+        AppNotificationType.categoryRequestRejected,
+        AppNotificationType.serviceTypeSuggestionApproved,
+        AppNotificationType.serviceTypeSuggestionRejected,
+      ]) {
+        expect(isBookingNotificationType(t), isFalse, reason: t.name);
+      }
+    });
+  });
+
   group('routeFor reviewReceived (phase 391)', () {
     const AppNotificationType rr = AppNotificationType.reviewReceived;
     const NotificationTarget noSalon = NotificationTarget.booking(

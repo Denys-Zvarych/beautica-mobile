@@ -75,6 +75,8 @@ import 'salon_admin_set_master_services_flow_test.dart'
     as salon_admin_set_master_services;
 import 'service_favourite_flow_test.dart' as service_favourite;
 import 'service_append_flow_test.dart' as service_append;
+import 'services_catalogue_refresh_flow_test.dart'
+    as services_catalogue_refresh;
 import 'service_crud_flow_test.dart' as service_crud;
 import 'service_delete_flow_test.dart' as service_delete;
 import 'service_duplicate_flow_test.dart' as service_duplicate;
@@ -94,6 +96,8 @@ import 'notification_tap_to_detail_flow_test.dart'
     as notification_tap_to_detail;
 import 'notifications_flow_test.dart' as notifications;
 import 'notifications_mark_read_flow_test.dart' as notifications_mark_read;
+import 'notification_category_decision_flow_test.dart'
+    as notification_category_decision;
 import 'notifications_provider_flow_test.dart' as notifications_provider;
 import 'owner_multi_salon_feed_flow_test.dart' as owner_multi_salon_feed;
 import 'pending_actions_count_wiring_test.dart' as pending_actions_count;
@@ -321,6 +325,9 @@ void main() {
   // the type they already offer renders inert, and the bulk POST carries only
   // the new one (Step 2.7 Rule 3b — the one-screen add-services consolidation).
   group('service_append_flow', service_append.main);
+  // fix/services-catalogue-refresh — an admin-approved category reaches
+  // «Мої послуги» (pull) and the add-service picker (open past the 30 s floor).
+  group('services_catalogue_refresh_flow', services_catalogue_refresh.main);
   // Phase 318 (Step 2.7 Rule 3b) — the «Послуги» roster tile end to end: real
   // roster tap -> real salon-scoped ServicesListScreen -> real FAB bulk-add
   // -> D4 refetch -> real unassign -> D4 refetch again (closes the inherited
@@ -377,6 +384,11 @@ void main() {
   group('notification_bell_flow', notification_bell.main);
   // Phase 363 — feed: ✓ per row, mark-all, pull-to-refresh, owner two-salon labels.
   group('notifications_mark_read_flow', notifications_mark_read.main);
+  // Phase 412 — category-request decision row -> tap -> «Послуги».
+  group(
+    'notification_category_decision_flow',
+    notification_category_decision.main,
+  );
   // Phase 364 — tap a notification -> per-role detail / «Команда» / unavailable snack -> back.
   group('notification_tap_to_detail_flow', notification_tap_to_detail.main);
   // Phase 365 — the feed over the REAL HTTP path (poll, bell dot, tap, mark read, resume).

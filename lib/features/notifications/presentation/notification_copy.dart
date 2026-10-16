@@ -54,6 +54,14 @@ abstract final class NotificationCopy {
       l10n.notificationTitleSalonClosed,
     AppNotificationType.bookingCancelledMasterRemoved =>
       l10n.notificationTitleMasterRemoved,
+    AppNotificationType.categoryRequestApproved =>
+      l10n.notificationTitleCategoryApproved,
+    AppNotificationType.categoryRequestRejected =>
+      l10n.notificationTitleCategoryRejected,
+    AppNotificationType.serviceTypeSuggestionApproved =>
+      l10n.notificationTitleServiceTypeApproved,
+    AppNotificationType.serviceTypeSuggestionRejected =>
+      l10n.notificationTitleServiceTypeRejected,
     AppNotificationType.unknown => l10n.notificationTitleUnknown,
   };
 
@@ -82,6 +90,8 @@ abstract final class NotificationCopy {
           : l10n.notificationRoleSalonMaster;
       return l10n.notificationBodyInviteAccepted(subject, role);
     }
+
+    if (isCatalogDecision(item.type)) return _decisionBody(l10n, item);
 
     final String? counterpart = sanitize(p.counterpartName);
     final String? serviceName = sanitize(p.serviceName);
@@ -125,6 +135,71 @@ abstract final class NotificationCopy {
         : l10n.notificationBodyProvider(counterpart, service, when);
   }
 
+  /// Body line clamp for a decision row: the sentence (up to 2 lines) plus the
+  /// reason line.
+  static const int decisionBodyMaxLines = 3;
+
+  /// Whether [type] is a phase-412 category-request / service-type decision
+  /// (its body may carry a second «Причина: …» line).
+  static bool isCatalogDecision(AppNotificationType type) => switch (type) {
+    AppNotificationType.categoryRequestApproved ||
+    AppNotificationType.categoryRequestRejected ||
+    AppNotificationType.serviceTypeSuggestionApproved ||
+    AppNotificationType.serviceTypeSuggestionRejected => true,
+    _ => false,
+  };
+
+  /// Phase 412 — body of a category-request / service-type decision. A null
+  /// required name (the request row was deleted) reads «params gone». The
+  /// reason line («Причина: …») is added only on a `*Rejected` type with a
+  /// non-blank reason; the reason is sanitised like every server string and is
+  /// never logged.
+  static String _decisionBody(AppLocalizations l10n, AppNotification item) {
+    final NotificationParams p = item.params;
+    final String? category = sanitize(p.categoryName);
+    final String? serviceType = sanitize(p.serviceName);
+    final String sentence;
+    switch (item.type) {
+      case AppNotificationType.categoryRequestApproved:
+        if (category == null) return l10n.notificationsParamsGone;
+        sentence = l10n.notificationBodyCategoryApproved(category);
+      case AppNotificationType.categoryRequestRejected:
+        if (category == null) return l10n.notificationsParamsGone;
+        sentence = l10n.notificationBodyCategoryRejected(category);
+      case AppNotificationType.serviceTypeSuggestionApproved:
+        if (category == null || serviceType == null) {
+          return l10n.notificationsParamsGone;
+        }
+        sentence = l10n.notificationBodyServiceTypeApproved(
+          serviceType,
+          category,
+        );
+      case AppNotificationType.serviceTypeSuggestionRejected:
+        if (category == null || serviceType == null) {
+          return l10n.notificationsParamsGone;
+        }
+        sentence = l10n.notificationBodyServiceTypeRejected(
+          serviceType,
+          category,
+        );
+      default:
+        return l10n.notificationsParamsGone;
+    }
+    final bool rejected =
+        item.type == AppNotificationType.categoryRequestRejected ||
+        item.type == AppNotificationType.serviceTypeSuggestionRejected;
+    final String? reason = rejected
+        ? sanitize(
+            p.decisionReason,
+            maxLength: maxReasonLength,
+            maxUnits: maxReasonOutputUnits,
+          )
+        : null;
+    return reason == null
+        ? sentence
+        : '$sentence\n${l10n.notificationDecisionReason(reason)}';
+  }
+
   // The code points are spelled as doubled-backslash escapes / char codes so
   // the SOURCE stays plain ASCII: a literal bidi character in a Dart string is
   // exactly what `text_direction_code_point_in_literal` forbids.
@@ -152,6 +227,14 @@ abstract final class NotificationCopy {
 
   /// Longest value (in user-perceived characters) spliced into a sentence.
   static const int maxNameLength = 80;
+
+  /// Longest admin reject reason (user-perceived characters); the backend
+  /// allows 300 code points. The tile's line clamp bounds the display.
+  static const int maxReasonLength = 300;
+
+  /// UTF-16 budget for a reason — proportional to [maxReasonLength]
+  /// (the name ratio is 320 / 80, relaxed to 2 units per grapheme).
+  static const int maxReasonOutputUnits = 600;
 
   /// Most combining marks kept after one base character (zalgo defence).
   static const int maxCombiningRun = 2;
@@ -227,7 +310,14 @@ abstract final class NotificationCopy {
   /// has a visible base character. Wraps the result in FSI…PDI so even a
   /// legitimate right-to-left name cannot reorder the sentence. `null` when
   /// nothing visible is left (the caller treats that like a missing field).
-  static String? sanitize(String? raw) {
+  ///
+  /// [maxLength] / [maxUnits] override the grapheme and UTF-16 caps (default:
+  /// the name caps); only the admin reject reason passes larger ones.
+  static String? sanitize(
+    String? raw, {
+    int maxLength = maxNameLength,
+    int maxUnits = maxOutputUnits,
+  }) {
     if (raw == null) return null;
     final String clean = _capMarks(
       _truncateUnits(raw, maxRawUnits)
@@ -236,7 +326,7 @@ abstract final class NotificationCopy {
           .replaceAll(_spaceLike, ' ')
           .trim(),
     );
-    final String? capped = _capDisplay(clean);
+    final String? capped = _capDisplay(clean, maxLength, maxUnits);
     if (capped == null) return null;
     return '$_fsi$capped$_pdi';
   }
@@ -245,15 +335,15 @@ abstract final class NotificationCopy {
   /// cutting only between graphemes. A cut re-appends «…» inside the budget
   /// and never leaves a dangling joiner / selector / mark before it. `null`
   /// when the kept text has no visible base (a lone «…» does not count).
-  static String? _capDisplay(String s) {
+  static String? _capDisplay(String s, int maxLength, int maxUnits) {
     String head = s;
     bool cut = false;
     // Graphemes never outnumber UTF-16 units, so a short string needs no scan.
-    if (s.length > maxNameLength) {
+    if (s.length > maxLength) {
       final List<String> kept = <String>[];
       int units = 0;
       for (final String g in s.characters) {
-        if (kept.length == maxNameLength || units + g.length > maxOutputUnits) {
+        if (kept.length == maxLength || units + g.length > maxUnits) {
           cut = true;
           break;
         }
@@ -261,7 +351,7 @@ abstract final class NotificationCopy {
         units += g.length;
       }
       if (cut) {
-        while (kept.isNotEmpty && units > maxOutputUnits - 1) {
+        while (kept.isNotEmpty && units > maxUnits - 1) {
           units -= kept.removeLast().length;
         }
         head = _trimDangling(kept.join()).trimRight();
@@ -320,6 +410,11 @@ abstract final class NotificationCopy {
     AppNotificationType.bookingCancelledSalonClosed => Icons.storefront_rounded,
     AppNotificationType.bookingCancelledMasterRemoved =>
       Icons.person_remove_rounded,
+    AppNotificationType.categoryRequestApproved ||
+    AppNotificationType.serviceTypeSuggestionApproved =>
+      Icons.check_circle_rounded,
+    AppNotificationType.categoryRequestRejected ||
+    AppNotificationType.serviceTypeSuggestionRejected => Icons.cancel_rounded,
     AppNotificationType.unknown => Icons.notifications_rounded,
   };
 

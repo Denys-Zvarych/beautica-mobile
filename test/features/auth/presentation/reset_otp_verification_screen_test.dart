@@ -119,7 +119,7 @@ void main() {
       final btn = tester.widget<NeumorphicButton>(
         find.byKey(const ValueKey<String>('reset_otp_submit')),
       );
-      expect(btn.onPressed, isNull);
+      expect(btn.onPressedAsync, isNull);
     });
 
     testWidgets(
@@ -142,7 +142,7 @@ void main() {
         final btn = tester.widget<NeumorphicButton>(
           find.byKey(const ValueKey<String>('reset_otp_submit')),
         );
-        expect(btn.onPressed, isNotNull);
+        expect(btn.onPressedAsync, isNotNull);
 
         await tester.tap(
           find.byKey(const ValueKey<String>('reset_otp_submit')),
@@ -490,7 +490,7 @@ void main() {
         );
         expect(btn.loading, isTrue);
         expect(
-          btn.onPressed,
+          btn.onPressedAsync,
           isNull,
           reason: 'the CTA must be disabled while submitting',
         );

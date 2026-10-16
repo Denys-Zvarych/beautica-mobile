@@ -199,11 +199,11 @@ void main() {
           // The screen's own data — never needs to SETTLE for this test
           // (which only asserts the resolved WIDGET TYPE), but must not
           // throw synchronously while building the provider graph.
-          salonStaffMastersRosterProvider.overrideWith(
-            () => FakeSalonStaffMastersRoster(() => []),
+          salonStaffMastersRosterProvider.overrideWith2(
+            (_) => FakeSalonStaffMastersRoster(() => []),
           ),
-          salonMasterServiceCoverageProvider.overrideWith(
-            () => FakeSalonMasterServiceCoverage(
+          salonMasterServiceCoverageProvider.overrideWith2(
+            (_) => FakeSalonMasterServiceCoverage(
               () => salonCoverageOf(<String, Map<String, String>>{}),
             ),
           ),

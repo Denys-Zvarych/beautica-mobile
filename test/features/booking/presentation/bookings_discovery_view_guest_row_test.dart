@@ -155,8 +155,8 @@ class _DataSchedule extends EffectiveScheduleNotifier {
 /// 09:00–18:00 on [_day] — the guest row below starts at 11:00, comfortably
 /// inside it, so anything that drops the row is the row's own shape and never
 /// the window arithmetic.
-Object _resolvedWorkingHours() => effectiveScheduleProvider.overrideWith(
-  () => _DataSchedule(<EffectiveDay>[
+Object _resolvedWorkingHours() => effectiveScheduleProvider.overrideWith2(
+  (_) => _DataSchedule(<EffectiveDay>[
     EffectiveDay(
       date: _day,
       source: EffectiveSource.template,
