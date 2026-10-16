@@ -524,6 +524,12 @@ jobs:
         shell: bash
         run: ./scripts/test/test_raw_network_image_guard.sh
 
+      # Self-test of the patrol retry gate (fail-closed matrix on log fixtures).
+      # why: docs/ci/patrol.md#patrol-retry
+      - name: Self-test patrol retry gate
+        shell: bash
+        run: ./scripts/ci/patrol_retry_gate.sh --self-test
+
       # Phase 1.4: go_router-only navigation in lib/features; comment-only lines skipped.
       # why: docs/ci/static-guards.md#direct-navigator
       - name: Forbid direct Navigator usage in features
@@ -1417,6 +1423,11 @@ jobs:
       - name: Enable KVM
         uses: ./.github/actions/enable-kvm
 
+      # Preinstall the platform :add_2_calendar needs; a Gradle download can fail mid-build.
+      # why: docs/ci/patrol.md#sdk-preinstall
+      - name: Install Android SDK platform
+        uses: ./.github/actions/android-sdk-platform
+
       # 2026-07-07: upstream emulator ColorBuffer crash AFTER the tests; gate on log
       # content, retry with a fresh boot, separate boots per part.
       # why: docs/ci/emulator-integration.md#root-cause-2026-07-07
@@ -1677,6 +1688,11 @@ jobs:
       - name: Enable KVM
         uses: ./.github/actions/enable-kvm
 
+      # Preinstall the platform :add_2_calendar needs; a Gradle download can fail mid-build.
+      # why: docs/ci/patrol.md#sdk-preinstall
+      - name: Install Android SDK platform
+        uses: ./.github/actions/android-sdk-platform
+
       - name: Run logout flow in profile mode on emulator
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
@@ -1747,7 +1763,14 @@ jobs:
       - name: Enable KVM
         uses: ./.github/actions/enable-kvm
 
-      - name: Run patrol native tests on emulator
+      # Preinstall the platform :add_2_calendar needs; a Gradle download can fail mid-build.
+      # why: docs/ci/patrol.md#sdk-preinstall
+      - name: Install Android SDK platform
+        uses: ./.github/actions/android-sdk-platform
+
+      - name: Run patrol native tests on emulator (attempt 1)
+        id: patrol-attempt-1
+        continue-on-error: true
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: ${{ matrix.api-level }}
@@ -1758,6 +1781,7 @@ jobs:
           script: |
             # Background device logcat (own line, so it survives this line's sh -c).
             # why: docs/ci/patrol.md#patrol-logcat-capture
+            : > "$GITHUB_WORKSPACE/patrol-attempt-1.log"
             adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
             # Keep the ADB-install verifier out of the way during patrol's reinstall.
             adb shell settings put global verifier_verify_adb_installs 0 || true
@@ -1766,18 +1790,89 @@ jobs:
             # why: docs/ci/patrol.md#approve-loop
             rm -f /tmp/patrol_approve_done || true
             ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do out1=$(timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app 2>&1); rc1=$?; out2=$(timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app 2>&1); rc2=$?; if [ "$rc1" -ne 0 ] || [ -n "$out1" ] || [ "$rc2" -ne 0 ] || [ -n "$out2" ]; then echo "APPROVE-LOOP iter=$i set-app-links rc=$rc1 out=[$out1] user-selection rc=$rc2 out=[$out2]" >> /tmp/patrol_approve.log; fi; i=$((i+1)); sleep 1; done ) &
-            patrol build android --target integration_test/patrol
+            # Output goes to the attempt log (the retry gate reads it), then to the step log.
+            # why: docs/ci/patrol.md#patrol-retry
+            patrol build android --target integration_test/patrol >> "$GITHUB_WORKSPACE/patrol-attempt-1.log" 2>&1; RC=$?; cat "$GITHUB_WORKSPACE/patrol-attempt-1.log"; if [ "$RC" -ne 0 ]; then : > /tmp/patrol_approve_done; exit "$RC"; fi
             # DIAGNOSTIC: domain-verification state right before the suite.
             # why: docs/ci/patrol.md#pre-test-app-links
             echo "=== pm get-app-links (pre-test) ==="; adb shell pm get-app-links com.beautica.beautica_mobile 2>&1 || true
             # GALLERY SEED (PR #79): fail here if the MediaStore fixture row is missing.
             # why: docs/ci/patrol.md#gallery-seed
             timeout 60 ./scripts/seed_gallery_fixture.sh && timeout 30 adb shell content query --uri content://media/external/images/media --projection _data | grep -q beautica_avatar_fixture.jpg || { echo "GALLERY SEED FAILED: no MediaStore row for beautica_avatar_fixture.jpg"; exit 1; }
+            echo "seeded gallery fixture" >> "$GITHUB_WORKSPACE/patrol-attempt-1.log"
             # Run patrol, stop the loop, exit with patrol's code: ONE line (sh -c per line).
             # why: docs/ci/patrol.md#patrol-exit
             # 1200s (was 900): services_fab_cold_start_patrol_test.dart adds 5 cold-start
             # cases (~20-25s each). why: docs/ci/patrol.md#patrol-test-bound
-            timeout --signal=TERM --kill-after=60 1200 patrol test --target integration_test/patrol --verbose; RC=$?; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 1200s (rc=$RC). A healthy suite is ~12min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
+            timeout --signal=TERM --kill-after=60 1200 patrol test --target integration_test/patrol --verbose > "$GITHUB_WORKSPACE/patrol-test-1.log" 2>&1; RC=$?; cat "$GITHUB_WORKSPACE/patrol-test-1.log"; cat "$GITHUB_WORKSPACE/patrol-test-1.log" >> "$GITHUB_WORKSPACE/patrol-attempt-1.log"; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 1200s" >> "$GITHUB_WORKSPACE/patrol-attempt-1.log"; echo "PATROL TIMED OUT after 1200s (rc=$RC). A healthy suite is ~12min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
+
+
+      # Retry once, on a lost device / SDK-download failure ONLY (the gate fails closed).
+      # why: docs/ci/patrol.md#patrol-retry
+      - name: Decide patrol retry (lost device only)
+        id: patrol-gate
+        if: steps.patrol-attempt-1.outcome == 'failure'
+        shell: bash
+        run: |
+          rc=0
+          bash scripts/ci/patrol_retry_gate.sh "$GITHUB_WORKSPACE/patrol-attempt-1.log" || rc=$?
+          if [ "$rc" -eq 0 ]; then echo "retry=true" >> "$GITHUB_OUTPUT"; else echo "retry=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Run patrol native tests on emulator (attempt 2, lost device only)
+        id: patrol-attempt-2
+        if: steps.patrol-gate.outputs.retry == 'true'
+        continue-on-error: true
+        uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          profile: pixel_6
+          # Scope to integration_test/patrol (non-patrol flows stay on `integration`).
+          # why: docs/ci/patrol.md#patrol-scope
+          script: |
+            # Background device logcat (own line, so it survives this line's sh -c).
+            # why: docs/ci/patrol.md#patrol-logcat-capture
+            : > "$GITHUB_WORKSPACE/patrol-attempt-2.log"
+            adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat-attempt2.txt" 2>&1 &
+            # Keep the ADB-install verifier out of the way during patrol's reinstall.
+            adb shell settings put global verifier_verify_adb_installs 0 || true
+            # BACKGROUND RE-APPROVAL LOOP (load-bearing): cadence MUST stay 1s; stops via
+            # the sentinel file; ONE self-contained line.
+            # why: docs/ci/patrol.md#approve-loop
+            rm -f /tmp/patrol_approve_done || true
+            ( i=0; while [ ! -f /tmp/patrol_approve_done ] && [ "$i" -lt 1200 ]; do out1=$(timeout 10 adb shell pm set-app-links --package com.beautica.beautica_mobile 2 beautica-backend-production.up.railway.app 2>&1); rc1=$?; out2=$(timeout 10 adb shell pm set-app-links-user-selection --user 0 --package com.beautica.beautica_mobile true beautica-backend-production.up.railway.app 2>&1); rc2=$?; if [ "$rc1" -ne 0 ] || [ -n "$out1" ] || [ "$rc2" -ne 0 ] || [ -n "$out2" ]; then echo "APPROVE-LOOP iter=$i set-app-links rc=$rc1 out=[$out1] user-selection rc=$rc2 out=[$out2]" >> /tmp/patrol_approve.log; fi; i=$((i+1)); sleep 1; done ) &
+            # Output goes to the attempt log (the retry gate reads it), then to the step log.
+            # why: docs/ci/patrol.md#patrol-retry
+            patrol build android --target integration_test/patrol >> "$GITHUB_WORKSPACE/patrol-attempt-2.log" 2>&1; RC=$?; cat "$GITHUB_WORKSPACE/patrol-attempt-2.log"; if [ "$RC" -ne 0 ]; then : > /tmp/patrol_approve_done; exit "$RC"; fi
+            # DIAGNOSTIC: domain-verification state right before the suite.
+            # why: docs/ci/patrol.md#pre-test-app-links
+            echo "=== pm get-app-links (pre-test) ==="; adb shell pm get-app-links com.beautica.beautica_mobile 2>&1 || true
+            # GALLERY SEED (PR #79): fail here if the MediaStore fixture row is missing.
+            # why: docs/ci/patrol.md#gallery-seed
+            timeout 60 ./scripts/seed_gallery_fixture.sh && timeout 30 adb shell content query --uri content://media/external/images/media --projection _data | grep -q beautica_avatar_fixture.jpg || { echo "GALLERY SEED FAILED: no MediaStore row for beautica_avatar_fixture.jpg"; exit 1; }
+            echo "seeded gallery fixture" >> "$GITHUB_WORKSPACE/patrol-attempt-2.log"
+            # Run patrol, stop the loop, exit with patrol's code: ONE line (sh -c per line).
+            # why: docs/ci/patrol.md#patrol-exit
+            # 1200s (was 900): services_fab_cold_start_patrol_test.dart adds 5 cold-start
+            # cases (~20-25s each). why: docs/ci/patrol.md#patrol-test-bound
+            timeout --signal=TERM --kill-after=60 1200 patrol test --target integration_test/patrol --verbose > "$GITHUB_WORKSPACE/patrol-test-2.log" 2>&1; RC=$?; cat "$GITHUB_WORKSPACE/patrol-test-2.log"; cat "$GITHUB_WORKSPACE/patrol-test-2.log" >> "$GITHUB_WORKSPACE/patrol-attempt-2.log"; : > /tmp/patrol_approve_done; if [ "$RC" -eq 124 ] || [ "$RC" -eq 137 ]; then echo "PATROL TIMED OUT after 1200s" >> "$GITHUB_WORKSPACE/patrol-attempt-2.log"; echo "PATROL TIMED OUT after 1200s (rc=$RC). A healthy suite is ~12min, so this is a hang, not slowness. Two causes seen so far, and the logcat (uploaded on always()) tells them apart: (1) the DEEP-LINK test hanging because App Link approval was lost, so the URL opened in a browser, the app was backgrounded, and pump() blocked forever waiting for a frame the stopped engine never produced — check the re-approval loop above is still at 1s; (2) patrol_cli stuck on its post-run uninstall against a wedged adb link, which looks like the suite finishing and then nothing."; fi; exit $RC
+
+
+      # The job verdict: attempt 2 when it ran, else attempt 1. Never green on a failure.
+      # why: docs/ci/patrol.md#patrol-retry
+      - name: Verify patrol passed on some attempt
+        if: always()
+        shell: bash
+        env:
+          A1: ${{ steps.patrol-attempt-1.outcome }}
+          A2: ${{ steps.patrol-attempt-2.outcome }}
+        run: |
+          if [ "$A2" != "skipped" ] && [ -n "$A2" ]; then
+            [ "$A2" = "success" ] && { echo "PATROL: attempt 2 passed (attempt 1: $A1)."; exit 0; }
+            echo "PATROL: attempt 2 ran and did not pass ($A2); attempt 1: $A1."; exit 1
+          fi
+          [ "$A1" = "success" ] && { echo "PATROL: attempt 1 passed."; exit 0; }
+          echo "PATROL: attempt 1 did not pass ($A1) and no retry was granted."; exit 1
 
       - name: Collect emulator host-side diagnostics
         # The ColorBuffer race prints on the emulator's stdout (unreachable); collect the rest.
@@ -1814,6 +1909,9 @@ jobs:
           name: patrol-logcat-${{ github.run_number }}-api${{ matrix.api-level }}
           path: |
             patrol-logcat.txt
+            patrol-logcat-attempt2.txt
+            patrol-attempt-1.log
+            patrol-attempt-2.log
             emulator-diag/
           if-no-files-found: ignore
           retention-days: 7

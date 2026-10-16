@@ -1,0 +1,44 @@
+name: Install Android SDK platform
+description: >-
+  Preinstall the Android SDK platform that :add_2_calendar compiles against, so
+  Gradle never downloads it mid-build (PR #95 attempt 3 died 8 s into
+  `patrol build`). Quiet on success, loud on failure.
+
+# Loaded from the PR head like every local `uses: ./…`: never use it in plan,
+# tests-ran or ci-gate. why: docs/ci/README.md#trust
+inputs:
+  package:
+    description: sdkmanager package id
+    required: false
+    default: 'platforms;android-33'
+
+runs:
+  using: composite
+  steps:
+    - name: Install SDK platform
+      shell: bash
+      env:
+        SDK_PACKAGE: ${{ inputs.package }}
+      run: |
+        sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+        if [ -z "$sdk_root" ] || [ ! -x "$sdkmanager" ]; then
+          echo "::error::sdkmanager not found at '$sdkmanager' (ANDROID_HOME='$sdk_root')"
+          exit 1
+        fi
+        log="$(mktemp)"
+        # `yes` answers the licence prompt; its SIGPIPE is expected, so judge sdkmanager's own status.
+        yes 2>/dev/null | "$sdkmanager" --install "$SDK_PACKAGE" > "$log" 2>&1
+        rc="${PIPESTATUS[1]}"
+        if [ "$rc" -ne 0 ]; then
+          cat "$log"
+          echo "::error::sdkmanager --install '$SDK_PACKAGE' failed (rc=$rc)"
+          exit 1
+        fi
+        dir="$sdk_root/${SDK_PACKAGE//;//}"
+        if [ ! -d "$dir" ]; then
+          cat "$log"
+          echo "::error::'$SDK_PACKAGE' reported installed but '$dir' is missing"
+          exit 1
+        fi
+        echo "installed $SDK_PACKAGE"
