@@ -249,6 +249,32 @@ run in the `gates-fast` job. The step log is replayed with `cat` after each
 command (no `| tee`: a lingering adb/gradle daemon holding the pipe would
 hang the step).
 
+<a id="patrol-gpu-guest"></a>
+
+### patrol: emulator GPU mode (experiment 2026-10-17)
+
+Both emulator-runner steps (attempt 1 and attempt 2) run with `ram-size: 4096M`,
+`heap-size: 512M` and `emulator-options: -no-window -no-snapshot -noaudio
+-no-boot-anim -camera-back none -gpu guest` on API 34. Data: the throwaway
+`patrol-experiment.yml` on `fix/patrol-stability-exp` (runs 38973208712 and
+39020105251).
+
+| Config | Result |
+|---|---|
+| Winner: 4096M RAM, 512M heap, `-gpu guest`, API 34 | 10/10 passes across two waves, 0 emulator losses |
+| Previous config (`swiftshader_indirect`, the action default) | 3/4 |
+| RAM alone | 2/4 |
+| `swangle_indirect` without RAM | 2/3 |
+| API 35 with `guest` + RAM | 3/3 |
+
+Why: `-gpu guest` renders inside the guest, so it avoids the host-side
+swiftshader ColorBuffer release race that kills the whole emulator
+(android-emulator-runner#358, flutter#153445). Rejected: RAM alone,
+`swangle_indirect` without RAM, API 35 (works, but no gain over API 34 and
+fewer samples). `scripts/ci/patrol_retry_gate.sh` and attempt 2 stay as the
+safety net. The `integration` and `integration-profile` jobs were not measured
+and keep the default GPU.
+
 <a id="patrol-test-bound"></a>
 
 ### patrol: `patrol test` bound (1200s, raised 2026-10-15)
