@@ -107,6 +107,9 @@ trail, including two rounds that turned out NOT to fully explain it):
      still fires WITHIN `all_tests_part1.dart` itself (the 1st→2nd
      relaunch transition inside that one process), never actually
      reaching this sleep.
+  (2026-10-17 update: the Patrol job now runs `-gpu guest`, which avoids this
+  host-side crash class: 10/10 passes. See docs/ci/patrol.md#patrol-gpu-guest.
+  This job still uses the default GPU; it was not measured.)
   3. THE ACTUAL FIX — success detection by log content, not shell
      exit code. Confirmed on repeated samples: the 1st→2nd relaunch
      transition inside `all_tests_part1.dart` always logs `Failed to
