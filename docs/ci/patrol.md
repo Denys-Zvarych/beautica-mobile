@@ -257,20 +257,23 @@ Both emulator-runner steps (attempt 1 and attempt 2) run with `ram-size: 4096M`,
 `heap-size: 512M` and `emulator-options: -no-window -no-snapshot -noaudio
 -no-boot-anim -camera-back none -gpu guest` on API 34. Data: the throwaway
 `patrol-experiment.yml` on `fix/patrol-stability-exp` (runs 38973208712 and
-39020105251).
+39020105251). The summary's per-job ColorBuffer count could not be fetched
+from the job logs, so pass/fail and device loss are the measured signals.
 
 | Config | Result |
 |---|---|
 | Winner: 4096M RAM, 512M heap, `-gpu guest`, API 34 | 10/10 passes across two waves, 0 emulator losses |
 | Previous config (`swiftshader_indirect`, the action default) | 3/4 |
 | RAM alone | 2/4 |
+| `swangle_indirect` + RAM, API 34 | 10/10 (runner-up: equally stable, slower median wall time 496 s vs 448 s) |
+| `guest` without RAM | 3/3 (too few samples to drop the RAM) |
 | `swangle_indirect` without RAM | 2/3 |
 | API 35 with `guest` + RAM | 3/3 |
 
 Why: `-gpu guest` renders inside the guest, so it avoids the host-side
 swiftshader ColorBuffer release race that kills the whole emulator
-(android-emulator-runner#358, flutter#153445). Rejected: RAM alone,
-`swangle_indirect` without RAM, API 35 (works, but no gain over API 34 and
+(android-emulator-runner#358, flutter#153445). Chosen over the equally stable `swangle_indirect` + RAM because it was faster and
+first to reach 10/10. Rejected: RAM alone, `swangle_indirect` without RAM, API 35 (works, but no gain over API 34 and
 fewer samples). `scripts/ci/patrol_retry_gate.sh` and attempt 2 stay as the
 safety net. The `integration` and `integration-profile` jobs were not measured
 and keep the default GPU.
