@@ -3005,6 +3005,11 @@ final class FakeBackend {
   /// Number of `POST /api/v1/support/contact` calls the fake accepted (202).
   int supportContactCalls = 0;
 
+  /// `filename|contentType` of every `attachments` file part across all
+  /// accepted support POSTs, in wire order. Lets a flow assert exactly which
+  /// files reached the backend (e.g. a rejected `.webp` never leaves the app).
+  final List<String> supportContactAttachments = <String>[];
+
   // ── Media avatar telemetry (Phase 070) ────────────────────────────────────
   /// Number of `POST /api/v1/media/avatar` calls the fake received (counted
   /// even when [mediaAvatarUploadStatus] makes it fail).
@@ -7595,8 +7600,17 @@ final class FakeBackend {
     // do not decode it; the endpoint's contract is a 202 Accepted on success.
     _adapter.onRoute(
       '/api/v1/support/contact',
-      (server) => server.replyCallback(202, (_) {
+      (server) => server.replyCallback(202, (options) {
         supportContactCalls++;
+        final Object? body = options.data;
+        if (body is FormData) {
+          for (final MapEntry<String, MultipartFile> part in body.files) {
+            if (part.key != 'attachments') continue;
+            supportContactAttachments.add(
+              '${part.value.filename}|${part.value.contentType}',
+            );
+          }
+        }
         return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
