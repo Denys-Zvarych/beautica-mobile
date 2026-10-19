@@ -24,6 +24,28 @@ void main() {
       expect(got.isUtc, isTrue);
     });
 
+    test('09:00 Kyiv on the fall-back day itself (2026-10-25) is 07:00Z', () {
+      // The switch happens at 04:00 local, so 09:00 is already UTC+2.
+      expect(
+        kyivWallClockUtc(DateTime(2026, 10, 25), 9),
+        DateTime.utc(2026, 10, 25, 7),
+      );
+    });
+
+    test('spring-forward (2027-03-28): 09:00 Kyiv is 07:00Z the day before, '
+        '06:00Z on the day', () {
+      // Europe/Kyiv enters summer time at 03:00 local on Sunday 2027-03-28
+      // (UTC+2 -> UTC+3) — the direction the rolling fixture day crosses next.
+      expect(
+        kyivWallClockUtc(DateTime(2027, 3, 27), 9),
+        DateTime.utc(2027, 3, 27, 7),
+      );
+      expect(
+        kyivWallClockUtc(DateTime(2027, 3, 28), 9),
+        DateTime.utc(2027, 3, 28, 6),
+      );
+    });
+
     test('minute is carried through, defaulting to 0', () {
       expect(
         kyivWallClockUtc(DateTime(2026, 6, 15), 12, 30),
