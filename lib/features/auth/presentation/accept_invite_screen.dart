@@ -74,7 +74,6 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   String _passwordValue = '';
   String _firstNameValue = '';
   String _lastNameValue = '';
-  String _phoneValue = '';
   String? _inlineError;
   bool _loading = false;
 
@@ -201,7 +200,7 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     final serverErr = _fieldErrors['phone'] ?? _fieldErrors['phoneNumber'];
     if (serverErr != null) return serverErr;
     if (!_submitted) return null;
-    if (_phoneValue.trim().isEmpty) return l10n.registerPhoneRequired;
+    if (_phone.text.trim().isEmpty) return l10n.registerPhoneRequired;
     return validatePhone(_phone.text.trim(), l10n);
   }
 
@@ -508,10 +507,12 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             inputFormatters: const <TextInputFormatter>[
               UaPhoneInputFormatter(),
             ],
-            onChanged: (String v) {
+            onChanged: (String _) {
               _clearServerError('phone');
               _clearServerError('phoneNumber');
-              setState(() => _phoneValue = v);
+              // Phone is outside the CTA gate, so a rebuild is only needed to
+              // refresh the inline error once it is visible (after submit).
+              if (_submitted) setState(() {});
             },
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),
