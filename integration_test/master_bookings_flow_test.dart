@@ -148,8 +148,9 @@ final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
 /// booking's start; 21:00 is strictly past the latest seeded start (20:00
 /// Kyiv). Deliberately NOT 18:00 — `ScheduleTimelineWindow.includesStart` on
 /// an INTERVAL day excludes its own `windowEndMinute` (strict `<`), and the
-/// default `booking-1` fixture starts at exactly 18:00 Kyiv
-/// (`FakeBackend._kFixtureDay`), so an 18:00 end would silently drop it.
+/// default `booking-1` fixture starts at exactly 15:00Z — 18:00 Kyiv in
+/// summer, 17:00 in winter (`FakeBackend._kFixtureDay`) — so an 18:00 end
+/// would silently drop it.
 void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
   fb.seedEffectiveSchedule(<Map<String, dynamic>>[
     for (final DateTime day in days)
