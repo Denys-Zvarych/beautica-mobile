@@ -1089,12 +1089,14 @@ void main() {
       );
 
       testWidgets(
-        'empty phone blocks submission — CTA stays disabled with password + '
-        'names filled, acceptInvite is never called and phoneNumber is '
-        'never sent as null (the shipped regression: the old gate let an '
-        'empty phone through to a guaranteed backend 400)',
+        'empty phone blocks submission with the inline required error '
+        '(registerPhoneRequired, same as sign-up) and acceptInvite is never '
+        'called; entering a valid phone then submits it',
         (WidgetTester tester) async {
           final repo = await _pumpValid(tester);
+          final l10n = AppLocalizations.of(
+            tester.element(find.byType(AcceptInviteScreen)),
+          );
 
           await tester.enterText(
             find.byKey(const ValueKey<String>('invite_password')),
@@ -1114,12 +1116,7 @@ void main() {
           await tester.ensureVisible(
             find.byKey(const ValueKey<String>('invite_accept')),
           );
-          // CTA is disabled (_formValid requires non-empty phone) — a tap
-          // on a disabled NeumorphicButton is a no-op.
-          await tester.tap(
-            find.byKey(const ValueKey<String>('invite_accept')),
-            warnIfMissed: false,
-          );
+          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
           await tester.pump(const Duration(milliseconds: 100));
 
           expect(
@@ -1127,6 +1124,37 @@ void main() {
             isEmpty,
             reason: 'an empty phone must never reach the repository',
           );
+          expect(
+            find.descendant(
+              of: find.byKey(const ValueKey<String>('invite_phone')),
+              matching: find.text(l10n.registerPhoneRequired),
+            ),
+            findsOneWidget,
+            reason:
+                'empty phone must surface the same required error as '
+                'sign-up, not the format error',
+          );
+          expect(find.text(l10n.errPhoneInvalid), findsNothing);
+
+          // Valid phone → the same CTA now submits it.
+          await tester.ensureVisible(
+            find.byKey(const ValueKey<String>('invite_phone')),
+          );
+          await tester.enterText(
+            find.byKey(const ValueKey<String>('invite_phone')),
+            '0671234567',
+          );
+          await tester.pump();
+          expect(find.text(l10n.registerPhoneRequired), findsNothing);
+
+          await tester.ensureVisible(
+            find.byKey(const ValueKey<String>('invite_accept')),
+          );
+          await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
+          await tester.pump(const Duration(milliseconds: 100));
+
+          expect(repo.acceptInviteCalls, hasLength(1));
+          expect(repo.acceptInviteCalls.first.phoneNumber, '+380 67 123 45 67');
         },
       );
     });

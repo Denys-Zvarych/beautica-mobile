@@ -1275,11 +1275,11 @@
   },
   "invitePhoneLabel": "Телефон",
   "@invitePhoneLabel": {
-    "description": "Label for the optional phone field on the accept-invite screen."
+    "description": "Label for the required phone field on the accept-invite screen."
   },
-  "invitePhoneHelper": "Необов'язково.",
+  "invitePhoneHelper": "Обов'язково.",
   "@invitePhoneHelper": {
-    "description": "Helper text below the phone field indicating it is optional."
+    "description": "Helper text below the phone field indicating it is required."
   },
   "inviteAcceptCta": "Приєднатися",
   "@inviteAcceptCta": {
