@@ -1277,10 +1277,6 @@
   "@invitePhoneLabel": {
     "description": "Label for the required phone field on the accept-invite screen."
   },
-  "invitePhoneHelper": "Обов'язково.",
-  "@invitePhoneHelper": {
-    "description": "Helper text below the phone field indicating it is required."
-  },
   "inviteAcceptCta": "Приєднатися",
   "@inviteAcceptCta": {
     "description": "CTA button label on the accept-invite screen."

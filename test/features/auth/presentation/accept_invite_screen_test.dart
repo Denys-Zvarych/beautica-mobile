@@ -1117,7 +1117,7 @@ void main() {
             find.byKey(const ValueKey<String>('invite_accept')),
           );
           await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
-          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pump();
 
           expect(
             repo.acceptInviteCalls,
@@ -1151,7 +1151,7 @@ void main() {
             find.byKey(const ValueKey<String>('invite_accept')),
           );
           await tester.tap(find.byKey(const ValueKey<String>('invite_accept')));
-          await tester.pump(const Duration(milliseconds: 100));
+          await tester.pump();
 
           expect(repo.acceptInviteCalls, hasLength(1));
           expect(repo.acceptInviteCalls.first.phoneNumber, '+380 67 123 45 67');
