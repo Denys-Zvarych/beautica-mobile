@@ -27,6 +27,12 @@
 //   • the over-budget total surfaces the size-meter "over" caption + flips the
 //     add tile / counter to the limit-reached copy at maxFiles.
 //
+// Coverage (attachment type policy — jpg/jpeg/png/pdf only, no webp):
+//   • the picker is offered exactly jpg/jpeg/png/pdf (no webp).
+//   • a picked .webp is rejected with l10n.contactSupportErrWrongType and no
+//     chip is added; .jpg/.jpeg/.png/.pdf are accepted (chip added, no snack).
+//   Driven through a fake [FilePicker] platform instance.
+//
 // Layer: Widget.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
@@ -40,16 +46,52 @@ import 'package:beautica_mobile/features/support/presentation/widgets/attachment
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import '../../../helpers/dim_probe.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 class _MockSupportRepository extends Mock implements SupportRepository {}
+
+/// Fake platform picker: returns one in-memory file named [fileName] and
+/// records the extensions the screen offered.
+/// [MockPlatformInterfaceMixin] satisfies the `PlatformInterface.verify` token.
+class _FakeFilePicker extends FilePicker with MockPlatformInterfaceMixin {
+  _FakeFilePicker(this.fileName);
+
+  final String fileName;
+  List<String>? offeredExtensions;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    // ignore: inference_failure_on_function_return_type — mirrors the platform signature.
+    Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = true,
+    int compressionQuality = 30,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async {
+    offeredExtensions = allowedExtensions;
+    final Uint8List bytes = Uint8List.fromList(List<int>.filled(1024, 1));
+    return FilePickerResult(<PlatformFile>[
+      PlatformFile(name: fileName, size: bytes.length, bytes: bytes),
+    ]);
+  }
+}
 
 final _l10n = lookupAppLocalizations(const Locale('uk'));
 
@@ -413,5 +455,87 @@ void main() {
         );
       },
     );
+  });
+
+  // ── Attachment type policy (jpg/jpeg/png/pdf only) ─────────────────────────
+
+  group('attachment type policy', () {
+    test('SupportLimits allows only jpeg/png/pdf — no webp', () {
+      expect(SupportLimits.allowedContentTypes, <String>{
+        'image/jpeg',
+        'image/png',
+        'application/pdf',
+      });
+      expect(SupportLimits.extensionContentTypes, <String, String>{
+        'jpg': 'image/jpeg',
+        'jpeg': 'image/jpeg',
+        'png': 'image/png',
+        'pdf': 'application/pdf',
+      });
+    });
+
+    Future<_FakeFilePicker> pickFile(WidgetTester tester, String name) async {
+      final picker = _FakeFilePicker(name);
+      FilePicker.platform = picker;
+      await tester.pumpContactScreen(repo);
+      final Finder add = find.byKey(const Key('support-add-attachment'));
+      await tester.ensureVisible(add);
+      await tester.pumpAndSettle();
+      await tester.tap(add);
+      await tester.pump();
+      return picker;
+    }
+
+    testWidgets('picker is offered jpg/jpeg/png/pdf only', (tester) async {
+      final picker = await pickFile(tester, 'shot.png');
+      await tester.pumpAndSettle();
+
+      expect(picker.offeredExtensions, isNotNull);
+      expect(
+        picker.offeredExtensions,
+        unorderedEquals(<String>['jpg', 'jpeg', 'png', 'pdf']),
+      );
+    });
+
+    for (final String name in <String>['photo.webp', 'PHOTO.WEBP']) {
+      testWidgets('$name is rejected with the wrong-type snack', (
+        tester,
+      ) async {
+        await pickFile(tester, name);
+        await pumpVelvetSnackIn(tester);
+
+        expectVelvetSnack(
+          _l10n.contactSupportErrWrongType,
+          variant: VelvetSnackVariant.error,
+        );
+        expect(
+          find.byKey(const Key('support-attachment-chip-0')),
+          findsNothing,
+        );
+        expect(find.text('0/${SupportLimits.maxFiles}'), findsOneWidget);
+
+        await pumpPastVelvetSnack(tester);
+      });
+    }
+
+    for (final String name in <String>[
+      'a.jpg',
+      'b.jpeg',
+      'c.png',
+      'd.pdf',
+      'E.JPG',
+    ]) {
+      testWidgets('$name is accepted (chip added, no snack)', (tester) async {
+        await pickFile(tester, name);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(VelvetSnack), findsNothing);
+        expect(
+          find.byKey(const Key('support-attachment-chip-0')),
+          findsOneWidget,
+        );
+        expect(find.text('1/${SupportLimits.maxFiles}'), findsOneWidget);
+      });
+    }
   });
 }

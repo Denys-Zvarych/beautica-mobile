@@ -8,7 +8,7 @@
 /// The two attachment categories the UI distinguishes by glyph + label. Maps
 /// from the file's MIME type / extension at pick time.
 enum SupportAttachmentKind {
-  /// JPEG / PNG / WEBP image.
+  /// JPEG / PNG image (WEBP is not accepted — see `SupportLimits`).
   image,
 
   /// PDF document.
@@ -20,7 +20,7 @@ enum SupportAttachmentKind {
 /// [bytes] is the in-memory file content (used to build the multipart part and
 /// to compute the size meter). [name] is the original filename (shown on the
 /// chip). [contentType] is the resolved MIME type sent on the file part
-/// (`image/jpeg`, `image/png`, `image/webp`, or `application/pdf`).
+/// (`image/jpeg`, `image/png`, or `application/pdf`).
 final class SupportAttachment {
   const SupportAttachment({
     required this.name,

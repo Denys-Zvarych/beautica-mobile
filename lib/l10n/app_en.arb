@@ -3067,7 +3067,7 @@
   "@contactSupportAttachmentsLabel": {
     "description": "Label above the attachment tray on the support-contact screen."
   },
-  "contactSupportAttachmentsHint": "Up to {max} files · JPEG, PNG, WEBP or PDF · up to 5 MB total",
+  "contactSupportAttachmentsHint": "Up to {max} files · JPEG, PNG or PDF · up to 5 MB total",
   "@contactSupportAttachmentsHint": {
     "description": "Caption under the attachment tray describing the file count, allowed types, and total size limit.",
     "placeholders": {
@@ -3173,7 +3173,7 @@
   "@contactSupportErrTotalTooBig": {
     "description": "Error shown when the combined attachment size exceeds the 5 MB total limit (also mapped from a 413 response)."
   },
-  "contactSupportErrWrongType": "Unsupported file type — only JPEG, PNG, WEBP or PDF",
+  "contactSupportErrWrongType": "Unsupported file type — only JPEG, PNG or PDF",
   "@contactSupportErrWrongType": {
     "description": "Error shown when a picked file is not an allowed type."
   },
