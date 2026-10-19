@@ -1,0 +1,86 @@
+name: Install Android SDK platform
+description: >-
+  Preinstall the Android SDK platform that :add_2_calendar compiles against, so
+  Gradle never downloads it mid-build (PR #95 attempt 3 died 8 s into
+  `patrol build`). Skips if present; retries 3x with backoff; quiet on
+  success, loud on failure.
+
+# Loaded from the PR head like every local `uses: ./…`: never use it in plan,
+# tests-ran or ci-gate. why: docs/ci/README.md#trust
+inputs:
+  package:
+    description: sdkmanager package id
+    required: false
+    default: 'platforms;android-33'
+
+runs:
+  using: composite
+  steps:
+    - name: Install SDK platform
+      shell: bash
+      env:
+        SDK_PACKAGE: ${{ inputs.package }}
+      run: |
+        # Not `set -e`-safe by design: every sdkmanager call is captured via
+        # `if cmd; then rc=0; else rc=$?; fi` so its output is never lost.
+        sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+        sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+        if [ -z "$sdk_root" ] || [ ! -x "$sdkmanager" ]; then
+          echo "::error::sdkmanager not found at '$sdkmanager' (ANDROID_HOME='$sdk_root')"
+          exit 1
+        fi
+
+        dir="$sdk_root/${SDK_PACKAGE//;//}"
+        case "$SDK_PACKAGE" in
+          platforms\;*) marker="$dir/android.jar" ;;
+          *) marker="$dir/source.properties" ;;
+        esac
+
+        if [ -f "$marker" ]; then
+          echo "$SDK_PACKAGE already present ($marker); skipping install"
+          exit 0
+        fi
+
+        log="$(mktemp)"
+        read -r -a delays <<< "${SDK_RETRY_DELAYS:-10 30}"  # sleep before attempt 2, 3
+        max=$(( ${#delays[@]} + 1 ))
+        attempt=1
+        while :; do
+          # Clear sdkmanager's download cache and any half-extracted package dir.
+          rm -rf "$sdk_root/.temp" "$HOME/.android/cache"
+          [ -f "$marker" ] || rm -rf "$dir"
+
+          # `< <(yes)` (not a pipe) answers licence prompts: no SIGPIPE status under pipefail.
+          if "$sdkmanager" --licenses < <(yes 2>/dev/null) > "$log" 2>&1; then
+            rc=0
+          else
+            rc=$?
+            echo "::warning::sdkmanager --licenses rc=$rc (continuing)"
+          fi
+          if "$sdkmanager" --install "$SDK_PACKAGE" < <(yes 2>/dev/null) >> "$log" 2>&1; then
+            rc=0
+          else
+            rc=$?
+          fi
+
+          if [ "$rc" -eq 0 ] && [ -f "$marker" ]; then
+            echo "installed $SDK_PACKAGE (attempt $attempt/$max)"
+            exit 0
+          fi
+
+          echo "::group::sdkmanager log, attempt $attempt/$max (rc=$rc, tail 80)"
+          tail -n 80 "$log"
+          echo "::endgroup::"
+          if [ "$rc" -eq 0 ]; then
+            echo "::warning::'$SDK_PACKAGE' reported installed but '$marker' is missing"
+          fi
+
+          if [ "$attempt" -ge "$max" ]; then
+            echo "::error::sdkmanager --install '$SDK_PACKAGE' failed after $max attempts (last rc=$rc)"
+            exit 1
+          fi
+          delay="${delays[$((attempt - 1))]}"
+          echo "::warning::attempt $attempt/$max failed; retrying in ${delay}s"
+          sleep "$delay"
+          attempt=$((attempt + 1))
+        done

@@ -301,4 +301,81 @@ void main() {
       });
     },
   );
+
+  // mobile-qa (2026-10-19) — fix/invite-phone-required. The phone is REQUIRED
+  // (backend InviteAcceptRequest.phoneNumber is @NotBlank) but is no longer in
+  // the CTA gate: an empty phone must be rejected AT SUBMIT with sign-up's
+  // inline `registerPhoneRequired`, never reach the wire, and keep the invitee
+  // on the form; filling it in must then complete the same accept → landing.
+  testWidgets(
+    'an invitee submitting with an EMPTY phone sees the required error, '
+    'stays on the invite form with nothing sent, then joins after entering it',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend()..currentRole = UserRole.salonAdmin;
+        final GoRouter router = await AppHarness.boot(tester, fb);
+
+        router.go('${RouteNames.acceptInvite}?token=$_kToken');
+        await AppHarness.settle(tester);
+        expect(find.byType(AcceptInviteScreen), findsOneWidget);
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(AcceptInviteScreen)),
+        );
+
+        await _fill(tester, 'invite_password', _kPassword);
+        await _fill(tester, 'invite_first_name', _kFirstName);
+        await _fill(tester, 'invite_last_name', _kLastName);
+
+        final Finder cta = find.byKey(const ValueKey<String>('invite_accept'));
+        await tester.ensureVisible(cta);
+        await tester.tap(cta);
+        await AppHarness.settle(tester);
+
+        expect(
+          fb.acceptInviteCalls,
+          0,
+          reason: 'an empty phone must never reach POST /auth/invite/accept',
+        );
+        expect(
+          find.byType(AcceptInviteScreen),
+          findsOneWidget,
+          reason: 'the invitee stays on the form',
+        );
+        expect(
+          AppHarness.location(router),
+          startsWith(RouteNames.acceptInvite),
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('invite_phone')),
+            matching: find.text(l10n.registerPhoneRequired),
+          ),
+          findsOneWidget,
+          reason:
+              'the REQUIRED copy under the phone field (same as sign-up) — '
+              'not the format error, not a silently dead CTA',
+        );
+        expect(find.text(l10n.errPhoneInvalid), findsNothing);
+
+        await _fill(tester, 'invite_phone', _kPhoneTyped);
+        expect(
+          find.text(l10n.registerPhoneRequired),
+          findsNothing,
+          reason: 'the error clears live once the phone is entered',
+        );
+
+        await tester.ensureVisible(cta);
+        await tester.tap(cta);
+        await AppHarness.settle(tester);
+
+        expect(fb.acceptInviteCalls, 1);
+        expect(fb.lastAcceptInviteBody!['phoneNumber'], _kPhoneOnWire);
+        expect(find.byType(SalonShellScreen), findsOneWidget);
+        expect(
+          AppHarness.location(router),
+          equals(RouteNames.salonShell(_kAdminSalonId)),
+        );
+      });
+    },
+  );
 }

@@ -29,10 +29,12 @@ abstract final class SupportLimits {
   static const int maxTotalBytes = 5 * 1024 * 1024;
 
   /// Content types the backend accepts (sniffed by magic bytes server-side).
+  ///
+  /// JPEG, PNG and PDF only — WEBP is deliberately excluded: the mail provider's
+  /// transactional API (Brevo) rejects webp attachments (backend phase 374).
   static const Set<String> allowedContentTypes = <String>{
     'image/jpeg',
     'image/png',
-    'image/webp',
     'application/pdf',
   };
 
@@ -42,7 +44,6 @@ abstract final class SupportLimits {
     'jpg': 'image/jpeg',
     'jpeg': 'image/jpeg',
     'png': 'image/png',
-    'webp': 'image/webp',
     'pdf': 'application/pdf',
   };
 }
