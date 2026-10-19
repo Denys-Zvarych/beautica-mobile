@@ -103,6 +103,7 @@ import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import 'support/app_harness.dart';
+import 'support/kyiv_wall_clock.dart';
 import 'support/pager_drag.dart';
 
 /// The REAL rendered geometry of the [MasterBookingCard] keyed
@@ -147,8 +148,9 @@ final DateTime _kyivToday = dateOnly(toBeauticaTime(kFixedNow));
 /// booking's start; 21:00 is strictly past the latest seeded start (20:00
 /// Kyiv). Deliberately NOT 18:00 — `ScheduleTimelineWindow.includesStart` on
 /// an INTERVAL day excludes its own `windowEndMinute` (strict `<`), and the
-/// default `booking-1` fixture starts at exactly 18:00 Kyiv
-/// (`FakeBackend._kFixtureDay`), so an 18:00 end would silently drop it.
+/// default `booking-1` fixture starts at exactly 15:00Z — 18:00 Kyiv in
+/// summer, 17:00 in winter (`FakeBackend._kFixtureDay`) — so an 18:00 end
+/// would silently drop it.
 void _seedWorkingHours(FakeBackend fb, Iterable<DateTime> days) {
   fb.seedEffectiveSchedule(<Map<String, dynamic>>[
     for (final DateTime day in days)
@@ -1222,17 +1224,14 @@ void main() {
       // offers, so the `dayChipKey(bookedDay)` tap below narrowed to an EMPTY
       // day and neither card could ever be found. Deriving the day keeps the
       // two in lockstep by construction.
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
+      );
       // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
       // narrows to `seededDay` before any card assertion.
       _seedWorkingHours(fb, <DateTime>[seededDay]);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
-      final DateTime firstStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
-      );
+      // 09:00 Kyiv, from the Kyiv wall clock — DST-aware, see `kyivWallClockUtc`.
+      final DateTime firstStart = kyivWallClockUtc(seededDay, 9);
       final List<Map<String, dynamic>> dataset = <Map<String, dynamic>>[
         fb.datasetBookingRow(
           id: 'booking-1',
@@ -1391,14 +1390,11 @@ void main() {
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed (see the "two back-to-back"
       // test below for the incident that idiom prevents).
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
-      final DateTime wireStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
       );
+      // 09:00 Kyiv, from the Kyiv wall clock — DST-aware, see `kyivWallClockUtc`.
+      final DateTime wireStart = kyivWallClockUtc(seededDay, 9);
       const int wireDurationMinutes = 60;
       final DateTime wireEnd = wireStart.add(const Duration(minutes: 45));
 
@@ -1680,14 +1676,11 @@ void main() {
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two back-to-back"
       // test above for the incident that idiom prevents.
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
-      final DateTime firstStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
       );
+      // 09:00 Kyiv, from the Kyiv wall clock — DST-aware, see `kyivWallClockUtc`.
+      final DateTime firstStart = kyivWallClockUtc(seededDay, 9);
 
       // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
       // narrows to `seededDay` before any card assertion.
@@ -1992,14 +1985,11 @@ void main() {
     (tester) async {
       final fb = FakeBackend()..currentRole = UserRole.independentMaster;
 
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
-      final DateTime wireStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
       );
+      // 09:00 Kyiv, from the Kyiv wall clock — DST-aware, see `kyivWallClockUtc`.
+      final DateTime wireStart = kyivWallClockUtc(seededDay, 9);
       const Duration wireDuration = Duration(minutes: 30);
 
       // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
@@ -2726,24 +2716,17 @@ void main() {
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two
       // back-to-back" test below for the incident that idiom prevents.
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the top of the seeded
-      // window, and 08:00 UTC == 11:00 Kyiv two hours below it. Both sit well
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
+      );
+      // 09:00 Kyiv — the top of the seeded window — and 11:00 Kyiv two hours
+      // below it, built from the Kyiv wall clock so the UTC offset follows DST
+      // (see `kyivWallClockUtc`). Both sit well
       // inside `BookingsTimelineGrid`'s initial culling band, so neither
       // needs a vertical scroll and an ABSENCE assertion can never pass
       // merely because the row was never built.
-      final DateTime confirmedStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
-      );
-      final DateTime cancelledStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        8,
-      );
+      final DateTime confirmedStart = kyivWallClockUtc(seededDay, 9);
+      final DateTime cancelledStart = kyivWallClockUtc(seededDay, 11);
 
       // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
       // narrows to `seededDay` before any card assertion.
@@ -2917,14 +2900,11 @@ void main() {
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two
       // back-to-back" test above for the incident that idiom prevents.
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time).
-      final DateTime cancelledStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
       );
+      // 09:00 Kyiv, from the Kyiv wall clock — DST-aware, see `kyivWallClockUtc`.
+      final DateTime cancelledStart = kyivWallClockUtc(seededDay, 9);
       // The confirmed replacement starts a few minutes LATER than the
       // cancelled booking it replaced, but still genuinely overlaps it —
       // exactly the fixture shape that pins the bug: under the pre-fix pure
@@ -3085,32 +3065,19 @@ void main() {
       // Same Kyiv day as the fake's booked-days seed, derived from
       // `fb.bookingStartsAt` rather than hand-typed — see the "two
       // back-to-back" test above for the incident that idiom prevents.
-      final DateTime seededDay = DateTime.parse(fb.bookingStartsAt);
-      // 06:00 UTC == 09:00 Kyiv (UTC+3, summer time) — the same
+      final DateTime seededDay = kyivFixtureDayOf(
+        DateTime.parse(fb.bookingStartsAt),
+      );
+      // 09:00 Kyiv, from the Kyiv wall clock (DST-aware) — the same
       // 09:00/14:00/17:00 Kyiv shape as the unit tier's minimal repro,
       // carried onto the wire.
-      final DateTime earlyStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        6,
-      );
-      // 11:00 UTC == 14:00 Kyiv — clear of the early booking's 10:00 Kyiv
+      final DateTime earlyStart = kyivWallClockUtc(seededDay, 9);
+      // 14:00 Kyiv — clear of the early booking's 10:00 Kyiv
       // end and well before the late booking's 17:00 Kyiv start, so it
       // genuinely overlaps NEITHER of them.
-      final DateTime isolatedCancelledStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        11,
-      );
-      // 14:00 UTC == 17:00 Kyiv.
-      final DateTime lateStart = DateTime.utc(
-        seededDay.year,
-        seededDay.month,
-        seededDay.day,
-        14,
-      );
+      final DateTime isolatedCancelledStart = kyivWallClockUtc(seededDay, 14);
+      // 17:00 Kyiv.
+      final DateTime lateStart = kyivWallClockUtc(seededDay, 17);
 
       // Phase 244 fixture gap — see `_seedWorkingHours`'s doc. This flow
       // narrows to `seededDay` before any card assertion.

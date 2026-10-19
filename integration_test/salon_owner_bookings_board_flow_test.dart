@@ -90,6 +90,7 @@ import '../test/helpers/fake_media_cache.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/rendered_image_url.dart';
 import 'support/app_harness.dart';
+import 'support/kyiv_wall_clock.dart';
 
 /// The owner's OWN primary salon — the id `roleHomePath` lands them on, and
 /// therefore the id the board mounts for. NOT `salon-xyz`: pointing the flow
@@ -103,9 +104,9 @@ const String _kSalonId = FakeBackend.kOwnerSalonId;
 /// day cannot disagree on ANY host timezone (the dev VM is Europe/Kyiv, which
 /// masks exactly this class of bug).
 DateTime _atKyivHour(int hour, int minute) {
-  final DateTime day = kyivToday(() => kFixedNow);
-  // Kyiv is UTC+3 in June.
-  return DateTime.utc(day.year, day.month, day.day, hour - 3, minute);
+  // Kyiv wall clock -> UTC through the tz database, never a hard-coded
+  // offset: the offset is UTC+3 or UTC+2 depending on the day's DST state.
+  return kyivWallClockUtc(kyivToday(() => kFixedNow), hour, minute);
 }
 
 /// Opens `BookingsFilterSheet` from the board's own toolbar and gates on it.

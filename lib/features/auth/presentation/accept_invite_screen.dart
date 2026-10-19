@@ -74,7 +74,6 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   String _passwordValue = '';
   String _firstNameValue = '';
   String _lastNameValue = '';
-  String _phoneValue = '';
   String? _inlineError;
   bool _loading = false;
 
@@ -164,17 +163,15 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
   // _rules is guaranteed non-null after didChangeDependencies runs.
   bool get _passwordMeetsRules => _rules!.every((r) => r.test(_passwordValue));
 
-  // Phone is required for invited SALON_ADMIN / SALON_MASTER accounts —
-  // InviteAcceptRequest.phoneNumber carries @NotBlank on the backend
-  // unconditionally, so this form never issues an invite whose role would
-  // make phone optional. Gated the same two-tier way as first/last name:
-  // non-blank live-disables the CTA; the stricter format check
-  // (`validatePhone`) runs at submit time via `_phoneError`/`_accept`.
+  // Phone is REQUIRED for every role (InviteAcceptRequest.phoneNumber is
+  // @NotBlank on the backend). It is deliberately NOT part of this CTA gate —
+  // same as register_step_2_screen: the CTA stays tappable and an empty phone
+  // is rejected at submit time with the inline `registerPhoneRequired` error
+  // (then `validatePhone` for format), so the user is told why it blocked.
   bool get _formValid =>
       _passwordMeetsRules &&
       _firstNameValue.trim().isNotEmpty &&
-      _lastNameValue.trim().isNotEmpty &&
-      _phoneValue.trim().isNotEmpty;
+      _lastNameValue.trim().isNotEmpty;
 
   /// Inline first-name error: server error first, then client validator
   /// (non-blank + max-length 100), only after the first submit attempt.
@@ -193,15 +190,17 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     return validateName(_lastName.text, l10n);
   }
 
-  /// Inline phone error: server error first, then the shared client format
-  /// validator. Phone is REQUIRED (InviteAcceptRequest.phoneNumber is
-  /// @NotBlank on the backend for every invited role this screen serves) —
-  /// [validatePhone] already rejects an empty value on its own, so there is
-  /// no separate "optional" carve-out here.
+  /// Inline phone error, in priority order (mirrors register_step_2_screen):
+  ///   1. Server error for `phone` / `phoneNumber`.
+  ///   2. Required-field guard (`registerPhoneRequired`) — after first submit.
+  ///   3. Shared format validator [validatePhone] — after first submit.
+  /// Phone is REQUIRED for every role (InviteAcceptRequest.phoneNumber is
+  /// @NotBlank on the backend).
   String? _phoneError(AppLocalizations l10n) {
     final serverErr = _fieldErrors['phone'] ?? _fieldErrors['phoneNumber'];
     if (serverErr != null) return serverErr;
     if (!_submitted) return null;
+    if (_phone.text.trim().isEmpty) return l10n.registerPhoneRequired;
     return validatePhone(_phone.text.trim(), l10n);
   }
 
@@ -238,10 +237,10 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
     // Client-side validation before the network call — the same hard gate
     // every other auth form applies, all via shared lib/shared/validators/
     // helpers: password (min 8 / max 128 / digit / uppercase), names
-    // (non-blank + max-length 100 + no digits), phone (REQUIRED — backend's
-    // InviteAcceptRequest.phoneNumber is @NotBlank for every invited role
-    // this screen serves; a non-empty value must also match the Ukrainian
-    // phone format). Surfaced inline via the *Error getters.
+    // (non-blank + max-length 100 + no digits), phone (REQUIRED for every
+    // role — backend's InviteAcceptRequest.phoneNumber is @NotBlank; empty →
+    // `registerPhoneRequired`, non-empty must match the Ukrainian phone
+    // format via validatePhone). Surfaced inline via the *Error getters.
     setState(() => _submitted = true);
     final bool clientInvalid =
         validateNewPassword(_password.text, l10n) != null ||
@@ -508,10 +507,12 @@ class _AcceptInviteScreenState extends ConsumerState<AcceptInviteScreen> {
             inputFormatters: const <TextInputFormatter>[
               UaPhoneInputFormatter(),
             ],
-            onChanged: (String v) {
+            onChanged: (String _) {
               _clearServerError('phone');
               _clearServerError('phoneNumber');
-              setState(() => _phoneValue = v);
+              // Phone is outside the CTA gate, so a rebuild is only needed to
+              // refresh the inline error once it is visible (after submit).
+              if (_submitted) setState(() {});
             },
             onSubmitted: (!_loading && _formValid) ? (_) => _accept() : null,
           ),
