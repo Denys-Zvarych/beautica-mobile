@@ -19,6 +19,10 @@
 //     the url is EXACTLY `${AppConfig.publicWebOrigin}/book/{slug}` (MASTER)
 //     or `.../book/s/{slug}` (SALON) — no query, no fragment, no port, no
 //     userinfo, nothing else. The rest of the response survives.
+//   * `salonId` becomes a `go_router` path segment (`/salons/{id}/shell`),
+//     so it is kept only when it is a UUID ([isUuid], either case, verbatim);
+//     anything else maps to `null` and the screen shows no setup link
+//     (MASVS-CODE-4). The link itself survives.
 
 import 'dart:developer';
 
@@ -30,6 +34,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/errors/failures.dart';
 import '../../../core/network/api_client_provider.dart';
+import '../../../shared/validators/uuid_validator.dart';
 import '../domain/booking_link.dart';
 
 part 'booking_links_repository.g.dart';
@@ -124,12 +129,22 @@ BookingLinks mapBookingLinks(api.BookingLinksResponse dto) {
         slug: l.slug,
         url: l.url,
         displayName: l.displayName,
-        salonId: l.salonId,
+        salonId: _trustedSalonId(l.salonId),
         bookable: l.bookable,
       ),
     );
   }
   return BookingLinks(shareEnabled: true, links: links);
+}
+
+/// [raw] when it is a UUID, otherwise `null` (see the file header rules).
+String? _trustedSalonId(String? raw) {
+  if (raw == null || isUuid(raw)) return raw;
+  if (kDebugMode) {
+    // The value itself is not logged — it is server data of unknown shape.
+    log('dropping a non-UUID salonId', name: _logName, level: 900);
+  }
+  return null;
 }
 
 /// Backend booking-slug format (`BookingSlugService` + the DB CHECK).

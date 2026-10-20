@@ -466,6 +466,47 @@ void main() {
       );
       await pumpPastVelvetSnack(tester);
     });
+
+    testWidgets('salon: bidi + control chars are stripped from the name in '
+        'the share text', (tester) async {
+      when(
+        () => share.shareText(any(), subject: any(named: 'subject')),
+      ).thenAnswer((_) async => ShareOutcome.shared);
+      const BookingLink hostile = BookingLink(
+        kind: BookingLinkKind.salon,
+        slug: 'lumiere-kyiv',
+        url: 'https://beautica.app/book/s/lumiere-kyiv',
+        displayName: 'Lum\u202Eière\nSpa\u2066\u200F',
+        salonId: 'salon-a',
+        bookable: true,
+      );
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[hostile]));
+
+      await pumpScreen(tester, role: UserRole.salonOwner);
+      final AppLocalizations l10n = l10nOf(tester);
+
+      await tester.tap(find.byKey(_share(hostile.slug)));
+      await tester.pump();
+
+      final String text =
+          verify(
+                () => share.shareText(
+                  captureAny(),
+                  subject: any(named: 'subject'),
+                ),
+              ).captured.single
+              as String;
+      expect(text, isNot(contains('\u202E')));
+      expect(text, isNot(contains('\n')));
+      expect(text, isNot(contains('\u2066')));
+      expect(text, isNot(contains('\u200F')));
+      const String url =
+          'https://beautica.app/book/s/lumiere-kyiv'
+          '?utm_source=share&utm_medium=social&utm_campaign=salon_link';
+      expect(text, l10n.bookingLinkShareTextSalon('LumièreSpa', url));
+    });
   });
 
   final Map<String, BookingLinks> hiddenPayloads = <String, BookingLinks>{

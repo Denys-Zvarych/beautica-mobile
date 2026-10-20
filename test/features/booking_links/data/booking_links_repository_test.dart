@@ -85,7 +85,7 @@ void main() {
             _link(
               kind: api.BookingLinkResponseKindEnum.SALON,
               slug: 'velvet',
-              salonId: 'salon-1',
+              salonId: '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f',
               bookable: false,
             ),
           ],
@@ -109,7 +109,7 @@ void main() {
           slug: 'velvet',
           url: 'https://beautica.app/book/s/velvet',
           displayName: 'Name velvet',
-          salonId: 'salon-1',
+          salonId: '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f',
           bookable: false,
         ),
       ]);
@@ -549,6 +549,59 @@ void main() {
         expect(out.isVisible, isTrue);
       },
     );
+  });
+
+  group('mapBookingLinks — salonId must be a UUID (MASVS-CODE-4)', () {
+    const String salonUuid = '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f';
+
+    String? mappedSalonId(String? salonId) {
+      final api.BookingLinksResponse dto = api.BookingLinksResponse(
+        (b) => b
+          ..shareEnabled = true
+          ..links =
+              ListBuilder<api.BookingLinkResponse>(<api.BookingLinkResponse>[
+                _link(
+                  kind: api.BookingLinkResponseKindEnum.SALON,
+                  slug: 'velvet',
+                  salonId: salonId,
+                ),
+              ]),
+      );
+      final BookingLinks out = mapBookingLinks(dto);
+      // The link itself always survives — only the id is dropped.
+      expect(out.links.map((BookingLink l) => l.slug), <String>['velvet']);
+      return out.links.single.salonId;
+    }
+
+    test('a lowercase UUID is kept verbatim', () {
+      expect(mappedSalonId(salonUuid), salonUuid);
+    });
+
+    test('an uppercase UUID is kept verbatim (not normalised)', () {
+      const String upper = '5B1F0C8E-3A2D-4F6B-9C7E-1A2B3C4D5E6F';
+      expect(mappedSalonId(upper), upper);
+    });
+
+    test('null stays null', () {
+      expect(mappedSalonId(null), isNull);
+    });
+
+    for (final String bad in <String>[
+      'x/../..?tab=',
+      '',
+      ' ',
+      'salon-1',
+      '$salonUuid/../home',
+      ' $salonUuid',
+      '$salonUuid\n',
+      '5b1f0c8e3a2d4f6b9c7e1a2b3c4d5e6f',
+      '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6',
+      'gb1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f',
+    ]) {
+      test('${bad.isEmpty ? '<empty>' : bad} → null', () {
+        expect(mappedSalonId(bad), isNull);
+      });
+    }
   });
 
   group('getMine — failure mapping', () {

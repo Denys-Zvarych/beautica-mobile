@@ -33,6 +33,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -95,8 +96,10 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     );
     final String text = switch (link.kind) {
       BookingLinkKind.master => l10n.bookingLinkShareTextMaster(url),
+      // The server-supplied name is stripped of bidi / control characters
+      // so it cannot reorder or split the share text (MASVS-CODE-4).
       BookingLinkKind.salon => l10n.bookingLinkShareTextSalon(
-        link.displayName,
+        stripUnrenderableChars(link.displayName),
         url,
       ),
     };

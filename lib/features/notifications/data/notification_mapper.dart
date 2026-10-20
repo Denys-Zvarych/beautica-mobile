@@ -20,6 +20,7 @@ import 'package:freezed_annotation/freezed_annotation.dart'
     show EqualUnmodifiableListView;
 
 import '../../../core/network/api_enum_names.dart';
+import '../../../shared/validators/uuid_validator.dart';
 import '../domain/app_notification.dart';
 import '../domain/push_tap.dart';
 
@@ -88,8 +89,8 @@ abstract final class NotificationMapper {
     // the whole target to [NoTarget]. Only the REASON is logged, never the value.
     final String? bookingId = _nonBlank(dto.bookingId);
     final String? salonId = _nonBlank(dto.salonId);
-    if ((bookingId != null && !_uuid.hasMatch(bookingId)) ||
-        (salonId != null && !_uuid.hasMatch(salonId))) {
+    if ((bookingId != null && !isUuid(bookingId)) ||
+        (salonId != null && !isUuid(salonId))) {
       if (kDebugMode) {
         log(
           'dropping notification target with a non-UUID id',
@@ -104,7 +105,7 @@ abstract final class NotificationMapper {
       // data): a non-UUID value is dropped, the booking target itself stays.
       final String? rawAppointmentId = _nonBlank(dto.appointmentId);
       final String? appointmentId =
-          rawAppointmentId != null && _uuid.hasMatch(rawAppointmentId)
+          rawAppointmentId != null && isUuid(rawAppointmentId)
           ? rawAppointmentId
           : null;
       if (rawAppointmentId != null && appointmentId == null && kDebugMode) {
@@ -164,7 +165,7 @@ abstract final class NotificationMapper {
   /// [AppNotificationType.unknown] / [NoTarget] (same rule as [fromDto]).
   static PushTap? pushTapFromData(Map<String, dynamic> d) {
     final String? id = _pushString(d['notificationId']);
-    if (id == null || !_uuid.hasMatch(id)) return null;
+    if (id == null || !isUuid(id)) return null;
     final String? typeName = _pushString(d['type']);
     final AppNotificationType type = typeFromDto(
       api.NotificationResponseTypeEnum.values
@@ -215,7 +216,7 @@ abstract final class NotificationMapper {
     // The id is interpolated into `PATCH /notifications/{id}/read`: anything
     // that is not a UUID is dropped here rather than ever reaching a path.
     // Only the REASON is logged, never the value.
-    if (!_uuid.hasMatch(id)) {
+    if (!isUuid(id)) {
       if (kDebugMode) {
         log(
           'dropping notification row with a non-UUID id',
@@ -259,10 +260,6 @@ abstract final class NotificationMapper {
       totalPages: dto.totalPages ?? 1,
     );
   }
-
-  static final RegExp _uuid = RegExp(
-    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$',
-  );
 
   static String? _nonBlank(String? v) {
     final t = v?.trim();
