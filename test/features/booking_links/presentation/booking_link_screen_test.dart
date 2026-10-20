@@ -10,6 +10,7 @@
 //   • SALON_ADMIN → its salon card only;
 //   • SALON_MASTER / CLIENT reaching the route → screen closes, no card;
 //   • not-bookable warning + «Налаштувати» → services, «Команда» → salon team;
+//     a non-UUID server salonId (dropped by the mapper) → no «Команда» link;
 //   • loading skeleton; error → retry → cards;
 //   • Copy → clipboard gets ONLY the utm_source=copy URL + success snack +
 //     in-well check that clears after 1.6 s; clipboard failure → error snack,
@@ -22,6 +23,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart' as api;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/share/share_service.dart';
@@ -34,6 +36,7 @@ import 'package:beautica_mobile/features/booking_links/presentation/widgets/book
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:built_collection/built_collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -268,6 +271,40 @@ void main() {
       await tester.tap(find.byKey(_setup(_salonA.slug)));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('stub-shell-salon-a-team')), findsOneWidget);
+    });
+
+    testWidgets('salon: a non-UUID salonId from the server → warning, but NO '
+        '«Команда» link (MASVS-CODE-4)', (tester) async {
+      // Through the real mapper, so the gate under test is the one that
+      // keeps `x/../..?tab=` out of the `/salons/{id}/shell` path.
+      final BookingLinks mapped = mapBookingLinks(
+        api.BookingLinksResponse(
+          (b) => b
+            ..shareEnabled = true
+            ..links =
+                ListBuilder<api.BookingLinkResponse>(<api.BookingLinkResponse>[
+                  api.BookingLinkResponse(
+                    (l) => l
+                      ..kind = api.BookingLinkResponseKindEnum.SALON
+                      ..slug = _salonA.slug
+                      ..url = _salonA.url
+                      ..displayName = _salonA.displayName
+                      ..salonId = 'x/../..?tab='
+                      ..bookable = false,
+                  ),
+                ]),
+        ),
+      );
+      when(() => repo.getMine()).thenAnswer((_) async => mapped);
+
+      await pumpScreen(tester, role: UserRole.salonOwner);
+
+      expect(find.byKey(_card(_salonA.slug)), findsOneWidget);
+      expect(
+        find.textContaining(l10nOf(tester).bookingLinkNotBookableSalon),
+        findsOneWidget,
+      );
+      expect(find.byKey(_setup(_salonA.slug)), findsNothing);
     });
 
     testWidgets('a bookable link shows no warning', (tester) async {
