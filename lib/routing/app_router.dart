@@ -83,6 +83,7 @@ import '../features/master/presentation/public_master_profile_screen.dart';
 import '../features/master/presentation/public_master_reviews_screen.dart';
 import '../features/master/presentation/salon_master_profile_screen.dart';
 import '../features/master/presentation/settings_hub_screen.dart';
+import '../features/booking_links/presentation/booking_link_screen.dart';
 import '../core/errors/failures.dart';
 import '../core/theme/brand_colors.dart';
 import '../features/services/data/service_repository.dart';
@@ -957,6 +958,15 @@ GoRouter appRouter(Ref ref) {
           );
         },
       ),
+      // Phase 414 — «Посилання для запису». Standalone literal leaf (the
+      // `/settings` route above has no children). Role-gated in
+      // `auth_redirect.dart` (INDEPENDENT_MASTER / SALON_OWNER / SALON_ADMIN
+      // only); the screen itself also closes when the role is not allowed or
+      // the links are gone (defence in depth).
+      GoRoute(
+        path: RouteNames.bookingLinks,
+        builder: (context, state) => const BookingLinkScreen(),
+      ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
       // Phase 361 — notification feed (placeholder until phase 363). Literal
@@ -1195,6 +1205,8 @@ GoRouter appRouter(Ref ref) {
           personalInfoRoute: RouteNames.adminEditPersonal,
           contactsRoute: RouteNames.adminEditContacts,
           fallbackHomeRoute: RouteNames.adminOwnProfile,
+          // Phase 414 — SALON_ADMIN shares its salon's link.
+          showBookingLinks: true,
         ),
       ),
       // Phase 356 — «Особисті дані» edit for a SALON_ADMIN. REUSES
@@ -1223,6 +1235,8 @@ GoRouter appRouter(Ref ref) {
           showContacts: false,
           personalInfoRoute: RouteNames.ownerEditPersonal,
           fallbackHomeRoute: RouteNames.ownerMasterProfile,
+          // Phase 414 — SALON_OWNER shares its salons' links.
+          showBookingLinks: true,
         ),
       ),
       // Phase 367 / 399 — «Особисті дані» for a SALON_OWNER. REUSES
@@ -2323,7 +2337,9 @@ GoRouter appRouter(Ref ref) {
       // left-edge swipe-back gesture on each push.
       GoRoute(
         path: RouteNames.masterMenu,
-        builder: (context, state) => const SettingsHubScreen(),
+        // Phase 414 — INDEPENDENT_MASTER gets the «Посилання для запису» row.
+        builder: (context, state) =>
+            const SettingsHubScreen(showBookingLinks: true),
       ),
       GoRoute(
         path: RouteNames.masterEditPersonal,

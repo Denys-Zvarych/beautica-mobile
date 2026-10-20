@@ -449,6 +449,7 @@ final class FakeBackend {
     dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
     _wireNotifications();
+    _wireBookingLinks();
     _wireDeviceTokens();
     if (wirePortfolio) _wirePortfolio();
   }
@@ -11453,6 +11454,35 @@ final class FakeBackend {
         },
       ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  // ── Phase 414 — `GET /api/v1/booking-links/mine` ──────────────────────────
+  //
+  // DEFAULT = kill-switch OFF, no links: the settings-hub row stays hidden, so
+  // every pre-existing hub flow renders exactly as before (before this route
+  // existed the call 404'd, which the app also reads as hidden). A flow sets
+  // [bookingLinksMine] to the wire `data` object it wants served; it is read
+  // per request, so it can change mid-flow.
+
+  /// The `data` object `GET /booking-links/mine` answers; `null` = default
+  /// (`shareEnabled: false`, `links: []`).
+  Map<String, dynamic>? bookingLinksMine;
+
+  /// How many times `GET /booking-links/mine` was hit.
+  int bookingLinksMineCalls = 0;
+
+  void _wireBookingLinks() {
+    _adapter.onRoute(
+      '/api/v1/booking-links/mine',
+      (server) => server.replyCallback(200, (_) {
+        bookingLinksMineCalls++;
+        return _ok(
+          bookingLinksMine ??
+              <String, dynamic>{'shareEnabled': false, 'links': <dynamic>[]},
+        );
+      }),
+      request: const Request(method: RequestMethods.get),
     );
   }
 

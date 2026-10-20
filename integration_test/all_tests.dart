@@ -72,6 +72,7 @@ import 'owner_master_client_visibility_flow_test.dart'
     as owner_master_client_visibility;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'owner_settings_hub_flow_test.dart' as owner_settings_hub;
+import 'booking_links_flow_test.dart' as booking_links;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
 import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
@@ -280,6 +281,7 @@ void main() {
   );
   group('admin_own_profile_flow', admin_own_profile.main);
   group('owner_settings_hub_flow', owner_settings_hub.main);
+  group('booking_links_flow', booking_links.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept
   // envelope alone — the ONLY session-establishing flow with no `GET

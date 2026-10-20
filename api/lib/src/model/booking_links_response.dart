@@ -14,7 +14,7 @@ part 'booking_links_response.g.dart';
 ///
 /// Properties:
 /// * [shareEnabled] - Server kill-switch; false = sharing is hidden and links is empty
-/// * [links] - MASTER link first, then SALON links by salon name
+/// * [links] - INDEPENDENT_MASTER: its MASTER link; SALON_OWNER/SALON_ADMIN: SALON links by salon name
 @BuiltValue()
 abstract class BookingLinksResponse
     implements Built<BookingLinksResponse, BookingLinksResponseBuilder> {
@@ -22,7 +22,7 @@ abstract class BookingLinksResponse
   @BuiltValueField(wireName: r'shareEnabled')
   bool get shareEnabled;
 
-  /// MASTER link first, then SALON links by salon name
+  /// INDEPENDENT_MASTER: its MASTER link; SALON_OWNER/SALON_ADMIN: SALON links by salon name
   @BuiltValueField(wireName: r'links')
   BuiltList<BookingLinkResponse> get links;
 

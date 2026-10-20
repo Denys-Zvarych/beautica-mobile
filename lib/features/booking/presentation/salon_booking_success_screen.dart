@@ -72,6 +72,8 @@ import 'package:beautica_mobile/features/location/presentation/saved_settlement_
 import '../domain/salon_booking_confirm_args.dart';
 import '../domain/salon_master_schedule.dart';
 import 'widgets/appointment_pager.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
+
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_cards.dart';
 import 'widgets/calendar_button.dart';

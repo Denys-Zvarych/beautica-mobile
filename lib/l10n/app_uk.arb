@@ -6994,5 +6994,95 @@
         "type": "int"
       }
     }
+  },
+  "bookingLinksSettingsRow": "Посилання для запису",
+  "@bookingLinksSettingsRow": {
+    "description": "Phase 414 — settings hub row opening the booking links screen."
+  },
+  "bookingLinksTitle": "Посилання для запису",
+  "@bookingLinksTitle": {
+    "description": "Phase 414 — booking links screen title."
+  },
+  "bookingLinksBackSemanticLabel": "Назад",
+  "@bookingLinksBackSemanticLabel": {
+    "description": "Phase 414 — booking links screen back button accessibility label."
+  },
+  "bookingLinksIntro": "Додайте посилання в Instagram, Telegram чи Viber — клієнти запишуться без дзвінків.",
+  "@bookingLinksIntro": {
+    "description": "Phase 414 — intro line above the link cards."
+  },
+  "bookingLinkMasterTitle": "Моє посилання",
+  "@bookingLinkMasterTitle": {
+    "description": "Phase 414 — card title for the independent master's own link."
+  },
+  "bookingLinkSalonTitle": "Посилання салону «{name}»",
+  "@bookingLinkSalonTitle": {
+    "description": "Phase 414 — card title for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkCopy": "Копіювати",
+  "@bookingLinkCopy": {
+    "description": "Phase 414 — copy-link button."
+  },
+  "bookingLinkShare": "Поділитися",
+  "@bookingLinkShare": {
+    "description": "Phase 414 — share-link button."
+  },
+  "bookingLinkCopied": "Посилання скопійовано",
+  "@bookingLinkCopied": {
+    "description": "Phase 414 — success snackbar after copying a link."
+  },
+  "bookingLinkCopiedSemantic": "Скопійовано",
+  "@bookingLinkCopiedSemantic": {
+    "description": "Phase 414 — accessibility label of the in-well copied check."
+  },
+  "bookingLinkCopyFailed": "Не вдалося скопіювати посилання",
+  "@bookingLinkCopyFailed": {
+    "description": "Phase 414 — error snackbar when the clipboard write fails."
+  },
+  "bookingLinkShareFailed": "Не вдалося відкрити меню «Поділитися»",
+  "@bookingLinkShareFailed": {
+    "description": "Phase 414 — error snackbar when the share sheet fails to open."
+  },
+  "bookingLinkShareTextMaster": "Записуйтеся онлайн: {url}",
+  "@bookingLinkShareTextMaster": {
+    "description": "Phase 414 — share-sheet text for a master link.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkShareTextSalon": "Записуйтеся до «{name}» онлайн: {url}",
+  "@bookingLinkShareTextSalon": {
+    "description": "Phase 414 — share-sheet text for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkNotBookableMaster": "Клієнти побачать сторінку, але ще не зможуть записатися. Додайте послуги та розклад.",
+  "@bookingLinkNotBookableMaster": {
+    "description": "Phase 414 — not-bookable warning on a master link card."
+  },
+  "bookingLinkNotBookableSalon": "Клієнти побачать сторінку, але ще не зможуть записатися. Потрібен хоча б один майстер із послугами та розкладом.",
+  "@bookingLinkNotBookableSalon": {
+    "description": "Phase 414 — not-bookable warning on a salon link card."
+  },
+  "bookingLinkSetupServices": "Налаштувати",
+  "@bookingLinkSetupServices": {
+    "description": "Phase 414 — not-bookable warning link to the services screen."
+  },
+  "bookingLinkSetupTeam": "Команда",
+  "@bookingLinkSetupTeam": {
+    "description": "Phase 414 — not-bookable warning link to the salon team tab."
   }
 }

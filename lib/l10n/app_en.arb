@@ -6994,5 +6994,95 @@
         "type": "int"
       }
     }
+  },
+  "bookingLinksSettingsRow": "Booking links",
+  "@bookingLinksSettingsRow": {
+    "description": "Phase 414 — settings hub row opening the booking links screen."
+  },
+  "bookingLinksTitle": "Booking links",
+  "@bookingLinksTitle": {
+    "description": "Phase 414 — booking links screen title."
+  },
+  "bookingLinksBackSemanticLabel": "Back",
+  "@bookingLinksBackSemanticLabel": {
+    "description": "Phase 414 — booking links screen back button accessibility label."
+  },
+  "bookingLinksIntro": "Add the link to Instagram, Telegram or Viber — clients book without calling.",
+  "@bookingLinksIntro": {
+    "description": "Phase 414 — intro line above the link cards."
+  },
+  "bookingLinkMasterTitle": "My link",
+  "@bookingLinkMasterTitle": {
+    "description": "Phase 414 — card title for the independent master's own link."
+  },
+  "bookingLinkSalonTitle": "Salon «{name}» link",
+  "@bookingLinkSalonTitle": {
+    "description": "Phase 414 — card title for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkCopy": "Copy",
+  "@bookingLinkCopy": {
+    "description": "Phase 414 — copy-link button."
+  },
+  "bookingLinkShare": "Share",
+  "@bookingLinkShare": {
+    "description": "Phase 414 — share-link button."
+  },
+  "bookingLinkCopied": "Link copied",
+  "@bookingLinkCopied": {
+    "description": "Phase 414 — success snackbar after copying a link."
+  },
+  "bookingLinkCopiedSemantic": "Copied",
+  "@bookingLinkCopiedSemantic": {
+    "description": "Phase 414 — accessibility label of the in-well copied check."
+  },
+  "bookingLinkCopyFailed": "Could not copy the link",
+  "@bookingLinkCopyFailed": {
+    "description": "Phase 414 — error snackbar when the clipboard write fails."
+  },
+  "bookingLinkShareFailed": "Could not open the share menu",
+  "@bookingLinkShareFailed": {
+    "description": "Phase 414 — error snackbar when the share sheet fails to open."
+  },
+  "bookingLinkShareTextMaster": "Book online: {url}",
+  "@bookingLinkShareTextMaster": {
+    "description": "Phase 414 — share-sheet text for a master link.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkShareTextSalon": "Book at «{name}» online: {url}",
+  "@bookingLinkShareTextSalon": {
+    "description": "Phase 414 — share-sheet text for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkNotBookableMaster": "Clients will see the page but cannot book yet. Add services and a schedule.",
+  "@bookingLinkNotBookableMaster": {
+    "description": "Phase 414 — not-bookable warning on a master link card."
+  },
+  "bookingLinkNotBookableSalon": "Clients will see the page but cannot book yet. At least one master with services and a schedule is needed.",
+  "@bookingLinkNotBookableSalon": {
+    "description": "Phase 414 — not-bookable warning on a salon link card."
+  },
+  "bookingLinkSetupServices": "Set up",
+  "@bookingLinkSetupServices": {
+    "description": "Phase 414 — not-bookable warning link to the services screen."
+  },
+  "bookingLinkSetupTeam": "Team",
+  "@bookingLinkSetupTeam": {
+    "description": "Phase 414 — not-bookable warning link to the salon team tab."
   }
 }

@@ -9,7 +9,7 @@ import 'package:built_value/serializer.dart';
 
 part 'booking_link_response.g.dart';
 
-/// A ready-to-share public booking link owned by the caller
+/// A ready-to-share public booking link owned by the caller. MASTER: INDEPENDENT_MASTER only. SALON: SALON_OWNER (one per active owned salon, no MASTER link) and SALON_ADMIN (bound salon)
 ///
 /// Properties:
 /// * [kind] - MASTER = the caller's own master booking page; SALON = a salon booking page (phase 376)

@@ -66,6 +66,14 @@ abstract final class RouteNames {
   static const String home = '/';
   static const String settings = '/settings';
 
+  /// Phase 414 — «Посилання для запису» ([BookingLinkScreen]). Pushed from
+  /// the settings-hub row of the three roles that may share links
+  /// (INDEPENDENT_MASTER `masterMenu`, SALON_OWNER `ownerSettings`,
+  /// SALON_ADMIN `adminSettings`). A standalone top-level literal (the
+  /// [settings] route has no children); role-gated in `auth_redirect.dart`,
+  /// which bounces SALON_MASTER / CLIENT to their landing.
+  static const String bookingLinks = '/settings/booking-links';
+
   // Phase 13.1 — CLIENT 5-tab shell branches. The CLIENT post-login landing
   // is [clientHome] (Головна, branch index 0). Each path is the location of one
   // StatefulShellRoute branch; the elevated center «Пошук» disc routes to

@@ -26,6 +26,7 @@
 
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link_access.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -275,6 +276,20 @@ String? authRedirectForLocation(
   // note above.
   if (resolvedAuth != null && (isAtUnauthOnlyRoute || isAtSplash)) {
     return roleHomePath(resolvedAuth.user.role);
+  }
+
+  // Role gate (Phase 414): the booking-links screen is only accessible to
+  // INDEPENDENT_MASTER, SALON_OWNER and SALON_ADMIN (user decision
+  // 2026-10-20) — the single role set is the domain's
+  // [bookingLinksAllowedFor]. SALON_MASTER / CLIENT are redirected to their
+  // own landing.
+  if (isAuthenticated &&
+      (location == RouteNames.bookingLinks ||
+          location.startsWith('${RouteNames.bookingLinks}/'))) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (!bookingLinksAllowedFor(auth.user.role)) {
+      return roleHomePath(auth.user.role);
+    }
   }
 
   // Role gate: /services/* is only accessible to INDEPENDENT_MASTER.
