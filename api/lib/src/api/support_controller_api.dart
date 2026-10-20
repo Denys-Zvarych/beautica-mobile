@@ -21,7 +21,7 @@ class SupportControllerApi {
   const SupportControllerApi(this._dio, this._serializers);
 
   /// Send a Help / Contact-us message to support
-  /// Accepts a free-text message plus optional file attachments and emails the whole thing to the support inbox. Authenticated users only; the sender&#39;s identity is taken from the JWT, never from the request body.  Constraints: up to 5 attachments, each ≤ 5 MB, total ≤ 5 MB; allowed types JPEG, PNG, WebP, PDF (validated by content, not the declared header).
+  /// Accepts a free-text message plus optional file attachments and emails the whole thing to the support inbox. Authenticated users only; the sender&#39;s identity is taken from the JWT, never from the request body.  Constraints: up to 5 attachments, each ≤ 5 MB, total ≤ 5 MB; allowed types JPEG, PNG, PDF (validated by content, not the declared header).
   ///
   /// Parameters:
   /// * [request]

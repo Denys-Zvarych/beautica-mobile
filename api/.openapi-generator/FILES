@@ -7,6 +7,7 @@ doc/ApiResponseAuthResponse.md
 doc/ApiResponseAvailableSlotsResponse.md
 doc/ApiResponseAvatarResponse.md
 doc/ApiResponseBookingDetailResponse.md
+doc/ApiResponseBookingLinksResponse.md
 doc/ApiResponseCategoryRequestResponse.md
 doc/ApiResponseClientReviewResponse.md
 doc/ApiResponseContactSupportResponse.md
@@ -24,7 +25,6 @@ doc/ApiResponseListLocalDate.md
 doc/ApiResponseListMasterServiceResponse.md
 doc/ApiResponseListMasterWorkingDayResponse.md
 doc/ApiResponseListOblastResponse.md
-doc/ApiResponseListPlatformCategoryUsageResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
 doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md
 doc/ApiResponseListSalonResponse.md
@@ -58,7 +58,6 @@ doc/ApiResponsePageResponseSalonSearchResult.md
 doc/ApiResponsePageResponseTimelineItemResponse.md
 doc/ApiResponsePassportResponse.md
 doc/ApiResponsePendingBookingActionsCountResponse.md
-doc/ApiResponsePlatformCategoryResponse.md
 doc/ApiResponsePublicSalonResponse.md
 doc/ApiResponseRegistrationResponse.md
 doc/ApiResponseRevenueResponse.md
@@ -94,6 +93,9 @@ doc/AvatarResponse.md
 doc/BookableMasterResponse.md
 doc/BookingControllerApi.md
 doc/BookingDetailResponse.md
+doc/BookingLinkResponse.md
+doc/BookingLinksApi.md
+doc/BookingLinksResponse.md
 doc/BookingResponse.md
 doc/BookingSlugInfoResponse.md
 doc/BudgetBand.md
@@ -116,7 +118,6 @@ doc/CreateAppointmentRequest.md
 doc/CreateBookingRequest.md
 doc/CreateCategoryRequestRequest.md
 doc/CreateClientReviewRequest.md
-doc/CreatePlatformCategoryRequest.md
 doc/CreateReviewRequest.md
 doc/CreateSalonRequest.md
 doc/CreateServiceDefinitionRequest.md
@@ -139,7 +140,6 @@ doc/GuestClientDto.md
 doc/GuestTokenResponse.md
 doc/IndependentMasterControllerApi.md
 doc/IndependentMasterUpdateRequest.md
-doc/InternalCategoryControllerApi.md
 doc/InviteAcceptRequest.md
 doc/InvitePreviewResponse.md
 doc/InviteRequest.md
@@ -191,8 +191,6 @@ doc/PendingBookingActionsCountResponse.md
 doc/PhoneOtpControllerApi.md
 doc/PhoneOtpSendRequest.md
 doc/PhoneOtpVerifyRequest.md
-doc/PlatformCategoryResponse.md
-doc/PlatformCategoryUsageResponse.md
 doc/PlatformServiceTypeResponse.md
 doc/PublicBookingControllerApi.md
 doc/PublicSalonResponse.md
@@ -214,6 +212,8 @@ doc/ReviewResponse.md
 doc/RotateAdminRequest.md
 doc/RotateMasterRequest.md
 doc/SalonAdminResponse.md
+doc/SalonBookingSlugInfoResponse.md
+doc/SalonBookingSlugMasterItem.md
 doc/SalonControllerApi.md
 doc/SalonDeletionBlockedResponse.md
 doc/SalonInviteHistoryResponse.md
@@ -273,6 +273,7 @@ lib/src/api.dart
 lib/src/api/appointment_controller_api.dart
 lib/src/api/auth_controller_api.dart
 lib/src/api/booking_controller_api.dart
+lib/src/api/booking_links_api.dart
 lib/src/api/category_request_controller_api.dart
 lib/src/api/client_controller_api.dart
 lib/src/api/client_review_controller_api.dart
@@ -280,7 +281,6 @@ lib/src/api/dashboard_controller_api.dart
 lib/src/api/device_controller_api.dart
 lib/src/api/favorite_controller_api.dart
 lib/src/api/independent_master_controller_api.dart
-lib/src/api/internal_category_controller_api.dart
 lib/src/api/location_controller_api.dart
 lib/src/api/master_controller_api.dart
 lib/src/api/media_controller_api.dart
@@ -312,6 +312,7 @@ lib/src/model/api_response_auth_response.dart
 lib/src/model/api_response_available_slots_response.dart
 lib/src/model/api_response_avatar_response.dart
 lib/src/model/api_response_booking_detail_response.dart
+lib/src/model/api_response_booking_links_response.dart
 lib/src/model/api_response_category_request_response.dart
 lib/src/model/api_response_client_review_response.dart
 lib/src/model/api_response_contact_support_response.dart
@@ -329,7 +330,6 @@ lib/src/model/api_response_list_local_date.dart
 lib/src/model/api_response_list_master_service_response.dart
 lib/src/model/api_response_list_master_working_day_response.dart
 lib/src/model/api_response_list_oblast_response.dart
-lib/src/model/api_response_list_platform_category_usage_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
 lib/src/model/api_response_list_salon_master_effective_schedule_response.dart
 lib/src/model/api_response_list_salon_response.dart
@@ -363,7 +363,6 @@ lib/src/model/api_response_page_response_salon_search_result.dart
 lib/src/model/api_response_page_response_timeline_item_response.dart
 lib/src/model/api_response_passport_response.dart
 lib/src/model/api_response_pending_booking_actions_count_response.dart
-lib/src/model/api_response_platform_category_response.dart
 lib/src/model/api_response_public_salon_response.dart
 lib/src/model/api_response_registration_response.dart
 lib/src/model/api_response_revenue_response.dart
@@ -396,6 +395,8 @@ lib/src/model/available_slots_response.dart
 lib/src/model/avatar_response.dart
 lib/src/model/bookable_master_response.dart
 lib/src/model/booking_detail_response.dart
+lib/src/model/booking_link_response.dart
+lib/src/model/booking_links_response.dart
 lib/src/model/booking_response.dart
 lib/src/model/booking_slug_info_response.dart
 lib/src/model/budget_band.dart
@@ -415,7 +416,6 @@ lib/src/model/create_appointment_request.dart
 lib/src/model/create_booking_request.dart
 lib/src/model/create_category_request_request.dart
 lib/src/model/create_client_review_request.dart
-lib/src/model/create_platform_category_request.dart
 lib/src/model/create_review_request.dart
 lib/src/model/create_salon_request.dart
 lib/src/model/create_service_definition_request.dart
@@ -481,8 +481,6 @@ lib/src/model/passport_response.dart
 lib/src/model/pending_booking_actions_count_response.dart
 lib/src/model/phone_otp_send_request.dart
 lib/src/model/phone_otp_verify_request.dart
-lib/src/model/platform_category_response.dart
-lib/src/model/platform_category_usage_response.dart
 lib/src/model/platform_service_type_response.dart
 lib/src/model/public_salon_response.dart
 lib/src/model/rating_bucket.dart
@@ -502,6 +500,8 @@ lib/src/model/review_response.dart
 lib/src/model/rotate_admin_request.dart
 lib/src/model/rotate_master_request.dart
 lib/src/model/salon_admin_response.dart
+lib/src/model/salon_booking_slug_info_response.dart
+lib/src/model/salon_booking_slug_master_item.dart
 lib/src/model/salon_deletion_blocked_response.dart
 lib/src/model/salon_invite_history_response.dart
 lib/src/model/salon_invite_response.dart

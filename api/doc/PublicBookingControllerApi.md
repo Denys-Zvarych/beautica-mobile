@@ -14,6 +14,7 @@ Method | HTTP request | Description
 [**cancel**](PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [**cancelInfo**](PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [**info**](PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
+[**salonInfo**](PublicBookingControllerApi.md#saloninfo) | **GET** /api/v1/book/s/{slug}/info | 
 
 
 # **availability**
@@ -216,6 +217,47 @@ Name | Type | Description  | Notes
 ### Return type
 
 [**BookingSlugInfoResponse**](BookingSlugInfoResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **salonInfo**
+> SalonBookingSlugInfoResponse salonInfo(slug)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getPublicBookingControllerApi();
+final String slug = slug_example; // String | 
+
+try {
+    final response = api.salonInfo(slug);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling PublicBookingControllerApi->salonInfo: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **slug** | **String**|  | 
+
+### Return type
+
+[**SalonBookingSlugInfoResponse**](SalonBookingSlugInfoResponse.md)
 
 ### Authorization
 

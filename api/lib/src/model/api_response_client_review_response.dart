@@ -17,6 +17,7 @@ part 'api_response_client_review_response.g.dart';
 /// * [data]
 /// * [message]
 /// * [errors]
+/// * [requestId]
 @BuiltValue()
 abstract class ApiResponseClientReviewResponse
     implements
@@ -33,6 +34,9 @@ abstract class ApiResponseClientReviewResponse
 
   @BuiltValueField(wireName: r'errors')
   BuiltMap<String, String>? get errors;
+
+  @BuiltValueField(wireName: r'requestId')
+  String? get requestId;
 
   ApiResponseClientReviewResponse._();
 
@@ -93,6 +97,13 @@ class _$ApiResponseClientReviewResponseSerializer
             const FullType(BuiltMap, [FullType(String), FullType(String)]),
       );
     }
+    if (object.requestId != null) {
+      yield r'requestId';
+      yield serializers.serialize(
+        object.requestId,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -146,6 +157,13 @@ class _$ApiResponseClientReviewResponseSerializer
                 const FullType(BuiltMap, [FullType(String), FullType(String)]),
           ) as BuiltMap<String, String>;
           result.errors.replace(valueDes);
+          break;
+        case r'requestId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.requestId = valueDes;
           break;
         default:
           unhandled.add(key);
