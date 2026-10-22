@@ -94,11 +94,11 @@ class _$UpdateMasterServiceBandRequest extends UpdateMasterServiceBandRequest {
   @override
   final bool? notEmpty;
   @override
-  final bool? clearBandCoherent;
-  @override
   final bool? clearDurationOverrideCoherent;
   @override
   final bool? bandLegal;
+  @override
+  final bool? clearBandCoherent;
 
   factory _$UpdateMasterServiceBandRequest(
           [void Function(UpdateMasterServiceBandRequestBuilder)? updates]) =>
@@ -112,9 +112,9 @@ class _$UpdateMasterServiceBandRequest extends UpdateMasterServiceBandRequest {
       this.clearBand,
       this.clearDurationOverride,
       this.notEmpty,
-      this.clearBandCoherent,
       this.clearDurationOverrideCoherent,
-      this.bandLegal})
+      this.bandLegal,
+      this.clearBandCoherent})
       : super._();
   @override
   UpdateMasterServiceBandRequest rebuild(
@@ -136,9 +136,9 @@ class _$UpdateMasterServiceBandRequest extends UpdateMasterServiceBandRequest {
         clearBand == other.clearBand &&
         clearDurationOverride == other.clearDurationOverride &&
         notEmpty == other.notEmpty &&
-        clearBandCoherent == other.clearBandCoherent &&
         clearDurationOverrideCoherent == other.clearDurationOverrideCoherent &&
-        bandLegal == other.bandLegal;
+        bandLegal == other.bandLegal &&
+        clearBandCoherent == other.clearBandCoherent;
   }
 
   @override
@@ -151,9 +151,9 @@ class _$UpdateMasterServiceBandRequest extends UpdateMasterServiceBandRequest {
     _$hash = $jc(_$hash, clearBand.hashCode);
     _$hash = $jc(_$hash, clearDurationOverride.hashCode);
     _$hash = $jc(_$hash, notEmpty.hashCode);
-    _$hash = $jc(_$hash, clearBandCoherent.hashCode);
     _$hash = $jc(_$hash, clearDurationOverrideCoherent.hashCode);
     _$hash = $jc(_$hash, bandLegal.hashCode);
+    _$hash = $jc(_$hash, clearBandCoherent.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -168,9 +168,9 @@ class _$UpdateMasterServiceBandRequest extends UpdateMasterServiceBandRequest {
           ..add('clearBand', clearBand)
           ..add('clearDurationOverride', clearDurationOverride)
           ..add('notEmpty', notEmpty)
-          ..add('clearBandCoherent', clearBandCoherent)
           ..add('clearDurationOverrideCoherent', clearDurationOverrideCoherent)
-          ..add('bandLegal', bandLegal))
+          ..add('bandLegal', bandLegal)
+          ..add('clearBandCoherent', clearBandCoherent))
         .toString();
   }
 }
@@ -213,11 +213,6 @@ class UpdateMasterServiceBandRequestBuilder
   bool? get notEmpty => _$this._notEmpty;
   set notEmpty(bool? notEmpty) => _$this._notEmpty = notEmpty;
 
-  bool? _clearBandCoherent;
-  bool? get clearBandCoherent => _$this._clearBandCoherent;
-  set clearBandCoherent(bool? clearBandCoherent) =>
-      _$this._clearBandCoherent = clearBandCoherent;
-
   bool? _clearDurationOverrideCoherent;
   bool? get clearDurationOverrideCoherent =>
       _$this._clearDurationOverrideCoherent;
@@ -227,6 +222,11 @@ class UpdateMasterServiceBandRequestBuilder
   bool? _bandLegal;
   bool? get bandLegal => _$this._bandLegal;
   set bandLegal(bool? bandLegal) => _$this._bandLegal = bandLegal;
+
+  bool? _clearBandCoherent;
+  bool? get clearBandCoherent => _$this._clearBandCoherent;
+  set clearBandCoherent(bool? clearBandCoherent) =>
+      _$this._clearBandCoherent = clearBandCoherent;
 
   UpdateMasterServiceBandRequestBuilder() {
     UpdateMasterServiceBandRequest._defaults(this);
@@ -242,9 +242,9 @@ class UpdateMasterServiceBandRequestBuilder
       _clearBand = $v.clearBand;
       _clearDurationOverride = $v.clearDurationOverride;
       _notEmpty = $v.notEmpty;
-      _clearBandCoherent = $v.clearBandCoherent;
       _clearDurationOverrideCoherent = $v.clearDurationOverrideCoherent;
       _bandLegal = $v.bandLegal;
+      _clearBandCoherent = $v.clearBandCoherent;
       _$v = null;
     }
     return this;
@@ -273,9 +273,9 @@ class UpdateMasterServiceBandRequestBuilder
           clearBand: clearBand,
           clearDurationOverride: clearDurationOverride,
           notEmpty: notEmpty,
-          clearBandCoherent: clearBandCoherent,
           clearDurationOverrideCoherent: clearDurationOverrideCoherent,
           bandLegal: bandLegal,
+          clearBandCoherent: clearBandCoherent,
         );
     replace(_$result);
     return _$result;

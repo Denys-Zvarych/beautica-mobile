@@ -12,6 +12,8 @@ Name | Type | Description | Notes
 **name** | **String** | Composed \"First Last\". | 
 **avatarUrl** | **String** |  | [optional] 
 **professionalTitle** | **String** |  | [optional] 
+**avgRating** | **num** | The master's rating as the app's salon master card shows it; null while the master has no reviews (never a fabricated 0). | [optional] 
+**reviewCount** | **int** |  | 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

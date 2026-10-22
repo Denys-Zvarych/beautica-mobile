@@ -15,6 +15,8 @@ part 'salon_booking_slug_master_item.g.dart';
 /// * [name] - Composed \"First Last\".
 /// * [avatarUrl]
 /// * [professionalTitle]
+/// * [avgRating] - The master's rating as the app's salon master card shows it; null while the master has no reviews (never a fabricated 0).
+/// * [reviewCount]
 @BuiltValue()
 abstract class SalonBookingSlugMasterItem
     implements
@@ -32,6 +34,13 @@ abstract class SalonBookingSlugMasterItem
 
   @BuiltValueField(wireName: r'professionalTitle')
   String? get professionalTitle;
+
+  /// The master's rating as the app's salon master card shows it; null while the master has no reviews (never a fabricated 0).
+  @BuiltValueField(wireName: r'avgRating')
+  num? get avgRating;
+
+  @BuiltValueField(wireName: r'reviewCount')
+  int get reviewCount;
 
   SalonBookingSlugMasterItem._();
 
@@ -87,6 +96,18 @@ class _$SalonBookingSlugMasterItemSerializer
         specifiedType: const FullType.nullable(String),
       );
     }
+    if (object.avgRating != null) {
+      yield r'avgRating';
+      yield serializers.serialize(
+        object.avgRating,
+        specifiedType: const FullType.nullable(num),
+      );
+    }
+    yield r'reviewCount';
+    yield serializers.serialize(
+      object.reviewCount,
+      specifiedType: const FullType(int),
+    );
   }
 
   @override
@@ -141,6 +162,21 @@ class _$SalonBookingSlugMasterItemSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.professionalTitle = valueDes;
+          break;
+        case r'avgRating':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(num),
+          ) as num?;
+          if (valueDes == null) continue;
+          result.avgRating = valueDes;
+          break;
+        case r'reviewCount':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.reviewCount = valueDes;
           break;
         default:
           unhandled.add(key);
