@@ -108,7 +108,7 @@ import '../../test/helpers/fakes/fake_secure_storage.dart';
 import 'e2e_boot_policy.dart';
 import 'fake_backend.dart';
 
-export 'fake_backend.dart' show FakeBackend, kFixedNow;
+export 'fake_backend.dart' show FakeBackend, adminSalonIdOverride, kFixedNow;
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
 /// Shared boot path and convenience helpers for Phase 17.3 E2E tests.

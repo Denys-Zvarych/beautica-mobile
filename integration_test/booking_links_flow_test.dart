@@ -32,6 +32,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
 import '../test/helpers/overflow_guard.dart';
+import '../test/helpers/pump_app.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
 
@@ -56,6 +57,11 @@ class _FakeShare implements ShareService {
 }
 
 const Key _row = Key('row-booking-links');
+
+// The links repository drops any non-UUID `salonId`, so hint flows need real
+// UUIDs (the shared fixtures above deliberately keep their legacy ids).
+const String _uuidA = '11111111-1111-4111-8111-111111111111';
+const String _uuidB = '22222222-2222-4222-8222-222222222222';
 
 Map<String, dynamic> _link({
   required String kind,
@@ -214,6 +220,106 @@ void main() {
     });
   });
 
+  testWidgets('INDEPENDENT_MASTER: services hint → services page → add a '
+      'service → back → hint gone, links refetched, card bookable', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      const String typeId = 'type-nails-gel';
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[
+          <String, dynamic>{..._masterLink, 'bookable': false},
+        ])
+        ..bookingLinksMasterBookableFollowsServices = true
+        ..bulkCreatePersists = true
+        ..clearServices();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+
+      final String slug = '${_masterLink['slug']}';
+      final Finder services = find.byKey(
+        Key('link-booking-link-hint-services-$slug'),
+      );
+      final Finder schedule = find.byKey(
+        Key('link-booking-link-hint-schedule-$slug'),
+      );
+      expect(services, findsOneWidget);
+      expect(schedule, findsNothing, reason: 'schedule is seeded');
+      final int callsBefore = fb.bookingLinksMineCalls;
+
+      await AppHarness.tapVisible(tester, services);
+      await AppHarness.settle(tester);
+      final Finder emptyCta = find.byKey(const Key('btn-create-service-empty'));
+      await tester.pumpUntilFound(emptyCta.hitTestable());
+      await tester.tap(emptyCta);
+
+      final Finder nailsChip = find.byKey(const ValueKey<String>('cat_NAILS'));
+      await tester.pumpUntilFound(nailsChip.hitTestable());
+      await tester.tap(nailsChip);
+      final Finder row = find.byKey(const Key('setup_row_$typeId'));
+      await tester.pumpUntilFound(row);
+      final Finder toggle = find.byKey(const Key('setup_row_toggle_$typeId'));
+      await tester.ensureVisible(toggle);
+      await tester.pumpUntilFound(toggle.hitTestable());
+      await tester.tap(toggle);
+      final Finder duration = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('service-setup-duration')),
+      );
+      final Finder price = find.descendant(
+        of: row,
+        matching: find.byKey(const Key('pricing-fixed-amount')),
+      );
+      await tester.pumpUntilFound(duration);
+      await tester.pumpUntilFound(price);
+      await tester.enterText(duration, '60');
+      await tester.pump();
+      await tester.enterText(price, '400');
+      await tester.pump();
+      final Finder save = find.byKey(const Key('btn-setup-save'));
+      await tester.pumpUntilFound(save.hitTestable());
+      await tester.tap(save);
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.bulkCreateCalls >= 1,
+        description: 'the bulk service POST',
+      );
+      await AppHarness.settle(tester);
+
+      // Back from the services page (it may still be on top of the stack).
+      if (find.byType(BookingLinkScreen).evaluate().isEmpty) {
+        router.pop();
+        await AppHarness.settle(tester);
+      }
+
+      expect(find.byType(BookingLinkScreen), findsOneWidget);
+      expect(services, findsNothing, reason: 'service added → hint cleared');
+      expect(
+        fb.bookingLinksMineCalls,
+        greaterThan(callsBefore),
+        reason: 'the readiness answer changed → links refetched',
+      );
+      expect(
+        find.byKey(Key('booking-link-card-$slug')),
+        findsOneWidget,
+        reason: 'card still rendered after the refetch',
+      );
+      expect(
+        find.byKey(Key('link-booking-link-setup-$slug'), skipOffstage: false),
+        findsNothing,
+        reason: 'refetched verdict is bookable → no generic not-bookable note',
+      );
+    });
+  });
+
   testWidgets('SALON_OWNER: one SALON card per salon, no master card even if '
       'the server sends one', (tester) async {
     await mockNetworkImagesFor(() async {
@@ -246,6 +352,121 @@ void main() {
       expect(
         find.byKey(Key('booking-link-card-${_salonB['slug']}')),
         findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('SALON_OWNER: multi-salon → hints only on the primary-salon '
+      'card (and push the owner master pages); the other keeps the generic '
+      'note', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend();
+      fb.mySalons = <Map<String, dynamic>>[
+        <String, dynamic>{...fb.mySalons.single, 'id': _uuidA},
+        <String, dynamic>{
+          ...fb.mySalons.single,
+          'id': _uuidB,
+          'name': 'Beauty Loft',
+          'isPrimary': false,
+        },
+      ];
+      fb
+        ..wireBookingLinkSalonNotReady(_uuidA)
+        ..wireBookingLinkSalonNotReady(_uuidB)
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[
+          <String, dynamic>{..._salonA, 'salonId': _uuidA, 'bookable': false},
+          <String, dynamic>{..._salonB, 'salonId': _uuidB, 'bookable': false},
+        ]);
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.salonOwner,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+
+      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openLinks(tester, router);
+
+      final String primary = '${_salonA['slug']}';
+      final String other = '${_salonB['slug']}';
+      final Finder schedule = find.byKey(
+        Key('link-booking-link-hint-schedule-$primary'),
+      );
+      expect(schedule, findsOneWidget);
+      expect(
+        find.byKey(Key('link-booking-link-hint-services-$primary')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(Key('link-booking-link-setup-$other'), skipOffstage: false),
+      );
+      await tester.pump();
+      expect(
+        find.byKey(Key('link-booking-link-hint-schedule-$other')),
+        findsNothing,
+        reason: 'non-primary salon: owner targets act on the primary only',
+      );
+      expect(
+        find.byKey(Key('link-booking-link-hint-services-$other')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(Key('link-booking-link-setup-$other')),
+        findsOneWidget,
+        reason: 'the generic 414 note stays on the non-primary card',
+      );
+
+      await AppHarness.tapVisible(tester, schedule);
+      await AppHarness.settle(tester);
+      // The owner-master gate (not the links screen) is now on top. The fake
+      // serves no roster for a UUID salon, so the gate parks on its error
+      // state — the OWNER page was pushed (an owner-only subtree; the schedule
+      // vs services split is pinned by the widget tests).
+      expect(
+        find.byType(BookingLinkScreen),
+        findsNothing,
+        reason: 'the pushed owner page covers the links screen',
+      );
+      expect(
+        find.byKey(const Key('salon_master_own_services_error')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('SALON_ADMIN: hint target is the salon «Команда» tab', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      adminSalonIdOverride = _uuidA;
+      addTearDown(() => adminSalonIdOverride = null);
+      final FakeBackend fb = FakeBackend()
+        ..wireBookingLinkSalonNotReady(_uuidA)
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[
+          <String, dynamic>{..._salonA, 'salonId': _uuidA, 'bookable': false},
+        ]);
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.salonAdmin,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+
+      await _openHub(tester, router, RouteNames.adminSettings);
+      await _openLinks(tester, router);
+
+      final Finder services = find.byKey(
+        Key('link-booking-link-hint-services-${_salonA['slug']}'),
+      );
+      expect(services, findsOneWidget);
+      await AppHarness.tapVisible(tester, services);
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(
+        router,
+        RouteNames.salonShell(_uuidA, openTeam: true),
       );
     });
   });

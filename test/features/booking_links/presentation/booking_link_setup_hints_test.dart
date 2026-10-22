@@ -42,6 +42,7 @@ import 'package:beautica_mobile/features/services/data/master_service_catalog_pr
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -165,6 +166,7 @@ void main() {
   late bool hasSalonServices;
   Completer<void>? gate;
   bool failReads = false;
+  bool mySalonsFail = false;
   bool servicesInactive = false;
   Completer<void>? servicesGate;
   DateTime? fixedToday;
@@ -185,6 +187,7 @@ void main() {
     hasSalonServices = true;
     gate = null;
     failReads = false;
+    mySalonsFail = false;
     servicesInactive = false;
     servicesGate = null;
     fixedToday = null;
@@ -239,7 +242,12 @@ void main() {
             return hasSchedule ? <WeeklySchedule>[_template] : const [];
           }),
         ),
-        mySalonsProvider.overrideWith(() => _FakeMySalons(() => mySalons)),
+        mySalonsProvider.overrideWith(
+          () => _FakeMySalons(() {
+            if (mySalonsFail) throw const NetworkFailure();
+            return mySalons;
+          }),
+        ),
         if (fixedToday != null)
           clockProvider.overrideWithValue(() => asClockInstant(fixedToday!)),
         masterServiceCatalogProvider.overrideWith((ref) async {
@@ -886,6 +894,117 @@ void main() {
       verifyNever(
         () => roster.salonRosterEffectiveSchedule('salon-b', any(), any()),
       );
+    });
+  });
+
+  // Phase 416 QA — owner/admin edge cases the matrix above does not reach.
+  group('salon readiness edge cases', () {
+    Future<void> expectNoHintsGenericNote(WidgetTester tester) async {
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+      expect(find.byKey(_setup(_salon.slug)), findsOneWidget);
+    }
+
+    testWidgets('owner: my-salons lookup FAILS → no hint, generic 414 note, '
+        'no error state', (tester) async {
+      hasSalonSchedule = false;
+      hasSalonServices = false;
+      mySalonsFail = true;
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      await expectNoHintsGenericNote(tester);
+      expect(find.byType(ErrorState), findsNothing);
+      expect(salonCatalogFetches, 0, reason: 'primary unknown → no fetch');
+    });
+
+    testWidgets('owner with several salons and NO primary flag → no hints '
+        'anywhere (the targets would act on an unknown salon)', (tester) async {
+      hasSalonSchedule = false;
+      hasSalonServices = false;
+      mySalons = const <Salon>[
+        Salon(id: 'salon-a', name: 'Lumière'),
+        Salon(id: 'salon-b', name: 'Loft', isPrimary: false),
+      ];
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      await expectNoHintsGenericNote(tester);
+      expect(salonCatalogFetches, 0);
+    });
+
+    testWidgets('owner whose ONLY salon is a different id than the link → '
+        'no hints', (tester) async {
+      hasSalonSchedule = false;
+      hasSalonServices = false;
+      mySalons = const <Salon>[Salon(id: 'salon-z', name: 'Other')];
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      await expectNoHintsGenericNote(tester);
+    });
+
+    testWidgets('owner with ONE salon that has no primary flag → hints '
+        '(the sole salon is the primary)', (tester) async {
+      hasSalonSchedule = false;
+      mySalons = const <Salon>[Salon(id: 'salon-a', name: 'Lumière')];
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
+    });
+
+    testWidgets('empty roster (no master at all) reads as NO schedule → '
+        'schedule hint', (tester) async {
+      when(
+        () => roster.salonRosterEffectiveSchedule(any(), any(), any()),
+      ).thenAnswer((_) async => <String, List<EffectiveDay>>{});
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+    });
+
+    testWidgets('one master working among masters with none → NO schedule '
+        'hint', (tester) async {
+      when(
+        () => roster.salonRosterEffectiveSchedule(any(), any(), any()),
+      ).thenAnswer(
+        (_) async => <String, List<EffectiveDay>>{
+          'm-off': <EffectiveDay>[
+            EffectiveDay(
+              date: DateTime(2026, 6, 15),
+              source: EffectiveSource.noSchedule,
+              intervals: const <WorkInterval>[],
+            ),
+          ],
+          'm-on': <EffectiveDay>[
+            EffectiveDay(
+              date: DateTime(2026, 6, 16),
+              source: EffectiveSource.template,
+              intervals: const <WorkInterval>[],
+            ),
+          ],
+        },
+      );
+      await pump(tester, role: UserRole.salonOwner, link: _salon);
+
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
+    });
+
+    testWidgets('admin link without a salon id → no hints and no tappable '
+        'setup link', (tester) async {
+      hasSalonSchedule = false;
+      hasSalonServices = false;
+      const BookingLink noSalon = BookingLink(
+        kind: BookingLinkKind.salon,
+        slug: 'no-salon',
+        url: 'https://beautica.app/book/s/no-salon',
+        displayName: 'Lumière',
+        bookable: false,
+      );
+      await pump(tester, role: UserRole.salonAdmin, link: noSalon);
+
+      expect(find.byKey(_hint('schedule', noSalon.slug)), findsNothing);
+      expect(find.byKey(_hint('services', noSalon.slug)), findsNothing);
+      expect(find.byKey(_setup(noSalon.slug)), findsNothing);
+      expect(salonCatalogFetches, 0);
     });
   });
 }

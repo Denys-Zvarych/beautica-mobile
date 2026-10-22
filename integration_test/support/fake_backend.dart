@@ -231,11 +231,24 @@ const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
 /// and SALON_MASTER doc comments above both record what a wildcard here
 /// actually costs: a role that silently logs in as INDEPENDENT_MASTER
 /// instead of failing to compile the day a sixth role is added.
+/// Phase 416 (mobile-qa) — when non-null, the SALON_ADMIN fixture's `salonId`.
+/// The booking-link repository drops a non-UUID `salonId`, so a flow that needs
+/// the admin's OWN salon to equal a link's UUID salon sets this and MUST reset
+/// it to null in `addTearDown` (process-global on purpose: `userJsonForRole`
+/// is a top-level function).
+String? adminSalonIdOverride;
+
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
-    UserRole.salonAdmin => _adminUserJson,
+    UserRole.salonAdmin =>
+      adminSalonIdOverride == null
+          ? _adminUserJson
+          : <String, dynamic>{
+              ..._adminUserJson,
+              'salonId': adminSalonIdOverride,
+            },
     UserRole.salonMaster => _salonMasterUserJson,
     UserRole.independentMaster => _masterUserJson,
   };
@@ -3286,7 +3299,7 @@ final class FakeBackend {
     'lastName': adminLastName,
     'phoneNumber': adminPhone,
     'professionalTitle': 'Старший адміністратор',
-    'salonId': 'salon-admin-1',
+    'salonId': adminSalonIdOverride ?? 'salon-admin-1',
   };
 
   // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
@@ -7399,12 +7412,38 @@ final class FakeBackend {
             });
             _nextServiceSeq++;
           }
+          if (bulkCreatePersists) _services.addAll(created);
           return _okList(created);
         },
       ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
+
+  /// Phase 416 (mobile-qa) — registers the two readiness reads the booking-link
+  /// hints make for a SALON link whose id is [salonId] (which must be a UUID:
+  /// the links repository drops any other `salonId`): the roster effective
+  /// schedule (EMPTY → "no master has a working day") and the salon catalogue
+  /// (EMPTY → "no services"). Additive; nothing calls it by default.
+  void wireBookingLinkSalonNotReady(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/masters/effective-schedule',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services',
+      (server) =>
+          server.reply(200, _ok(<String, dynamic>{'categories': <dynamic>[]})),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// Phase 416 (mobile-qa) — when true, `POST …/me/services/bulk` also APPENDS
+  /// the created rows to the master's list, so the next `GET …/me/services`
+  /// reflects them. Off by default: every pre-existing flow keeps its echo-only
+  /// behaviour.
+  bool bulkCreatePersists = false;
 
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
@@ -11472,15 +11511,30 @@ final class FakeBackend {
   /// How many times `GET /booking-links/mine` was hit.
   int bookingLinksMineCalls = 0;
 
+  /// Phase 416 (mobile-qa) — when true, every MASTER link's `bookable` is
+  /// derived from the master's service list (bookable iff any service exists)
+  /// instead of read from [bookingLinksMine], modelling the server flipping the
+  /// verdict once a service is added. Off by default.
+  bool bookingLinksMasterBookableFollowsServices = false;
+
   void _wireBookingLinks() {
     _adapter.onRoute(
       '/api/v1/booking-links/mine',
       (server) => server.replyCallback(200, (_) {
         bookingLinksMineCalls++;
-        return _ok(
-          bookingLinksMine ??
-              <String, dynamic>{'shareEnabled': false, 'links': <dynamic>[]},
-        );
+        final Map<String, dynamic> data =
+            bookingLinksMine ??
+            <String, dynamic>{'shareEnabled': false, 'links': <dynamic>[]};
+        if (!bookingLinksMasterBookableFollowsServices) return _ok(data);
+        return _ok(<String, dynamic>{
+          ...data,
+          'links': <dynamic>[
+            for (final dynamic l in data['links'] as List<dynamic>)
+              (l as Map<String, dynamic>)['kind'] == 'MASTER'
+                  ? <String, dynamic>{...l, 'bookable': _services.isNotEmpty}
+                  : l,
+          ],
+        });
       }),
       request: const Request(method: RequestMethods.get),
     );
