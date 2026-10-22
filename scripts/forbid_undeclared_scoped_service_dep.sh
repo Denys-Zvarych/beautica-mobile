@@ -145,7 +145,7 @@ root="$(cd "$here/.." && pwd)"
 # `[servicesList]`, which fails codegen outright). One list, no second place to
 # forget.
 # ---------------------------------------------------------------------------
-SCOPED_PROVIDERS='serviceTargetProvider serviceRepositoryProvider masterServiceCatalogProvider servicesListProvider serviceByIdProvider serviceTypesProvider serviceSetupProvider'
+SCOPED_PROVIDERS='serviceTargetProvider serviceRepositoryProvider masterServiceCatalogProvider servicesListProvider serviceByIdProvider serviceTypesProvider serviceSetupProvider bookingLinkSetupHintsProvider'
 
 # ---------------------------------------------------------------------------
 # scan <scoped-names-csv> <accepted-tokens-csv> <file...>

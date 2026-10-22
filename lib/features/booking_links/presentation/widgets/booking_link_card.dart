@@ -47,6 +47,7 @@ class BookingLinkCard extends StatefulWidget {
     required this.onCopy,
     required this.onShare,
     this.onSetup,
+    this.setupHints = const <BookingLinkCardHint>[],
   });
 
   final BookingLink link;
@@ -54,11 +55,32 @@ class BookingLinkCard extends StatefulWidget {
   final VoidCallback onShare;
   final VoidCallback? onSetup;
 
+  /// Phase 416 — the specific readiness hints (no schedule / no service), each
+  /// a tappable [_NotBookableNote]. Non-empty REPLACES the generic
+  /// not-bookable note (it is the same message, made specific); empty (the
+  /// default, and while readiness is unknown) renders exactly as before.
+  final List<BookingLinkCardHint> setupHints;
+
   /// How long the copied check stays over the link well.
   static const Duration copiedDwell = Duration(milliseconds: 1600);
 
   @override
   State<BookingLinkCard> createState() => BookingLinkCardState();
+}
+
+/// One readiness hint line of [BookingLinkCard] (phase 416).
+class BookingLinkCardHint {
+  const BookingLinkCardHint({
+    required this.text,
+    required this.linkLabel,
+    required this.linkKey,
+    required this.onTap,
+  });
+
+  final String text;
+  final String linkLabel;
+  final Key linkKey;
+  final VoidCallback? onTap;
 }
 
 class BookingLinkCardState extends State<BookingLinkCard> {
@@ -129,7 +151,18 @@ class BookingLinkCardState extends State<BookingLinkCard> {
                 _LinkWell(link: link, copied: copied),
           ),
 
-          if (!link.bookable) ...<Widget>[
+          if (!link.bookable && widget.setupHints.isNotEmpty)
+            for (final BookingLinkCardHint hint
+                in widget.setupHints) ...<Widget>[
+              const SizedBox(height: VelvetSpacing.md),
+              _NotBookableNote(
+                text: hint.text,
+                linkLabel: hint.linkLabel,
+                linkKey: hint.linkKey,
+                onTap: hint.onTap,
+              ),
+            ]
+          else if (!link.bookable) ...<Widget>[
             const SizedBox(height: VelvetSpacing.md),
             _NotBookableNote(
               text: isSalon

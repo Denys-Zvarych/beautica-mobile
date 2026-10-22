@@ -7084,5 +7084,29 @@
   "bookingLinkSetupTeam": "Команда",
   "@bookingLinkSetupTeam": {
     "description": "Phase 414 — not-bookable warning link to the salon team tab."
+  },
+  "bookingLinkHintScheduleMaster": "Щоб клієнти могли записатися, потрібно налаштувати розклад.",
+  "@bookingLinkHintScheduleMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no schedule."
+  },
+  "bookingLinkHintServicesMaster": "Щоб клієнти могли записатися, додайте хоча б одну послугу.",
+  "@bookingLinkHintServicesMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no active service."
+  },
+  "bookingLinkHintScheduleSalon": "Жоден майстер салону ще не має розкладу, тож клієнти не зможуть записатися.",
+  "@bookingLinkHintScheduleSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no master with a schedule."
+  },
+  "bookingLinkHintServicesSalon": "У салоні ще немає жодної послуги, тож клієнти не зможуть записатися.",
+  "@bookingLinkHintServicesSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no service."
+  },
+  "bookingLinkHintScheduleAction": "Налаштувати розклад",
+  "@bookingLinkHintScheduleAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the schedule page."
+  },
+  "bookingLinkHintServicesAction": "Додати послугу",
+  "@bookingLinkHintServicesAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the services page."
   }
 }

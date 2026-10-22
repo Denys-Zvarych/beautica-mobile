@@ -175,6 +175,45 @@ void main() {
     });
   });
 
+  testWidgets('INDEPENDENT_MASTER: not-bookable link with no schedule → '
+      'readiness hint → schedule page → back returns', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[
+          <String, dynamic>{..._masterLink, 'bookable': false},
+        ])
+        ..seedNoWeeklySchedule();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+
+      final Key schedule = Key(
+        'link-booking-link-hint-schedule-${_masterLink['slug']}',
+      );
+      final Key services = Key(
+        'link-booking-link-hint-services-${_masterLink['slug']}',
+      );
+      expect(find.byKey(schedule), findsOneWidget);
+      expect(find.byKey(services), findsNothing, reason: 'services seeded');
+
+      await AppHarness.tapVisible(tester, find.byKey(schedule));
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.masterSchedule);
+
+      router.pop();
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.bookingLinks);
+      expect(find.byType(BookingLinkScreen), findsOneWidget);
+    });
+  });
+
   testWidgets('SALON_OWNER: one SALON card per salon, no master card even if '
       'the server sends one', (tester) async {
     await mockNetworkImagesFor(() async {

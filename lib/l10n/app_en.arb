@@ -7084,5 +7084,29 @@
   "bookingLinkSetupTeam": "Team",
   "@bookingLinkSetupTeam": {
     "description": "Phase 414 — not-bookable warning link to the salon team tab."
+  },
+  "bookingLinkHintScheduleMaster": "To let clients book, you need to set your schedule.",
+  "@bookingLinkHintScheduleMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no schedule."
+  },
+  "bookingLinkHintServicesMaster": "To let clients book, add at least one service.",
+  "@bookingLinkHintServicesMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no active service."
+  },
+  "bookingLinkHintScheduleSalon": "No master of the salon has a schedule yet, so clients cannot book.",
+  "@bookingLinkHintScheduleSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no master with a schedule."
+  },
+  "bookingLinkHintServicesSalon": "The salon has no services yet, so clients cannot book.",
+  "@bookingLinkHintServicesSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no service."
+  },
+  "bookingLinkHintScheduleAction": "Set schedule",
+  "@bookingLinkHintScheduleAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the schedule page."
+  },
+  "bookingLinkHintServicesAction": "Add a service",
+  "@bookingLinkHintServicesAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the services page."
   }
 }

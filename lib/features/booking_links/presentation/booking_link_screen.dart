@@ -24,6 +24,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/share/share_service.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -40,9 +41,14 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
+import '../../salon/application/salon_service_catalog_notifier.dart';
+import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
+import '../../schedule/presentation/weekly_schedule_notifier.dart';
+import '../../services/data/master_service_catalog_provider.dart';
 import '../domain/booking_link.dart';
 import '../domain/booking_link_access.dart';
 import '../domain/booking_link_url.dart';
+import 'booking_link_setup_hints_provider.dart';
 import 'booking_links_provider.dart';
 import 'widgets/booking_link_card.dart';
 
@@ -130,6 +136,83 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     return () => context.go(target);
   }
 
+  /// Phase 416 — where a readiness hint sends the caller (pushed, so back
+  /// returns here). Independent master → its own pages; salon owner → the
+  /// owner's master-mode pages (the owner is always a master of their salon);
+  /// salon admin → the salon «Команда» tab (the only place an admin manages
+  /// masters' schedules/services; `/owner/master/*` is owner-only).
+  String? _hintTarget(
+    BookingLink link,
+    BookingLinkSetupHint hint,
+    UserRole? role,
+  ) {
+    final bool schedule = hint == BookingLinkSetupHint.schedule;
+    switch (role) {
+      case UserRole.independentMaster:
+        return schedule ? RouteNames.masterSchedule : RouteNames.services;
+      case UserRole.salonOwner:
+        return schedule
+            ? RouteNames.ownerMasterSchedule
+            : RouteNames.ownerMasterServices;
+      case UserRole.salonAdmin:
+        final String id = link.salonId ?? '';
+        return id.trim().isEmpty
+            ? null
+            : RouteNames.salonShell(id, openTeam: true);
+      case UserRole.salonMaster || UserRole.client || null:
+        return null;
+    }
+  }
+
+  Future<void> _openHint(
+    BookingLink link,
+    BookingLinkSetupHint hint,
+    UserRole? role,
+  ) async {
+    final String? target = _hintTarget(link, hint, role);
+    if (target == null) return;
+    await context.pushOnce<Object?>(target);
+    if (!mounted) return;
+    // Re-evaluate: whatever was just set up must clear its hint (and the
+    // server's `bookable`) without a manual refresh.
+    ref.invalidate(bookingLinksForAccountProvider);
+    ref.invalidate(weeklyScheduleProvider);
+    ref.invalidate(masterServiceCatalogProvider);
+    ref.invalidate(salonEffectiveScheduleProvider);
+    ref.invalidate(salonServiceCatalogProvider);
+  }
+
+  List<BookingLinkCardHint> _hintsFor(
+    AppLocalizations l10n,
+    BookingLink link,
+    List<BookingLinkSetupHint> missing,
+    UserRole? role,
+  ) {
+    final bool isSalon = link.kind == BookingLinkKind.salon;
+    return <BookingLinkCardHint>[
+      for (final BookingLinkSetupHint hint in missing)
+        BookingLinkCardHint(
+          text: switch ((hint, isSalon)) {
+            (BookingLinkSetupHint.schedule, false) =>
+              l10n.bookingLinkHintScheduleMaster,
+            (BookingLinkSetupHint.schedule, true) =>
+              l10n.bookingLinkHintScheduleSalon,
+            (BookingLinkSetupHint.services, false) =>
+              l10n.bookingLinkHintServicesMaster,
+            (BookingLinkSetupHint.services, true) =>
+              l10n.bookingLinkHintServicesSalon,
+          },
+          linkLabel: hint == BookingLinkSetupHint.schedule
+              ? l10n.bookingLinkHintScheduleAction
+              : l10n.bookingLinkHintServicesAction,
+          linkKey: Key('link-booking-link-hint-${hint.name}-${link.slug}'),
+          onTap: _hintTarget(link, hint, role) == null
+              ? null
+              : () => _openHint(link, hint, role),
+        ),
+    ];
+  }
+
   void _onBack() {
     if (context.canPop()) {
       context.pop();
@@ -156,12 +239,27 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
         key: ValueKey<int>(links.links.length),
         intro: l10n.bookingLinksIntro,
         links: links.links,
-        cardBuilder: (BookingLink link) => BookingLinkCard(
-          key: ValueKey<String>('card-${link.slug}'),
-          link: link,
-          onCopy: () => _copy(link),
-          onShare: () => _share(link),
-          onSetup: _setupFor(link),
+        cardBuilder: (BookingLink link) => Consumer(
+          builder: (BuildContext context, WidgetRef ref, Widget? _) {
+            // Only a non-bookable link has anything to hint at; a bookable
+            // one never even reads the readiness providers.
+            final List<BookingLinkSetupHint> missing = link.bookable
+                ? const <BookingLinkSetupHint>[]
+                : ref.watch(
+                    bookingLinkSetupHintsProvider(
+                      link.kind,
+                      link.salonId ?? '',
+                    ),
+                  );
+            return BookingLinkCard(
+              key: ValueKey<String>('card-${link.slug}'),
+              link: link,
+              onCopy: () => _copy(link),
+              onShare: () => _share(link),
+              onSetup: _setupFor(link),
+              setupHints: _hintsFor(l10n, link, missing, role),
+            );
+          },
         ),
       );
     } else if (async.hasError && !async.isLoading) {
