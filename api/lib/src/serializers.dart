@@ -107,12 +107,14 @@ import 'package:beautica_api/src/model/booking_link_response.dart';
 import 'package:beautica_api/src/model/booking_links_response.dart';
 import 'package:beautica_api/src/model/booking_response.dart';
 import 'package:beautica_api/src/model/booking_slug_info_response.dart';
+import 'package:beautica_api/src/model/booking_slug_salon_ref.dart';
 import 'package:beautica_api/src/model/budget_band.dart';
 import 'package:beautica_api/src/model/bulk_create_services_request.dart';
 import 'package:beautica_api/src/model/bulk_service_item_request.dart';
 import 'package:beautica_api/src/model/cancel_booking_request.dart';
 import 'package:beautica_api/src/model/cancel_token_info_response.dart';
 import 'package:beautica_api/src/model/catalog_category_response.dart';
+import 'package:beautica_api/src/model/category_ref.dart';
 import 'package:beautica_api/src/model/category_request_response.dart';
 import 'package:beautica_api/src/model/city_district_response.dart';
 import 'package:beautica_api/src/model/city_response.dart';
@@ -349,12 +351,14 @@ part 'serializers.g.dart';
   BookingLinksResponse,
   BookingResponse,
   BookingSlugInfoResponse,
+  BookingSlugSalonRef,
   BudgetBand,
   BulkCreateServicesRequest,
   BulkServiceItemRequest,
   CancelBookingRequest,
   CancelTokenInfoResponse,
   CatalogCategoryResponse,
+  CategoryRef,
   CategoryRequestResponse,
   CityDistrictResponse,
   CityResponse,

@@ -13,6 +13,9 @@ Name | Type | Description | Notes
 **startsAt** | [**DateTime**](DateTime.md) |  | 
 **name** | **String** |  | 
 **surname** | **String** |  | 
+**privacyAccepted** | **bool** |  | 
+**privacyPolicyVersion** | **String** |  | 
+**clientComment** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

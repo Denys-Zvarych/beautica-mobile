@@ -141,6 +141,7 @@ import 'master_archive_review_flow_test.dart' as master_archive_review;
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
@@ -473,6 +474,7 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  group('guest_phone_tap_to_call_flow', guest_phone_tap_to_call.main);
   // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
   // walk-in wizard, end to end: fill client → pick service → pick date/slot
   // → confirm → done → pop → the new booking visible in the refetched day

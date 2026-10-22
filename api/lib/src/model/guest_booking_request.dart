@@ -17,6 +17,9 @@ part 'guest_booking_request.g.dart';
 /// * [startsAt]
 /// * [name]
 /// * [surname]
+/// * [privacyAccepted]
+/// * [privacyPolicyVersion]
+/// * [clientComment]
 @BuiltValue()
 abstract class GuestBookingRequest
     implements Built<GuestBookingRequest, GuestBookingRequestBuilder> {
@@ -34,6 +37,15 @@ abstract class GuestBookingRequest
 
   @BuiltValueField(wireName: r'surname')
   String get surname;
+
+  @BuiltValueField(wireName: r'privacyAccepted')
+  bool get privacyAccepted;
+
+  @BuiltValueField(wireName: r'privacyPolicyVersion')
+  String get privacyPolicyVersion;
+
+  @BuiltValueField(wireName: r'clientComment')
+  String? get clientComment;
 
   GuestBookingRequest._();
 
@@ -93,6 +105,23 @@ class _$GuestBookingRequestSerializer
       object.surname,
       specifiedType: const FullType(String),
     );
+    yield r'privacyAccepted';
+    yield serializers.serialize(
+      object.privacyAccepted,
+      specifiedType: const FullType(bool),
+    );
+    yield r'privacyPolicyVersion';
+    yield serializers.serialize(
+      object.privacyPolicyVersion,
+      specifiedType: const FullType(String),
+    );
+    if (object.clientComment != null) {
+      yield r'clientComment';
+      yield serializers.serialize(
+        object.clientComment,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -152,6 +181,27 @@ class _$GuestBookingRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.surname = valueDes;
+          break;
+        case r'privacyAccepted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.privacyAccepted = valueDes;
+          break;
+        case r'privacyPolicyVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.privacyPolicyVersion = valueDes;
+          break;
+        case r'clientComment':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.clientComment = valueDes;
           break;
         default:
           unhandled.add(key);

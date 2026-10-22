@@ -74,6 +74,16 @@ abstract class Booking with _$Booking {
     /// registered client from a guest; never render it.
     String? clientId,
 
+    /// The GUEST's E.164 phone, for the provider's tap-to-call (Phase 417).
+    ///
+    /// **Guest bookings only** (`clientId == null`): a registered client's
+    /// phone is NEVER shown to a provider. Non-null only on the detail read
+    /// (`GET /bookings/{id}`) for an independent master / salon owner /
+    /// salon admin; null on every list row and for a salon master, a client
+    /// or an anonymised booking. The render gate is
+    /// `BookingDisplayX.guestPhoneFor`. PII — never log, never route-param.
+    String? guestPhone,
+
     /// The client's first name.
     ///
     /// ## The guest fallback already happened — SERVER-side

@@ -111,6 +111,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(BookingResponse.serializer)
       ..add(BookingResponseStatusEnum.serializer)
       ..add(BookingSlugInfoResponse.serializer)
+      ..add(BookingSlugInfoResponseMasterTypeEnum.serializer)
+      ..add(BookingSlugSalonRef.serializer)
       ..add(BudgetBand.serializer)
       ..add(BulkCreateServicesRequest.serializer)
       ..add(BulkServiceItemRequest.serializer)
@@ -119,6 +121,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(CancelBookingRequestCancellationReasonEnum.serializer)
       ..add(CancelTokenInfoResponse.serializer)
       ..add(CatalogCategoryResponse.serializer)
+      ..add(CategoryRef.serializer)
       ..add(CategoryRequestResponse.serializer)
       ..add(CityDistrictResponse.serializer)
       ..add(CityResponse.serializer)
@@ -475,6 +478,20 @@ Serializers _$serializers = (Serializers().toBuilder()
               BuiltList, const [const FullType(SalonBookingSlugMasterItem)]),
           () => ListBuilder<SalonBookingSlugMasterItem>())
       ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(MediaFileResponse)]),
+          () => ListBuilder<MediaFileResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SalonServiceCategoryGroup)]),
+          () => ListBuilder<SalonServiceCategoryGroup>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(RatingBucket)]),
+          () => ListBuilder<RatingBucket>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(SalonReviewResponse)]),
+          () => ListBuilder<SalonReviewResponse>())
+      ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(SalonInviteResponse)]),
           () => ListBuilder<SalonInviteResponse>())
@@ -535,6 +552,18 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ServiceSummaryDto)]),
           () => ListBuilder<ServiceSummaryDto>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(CategoryRef)]),
+          () => ListBuilder<CategoryRef>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(MediaFileResponse)]),
+          () => ListBuilder<MediaFileResponse>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(ReviewResponse)]),
+          () => ListBuilder<ReviewResponse>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(RatingBucket)]),
+          () => ListBuilder<RatingBucket>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(SettlementSearchResponse)]),

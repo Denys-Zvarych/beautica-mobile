@@ -15,8 +15,8 @@ part 'page_media_file_response.g.dart';
 /// PageMediaFileResponse
 ///
 /// Properties:
-/// * [totalElements]
 /// * [totalPages]
+/// * [totalElements]
 /// * [pageable]
 /// * [size]
 /// * [content]
@@ -29,11 +29,11 @@ part 'page_media_file_response.g.dart';
 @BuiltValue()
 abstract class PageMediaFileResponse
     implements Built<PageMediaFileResponse, PageMediaFileResponseBuilder> {
-  @BuiltValueField(wireName: r'totalElements')
-  int? get totalElements;
-
   @BuiltValueField(wireName: r'totalPages')
   int? get totalPages;
+
+  @BuiltValueField(wireName: r'totalElements')
+  int? get totalElements;
 
   @BuiltValueField(wireName: r'pageable')
   PageableObject? get pageable;
@@ -91,17 +91,17 @@ class _$PageMediaFileResponseSerializer
     PageMediaFileResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    if (object.totalElements != null) {
-      yield r'totalElements';
-      yield serializers.serialize(
-        object.totalElements,
-        specifiedType: const FullType(int),
-      );
-    }
     if (object.totalPages != null) {
       yield r'totalPages';
       yield serializers.serialize(
         object.totalPages,
+        specifiedType: const FullType(int),
+      );
+    }
+    if (object.totalElements != null) {
+      yield r'totalElements';
+      yield serializers.serialize(
+        object.totalElements,
         specifiedType: const FullType(int),
       );
     }
@@ -193,19 +193,19 @@ class _$PageMediaFileResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
-        case r'totalElements':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(int),
-          ) as int;
-          result.totalElements = valueDes;
-          break;
         case r'totalPages':
           final valueDes = serializers.deserialize(
             value,
             specifiedType: const FullType(int),
           ) as int;
           result.totalPages = valueDes;
+          break;
+        case r'totalElements':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.totalElements = valueDes;
           break;
         case r'pageable':
           final valueDes = serializers.deserialize(

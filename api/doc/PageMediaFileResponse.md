@@ -8,8 +8,8 @@ import 'package:beautica_api/api.dart';
 ## Properties
 Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
-**totalElements** | **int** |  | [optional] 
 **totalPages** | **int** |  | [optional] 
+**totalElements** | **int** |  | [optional] 
 **pageable** | [**PageableObject**](PageableObject.md) |  | [optional] 
 **size** | **int** |  | [optional] 
 **content** | [**BuiltList&lt;MediaFileResponse&gt;**](MediaFileResponse.md) |  | [optional] 

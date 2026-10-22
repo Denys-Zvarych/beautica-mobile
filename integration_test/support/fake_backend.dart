@@ -761,6 +761,13 @@ final class FakeBackend {
   /// Opt-in: serve the seeded `booking-1` as a GUEST booking (`clientId: null`,
   /// no account behind it). False (default) = the registered `client-1`.
   bool bookingClientIsGuest = false;
+
+  /// Phase 417 — opt-in: the `guestPhone` (E.164) the seeded `booking-1`'s
+  /// DETAIL response carries (the backend gates it to guest bookings viewed
+  /// by an independent master / salon owner / salon admin; the fake serves it
+  /// verbatim so a flow can also prove the APP's own defence-in-depth gate
+  /// by seeding it onto a registered-client booking). Never on a listing.
+  String? bookingGuestPhone;
   int? bookingClientReviewCount;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
@@ -5334,6 +5341,8 @@ final class FakeBackend {
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
     'clientId': bookingClientIsGuest ? null : 'client-1',
+    if (includeReviewByClient && bookingGuestPhone != null)
+      'guestPhone': bookingGuestPhone,
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
     if (bookingClientAvatarUrl != null)

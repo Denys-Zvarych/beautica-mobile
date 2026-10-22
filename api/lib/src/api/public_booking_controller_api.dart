@@ -15,6 +15,9 @@ import 'package:beautica_api/src/model/cancel_token_info_response.dart';
 import 'package:beautica_api/src/model/date.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
+import 'package:beautica_api/src/model/page_response_review_response.dart';
+import 'package:beautica_api/src/model/page_response_salon_review_response.dart';
+import 'package:beautica_api/src/model/pageable.dart';
 import 'package:beautica_api/src/model/salon_booking_slug_info_response.dart';
 import 'package:built_collection/built_collection.dart';
 
@@ -432,6 +435,98 @@ class PublicBookingControllerApi {
     );
   }
 
+  /// reviews
+  ///
+  ///
+  /// Parameters:
+  /// * [slug]
+  /// * [pageable]
+  /// * [sort]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [PageResponseReviewResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<PageResponseReviewResponse>> reviews({
+    required String slug,
+    required Pageable pageable,
+    String? sort = 'NEWEST',
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/book/{slug}/reviews'.replaceAll(
+        '{' r'slug' '}',
+        encodeQueryParameter(_serializers, slug, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (sort != null)
+        r'sort':
+            encodeQueryParameter(_serializers, sort, const FullType(String)),
+      r'pageable': encodeQueryParameter(
+          _serializers, pageable, const FullType(Pageable)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    PageResponseReviewResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(PageResponseReviewResponse),
+            ) as PageResponseReviewResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<PageResponseReviewResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
   /// salonInfo
   ///
   ///
@@ -500,6 +595,98 @@ class PublicBookingControllerApi {
     }
 
     return Response<SalonBookingSlugInfoResponse>(
+      data: _responseData,
+      headers: _response.headers,
+      isRedirect: _response.isRedirect,
+      requestOptions: _response.requestOptions,
+      redirects: _response.redirects,
+      statusCode: _response.statusCode,
+      statusMessage: _response.statusMessage,
+      extra: _response.extra,
+    );
+  }
+
+  /// salonReviews
+  ///
+  ///
+  /// Parameters:
+  /// * [slug]
+  /// * [pageable]
+  /// * [sort]
+  /// * [cancelToken] - A [CancelToken] that can be used to cancel the operation
+  /// * [headers] - Can be used to add additional headers to the request
+  /// * [extras] - Can be used to add flags to the request
+  /// * [validateStatus] - A [ValidateStatus] callback that can be used to determine request success based on the HTTP status of the response
+  /// * [onSendProgress] - A [ProgressCallback] that can be used to get the send progress
+  /// * [onReceiveProgress] - A [ProgressCallback] that can be used to get the receive progress
+  ///
+  /// Returns a [Future] containing a [Response] with a [PageResponseSalonReviewResponse] as data
+  /// Throws [DioException] if API call or serialization fails
+  Future<Response<PageResponseSalonReviewResponse>> salonReviews({
+    required String slug,
+    required Pageable pageable,
+    String? sort = 'NEWEST',
+    CancelToken? cancelToken,
+    Map<String, dynamic>? headers,
+    Map<String, dynamic>? extra,
+    ValidateStatus? validateStatus,
+    ProgressCallback? onSendProgress,
+    ProgressCallback? onReceiveProgress,
+  }) async {
+    final _path = r'/api/v1/book/s/{slug}/reviews'.replaceAll(
+        '{' r'slug' '}',
+        encodeQueryParameter(_serializers, slug, const FullType(String))
+            .toString());
+    final _options = Options(
+      method: r'GET',
+      headers: <String, dynamic>{
+        ...?headers,
+      },
+      extra: <String, dynamic>{
+        'secure': <Map<String, String>>[],
+        ...?extra,
+      },
+      validateStatus: validateStatus,
+    );
+
+    final _queryParameters = <String, dynamic>{
+      if (sort != null)
+        r'sort':
+            encodeQueryParameter(_serializers, sort, const FullType(String)),
+      r'pageable': encodeQueryParameter(
+          _serializers, pageable, const FullType(Pageable)),
+    };
+
+    final _response = await _dio.request<Object>(
+      _path,
+      options: _options,
+      queryParameters: _queryParameters,
+      cancelToken: cancelToken,
+      onSendProgress: onSendProgress,
+      onReceiveProgress: onReceiveProgress,
+    );
+
+    PageResponseSalonReviewResponse? _responseData;
+
+    try {
+      final rawResponse = _response.data;
+      _responseData = rawResponse == null
+          ? null
+          : _serializers.deserialize(
+              rawResponse,
+              specifiedType: const FullType(PageResponseSalonReviewResponse),
+            ) as PageResponseSalonReviewResponse;
+    } catch (error, stackTrace) {
+      throw DioException(
+        requestOptions: _response.requestOptions,
+        response: _response,
+        type: DioExceptionType.unknown,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    return Response<PageResponseSalonReviewResponse>(
       data: _responseData,
       headers: _response.headers,
       isRedirect: _response.isRedirect,

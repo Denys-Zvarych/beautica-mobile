@@ -98,12 +98,14 @@ doc/BookingLinksApi.md
 doc/BookingLinksResponse.md
 doc/BookingResponse.md
 doc/BookingSlugInfoResponse.md
+doc/BookingSlugSalonRef.md
 doc/BudgetBand.md
 doc/BulkCreateServicesRequest.md
 doc/BulkServiceItemRequest.md
 doc/CancelBookingRequest.md
 doc/CancelTokenInfoResponse.md
 doc/CatalogCategoryResponse.md
+doc/CategoryRef.md
 doc/CategoryRequestControllerApi.md
 doc/CategoryRequestResponse.md
 doc/CityDistrictResponse.md
@@ -399,12 +401,14 @@ lib/src/model/booking_link_response.dart
 lib/src/model/booking_links_response.dart
 lib/src/model/booking_response.dart
 lib/src/model/booking_slug_info_response.dart
+lib/src/model/booking_slug_salon_ref.dart
 lib/src/model/budget_band.dart
 lib/src/model/bulk_create_services_request.dart
 lib/src/model/bulk_service_item_request.dart
 lib/src/model/cancel_booking_request.dart
 lib/src/model/cancel_token_info_response.dart
 lib/src/model/catalog_category_response.dart
+lib/src/model/category_ref.dart
 lib/src/model/category_request_response.dart
 lib/src/model/city_district_response.dart
 lib/src/model/city_response.dart
@@ -547,3 +551,5 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/booking_slug_salon_ref_test.dart
+test/category_ref_test.dart

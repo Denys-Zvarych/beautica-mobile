@@ -158,7 +158,9 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
+[*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**reviews**](doc/PublicBookingControllerApi.md#reviews) | **GET** /api/v1/book/{slug}/reviews | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonInfo**](doc/PublicBookingControllerApi.md#saloninfo) | **GET** /api/v1/book/s/{slug}/info | 
+[*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonReviews**](doc/PublicBookingControllerApi.md#salonreviews) | **GET** /api/v1/book/s/{slug}/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -312,12 +314,14 @@ Class | Method | HTTP request | Description
  - [BookingLinksResponse](doc/BookingLinksResponse.md)
  - [BookingResponse](doc/BookingResponse.md)
  - [BookingSlugInfoResponse](doc/BookingSlugInfoResponse.md)
+ - [BookingSlugSalonRef](doc/BookingSlugSalonRef.md)
  - [BudgetBand](doc/BudgetBand.md)
  - [BulkCreateServicesRequest](doc/BulkCreateServicesRequest.md)
  - [BulkServiceItemRequest](doc/BulkServiceItemRequest.md)
  - [CancelBookingRequest](doc/CancelBookingRequest.md)
  - [CancelTokenInfoResponse](doc/CancelTokenInfoResponse.md)
  - [CatalogCategoryResponse](doc/CatalogCategoryResponse.md)
+ - [CategoryRef](doc/CategoryRef.md)
  - [CategoryRequestResponse](doc/CategoryRequestResponse.md)
  - [CityDistrictResponse](doc/CityDistrictResponse.md)
  - [CityResponse](doc/CityResponse.md)

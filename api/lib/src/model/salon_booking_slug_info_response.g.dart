@@ -25,6 +25,26 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
   final bool bookable;
   @override
   final BuiltList<SalonBookingSlugMasterItem> masters;
+  @override
+  final String? region;
+  @override
+  final String? street;
+  @override
+  final String? buildingNo;
+  @override
+  final DateTime updatedAt;
+  @override
+  final String? description;
+  @override
+  final String? locationNote;
+  @override
+  final BuiltList<MediaFileResponse> portfolio;
+  @override
+  final BuiltList<SalonServiceCategoryGroup> serviceCategories;
+  @override
+  final BuiltList<RatingBucket> ratingDistribution;
+  @override
+  final BuiltList<SalonReviewResponse> latestReviews;
 
   factory _$SalonBookingSlugInfoResponse(
           [void Function(SalonBookingSlugInfoResponseBuilder)? updates]) =>
@@ -39,7 +59,17 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
       this.avgRating,
       required this.reviewCount,
       required this.bookable,
-      required this.masters})
+      required this.masters,
+      this.region,
+      this.street,
+      this.buildingNo,
+      required this.updatedAt,
+      this.description,
+      this.locationNote,
+      required this.portfolio,
+      required this.serviceCategories,
+      required this.ratingDistribution,
+      required this.latestReviews})
       : super._();
   @override
   SalonBookingSlugInfoResponse rebuild(
@@ -62,7 +92,17 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
         bookable == other.bookable &&
-        masters == other.masters;
+        masters == other.masters &&
+        region == other.region &&
+        street == other.street &&
+        buildingNo == other.buildingNo &&
+        updatedAt == other.updatedAt &&
+        description == other.description &&
+        locationNote == other.locationNote &&
+        portfolio == other.portfolio &&
+        serviceCategories == other.serviceCategories &&
+        ratingDistribution == other.ratingDistribution &&
+        latestReviews == other.latestReviews;
   }
 
   @override
@@ -77,6 +117,16 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
     _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jc(_$hash, bookable.hashCode);
     _$hash = $jc(_$hash, masters.hashCode);
+    _$hash = $jc(_$hash, region.hashCode);
+    _$hash = $jc(_$hash, street.hashCode);
+    _$hash = $jc(_$hash, buildingNo.hashCode);
+    _$hash = $jc(_$hash, updatedAt.hashCode);
+    _$hash = $jc(_$hash, description.hashCode);
+    _$hash = $jc(_$hash, locationNote.hashCode);
+    _$hash = $jc(_$hash, portfolio.hashCode);
+    _$hash = $jc(_$hash, serviceCategories.hashCode);
+    _$hash = $jc(_$hash, ratingDistribution.hashCode);
+    _$hash = $jc(_$hash, latestReviews.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +142,17 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
           ..add('bookable', bookable)
-          ..add('masters', masters))
+          ..add('masters', masters)
+          ..add('region', region)
+          ..add('street', street)
+          ..add('buildingNo', buildingNo)
+          ..add('updatedAt', updatedAt)
+          ..add('description', description)
+          ..add('locationNote', locationNote)
+          ..add('portfolio', portfolio)
+          ..add('serviceCategories', serviceCategories)
+          ..add('ratingDistribution', ratingDistribution)
+          ..add('latestReviews', latestReviews))
         .toString();
   }
 }
@@ -142,6 +202,55 @@ class SalonBookingSlugInfoResponseBuilder
   set masters(ListBuilder<SalonBookingSlugMasterItem>? masters) =>
       _$this._masters = masters;
 
+  String? _region;
+  String? get region => _$this._region;
+  set region(String? region) => _$this._region = region;
+
+  String? _street;
+  String? get street => _$this._street;
+  set street(String? street) => _$this._street = street;
+
+  String? _buildingNo;
+  String? get buildingNo => _$this._buildingNo;
+  set buildingNo(String? buildingNo) => _$this._buildingNo = buildingNo;
+
+  DateTime? _updatedAt;
+  DateTime? get updatedAt => _$this._updatedAt;
+  set updatedAt(DateTime? updatedAt) => _$this._updatedAt = updatedAt;
+
+  String? _description;
+  String? get description => _$this._description;
+  set description(String? description) => _$this._description = description;
+
+  String? _locationNote;
+  String? get locationNote => _$this._locationNote;
+  set locationNote(String? locationNote) => _$this._locationNote = locationNote;
+
+  ListBuilder<MediaFileResponse>? _portfolio;
+  ListBuilder<MediaFileResponse> get portfolio =>
+      _$this._portfolio ??= ListBuilder<MediaFileResponse>();
+  set portfolio(ListBuilder<MediaFileResponse>? portfolio) =>
+      _$this._portfolio = portfolio;
+
+  ListBuilder<SalonServiceCategoryGroup>? _serviceCategories;
+  ListBuilder<SalonServiceCategoryGroup> get serviceCategories =>
+      _$this._serviceCategories ??= ListBuilder<SalonServiceCategoryGroup>();
+  set serviceCategories(
+          ListBuilder<SalonServiceCategoryGroup>? serviceCategories) =>
+      _$this._serviceCategories = serviceCategories;
+
+  ListBuilder<RatingBucket>? _ratingDistribution;
+  ListBuilder<RatingBucket> get ratingDistribution =>
+      _$this._ratingDistribution ??= ListBuilder<RatingBucket>();
+  set ratingDistribution(ListBuilder<RatingBucket>? ratingDistribution) =>
+      _$this._ratingDistribution = ratingDistribution;
+
+  ListBuilder<SalonReviewResponse>? _latestReviews;
+  ListBuilder<SalonReviewResponse> get latestReviews =>
+      _$this._latestReviews ??= ListBuilder<SalonReviewResponse>();
+  set latestReviews(ListBuilder<SalonReviewResponse>? latestReviews) =>
+      _$this._latestReviews = latestReviews;
+
   SalonBookingSlugInfoResponseBuilder() {
     SalonBookingSlugInfoResponse._defaults(this);
   }
@@ -158,6 +267,16 @@ class SalonBookingSlugInfoResponseBuilder
       _reviewCount = $v.reviewCount;
       _bookable = $v.bookable;
       _masters = $v.masters.toBuilder();
+      _region = $v.region;
+      _street = $v.street;
+      _buildingNo = $v.buildingNo;
+      _updatedAt = $v.updatedAt;
+      _description = $v.description;
+      _locationNote = $v.locationNote;
+      _portfolio = $v.portfolio.toBuilder();
+      _serviceCategories = $v.serviceCategories.toBuilder();
+      _ratingDistribution = $v.ratingDistribution.toBuilder();
+      _latestReviews = $v.latestReviews.toBuilder();
       _$v = null;
     }
     return this;
@@ -194,12 +313,32 @@ class SalonBookingSlugInfoResponseBuilder
             bookable: BuiltValueNullFieldError.checkNotNull(
                 bookable, r'SalonBookingSlugInfoResponse', 'bookable'),
             masters: masters.build(),
+            region: region,
+            street: street,
+            buildingNo: buildingNo,
+            updatedAt: BuiltValueNullFieldError.checkNotNull(
+                updatedAt, r'SalonBookingSlugInfoResponse', 'updatedAt'),
+            description: description,
+            locationNote: locationNote,
+            portfolio: portfolio.build(),
+            serviceCategories: serviceCategories.build(),
+            ratingDistribution: ratingDistribution.build(),
+            latestReviews: latestReviews.build(),
           );
     } catch (_) {
       late String _$failedField;
       try {
         _$failedField = 'masters';
         masters.build();
+
+        _$failedField = 'portfolio';
+        portfolio.build();
+        _$failedField = 'serviceCategories';
+        serviceCategories.build();
+        _$failedField = 'ratingDistribution';
+        ratingDistribution.build();
+        _$failedField = 'latestReviews';
+        latestReviews.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SalonBookingSlugInfoResponse', _$failedField, e.toString());
