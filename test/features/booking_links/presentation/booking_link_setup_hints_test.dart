@@ -25,7 +25,10 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
 import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_screen.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
+import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/schedule/application/own_schedule_scope.dart';
 import 'package:beautica_mobile/features/schedule/data/schedule_repository.dart';
@@ -58,6 +61,14 @@ class _FakeWeekly extends WeeklyScheduleNotifier {
 
   @override
   Future<List<WeeklySchedule>> build(ScheduleScope scope) => _read();
+}
+
+class _FakeMySalons extends MySalons {
+  _FakeMySalons(this._read);
+  final List<Salon> Function() _read;
+
+  @override
+  Future<List<Salon>> build() async => _read();
 }
 
 const BookingLink _master = BookingLink(
@@ -152,6 +163,12 @@ void main() {
   Completer<void>? gate;
   bool failReads = false;
   bool servicesInactive = false;
+  int masterCatalogFetches = 0;
+  int salonCatalogFetches = 0;
+  int weeklyFetches = 0;
+  List<Salon> mySalons = const <Salon>[
+    Salon(id: 'salon-a', name: 'Lumière', isPrimary: true),
+  ];
 
   setUp(() {
     links = _MockLinksRepo();
@@ -164,6 +181,12 @@ void main() {
     gate = null;
     failReads = false;
     servicesInactive = false;
+    masterCatalogFetches = 0;
+    salonCatalogFetches = 0;
+    weeklyFetches = 0;
+    mySalons = const <Salon>[
+      Salon(id: 'salon-a', name: 'Lumière', isPrimary: true),
+    ];
     when(
       () => roster.salonRosterEffectiveSchedule(any(), any(), any()),
     ).thenAnswer((_) async {
@@ -203,12 +226,15 @@ void main() {
         ),
         weeklyScheduleProvider.overrideWith2(
           (_) => _FakeWeekly(() async {
+            weeklyFetches++;
             await gate?.future;
             if (failReads) throw const NetworkFailure();
             return hasSchedule ? <WeeklySchedule>[_template] : const [];
           }),
         ),
+        mySalonsProvider.overrideWith(() => _FakeMySalons(() => mySalons)),
         masterServiceCatalogProvider.overrideWith((ref) async {
+          masterCatalogFetches++;
           if (failReads) throw const NetworkFailure();
           if (!hasServices) return const <MasterService>[];
           return <MasterService>[
@@ -219,6 +245,7 @@ void main() {
         }),
         salonRosterScheduleRepositoryProvider.overrideWithValue(roster),
         salonServiceCatalogProvider.overrideWith((ref, String id) async {
+          salonCatalogFetches++;
           if (failReads) throw const NetworkFailure();
           return hasSalonServices
               ? const <SalonServiceCategoryEntry>[
@@ -385,6 +412,127 @@ void main() {
     });
   });
 
+  group('refresh, scoping and value type', () {
+    test('BookingLinkSetupHints compares by contents; none is empty const', () {
+      expect(
+        const BookingLinkSetupHints(schedule: true),
+        const BookingLinkSetupHints(schedule: true),
+      );
+      expect(
+        const BookingLinkSetupHints(schedule: true),
+        isNot(const BookingLinkSetupHints(services: true)),
+      );
+      expect(BookingLinkSetupHints.none.isEmpty, isTrue);
+      expect(
+        identical(
+          BookingLinkSetupHints.none.missing,
+          BookingLinkSetupHints.none.missing,
+        ),
+        isTrue,
+      );
+      expect(
+        const BookingLinkSetupHints(schedule: true, services: true).missing,
+        <BookingLinkSetupHint>[
+          BookingLinkSetupHint.schedule,
+          BookingLinkSetupHint.services,
+        ],
+      );
+    });
+
+    testWidgets('NO generic-note flash while the readiness refetch after '
+        'return is loading', (tester) async {
+      hasSchedule = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+
+      hasSchedule = true;
+      gate = Completer<void>(); // hold the refetch open
+      router.pop();
+      // Let the pop transition finish so the post-return invalidate has run.
+      for (int i = 0; i < 40 && weeklyFetches < 2; i++) {
+        // fixed-wait-ok: stepping the pop transition frame by frame until the post-return refetch starts (bounded, condition-driven)
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(weeklyFetches, 2, reason: 'refetch is genuinely in flight');
+      // Refetch in flight: previous hint stays, generic note does NOT appear.
+      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      expect(find.byKey(_setup(_master.slug)), findsNothing);
+
+      gate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+    });
+
+    testWidgets('schedule hint invalidates ONLY the schedule member (+links): '
+        'the services catalogue is not refetched', (tester) async {
+      hasSchedule = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      final int weeklyBefore = weeklyFetches;
+      final int catalogBefore = masterCatalogFetches;
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(weeklyFetches, weeklyBefore + 1);
+      expect(masterCatalogFetches, catalogBefore);
+    });
+
+    testWidgets('services hint invalidates ONLY the catalogue: the weekly '
+        'schedule is not refetched', (tester) async {
+      hasServices = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      final int weeklyBefore = weeklyFetches;
+      final int catalogBefore = masterCatalogFetches;
+      await tester.ensureVisible(find.byKey(_hint('services', _master.slug)));
+      await tester.tap(find.byKey(_hint('services', _master.slug)));
+      await tester.pumpAndSettle();
+      hasServices = true;
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(masterCatalogFetches, catalogBefore + 1);
+      expect(weeklyFetches, weeklyBefore);
+      expect(find.byKey(_hint('services', _master.slug)), findsNothing);
+    });
+
+    testWidgets('salon schedule is read on the board\'s CURRENT-MONTH key', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        role: UserRole.salonAdmin,
+        link: _salon,
+        salonId: 'salon-a',
+      );
+      final List<dynamic> args = verify(
+        () => roster.salonRosterEffectiveSchedule(
+          any(),
+          captureAny(),
+          captureAny(),
+        ),
+      ).captured;
+      final DateTime from = args[0] as DateTime;
+      final DateTime to = args[1] as DateTime;
+      expect(from.day, 1);
+      expect(to.add(const Duration(days: 1)).day, 1, reason: 'month end');
+      expect(to.month, from.month);
+    });
+  });
+
   group('salon (owner)', () {
     for (final (bool sched, bool serv) in <(bool, bool)>[
       (true, true),
@@ -462,6 +610,81 @@ void main() {
       await pump(tester, role: UserRole.salonOwner, link: _salon);
       expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
       expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+    });
+
+    testWidgets('salon CATALOGUE is refetched after a services hint return '
+        'and the hint clears', (tester) async {
+      hasSalonServices = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.salonOwner,
+        link: _salon,
+      );
+      final int before = salonCatalogFetches;
+      await tester.ensureVisible(find.byKey(_hint('services', _salon.slug)));
+      await tester.tap(find.byKey(_hint('services', _salon.slug)));
+      await tester.pumpAndSettle();
+      hasSalonServices = true;
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(salonCatalogFetches, before + 1);
+      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+    });
+
+    testWidgets('owner with several salons: hints ONLY on the primary card; '
+        'the other keeps the generic note and fetches nothing', (tester) async {
+      hasSalonSchedule = false;
+      hasSalonServices = false;
+      mySalons = const <Salon>[
+        Salon(id: 'salon-b', name: 'Loft', isPrimary: false),
+        Salon(id: 'salon-a', name: 'Lumière', isPrimary: true),
+      ];
+      const BookingLink other = BookingLink(
+        kind: BookingLinkKind.salon,
+        slug: 'beauty-loft',
+        url: 'https://beautica.app/book/s/beauty-loft',
+        displayName: 'Loft',
+        salonId: 'salon-b',
+        bookable: false,
+      );
+      when(() => links.getMine()).thenAnswer(
+        (_) async => const BookingLinks(
+          shareEnabled: true,
+          links: <BookingLink>[_salon, other],
+        ),
+      );
+      // pump() re-stubs getMine for one link, so build the app by hand.
+      final GoRouter router = _router(pushed);
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          authProvider.overrideWith(() => FixedRoleAuth(UserRole.salonOwner)),
+          bookingLinksRepositoryProvider.overrideWithValue(links),
+          mySalonsProvider.overrideWith(() => _FakeMySalons(() => mySalons)),
+          salonRosterScheduleRepositoryProvider.overrideWithValue(roster),
+          salonServiceCatalogProvider.overrideWith((ref, String id) async {
+            salonCatalogFetches++;
+            return const <SalonServiceCategoryEntry>[];
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      unawaited(router.push(RouteNames.bookingLinks));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('services', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', other.slug)), findsNothing);
+      expect(find.byKey(_hint('services', other.slug)), findsNothing);
+      expect(find.byKey(_setup(other.slug)), findsOneWidget);
+      expect(salonCatalogFetches, 1, reason: 'only the primary salon');
+      verify(
+        () => roster.salonRosterEffectiveSchedule('salon-a', any(), any()),
+      ).called(1);
+      verifyNever(
+        () => roster.salonRosterEffectiveSchedule('salon-b', any(), any()),
+      );
     });
   });
 }

@@ -14,22 +14,41 @@
 //
 //   SALON link (owner / admin) — the salon is bookable only when at least one
 //   master has services + schedule, so it is missing when
-//     schedule  [salonEffectiveScheduleProvider] (the roster-complete batch
-//               the «Записи» board uses) over today … +[kSalonReadinessDays]
-//               days: no master has a single working day
+//     schedule  [salonEffectiveScheduleProvider] on EXACTLY the key the
+//               «Записи» board watches (`ScheduleRange.month(kyivToday)`, see
+//               [salonReadinessRange]) — no new key, no extra pinned window,
+//               a board that is open already holds it: no master has a
+//               single working day in the current month
 //     services  [salonServiceCatalogProvider]: the salon catalogue is empty
+//
+// SALON OWNER: the owner's hint targets (`/owner/master/*`) act on the
+// owner's PRIMARY salon, not on `link.salonId`. So an owner sees hints only on
+// the primary-salon card (`Salon.isPrimary`, or the sole salon); other salon
+// cards get none (the generic 414 note stays) and — because that check comes
+// first — never read the schedule/catalogue providers: a multi-salon owner
+// costs one readiness fetch pair, not N. An admin has exactly one salon.
+//
+// Refresh: while a value is being RE-fetched (after returning from a setup
+// page) the previous answer is kept, so the generic note never flashes. A
+// first load, and any error, read as "nothing missing".
 //
 // Loading and error read as "nothing missing" (empty list): the readiness
 // check must never block, flash an error on, or reserve space in the link
 // screen. `asData` (never `.value`) so an errored refresh cannot republish a
 // previous account's value.
 
+import 'package:flutter/foundation.dart' show immutable;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
+import '../../auth/domain/user_role.dart';
+import '../../auth/presentation/auth_notifier.dart';
+import '../../salon/application/my_salons_notifier.dart';
 import '../../salon/application/salon_service_catalog_notifier.dart';
+import '../../salon/domain/salon.dart';
 import '../../salon/domain/salon_service_catalog.dart';
 import '../../schedule/application/own_schedule_scope.dart';
 import '../../schedule/domain/weekly_schedule.dart';
@@ -45,17 +64,51 @@ part 'booking_link_setup_hints_provider.g.dart';
 /// What is still missing before a client can book.
 enum BookingLinkSetupHint { schedule, services }
 
-/// How far ahead a salon's roster is scanned for a working day (≤ the 62-day
-/// batch limit).
-const int kSalonReadinessDays = 60;
+/// The month key the salon «Записи» board watches — reused as-is so readiness
+/// shares its cache entry instead of pinning a second window.
+ScheduleRange salonReadinessRange(DateTime today) => ScheduleRange.month(today);
+
+/// Value type so an unchanged answer does not rebuild the card.
+@immutable
+final class BookingLinkSetupHints {
+  const BookingLinkSetupHints({this.schedule = false, this.services = false});
+
+  static const BookingLinkSetupHints none = BookingLinkSetupHints();
+
+  final bool schedule;
+  final bool services;
+
+  bool get isEmpty => !schedule && !services;
+
+  /// Schedule first, as the screen lists them.
+  List<BookingLinkSetupHint> get missing => isEmpty
+      ? const <BookingLinkSetupHint>[]
+      : List<BookingLinkSetupHint>.unmodifiable(<BookingLinkSetupHint>[
+          if (schedule) BookingLinkSetupHint.schedule,
+          if (services) BookingLinkSetupHint.services,
+        ]);
+
+  @override
+  bool operator ==(Object other) =>
+      other is BookingLinkSetupHints &&
+      other.schedule == schedule &&
+      other.services == services;
+
+  @override
+  int get hashCode => Object.hash(schedule, services);
+}
+
+/// The value to read from [v]: a settled value, or — while a REFRESH is in
+/// flight — the previous one; null on a first load and on error.
+T? _settledOrPrevious<T>(AsyncValue<T> v) =>
+    v.isLoading && v.hasValue ? v.value : v.asData?.value;
 
 /// The missing prerequisites of the link of [kind] — for a salon link
 /// [salonId] is the salon, for a master link it is ignored (pass `''`).
-/// Schedule first, as the screen lists them. Empty while unknown.
 // `dependencies`: masterServiceCatalog is itself scoped on serviceRepository
 // (see its declaration), so riverpod requires it be declared here.
 @Riverpod(dependencies: [masterServiceCatalog])
-List<BookingLinkSetupHint> bookingLinkSetupHints(
+BookingLinkSetupHints bookingLinkSetupHints(
   Ref ref,
   BookingLinkKind kind,
   String salonId,
@@ -64,50 +117,50 @@ List<BookingLinkSetupHint> bookingLinkSetupHints(
   final bool? noServices;
   switch (kind) {
     case BookingLinkKind.master:
-      final List<WeeklySchedule>? weekly = ref
-          .watch(weeklyScheduleProvider(ref.watch(ownScheduleScopeProvider)))
-          .asData
-          ?.value;
+      final List<WeeklySchedule>? weekly = _settledOrPrevious(
+        ref.watch(weeklyScheduleProvider(ref.watch(ownScheduleScopeProvider))),
+      );
       noSchedule = weekly?.isEmpty;
-      final List<MasterService>? services = ref
-          .watch(masterServiceCatalogProvider)
-          .asData
-          ?.value;
+      final List<MasterService>? services = _settledOrPrevious(
+        ref.watch(masterServiceCatalogProvider),
+      );
       noServices = services?.every((MasterService s) => !s.isActive);
     case BookingLinkKind.salon:
-      if (salonId.trim().isEmpty) return const <BookingLinkSetupHint>[];
-      final DateTime today = kyivToday(ref.watch(clockProvider));
-      final Map<String, List<EffectiveDay>>? byMaster = ref
-          .watch(
-            salonEffectiveScheduleProvider(
-              salonId,
-              ScheduleRange(
-                from: today,
-                to: DateTime(
-                  today.year,
-                  today.month,
-                  today.day + kSalonReadinessDays,
-                ),
-              ),
-            ),
-          )
-          .asData
-          ?.value;
+      if (salonId.trim().isEmpty) return BookingLinkSetupHints.none;
+      // Owner targets act on the primary salon only — see the header.
+      final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+      if (role == UserRole.salonOwner) {
+        final List<Salon>? mine = _settledOrPrevious(
+          ref.watch(mySalonsProvider),
+        );
+        if (mine == null) return BookingLinkSetupHints.none;
+        final bool primary = mine.length == 1
+            ? mine.single.id == salonId
+            : mine.any((Salon s) => s.id == salonId && (s.isPrimary ?? false));
+        if (!primary) return BookingLinkSetupHints.none;
+      }
+      final Map<String, List<EffectiveDay>>? byMaster = _settledOrPrevious(
+        ref.watch(
+          salonEffectiveScheduleProvider(
+            salonId,
+            salonReadinessRange(kyivToday(ref.watch(clockProvider))),
+          ),
+        ),
+      );
       noSchedule = byMaster?.values.every(
         (List<EffectiveDay> days) => days.every(
           (EffectiveDay d) => d.source == EffectiveSource.noSchedule,
         ),
       );
-      final List<SalonServiceCategoryEntry>? catalogue = ref
-          .watch(salonServiceCatalogProvider(salonId))
-          .asData
-          ?.value;
+      final List<SalonServiceCategoryEntry>? catalogue = _settledOrPrevious(
+        ref.watch(salonServiceCatalogProvider(salonId)),
+      );
       noServices = catalogue?.every(
         (SalonServiceCategoryEntry c) => c.services.isEmpty,
       );
   }
-  return List<BookingLinkSetupHint>.unmodifiable(<BookingLinkSetupHint>[
-    if (noSchedule ?? false) BookingLinkSetupHint.schedule,
-    if (noServices ?? false) BookingLinkSetupHint.services,
-  ]);
+  return BookingLinkSetupHints(
+    schedule: noSchedule ?? false,
+    services: noServices ?? false,
+  );
 }

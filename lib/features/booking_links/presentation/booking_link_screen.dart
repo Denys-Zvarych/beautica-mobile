@@ -26,6 +26,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/share/share_service.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -35,6 +36,7 @@ import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/server_field_message.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
@@ -42,6 +44,7 @@ import '../../auth/domain/user_role.dart';
 import '../../auth/presentation/auth_notifier.dart';
 import '../../master/presentation/widgets/section_scaffold.dart';
 import '../../salon/application/salon_service_catalog_notifier.dart';
+import '../../schedule/application/own_schedule_scope.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../../services/data/master_service_catalog_provider.dart';
@@ -173,13 +176,27 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     if (target == null) return;
     await context.pushOnce<Object?>(target);
     if (!mounted) return;
-    // Re-evaluate: whatever was just set up must clear its hint (and the
-    // server's `bookable`) without a manual refresh.
+    // Re-evaluate ONLY what the tapped hint could have changed (plus the
+    // server's `bookable`): the exact schedule member this screen reads, or
+    // the one catalogue — never a whole family.
     ref.invalidate(bookingLinksForAccountProvider);
-    ref.invalidate(weeklyScheduleProvider);
-    ref.invalidate(masterServiceCatalogProvider);
-    ref.invalidate(salonEffectiveScheduleProvider);
-    ref.invalidate(salonServiceCatalogProvider);
+    switch ((link.kind, hint)) {
+      case (BookingLinkKind.master, BookingLinkSetupHint.schedule):
+        ref.invalidate(
+          weeklyScheduleProvider(ref.read(ownScheduleScopeProvider)),
+        );
+      case (BookingLinkKind.master, BookingLinkSetupHint.services):
+        ref.invalidate(masterServiceCatalogProvider);
+      case (BookingLinkKind.salon, BookingLinkSetupHint.schedule):
+        ref.invalidate(
+          salonEffectiveScheduleProvider(
+            link.salonId ?? '',
+            salonReadinessRange(kyivToday(ref.read(clockProvider))),
+          ),
+        );
+      case (BookingLinkKind.salon, BookingLinkSetupHint.services):
+        ref.invalidate(salonServiceCatalogProvider(link.salonId ?? ''));
+    }
   }
 
   List<BookingLinkCardHint> _hintsFor(
@@ -245,12 +262,14 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
             // one never even reads the readiness providers.
             final List<BookingLinkSetupHint> missing = link.bookable
                 ? const <BookingLinkSetupHint>[]
-                : ref.watch(
-                    bookingLinkSetupHintsProvider(
-                      link.kind,
-                      link.salonId ?? '',
-                    ),
-                  );
+                : ref
+                      .watch(
+                        bookingLinkSetupHintsProvider(
+                          link.kind,
+                          link.salonId ?? '',
+                        ),
+                      )
+                      .missing;
             return BookingLinkCard(
               key: ValueKey<String>('card-${link.slug}'),
               link: link,
