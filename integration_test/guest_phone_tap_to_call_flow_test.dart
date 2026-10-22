@@ -43,10 +43,15 @@ void main() {
   });
   tearDown(() => UrlLauncherPlatform.instance = original);
 
-  Future<void> openDetail(WidgetTester tester, FakeBackend fb) async {
+  Future<void> openDetail(
+    WidgetTester tester,
+    FakeBackend fb, {
+    UserRole role = UserRole.independentMaster,
+    String? path,
+  }) async {
     final GoRouter router = await AppHarness.boot(tester, fb);
-    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
-    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.loginAs(tester, fb, role);
+    unawaited(router.push(path ?? RouteNames.masterBookingDetail('booking-1')));
     await AppHarness.settle(tester);
     expect(find.byType(BookingDetailScreen), findsOneWidget);
   }
@@ -83,6 +88,79 @@ void main() {
 
       expect(find.byKey(_rowKey), findsNothing);
       expect(find.text(_phone), findsNothing);
+    },
+  );
+
+  // Phase 417 QA — the salon roles. Each journey logs in through the real
+  // router, pushes that role's own detail route and reads the fake's detail
+  // GET (`guestPhone` served verbatim, as the backend would for the audience).
+  final Map<UserRole, String> staffPaths = <UserRole, String>{
+    UserRole.salonOwner: RouteNames.salonStaffBookingDetail('booking-1'),
+    UserRole.salonAdmin: RouteNames.salonStaffBookingDetail('booking-1'),
+  };
+  for (final MapEntry<UserRole, String> e in staffPaths.entries) {
+    testWidgets('${e.key.name}: guest LINK booking shows the phone row and a '
+        'tap opens the dialer', (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = e.key
+        ..bookingClientIsGuest = true
+        ..bookingGuestPhone = _phone;
+      await openDetail(tester, fb, role: e.key, path: e.value);
+
+      expect(find.byKey(_rowKey), findsOneWidget);
+      await tester.tap(find.byKey(_rowKey));
+      await tester.pump();
+
+      final String launched =
+          verify(() => launcher.launchUrl(captureAny(), any())).captured.single
+              as String;
+      expect(launched, 'tel:$_phone');
+    });
+
+    testWidgets('${e.key.name}: a registered-client booking shows no row even '
+        'if the payload wrongly carries a phone', (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = e.key
+        ..bookingGuestPhone = _phone;
+      await openDetail(tester, fb, role: e.key, path: e.value);
+
+      expect(find.byKey(_rowKey), findsNothing);
+      expect(find.text(_phone), findsNothing);
+    });
+  }
+
+  testWidgets('salonMaster: the backend sends null → no row', (tester) async {
+    final fb = FakeBackend()
+      ..currentRole = UserRole.salonMaster
+      ..bookingClientIsGuest = true;
+    await openDetail(
+      tester,
+      fb,
+      role: UserRole.salonMaster,
+      path: RouteNames.salonMasterBookingDetail('booking-1'),
+    );
+
+    expect(find.byKey(_rowKey), findsNothing);
+  });
+
+  testWidgets(
+    'salonMaster DEFENCE IN DEPTH: the fake wrongly sends a guest phone → '
+    'still no row, the number is never rendered',
+    (tester) async {
+      final fb = FakeBackend()
+        ..currentRole = UserRole.salonMaster
+        ..bookingClientIsGuest = true
+        ..bookingGuestPhone = _phone;
+      await openDetail(
+        tester,
+        fb,
+        role: UserRole.salonMaster,
+        path: RouteNames.salonMasterBookingDetail('booking-1'),
+      );
+
+      expect(find.byKey(_rowKey), findsNothing);
+      expect(find.text(_phone), findsNothing);
+      verifyNever(() => launcher.launchUrl(any(), any()));
     },
   );
 }
