@@ -20,6 +20,7 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
@@ -42,12 +43,14 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_notification_repository.dart'
     show FixedRoleAuth;
+import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
 
 class _MockLinksRepo extends Mock implements BookingLinksRepository {}
@@ -163,6 +166,8 @@ void main() {
   Completer<void>? gate;
   bool failReads = false;
   bool servicesInactive = false;
+  Completer<void>? servicesGate;
+  DateTime? fixedToday;
   int masterCatalogFetches = 0;
   int salonCatalogFetches = 0;
   int weeklyFetches = 0;
@@ -181,6 +186,8 @@ void main() {
     gate = null;
     failReads = false;
     servicesInactive = false;
+    servicesGate = null;
+    fixedToday = null;
     masterCatalogFetches = 0;
     salonCatalogFetches = 0;
     weeklyFetches = 0;
@@ -233,8 +240,13 @@ void main() {
           }),
         ),
         mySalonsProvider.overrideWith(() => _FakeMySalons(() => mySalons)),
+        if (fixedToday != null)
+          clockProvider.overrideWithValue(() => asClockInstant(fixedToday!)),
         masterServiceCatalogProvider.overrideWith((ref) async {
+          // Like production: the catalogue is rebuilt on an account switch.
+          ref.watch(authProvider.select(authUserIdOrNull));
           masterCatalogFetches++;
+          await servicesGate?.future;
           if (failReads) throw const NetworkFailure();
           if (!hasServices) return const <MasterService>[];
           return <MasterService>[
@@ -469,6 +481,59 @@ void main() {
       expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
     });
 
+    testWidgets('NO change on return → bookingLinks NOT refetched; a real '
+        'change → refetched', (tester) async {
+      hasSchedule = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      verify(() => links.getMine()).called(1);
+
+      // Round trip 1: nothing set up over there.
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      verifyNever(() => links.getMine());
+
+      // Round trip 2: the schedule was set up.
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+      hasSchedule = true;
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      verify(() => links.getMine()).called(1);
+    });
+
+    testWidgets('account switch while a refresh is in flight never shows the '
+        "previous account's hint", (tester) async {
+      hasServices = false;
+      await pump(tester, role: UserRole.independentMaster, link: _master);
+      expect(find.byKey(_hint('services', _master.slug)), findsOneWidget);
+
+      servicesGate = Completer<void>();
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      (container.read(authProvider.notifier) as FixedRoleAuth).switchUser('u2');
+      await tester.pump();
+      await tester.pump();
+      expect(
+        find.byKey(_hint('services', _master.slug)),
+        findsNothing,
+        reason: "the catalogue is re-fetching for u2; u1's answer is not shown",
+      );
+
+      servicesGate!.complete();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('services', _master.slug)), findsOneWidget);
+    });
+
     testWidgets('schedule hint invalidates ONLY the schedule member (+links): '
         'the services catalogue is not refetched', (tester) async {
       hasSchedule = false;
@@ -507,6 +572,45 @@ void main() {
       expect(masterCatalogFetches, catalogBefore + 1);
       expect(weeklyFetches, weeklyBefore);
       expect(find.byKey(_hint('services', _master.slug)), findsNothing);
+    });
+
+    testWidgets('LAST DAY of the month: window is that whole month and a '
+        'scheduled master\'s past days do not read as noSchedule', (
+      tester,
+    ) async {
+      fixedToday = DateTime(2026, 1, 31);
+      hasSalonSchedule = true; // returned day is a (past) template day
+      await pump(
+        tester,
+        role: UserRole.salonAdmin,
+        link: _salon,
+        salonId: 'salon-a',
+      );
+      final List<dynamic> args = verify(
+        () => roster.salonRosterEffectiveSchedule(
+          'salon-a',
+          captureAny(),
+          captureAny(),
+        ),
+      ).captured;
+      expect(args[0], DateTime(2026, 1, 1));
+      expect(args[1], DateTime(2026, 1, 31));
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
+    });
+
+    testWidgets('LAST DAY, nothing scheduled this month (a schedule starting '
+        'only next month): the hint shows — documented limitation', (
+      tester,
+    ) async {
+      fixedToday = DateTime(2026, 1, 31);
+      hasSalonSchedule = false;
+      await pump(
+        tester,
+        role: UserRole.salonAdmin,
+        link: _salon,
+        salonId: 'salon-a',
+      );
+      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
     });
 
     testWidgets('salon schedule is read on the board\'s CURRENT-MONTH key', (

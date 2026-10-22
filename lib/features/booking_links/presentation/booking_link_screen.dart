@@ -48,6 +48,7 @@ import '../../schedule/application/own_schedule_scope.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
 import '../../services/data/master_service_catalog_provider.dart';
+import '../../services/presentation/service_catalogue_invalidation.dart';
 import '../domain/booking_link.dart';
 import '../domain/booking_link_access.dart';
 import '../domain/booking_link_url.dart';
@@ -176,26 +177,50 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     if (target == null) return;
     await context.pushOnce<Object?>(target);
     if (!mounted) return;
-    // Re-evaluate ONLY what the tapped hint could have changed (plus the
-    // server's `bookable`): the exact schedule member this screen reads, or
-    // the one catalogue — never a whole family.
-    ref.invalidate(bookingLinksForAccountProvider);
+    // Re-evaluate ONLY what the tapped hint could have changed: the exact
+    // schedule member this screen reads, or the one catalogue — never a whole
+    // family. The server's `bookable` is refetched only when the readiness
+    // answer actually CHANGED (nothing set up → nothing to refetch).
+    final String userId = ref.read(authProvider.select(authUserIdOrNull)) ?? '';
+    final String salonId = link.salonId ?? '';
+    final hintsProvider = bookingLinkSetupHintsProvider(
+      link.kind,
+      salonId,
+      userId,
+    );
+    final BookingLinkSetupHints before = ref.read(hintsProvider);
+    final Future<Object?> refreshed;
     switch ((link.kind, hint)) {
       case (BookingLinkKind.master, BookingLinkSetupHint.schedule):
-        ref.invalidate(
-          weeklyScheduleProvider(ref.read(ownScheduleScopeProvider)),
+        final provider = weeklyScheduleProvider(
+          ref.read(ownScheduleScopeProvider),
         );
+        ref.invalidate(provider);
+        refreshed = ref.read(provider.future);
       case (BookingLinkKind.master, BookingLinkSetupHint.services):
-        ref.invalidate(masterServiceCatalogProvider);
+        // The sanctioned fan-out point for the master catalogue.
+        invalidateMasterServiceCatalogues(ref);
+        refreshed = ref.read(masterServiceCatalogProvider.future);
       case (BookingLinkKind.salon, BookingLinkSetupHint.schedule):
-        ref.invalidate(
-          salonEffectiveScheduleProvider(
-            link.salonId ?? '',
-            salonReadinessRange(kyivToday(ref.read(clockProvider))),
-          ),
+        final provider = salonEffectiveScheduleProvider(
+          salonId,
+          salonReadinessRange(kyivToday(ref.read(clockProvider))),
         );
+        ref.invalidate(provider);
+        refreshed = ref.read(provider.future);
       case (BookingLinkKind.salon, BookingLinkSetupHint.services):
-        ref.invalidate(salonServiceCatalogProvider(link.salonId ?? ''));
+        final provider = salonServiceCatalogProvider(salonId);
+        ref.invalidate(provider);
+        refreshed = ref.read(provider.future);
+    }
+    try {
+      await refreshed;
+    } on Object {
+      return; // a failed re-read changes nothing we can act on
+    }
+    if (!mounted) return;
+    if (ref.read(hintsProvider) != before) {
+      ref.invalidate(bookingLinksForAccountProvider);
     }
   }
 
@@ -243,6 +268,8 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
+    final String userId =
+        ref.watch(authProvider.select(authUserIdOrNull)) ?? '';
     final AsyncValue<BookingLinks> async = ref.watch(bookingLinksProvider);
 
     if (role != null && !bookingLinksAllowedFor(role)) _close(role);
@@ -267,6 +294,7 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
                         bookingLinkSetupHintsProvider(
                           link.kind,
                           link.salonId ?? '',
+                          userId,
                         ),
                       )
                       .missing;

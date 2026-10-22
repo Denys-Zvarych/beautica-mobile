@@ -30,7 +30,17 @@
 //
 // Refresh: while a value is being RE-fetched (after returning from a setup
 // page) the previous answer is kept, so the generic note never flashes. A
-// first load, and any error, read as "nothing missing".
+// first load, any error, and the first build after an ACCOUNT SWITCH read as
+// "nothing missing": the family is keyed by the signed-in user id, and only a
+// rebuild of the SAME instance (same user) may fall back on a previous value —
+// an upstream's retained previous value after an account switch belongs to
+// the outgoing account and is never shown.
+//
+// Schedule window (salon): the board's current-month key, so the rule is
+// "no master has a working day in the current month, past days included". A
+// schedule that only starts NEXT month therefore still shows the schedule
+// hint until the month turns (the next-month key is not cached anywhere, and
+// fetching it would add a pinned window); the hint is informational only.
 //
 // Loading and error read as "nothing missing" (empty list): the readiness
 // check must never block, flash an error on, or reserve space in the link
@@ -98,69 +108,102 @@ final class BookingLinkSetupHints {
   int get hashCode => Object.hash(schedule, services);
 }
 
-/// The value to read from [v]: a settled value, or — while a REFRESH is in
+/// The value to read from [v]: a settled value, or — only when
+/// [allowPrevious] (a rebuild of the same user's instance) and a REFRESH is in
 /// flight — the previous one; null on a first load and on error.
-T? _settledOrPrevious<T>(AsyncValue<T> v) =>
-    v.isLoading && v.hasValue ? v.value : v.asData?.value;
+T? _settledOrPrevious<T>(AsyncValue<T> v, {required bool allowPrevious}) =>
+    allowPrevious && v.isLoading && v.hasValue ? v.value : v.asData?.value;
 
-/// The missing prerequisites of the link of [kind] — for a salon link
-/// [salonId] is the salon, for a master link it is ignored (pass `''`).
+/// The missing prerequisites of the link of [kind] for [userId] — for a salon
+/// link [salonId] is the salon, for a master link it is ignored (pass `''`).
+/// [userId] only keys the family (see the header: no cross-account previous).
 // `dependencies`: masterServiceCatalog is itself scoped on serviceRepository
 // (see its declaration), so riverpod requires it be declared here.
 @Riverpod(dependencies: [masterServiceCatalog])
-BookingLinkSetupHints bookingLinkSetupHints(
-  Ref ref,
-  BookingLinkKind kind,
-  String salonId,
-) {
-  final bool? noSchedule;
-  final bool? noServices;
-  switch (kind) {
-    case BookingLinkKind.master:
-      final List<WeeklySchedule>? weekly = _settledOrPrevious(
-        ref.watch(weeklyScheduleProvider(ref.watch(ownScheduleScopeProvider))),
-      );
-      noSchedule = weekly?.isEmpty;
-      final List<MasterService>? services = _settledOrPrevious(
-        ref.watch(masterServiceCatalogProvider),
-      );
-      noServices = services?.every((MasterService s) => !s.isActive);
-    case BookingLinkKind.salon:
-      if (salonId.trim().isEmpty) return BookingLinkSetupHints.none;
-      // Owner targets act on the primary salon only — see the header.
-      final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
-      if (role == UserRole.salonOwner) {
-        final List<Salon>? mine = _settledOrPrevious(
-          ref.watch(mySalonsProvider),
-        );
-        if (mine == null) return BookingLinkSetupHints.none;
-        final bool primary = mine.length == 1
-            ? mine.single.id == salonId
-            : mine.any((Salon s) => s.id == salonId && (s.isPrimary ?? false));
-        if (!primary) return BookingLinkSetupHints.none;
-      }
-      final Map<String, List<EffectiveDay>>? byMaster = _settledOrPrevious(
-        ref.watch(
-          salonEffectiveScheduleProvider(
-            salonId,
-            salonReadinessRange(kyivToday(ref.watch(clockProvider))),
-          ),
-        ),
-      );
-      noSchedule = byMaster?.values.every(
-        (List<EffectiveDay> days) => days.every(
-          (EffectiveDay d) => d.source == EffectiveSource.noSchedule,
-        ),
-      );
-      final List<SalonServiceCategoryEntry>? catalogue = _settledOrPrevious(
-        ref.watch(salonServiceCatalogProvider(salonId)),
-      );
-      noServices = catalogue?.every(
-        (SalonServiceCategoryEntry c) => c.services.isEmpty,
-      );
+class BookingLinkSetupHintsNotifier extends _$BookingLinkSetupHintsNotifier {
+  /// False until the first build of THIS instance has completed.
+  bool _builtOnce = false;
+
+  @override
+  BookingLinkSetupHints build(
+    BookingLinkKind kind,
+    String salonId,
+    String userId,
+  ) {
+    final BookingLinkSetupHints result = _compute(
+      kind,
+      salonId,
+      allowPrevious: _builtOnce,
+    );
+    _builtOnce = true;
+    return result;
   }
-  return BookingLinkSetupHints(
-    schedule: noSchedule ?? false,
-    services: noServices ?? false,
-  );
+
+  BookingLinkSetupHints _compute(
+    BookingLinkKind kind,
+    String salonId, {
+    required bool allowPrevious,
+  }) {
+    final bool? noSchedule;
+    final bool? noServices;
+    switch (kind) {
+      case BookingLinkKind.master:
+        final List<WeeklySchedule>? weekly = _settledOrPrevious(
+          ref.watch(
+            weeklyScheduleProvider(ref.watch(ownScheduleScopeProvider)),
+          ),
+          allowPrevious: allowPrevious,
+        );
+        noSchedule = weekly?.isEmpty;
+        final List<MasterService>? services = _settledOrPrevious(
+          ref.watch(masterServiceCatalogProvider),
+          allowPrevious: allowPrevious,
+        );
+        noServices = services?.every((MasterService s) => !s.isActive);
+      case BookingLinkKind.salon:
+        if (salonId.trim().isEmpty) return BookingLinkSetupHints.none;
+        // Owner targets act on the primary salon only — see the header.
+        final UserRole? role = ref.watch(
+          authProvider.select(authUserRoleOrNull),
+        );
+        if (role == UserRole.salonOwner) {
+          final List<Salon>? mine = _settledOrPrevious(
+            ref.watch(mySalonsProvider),
+            allowPrevious: allowPrevious,
+          );
+          if (mine == null) return BookingLinkSetupHints.none;
+          final bool primary = mine.length == 1
+              ? mine.single.id == salonId
+              : mine.any(
+                  (Salon s) => s.id == salonId && (s.isPrimary ?? false),
+                );
+          if (!primary) return BookingLinkSetupHints.none;
+        }
+        final Map<String, List<EffectiveDay>>? byMaster = _settledOrPrevious(
+          ref.watch(
+            salonEffectiveScheduleProvider(
+              salonId,
+              salonReadinessRange(kyivToday(ref.watch(clockProvider))),
+            ),
+          ),
+          allowPrevious: allowPrevious,
+        );
+        noSchedule = byMaster?.values.every(
+          (List<EffectiveDay> days) => days.every(
+            (EffectiveDay d) => d.source == EffectiveSource.noSchedule,
+          ),
+        );
+        final List<SalonServiceCategoryEntry>? catalogue = _settledOrPrevious(
+          ref.watch(salonServiceCatalogProvider(salonId)),
+          allowPrevious: allowPrevious,
+        );
+        noServices = catalogue?.every(
+          (SalonServiceCategoryEntry c) => c.services.isEmpty,
+        );
+    }
+    return BookingLinkSetupHints(
+      schedule: noSchedule ?? false,
+      services: noServices ?? false,
+    );
+  }
 }
