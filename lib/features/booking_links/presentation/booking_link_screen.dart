@@ -175,12 +175,6 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
   ) async {
     final String? target = _hintTarget(link, hint, role);
     if (target == null) return;
-    await context.pushOnce<Object?>(target);
-    if (!mounted) return;
-    // Re-evaluate ONLY what the tapped hint could have changed: the exact
-    // schedule member this screen reads, or the one catalogue — never a whole
-    // family. The server's `bookable` is refetched only when the readiness
-    // answer actually CHANGED (nothing set up → nothing to refetch).
     final String userId = ref.read(authProvider.select(authUserIdOrNull)) ?? '';
     final String salonId = link.salonId ?? '';
     final hintsProvider = bookingLinkSetupHintsProvider(
@@ -188,7 +182,16 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
       salonId,
       userId,
     );
+    // Captured BEFORE the push: the setup page's own saves update the
+    // readiness upstream while it is open, so a read after the pop would
+    // already see the new answer and never detect the change.
     final BookingLinkSetupHints before = ref.read(hintsProvider);
+    await context.pushOnce<Object?>(target);
+    if (!mounted) return;
+    // Re-evaluate ONLY what the tapped hint could have changed: the exact
+    // schedule member this screen reads, or the one catalogue — never a whole
+    // family. The server's `bookable` is refetched only when the readiness
+    // answer actually CHANGED (nothing set up → nothing to refetch).
     final Future<Object?> refreshed;
     switch ((link.kind, hint)) {
       case (BookingLinkKind.master, BookingLinkSetupHint.schedule):
@@ -216,7 +219,9 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     try {
       await refreshed;
     } on Object {
-      return; // a failed re-read changes nothing we can act on
+      // Can't tell whether anything changed: refetch `bookable` (safe default).
+      if (mounted) ref.invalidate(bookingLinksForAccountProvider);
+      return;
     }
     if (!mounted) return;
     if (ref.read(hintsProvider) != before) {

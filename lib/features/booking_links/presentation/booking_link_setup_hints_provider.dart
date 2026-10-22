@@ -36,6 +36,13 @@
 // an upstream's retained previous value after an account switch belongs to
 // the outgoing account and is never shown.
 //
+// ACCOUNT ISOLATION RELIES ON THE userId KEY, NOT on `_builtOnce` alone:
+// `_builtOnce` is per Notifier instance, so it only distinguishes "first build"
+// from "rebuild of this instance". A different user is a different family
+// member (fresh instance, `_builtOnce == false`); `ref.invalidate` of the SAME
+// user's member keeps the instance and so keeps its previous value (intended).
+// Dropping `userId` from the key would silently break isolation.
+//
 // Schedule window (salon): the board's current-month key, so the rule is
 // "no master has a working day in the current month, past days included". A
 // schedule that only starts NEXT month therefore still shows the schedule
@@ -112,7 +119,11 @@ final class BookingLinkSetupHints {
 /// [allowPrevious] (a rebuild of the same user's instance) and a REFRESH is in
 /// flight — the previous one; null on a first load and on error.
 T? _settledOrPrevious<T>(AsyncValue<T> v, {required bool allowPrevious}) =>
-    allowPrevious && v.isLoading && v.hasValue ? v.value : v.asData?.value;
+    v.isLoading
+    // `asData` ALSO yields the retained previous value of a refreshing
+    // provider, so a loading state is decided here, explicitly.
+    ? (allowPrevious ? v.value : null)
+    : v.asData?.value;
 
 /// The missing prerequisites of the link of [kind] for [userId] — for a salon
 /// link [salonId] is the salon, for a master link it is ignored (pass `''`).

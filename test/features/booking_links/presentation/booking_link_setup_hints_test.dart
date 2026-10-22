@@ -510,6 +510,103 @@ void main() {
       verify(() => links.getMine()).called(1);
     });
 
+    testWidgets('setup page saves WHILE open (upstream already updated) → '
+        'links ARE refetched on return', (tester) async {
+      hasSchedule = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      verify(() => links.getMine()).called(1);
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+
+      // What the weekly editor's save does: the upstream re-emits while the
+      // setup page is still on screen.
+      hasSchedule = true;
+      container.invalidate(weeklyScheduleProvider);
+      await tester.pumpAndSettle();
+      // The readiness answer is already the NEW one while the page is open
+      // for any LIVE (unpaused) watcher — the screen's offstage card is
+      // paused by the route, so subscribe explicitly to model that.
+      final ProviderSubscription<BookingLinkSetupHints> live = container.listen(
+        bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'u1'),
+        (_, _) {},
+      );
+      addTearDown(live.close);
+      hasSchedule = true;
+      container.invalidate(weeklyScheduleProvider);
+      await tester.pumpAndSettle();
+      expect(
+        container.read(
+          bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'u1'),
+        ),
+        BookingLinkSetupHints.none,
+      );
+
+      router.pop();
+      await tester.pumpAndSettle();
+      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      verify(() => links.getMine()).called(1);
+    });
+
+    testWidgets('failed re-read on return → links refetched anyway (cannot '
+        'tell, so refresh bookable)', (tester) async {
+      hasSchedule = false;
+      final GoRouter router = await pump(
+        tester,
+        role: UserRole.independentMaster,
+        link: _master,
+      );
+      verify(() => links.getMine()).called(1);
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.pumpAndSettle();
+      failReads = true;
+      router.pop();
+      await tester.pumpAndSettle();
+      verify(() => links.getMine()).called(1);
+    });
+
+    testWidgets('same-user invalidate keeps the previous value; a DIFFERENT '
+        'userId never gets it', (tester) async {
+      hasSchedule = false;
+      await pump(tester, role: UserRole.independentMaster, link: _master);
+      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      final ProviderContainer container = ProviderScope.containerOf(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+
+      gate = Completer<void>();
+      container.invalidate(weeklyScheduleProvider); // upstream refreshing
+      container.invalidate(
+        bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'u1'),
+      );
+      await tester.pump();
+      expect(
+        container.read(
+          bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'u1'),
+        ),
+        const BookingLinkSetupHints(schedule: true),
+        reason: 'same user, same instance: previous value is kept',
+      );
+      expect(
+        container.read(
+          bookingLinkSetupHintsProvider(BookingLinkKind.master, '', 'other'),
+        ),
+        BookingLinkSetupHints.none,
+        reason: 'a different user id is a fresh instance: never the previous',
+      );
+      gate!.complete();
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('account switch while a refresh is in flight never shows the '
         "previous account's hint", (tester) async {
       hasServices = false;
