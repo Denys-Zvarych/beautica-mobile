@@ -63,6 +63,7 @@ Booking _booking({
 }
 
 void main() {
+  _guestPhoneToStringTests();
   group('masterName / masterInitials', () {
     test('joins first + last name', () {
       expect(
@@ -488,5 +489,44 @@ void main() {
         );
       },
     );
+  });
+}
+
+// Phase 417 — `Booking.toString` must never leak the guest phone.
+void _guestPhoneToStringTests() {
+  Booking b(String? phone) => Booking(
+    id: 'b1',
+    masterId: 'm1',
+    masterFirstName: 'М',
+    masterLastName: 'І',
+    masterType: 'INDEPENDENT_MASTER',
+    guestPhone: phone,
+    serviceId: 's1',
+    serviceName: 'Манікюр',
+    categoryName: 'NAIL_SERVICE',
+    cityLabel: 'Львів',
+    durationMinutes: 60,
+    price: 100,
+    startAt: DateTime.utc(2099, 1, 1, 10),
+    endAt: DateTime.utc(2099, 1, 1, 11),
+    status: BookingStatus.confirmed,
+    canReview: false,
+  );
+
+  group('Booking.toString / equality — guestPhone (phase 417)', () {
+    test('toString never contains the phone digits', () {
+      final String out = b('+380671234567').toString();
+      expect(out, isNot(contains('380671234567')));
+      expect(out, isNot(contains('671234567')));
+      expect(out, contains('<redacted>'));
+      expect('${b('+380671234567')}', isNot(contains('1234567')));
+    });
+
+    test('equality and hashCode still consider guestPhone', () {
+      expect(b('+380671234567'), b('+380671234567'));
+      expect(b('+380671234567').hashCode, b('+380671234567').hashCode);
+      expect(b('+380671234567'), isNot(b('+380501112233')));
+      expect(b('+380671234567'), isNot(b(null)));
+    });
   });
 }

@@ -27,6 +27,8 @@ part 'booking.freezed.dart';
 /// secondary fetch.
 @freezed
 abstract class Booking with _$Booking {
+  const Booking._();
+
   const factory Booking({
     required String id,
     required String masterId,
@@ -324,4 +326,14 @@ abstract class Booking with _$Booking {
     /// [ClientAuthoredReview]'s own file header for the full contract.
     ClientAuthoredReview? reviewByClient,
   }) = _Booking;
+
+  /// Phase 417 (mobile-security LOW) — redacting `toString`. The freezed
+  /// default prints EVERY field, so a stray `log('$booking')` would leak the
+  /// guest's E.164 [guestPhone] (and the free-text notes / names). Only
+  /// non-PII identity fields are printed; [guestPhone] shows presence only.
+  /// `==` / `hashCode` stay freezed-generated and still include [guestPhone].
+  @override
+  String toString() =>
+      'Booking(id: $id, masterId: $masterId, status: $status, '
+      'guestPhone: ${guestPhone == null ? 'null' : '<redacted>'})';
 }
