@@ -15,7 +15,8 @@
 //
 // Security (413 audits): only `BookingLink.url` passed through
 // [BookingLinkUrl.forSharing] ever reaches the clipboard or the share sheet,
-// and the share text is the display name + that URL — nothing else.
+// and the share text is the display name + that URL — nothing else. Phase
+// 419: Copy sends the link with `?s=c`, Share with `?s=s` (channel flag).
 
 import 'dart:developer';
 
@@ -86,6 +87,7 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     final String url = BookingLinkUrl.forSharing(
       link.url,
       origin: AppConfig.publicWebOrigin,
+      channel: BookingLinkChannel.copy,
     );
     final bool ok = await ref.read(clipboardServiceProvider).copyText(url);
     if (!mounted) return false;
@@ -102,6 +104,7 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
     final String url = BookingLinkUrl.forSharing(
       link.url,
       origin: AppConfig.publicWebOrigin,
+      channel: BookingLinkChannel.share,
     );
     final String text = switch (link.kind) {
       BookingLinkKind.master => l10n.bookingLinkShareTextMaster(url),

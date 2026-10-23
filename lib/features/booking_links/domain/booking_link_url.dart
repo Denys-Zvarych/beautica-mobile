@@ -1,10 +1,16 @@
-// Phase 413 — share URL builder (D5); phase 418 — UTM decoration removed.
+// Phase 413 — share URL builder (D5); phase 418 — UTM decoration removed;
+// phase 419 — one-character channel flag.
 //
-// Copy and share send the bare canonical booking link exactly as the
-// backend built it — `https://beautica.app/book/<slug>` (master) or
-// `https://beautica.app/book/s/<slug>` (salon). Phase 418 (user decision
-// 2026-10-23): the `utm_*` query made the link too long to post on social
-// media, so nothing is appended any more.
+// Copy and share send the canonical booking link exactly as the backend
+// built it — `https://beautica.app/book/<slug>` (master) or
+// `https://beautica.app/book/s/<slug>` (salon) — plus ONE channel flag:
+// `?s=c` (copy) or `?s=s` (share sheet). Phase 418 (user decision
+// 2026-10-23) dropped the ~60-char `utm_*` query as too long for social
+// media; phase 419 (user decision 2026-10-23, research
+// `docs/website-phases/research-short-booking-link-attribution.md`) keeps
+// the only real data point — copy vs share — in 4 characters. The flag is a
+// channel label shared by every link: never a per-sender or per-click id.
+// Kind (master/salon) is already in the path; the website derives the rest.
 //
 // The canonical-shape rules (slug format + exact URL) live here, in the
 // domain, so the repository's ingest filter (`isTrustedBookingLinkUrl`) and
@@ -49,19 +55,41 @@ bool isCanonicalBookingLinkUrl(
   return url == expected;
 }
 
+/// How a booking link leaves the app — encoded as the `s` query flag.
+enum BookingLinkChannel {
+  /// «Копіювати» — the link goes to the clipboard (`?s=c`).
+  copy('c'),
+
+  /// «Поділитися» — the link goes to the system share sheet (`?s=s`).
+  share('s');
+
+  const BookingLinkChannel(this.flag);
+
+  /// The single-character `s` value the website allow-lists ({c, s}).
+  final String flag;
+}
+
 /// Builds the outgoing share URL for a booking link.
 abstract final class BookingLinkUrl {
-  /// The exact [url] to put on the clipboard / in the share sheet.
+  /// The exact string to put on the clipboard / in the share sheet:
+  /// [url] + `?s=<channel.flag>` — e.g. `https://beautica.app/book/anna-k?s=c`.
   ///
-  /// [url] must be the canonical booking link on [origin] — the same exact
-  /// check the repository applied on ingest ([isCanonicalBookingLinkUrl]);
-  /// it is then returned byte-identical. Anything else (foreign host,
-  /// `http`, `javascript:`, a query, fragment, port, userinfo, bad slug)
-  /// throws [ArgumentError] — it is never passed through, because an
-  /// unvalidated string must not reach the clipboard / share sheet. A throw
-  /// (not an `assert`) so the guarantee also holds in release builds, where
-  /// asserts are compiled out.
-  static String forSharing(String url, {required String origin}) {
+  /// [url] must be the BARE canonical booking link on [origin] — the same
+  /// exact check the repository applied on ingest
+  /// ([isCanonicalBookingLinkUrl], which accepts no query at all). Only
+  /// after that check passes is exactly one flag appended, so the output is
+  /// always canonical + `?s=c` or canonical + `?s=s`, nothing else. Anything
+  /// else as input (foreign host, `http`, `javascript:`, a query — including
+  /// an `?s=` already present — fragment, port, userinfo, bad slug) throws
+  /// [ArgumentError] — it is never passed through, because an unvalidated
+  /// string must not reach the clipboard / share sheet. A throw (not an
+  /// `assert`) so the guarantee also holds in release builds, where asserts
+  /// are compiled out.
+  static String forSharing(
+    String url, {
+    required String origin,
+    required BookingLinkChannel channel,
+  }) {
     final String salonPrefix = '$origin/book/s/';
     final String masterPrefix = '$origin/book/';
     final (BookingLinkKind kind, String slug)? parts =
@@ -79,6 +107,6 @@ abstract final class BookingLinkUrl {
         )) {
       throw ArgumentError.value(url, 'url', 'not a canonical booking link');
     }
-    return url;
+    return '$url?s=${channel.flag}';
   }
 }

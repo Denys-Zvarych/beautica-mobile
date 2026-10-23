@@ -24,7 +24,7 @@ void main() {
     });
 
     final bool ok = await const PlatformClipboardService().copyText(
-      'https://beautica.app/book/anna',
+      'https://beautica.app/book/anna?s=c',
     );
 
     expect(ok, isTrue);
@@ -32,7 +32,7 @@ void main() {
       (MethodCall c) => c.method == 'Clipboard.setData',
     );
     expect(call.arguments, <String, dynamic>{
-      'text': 'https://beautica.app/book/anna',
+      'text': 'https://beautica.app/book/anna?s=c',
     });
   });
 

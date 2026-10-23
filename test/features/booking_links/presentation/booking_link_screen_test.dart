@@ -12,7 +12,7 @@
 //   • not-bookable warning + «Налаштувати» → services, «Команда» → salon team;
 //     a non-UUID server salonId (dropped by the mapper) → no «Команда» link;
 //   • loading skeleton; error → retry → cards;
-//   • Copy → clipboard gets ONLY the bare link (phase 418: no utm_*) +
+//   • Copy → clipboard gets ONLY the link + `?s=c` (419; 418: no utm_*) +
 //     success snack +
 //     in-well check that clears after 1.6 s; clipboard failure → error snack,
 //     no check;
@@ -380,40 +380,43 @@ void main() {
   });
 
   group('copy', () {
-    testWidgets('copies ONLY the bare link (no utm_*), shows the success snack '
-        'and the in-well check for 1.6 s', (tester) async {
-      when(
-        () => repo.getMine(),
-      ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
+    testWidgets(
+      'copies ONLY the link + "?s=c" (no utm_*), shows the success snack '
+      'and the in-well check for 1.6 s',
+      (tester) async {
+        when(
+          () => repo.getMine(),
+        ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
 
-      await pumpScreen(tester, role: UserRole.independentMaster);
-      final AppLocalizations l10n = l10nOf(tester);
+        await pumpScreen(tester, role: UserRole.independentMaster);
+        final AppLocalizations l10n = l10nOf(tester);
 
-      await tester.tap(find.byKey(_copy(_master.slug)));
-      await pumpVelvetSnackIn(tester);
+        await tester.tap(find.byKey(_copy(_master.slug)));
+        await pumpVelvetSnackIn(tester);
 
-      final String copied =
-          verify(() => clipboard.copyText(captureAny())).captured.single
-              as String;
-      expect(copied, 'https://beautica.app/book/olena-koval-x7k2');
-      expectVelvetSnack(
-        l10n.bookingLinkCopied,
-        variant: VelvetSnackVariant.success,
-      );
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(Key('booking-link-copied-${_master.slug}')),
-        findsOneWidget,
-      );
+        final String copied =
+            verify(() => clipboard.copyText(captureAny())).captured.single
+                as String;
+        expect(copied, 'https://beautica.app/book/olena-koval-x7k2?s=c');
+        expectVelvetSnack(
+          l10n.bookingLinkCopied,
+          variant: VelvetSnackVariant.success,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(Key('booking-link-copied-${_master.slug}')),
+          findsOneWidget,
+        );
 
-      await tester.pump(BookingLinkCard.copiedDwell);
-      await tester.pumpAndSettle();
-      expect(
-        find.byKey(Key('booking-link-copied-${_master.slug}')),
-        findsNothing,
-      );
-      await pumpPastVelvetSnack(tester);
-    });
+        await tester.pump(BookingLinkCard.copiedDwell);
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(Key('booking-link-copied-${_master.slug}')),
+          findsNothing,
+        );
+        await pumpPastVelvetSnack(tester);
+      },
+    );
 
     testWidgets('clipboard failure → error snack, no check', (tester) async {
       when(() => clipboard.copyText(any())).thenAnswer((_) async => false);
@@ -440,7 +443,7 @@ void main() {
   });
 
   group('share', () {
-    testWidgets('master: «Записуйтеся онлайн: {bare link}»', (tester) async {
+    testWidgets('master: «Записуйтеся онлайн: {link?s=s}»', (tester) async {
       when(
         () => repo.getMine(),
       ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
@@ -451,19 +454,19 @@ void main() {
       await tester.tap(find.byKey(_share(_master.slug)));
       await tester.pumpAndSettle();
 
-      const String url = 'https://beautica.app/book/olena-koval-x7k2';
+      const String url = 'https://beautica.app/book/olena-koval-x7k2?s=s';
       final List<dynamic> captured = verify(
         () => share.shareText(
           captureAny(),
           subject: captureAny(named: 'subject'),
         ),
       ).captured;
-      // Exactly the localized text over the bare link — and no subject.
+      // Exactly the localized text over the link + share flag — no subject.
       expect(captured, <Object?>[l10n.bookingLinkShareTextMaster(url), null]);
       verifyNever(() => clipboard.copyText(any()));
     });
 
-    testWidgets('salon: name + bare salon link; failure → error '
+    testWidgets('salon: name + salon link + "?s=s"; failure → error '
         'snack', (tester) async {
       when(
         () => share.shareText(any(), subject: any(named: 'subject')),
@@ -478,7 +481,7 @@ void main() {
       await tester.tap(find.byKey(_share(_salonA.slug)));
       await pumpVelvetSnackIn(tester);
 
-      const String url = 'https://beautica.app/book/s/lumiere-kyiv';
+      const String url = 'https://beautica.app/book/s/lumiere-kyiv?s=s';
       final String text =
           verify(
                 () => share.shareText(
@@ -530,7 +533,7 @@ void main() {
       expect(text, isNot(contains('\n')));
       expect(text, isNot(contains('\u2066')));
       expect(text, isNot(contains('\u200F')));
-      const String url = 'https://beautica.app/book/s/lumiere-kyiv';
+      const String url = 'https://beautica.app/book/s/lumiere-kyiv?s=s';
       expect(text, l10n.bookingLinkShareTextSalon('LumièreSpa', url));
     });
   });

@@ -5,9 +5,10 @@
 // services (no platform channel).
 //
 //   • INDEPENDENT_MASTER: hub → row → screen → one MASTER card → Copy →
-//     clipboard gets the bare link (418: no utm_*) + success snack; Share →
-//     share text carries the same bare link.
-//   • SALON_OWNER: salon card Copy + Share → bare /book/s/<slug> (418).
+//     clipboard gets the link + `?s=c` (419; 418: no utm_*) + success
+//     snack; Share → share text carries the link + `?s=s` (419).
+//   • SALON_OWNER: salon card Copy + Share → /book/s/<slug> + `?s=c` /
+//     `?s=s` (419).
 //   • SALON_OWNER: hub → screen → one SALON card per salon, NO master card
 //     even though the server still sends one (client-side role scoping).
 //   • SALON_ADMIN: hub → screen → its salon card.
@@ -20,6 +21,7 @@ import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
 import 'package:beautica_mobile/core/share/share_service.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link_url.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_screen.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/widgets/booking_link_card.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
@@ -133,10 +135,14 @@ Future<void> _openHub(
   expect(find.byType(SettingsHubScreen), findsOneWidget);
 }
 
-/// Phase 418: what reaches the clipboard / share sheet carries no query —
-/// neither a `?` nor any `utm_*` key.
-void _expectBareLink(String sent) {
-  expect(sent, isNot(contains('?')), reason: 'no query on the shared link');
+/// Phase 419 (418 dropped utm_*): what reaches the clipboard / share sheet
+/// carries exactly ONE query — the channel flag `s=c` (copy) / `s=s`
+/// (share) — and nothing else: no second `?`, no `&`, no `utm_*`.
+void _expectChannelLink(String sent, BookingLinkChannel channel) {
+  final String flag = '?s=${channel.flag}';
+  expect(sent, endsWith(flag), reason: 'link ends with the $flag flag');
+  expect('?'.allMatches(sent), hasLength(1), reason: 'exactly one query');
+  expect(sent, isNot(contains('&')), reason: 'no extra query params');
   expect(sent, isNot(contains('utm_')), reason: 'no utm_* on the link');
 }
 
@@ -175,7 +181,7 @@ void main() {
       await AppHarness.tapVisible(tester, find.byKey(copy));
       await pumpVelvetSnackIn(tester);
 
-      expect(clipboard.copied, <String>['${_masterLink['url']}']);
+      expect(clipboard.copied, <String>['${_masterLink['url']}?s=c']);
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(BookingLinkScreen)),
       );
@@ -184,12 +190,12 @@ void main() {
         variant: VelvetSnackVariant.success,
       );
       await pumpPastVelvetSnack(tester);
-      _expectBareLink(clipboard.copied.single);
+      _expectChannelLink(clipboard.copied.single, BookingLinkChannel.copy);
     });
   });
 
-  testWidgets('INDEPENDENT_MASTER: Share → share text carries the bare link '
-      '(418: no "?" / utm_*)', (tester) async {
+  testWidgets('INDEPENDENT_MASTER: Share → share text carries the link + '
+      '"?s=s" (419; no utm_*)', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink]);
@@ -208,17 +214,17 @@ void main() {
       await AppHarness.tapVisible(tester, find.byKey(btn));
       await AppHarness.settle(tester);
 
-      final String url = '${_masterLink['url']}';
+      final String url = '${_masterLink['url']}?s=s';
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(BookingLinkScreen)),
       );
       expect(share.shared, <String>[l10n.bookingLinkShareTextMaster(url)]);
-      _expectBareLink(share.shared.single);
+      _expectChannelLink(share.shared.single, BookingLinkChannel.share);
     });
   });
 
-  testWidgets('SALON_OWNER: salon card Copy + Share → bare /book/s/<slug> '
-      '(418: no "?" / utm_*)', (tester) async {
+  testWidgets('SALON_OWNER: salon card Copy + Share → /book/s/<slug> + '
+      '"?s=c" / "?s=s" (419)', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_salonA]);
@@ -248,11 +254,15 @@ void main() {
       await AppHarness.settle(tester);
 
       final String url = '${AppConfig.publicWebOrigin}/book/s/$slug';
-      expect(clipboard.copied, <String>[url]);
-      expect(share.shared, hasLength(1));
-      expect(share.shared.single, endsWith(url));
-      _expectBareLink(clipboard.copied.single);
-      _expectBareLink(share.shared.single);
+      expect(clipboard.copied, <String>['$url?s=c']);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expect(share.shared, <String>[
+        l10n.bookingLinkShareTextSalon('${_salonA['displayName']}', '$url?s=s'),
+      ]);
+      _expectChannelLink(clipboard.copied.single, BookingLinkChannel.copy);
+      _expectChannelLink(share.shared.single, BookingLinkChannel.share);
     });
   });
 
