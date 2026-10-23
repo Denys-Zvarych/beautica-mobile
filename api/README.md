@@ -155,6 +155,7 @@ Class | Method | HTTP request | Description
 [*PhoneOtpControllerApi*](doc/PhoneOtpControllerApi.md) | [**verify**](doc/PhoneOtpControllerApi.md#verify) | **POST** /api/v1/book/otp/verify | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**availability**](doc/PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**book**](doc/PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
+[*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**bookableDays**](doc/PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancel**](doc/PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**cancelInfo**](doc/PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**info**](doc/PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 

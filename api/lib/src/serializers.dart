@@ -509,6 +509,10 @@ Serializers serializers = (_$serializers.toBuilder()
         () => ListBuilder<WorkingHoursRequest>(),
       )
       ..addBuilderFactory(
+        const FullType(BuiltList, [FullType(MasterWorkingDayResponse)]),
+        () => ListBuilder<MasterWorkingDayResponse>(),
+      )
+      ..addBuilderFactory(
         const FullType(BuiltList, [FullType(String)]),
         () => ListBuilder<String>(),
       )

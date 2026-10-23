@@ -11,6 +11,7 @@ Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**availability**](PublicBookingControllerApi.md#availability) | **GET** /api/v1/book/{slug}/availability | 
 [**book**](PublicBookingControllerApi.md#book) | **POST** /api/v1/book/{slug}/booking | 
+[**bookableDays**](PublicBookingControllerApi.md#bookabledays) | **GET** /api/v1/book/{slug}/bookable-days | 
 [**cancel**](PublicBookingControllerApi.md#cancel) | **POST** /api/v1/book/cancel/{token} | 
 [**cancelInfo**](PublicBookingControllerApi.md#cancelinfo) | **GET** /api/v1/book/cancel/{token} | 
 [**info**](PublicBookingControllerApi.md#info) | **GET** /api/v1/book/{slug}/info | 
@@ -105,6 +106,53 @@ No authorization required
 ### HTTP request headers
 
  - **Content-Type**: application/json
+ - **Accept**: */*
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bookableDays**
+> BuiltList<MasterWorkingDayResponse> bookableDays(slug, from, to, serviceId)
+
+
+
+### Example
+```dart
+import 'package:beautica_api/api.dart';
+
+final api = BeauticaApi().getPublicBookingControllerApi();
+final String slug = slug_example; // String | 
+final Date from = 2013-10-20; // Date | 
+final Date to = 2013-10-20; // Date | 
+final BuiltList<String> serviceId = ; // BuiltList<String> | 
+
+try {
+    final response = api.bookableDays(slug, from, to, serviceId);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling PublicBookingControllerApi->bookableDays: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **slug** | **String**|  | 
+ **from** | **Date**|  | 
+ **to** | **Date**|  | 
+ **serviceId** | [**BuiltList&lt;String&gt;**](String.md)|  | 
+
+### Return type
+
+[**BuiltList&lt;MasterWorkingDayResponse&gt;**](MasterWorkingDayResponse.md)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
  - **Accept**: */*
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
