@@ -8,6 +8,7 @@ import 'package:beautica_api/beautica_api.dart' as api;
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
 import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link_url.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';

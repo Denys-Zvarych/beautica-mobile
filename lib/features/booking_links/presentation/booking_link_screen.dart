@@ -14,8 +14,8 @@
 // switched off (D7) — the route guard is the first line, this the second.
 //
 // Security (413 audits): only `BookingLink.url` passed through
-// [BookingLinkUrl.withUtm] ever reaches the clipboard or the share sheet, and
-// the share text is the display name + that URL — nothing else.
+// [BookingLinkUrl.forSharing] ever reaches the clipboard or the share sheet,
+// and the share text is the display name + that URL — nothing else.
 
 import 'dart:developer';
 
@@ -23,6 +23,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
@@ -82,10 +83,9 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
 
   Future<bool> _copy(BookingLink link) async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String url = BookingLinkUrl.withUtm(
+    final String url = BookingLinkUrl.forSharing(
       link.url,
-      kind: link.kind,
-      source: BookingLinkShareSource.copy,
+      origin: AppConfig.publicWebOrigin,
     );
     final bool ok = await ref.read(clipboardServiceProvider).copyText(url);
     if (!mounted) return false;
@@ -99,10 +99,9 @@ class _BookingLinkScreenState extends ConsumerState<BookingLinkScreen> {
 
   Future<void> _share(BookingLink link) async {
     final AppLocalizations l10n = AppLocalizations.of(context);
-    final String url = BookingLinkUrl.withUtm(
+    final String url = BookingLinkUrl.forSharing(
       link.url,
-      kind: link.kind,
-      source: BookingLinkShareSource.share,
+      origin: AppConfig.publicWebOrigin,
     );
     final String text = switch (link.kind) {
       BookingLinkKind.master => l10n.bookingLinkShareTextMaster(url),

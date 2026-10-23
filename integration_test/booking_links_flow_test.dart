@@ -5,7 +5,9 @@
 // services (no platform channel).
 //
 //   • INDEPENDENT_MASTER: hub → row → screen → one MASTER card → Copy →
-//     clipboard gets the utm_source=copy URL + success snack.
+//     clipboard gets the bare link (418: no utm_*) + success snack; Share →
+//     share text carries the same bare link.
+//   • SALON_OWNER: salon card Copy + Share → bare /book/s/<slug> (418).
 //   • SALON_OWNER: hub → screen → one SALON card per salon, NO master card
 //     even though the server still sends one (client-side role scoping).
 //   • SALON_ADMIN: hub → screen → its salon card.
@@ -131,6 +133,13 @@ Future<void> _openHub(
   expect(find.byType(SettingsHubScreen), findsOneWidget);
 }
 
+/// Phase 418: what reaches the clipboard / share sheet carries no query —
+/// neither a `?` nor any `utm_*` key.
+void _expectBareLink(String sent) {
+  expect(sent, isNot(contains('?')), reason: 'no query on the shared link');
+  expect(sent, isNot(contains('utm_')), reason: 'no utm_* on the link');
+}
+
 Future<void> _openLinks(WidgetTester tester, GoRouter router) async {
   await AppHarness.tapVisible(tester, find.byKey(_row));
   await AppHarness.settle(tester);
@@ -166,10 +175,7 @@ void main() {
       await AppHarness.tapVisible(tester, find.byKey(copy));
       await pumpVelvetSnackIn(tester);
 
-      expect(clipboard.copied, <String>[
-        '${_masterLink['url']}'
-            '?utm_source=copy&utm_medium=social&utm_campaign=master_link',
-      ]);
+      expect(clipboard.copied, <String>['${_masterLink['url']}']);
       final AppLocalizations l10n = AppLocalizations.of(
         tester.element(find.byType(BookingLinkScreen)),
       );
@@ -178,6 +184,75 @@ void main() {
         variant: VelvetSnackVariant.success,
       );
       await pumpPastVelvetSnack(tester);
+      _expectBareLink(clipboard.copied.single);
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER: Share → share text carries the bare link '
+      '(418: no "?" / utm_*)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink]);
+      final _FakeShare share = _FakeShare();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: share,
+      );
+
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+      final Key btn = Key('btn-booking-link-share-${_masterLink['slug']}');
+      await AppHarness.tapVisible(tester, find.byKey(btn));
+      await AppHarness.settle(tester);
+
+      final String url = '${_masterLink['url']}';
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expect(share.shared, <String>[l10n.bookingLinkShareTextMaster(url)]);
+      _expectBareLink(share.shared.single);
+    });
+  });
+
+  testWidgets('SALON_OWNER: salon card Copy + Share → bare /book/s/<slug> '
+      '(418: no "?" / utm_*)', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_salonA]);
+      final _FakeClipboard clipboard = _FakeClipboard();
+      final _FakeShare share = _FakeShare();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.salonOwner,
+        clipboard: clipboard,
+        share: share,
+      );
+
+      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openLinks(tester, router);
+      final String slug = '${_salonA['slug']}';
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-copy-$slug')),
+      );
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-share-$slug')),
+      );
+      await AppHarness.settle(tester);
+
+      final String url = '${AppConfig.publicWebOrigin}/book/s/$slug';
+      expect(clipboard.copied, <String>[url]);
+      expect(share.shared, hasLength(1));
+      expect(share.shared.single, endsWith(url));
+      _expectBareLink(clipboard.copied.single);
+      _expectBareLink(share.shared.single);
     });
   });
 

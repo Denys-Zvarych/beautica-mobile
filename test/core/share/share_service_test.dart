@@ -25,14 +25,14 @@ void main() {
     );
 
     final ShareOutcome out = await service.shareText(
-      'https://beautica.app/book/anna?utm_source=share',
+      'https://beautica.app/book/anna',
       subject: 'Anna',
     );
 
     final ShareParams params =
         verify(() => sharePlus.share(captureAny())).captured.single
             as ShareParams;
-    expect(params.text, 'https://beautica.app/book/anna?utm_source=share');
+    expect(params.text, 'https://beautica.app/book/anna');
     expect(params.subject, 'Anna');
     expect(params.files, isNull);
     expect(params.uri, isNull);

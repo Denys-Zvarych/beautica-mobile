@@ -36,6 +36,7 @@ import '../../../core/errors/failures.dart';
 import '../../../core/network/api_client_provider.dart';
 import '../../../shared/validators/uuid_validator.dart';
 import '../domain/booking_link.dart';
+import '../domain/booking_link_url.dart';
 
 part 'booking_links_repository.g.dart';
 
@@ -147,38 +148,25 @@ String? _trustedSalonId(String? raw) {
   return null;
 }
 
-/// Backend booking-slug format (`BookingSlugService` + the DB CHECK).
-final RegExp _bookingSlugPattern = RegExp(r'^[a-z0-9][a-z0-9-]*[a-z0-9]$');
-
-/// Backend `BookingSlugService.MAX_SLUG_LENGTH`.
-const int _maxBookingSlugLength = 60;
-
-/// Whether [slug] has the backend booking-slug shape. Rejects anything that
-/// could smuggle encoding, whitespace, control or bidi characters (`%2F`,
-/// newline, U+202E, space, uppercase) into the shared URL.
-@visibleForTesting
-bool isValidBookingSlug(String slug) =>
-    slug.length <= _maxBookingSlugLength && _bookingSlugPattern.hasMatch(slug);
-
 /// Whether [url] is exactly the canonical public booking page for [kind] +
 /// [slug] on [AppConfig.publicWebOrigin] (see the file header rules).
 ///
-/// An exact string match, not a parse: any query (`?r=...`), fragment, port,
-/// userinfo, dot-segment or casing difference fails it, and nothing the
-/// server adds beyond the canonical URL can reach the share sheet.
+/// Delegates to the domain's [isCanonicalBookingLinkUrl] — the same check
+/// `BookingLinkUrl.forSharing` re-runs at share time. An exact string match,
+/// not a parse: any query (`?r=...`), fragment, port, userinfo, dot-segment
+/// or casing difference fails it, and nothing the server adds beyond the
+/// canonical URL can reach the share sheet.
 @visibleForTesting
 bool isTrustedBookingLinkUrl(
   String url, {
   required BookingLinkKind kind,
   required String slug,
-}) {
-  if (!isValidBookingSlug(slug)) return false;
-  final String expected = switch (kind) {
-    BookingLinkKind.master => '${AppConfig.publicWebOrigin}/book/$slug',
-    BookingLinkKind.salon => '${AppConfig.publicWebOrigin}/book/s/$slug',
-  };
-  return url == expected;
-}
+}) => isCanonicalBookingLinkUrl(
+  url,
+  origin: AppConfig.publicWebOrigin,
+  kind: kind,
+  slug: slug,
+);
 
 BookingLinkKind? _kindOf(api.BookingLinkResponseKindEnum kind) {
   if (kind == api.BookingLinkResponseKindEnum.MASTER) {
