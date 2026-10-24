@@ -179,6 +179,10 @@ const List<String> kPiiPathPrefixes = <String>[
   // /reschedule` (free-text cancellation `comment`). The bare
   // `POST /bookings` create endpoint is covered separately by the exact-match
   // entry in [kPiiPaths] (no trailing dynamic segment to match a prefix).
+  // Phase 417 — `GET /bookings/{bookingId}` now also carries the GUEST's
+  // E.164 `guestPhone` (provider tap-to-call). This prefix is exactly what
+  // keeps that value out of the debug request/response logs; pinned by
+  // `auth_paths_test.dart` ('booking detail ... guestPhone'). Do not narrow it.
   '/api/v1/bookings/',
   // MO-1 — CLIENT appointment (multi-service visit) read/write endpoints.
   // Covers `GET /appointments/{id}` (enriched master name/address/price +

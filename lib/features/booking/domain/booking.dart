@@ -27,6 +27,8 @@ part 'booking.freezed.dart';
 /// secondary fetch.
 @freezed
 abstract class Booking with _$Booking {
+  const Booking._();
+
   const factory Booking({
     required String id,
     required String masterId,
@@ -73,6 +75,16 @@ abstract class Booking with _$Booking {
     /// V89 `chk_bookings_guest_fields`). Present only so a caller can tell a
     /// registered client from a guest; never render it.
     String? clientId,
+
+    /// The GUEST's E.164 phone, for the provider's tap-to-call (Phase 417).
+    ///
+    /// **Guest bookings only** (`clientId == null`): a registered client's
+    /// phone is NEVER shown to a provider. Non-null only on the detail read
+    /// (`GET /bookings/{id}`) for an independent master / salon owner /
+    /// salon admin; null on every list row and for a salon master, a client
+    /// or an anonymised booking. The render gate is
+    /// `BookingDisplayX.guestPhoneFor`. PII — never log, never route-param.
+    String? guestPhone,
 
     /// The client's first name.
     ///
@@ -314,4 +326,14 @@ abstract class Booking with _$Booking {
     /// [ClientAuthoredReview]'s own file header for the full contract.
     ClientAuthoredReview? reviewByClient,
   }) = _Booking;
+
+  /// Phase 417 (mobile-security LOW) — redacting `toString`. The freezed
+  /// default prints EVERY field, so a stray `log('$booking')` would leak the
+  /// guest's E.164 [guestPhone] (and the free-text notes / names). Only
+  /// non-PII identity fields are printed; [guestPhone] shows presence only.
+  /// `==` / `hashCode` stay freezed-generated and still include [guestPhone].
+  @override
+  String toString() =>
+      'Booking(id: $id, masterId: $masterId, status: $status, '
+      'guestPhone: ${guestPhone == null ? 'null' : '<redacted>'})';
 }

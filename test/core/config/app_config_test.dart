@@ -160,5 +160,19 @@ void main() {
         expect(AppConfig.isPrivateOrLoopbackUrl('not-a-url'), isFalse);
       });
     });
+
+    // -----------------------------------------------------------------------
+    // Phase 413 — public web origin (booking-link allow-list anchor)
+    // -----------------------------------------------------------------------
+    test('publicWebOrigin is a bare https origin on publicWebHost', () {
+      final Uri uri = Uri.parse(AppConfig.publicWebOrigin);
+      expect(AppConfig.publicWebOrigin, 'https://beautica.app');
+      expect(uri.scheme, 'https');
+      expect(uri.host, AppConfig.publicWebHost);
+      expect(uri.userInfo, isEmpty);
+      expect(uri.hasPort, isFalse);
+      expect(uri.path, isEmpty);
+      expect(uri.toString(), AppConfig.publicWebOrigin);
+    });
   });
 }

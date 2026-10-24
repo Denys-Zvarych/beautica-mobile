@@ -16,6 +16,8 @@ class _$ApiResponseAppointmentDetailResponse
   final String? message;
   @override
   final BuiltMap<String, String>? errors;
+  @override
+  final String? requestId;
 
   factory _$ApiResponseAppointmentDetailResponse(
           [void Function(ApiResponseAppointmentDetailResponseBuilder)?
@@ -23,7 +25,7 @@ class _$ApiResponseAppointmentDetailResponse
       (ApiResponseAppointmentDetailResponseBuilder()..update(updates))._build();
 
   _$ApiResponseAppointmentDetailResponse._(
-      {this.success, this.data, this.message, this.errors})
+      {this.success, this.data, this.message, this.errors, this.requestId})
       : super._();
   @override
   ApiResponseAppointmentDetailResponse rebuild(
@@ -41,7 +43,8 @@ class _$ApiResponseAppointmentDetailResponse
         success == other.success &&
         data == other.data &&
         message == other.message &&
-        errors == other.errors;
+        errors == other.errors &&
+        requestId == other.requestId;
   }
 
   @override
@@ -51,6 +54,7 @@ class _$ApiResponseAppointmentDetailResponse
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
     _$hash = $jc(_$hash, errors.hashCode);
+    _$hash = $jc(_$hash, requestId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -61,7 +65,8 @@ class _$ApiResponseAppointmentDetailResponse
           ..add('success', success)
           ..add('data', data)
           ..add('message', message)
-          ..add('errors', errors))
+          ..add('errors', errors)
+          ..add('requestId', requestId))
         .toString();
   }
 }
@@ -90,6 +95,10 @@ class ApiResponseAppointmentDetailResponseBuilder
       _$this._errors ??= MapBuilder<String, String>();
   set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
 
+  String? _requestId;
+  String? get requestId => _$this._requestId;
+  set requestId(String? requestId) => _$this._requestId = requestId;
+
   ApiResponseAppointmentDetailResponseBuilder() {
     ApiResponseAppointmentDetailResponse._defaults(this);
   }
@@ -101,6 +110,7 @@ class ApiResponseAppointmentDetailResponseBuilder
       _data = $v.data?.toBuilder();
       _message = $v.message;
       _errors = $v.errors?.toBuilder();
+      _requestId = $v.requestId;
       _$v = null;
     }
     return this;
@@ -129,6 +139,7 @@ class ApiResponseAppointmentDetailResponseBuilder
             data: _data?.build(),
             message: message,
             errors: _errors?.build(),
+            requestId: requestId,
           );
     } catch (_) {
       late String _$failedField;

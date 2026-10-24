@@ -16,6 +16,8 @@ class _$ApiResponsePageResponseFavoriteServiceResponse
   final String? message;
   @override
   final BuiltMap<String, String>? errors;
+  @override
+  final String? requestId;
 
   factory _$ApiResponsePageResponseFavoriteServiceResponse(
           [void Function(ApiResponsePageResponseFavoriteServiceResponseBuilder)?
@@ -24,7 +26,7 @@ class _$ApiResponsePageResponseFavoriteServiceResponse
           ._build();
 
   _$ApiResponsePageResponseFavoriteServiceResponse._(
-      {this.success, this.data, this.message, this.errors})
+      {this.success, this.data, this.message, this.errors, this.requestId})
       : super._();
   @override
   ApiResponsePageResponseFavoriteServiceResponse rebuild(
@@ -43,7 +45,8 @@ class _$ApiResponsePageResponseFavoriteServiceResponse
         success == other.success &&
         data == other.data &&
         message == other.message &&
-        errors == other.errors;
+        errors == other.errors &&
+        requestId == other.requestId;
   }
 
   @override
@@ -53,6 +56,7 @@ class _$ApiResponsePageResponseFavoriteServiceResponse
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
     _$hash = $jc(_$hash, errors.hashCode);
+    _$hash = $jc(_$hash, requestId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -64,7 +68,8 @@ class _$ApiResponsePageResponseFavoriteServiceResponse
           ..add('success', success)
           ..add('data', data)
           ..add('message', message)
-          ..add('errors', errors))
+          ..add('errors', errors)
+          ..add('requestId', requestId))
         .toString();
   }
 }
@@ -94,6 +99,10 @@ class ApiResponsePageResponseFavoriteServiceResponseBuilder
       _$this._errors ??= MapBuilder<String, String>();
   set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
 
+  String? _requestId;
+  String? get requestId => _$this._requestId;
+  set requestId(String? requestId) => _$this._requestId = requestId;
+
   ApiResponsePageResponseFavoriteServiceResponseBuilder() {
     ApiResponsePageResponseFavoriteServiceResponse._defaults(this);
   }
@@ -105,6 +114,7 @@ class ApiResponsePageResponseFavoriteServiceResponseBuilder
       _data = $v.data?.toBuilder();
       _message = $v.message;
       _errors = $v.errors?.toBuilder();
+      _requestId = $v.requestId;
       _$v = null;
     }
     return this;
@@ -134,6 +144,7 @@ class ApiResponsePageResponseFavoriteServiceResponseBuilder
             data: _data?.build(),
             message: message,
             errors: _errors?.build(),
+            requestId: requestId,
           );
     } catch (_) {
       late String _$failedField;

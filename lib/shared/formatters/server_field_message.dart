@@ -120,3 +120,12 @@ String serverFieldNameOr(
   final trimmed = raw.trim();
   return _fitsToRender(trimmed, maxChars) ? trimmed : fallback;
 }
+
+/// [raw] with every [_kUnrenderableChars] character removed, then trimmed.
+///
+/// The strip-don't-reject sibling of [serverFieldMessageOr], for a server
+/// string that must still be USED when it carries a stray control — e.g. a
+/// salon name interpolated into share-sheet text, where an RLO (U+202E) would
+/// reverse the URL that follows it and a line break would split the message.
+String stripUnrenderableChars(String raw) =>
+    raw.replaceAll(_kUnrenderableChars, '').trim();

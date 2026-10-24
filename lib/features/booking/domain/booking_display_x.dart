@@ -13,6 +13,7 @@ import 'package:beautica_mobile/shared/formatters/booking_address_block.dart';
 import 'package:beautica_mobile/shared/formatters/booking_price_labels.dart';
 import 'package:beautica_mobile/shared/formatters/duration_minutes.dart';
 
+import '../../auth/domain/user_role.dart';
 import 'booking.dart';
 import 'booking_status.dart';
 
@@ -53,6 +54,26 @@ extension BookingDisplayX on Booking {
   /// account (`client_id IS NULL`). Independent of whether a NAME is present:
   /// a guest booking almost always has one.
   bool get isGuestBooking => clientId == null;
+
+  /// Phase 417 — the GUEST's phone, or `null` when it must not be shown.
+  ///
+  /// HARD RULE (user, 2026-10-22): the phone row exists only for a GUEST
+  /// booking (`clientId == null`) and only for an independent master / salon
+  /// owner / salon admin. NEVER for a salon master (even the performing one),
+  /// a client, or an unresolved session (fail closed), and never a registered
+  /// client's phone. The backend already nulls [Booking.guestPhone] in every
+  /// such case; this is the defence-in-depth gate, and the ONLY place the
+  /// value is read for display. PII — do not log.
+  String? guestPhoneFor(UserRole? role) {
+    final String? phone = guestPhone;
+    if (phone == null || phone.isEmpty || clientId != null) return null;
+    return switch (role) {
+      UserRole.independentMaster ||
+      UserRole.salonOwner ||
+      UserRole.salonAdmin => phone,
+      UserRole.salonMaster || UserRole.client || null => null,
+    };
+  }
 
   /// Two-letter avatar-fallback initials — "МІ".
   String get masterInitials {

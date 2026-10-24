@@ -69,6 +69,20 @@ abstract final class AppConfig {
   /// pipeline or a careless `--dart-define` injects.
   static final String baseUrl = normalizeBaseUrl(_rawBaseUrl);
 
+  /// Public website origin (`https://beautica.app`) — the ONLY origin a
+  /// server-built public link (booking links, phase 413) may point at.
+  ///
+  /// Mirrors the backend's `app.booking-links.web-base-url` (default
+  /// `https://beautica.app`, not overridden by any backend profile — local and
+  /// staging build their links on the prod website too). Deliberately NOT a
+  /// `--dart-define`: an allow-list anchor that a build flag can widen is not
+  /// an anchor. Bare https origin: no userinfo, no port, no path, no trailing
+  /// slash.
+  static const String publicWebOrigin = 'https://beautica.app';
+
+  /// Host part of [publicWebOrigin].
+  static const String publicWebHost = 'beautica.app';
+
   /// Defensive guard against the double-`/api/v1`-prefix bug class.
   ///
   /// WHY: the generated `beautica_api` client AND every raw Dio repository call

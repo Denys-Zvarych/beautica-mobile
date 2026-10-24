@@ -5860,6 +5860,14 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
+  "bookingDetailGuestPhone": "Guest phone",
+  "@bookingDetailGuestPhone": {
+    "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
+  },
+  "bookingDetailCallGuest": "Call",
+  "@bookingDetailCallGuest": {
+    "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."
+  },
   "bookingDetailGuestBookingLabel": "Booked via link",
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
@@ -6994,5 +7002,159 @@
         "type": "int"
       }
     }
+  },
+  "bookingLinksSettingsRow": "Booking links",
+  "@bookingLinksSettingsRow": {
+    "description": "Phase 414 — settings hub row opening the booking links screen."
+  },
+  "bookingLinksTitle": "Booking links",
+  "@bookingLinksTitle": {
+    "description": "Phase 414 — booking links screen title."
+  },
+  "bookingLinksBackSemanticLabel": "Back",
+  "@bookingLinksBackSemanticLabel": {
+    "description": "Phase 414 — booking links screen back button accessibility label."
+  },
+  "bookingLinksIntro": "Add the link to Instagram, Telegram or Viber — clients book without calling.",
+  "@bookingLinksIntro": {
+    "description": "Phase 414 — intro line above the link cards."
+  },
+  "bookingLinkMasterTitle": "My link",
+  "@bookingLinkMasterTitle": {
+    "description": "Phase 414 — card title for the independent master's own link."
+  },
+  "bookingLinkSalonTitle": "Salon «{name}» link",
+  "@bookingLinkSalonTitle": {
+    "description": "Phase 414 — card title for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkCopy": "Copy",
+  "@bookingLinkCopy": {
+    "description": "Phase 414 — copy-link button."
+  },
+  "bookingLinkShare": "Share",
+  "@bookingLinkShare": {
+    "description": "Phase 414 — share-link button."
+  },
+  "bookingLinkCopied": "Link copied",
+  "@bookingLinkCopied": {
+    "description": "Phase 414 — success snackbar after copying a link."
+  },
+  "bookingLinkCopiedSemantic": "Copied",
+  "@bookingLinkCopiedSemantic": {
+    "description": "Phase 414 — accessibility label of the in-well copied check."
+  },
+  "bookingLinkCopyFailed": "Could not copy the link",
+  "@bookingLinkCopyFailed": {
+    "description": "Phase 414 — error snackbar when the clipboard write fails."
+  },
+  "bookingLinkShareFailed": "Could not open the share menu",
+  "@bookingLinkShareFailed": {
+    "description": "Phase 414 — error snackbar when the share sheet fails to open."
+  },
+  "bookingLinkShareTextMaster": "Book online: {url}",
+  "@bookingLinkShareTextMaster": {
+    "description": "Phase 414 — share-sheet text for a master link.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkShareTextSalon": "Book at «{name}» online: {url}",
+  "@bookingLinkShareTextSalon": {
+    "description": "Phase 414 — share-sheet text for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkNotBookableMaster": "Clients will see the page but cannot book yet. Add services and a schedule.",
+  "@bookingLinkNotBookableMaster": {
+    "description": "Phase 414 — not-bookable warning on a master link card."
+  },
+  "bookingLinkNotBookableSalon": "Clients will see the page but cannot book yet. At least one master with services and a schedule is needed.",
+  "@bookingLinkNotBookableSalon": {
+    "description": "Phase 414 — not-bookable warning on a salon link card."
+  },
+  "bookingLinkSetupServices": "Set up",
+  "@bookingLinkSetupServices": {
+    "description": "Phase 414 — not-bookable warning link to the services screen."
+  },
+  "bookingLinkSetupTeam": "Team",
+  "@bookingLinkSetupTeam": {
+    "description": "Phase 414 — not-bookable warning link to the salon team tab."
+  },
+  "bookingLinkHintScheduleMaster": "To let clients book, you need to set your schedule.",
+  "@bookingLinkHintScheduleMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no schedule."
+  },
+  "bookingLinkHintServicesMaster": "To let clients book, add at least one service.",
+  "@bookingLinkHintServicesMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no active service."
+  },
+  "bookingLinkHintScheduleSalon": "No master of the salon has a schedule yet, so clients cannot book.",
+  "@bookingLinkHintScheduleSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no master with a schedule."
+  },
+  "bookingLinkHintServicesSalon": "The salon has no services yet, so clients cannot book.",
+  "@bookingLinkHintServicesSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no service."
+  },
+  "bookingLinkHintScheduleAction": "Set schedule",
+  "@bookingLinkHintScheduleAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the schedule page."
+  },
+  "bookingLinkHintServicesAction": "Add a service",
+  "@bookingLinkHintServicesAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the services page."
+  },
+  "bookingLinkRegenerate": "Create a new link",
+  "@bookingLinkRegenerate": {
+    "description": "Phase 415 — regenerate glyph button semantic label / tooltip and the revoked card CTA."
+  },
+  "bookingLinkRegenerateTitle": "Create a new link?",
+  "@bookingLinkRegenerateTitle": {
+    "description": "Phase 415 — regenerate confirm dialog title."
+  },
+  "bookingLinkRegenerateBody": "The old link will stop working right away. Update it in Instagram, Telegram and everywhere you shared it.",
+  "@bookingLinkRegenerateBody": {
+    "description": "Phase 415 — regenerate confirm dialog body (active link)."
+  },
+  "bookingLinkRegenerateBodyRevoked": "A new link will be created.",
+  "@bookingLinkRegenerateBodyRevoked": {
+    "description": "Phase 415 — regenerate confirm dialog body (revoked link)."
+  },
+  "bookingLinkRegenerateConfirm": "Create",
+  "@bookingLinkRegenerateConfirm": {
+    "description": "Phase 415 — regenerate confirm dialog action."
+  },
+  "bookingLinkRevokedState": "Link switched off",
+  "@bookingLinkRevokedState": {
+    "description": "Phase 415 — revoked card state title."
+  },
+  "bookingLinkRevokedBody": "The old link no longer works.",
+  "@bookingLinkRevokedBody": {
+    "description": "Phase 415 — revoked card state body."
+  },
+  "bookingLinkRegenerated": "New link created",
+  "@bookingLinkRegenerated": {
+    "description": "Phase 415 — success snack after regenerate."
+  },
+  "bookingLinkChangedElsewhere": "The link has already changed. Showing the current one.",
+  "@bookingLinkChangedElsewhere": {
+    "description": "Phase 415 — warning snack on 409 (stale currentSlug)."
+  },
+  "bookingLinkTooManyChanges": "Too many changes. Try again later.",
+  "@bookingLinkTooManyChanges": {
+    "description": "Phase 415 — snack on 429."
   }
 }

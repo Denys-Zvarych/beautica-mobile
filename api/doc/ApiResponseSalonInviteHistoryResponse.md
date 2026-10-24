@@ -12,6 +12,7 @@ Name | Type | Description | Notes
 **data** | [**SalonInviteHistoryResponse**](SalonInviteHistoryResponse.md) |  | [optional] 
 **message** | **String** |  | [optional] 
 **errors** | **BuiltMap&lt;String, String&gt;** |  | [optional] 
+**requestId** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

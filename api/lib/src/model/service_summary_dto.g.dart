@@ -15,13 +15,15 @@ class _$ServiceSummaryDto extends ServiceSummaryDto {
   final int? durationMinutes;
   @override
   final num? priceFrom;
+  @override
+  final String? category;
 
   factory _$ServiceSummaryDto(
           [void Function(ServiceSummaryDtoBuilder)? updates]) =>
       (ServiceSummaryDtoBuilder()..update(updates))._build();
 
   _$ServiceSummaryDto._(
-      {this.id, this.name, this.durationMinutes, this.priceFrom})
+      {this.id, this.name, this.durationMinutes, this.priceFrom, this.category})
       : super._();
   @override
   ServiceSummaryDto rebuild(void Function(ServiceSummaryDtoBuilder) updates) =>
@@ -38,7 +40,8 @@ class _$ServiceSummaryDto extends ServiceSummaryDto {
         id == other.id &&
         name == other.name &&
         durationMinutes == other.durationMinutes &&
-        priceFrom == other.priceFrom;
+        priceFrom == other.priceFrom &&
+        category == other.category;
   }
 
   @override
@@ -48,6 +51,7 @@ class _$ServiceSummaryDto extends ServiceSummaryDto {
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, durationMinutes.hashCode);
     _$hash = $jc(_$hash, priceFrom.hashCode);
+    _$hash = $jc(_$hash, category.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -58,7 +62,8 @@ class _$ServiceSummaryDto extends ServiceSummaryDto {
           ..add('id', id)
           ..add('name', name)
           ..add('durationMinutes', durationMinutes)
-          ..add('priceFrom', priceFrom))
+          ..add('priceFrom', priceFrom)
+          ..add('category', category))
         .toString();
   }
 }
@@ -84,6 +89,10 @@ class ServiceSummaryDtoBuilder
   num? get priceFrom => _$this._priceFrom;
   set priceFrom(num? priceFrom) => _$this._priceFrom = priceFrom;
 
+  String? _category;
+  String? get category => _$this._category;
+  set category(String? category) => _$this._category = category;
+
   ServiceSummaryDtoBuilder() {
     ServiceSummaryDto._defaults(this);
   }
@@ -95,6 +104,7 @@ class ServiceSummaryDtoBuilder
       _name = $v.name;
       _durationMinutes = $v.durationMinutes;
       _priceFrom = $v.priceFrom;
+      _category = $v.category;
       _$v = null;
     }
     return this;
@@ -120,6 +130,7 @@ class ServiceSummaryDtoBuilder
           name: name,
           durationMinutes: durationMinutes,
           priceFrom: priceFrom,
+          category: category,
         );
     replace(_$result);
     return _$result;

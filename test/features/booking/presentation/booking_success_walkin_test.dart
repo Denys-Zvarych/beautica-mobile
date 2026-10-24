@@ -18,12 +18,12 @@ import 'package:beautica_mobile/features/booking/domain/booking_success_args.dar
 import 'package:beautica_mobile/features/booking/domain/create_master_booking_request.dart'
     show WalkInGuest;
 import 'package:beautica_mobile/features/booking/presentation/booking_success_screen.dart';
-import 'package:beautica_mobile/features/booking/presentation/widgets/booking_success_scaffold.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/calendar_button.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';

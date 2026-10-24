@@ -274,6 +274,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final num? clientAvgRating;
   @override
   final int? clientReviewCount;
+  @override
+  final String? guestPhone;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -320,7 +322,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.categoryKey,
       this.reviewByClient,
       this.clientAvgRating,
-      this.clientReviewCount})
+      this.clientReviewCount,
+      this.guestPhone})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -375,7 +378,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         categoryKey == other.categoryKey &&
         reviewByClient == other.reviewByClient &&
         clientAvgRating == other.clientAvgRating &&
-        clientReviewCount == other.clientReviewCount;
+        clientReviewCount == other.clientReviewCount &&
+        guestPhone == other.guestPhone;
   }
 
   @override
@@ -422,6 +426,7 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, reviewByClient.hashCode);
     _$hash = $jc(_$hash, clientAvgRating.hashCode);
     _$hash = $jc(_$hash, clientReviewCount.hashCode);
+    _$hash = $jc(_$hash, guestPhone.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -469,7 +474,8 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('categoryKey', categoryKey)
           ..add('reviewByClient', reviewByClient)
           ..add('clientAvgRating', clientAvgRating)
-          ..add('clientReviewCount', clientReviewCount))
+          ..add('clientReviewCount', clientReviewCount)
+          ..add('guestPhone', guestPhone))
         .toString();
   }
 }
@@ -668,6 +674,10 @@ class BookingDetailResponseBuilder
   set clientReviewCount(int? clientReviewCount) =>
       _$this._clientReviewCount = clientReviewCount;
 
+  String? _guestPhone;
+  String? get guestPhone => _$this._guestPhone;
+  set guestPhone(String? guestPhone) => _$this._guestPhone = guestPhone;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -716,6 +726,7 @@ class BookingDetailResponseBuilder
       _reviewByClient = $v.reviewByClient?.toBuilder();
       _clientAvgRating = $v.clientAvgRating;
       _clientReviewCount = $v.clientReviewCount;
+      _guestPhone = $v.guestPhone;
       _$v = null;
     }
     return this;
@@ -780,6 +791,7 @@ class BookingDetailResponseBuilder
             reviewByClient: _reviewByClient?.build(),
             clientAvgRating: clientAvgRating,
             clientReviewCount: clientReviewCount,
+            guestPhone: guestPhone,
           );
     } catch (_) {
       late String _$failedField;

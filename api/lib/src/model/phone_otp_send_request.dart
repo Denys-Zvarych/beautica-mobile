@@ -12,11 +12,24 @@ part 'phone_otp_send_request.g.dart';
 ///
 /// Properties:
 /// * [phone]
+/// * [privacyAccepted]
+/// * [privacyPolicyVersion]
+/// * [turnstileToken] - Required when Turnstile is enabled (prod, staging).
 @BuiltValue()
 abstract class PhoneOtpSendRequest
     implements Built<PhoneOtpSendRequest, PhoneOtpSendRequestBuilder> {
   @BuiltValueField(wireName: r'phone')
   String get phone;
+
+  @BuiltValueField(wireName: r'privacyAccepted')
+  bool get privacyAccepted;
+
+  @BuiltValueField(wireName: r'privacyPolicyVersion')
+  String get privacyPolicyVersion;
+
+  /// Required when Turnstile is enabled (prod, staging).
+  @BuiltValueField(wireName: r'turnstileToken')
+  String? get turnstileToken;
 
   PhoneOtpSendRequest._();
 
@@ -52,6 +65,23 @@ class _$PhoneOtpSendRequestSerializer
       object.phone,
       specifiedType: const FullType(String),
     );
+    yield r'privacyAccepted';
+    yield serializers.serialize(
+      object.privacyAccepted,
+      specifiedType: const FullType(bool),
+    );
+    yield r'privacyPolicyVersion';
+    yield serializers.serialize(
+      object.privacyPolicyVersion,
+      specifiedType: const FullType(String),
+    );
+    if (object.turnstileToken != null) {
+      yield r'turnstileToken';
+      yield serializers.serialize(
+        object.turnstileToken,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -83,6 +113,27 @@ class _$PhoneOtpSendRequestSerializer
             specifiedType: const FullType(String),
           ) as String;
           result.phone = valueDes;
+          break;
+        case r'privacyAccepted':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.privacyAccepted = valueDes;
+          break;
+        case r'privacyPolicyVersion':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.privacyPolicyVersion = valueDes;
+          break;
+        case r'turnstileToken':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.turnstileToken = valueDes;
           break;
         default:
           unhandled.add(key);
