@@ -87,6 +87,7 @@ import '../../discovery/data/search_suggestion_cache_provider.dart';
 import '../../schedule/presentation/effective_schedule_notifier.dart';
 import '../../schedule/presentation/overrides_notifier.dart';
 import '../../schedule/presentation/overrides_revision_provider.dart';
+import '../../salon/application/salon_service_catalog_notifier.dart';
 import '../../schedule/presentation/salon_effective_schedule_notifier.dart';
 import '../../schedule/presentation/salon_schedule_keep_alive_lru.dart';
 import '../../schedule/presentation/weekly_schedule_notifier.dart';
@@ -1669,6 +1670,15 @@ class AuthNotifier extends _$AuthNotifier {
       // keepalive-safe: session-boundary sweep (logout) — the one watch site (salon_bookings_screen.dart:351) keys this family off `salonId` + `ScheduleRange.month(kyivToday(clock))`, both derived from route/clock, NEVER from local mutable widget state, so the swap-key-then-invalidate shape this guard protects against (a pinned-but-unwatched member racing invalidateSelf's queued disposal) cannot arise; a member with a live listener rebuilds, one without is disposed outright, and either outcome is the eviction intended here.
       // cycle-safe: salonEffectiveScheduleProvider watches only salonRosterScheduleRepositoryProvider -> scheduleSalonApiProvider -> dioProvider — grep-proven to contain zero authProvider references (that absence IS the finding being fixed), so invalidating it from inside this notifier records no back-edge and closes no dependency cycle. HOW THAT ABSENCE IS MAINTAINED, precisely: this annotation is grep-enforced by scripts/forbid_provider_self_invalidation.sh (which checks the annotation EXISTS, never that its reason is true), and the chain staying auth-free is a CODE-REVIEW obligation — there is no test that fails if someone adds `ref.watch(authProvider)` to SalonEffectiveScheduleNotifier.build(). provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider + salonEffectiveScheduleProvider" entrypoint (extended additively by this fix to subscribe and pre-build this third family) EXERCISES the family on a real container and would surface a genuine CircularDependencyError, but it carries no assertion that discriminates an authProvider back-edge: mobile-build-verifier injected exactly that watch and the guard stayed green 8/8 (2026-09-17). The blind spot is pre-existing and applies equally to weeklyScheduleProvider — do not read that entrypoint as proof of this claim.
       ref.invalidate(salonEffectiveScheduleProvider);
+      // Phase 416 (mobile-security INFO) — the salon service catalogue
+      // (`GET /salons/{id}/services`) is keyed on `salonId` alone and pins
+      // itself 5 minutes with `ref.keepAlive()`; its chain carries no auth
+      // watch, so on a shared tablet the next owner/admin of the SAME salon
+      // would be served the outgoing session's catalogue from memory. Bare
+      // (whole-family) invalidate for the same reason as the sweep above.
+      // keepalive-safe: session-boundary sweep (logout) — the family is never watched via local mutable widget state (keyed off route/link `salonId`), and its own `ref.keepAlive()` timer is cancelled by `ref.onDispose`, so invalidateSelf's queued-disposal race cannot arise.
+      // cycle-safe: salonServiceCatalogProvider watches only salonRepositoryProvider -> dioProvider — neither watches authProvider, so no back-edge into this notifier, no cycle. Maintained by code review + this grep gate (the cycle-guard logout row builds no catalogue member); the eviction itself is pinned by salon_service_catalog_cross_session_isolation_test.dart.
+      ref.invalidate(salonServiceCatalogProvider);
       // …and the LRU that PINS that family's members, for exactly the reason
       // `dayKeepAliveLruProvider.clear()` above exists: the invalidate severs
       // each element's keepAlive links, but it does not touch

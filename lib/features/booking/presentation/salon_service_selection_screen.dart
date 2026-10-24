@@ -64,6 +64,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -171,6 +173,7 @@ class _SalonServiceSelectionScreenState
     final PendingServicePreselection? pre = _preselection;
     if (pre != null) {
       final Set<String> selectedIds = <String>{};
+      bool droppedOverCap = false;
       for (final SalonServiceCategoryEntry c in categories) {
         for (final SalonCatalogService s in c.services) {
           if (_matchesPreselection(
@@ -178,6 +181,14 @@ class _SalonServiceSelectionScreenState
             s.serviceTypeNameUk,
             pre,
           )) {
+            // Phase 420: the seed obeys the same [maxServicesPerVisit] cap as
+            // a manual add — keep the first matches in seed (catalogue) order
+            // and drop the rest, so a broad search filter can never seed an
+            // un-bookable 11+ selection. A dropped match is not hoisted.
+            if (selectedIds.length >= maxServicesPerVisit) {
+              droppedOverCap = true;
+              continue;
+            }
             selectedIds.add(s.id);
             // Hoist + expand the matched service's category so it sits at the
             // top of the accordion with all its sibling services visible and
@@ -189,6 +200,19 @@ class _SalonServiceSelectionScreenState
       }
       if (selectedIds.isNotEmpty) {
         _selectionController.replaceAll(selectedIds);
+        if (droppedOverCap) {
+          // _seedOnce runs inside build — show the (one) cap warning after
+          // the frame, same helper + copy as [_onToggleService].
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            showWarningSnack(
+              context,
+              AppLocalizations.of(
+                context,
+              ).bookingMaxServicesReached(maxServicesPerVisit),
+            );
+          });
+        }
         // Matched categories are hoisted + expanded above; skip the default
         // first-category expand so the matched category is the focus.
         return;
@@ -224,6 +248,26 @@ class _SalonServiceSelectionScreenState
     setState(() {
       if (!_expandedKeys.remove(key)) _expandedKeys.add(key);
     });
+  }
+
+  /// Toggles [id] in/out of the whole-salon visit selection, capped at
+  /// [maxServicesPerVisit] (the backend `MAX_SERVICES_PER_VISIT`, = 10 — also
+  /// matches `kMaxSalonDraftServices`, D6). Mirrors
+  /// `ServiceSelectorSheet._onToggleService` (independent-master flow): an ADD
+  /// that would exceed the cap is refused with a warning snack — without it an
+  /// 11+ selection made every day's availability call fail (phase 420). A
+  /// removal is never blocked; the shelf's remove path stays uncapped.
+  void _onToggleService(String id) {
+    final bool willAdd = !_selectionController.isSelected(id);
+    if (willAdd && _selectionController.value.length >= maxServicesPerVisit) {
+      final l10n = AppLocalizations.of(context);
+      showWarningSnack(
+        context,
+        l10n.bookingMaxServicesReached(maxServicesPerVisit),
+      );
+      return;
+    }
+    _selectionController.toggleService(id);
   }
 
   /// Surfaces a failed favourite toggle (from any row's heart) as an error
@@ -323,7 +367,7 @@ class _SalonServiceSelectionScreenState
                     hoistedKeys: _hoistedKeys,
                     expandedKeys: _expandedKeys,
                     selectedIdsListenable: _selectionController,
-                    onToggleService: _selectionController.toggleService,
+                    onToggleService: _onToggleService,
                     onToggleExpand: _toggleExpand,
                     onFavoriteError: _showFavoriteError,
                   );

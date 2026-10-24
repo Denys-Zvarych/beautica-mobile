@@ -71,6 +71,7 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -231,11 +232,24 @@ const Map<String, dynamic> _salonMasterUserJson = <String, dynamic>{
 /// and SALON_MASTER doc comments above both record what a wildcard here
 /// actually costs: a role that silently logs in as INDEPENDENT_MASTER
 /// instead of failing to compile the day a sixth role is added.
+/// Phase 416 (mobile-qa) — when non-null, the SALON_ADMIN fixture's `salonId`.
+/// The booking-link repository drops a non-UUID `salonId`, so a flow that needs
+/// the admin's OWN salon to equal a link's UUID salon sets this and MUST reset
+/// it to null in `addTearDown` (process-global on purpose: `userJsonForRole`
+/// is a top-level function).
+String? adminSalonIdOverride;
+
 Map<String, dynamic> userJsonForRole(UserRole role) {
   return switch (role) {
     UserRole.client => _clientUserJson,
     UserRole.salonOwner => _ownerUserJson,
-    UserRole.salonAdmin => _adminUserJson,
+    UserRole.salonAdmin =>
+      adminSalonIdOverride == null
+          ? _adminUserJson
+          : <String, dynamic>{
+              ..._adminUserJson,
+              'salonId': adminSalonIdOverride,
+            },
     UserRole.salonMaster => _salonMasterUserJson,
     UserRole.independentMaster => _masterUserJson,
   };
@@ -449,6 +463,7 @@ final class FakeBackend {
     dio.interceptors.add(ErrorMapperInterceptor());
     _wire();
     _wireNotifications();
+    _wireBookingLinks();
     _wireDeviceTokens();
     if (wirePortfolio) _wirePortfolio();
   }
@@ -747,6 +762,13 @@ final class FakeBackend {
   /// Opt-in: serve the seeded `booking-1` as a GUEST booking (`clientId: null`,
   /// no account behind it). False (default) = the registered `client-1`.
   bool bookingClientIsGuest = false;
+
+  /// Phase 417 — opt-in: the `guestPhone` (E.164) the seeded `booking-1`'s
+  /// DETAIL response carries (the backend gates it to guest bookings viewed
+  /// by an independent master / salon owner / salon admin; the fake serves it
+  /// verbatim so a flow can also prove the APP's own defence-in-depth gate
+  /// by seeding it onto a registered-client booking). Never on a listing.
+  String? bookingGuestPhone;
   int? bookingClientReviewCount;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
@@ -3285,7 +3307,7 @@ final class FakeBackend {
     'lastName': adminLastName,
     'phoneNumber': adminPhone,
     'professionalTitle': 'Старший адміністратор',
-    'salonId': 'salon-admin-1',
+    'salonId': adminSalonIdOverride ?? 'salon-admin-1',
   };
 
   // ── Discovery search fixtures (Phase 13.4) ────────────────────────────────
@@ -4207,11 +4229,15 @@ final class FakeBackend {
   /// en-dash range `"200–600 ₴"`) and mobile renders it verbatim — mirrored
   /// here, NOT recomputed client-side.
   List<Map<String, dynamic>> _salonServiceCatalogNow() {
+    final List<Map<String, dynamic>> base =
+        _salonCatalogOverflowServices.isEmpty
+        ? _salonServiceCategories
+        : _salonServiceCategoriesWithOverflow();
     if (_salonCatalogExtraAssignmentPrices.isEmpty) {
-      return _salonServiceCategories;
+      return base;
     }
     return <Map<String, dynamic>>[
-      for (final Map<String, dynamic> group in _salonServiceCategories)
+      for (final Map<String, dynamic> group in base)
         <String, dynamic>{
           ...group,
           'services': <Map<String, dynamic>>[
@@ -4223,6 +4249,75 @@ final class FakeBackend {
         },
     ];
   }
+
+  /// Phase 420 — extra NAILS catalogue services appended by
+  /// [seedSalonCatalogOverflow]. Empty by default, so every existing consumer
+  /// of `GET /salons/salon-xyz/services` reads the baseline byte-for-byte.
+  final List<Map<String, dynamic>> _salonCatalogOverflowServices =
+      <Map<String, dynamic>>[];
+
+  /// Phase 420 — appends [count] bookable NAILS services
+  /// (`salon-svc-cap-0` … `salon-svc-cap-<count-1>`) to the `salon-xyz`
+  /// catalogue, so a flow can push the client's selection past
+  /// `maxServicesPerVisit`. Each gets a `GET …/services/{id}/masters` route
+  /// answering `master-ccc`, so the master-assignment step resolves every
+  /// selected service instead of 404ing into a degraded row.
+  void seedSalonCatalogOverflow(int count) {
+    for (int i = 0; i < count; i++) {
+      final String id = 'salon-svc-cap-$i';
+      _salonCatalogOverflowServices.add(<String, dynamic>{
+        'id': id,
+        'name': 'Манікюр $i',
+        'description': null,
+        'category': 'NAILS',
+        'serviceTypeSlug': null,
+        'serviceTypeNameUk': null,
+        'baseDurationMinutes': 30,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 100,
+        'priceMax': null,
+        'priceDisplay': '100 ₴',
+        'photoUrl': null,
+      });
+      _adapter.onRoute(
+        '/api/v1/salons/salon-xyz/services/$id/masters',
+        (server) => server.replyCallback(200, (_) {
+          getBookableMastersCalls++;
+          requestedBookableMastersServiceDefIds.add(id);
+          return _okList(<Map<String, dynamic>>[
+            _bookableMasterEnvelope(
+              masterId: 'master-ccc',
+              serviceDefId: id,
+              firstName: 'Марія',
+              lastName: 'Гриценко',
+            ),
+          ]);
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+  }
+
+  List<Map<String, dynamic>> _salonServiceCategoriesWithOverflow() =>
+      <Map<String, dynamic>>[
+        for (final Map<String, dynamic> group in _salonServiceCategories)
+          if (group['category'] == 'NAILS')
+            <String, dynamic>{
+              ...group,
+              'count':
+                  (group['count'] as int) +
+                  _salonCatalogOverflowServices.length,
+              'services': <Map<String, dynamic>>[
+                ...(group['services'] as List<dynamic>)
+                    .cast<Map<String, dynamic>>(),
+                ..._salonCatalogOverflowServices,
+              ],
+            }
+          else
+            group,
+      ];
 
   Map<String, dynamic> _aggregatedCatalogService(Map<String, dynamic> svc) {
     final List<double> extra =
@@ -5320,6 +5415,8 @@ final class FakeBackend {
     // flows drive; a divergence here would let the provider-view flow pass
     // against a name no other surface uses.
     'clientId': bookingClientIsGuest ? null : 'client-1',
+    if (includeReviewByClient && bookingGuestPhone != null)
+      'guestPhone': bookingGuestPhone,
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
     if (bookingClientAvatarUrl != null)
@@ -7398,12 +7495,38 @@ final class FakeBackend {
             });
             _nextServiceSeq++;
           }
+          if (bulkCreatePersists) _services.addAll(created);
           return _okList(created);
         },
       ),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
+
+  /// Phase 416 (mobile-qa) — registers the two readiness reads the booking-link
+  /// hints make for a SALON link whose id is [salonId] (which must be a UUID:
+  /// the links repository drops any other `salonId`): the roster effective
+  /// schedule (EMPTY → "no master has a working day") and the salon catalogue
+  /// (EMPTY → "no services"). Additive; nothing calls it by default.
+  void wireBookingLinkSalonNotReady(String salonId) {
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/masters/effective-schedule',
+      (server) => server.reply(200, _okList(const <dynamic>[])),
+      request: const Request(method: RequestMethods.get),
+    );
+    _adapter.onRoute(
+      '/api/v1/salons/$salonId/services',
+      (server) =>
+          server.reply(200, _ok(<String, dynamic>{'categories': <dynamic>[]})),
+      request: const Request(method: RequestMethods.get),
+    );
+  }
+
+  /// Phase 416 (mobile-qa) — when true, `POST …/me/services/bulk` also APPENDS
+  /// the created rows to the master's list, so the next `GET …/me/services`
+  /// reflects them. Off by default: every pre-existing flow keeps its echo-only
+  /// behaviour.
+  bool bulkCreatePersists = false;
 
   void _wire() {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
@@ -11452,6 +11575,172 @@ final class FakeBackend {
           return _okVoid;
         },
       ),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+  }
+
+  // ── Phase 414 — `GET /api/v1/booking-links/mine` ──────────────────────────
+  //
+  // DEFAULT = kill-switch OFF, no links: the settings-hub row stays hidden, so
+  // every pre-existing hub flow renders exactly as before (before this route
+  // existed the call 404'd, which the app also reads as hidden). A flow sets
+  // [bookingLinksMine] to the wire `data` object it wants served; it is read
+  // per request, so it can change mid-flow.
+
+  /// The `data` object `GET /booking-links/mine` answers; `null` = default
+  /// (`shareEnabled: false`, `links: []`).
+  Map<String, dynamic>? bookingLinksMine;
+
+  /// How many times `GET /booking-links/mine` was hit.
+  int bookingLinksMineCalls = 0;
+
+  /// Phase 416 (mobile-qa) — when true, every MASTER link's `bookable` is
+  /// derived from the master's service list (bookable iff any service exists)
+  /// instead of read from [bookingLinksMine], modelling the server flipping the
+  /// verdict once a service is added. Off by default.
+  bool bookingLinksMasterBookableFollowsServices = false;
+
+  void _wireBookingLinks() {
+    _adapter.onRoute(
+      '/api/v1/booking-links/mine',
+      (server) => server.replyCallback(200, (_) {
+        bookingLinksMineCalls++;
+        final Map<String, dynamic> raw =
+            bookingLinksMine ??
+            <String, dynamic>{'shareEnabled': false, 'links': <dynamic>[]};
+        // Phase 415 — backend 378 always sends `status`; a fixture that
+        // predates it is an ACTIVE link.
+        final Map<String, dynamic> data = <String, dynamic>{
+          ...raw,
+          'links': <dynamic>[
+            for (final dynamic l in raw['links'] as List<dynamic>)
+              <String, dynamic>{
+                'status': 'ACTIVE',
+                ...(l as Map<String, dynamic>),
+              },
+          ],
+        };
+        if (!bookingLinksMasterBookableFollowsServices) return _ok(data);
+        return _ok(<String, dynamic>{
+          ...data,
+          'links': <dynamic>[
+            for (final dynamic l in data['links'] as List<dynamic>)
+              (l as Map<String, dynamic>)['kind'] == 'MASTER'
+                  ? <String, dynamic>{...l, 'bookable': _services.isNotEmpty}
+                  : l,
+          ],
+        });
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 415 — `POST /booking-links/master/regenerate` and
+    // `POST /booking-links/salons/{id}/regenerate` (backend 378), STATEFUL
+    // over [bookingLinksMine]: the matching link (by kind + salon id) gets a
+    // fresh slug `<old or kind>-r<n>`, ACTIVE, and the same object is
+    // answered — so a later `GET /mine` agrees. Success path only: the
+    // 409 / 404 / 429 outcomes are pinned by the widget + repository tests;
+    // here a `currentSlug` that is not the stored one, or no matching link,
+    // fails the flow loudly instead of being silently served.
+    for (final Pattern route in <Pattern>[
+      '/api/v1/booking-links/master/regenerate',
+      RegExp(r'/api/v1/booking-links/salons/[^/]+/regenerate$'),
+    ]) {
+      _adapter.onRoute(
+        route,
+        (server) => server.replyCallback(200, (RequestOptions req) {
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          bookingLinksRegenerateBodies.add(body);
+          final List<String> seg = req.path.split('/');
+          final bool salon = seg.contains('salons');
+          final String? salonId = salon ? seg[seg.length - 2] : null;
+          final List<dynamic> links =
+              (bookingLinksMine?['links'] as List<dynamic>?) ?? <dynamic>[];
+          final int i = links.indexWhere(
+            (dynamic l) =>
+                (l as Map<String, dynamic>)['kind'] ==
+                    (salon ? 'SALON' : 'MASTER') &&
+                (!salon || l['salonId'] == salonId),
+          );
+          if (i < 0) {
+            throw StateError('regenerate: no ${req.path} link in the fixture');
+          }
+          final Map<String, dynamic> old = links[i] as Map<String, dynamic>;
+          if (body['currentSlug'] != old['slug']) {
+            throw StateError('regenerate: stale currentSlug in the request');
+          }
+          final String base = (old['slug'] as String?) ?? (salon ? 's' : 'm');
+          final String slug = '$base-r${bookingLinksRegenerateBodies.length}';
+          final Map<String, dynamic> next = <String, dynamic>{
+            ...old,
+            'status': 'ACTIVE',
+            'slug': slug,
+            'url': salon
+                ? '${AppConfig.publicWebOrigin}/book/s/$slug'
+                : '${AppConfig.publicWebOrigin}/book/$slug',
+            'bookable': true,
+          };
+          links[i] = next;
+          return _ok(next);
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+    }
+  }
+
+  /// Phase 415 — every regenerate body received, in order.
+  final List<Map<String, dynamic>> bookingLinksRegenerateBodies =
+      <Map<String, dynamic>>[];
+
+  /// Phase 415 (mobile-qa) — models «the link changed elsewhere»: the NEXT
+  /// `POST /booking-links/master/regenerate` answers backend 378's 409 (stale
+  /// `currentSlug`) and, at that moment, swaps [bookingLinksMine] for
+  /// [changedElsewhere] — so the screen's reload shows what the other device
+  /// made. Registered after [_wireBookingLinks], so it wins (last match).
+  void wireBookingLinkRegenerateConflict(
+    Map<String, dynamic> changedElsewhere,
+  ) => _wireBookingLinkRegenerateError(
+    409,
+    'Booking link changed',
+    nextMine: changedElsewhere,
+  );
+
+  /// Phase 415 (mobile-qa) — the NEXT master regenerate answers 404: sharing
+  /// was switched off server-side (backend kill-switch). [bookingLinksMine]
+  /// flips to `shareEnabled: false` at that moment, so any reload agrees.
+  void wireBookingLinkRegenerateUnavailable() =>
+      _wireBookingLinkRegenerateError(
+        404,
+        'Booking links disabled',
+        nextMine: <String, dynamic>{
+          'shareEnabled': false,
+          'links': <dynamic>[],
+        },
+      );
+
+  /// Phase 415 (mobile-qa) — the NEXT master regenerate answers 429 (the
+  /// per-user regenerate budget is spent); [bookingLinksMine] is untouched.
+  void wireBookingLinkRegenerateRateLimited() =>
+      _wireBookingLinkRegenerateError(429, 'Too many requests');
+
+  /// Shared by the error hooks above: registered after [_wireBookingLinks],
+  /// so it wins (last match); records the body like the success route.
+  void _wireBookingLinkRegenerateError(
+    int status,
+    String message, {
+    Map<String, dynamic>? nextMine,
+  }) {
+    _adapter.onRoute(
+      '/api/v1/booking-links/master/regenerate',
+      (server) => server.replyCallback(status, (RequestOptions req) {
+        bookingLinksRegenerateBodies.add(_decodeBody(req.data));
+        if (nextMine != null) bookingLinksMine = nextMine;
+        return <String, dynamic>{
+          'success': false,
+          'message': message,
+          'data': null,
+        };
+      }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }

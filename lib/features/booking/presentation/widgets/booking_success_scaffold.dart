@@ -460,67 +460,7 @@ class _BookingSuccessScaffoldState extends State<BookingSuccessScaffold>
   }
 }
 
-/// One onward action — a raised base-tone neumorphic pill with camel text (no
-/// gradient fill). Both success screens build exactly one of these and pass
-/// it as their scaffold's sole [BookingSuccessScaffold.actions] entry
-/// (unchanged rendering from before the actions-list generalisation — only
-/// the construction site moved from the scaffold itself to its callers).
-class SuccessSecondaryButton extends StatefulWidget {
-  const SuccessSecondaryButton({
-    super.key,
-    required this.buttonKey,
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final Key buttonKey;
-  final String label;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  @override
-  State<SuccessSecondaryButton> createState() => _SuccessSecondaryButtonState();
-}
-
-class _SuccessSecondaryButtonState extends State<SuccessSecondaryButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: widget.label,
-      child: GestureDetector(
-        key: widget.buttonKey,
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) {
-          setState(() => _pressed = false);
-          widget.onPressed();
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          height: VelvetSizes.cta,
-          decoration: BoxDecoration(
-            color: BrandColors.base,
-            borderRadius: BorderRadius.circular(VelvetRadii.button),
-            boxShadow: _pressed ? null : VelvetShadows.extrudedButton,
-          ),
-          alignment: Alignment.center,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(widget.icon, size: 20, color: BrandColors.accentDeep),
-              const SizedBox(width: VelvetSpacing.sm),
-              Text(
-                widget.label,
-                style: VelvetText.cta().copyWith(color: BrandColors.accentDeep),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+// [SuccessSecondaryButton] — the onward action both success screens pass as
+// their sole [BookingSuccessScaffold.actions] entry — was PROMOTED to
+// `lib/shared/widgets/success_secondary_button.dart` (phase 414, second
+// consumer: the booking-links card). Render-identical; see that file.

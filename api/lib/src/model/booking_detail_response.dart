@@ -54,6 +54,7 @@ part 'booking_detail_response.g.dart';
 /// * [reviewByClient] - The review THIS booking's client left about the master — rating plus the full comment (phase 317 D2: the text is already world-readable through the permitAll GET /masters/{id}/reviews listing, so withholding it here would be theatre). Null when the booking carries no review. SERVED ONLY BY GET /bookings/{id}: every listing surface — the provider and CLIENT branches of GET /bookings/me, GET /bookings/salon/{salonId}, and the create/reschedule mutation responses — sends null unconditionally, because a booking CARD renders no review body and paying a per-page review fetch for a field nothing draws is not worth the statement. Do NOT read a null on a list row as 'this booking has no review'; re-read the booking through GET /bookings/{id} to learn that. This is the same explicitly-surface-scoped contract providerCanReviewClient already documents on this DTO.
 /// * [clientAvgRating] - The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
 /// * [clientReviewCount] - How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
+/// * [guestPhone] - E.164 phone of the GUEST who booked through a link (or the walk-in phone a staff member typed), for the provider's tap-to-call. NON-NULL ONLY when ALL hold: this is the booking DETAIL read (GET /bookings/{id}), the viewer's ROLE is INDEPENDENT_MASTER (their own link's booking), SALON_OWNER or an assigned SALON_ADMIN of the salon - a SALON_MASTER NEVER sees it, even as the performing master - and NOT the owning client, the booking is a guest booking (client_id IS NULL) and it has not been anonymised/erased. NULL on every list/feed row, on the create and reschedule responses, for a client viewer, and ALWAYS for a booking made by a registered account: a registered user's phone is never exposed to any provider.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -199,6 +200,10 @@ abstract class BookingDetailResponse
   /// How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
   @BuiltValueField(wireName: r'clientReviewCount')
   int? get clientReviewCount;
+
+  /// E.164 phone of the GUEST who booked through a link (or the walk-in phone a staff member typed), for the provider's tap-to-call. NON-NULL ONLY when ALL hold: this is the booking DETAIL read (GET /bookings/{id}), the viewer's ROLE is INDEPENDENT_MASTER (their own link's booking), SALON_OWNER or an assigned SALON_ADMIN of the salon - a SALON_MASTER NEVER sees it, even as the performing master - and NOT the owning client, the booking is a guest booking (client_id IS NULL) and it has not been anonymised/erased. NULL on every list/feed row, on the create and reschedule responses, for a client viewer, and ALWAYS for a booking made by a registered account: a registered user's phone is never exposed to any provider.
+  @BuiltValueField(wireName: r'guestPhone')
+  String? get guestPhone;
 
   BookingDetailResponse._();
 
@@ -514,6 +519,13 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.clientReviewCount,
         specifiedType: const FullType.nullable(int),
+      );
+    }
+    if (object.guestPhone != null) {
+      yield r'guestPhone';
+      yield serializers.serialize(
+        object.guestPhone,
+        specifiedType: const FullType.nullable(String),
       );
     }
   }
@@ -842,6 +854,14 @@ class _$BookingDetailResponseSerializer
           ) as int?;
           if (valueDes == null) continue;
           result.clientReviewCount = valueDes;
+          break;
+        case r'guestPhone':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.guestPhone = valueDes;
           break;
         default:
           unhandled.add(key);

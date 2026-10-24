@@ -615,6 +615,38 @@ void main() {
   // pinned too: a backend rename or a regenerated client that drops the field
   // fails HERE, at unit level, instead of shipping as a blank slot.
   // ==========================================================================
+  group('BookingMapper.fromDto — guestPhone (phase 417)', () {
+    BookingDetailResponse dto(String? phone) =>
+        (BookingDetailResponseBuilder()
+              ..id = 'b-guest'
+              ..masterId = 'master-1'
+              ..masterServiceId = 'service-1'
+              ..masterFirstName = 'Оля'
+              ..masterLastName = 'Коваль'
+              ..serviceName = 'Манікюр'
+              ..status = BookingDetailResponseStatusEnum.CONFIRMED
+              ..startsAt = DateTime.utc(2026, 7, 10, 10)
+              ..endsAt = DateTime.utc(2026, 7, 10, 11)
+              ..priceAtBooking = 500
+              ..durationMinutesAtBooking = 60
+              ..canReview = false
+              ..guestPhone = phone
+              ..masterType =
+                  BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
+            .build();
+
+    test('a present guestPhone maps through verbatim', () {
+      expect(
+        BookingMapper.fromDto(dto('+380671234567')).guestPhone,
+        '+380671234567',
+      );
+    });
+
+    test('an absent guestPhone stays null', () {
+      expect(BookingMapper.fromDto(dto(null)).guestPhone, isNull);
+    });
+  });
+
   group('BookingMapper.fromDto — clientAvatarUrl', () {
     test('a present https photo URL maps through unchanged', () {
       final BookingDetailResponse dto =

@@ -313,6 +313,16 @@ void main() {
       );
     });
 
+    test('booking detail (carries guestPhone) is a redacted PII route', () {
+      expect(
+        isPiiPath('/api/v1/bookings/0b6f3a52-1d34-4c0e-9a77-5f1c2d3e4f50'),
+        isTrue,
+        reason:
+            'Phase 417: GET /bookings/{id} returns the guest E.164 phone — '
+            'PII that must never reach the debug logs.',
+      );
+    });
+
     test('appointment sub-routes ({id}/cancel) are PII routes', () {
       expect(
         isPiiPath('/api/v1/appointments/appt-123'),

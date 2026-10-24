@@ -12,6 +12,7 @@ import 'package:beautica_api/src/auth/oauth.dart';
 import 'package:beautica_api/src/api/appointment_controller_api.dart';
 import 'package:beautica_api/src/api/auth_controller_api.dart';
 import 'package:beautica_api/src/api/booking_controller_api.dart';
+import 'package:beautica_api/src/api/booking_links_api.dart';
 import 'package:beautica_api/src/api/category_request_controller_api.dart';
 import 'package:beautica_api/src/api/client_controller_api.dart';
 import 'package:beautica_api/src/api/client_review_controller_api.dart';
@@ -19,7 +20,6 @@ import 'package:beautica_api/src/api/dashboard_controller_api.dart';
 import 'package:beautica_api/src/api/device_controller_api.dart';
 import 'package:beautica_api/src/api/favorite_controller_api.dart';
 import 'package:beautica_api/src/api/independent_master_controller_api.dart';
-import 'package:beautica_api/src/api/internal_category_controller_api.dart';
 import 'package:beautica_api/src/api/location_controller_api.dart';
 import 'package:beautica_api/src/api/master_controller_api.dart';
 import 'package:beautica_api/src/api/media_controller_api.dart';
@@ -125,6 +125,12 @@ class BeauticaApi {
     return BookingControllerApi(dio, serializers);
   }
 
+  /// Get BookingLinksApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  BookingLinksApi getBookingLinksApi() {
+    return BookingLinksApi(dio, serializers);
+  }
+
   /// Get CategoryRequestControllerApi instance, base route and serializer can be overridden by a given but be careful,
   /// by doing that all interceptors will not be executed
   CategoryRequestControllerApi getCategoryRequestControllerApi() {
@@ -165,12 +171,6 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   IndependentMasterControllerApi getIndependentMasterControllerApi() {
     return IndependentMasterControllerApi(dio, serializers);
-  }
-
-  /// Get InternalCategoryControllerApi instance, base route and serializer can be overridden by a given but be careful,
-  /// by doing that all interceptors will not be executed
-  InternalCategoryControllerApi getInternalCategoryControllerApi() {
-    return InternalCategoryControllerApi(dio, serializers);
   }
 
   /// Get LocationControllerApi instance, base route and serializer can be overridden by a given but be careful,

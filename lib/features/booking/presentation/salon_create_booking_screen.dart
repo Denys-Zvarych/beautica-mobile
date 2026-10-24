@@ -175,6 +175,8 @@ import '../domain/booking_slot.dart';
 import '../domain/create_master_booking_request.dart';
 import 'widgets/booking_cta_footer.dart';
 import 'widgets/booking_recap.dart';
+import 'package:beautica_mobile/shared/widgets/success_secondary_button.dart';
+
 import 'widgets/booking_success_scaffold.dart';
 import 'widgets/booking_summary_bar.dart';
 import 'widgets/booking_summary_cards.dart';

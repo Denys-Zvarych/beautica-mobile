@@ -60,6 +60,8 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/pending_service_preselection_provider.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/booking/domain/pending_service_preselection.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/service_selector_sheet.dart';
@@ -73,6 +75,7 @@ import 'package:beautica_mobile/features/services/domain/service_category_option
 import 'package:beautica_mobile/features/wishlist/application/wishlist_notifier.dart';
 import 'package:beautica_mobile/features/wishlist/domain/wishlist_service.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,6 +83,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/overflow_guard.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Auth stub — the REAL PendingServicePreselectionController.build()
@@ -1412,5 +1416,337 @@ void main() {
         expect(tester.takeException(), isNull);
       },
     );
+  });
+  // Phase 420 — the salon seed obeys the same maxServicesPerVisit cap as a
+  // manual add: a broad search filter matching 11+ services keeps the first 10
+  // in seed (catalogue) order and shows the cap warning ONCE.
+  group('SalonServiceSelectionScreen — seed cap (phase 420)', () {
+    const String capSalonId = 'salon-cap';
+    const PendingServicePreselection capSeed = PendingServicePreselection(
+      targetId: capSalonId,
+      serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+      serviceTypeLabels: <String>{},
+    );
+
+    List<Object> capOverrides(int n) => <Object>[
+      salonServiceCatalogProvider(capSalonId).overrideWith(
+        (ref) async => <SalonServiceCategoryEntry>[
+          SalonServiceCategoryEntry(
+            category: 'NAILS',
+            displayName: 'Нігті',
+            count: n,
+            services: <SalonCatalogService>[
+              for (int i = 0; i < n; i++)
+                SalonCatalogService(
+                  id: 'cap-$i',
+                  name: 'Манікюр $i',
+                  durationLabel: '30 хв',
+                  priceDisplay: '100 ₴',
+                  category: 'NAILS',
+                  serviceTypeSlug: 'CLASSIC_MANICURE',
+                  durationMinutes: 30,
+                  priceType: ServicePriceType.fixed,
+                  priceMin: 100,
+                ),
+            ],
+          ),
+        ],
+      ),
+    ];
+
+    Finder capTile(int i) =>
+        find.byKey(Key('salon_booking_service_tile_cap-$i'));
+
+    Future<String> pumpCap(WidgetTester tester, int n) async {
+      tester.view.physicalSize = const Size(800, 8000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final ProviderContainer c = _makeContainer(capOverrides(n));
+      _seed(c, capSeed);
+      await _pumpScreen(
+        tester,
+        c,
+        const SalonServiceSelectionScreen(salonId: capSalonId),
+      );
+      await tester.pump();
+      await tester.pump();
+      return AppLocalizations.of(
+        tester.element(find.byType(SalonServiceSelectionScreen)),
+      ).bookingMaxServicesReached(maxServicesPerVisit);
+    }
+
+    testWidgets('a seed matching 12 services keeps the first 10 (seed order) '
+        'and shows the cap warning once', (tester) async {
+      final String capText = await pumpCap(tester, 12);
+
+      expectVelvetSnack(capText, variant: VelvetSnackVariant.warning);
+      expect(find.text(capText), findsOneWidget);
+      for (int i = 0; i < maxServicesPerVisit; i++) {
+        expect(_checkedFace(capTile(i)), findsOneWidget, reason: 'cap-$i');
+      }
+      expect(_checkedFace(capTile(10)), findsNothing);
+      expect(_checkedFace(capTile(11)), findsNothing);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await pumpPastVelvetSnack(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Phase 420 Status: a dropped match's category is NOT hoisted/expanded.
+    // The 11th match sits alone in a later BROWS category; were it hoisted,
+    // BROWS would auto-expand and its tile would render.
+    testWidgets('a dropped over-cap match does not hoist or expand its '
+        'category', (tester) async {
+      tester.view.physicalSize = const Size(800, 8000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SalonCatalogService svc(String id, String category) =>
+          SalonCatalogService(
+            id: id,
+            name: 'Послуга $id',
+            durationLabel: '30 хв',
+            priceDisplay: '100 ₴',
+            category: category,
+            serviceTypeSlug: 'CLASSIC_MANICURE',
+            durationMinutes: 30,
+            priceType: ServicePriceType.fixed,
+            priceMin: 100,
+          );
+      final ProviderContainer c = _makeContainer(<Object>[
+        salonServiceCatalogProvider(capSalonId).overrideWith(
+          (ref) async => <SalonServiceCategoryEntry>[
+            SalonServiceCategoryEntry(
+              category: 'NAILS',
+              displayName: 'Нігті',
+              count: maxServicesPerVisit,
+              services: <SalonCatalogService>[
+                for (int i = 0; i < maxServicesPerVisit; i++)
+                  svc('cap-$i', 'NAILS'),
+              ],
+            ),
+            SalonServiceCategoryEntry(
+              category: 'BROWS',
+              displayName: 'Брови',
+              count: 1,
+              services: <SalonCatalogService>[svc('cap-brow', 'BROWS')],
+            ),
+          ],
+        ),
+      ]);
+      _seed(c, capSeed);
+      await _pumpScreen(
+        tester,
+        c,
+        const SalonServiceSelectionScreen(salonId: capSalonId),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      expect(
+        find.byKey(const Key('salon_booking_service_tile_cap-brow')),
+        findsNothing,
+        reason: 'the dropped match must not expand its BROWS category',
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a seed matching exactly 10 services selects all 10 with no '
+        'warning', (tester) async {
+      final String capText = await pumpCap(tester, maxServicesPerVisit);
+
+      expect(find.byType(VelvetSnack), findsNothing);
+      expect(find.text(capText), findsNothing);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  });
+  // Phase 420 — the independent-master seed obeys the same cap.
+  group('ServiceSelectorSheet — seed cap (phase 420)', () {
+    const String capMasterId = 'master-cap';
+    const PendingServicePreselection capSeed = PendingServicePreselection(
+      targetId: capMasterId,
+      serviceTypeSlugs: <String>{'CLASSIC_MANICURE'},
+      serviceTypeLabels: <String>{},
+    );
+
+    List<Object> capOverrides(int n, {List<MasterService>? services}) =>
+        <Object>[
+          publicMasterProfileProvider(capMasterId).overrideWith(
+            (ref) => (
+              const Master(
+                id: capMasterId,
+                firstName: 'Софія',
+                lastName: 'Бондар',
+                avgRating: 4.9,
+                reviewCount: 24,
+                type: MasterType.independentMaster,
+              ),
+              services ??
+                  <MasterService>[
+                    for (int i = 0; i < n; i++)
+                      MasterService(
+                        id: 'mcap-$i',
+                        serviceDefId: 'def-mcap-$i',
+                        name: 'Манікюр $i',
+                        durationMinutes: 30,
+                        priceMin: 100,
+                        priceDisplay: '100 ₴',
+                        category: 'NAILS',
+                        serviceTypeSlug: 'CLASSIC_MANICURE',
+                      ),
+                  ],
+            ),
+          ),
+          approvedCategoriesProvider.overrideWith(
+            (ref) async => const <ServiceCategoryOption>[],
+          ),
+          wishlistProvider.overrideWith(_SettledWishlistNotifier.new),
+        ];
+
+    Finder capTile(int i) => find.byKey(Key('booking_service_tile_mcap-$i'));
+
+    Future<String> pumpCap(
+      WidgetTester tester,
+      int n, {
+      String? initialServiceId,
+    }) async {
+      tester.view.physicalSize = const Size(800, 8000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final ProviderContainer c = _makeContainer(capOverrides(n));
+      _seed(c, capSeed);
+      await _pumpScreen(
+        tester,
+        c,
+        ServiceSelectorSheet(
+          masterId: capMasterId,
+          initialServiceId: initialServiceId,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      return AppLocalizations.of(
+        tester.element(find.byType(ServiceSelectorSheet)),
+      ).bookingMaxServicesReached(maxServicesPerVisit);
+    }
+
+    testWidgets('a seed matching 12 services keeps the first 10 (seed order) '
+        'and shows the cap warning once', (tester) async {
+      final String capText = await pumpCap(tester, 12);
+
+      expectVelvetSnack(capText, variant: VelvetSnackVariant.warning);
+      expect(find.text(capText), findsOneWidget);
+      for (int i = 0; i < maxServicesPerVisit; i++) {
+        expect(_checkedFace(capTile(i)), findsOneWidget, reason: 'mcap-$i');
+      }
+      expect(_checkedFace(capTile(10)), findsNothing);
+      expect(_checkedFace(capTile(11)), findsNothing);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await pumpPastVelvetSnack(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    // Phase 420 Status: a dropped match's category is NOT hoisted/expanded.
+    testWidgets('a dropped over-cap match does not hoist or expand its '
+        'category', (tester) async {
+      tester.view.physicalSize = const Size(800, 8000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      MasterService svc(String id, String category) => MasterService(
+        id: id,
+        serviceDefId: 'def-$id',
+        name: 'Послуга $id',
+        durationMinutes: 30,
+        priceMin: 100,
+        priceDisplay: '100 ₴',
+        category: category,
+        serviceTypeSlug: 'CLASSIC_MANICURE',
+      );
+      final List<Object> overrides = capOverrides(
+        0,
+        services: <MasterService>[
+          for (int i = 0; i < maxServicesPerVisit; i++) svc('mcap-$i', 'NAILS'),
+          svc('mcap-brow', 'BROWS'),
+        ],
+      );
+      final ProviderContainer c = _makeContainer(overrides);
+      _seed(c, capSeed);
+      await _pumpScreen(
+        tester,
+        c,
+        const ServiceSelectorSheet(masterId: capMasterId),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      expect(
+        find.byKey(const Key('booking_service_tile_mcap-brow')),
+        findsNothing,
+        reason: 'the dropped match must not expand its BROWS category',
+      );
+      await pumpPastVelvetSnack(tester);
+    });
+
+    // D4 ordering: initialServiceId counts FIRST, then preselection matches
+    // fill up to the cap in catalogue order.
+    testWidgets('initialServiceId counts first: a non-leading initial service '
+        'plus a 12-match seed keeps the initial + the first 9 matches', (
+      tester,
+    ) async {
+      final String capText = await pumpCap(
+        tester,
+        12,
+        initialServiceId: 'mcap-11',
+      );
+
+      expectVelvetSnack(capText, variant: VelvetSnackVariant.warning);
+      expect(_checkedFace(capTile(11)), findsOneWidget, reason: 'initial');
+      for (int i = 0; i < maxServicesPerVisit - 1; i++) {
+        expect(_checkedFace(capTile(i)), findsOneWidget, reason: 'mcap-$i');
+      }
+      expect(_checkedFace(capTile(9)), findsNothing);
+      expect(_checkedFace(capTile(10)), findsNothing);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await pumpPastVelvetSnack(tester);
+    });
+
+    // D4: a match already selected via initialServiceId is not counted twice
+    // (the `!selectedIds.contains` guard). The initial service is the LAST
+    // match, so the loop reaches it with the selection already at the cap —
+    // without the guard it is treated as dropped and a spurious cap warning
+    // shows although nothing was dropped.
+    testWidgets('an initialServiceId that is also a seed match is not counted '
+        'twice: a 10-match seed still selects all 10, no warning', (
+      tester,
+    ) async {
+      final String capText = await pumpCap(
+        tester,
+        maxServicesPerVisit,
+        initialServiceId: 'mcap-9',
+      );
+
+      expect(find.byType(VelvetSnack), findsNothing);
+      expect(find.text(capText), findsNothing);
+      expect(_checkedFace(capTile(9)), findsOneWidget);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a seed matching exactly 10 services selects all 10 with no '
+        'warning', (tester) async {
+      final String capText = await pumpCap(tester, maxServicesPerVisit);
+
+      expect(find.byType(VelvetSnack), findsNothing);
+      expect(find.text(capText), findsNothing);
+      expect(_anyCheckedFace, findsNWidgets(maxServicesPerVisit));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 }

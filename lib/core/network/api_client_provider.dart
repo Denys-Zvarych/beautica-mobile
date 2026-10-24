@@ -2,6 +2,7 @@
 // Phase 4.1 — Added [masterApiProvider] for [MasterControllerApi].
 // Phase 13.8 wire-up — Added [clientApiProvider] for [ClientControllerApi]
 // (`GET /clients/me/passport`).
+// Phase 413 — Added [bookingLinksApiProvider] for [BookingLinksApi].
 //
 // Wires the generated API classes with the singleton [dioProvider] Dio
 // instance and [standardSerializers] from the generated package. Kept alive
@@ -63,3 +64,9 @@ NotificationsApi notificationsApi(Ref ref) =>
 @Riverpod(keepAlive: true)
 DeviceControllerApi deviceApi(Ref ref) =>
     DeviceControllerApi(ref.watch(dioProvider), standardSerializers);
+
+/// Provides the generated [BookingLinksApi] singleton (phase 413) for
+/// `GET /booking-links/mine` — the caller's shareable public booking links.
+@Riverpod(keepAlive: true)
+BookingLinksApi bookingLinksApi(Ref ref) =>
+    BookingLinksApi(ref.watch(dioProvider), standardSerializers);

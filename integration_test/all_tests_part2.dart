@@ -22,6 +22,7 @@ import 'master_booking_provider_actions_flow_test.dart'
 import 'master_bookings_declared_time_cards_flow_test.dart'
     as master_bookings_declared_time_cards;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
@@ -51,6 +52,7 @@ import 'salon_archive_flow_test.dart' as salon_archive;
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_service_cap_flow_test.dart' as salon_booking_service_cap;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
@@ -116,6 +118,7 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  group('guest_phone_tap_to_call_flow', guest_phone_tap_to_call.main);
   // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
   // walk-in wizard, end to end: fill client → pick service → pick date/slot
   // → confirm → done → pop → the new booking visible in the refetched day
@@ -249,6 +252,10 @@ void main() {
   // coverage fetch fails, must render the retry row (never the terminal
   // uncovered row), and a successful retry must recover it.
   group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
+  // Phase 420 (mobile-qa, Step 2.7 Rule 3b) — the 10-service visit cap:
+  // an 11th catalogue tap is refused with the cap warning and «Далі» hands
+  // the masters step exactly 10 services.
+  group('salon_booking_service_cap_flow', salon_booking_service_cap.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

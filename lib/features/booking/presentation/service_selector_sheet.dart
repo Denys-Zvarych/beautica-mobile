@@ -261,9 +261,19 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
     }
 
     final PendingServicePreselection? pre = _preselection;
+    bool droppedOverCap = false;
     if (pre != null) {
       for (final MasterService s in services) {
         if (_matchesPreselection(s.serviceTypeSlug, s.serviceTypeNameUk, pre)) {
+          // Phase 420: the seed obeys the same [maxServicesPerVisit] cap as a
+          // manual add — keep the first matches in seed (catalogue) order and
+          // drop the rest, so a broad search filter can never seed an
+          // un-bookable 11+ selection. A dropped match is not hoisted.
+          if (!selectedIds.contains(s.id) &&
+              selectedIds.length >= maxServicesPerVisit) {
+            droppedOverCap = true;
+            continue;
+          }
           selectedIds.add(s.id);
           // Hoist + expand the matched service's category so it sits at the top
           // of the accordion with all its sibling services visible and this one
@@ -277,6 +287,19 @@ class _ServiceSelectorSheetState extends ConsumerState<ServiceSelectorSheet> {
 
     if (selectedIds.isNotEmpty) {
       _selectionController.replaceAll(selectedIds);
+    }
+    if (droppedOverCap) {
+      // _seedOnce runs inside build — show the (one) cap warning after the
+      // frame, same helper + copy as [_onToggleService].
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        showWarningSnack(
+          context,
+          AppLocalizations.of(
+            context,
+          ).bookingMaxServicesReached(maxServicesPerVisit),
+        );
+      });
     }
   }
 

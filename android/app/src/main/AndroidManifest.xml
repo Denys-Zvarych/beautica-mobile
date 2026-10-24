@@ -156,5 +156,16 @@
             <data
                 android:mimeType="vnd.android.cursor.item/event"/>
         </intent>
+        <!--
+            Phase 417 — tap-to-call on «Деталі запису» (guest phone). launchUrl
+            of a tel: URI is not gated on canLaunchUrl, but Android 11+ package
+            visibility still needs the dialer to be queryable.
+        -->
+        <intent>
+            <action
+                android:name="android.intent.action.DIAL"/>
+            <data
+                android:scheme="tel"/>
+        </intent>
     </queries>
 </manifest>
