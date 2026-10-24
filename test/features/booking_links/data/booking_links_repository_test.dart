@@ -29,6 +29,7 @@ api.BookingLinkResponse _link({
 }) => api.BookingLinkResponse(
   (b) => b
     ..kind = kind
+    ..status = api.BookingLinkResponseStatusEnum.ACTIVE
     ..slug = slug
     ..url =
         url ??
@@ -522,6 +523,7 @@ void main() {
           'links': <Object?>[
             <String, Object?>{
               'kind': 'SPA',
+              'status': 'ACTIVE',
               'slug': 'future',
               'url': 'https://beautica.app/book/x/future',
               'displayName': 'Future',
@@ -530,6 +532,7 @@ void main() {
             },
             <String, Object?>{
               'kind': 'MASTER',
+              'status': 'ACTIVE',
               'slug': 'anna',
               'url': 'https://beautica.app/book/anna',
               'displayName': 'Anna',
@@ -673,6 +676,392 @@ void main() {
       when(() => bookingLinksApi.getMine()).thenAnswer((_) async => throw f);
 
       await expectLater(repository.getMine(), throwsA(same(f)));
+    });
+  });
+
+  // ── Phase 415 — status + regenerate ──────────────────────────────────────
+
+  group('mapBookingLink — status (415 D5)', () {
+    const String salonUuid = '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f';
+
+    api.BookingLinkResponse revoked({
+      required api.BookingLinkResponseKindEnum kind,
+      String? salonId,
+    }) => api.BookingLinkResponse(
+      (b) => b
+        ..kind = kind
+        ..status = api.BookingLinkResponseStatusEnum.REVOKED
+        ..displayName = 'Velvet'
+        ..salonId = salonId
+        ..bookable = false,
+    );
+
+    test('a REVOKED master link maps with no slug / url, not bookable', () {
+      final BookingLink? out = mapBookingLink(
+        revoked(kind: api.BookingLinkResponseKindEnum.MASTER),
+      );
+      expect(
+        out,
+        const BookingLink(
+          kind: BookingLinkKind.master,
+          slug: null,
+          url: null,
+          displayName: 'Velvet',
+          bookable: false,
+          status: BookingLinkStatus.revoked,
+        ),
+      );
+      expect(out?.isRevoked, isTrue);
+      expect(out?.keyId, 'revoked-master');
+    });
+
+    test('a REVOKED salon link keeps its UUID salon id', () {
+      final BookingLink? out = mapBookingLink(
+        revoked(
+          kind: api.BookingLinkResponseKindEnum.SALON,
+          salonId: salonUuid,
+        ),
+      );
+      expect(out?.salonId, salonUuid);
+      expect(out?.isRevoked, isTrue);
+      expect(out?.keyId, 'revoked-salon-$salonUuid');
+    });
+
+    test('a REVOKED salon link without a UUID salon id is dropped', () {
+      expect(
+        mapBookingLink(revoked(kind: api.BookingLinkResponseKindEnum.SALON)),
+        isNull,
+      );
+      expect(
+        mapBookingLink(
+          revoked(
+            kind: api.BookingLinkResponseKindEnum.SALON,
+            salonId: 'salon-1',
+          ),
+        ),
+        isNull,
+      );
+    });
+
+    test('an ACTIVE link with a null url or slug is dropped', () {
+      final api.BookingLinkResponse noUrl = _link(
+        kind: api.BookingLinkResponseKindEnum.MASTER,
+        slug: 'anna',
+      ).rebuild((b) => b..url = null);
+      final api.BookingLinkResponse noSlug = _link(
+        kind: api.BookingLinkResponseKindEnum.MASTER,
+        slug: 'anna',
+      ).rebuild((b) => b..slug = null);
+      expect(mapBookingLink(noUrl), isNull);
+      expect(mapBookingLink(noSlug), isNull);
+    });
+
+    test('an unknown wire status drops only that link', () {
+      final api.BookingLinksResponse dto = api.standardSerializers
+          .deserializeWith(
+            api.BookingLinksResponse.serializer,
+            <String, Object?>{
+              'shareEnabled': true,
+              'links': <Object?>[
+                <String, Object?>{
+                  'kind': 'MASTER',
+                  'status': 'PAUSED',
+                  'slug': 'anna',
+                  'url': 'https://beautica.app/book/anna',
+                  'displayName': 'Anna',
+                  'bookable': true,
+                },
+                <String, Object?>{
+                  'kind': 'SALON',
+                  'status': 'ACTIVE',
+                  'slug': 'velvet',
+                  'url': 'https://beautica.app/book/s/velvet',
+                  'displayName': 'Velvet',
+                  'salonId': salonUuid,
+                  'bookable': true,
+                },
+              ],
+            },
+          )!;
+      final BookingLinks out = mapBookingLinks(dto);
+      expect(out.links.map((BookingLink l) => l.slug), <String>['velvet']);
+    });
+
+    test('an ACTIVE link maps to status active', () {
+      final BookingLink? out = mapBookingLink(
+        _link(kind: api.BookingLinkResponseKindEnum.MASTER, slug: 'anna'),
+      );
+      expect(out?.status, BookingLinkStatus.active);
+      expect(out?.keyId, 'anna');
+    });
+  });
+
+  group('regenerate (415 D6 / D7)', () {
+    const String salonUuid = '5b1f0c8e-3a2d-4f6b-9c7e-1a2b3c4d5e6f';
+    const BookingLink master = BookingLink(
+      kind: BookingLinkKind.master,
+      slug: 'anna',
+      url: 'https://beautica.app/book/anna',
+      displayName: 'Anna',
+      bookable: true,
+    );
+    const BookingLink salon = BookingLink(
+      kind: BookingLinkKind.salon,
+      slug: 'velvet',
+      url: 'https://beautica.app/book/s/velvet',
+      displayName: 'Velvet',
+      salonId: salonUuid,
+      bookable: true,
+    );
+
+    setUpAll(() {
+      registerFallbackValue(api.BookingLinkMutationRequest());
+    });
+
+    Response<api.ApiResponseBookingLinkResponse> okLink(
+      api.BookingLinkResponse link,
+    ) => Response<api.ApiResponseBookingLinkResponse>(
+      requestOptions: _req(),
+      statusCode: 200,
+      data: api.ApiResponseBookingLinkResponse(
+        (b) => b
+          ..success = true
+          ..data.replace(link),
+      ),
+    );
+
+    test('master: sends the shown slug and maps the new link', () async {
+      when(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(
+            kind: api.BookingLinkResponseKindEnum.MASTER,
+            slug: 'anna-x7k2',
+          ),
+        ),
+      );
+
+      final BookingLinkMutationOutcome out = await repository.regenerate(
+        master,
+      );
+
+      expect(
+        out,
+        BookingLinkMutationOutcome.done(
+          master.copyWith(
+            slug: 'anna-x7k2',
+            url: 'https://beautica.app/book/anna-x7k2',
+            displayName: 'Name anna-x7k2',
+          ),
+        ),
+      );
+      final api.BookingLinkMutationRequest sent =
+          verify(
+                () => bookingLinksApi.regenerateMaster(
+                  bookingLinkMutationRequest: captureAny(
+                    named: 'bookingLinkMutationRequest',
+                  ),
+                ),
+              ).captured.single
+              as api.BookingLinkMutationRequest;
+      expect(sent.currentSlug, 'anna');
+    });
+
+    test('a revoked link sends currentSlug null (D3)', () async {
+      when(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(kind: api.BookingLinkResponseKindEnum.MASTER, slug: 'anna-new'),
+        ),
+      );
+
+      await repository.regenerate(
+        const BookingLink(
+          kind: BookingLinkKind.master,
+          slug: null,
+          url: null,
+          displayName: 'Anna',
+          bookable: false,
+          status: BookingLinkStatus.revoked,
+        ),
+      );
+
+      final api.BookingLinkMutationRequest sent =
+          verify(
+                () => bookingLinksApi.regenerateMaster(
+                  bookingLinkMutationRequest: captureAny(
+                    named: 'bookingLinkMutationRequest',
+                  ),
+                ),
+              ).captured.single
+              as api.BookingLinkMutationRequest;
+      expect(sent.currentSlug, isNull);
+      // The wire body omits the null field: `{}` (backend reads it as null).
+      expect(
+        api.standardSerializers.serializeWith(
+          api.BookingLinkMutationRequest.serializer,
+          sent,
+        ),
+        <String, Object?>{},
+      );
+    });
+
+    test('salon: hits the salon route with its id', () async {
+      when(
+        () => bookingLinksApi.regenerateSalon(
+          salonId: any(named: 'salonId'),
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(
+            kind: api.BookingLinkResponseKindEnum.SALON,
+            slug: 'velvet-2',
+            salonId: salonUuid,
+          ),
+        ),
+      );
+
+      final BookingLinkMutationOutcome out = await repository.regenerate(salon);
+
+      expect(out, isA<BookingLinkMutationDone>());
+      verify(
+        () => bookingLinksApi.regenerateSalon(
+          salonId: salonUuid,
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).called(1);
+      verifyNever(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      );
+    });
+
+    test('a salon link without a salon id never calls the API', () async {
+      await expectLater(
+        repository.regenerate(salon.copyWith(salonId: null)),
+        throwsA(isA<UnknownFailure>()),
+      );
+      verifyZeroInteractions(bookingLinksApi);
+    });
+
+    for (final (int status, Type expected) in <(int, Type)>[
+      (409, BookingLinkMutationStale),
+      (404, BookingLinkMutationUnavailable),
+      (429, BookingLinkMutationRateLimited),
+    ]) {
+      test('$status → $expected, even behind an interceptor Failure', () async {
+        when(
+          () => bookingLinksApi.regenerateMaster(
+            bookingLinkMutationRequest: any(
+              named: 'bookingLinkMutationRequest',
+            ),
+          ),
+        ).thenAnswer(
+          (_) async => throw _dioError(
+            DioExceptionType.badResponse,
+            statusCode: status,
+            error: ServerFailure(statusCode: status),
+          ),
+        );
+
+        final BookingLinkMutationOutcome out = await repository.regenerate(
+          master,
+        );
+        expect(out.runtimeType, expected);
+      });
+    }
+
+    test('403 keeps the interceptor Failure', () async {
+      const Failure forbidden = ServerFailure(statusCode: 403);
+      when(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => throw _dioError(
+          DioExceptionType.badResponse,
+          statusCode: 403,
+          error: forbidden,
+        ),
+      );
+
+      await expectLater(
+        repository.regenerate(master),
+        throwsA(same(forbidden)),
+      );
+    });
+
+    test('a response the mapper would drop is a ServerFailure', () async {
+      when(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(
+            kind: api.BookingLinkResponseKindEnum.MASTER,
+            slug: 'anna-2',
+            url: 'https://evil.example/book/anna-2',
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.regenerate(master),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('a link of another kind in the response is a ServerFailure', () async {
+      when(
+        () => bookingLinksApi.regenerateMaster(
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(
+            kind: api.BookingLinkResponseKindEnum.SALON,
+            slug: 'velvet',
+            salonId: salonUuid,
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.regenerate(master),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('salon id mismatch in response → ServerFailure', () async {
+      when(
+        () => bookingLinksApi.regenerateSalon(
+          salonId: any(named: 'salonId'),
+          bookingLinkMutationRequest: any(named: 'bookingLinkMutationRequest'),
+        ),
+      ).thenAnswer(
+        (_) async => okLink(
+          _link(
+            kind: api.BookingLinkResponseKindEnum.SALON,
+            slug: 'velvet-2',
+            // A valid UUID, but another salon's.
+            salonId: '0d9e8f7a-6b5c-4d3e-8f2a-1b0c9d8e7f6a',
+          ),
+        ),
+      );
+
+      await expectLater(
+        repository.regenerate(salon),
+        throwsA(isA<ServerFailure>()),
+      );
     });
   });
 }

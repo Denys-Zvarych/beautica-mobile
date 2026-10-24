@@ -7,6 +7,7 @@ doc/ApiResponseAuthResponse.md
 doc/ApiResponseAvailableSlotsResponse.md
 doc/ApiResponseAvatarResponse.md
 doc/ApiResponseBookingDetailResponse.md
+doc/ApiResponseBookingLinkResponse.md
 doc/ApiResponseBookingLinksResponse.md
 doc/ApiResponseCategoryRequestResponse.md
 doc/ApiResponseClientReviewResponse.md
@@ -93,6 +94,7 @@ doc/AvatarResponse.md
 doc/BookableMasterResponse.md
 doc/BookingControllerApi.md
 doc/BookingDetailResponse.md
+doc/BookingLinkMutationRequest.md
 doc/BookingLinkResponse.md
 doc/BookingLinksApi.md
 doc/BookingLinksResponse.md
@@ -314,6 +316,7 @@ lib/src/model/api_response_auth_response.dart
 lib/src/model/api_response_available_slots_response.dart
 lib/src/model/api_response_avatar_response.dart
 lib/src/model/api_response_booking_detail_response.dart
+lib/src/model/api_response_booking_link_response.dart
 lib/src/model/api_response_booking_links_response.dart
 lib/src/model/api_response_category_request_response.dart
 lib/src/model/api_response_client_review_response.dart
@@ -397,6 +400,7 @@ lib/src/model/available_slots_response.dart
 lib/src/model/avatar_response.dart
 lib/src/model/bookable_master_response.dart
 lib/src/model/booking_detail_response.dart
+lib/src/model/booking_link_mutation_request.dart
 lib/src/model/booking_link_response.dart
 lib/src/model/booking_links_response.dart
 lib/src/model/booking_response.dart
@@ -551,3 +555,5 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
+test/api_response_booking_link_response_test.dart
+test/booking_link_mutation_request_test.dart

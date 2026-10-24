@@ -24,9 +24,17 @@
 // listener leaves, so reopening the hub does not refetch. A different account
 // is a different instance (no value → hidden while it loads); logout or an
 // account switch closes the previous instance's cache at once.
+//
+// Phase 415 — a regenerate replaces ONE card in place (D6, no reload):
+// [BookingLinksPatches] holds the replacements on top of exactly the loaded
+// value they were made against ([BookingLinksPatch.base], compared by
+// identity). [bookingLinksProvider] applies them; any fresh load (invalidate,
+// TTL expiry, account switch) is a different object, so a patch can never
+// outlive the value it patched.
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show KeepAliveLink;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
@@ -110,14 +118,82 @@ Future<BookingLinks> bookingLinksForAccount(
 }
 
 /// The caller's booking links; [BookingLinks.hidden] when signed out or when
-/// the role may not see links (no backend call in either case).
+/// the role may not see links (no backend call in either case). Phase 415:
+/// with the regenerated cards of [BookingLinksPatches] swapped in.
 @riverpod
 Future<BookingLinks> bookingLinks(Ref ref) async {
   final String? userId = ref.watch(authProvider.select(authUserIdOrNull));
   if (userId == null) return BookingLinks.hidden;
   final UserRole? role = ref.watch(authProvider.select(authUserRoleOrNull));
   if (role == null || !bookingLinksAllowedFor(role)) return BookingLinks.hidden;
-  return ref.watch(bookingLinksForAccountProvider(userId, role).future);
+  final BookingLinksPatch? patch = ref.watch(bookingLinksPatchesProvider);
+  final BookingLinks base = await ref.watch(
+    bookingLinksForAccountProvider(userId, role).future,
+  );
+  return patch?.applyTo(base) ?? base;
+}
+
+/// Phase 415 — cards replaced after a regenerate, keyed by the replaced
+/// card's [BookingLink.keyId], valid only on top of [base] (by identity).
+@immutable
+class BookingLinksPatch {
+  const BookingLinksPatch(this.base, this.replaced);
+
+  /// The loaded value the replacements were made against.
+  final BookingLinks base;
+
+  /// Old card id → the link that replaced it.
+  final Map<String, BookingLink> replaced;
+
+  /// [current] with every replaced card swapped for its latest replacement
+  /// (a card regenerated twice follows the chain); [current] untouched when
+  /// it is not [base] — a fresh load already carries the truth.
+  BookingLinks applyTo(BookingLinks current) {
+    if (!identical(current, base) || replaced.isEmpty) return current;
+    return current.copyWith(
+      links: <BookingLink>[
+        for (final BookingLink link in current.links) _latest(link),
+      ],
+    );
+  }
+
+  BookingLink _latest(BookingLink link) {
+    BookingLink out = link;
+    // Bounded: each step consumes one entry, so a cycle cannot spin.
+    for (int i = 0; i < replaced.length; i++) {
+      final BookingLink? next = replaced[out.keyId];
+      if (next == null) break;
+      out = next;
+    }
+    return out;
+  }
+}
+
+/// Phase 415 — the in-place replacements (see [BookingLinksPatch]). Kept
+/// alive like the per-account cache it patches, so reopening the screen
+/// within the cache TTL still shows the regenerated link.
+@Riverpod(keepAlive: true)
+class BookingLinksPatches extends _$BookingLinksPatches {
+  @override
+  BookingLinksPatch? build() {
+    // A different account never sees this account's patch (it would not
+    // apply anyway — different base object — but drop it outright).
+    ref.watch(authProvider.select(authUserIdOrNull));
+    return null;
+  }
+
+  /// Records that the card [keyId] of [base] is now [next].
+  void replace(BookingLinks base, String keyId, BookingLink next) {
+    final BookingLinksPatch? current = state;
+    final Map<String, BookingLink> replaced = <String, BookingLink>{
+      if (current != null && identical(current.base, base)) ...current.replaced,
+      keyId: next,
+    };
+    state = BookingLinksPatch(
+      base,
+      Map<String, BookingLink>.unmodifiable(replaced),
+    );
+  }
 }
 
 /// Whether the booking-links entry point may be shown (D4): only an

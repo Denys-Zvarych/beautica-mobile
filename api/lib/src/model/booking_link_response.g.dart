@@ -35,9 +35,42 @@ final BuiltSet<BookingLinkResponseKindEnum>
   _$bookingLinkResponseKindEnum_unknownDefaultOpenApi,
 ]);
 
+const BookingLinkResponseStatusEnum _$bookingLinkResponseStatusEnum_ACTIVE =
+    const BookingLinkResponseStatusEnum._('ACTIVE');
+const BookingLinkResponseStatusEnum _$bookingLinkResponseStatusEnum_REVOKED =
+    const BookingLinkResponseStatusEnum._('REVOKED');
+const BookingLinkResponseStatusEnum
+    _$bookingLinkResponseStatusEnum_unknownDefaultOpenApi =
+    const BookingLinkResponseStatusEnum._('unknownDefaultOpenApi');
+
+BookingLinkResponseStatusEnum _$bookingLinkResponseStatusEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'ACTIVE':
+      return _$bookingLinkResponseStatusEnum_ACTIVE;
+    case 'REVOKED':
+      return _$bookingLinkResponseStatusEnum_REVOKED;
+    case 'unknownDefaultOpenApi':
+      return _$bookingLinkResponseStatusEnum_unknownDefaultOpenApi;
+    default:
+      return _$bookingLinkResponseStatusEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<BookingLinkResponseStatusEnum>
+    _$bookingLinkResponseStatusEnumValues = BuiltSet<
+        BookingLinkResponseStatusEnum>(const <BookingLinkResponseStatusEnum>[
+  _$bookingLinkResponseStatusEnum_ACTIVE,
+  _$bookingLinkResponseStatusEnum_REVOKED,
+  _$bookingLinkResponseStatusEnum_unknownDefaultOpenApi,
+]);
+
 Serializer<BookingLinkResponseKindEnum>
     _$bookingLinkResponseKindEnumSerializer =
     _$BookingLinkResponseKindEnumSerializer();
+Serializer<BookingLinkResponseStatusEnum>
+    _$bookingLinkResponseStatusEnumSerializer =
+    _$BookingLinkResponseStatusEnumSerializer();
 
 class _$BookingLinkResponseKindEnumSerializer
     implements PrimitiveSerializer<BookingLinkResponseKindEnum> {
@@ -70,13 +103,47 @@ class _$BookingLinkResponseKindEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
+class _$BookingLinkResponseStatusEnumSerializer
+    implements PrimitiveSerializer<BookingLinkResponseStatusEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'ACTIVE': 'ACTIVE',
+    'REVOKED': 'REVOKED',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'ACTIVE': 'ACTIVE',
+    'REVOKED': 'REVOKED',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[BookingLinkResponseStatusEnum];
+  @override
+  final String wireName = 'BookingLinkResponseStatusEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, BookingLinkResponseStatusEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  BookingLinkResponseStatusEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      BookingLinkResponseStatusEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$BookingLinkResponse extends BookingLinkResponse {
   @override
   final BookingLinkResponseKindEnum kind;
   @override
-  final String slug;
+  final BookingLinkResponseStatusEnum status;
   @override
-  final String url;
+  final String? slug;
+  @override
+  final String? url;
   @override
   final String displayName;
   @override
@@ -90,8 +157,9 @@ class _$BookingLinkResponse extends BookingLinkResponse {
 
   _$BookingLinkResponse._(
       {required this.kind,
-      required this.slug,
-      required this.url,
+      required this.status,
+      this.slug,
+      this.url,
       required this.displayName,
       this.salonId,
       required this.bookable})
@@ -110,6 +178,7 @@ class _$BookingLinkResponse extends BookingLinkResponse {
     if (identical(other, this)) return true;
     return other is BookingLinkResponse &&
         kind == other.kind &&
+        status == other.status &&
         slug == other.slug &&
         url == other.url &&
         displayName == other.displayName &&
@@ -121,6 +190,7 @@ class _$BookingLinkResponse extends BookingLinkResponse {
   int get hashCode {
     var _$hash = 0;
     _$hash = $jc(_$hash, kind.hashCode);
+    _$hash = $jc(_$hash, status.hashCode);
     _$hash = $jc(_$hash, slug.hashCode);
     _$hash = $jc(_$hash, url.hashCode);
     _$hash = $jc(_$hash, displayName.hashCode);
@@ -134,6 +204,7 @@ class _$BookingLinkResponse extends BookingLinkResponse {
   String toString() {
     return (newBuiltValueToStringHelper(r'BookingLinkResponse')
           ..add('kind', kind)
+          ..add('status', status)
           ..add('slug', slug)
           ..add('url', url)
           ..add('displayName', displayName)
@@ -150,6 +221,10 @@ class BookingLinkResponseBuilder
   BookingLinkResponseKindEnum? _kind;
   BookingLinkResponseKindEnum? get kind => _$this._kind;
   set kind(BookingLinkResponseKindEnum? kind) => _$this._kind = kind;
+
+  BookingLinkResponseStatusEnum? _status;
+  BookingLinkResponseStatusEnum? get status => _$this._status;
+  set status(BookingLinkResponseStatusEnum? status) => _$this._status = status;
 
   String? _slug;
   String? get slug => _$this._slug;
@@ -179,6 +254,7 @@ class BookingLinkResponseBuilder
     final $v = _$v;
     if ($v != null) {
       _kind = $v.kind;
+      _status = $v.status;
       _slug = $v.slug;
       _url = $v.url;
       _displayName = $v.displayName;
@@ -207,10 +283,10 @@ class BookingLinkResponseBuilder
         _$BookingLinkResponse._(
           kind: BuiltValueNullFieldError.checkNotNull(
               kind, r'BookingLinkResponse', 'kind'),
-          slug: BuiltValueNullFieldError.checkNotNull(
-              slug, r'BookingLinkResponse', 'slug'),
-          url: BuiltValueNullFieldError.checkNotNull(
-              url, r'BookingLinkResponse', 'url'),
+          status: BuiltValueNullFieldError.checkNotNull(
+              status, r'BookingLinkResponse', 'status'),
+          slug: slug,
+          url: url,
           displayName: BuiltValueNullFieldError.checkNotNull(
               displayName, r'BookingLinkResponse', 'displayName'),
           salonId: salonId,

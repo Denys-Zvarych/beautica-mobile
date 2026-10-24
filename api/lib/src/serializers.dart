@@ -20,6 +20,7 @@ import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
+import 'package:beautica_api/src/model/api_response_booking_link_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_links_response.dart';
 import 'package:beautica_api/src/model/api_response_category_request_response.dart';
 import 'package:beautica_api/src/model/api_response_client_review_response.dart';
@@ -103,6 +104,7 @@ import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
 import 'package:beautica_api/src/model/bookable_master_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
+import 'package:beautica_api/src/model/booking_link_mutation_request.dart';
 import 'package:beautica_api/src/model/booking_link_response.dart';
 import 'package:beautica_api/src/model/booking_links_response.dart';
 import 'package:beautica_api/src/model/booking_response.dart';
@@ -264,6 +266,7 @@ part 'serializers.g.dart';
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
   ApiResponseBookingDetailResponse,
+  ApiResponseBookingLinkResponse,
   ApiResponseBookingLinksResponse,
   ApiResponseCategoryRequestResponse,
   ApiResponseClientReviewResponse,
@@ -347,6 +350,7 @@ part 'serializers.g.dart';
   AvatarResponse,
   BookableMasterResponse,
   BookingDetailResponse,
+  BookingLinkMutationRequest,
   BookingLinkResponse,
   BookingLinksResponse,
   BookingResponse,

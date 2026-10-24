@@ -92,4 +92,40 @@ void main() {
       expect(() => links.links.add(_salon), throwsUnsupportedError);
     });
   });
+
+  group('phase 415 — status', () {
+    const BookingLink revokedMaster = BookingLink(
+      kind: BookingLinkKind.master,
+      slug: null,
+      url: null,
+      displayName: 'Anna',
+      bookable: false,
+      status: BookingLinkStatus.revoked,
+    );
+
+    test('status defaults to active; equality covers it', () {
+      expect(_salon.status, BookingLinkStatus.active);
+      expect(_salon.isRevoked, isFalse);
+      expect(_salon, isNot(_salon.copyWith(status: BookingLinkStatus.revoked)));
+    });
+
+    test('isVisible stays true with only revoked links (D5)', () {
+      const BookingLinks links = BookingLinks(
+        shareEnabled: true,
+        links: <BookingLink>[revokedMaster],
+      );
+      expect(links.isVisible, isTrue);
+    });
+
+    test('keyId: slug when active, a stable revoked id otherwise', () {
+      expect(_salon.keyId, 'studio');
+      expect(revokedMaster.keyId, 'revoked-master');
+      expect(
+        _salon
+            .copyWith(slug: null, url: null, status: BookingLinkStatus.revoked)
+            .keyId,
+        'revoked-salon-salon-1',
+      );
+    });
+  });
 }

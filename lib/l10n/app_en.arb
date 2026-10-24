@@ -7116,5 +7116,45 @@
   "bookingLinkHintServicesAction": "Add a service",
   "@bookingLinkHintServicesAction": {
     "description": "Phase 416 — booking-link readiness hint: link to the services page."
+  },
+  "bookingLinkRegenerate": "Create a new link",
+  "@bookingLinkRegenerate": {
+    "description": "Phase 415 — regenerate glyph button semantic label / tooltip and the revoked card CTA."
+  },
+  "bookingLinkRegenerateTitle": "Create a new link?",
+  "@bookingLinkRegenerateTitle": {
+    "description": "Phase 415 — regenerate confirm dialog title."
+  },
+  "bookingLinkRegenerateBody": "The old link will stop working right away. Update it in Instagram, Telegram and everywhere you shared it.",
+  "@bookingLinkRegenerateBody": {
+    "description": "Phase 415 — regenerate confirm dialog body (active link)."
+  },
+  "bookingLinkRegenerateBodyRevoked": "A new link will be created.",
+  "@bookingLinkRegenerateBodyRevoked": {
+    "description": "Phase 415 — regenerate confirm dialog body (revoked link)."
+  },
+  "bookingLinkRegenerateConfirm": "Create",
+  "@bookingLinkRegenerateConfirm": {
+    "description": "Phase 415 — regenerate confirm dialog action."
+  },
+  "bookingLinkRevokedState": "Link switched off",
+  "@bookingLinkRevokedState": {
+    "description": "Phase 415 — revoked card state title."
+  },
+  "bookingLinkRevokedBody": "The old link no longer works.",
+  "@bookingLinkRevokedBody": {
+    "description": "Phase 415 — revoked card state body."
+  },
+  "bookingLinkRegenerated": "New link created",
+  "@bookingLinkRegenerated": {
+    "description": "Phase 415 — success snack after regenerate."
+  },
+  "bookingLinkChangedElsewhere": "The link has already changed. Showing the current one.",
+  "@bookingLinkChangedElsewhere": {
+    "description": "Phase 415 — warning snack on 409 (stale currentSlug)."
+  },
+  "bookingLinkTooManyChanges": "Too many changes. Try again later.",
+  "@bookingLinkTooManyChanges": {
+    "description": "Phase 415 — snack on 429."
   }
 }

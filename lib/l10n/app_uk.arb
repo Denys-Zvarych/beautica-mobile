@@ -7116,5 +7116,45 @@
   "bookingLinkHintServicesAction": "Додати послугу",
   "@bookingLinkHintServicesAction": {
     "description": "Phase 416 — booking-link readiness hint: link to the services page."
+  },
+  "bookingLinkRegenerate": "Створити нове посилання",
+  "@bookingLinkRegenerate": {
+    "description": "Phase 415 — regenerate glyph button semantic label / tooltip and the revoked card CTA."
+  },
+  "bookingLinkRegenerateTitle": "Створити нове посилання?",
+  "@bookingLinkRegenerateTitle": {
+    "description": "Phase 415 — regenerate confirm dialog title."
+  },
+  "bookingLinkRegenerateBody": "Старе посилання перестане працювати одразу. Оновіть його в Instagram, Telegram та всюди, де ви ним ділилися.",
+  "@bookingLinkRegenerateBody": {
+    "description": "Phase 415 — regenerate confirm dialog body (active link)."
+  },
+  "bookingLinkRegenerateBodyRevoked": "Буде створено нове посилання.",
+  "@bookingLinkRegenerateBodyRevoked": {
+    "description": "Phase 415 — regenerate confirm dialog body (revoked link)."
+  },
+  "bookingLinkRegenerateConfirm": "Створити",
+  "@bookingLinkRegenerateConfirm": {
+    "description": "Phase 415 — regenerate confirm dialog action."
+  },
+  "bookingLinkRevokedState": "Посилання вимкнено",
+  "@bookingLinkRevokedState": {
+    "description": "Phase 415 — revoked card state title."
+  },
+  "bookingLinkRevokedBody": "Старе посилання більше не працює.",
+  "@bookingLinkRevokedBody": {
+    "description": "Phase 415 — revoked card state body."
+  },
+  "bookingLinkRegenerated": "Нове посилання створено",
+  "@bookingLinkRegenerated": {
+    "description": "Phase 415 — success snack after regenerate."
+  },
+  "bookingLinkChangedElsewhere": "Посилання вже змінено. Показуємо актуальне.",
+  "@bookingLinkChangedElsewhere": {
+    "description": "Phase 415 — warning snack on 409 (stale currentSlug)."
+  },
+  "bookingLinkTooManyChanges": "Забагато змін. Спробуйте пізніше.",
+  "@bookingLinkTooManyChanges": {
+    "description": "Phase 415 — snack on 429."
   }
 }

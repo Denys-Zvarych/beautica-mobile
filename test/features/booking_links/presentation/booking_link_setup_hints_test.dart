@@ -302,20 +302,20 @@ void main() {
         await pump(tester, role: UserRole.independentMaster, link: _master);
 
         expect(
-          find.byKey(_hint('schedule', _master.slug)),
+          find.byKey(_hint('schedule', _master.keyId)),
           sched ? findsNothing : findsOneWidget,
         );
         expect(
-          find.byKey(_hint('services', _master.slug)),
+          find.byKey(_hint('services', _master.keyId)),
           serv ? findsNothing : findsOneWidget,
         );
         final AppLocalizations l10n = l10nOf(tester);
         if (sched && serv) {
           // Nothing missing: only the pre-existing generic note remains.
-          expect(find.byKey(_setup(_master.slug)), findsOneWidget);
+          expect(find.byKey(_setup(_master.keyId)), findsOneWidget);
         } else {
           // Specific hints REPLACE the generic note.
-          expect(find.byKey(_setup(_master.slug)), findsNothing);
+          expect(find.byKey(_setup(_master.keyId)), findsNothing);
           expect(
             find.textContaining(l10n.bookingLinkHintScheduleMaster),
             sched ? findsNothing : findsOneWidget,
@@ -331,7 +331,7 @@ void main() {
     testWidgets('only INACTIVE services count as none', (tester) async {
       servicesInactive = true;
       await pump(tester, role: UserRole.independentMaster, link: _master);
-      expect(find.byKey(_hint('services', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('services', _master.keyId)), findsOneWidget);
     });
 
     testWidgets('a bookable link never shows hints', (tester) async {
@@ -342,18 +342,18 @@ void main() {
         role: UserRole.independentMaster,
         link: _master.copyWith(bookable: true),
       );
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
-      expect(find.byKey(_hint('services', _master.slug)), findsNothing);
-      expect(find.byKey(_setup(_master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', _master.keyId)), findsNothing);
+      expect(find.byKey(_setup(_master.keyId)), findsNothing);
     });
 
     testWidgets('failed readiness check → no hint, no error, generic note '
         'stays', (tester) async {
       failReads = true;
       await pump(tester, role: UserRole.independentMaster, link: _master);
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
-      expect(find.byKey(_hint('services', _master.slug)), findsNothing);
-      expect(find.byKey(_setup(_master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', _master.keyId)), findsNothing);
+      expect(find.byKey(_setup(_master.keyId)), findsOneWidget);
       expect(find.byKey(const ValueKey<String>('error')), findsNothing);
     });
 
@@ -389,10 +389,10 @@ void main() {
       await tester.pumpAndSettle();
       unawaited(router.push(RouteNames.bookingLinks));
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
       gate!.complete();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
     });
 
     testWidgets('tap «Налаштувати розклад» pushes /schedule; back returns '
@@ -403,8 +403,8 @@ void main() {
         role: UserRole.independentMaster,
         link: _master,
       );
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       expect(router.state.matchedLocation, RouteNames.masterSchedule);
 
@@ -412,7 +412,7 @@ void main() {
       router.pop();
       await tester.pumpAndSettle();
       expect(find.byType(BookingLinkScreen), findsOneWidget);
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
     });
 
     testWidgets('tap «Додати послугу» pushes /services', (tester) async {
@@ -422,8 +422,8 @@ void main() {
         role: UserRole.independentMaster,
         link: _master,
       );
-      await tester.ensureVisible(find.byKey(_hint('services', _master.slug)));
-      await tester.tap(find.byKey(_hint('services', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('services', _master.keyId)));
+      await tester.tap(find.byKey(_hint('services', _master.keyId)));
       await tester.pumpAndSettle();
       expect(router.state.matchedLocation, RouteNames.services);
       router.pop();
@@ -467,8 +467,8 @@ void main() {
         role: UserRole.independentMaster,
         link: _master,
       );
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
 
       hasSchedule = true;
@@ -481,12 +481,12 @@ void main() {
       }
       expect(weeklyFetches, 2, reason: 'refetch is genuinely in flight');
       // Refetch in flight: previous hint stays, generic note does NOT appear.
-      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
-      expect(find.byKey(_setup(_master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
+      expect(find.byKey(_setup(_master.keyId)), findsNothing);
 
       gate!.complete();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
     });
 
     testWidgets('NO change on return → bookingLinks NOT refetched; a real '
@@ -500,21 +500,21 @@ void main() {
       verify(() => links.getMine()).called(1);
 
       // Round trip 1: nothing set up over there.
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       router.pop();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
       verifyNever(() => links.getMine());
 
       // Round trip 2: the schedule was set up.
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       hasSchedule = true;
       router.pop();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
       verify(() => links.getMine()).called(1);
     });
 
@@ -531,8 +531,8 @@ void main() {
         tester.element(find.byType(BookingLinkScreen)),
       );
 
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
 
       // What the weekly editor's save does: the upstream re-emits while the
@@ -560,7 +560,7 @@ void main() {
 
       router.pop();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsNothing);
       verify(() => links.getMine()).called(1);
     });
 
@@ -573,8 +573,8 @@ void main() {
         link: _master,
       );
       verify(() => links.getMine()).called(1);
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       failReads = true;
       router.pop();
@@ -586,7 +586,7 @@ void main() {
         'userId never gets it', (tester) async {
       hasSchedule = false;
       await pump(tester, role: UserRole.independentMaster, link: _master);
-      expect(find.byKey(_hint('schedule', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _master.keyId)), findsOneWidget);
       final ProviderContainer container = ProviderScope.containerOf(
         tester.element(find.byType(BookingLinkScreen)),
       );
@@ -619,7 +619,7 @@ void main() {
         "previous account's hint", (tester) async {
       hasServices = false;
       await pump(tester, role: UserRole.independentMaster, link: _master);
-      expect(find.byKey(_hint('services', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('services', _master.keyId)), findsOneWidget);
 
       servicesGate = Completer<void>();
       final ProviderContainer container = ProviderScope.containerOf(
@@ -629,14 +629,14 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(
-        find.byKey(_hint('services', _master.slug)),
+        find.byKey(_hint('services', _master.keyId)),
         findsNothing,
         reason: "the catalogue is re-fetching for u2; u1's answer is not shown",
       );
 
       servicesGate!.complete();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('services', _master.slug)), findsOneWidget);
+      expect(find.byKey(_hint('services', _master.keyId)), findsOneWidget);
     });
 
     testWidgets('schedule hint invalidates ONLY the schedule member (+links): '
@@ -649,8 +649,8 @@ void main() {
       );
       final int weeklyBefore = weeklyFetches;
       final int catalogBefore = masterCatalogFetches;
-      await tester.ensureVisible(find.byKey(_hint('schedule', _master.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _master.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _master.keyId)));
       await tester.pumpAndSettle();
       router.pop();
       await tester.pumpAndSettle();
@@ -668,15 +668,15 @@ void main() {
       );
       final int weeklyBefore = weeklyFetches;
       final int catalogBefore = masterCatalogFetches;
-      await tester.ensureVisible(find.byKey(_hint('services', _master.slug)));
-      await tester.tap(find.byKey(_hint('services', _master.slug)));
+      await tester.ensureVisible(find.byKey(_hint('services', _master.keyId)));
+      await tester.tap(find.byKey(_hint('services', _master.keyId)));
       await tester.pumpAndSettle();
       hasServices = true;
       router.pop();
       await tester.pumpAndSettle();
       expect(masterCatalogFetches, catalogBefore + 1);
       expect(weeklyFetches, weeklyBefore);
-      expect(find.byKey(_hint('services', _master.slug)), findsNothing);
+      expect(find.byKey(_hint('services', _master.keyId)), findsNothing);
     });
 
     testWidgets('LAST DAY of the month: window is that whole month and a '
@@ -700,7 +700,7 @@ void main() {
       ).captured;
       expect(args[0], DateTime(2026, 1, 1));
       expect(args[1], DateTime(2026, 1, 31));
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsNothing);
     });
 
     testWidgets('LAST DAY, nothing scheduled this month (a schedule starting '
@@ -715,7 +715,7 @@ void main() {
         link: _salon,
         salonId: 'salon-a',
       );
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsOneWidget);
     });
 
     testWidgets('salon schedule is read on the board\'s CURRENT-MONTH key', (
@@ -755,17 +755,17 @@ void main() {
         await pump(tester, role: UserRole.salonOwner, link: _salon);
 
         expect(
-          find.byKey(_hint('schedule', _salon.slug)),
+          find.byKey(_hint('schedule', _salon.keyId)),
           sched ? findsNothing : findsOneWidget,
         );
         expect(
-          find.byKey(_hint('services', _salon.slug)),
+          find.byKey(_hint('services', _salon.keyId)),
           serv ? findsNothing : findsOneWidget,
         );
         if (sched && serv) {
-          expect(find.byKey(_setup(_salon.slug)), findsOneWidget);
+          expect(find.byKey(_setup(_salon.keyId)), findsOneWidget);
         } else {
-          expect(find.byKey(_setup(_salon.slug)), findsNothing);
+          expect(find.byKey(_setup(_salon.keyId)), findsNothing);
         }
       });
     }
@@ -780,19 +780,19 @@ void main() {
         role: UserRole.salonOwner,
         link: _salon,
       );
-      await tester.ensureVisible(find.byKey(_hint('schedule', _salon.slug)));
-      await tester.tap(find.byKey(_hint('schedule', _salon.slug)));
+      await tester.ensureVisible(find.byKey(_hint('schedule', _salon.keyId)));
+      await tester.tap(find.byKey(_hint('schedule', _salon.keyId)));
       await tester.pumpAndSettle();
       expect(router.state.matchedLocation, RouteNames.ownerMasterSchedule);
 
       hasSalonSchedule = true;
       router.pop();
       await tester.pumpAndSettle();
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
-      expect(find.byKey(_hint('services', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsOneWidget);
 
-      await tester.ensureVisible(find.byKey(_hint('services', _salon.slug)));
-      await tester.tap(find.byKey(_hint('services', _salon.slug)));
+      await tester.ensureVisible(find.byKey(_hint('services', _salon.keyId)));
+      await tester.tap(find.byKey(_hint('services', _salon.keyId)));
       await tester.pumpAndSettle();
       expect(router.state.matchedLocation, RouteNames.ownerMasterServices);
     });
@@ -805,8 +805,8 @@ void main() {
         link: _salon,
         salonId: 'salon-a',
       );
-      await tester.ensureVisible(find.byKey(_hint('services', _salon.slug)));
-      await tester.tap(find.byKey(_hint('services', _salon.slug)));
+      await tester.ensureVisible(find.byKey(_hint('services', _salon.keyId)));
+      await tester.tap(find.byKey(_hint('services', _salon.keyId)));
       await tester.pumpAndSettle();
       expect(
         router.state.uri.toString(),
@@ -817,8 +817,8 @@ void main() {
     testWidgets('failed salon readiness → no hint', (tester) async {
       failReads = true;
       await pump(tester, role: UserRole.salonOwner, link: _salon);
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
-      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsNothing);
     });
 
     testWidgets('salon CATALOGUE is refetched after a services hint return '
@@ -830,14 +830,14 @@ void main() {
         link: _salon,
       );
       final int before = salonCatalogFetches;
-      await tester.ensureVisible(find.byKey(_hint('services', _salon.slug)));
-      await tester.tap(find.byKey(_hint('services', _salon.slug)));
+      await tester.ensureVisible(find.byKey(_hint('services', _salon.keyId)));
+      await tester.tap(find.byKey(_hint('services', _salon.keyId)));
       await tester.pumpAndSettle();
       hasSalonServices = true;
       router.pop();
       await tester.pumpAndSettle();
       expect(salonCatalogFetches, before + 1);
-      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsNothing);
     });
 
     testWidgets('owner with several salons: hints ONLY on the primary card; '
@@ -882,11 +882,11 @@ void main() {
       unawaited(router.push(RouteNames.bookingLinks));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
-      expect(find.byKey(_hint('services', _salon.slug)), findsOneWidget);
-      expect(find.byKey(_hint('schedule', other.slug)), findsNothing);
-      expect(find.byKey(_hint('services', other.slug)), findsNothing);
-      expect(find.byKey(_setup(other.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsOneWidget);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', other.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', other.keyId)), findsNothing);
+      expect(find.byKey(_setup(other.keyId)), findsOneWidget);
       expect(salonCatalogFetches, 1, reason: 'only the primary salon');
       verify(
         () => roster.salonRosterEffectiveSchedule('salon-a', any(), any()),
@@ -900,9 +900,9 @@ void main() {
   // Phase 416 QA — owner/admin edge cases the matrix above does not reach.
   group('salon readiness edge cases', () {
     Future<void> expectNoHintsGenericNote(WidgetTester tester) async {
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
-      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
-      expect(find.byKey(_setup(_salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsNothing);
+      expect(find.byKey(_setup(_salon.keyId)), findsOneWidget);
     }
 
     testWidgets('owner: my-salons lookup FAILS → no hint, generic 414 note, '
@@ -947,7 +947,7 @@ void main() {
       mySalons = const <Salon>[Salon(id: 'salon-a', name: 'Lumière')];
       await pump(tester, role: UserRole.salonOwner, link: _salon);
 
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsOneWidget);
     });
 
     testWidgets('empty roster (no master at all) reads as NO schedule → '
@@ -957,8 +957,8 @@ void main() {
       ).thenAnswer((_) async => <String, List<EffectiveDay>>{});
       await pump(tester, role: UserRole.salonOwner, link: _salon);
 
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsOneWidget);
-      expect(find.byKey(_hint('services', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsOneWidget);
+      expect(find.byKey(_hint('services', _salon.keyId)), findsNothing);
     });
 
     testWidgets('one master working among masters with none → NO schedule '
@@ -985,7 +985,7 @@ void main() {
       );
       await pump(tester, role: UserRole.salonOwner, link: _salon);
 
-      expect(find.byKey(_hint('schedule', _salon.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', _salon.keyId)), findsNothing);
     });
 
     testWidgets('admin link without a salon id → no hints and no tappable '
@@ -1001,9 +1001,9 @@ void main() {
       );
       await pump(tester, role: UserRole.salonAdmin, link: noSalon);
 
-      expect(find.byKey(_hint('schedule', noSalon.slug)), findsNothing);
-      expect(find.byKey(_hint('services', noSalon.slug)), findsNothing);
-      expect(find.byKey(_setup(noSalon.slug)), findsNothing);
+      expect(find.byKey(_hint('schedule', noSalon.keyId)), findsNothing);
+      expect(find.byKey(_hint('services', noSalon.keyId)), findsNothing);
+      expect(find.byKey(_setup(noSalon.keyId)), findsNothing);
       expect(salonCatalogFetches, 0);
     });
   });

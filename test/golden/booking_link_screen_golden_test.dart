@@ -10,6 +10,15 @@
 //   • success_secondary_button_*        — the PROMOTED shared button at rest,
 //     plus a half-width + 1.3x case exercising the additive ellipsis.
 //
+// Phase 415 — NEW baselines:
+//   • booking_link_screen_revoked_master_360_1x — revoked MASTER card
+//   • booking_link_screen_revoked_owner_360_1x  — one SALON revoked, the
+//     other active (regenerate glyph in its header)
+// The 414 screen baselines above MOVE in 415: every active card the screen
+// renders now carries the header regenerate glyph (48 dp target → header
+// row 42 → 48 dp, content below shifts 6 dp). Baseline refresh is the
+// orchestrator's / user's call.
+//
 // The promoted button's ORIGINAL screens are locked by the unchanged
 // `booking_slot_flow_golden_test.dart` success-* baselines, re-run green
 // after the promotion.
@@ -118,6 +127,59 @@ void main() {
         () async => BookingLinks(
           shareEnabled: true,
           links: <BookingLink>[_master.copyWith(bookable: false)],
+        ),
+      ),
+    ),
+    builder: () => const BookingLinkScreen(),
+  );
+
+  goldenTest(
+    'booking links — revoked master (415)',
+    fileName: 'booking_link_screen_revoked_master_360_1x',
+    constraints: BoxConstraints.tight(screen),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        UserRole.independentMaster,
+        () async => const BookingLinks(
+          shareEnabled: true,
+          links: <BookingLink>[
+            BookingLink(
+              kind: BookingLinkKind.master,
+              slug: null,
+              url: null,
+              displayName: 'Олена Коваль',
+              bookable: false,
+              status: BookingLinkStatus.revoked,
+            ),
+          ],
+        ),
+      ),
+    ),
+    builder: () => const BookingLinkScreen(),
+  );
+
+  goldenTest(
+    'booking links — owner, one salon revoked (415)',
+    fileName: 'booking_link_screen_revoked_owner_360_1x',
+    constraints: BoxConstraints.tight(const Size(width, 1100)),
+    textScaleFactor: 1.0,
+    pumpWidget: goldenPumpWidget(
+      width: width,
+      overrides: _overrides(
+        UserRole.salonOwner,
+        () async => BookingLinks(
+          shareEnabled: true,
+          links: <BookingLink>[
+            _salonA.copyWith(
+              slug: null,
+              url: null,
+              bookable: false,
+              status: BookingLinkStatus.revoked,
+            ),
+            _salonB,
+          ],
         ),
       ),
     ),

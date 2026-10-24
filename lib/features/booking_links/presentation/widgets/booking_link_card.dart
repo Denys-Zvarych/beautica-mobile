@@ -13,11 +13,18 @@
 //   ├─ warning  Icon + PromptLinkText(textAlign: start)    (D6, only !bookable)
 //   └─ actions  NeumorphicButton «Поділитися» + SuccessSecondaryButton «Копіювати»
 //
-// Extension points (planned follow-up: regenerate / revoke): the body is a
-// flat list of sections built in [BookingLinkCardState.build] — an extra
-// action row slots in after [_Actions] and a "disabled" state can swap the
-// link well + actions, both as additive optional params defaulting to the
-// current rendering.
+// Phase 415 (additive — every param defaults to the 414 rendering):
+//   • [onRegenerate] non-null on an ACTIVE link → a quiet trailing
+//     `autorenew` glyph button in the header (48 dp, semantic «Створити нове
+//     посилання»). User decision 2026-10-23 replaced the preview's `more_vert`
+//     menu with this one button; the app never revokes.
+//   • a REVOKED link (only the API can produce one) → the link well becomes
+//     the [_RevokedSlot] and the actions one primary «Створити нове
+//     посилання» → [onRegenerate]; no note, no Share/Copy, no header button.
+//   • [busy] → the header slot shows inline progress and Share/Copy dim and
+//     ignore taps (or the revoked CTA shows its loading state).
+//   Design source: the same preview, entries 10 / 12 / 13 (`_MoreButton` →
+//   [_RegenerateButton], `_RevokedSlot` ported 1:1).
 
 import 'dart:async';
 
@@ -48,6 +55,8 @@ class BookingLinkCard extends StatefulWidget {
     required this.onShare,
     this.onSetup,
     this.setupHints = const <BookingLinkCardHint>[],
+    this.onRegenerate,
+    this.busy = false,
   });
 
   final BookingLink link;
@@ -60,6 +69,13 @@ class BookingLinkCard extends StatefulWidget {
   /// not-bookable note (it is the same message, made specific); empty (the
   /// default, and while readiness is unknown) renders exactly as before.
   final List<BookingLinkCardHint> setupHints;
+
+  /// Phase 415 — «Створити нове посилання». `null` (the default) renders no
+  /// header button; on a revoked link it leaves the CTA disabled.
+  final VoidCallback? onRegenerate;
+
+  /// Phase 415 — a regenerate for this card is in flight.
+  final bool busy;
 
   /// How long the copied check stays over the link well.
   static const Duration copiedDwell = Duration(milliseconds: 1600);
@@ -111,7 +127,10 @@ class BookingLinkCardState extends State<BookingLinkCard> {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final BookingLink link = widget.link;
     final bool isSalon = link.kind == BookingLinkKind.salon;
-    final String slug = link.slug;
+    // The slug of an active link (414 keys unchanged); a revoked link has
+    // none, so it is keyed by its stable revoked id.
+    final String slug = link.keyId;
+    final bool revoked = link.isRevoked;
 
     return NeumorphicCard(
       key: Key('booking-link-card-$slug'),
@@ -141,50 +160,207 @@ class BookingLinkCardState extends State<BookingLinkCard> {
                   style: VelvetText.subheading().copyWith(height: 1.3),
                 ),
               ),
+              if (!revoked && widget.onRegenerate != null)
+                _RegenerateButton(
+                  slug: slug,
+                  busy: widget.busy,
+                  label: l10n.bookingLinkRegenerate,
+                  onTap: widget.onRegenerate,
+                ),
             ],
           ),
           const SizedBox(height: VelvetSpacing.md + 4),
 
-          ValueListenableBuilder<bool>(
-            valueListenable: _copied,
-            builder: (BuildContext context, bool copied, Widget? _) =>
-                _LinkWell(link: link, copied: copied),
-          ),
-
-          if (!link.bookable && widget.setupHints.isNotEmpty)
-            for (final BookingLinkCardHint hint
-                in widget.setupHints) ...<Widget>[
-              const SizedBox(height: VelvetSpacing.md),
-              _NotBookableNote(
-                text: hint.text,
-                linkLabel: hint.linkLabel,
-                linkKey: hint.linkKey,
-                onTap: hint.onTap,
-              ),
-            ]
-          else if (!link.bookable) ...<Widget>[
-            const SizedBox(height: VelvetSpacing.md),
-            _NotBookableNote(
-              text: isSalon
-                  ? l10n.bookingLinkNotBookableSalon
-                  : l10n.bookingLinkNotBookableMaster,
-              linkLabel: isSalon
-                  ? l10n.bookingLinkSetupTeam
-                  : l10n.bookingLinkSetupServices,
-              linkKey: Key('link-booking-link-setup-$slug'),
-              onTap: widget.onSetup,
+          if (revoked) ...<Widget>[
+            _RevokedSlot(
+              key: Key('booking-link-revoked-$slug'),
+              title: l10n.bookingLinkRevokedState,
+              body: l10n.bookingLinkRevokedBody,
             ),
-          ],
+            const SizedBox(height: VelvetSpacing.lg),
+            // Key on a plain proxy: NeumorphicButton's AnimatedScale root is
+            // not hit-tested (see [_Actions]).
+            SizedBox(
+              key: Key('btn-booking-link-recreate-$slug'),
+              child: NeumorphicButton(
+                // No glyph: the full label must fit a 264 dp CTA at 360 dp.
+                label: l10n.bookingLinkRegenerate,
+                loading: widget.busy,
+                onPressed: widget.onRegenerate,
+              ),
+            ),
+          ] else
+            ..._activeBody(l10n, link, isSalon, slug),
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: VelvetSpacing.lg),
-          _Actions(
+  List<Widget> _activeBody(
+    AppLocalizations l10n,
+    BookingLink link,
+    bool isSalon,
+    String slug,
+  ) {
+    return <Widget>[
+      ValueListenableBuilder<bool>(
+        valueListenable: _copied,
+        builder: (BuildContext context, bool copied, Widget? _) =>
+            _LinkWell(link: link, copied: copied),
+      ),
+
+      if (!link.bookable && widget.setupHints.isNotEmpty)
+        for (final BookingLinkCardHint hint in widget.setupHints) ...<Widget>[
+          const SizedBox(height: VelvetSpacing.md),
+          _NotBookableNote(
+            text: hint.text,
+            linkLabel: hint.linkLabel,
+            linkKey: hint.linkKey,
+            onTap: hint.onTap,
+          ),
+        ]
+      else if (!link.bookable) ...<Widget>[
+        const SizedBox(height: VelvetSpacing.md),
+        _NotBookableNote(
+          text: isSalon
+              ? l10n.bookingLinkNotBookableSalon
+              : l10n.bookingLinkNotBookableMaster,
+          linkLabel: isSalon
+              ? l10n.bookingLinkSetupTeam
+              : l10n.bookingLinkSetupServices,
+          linkKey: Key('link-booking-link-setup-$slug'),
+          onTap: widget.onSetup,
+        ),
+      ],
+
+      const SizedBox(height: VelvetSpacing.lg),
+      // 415 D6: in flight → the pair dims and ignores taps; the spinner
+      // lives in the header slot so the URL never jumps. One stable subtree
+      // either way (no element remount on toggle); opacity 1 paints the
+      // child directly, so the idle card is pixel-identical.
+      IgnorePointer(
+        ignoring: widget.busy,
+        // dim-gated: test/features/booking_links/presentation/widgets/booking_link_card_test.dart
+        child: Opacity(
+          opacity: widget.busy ? 0.5 : 1,
+          child: _Actions(
             slug: slug,
             shareLabel: l10n.bookingLinkShare,
             copyLabel: l10n.bookingLinkCopy,
             onCopy: _copy,
             onShare: widget.onShare,
           ),
-        ],
+        ),
+      ),
+    ];
+  }
+}
+
+/// 415 — the trailing regenerate glyph (user decision 2026-10-23: one
+/// button where the preview's `more_vert` sat). A quiet glyph, not a raised
+/// button — the card already has its one primary + one secondary — with the
+/// full 48 dp target. In flight it shows the inline progress.
+class _RegenerateButton extends StatelessWidget {
+  const _RegenerateButton({
+    required this.slug,
+    required this.busy,
+    required this.label,
+    required this.onTap,
+  });
+
+  final String slug;
+  final bool busy;
+  final String label;
+  final VoidCallback? onTap;
+
+  static const double _target = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      // Pull the 48 dp target toward the card edge so the glyph optically
+      // aligns with the buttons' right edge.
+      padding: const EdgeInsets.only(left: VelvetSpacing.xs),
+      child: Transform.translate(
+        offset: const Offset(12, 0),
+        child: SizedBox(
+          height: _target,
+          width: _target,
+          child: busy
+              ? Center(
+                  child: SizedBox(
+                    key: Key('booking-link-busy-$slug'),
+                    height: 20,
+                    width: 20,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: BrandColors.accent,
+                    ),
+                  ),
+                )
+              : IconButton(
+                  key: Key('btn-booking-link-regenerate-$slug'),
+                  onPressed: onTap,
+                  tooltip: label,
+                  icon: Icon(
+                    Icons.autorenew_rounded,
+                    color: BrandColors.textSecondary,
+                    size: 24,
+                    semanticLabel: label,
+                  ),
+                  style: IconButton.styleFrom(
+                    overlayColor: BrandColors.accent,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(VelvetRadii.field),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 415 D3 — the slot where the URL lived, now empty: same § 9 inset well
+/// (radius 16), a `link_off` glyph in muted brown and the two-line state. No
+/// colour alarm — a revoked link is the owner's own decision, not an error.
+class _RevokedSlot extends StatelessWidget {
+  const _RevokedSlot({super.key, required this.title, required this.body});
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: VelvetSizes.field),
+      child: NeumorphicInset(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: VelvetSpacing.md,
+            vertical: VelvetSpacing.md - 2,
+          ),
+          child: Row(
+            children: <Widget>[
+              const Icon(
+                Icons.link_off_rounded,
+                size: 22,
+                color: BrandColors.muted,
+              ),
+              const SizedBox(width: VelvetSpacing.md - 4),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(title, style: VelvetText.bookingLinkRevokedState),
+                    const SizedBox(height: 2),
+                    Text(body, style: VelvetText.bookingLinkRevokedBody),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -270,7 +446,9 @@ class _LinkWell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String bare = link.url.replaceFirst(_scheme, '');
+    // Only an active link reaches the well, and an active link always has a
+    // url (the mapper guarantees it).
+    final String bare = (link.url ?? '').replaceFirst(_scheme, '');
     final int cut = bare.lastIndexOf('/') + 1;
     return SizedBox(
       height: VelvetSizes.field,
@@ -284,7 +462,7 @@ class _LinkWell extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: SelectionArea(
                   child: _MiddleEllipsisUrl(
-                    key: Key('booking-link-url-${link.slug}'),
+                    key: Key('booking-link-url-${link.keyId}'),
                     host: bare.substring(0, cut),
                     slug: bare.substring(cut),
                   ),
@@ -305,7 +483,7 @@ class _LinkWell extends StatelessWidget {
                       ),
                   child: copied
                       ? Container(
-                          key: Key('booking-link-copied-${link.slug}'),
+                          key: Key('booking-link-copied-${link.keyId}'),
                           padding: const EdgeInsets.only(
                             left: VelvetSpacing.sm,
                           ),

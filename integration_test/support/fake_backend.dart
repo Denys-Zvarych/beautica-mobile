@@ -71,6 +71,7 @@
 
 import 'dart:convert';
 
+import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -11531,9 +11532,21 @@ final class FakeBackend {
       '/api/v1/booking-links/mine',
       (server) => server.replyCallback(200, (_) {
         bookingLinksMineCalls++;
-        final Map<String, dynamic> data =
+        final Map<String, dynamic> raw =
             bookingLinksMine ??
             <String, dynamic>{'shareEnabled': false, 'links': <dynamic>[]};
+        // Phase 415 — backend 378 always sends `status`; a fixture that
+        // predates it is an ACTIVE link.
+        final Map<String, dynamic> data = <String, dynamic>{
+          ...raw,
+          'links': <dynamic>[
+            for (final dynamic l in raw['links'] as List<dynamic>)
+              <String, dynamic>{
+                'status': 'ACTIVE',
+                ...(l as Map<String, dynamic>),
+              },
+          ],
+        };
         if (!bookingLinksMasterBookableFollowsServices) return _ok(data);
         return _ok(<String, dynamic>{
           ...data,
@@ -11546,6 +11559,116 @@ final class FakeBackend {
         });
       }),
       request: const Request(method: RequestMethods.get),
+    );
+
+    // Phase 415 — `POST /booking-links/master/regenerate` and
+    // `POST /booking-links/salons/{id}/regenerate` (backend 378), STATEFUL
+    // over [bookingLinksMine]: the matching link (by kind + salon id) gets a
+    // fresh slug `<old or kind>-r<n>`, ACTIVE, and the same object is
+    // answered — so a later `GET /mine` agrees. Success path only: the
+    // 409 / 404 / 429 outcomes are pinned by the widget + repository tests;
+    // here a `currentSlug` that is not the stored one, or no matching link,
+    // fails the flow loudly instead of being silently served.
+    for (final Pattern route in <Pattern>[
+      '/api/v1/booking-links/master/regenerate',
+      RegExp(r'/api/v1/booking-links/salons/[^/]+/regenerate$'),
+    ]) {
+      _adapter.onRoute(
+        route,
+        (server) => server.replyCallback(200, (RequestOptions req) {
+          final Map<String, dynamic> body = _decodeBody(req.data);
+          bookingLinksRegenerateBodies.add(body);
+          final List<String> seg = req.path.split('/');
+          final bool salon = seg.contains('salons');
+          final String? salonId = salon ? seg[seg.length - 2] : null;
+          final List<dynamic> links =
+              (bookingLinksMine?['links'] as List<dynamic>?) ?? <dynamic>[];
+          final int i = links.indexWhere(
+            (dynamic l) =>
+                (l as Map<String, dynamic>)['kind'] ==
+                    (salon ? 'SALON' : 'MASTER') &&
+                (!salon || l['salonId'] == salonId),
+          );
+          if (i < 0) {
+            throw StateError('regenerate: no ${req.path} link in the fixture');
+          }
+          final Map<String, dynamic> old = links[i] as Map<String, dynamic>;
+          if (body['currentSlug'] != old['slug']) {
+            throw StateError('regenerate: stale currentSlug in the request');
+          }
+          final String base = (old['slug'] as String?) ?? (salon ? 's' : 'm');
+          final String slug = '$base-r${bookingLinksRegenerateBodies.length}';
+          final Map<String, dynamic> next = <String, dynamic>{
+            ...old,
+            'status': 'ACTIVE',
+            'slug': slug,
+            'url': salon
+                ? '${AppConfig.publicWebOrigin}/book/s/$slug'
+                : '${AppConfig.publicWebOrigin}/book/$slug',
+            'bookable': true,
+          };
+          links[i] = next;
+          return _ok(next);
+        }),
+        request: const Request(method: RequestMethods.post, data: Matchers.any),
+      );
+    }
+  }
+
+  /// Phase 415 — every regenerate body received, in order.
+  final List<Map<String, dynamic>> bookingLinksRegenerateBodies =
+      <Map<String, dynamic>>[];
+
+  /// Phase 415 (mobile-qa) — models «the link changed elsewhere»: the NEXT
+  /// `POST /booking-links/master/regenerate` answers backend 378's 409 (stale
+  /// `currentSlug`) and, at that moment, swaps [bookingLinksMine] for
+  /// [changedElsewhere] — so the screen's reload shows what the other device
+  /// made. Registered after [_wireBookingLinks], so it wins (last match).
+  void wireBookingLinkRegenerateConflict(
+    Map<String, dynamic> changedElsewhere,
+  ) => _wireBookingLinkRegenerateError(
+    409,
+    'Booking link changed',
+    nextMine: changedElsewhere,
+  );
+
+  /// Phase 415 (mobile-qa) — the NEXT master regenerate answers 404: sharing
+  /// was switched off server-side (backend kill-switch). [bookingLinksMine]
+  /// flips to `shareEnabled: false` at that moment, so any reload agrees.
+  void wireBookingLinkRegenerateUnavailable() =>
+      _wireBookingLinkRegenerateError(
+        404,
+        'Booking links disabled',
+        nextMine: <String, dynamic>{
+          'shareEnabled': false,
+          'links': <dynamic>[],
+        },
+      );
+
+  /// Phase 415 (mobile-qa) — the NEXT master regenerate answers 429 (the
+  /// per-user regenerate budget is spent); [bookingLinksMine] is untouched.
+  void wireBookingLinkRegenerateRateLimited() =>
+      _wireBookingLinkRegenerateError(429, 'Too many requests');
+
+  /// Shared by the error hooks above: registered after [_wireBookingLinks],
+  /// so it wins (last match); records the body like the success route.
+  void _wireBookingLinkRegenerateError(
+    int status,
+    String message, {
+    Map<String, dynamic>? nextMine,
+  }) {
+    _adapter.onRoute(
+      '/api/v1/booking-links/master/regenerate',
+      (server) => server.replyCallback(status, (RequestOptions req) {
+        bookingLinksRegenerateBodies.add(_decodeBody(req.data));
+        if (nextMine != null) bookingLinksMine = nextMine;
+        return <String, dynamic>{
+          'success': false,
+          'message': message,
+          'data': null,
+        };
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
   }
 

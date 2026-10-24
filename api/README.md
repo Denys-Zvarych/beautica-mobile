@@ -104,6 +104,10 @@ Class | Method | HTTP request | Description
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**notCompleteBooking**](doc/BookingControllerApi.md#notcompletebooking) | **PATCH** /api/v1/bookings/{bookingId}/not-complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**rescheduleBooking**](doc/BookingControllerApi.md#reschedulebooking) | **PATCH** /api/v1/bookings/{bookingId}/reschedule | 
 [*BookingLinksApi*](doc/BookingLinksApi.md) | [**getMine**](doc/BookingLinksApi.md#getmine) | **GET** /api/v1/booking-links/mine | My shareable public booking links
+[*BookingLinksApi*](doc/BookingLinksApi.md) | [**regenerateMaster**](doc/BookingLinksApi.md#regeneratemaster) | **POST** /api/v1/booking-links/master/regenerate | Regenerate my master booking link
+[*BookingLinksApi*](doc/BookingLinksApi.md) | [**regenerateSalon**](doc/BookingLinksApi.md#regeneratesalon) | **POST** /api/v1/booking-links/salons/{salonId}/regenerate | Regenerate a salon booking link
+[*BookingLinksApi*](doc/BookingLinksApi.md) | [**revokeMaster**](doc/BookingLinksApi.md#revokemaster) | **DELETE** /api/v1/booking-links/master | Revoke my master booking link
+[*BookingLinksApi*](doc/BookingLinksApi.md) | [**revokeSalon**](doc/BookingLinksApi.md#revokesalon) | **DELETE** /api/v1/booking-links/salons/{salonId} | Revoke a salon booking link
 [*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**listApproved**](doc/CategoryRequestControllerApi.md#listapproved) | **GET** /api/v1/service-categories/approved | 
 [*CategoryRequestControllerApi*](doc/CategoryRequestControllerApi.md) | [**submitRequest**](doc/CategoryRequestControllerApi.md#submitrequest) | **POST** /api/v1/service-categories/requests | 
 [*ClientControllerApi*](doc/ClientControllerApi.md) | [**getPassport**](doc/ClientControllerApi.md#getpassport) | **GET** /api/v1/clients/me/passport | 
@@ -228,6 +232,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
+ - [ApiResponseBookingLinkResponse](doc/ApiResponseBookingLinkResponse.md)
  - [ApiResponseBookingLinksResponse](doc/ApiResponseBookingLinksResponse.md)
  - [ApiResponseCategoryRequestResponse](doc/ApiResponseCategoryRequestResponse.md)
  - [ApiResponseClientReviewResponse](doc/ApiResponseClientReviewResponse.md)
@@ -311,6 +316,7 @@ Class | Method | HTTP request | Description
  - [AvatarResponse](doc/AvatarResponse.md)
  - [BookableMasterResponse](doc/BookableMasterResponse.md)
  - [BookingDetailResponse](doc/BookingDetailResponse.md)
+ - [BookingLinkMutationRequest](doc/BookingLinkMutationRequest.md)
  - [BookingLinkResponse](doc/BookingLinkResponse.md)
  - [BookingLinksResponse](doc/BookingLinksResponse.md)
  - [BookingResponse](doc/BookingResponse.md)

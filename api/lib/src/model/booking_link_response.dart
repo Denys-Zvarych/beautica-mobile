@@ -13,8 +13,9 @@ part 'booking_link_response.g.dart';
 ///
 /// Properties:
 /// * [kind] - MASTER = the caller's own master booking page; SALON = a salon booking page (phase 376)
-/// * [slug] - Permanent public slug; never changes once issued
-/// * [url] - Absolute https URL, no UTM (the app appends UTM per share action): MASTER https://beautica.app/book/{slug}, SALON https://beautica.app/book/s/{slug}
+/// * [status] - Phase 378: ACTIVE, or REVOKED (slug and url null, bookable false)
+/// * [slug] - Public slug; null when status is REVOKED. Never changes on rename; changes only by an explicit regenerate (the old slug is retired for good)
+/// * [url] - Absolute https canonical URL (the app adds its own share-channel flag): MASTER https://beautica.app/book/{slug}, SALON https://beautica.app/book/s/{slug}; null when status is REVOKED
 /// * [displayName] - Master full name, or salon name for SALON links
 /// * [salonId] - Salon id for SALON links; null for MASTER links
 /// * [bookable] - false = clients see the page but cannot book yet (MASTER: no active service or no schedule; SALON: no bookable master)
@@ -26,13 +27,18 @@ abstract class BookingLinkResponse
   BookingLinkResponseKindEnum get kind;
   // enum kindEnum {  MASTER,  SALON,  };
 
-  /// Permanent public slug; never changes once issued
-  @BuiltValueField(wireName: r'slug')
-  String get slug;
+  /// Phase 378: ACTIVE, or REVOKED (slug and url null, bookable false)
+  @BuiltValueField(wireName: r'status')
+  BookingLinkResponseStatusEnum get status;
+  // enum statusEnum {  ACTIVE,  REVOKED,  };
 
-  /// Absolute https URL, no UTM (the app appends UTM per share action): MASTER https://beautica.app/book/{slug}, SALON https://beautica.app/book/s/{slug}
+  /// Public slug; null when status is REVOKED. Never changes on rename; changes only by an explicit regenerate (the old slug is retired for good)
+  @BuiltValueField(wireName: r'slug')
+  String? get slug;
+
+  /// Absolute https canonical URL (the app adds its own share-channel flag): MASTER https://beautica.app/book/{slug}, SALON https://beautica.app/book/s/{slug}; null when status is REVOKED
   @BuiltValueField(wireName: r'url')
-  String get url;
+  String? get url;
 
   /// Master full name, or salon name for SALON links
   @BuiltValueField(wireName: r'displayName')
@@ -80,16 +86,25 @@ class _$BookingLinkResponseSerializer
       object.kind,
       specifiedType: const FullType(BookingLinkResponseKindEnum),
     );
+    yield r'status';
+    yield serializers.serialize(
+      object.status,
+      specifiedType: const FullType(BookingLinkResponseStatusEnum),
+    );
     yield r'slug';
-    yield serializers.serialize(
-      object.slug,
-      specifiedType: const FullType(String),
-    );
+    yield object.slug == null
+        ? null
+        : serializers.serialize(
+            object.slug,
+            specifiedType: const FullType.nullable(String),
+          );
     yield r'url';
-    yield serializers.serialize(
-      object.url,
-      specifiedType: const FullType(String),
-    );
+    yield object.url == null
+        ? null
+        : serializers.serialize(
+            object.url,
+            specifiedType: const FullType.nullable(String),
+          );
     yield r'displayName';
     yield serializers.serialize(
       object.displayName,
@@ -139,18 +154,27 @@ class _$BookingLinkResponseSerializer
           ) as BookingLinkResponseKindEnum;
           result.kind = valueDes;
           break;
+        case r'status':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(BookingLinkResponseStatusEnum),
+          ) as BookingLinkResponseStatusEnum;
+          result.status = valueDes;
+          break;
         case r'slug':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.slug = valueDes;
           break;
         case r'url':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.url = valueDes;
           break;
         case r'displayName':
@@ -229,4 +253,31 @@ class BookingLinkResponseKindEnum extends EnumClass {
       _$bookingLinkResponseKindEnumValues;
   static BookingLinkResponseKindEnum valueOf(String name) =>
       _$bookingLinkResponseKindEnumValueOf(name);
+}
+
+class BookingLinkResponseStatusEnum extends EnumClass {
+  /// Phase 378: ACTIVE, or REVOKED (slug and url null, bookable false)
+  @BuiltValueEnumConst(wireName: r'ACTIVE')
+  static const BookingLinkResponseStatusEnum ACTIVE =
+      _$bookingLinkResponseStatusEnum_ACTIVE;
+
+  /// Phase 378: ACTIVE, or REVOKED (slug and url null, bookable false)
+  @BuiltValueEnumConst(wireName: r'REVOKED')
+  static const BookingLinkResponseStatusEnum REVOKED =
+      _$bookingLinkResponseStatusEnum_REVOKED;
+
+  /// Phase 378: ACTIVE, or REVOKED (slug and url null, bookable false)
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const BookingLinkResponseStatusEnum unknownDefaultOpenApi =
+      _$bookingLinkResponseStatusEnum_unknownDefaultOpenApi;
+
+  static Serializer<BookingLinkResponseStatusEnum> get serializer =>
+      _$bookingLinkResponseStatusEnumSerializer;
+
+  const BookingLinkResponseStatusEnum._(String name) : super(name);
+
+  static BuiltSet<BookingLinkResponseStatusEnum> get values =>
+      _$bookingLinkResponseStatusEnumValues;
+  static BookingLinkResponseStatusEnum valueOf(String name) =>
+      _$bookingLinkResponseStatusEnumValueOf(name);
 }

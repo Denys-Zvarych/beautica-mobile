@@ -2116,4 +2116,19 @@ abstract final class VelvetText {
     fontWeight: FontWeight.w600,
     height: 1.25,
   );
+
+  /// Phase 415 — revoked booking-link well, state line: Nunito 15/800 in
+  /// primary text (the preview's `fieldInput` at w800).
+  static final TextStyle bookingLinkRevokedState = _bodyStyle.copyWith(
+    color: BrandColors.text,
+    height: 1.4,
+    fontWeight: FontWeight.w800,
+  );
+
+  /// Phase 415 — revoked booking-link well, explanation line: Nunito 12/600,
+  /// secondary (the preview's `caption`).
+  static final TextStyle bookingLinkRevokedBody = _bodyStyle.copyWith(
+    fontSize: 12,
+    height: 1.4,
+  );
 }

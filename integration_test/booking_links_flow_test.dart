@@ -16,6 +16,11 @@
 //   • SALON_MASTER / CLIENT deep link to the route → redirected to their
 //     own home; the screen never renders and the links are never fetched.
 //   • kill-switch off: the master hub shows no row.
+//   • Phase 415 regenerate: master glyph → confirm → new card → Copy sends
+//     the NEW url; REVOKED card → recreate (currentSlug null); SALON_ADMIN
+//     salon route; SALON_OWNER two salons → only the tapped card changes;
+//     409 → warning snack + reload shows the link made elsewhere; 404 →
+//     reload + screen closes + row gone; 429 → error snack, card unchanged.
 
 import 'package:beautica_mobile/core/config/app_config.dart';
 import 'package:beautica_mobile/core/share/clipboard_service.dart';
@@ -643,6 +648,363 @@ void main() {
 
       expect(fb.bookingLinksMineCalls, greaterThan(0));
       expect(find.byKey(_row), findsNothing);
+    });
+  });
+
+  // ── Phase 415 — regenerate (header glyph, no menu, no revoke) ────────────
+
+  Future<void> confirmRegenerate(WidgetTester tester, Key button) async {
+    await AppHarness.tapVisible(tester, find.byKey(button));
+    await AppHarness.settle(tester);
+    expect(
+      find.byKey(const Key('regenerate-booking-link-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('regenerate-booking-link-confirm')));
+    await pumpVelvetSnackIn(tester);
+  }
+
+  testWidgets('INDEPENDENT_MASTER: regenerate → confirm → new link → Copy '
+      'copies the NEW url', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink]);
+      final _FakeClipboard clipboard = _FakeClipboard();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: clipboard,
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+      final String oldSlug = _masterLink['slug'] as String;
+
+      await confirmRegenerate(
+        tester,
+        Key('btn-booking-link-regenerate-$oldSlug'),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expectVelvetSnack(
+        l10n.bookingLinkRegenerated,
+        variant: VelvetSnackVariant.success,
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': oldSlug},
+      ]);
+      final String newSlug = '$oldSlug-r1';
+      expect(find.byKey(Key('booking-link-card-$oldSlug')), findsNothing);
+      expect(find.byKey(Key('booking-link-card-$newSlug')), findsOneWidget);
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-copy-$newSlug')),
+      );
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      expect(clipboard.copied, <String>[
+        '${AppConfig.publicWebOrigin}/book/$newSlug?s=c',
+      ]);
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER: a REVOKED link (from the API) → «Створити '
+      'нове посилання» → currentSlug null → active card', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[
+          <String, dynamic>{
+            'kind': 'MASTER',
+            'status': 'REVOKED',
+            'slug': null,
+            'url': null,
+            'displayName': 'Олена Коваль',
+            'salonId': null,
+            'bookable': false,
+          },
+        ]);
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+      // D5: a revoked link keeps the settings row visible.
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+
+      expect(
+        find.byKey(const Key('booking-link-revoked-revoked-master')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('btn-booking-link-copy-revoked-master')),
+        findsNothing,
+      );
+
+      await confirmRegenerate(
+        tester,
+        const Key('btn-booking-link-recreate-revoked-master'),
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{},
+      ]);
+      expect(find.byKey(const Key('booking-link-card-m-r1')), findsOneWidget);
+      expect(
+        find.byKey(const Key('btn-booking-link-copy-m-r1')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('SALON_ADMIN: salon card regenerate hits the salon route', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final Map<String, dynamic> salon = _link(
+        kind: 'SALON',
+        slug: 'lumiere-kyiv',
+        name: 'Lumière',
+        salonId: _uuidA,
+      );
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[salon]);
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.salonAdmin,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.adminSettings);
+      await _openLinks(tester, router);
+
+      await confirmRegenerate(
+        tester,
+        const Key('btn-booking-link-regenerate-lumiere-kyiv'),
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': 'lumiere-kyiv'},
+      ]);
+      expect(
+        find.byKey(const Key('booking-link-card-lumiere-kyiv-r1')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('SALON_OWNER: two salons → regenerate ONE card → only that card '
+      'changes; the other keeps its slug and copies its old url', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final FakeBackend fb = FakeBackend();
+      fb.mySalons = <Map<String, dynamic>>[
+        <String, dynamic>{...fb.mySalons.single, 'id': _uuidA},
+        <String, dynamic>{
+          ...fb.mySalons.single,
+          'id': _uuidB,
+          'name': 'Beauty Loft',
+          'isPrimary': false,
+        },
+      ];
+      fb.bookingLinksMine = _enabled(<Map<String, dynamic>>[
+        <String, dynamic>{..._salonA, 'salonId': _uuidA},
+        <String, dynamic>{..._salonB, 'salonId': _uuidB},
+      ]);
+      final _FakeClipboard clipboard = _FakeClipboard();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.salonOwner,
+        clipboard: clipboard,
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openLinks(tester, router);
+      final String slugA = '${_salonA['slug']}';
+      final String slugB = '${_salonB['slug']}';
+
+      await confirmRegenerate(
+        tester,
+        Key('btn-booking-link-regenerate-$slugB'),
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': slugB},
+      ]);
+      final String newB = '$slugB-r1';
+      expect(find.byKey(Key('booking-link-card-$slugA')), findsOneWidget);
+      expect(find.byKey(Key('booking-link-card-$slugB')), findsNothing);
+      expect(
+        find.byKey(Key('booking-link-card-$newB'), skipOffstage: false),
+        findsOneWidget,
+      );
+
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-copy-$slugA')),
+      );
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-copy-$newB'), skipOffstage: false),
+      );
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      expect(clipboard.copied, <String>[
+        '${AppConfig.publicWebOrigin}/book/s/$slugA?s=c',
+        '${AppConfig.publicWebOrigin}/book/s/$newB?s=c',
+      ]);
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER: regenerate → 409 (changed elsewhere) → '
+      'warning snack + reload shows the current link', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final String oldSlug = _masterLink['slug'] as String;
+      const String elsewhere = 'olena-koval-zz99';
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink])
+        ..wireBookingLinkRegenerateConflict(
+          _enabled(<Map<String, dynamic>>[
+            _link(kind: 'MASTER', slug: elsewhere, name: 'Олена Коваль'),
+          ]),
+        );
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+      final int loadsBefore = fb.bookingLinksMineCalls;
+
+      await confirmRegenerate(
+        tester,
+        Key('btn-booking-link-regenerate-$oldSlug'),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expectVelvetSnack(
+        l10n.bookingLinkChangedElsewhere,
+        variant: VelvetSnackVariant.warning,
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': oldSlug},
+      ]);
+      expect(fb.bookingLinksMineCalls, greaterThan(loadsBefore));
+      expect(find.byType(BookingLinkScreen), findsOneWidget);
+      expect(find.byKey(Key('booking-link-card-$oldSlug')), findsNothing);
+      expect(
+        find.byKey(const Key('booking-link-card-$elsewhere')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER: regenerate → 404 (sharing switched off) → '
+      'links reload, the screen closes and the hub row is gone', (
+    tester,
+  ) async {
+    await mockNetworkImagesFor(() async {
+      final String oldSlug = _masterLink['slug'] as String;
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink])
+        ..wireBookingLinkRegenerateUnavailable();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: _FakeClipboard(),
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+      final int loadsBefore = fb.bookingLinksMineCalls;
+
+      await confirmRegenerate(
+        tester,
+        Key('btn-booking-link-regenerate-$oldSlug'),
+      );
+      await AppHarness.settle(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': oldSlug},
+      ]);
+      expect(fb.bookingLinksMineCalls, greaterThan(loadsBefore));
+      expect(find.byType(BookingLinkScreen), findsNothing);
+      AppHarness.expectLocation(router, RouteNames.masterMenu);
+      expect(find.byKey(_row), findsNothing);
+    });
+  });
+
+  testWidgets('INDEPENDENT_MASTER: regenerate → 429 → «Забагато змін» error '
+      'snack, card unchanged, links not reloaded', (tester) async {
+    await mockNetworkImagesFor(() async {
+      final String oldSlug = _masterLink['slug'] as String;
+      final FakeBackend fb = FakeBackend()
+        ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_masterLink])
+        ..wireBookingLinkRegenerateRateLimited();
+      final _FakeClipboard clipboard = _FakeClipboard();
+      final GoRouter router = await _bootAs(
+        tester,
+        fb,
+        UserRole.independentMaster,
+        clipboard: clipboard,
+        share: _FakeShare(),
+      );
+      await _openHub(tester, router, RouteNames.masterMenu);
+      await _openLinks(tester, router);
+      final int loadsBefore = fb.bookingLinksMineCalls;
+
+      await confirmRegenerate(
+        tester,
+        Key('btn-booking-link-regenerate-$oldSlug'),
+      );
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(BookingLinkScreen)),
+      );
+      expectVelvetSnack(
+        l10n.bookingLinkTooManyChanges,
+        variant: VelvetSnackVariant.error,
+      );
+      await pumpPastVelvetSnack(tester);
+
+      expect(fb.bookingLinksRegenerateBodies, <Map<String, dynamic>>[
+        <String, dynamic>{'currentSlug': oldSlug},
+      ]);
+      expect(fb.bookingLinksMineCalls, loadsBefore);
+      expect(find.byKey(Key('booking-link-card-$oldSlug')), findsOneWidget);
+      expect(
+        find.byKey(Key('btn-booking-link-regenerate-$oldSlug')),
+        findsOneWidget,
+        reason: 'busy cleared: the glyph is back',
+      );
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(Key('btn-booking-link-copy-$oldSlug')),
+      );
+      await pumpVelvetSnackIn(tester);
+      await pumpPastVelvetSnack(tester);
+      expect(clipboard.copied, <String>['${_masterLink['url']}?s=c']);
     });
   });
 }

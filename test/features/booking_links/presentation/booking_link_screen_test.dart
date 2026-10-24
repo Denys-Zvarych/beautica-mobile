@@ -18,6 +18,12 @@
 //     no check;
 //   • Share → share service gets «Записуйтеся …» + the bare link;
 //   • kill-switch off while on screen → pops back.
+//   • Phase 415 regenerate: header glyph on active cards → confirm (cancel =
+//     no call) → new URL + success snack, Copy sends the NEW url; revoked
+//     card (no URL / Copy / Share / glyph / note) → «Створити нове
+//     посилання» → short-body confirm → active again; 409 warning + refetch;
+//     404 → pops back; 429 / other → error snacks; owner with two salons —
+//     the other card untouched; in flight → progress + dimmed actions.
 //
 // Finders use widget Keys (M2); snack text is asserted through the shared
 // VelvetSnack matchers. Layer: Widget.
@@ -87,6 +93,20 @@ Key _card(String slug) => Key('booking-link-card-$slug');
 Key _copy(String slug) => Key('btn-booking-link-copy-$slug');
 Key _share(String slug) => Key('btn-booking-link-share-$slug');
 Key _setup(String slug) => Key('link-booking-link-setup-$slug');
+Key _regen(String id) => Key('btn-booking-link-regenerate-$id');
+Key _recreate(String id) => Key('btn-booking-link-recreate-$id');
+const Key _confirm = Key('regenerate-booking-link-confirm');
+const Key _dismiss = Key('regenerate-booking-link-dismiss');
+const Key _dialog = Key('regenerate-booking-link-dialog');
+
+const BookingLink _revokedMaster = BookingLink(
+  kind: BookingLinkKind.master,
+  slug: null,
+  url: null,
+  displayName: 'Олена Коваль',
+  bookable: false,
+  status: BookingLinkStatus.revoked,
+);
 
 const Key _home = Key('stub-home');
 
@@ -171,8 +191,8 @@ void main() {
       await pumpScreen(tester, role: UserRole.independentMaster);
 
       expect(find.byType(BookingLinkCard), findsOneWidget);
-      expect(find.byKey(_card(_master.slug)), findsOneWidget);
-      expect(find.byKey(_card(_salonA.slug)), findsNothing);
+      expect(find.byKey(_card(_master.keyId)), findsOneWidget);
+      expect(find.byKey(_card(_salonA.keyId)), findsNothing);
       expect(find.text(l10nOf(tester).bookingLinkMasterTitle), findsOneWidget);
     });
 
@@ -185,9 +205,13 @@ void main() {
       await pumpScreen(tester, role: UserRole.salonOwner);
 
       expect(find.byType(BookingLinkCard), findsNWidgets(2));
-      expect(find.byKey(_card(_master.slug)), findsNothing);
-      final double aTop = tester.getTopLeft(find.byKey(_card(_salonA.slug))).dy;
-      final double bTop = tester.getTopLeft(find.byKey(_card(_salonB.slug))).dy;
+      expect(find.byKey(_card(_master.keyId)), findsNothing);
+      final double aTop = tester
+          .getTopLeft(find.byKey(_card(_salonA.keyId)))
+          .dy;
+      final double bTop = tester
+          .getTopLeft(find.byKey(_card(_salonB.keyId)))
+          .dy;
       expect(aTop, lessThan(bTop), reason: 'backend order is kept');
       final AppLocalizations l10n = l10nOf(tester);
       expect(find.text(l10n.bookingLinkSalonTitle('Lumière')), findsOneWidget);
@@ -206,7 +230,7 @@ void main() {
       await pumpScreen(tester, role: UserRole.salonAdmin, salonId: 'salon-a');
 
       expect(find.byType(BookingLinkCard), findsOneWidget);
-      expect(find.byKey(_card(_salonA.slug)), findsOneWidget);
+      expect(find.byKey(_card(_salonA.keyId)), findsOneWidget);
     });
 
     for (final UserRole role in <UserRole>[
@@ -245,12 +269,12 @@ void main() {
         findsOneWidget,
       );
       // Sharing stays enabled on a not-bookable link.
-      await tester.tap(find.byKey(_copy(_master.slug)));
+      await tester.tap(find.byKey(_copy(_master.keyId)));
       await pumpVelvetSnackIn(tester);
       verify(() => clipboard.copyText(any())).called(1);
       await pumpPastVelvetSnack(tester);
 
-      await tester.tap(find.byKey(_setup(_master.slug)));
+      await tester.tap(find.byKey(_setup(_master.keyId)));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('stub-services')), findsOneWidget);
     });
@@ -269,7 +293,7 @@ void main() {
         find.textContaining(l10n.bookingLinkNotBookableSalon),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(_setup(_salonA.slug)));
+      await tester.tap(find.byKey(_setup(_salonA.keyId)));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('stub-shell-salon-a-team')), findsOneWidget);
     });
@@ -287,6 +311,7 @@ void main() {
                   api.BookingLinkResponse(
                     (l) => l
                       ..kind = api.BookingLinkResponseKindEnum.SALON
+                      ..status = api.BookingLinkResponseStatusEnum.ACTIVE
                       ..slug = _salonA.slug
                       ..url = _salonA.url
                       ..displayName = _salonA.displayName
@@ -300,12 +325,12 @@ void main() {
 
       await pumpScreen(tester, role: UserRole.salonOwner);
 
-      expect(find.byKey(_card(_salonA.slug)), findsOneWidget);
+      expect(find.byKey(_card(_salonA.keyId)), findsOneWidget);
       expect(
         find.textContaining(l10nOf(tester).bookingLinkNotBookableSalon),
         findsOneWidget,
       );
-      expect(find.byKey(_setup(_salonA.slug)), findsNothing);
+      expect(find.byKey(_setup(_salonA.keyId)), findsNothing);
     });
 
     testWidgets('a bookable link shows no warning', (tester) async {
@@ -315,7 +340,7 @@ void main() {
 
       await pumpScreen(tester, role: UserRole.independentMaster);
 
-      expect(find.byKey(_setup(_master.slug)), findsNothing);
+      expect(find.byKey(_setup(_master.keyId)), findsNothing);
       expect(
         find.textContaining(l10nOf(tester).bookingLinkNotBookableMaster),
         findsNothing,
@@ -353,7 +378,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('booking-links-loading')), findsNothing);
-      expect(find.byKey(_card(_master.slug)), findsOneWidget);
+      expect(find.byKey(_card(_master.keyId)), findsOneWidget);
     });
 
     testWidgets('error → ErrorState; retry refetches and shows the cards', (
@@ -375,7 +400,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(calls, 2);
-      expect(find.byKey(_card(_master.slug)), findsOneWidget);
+      expect(find.byKey(_card(_master.keyId)), findsOneWidget);
     });
   });
 
@@ -391,7 +416,7 @@ void main() {
         await pumpScreen(tester, role: UserRole.independentMaster);
         final AppLocalizations l10n = l10nOf(tester);
 
-        await tester.tap(find.byKey(_copy(_master.slug)));
+        await tester.tap(find.byKey(_copy(_master.keyId)));
         await pumpVelvetSnackIn(tester);
 
         final String copied =
@@ -404,14 +429,14 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(
-          find.byKey(Key('booking-link-copied-${_master.slug}')),
+          find.byKey(Key('booking-link-copied-${_master.keyId}')),
           findsOneWidget,
         );
 
         await tester.pump(BookingLinkCard.copiedDwell);
         await tester.pumpAndSettle();
         expect(
-          find.byKey(Key('booking-link-copied-${_master.slug}')),
+          find.byKey(Key('booking-link-copied-${_master.keyId}')),
           findsNothing,
         );
         await pumpPastVelvetSnack(tester);
@@ -427,7 +452,7 @@ void main() {
       await pumpScreen(tester, role: UserRole.salonAdmin, salonId: 'salon-a');
       final AppLocalizations l10n = l10nOf(tester);
 
-      await tester.tap(find.byKey(_copy(_salonA.slug)));
+      await tester.tap(find.byKey(_copy(_salonA.keyId)));
       await pumpVelvetSnackIn(tester);
 
       expectVelvetSnack(
@@ -435,7 +460,7 @@ void main() {
         variant: VelvetSnackVariant.error,
       );
       expect(
-        find.byKey(Key('booking-link-copied-${_salonA.slug}')),
+        find.byKey(Key('booking-link-copied-${_salonA.keyId}')),
         findsNothing,
       );
       await pumpPastVelvetSnack(tester);
@@ -451,7 +476,7 @@ void main() {
       await pumpScreen(tester, role: UserRole.independentMaster);
       final AppLocalizations l10n = l10nOf(tester);
 
-      await tester.tap(find.byKey(_share(_master.slug)));
+      await tester.tap(find.byKey(_share(_master.keyId)));
       await tester.pumpAndSettle();
 
       const String url = 'https://beautica.app/book/olena-koval-x7k2?s=s';
@@ -478,7 +503,7 @@ void main() {
       await pumpScreen(tester, role: UserRole.salonOwner);
       final AppLocalizations l10n = l10nOf(tester);
 
-      await tester.tap(find.byKey(_share(_salonA.slug)));
+      await tester.tap(find.byKey(_share(_salonA.keyId)));
       await pumpVelvetSnackIn(tester);
 
       const String url = 'https://beautica.app/book/s/lumiere-kyiv?s=s';
@@ -518,7 +543,7 @@ void main() {
       await pumpScreen(tester, role: UserRole.salonOwner);
       final AppLocalizations l10n = l10nOf(tester);
 
-      await tester.tap(find.byKey(_share(hostile.slug)));
+      await tester.tap(find.byKey(_share(hostile.keyId)));
       await tester.pump();
 
       final String text =
@@ -553,6 +578,308 @@ void main() {
 
       expect(find.byType(BookingLinkScreen), findsNothing);
       expect(find.byKey(_home), findsOneWidget);
+    });
+  });
+
+  group('regenerate (phase 415)', () {
+    setUpAll(() => registerFallbackValue(_master));
+
+    BookingLink regenerated(BookingLink l, String slug) => l.copyWith(
+      slug: slug,
+      url: l.kind == BookingLinkKind.salon
+          ? 'https://beautica.app/book/s/$slug'
+          : 'https://beautica.app/book/$slug',
+      bookable: true,
+      status: BookingLinkStatus.active,
+    );
+
+    Future<void> confirmRegenerate(WidgetTester tester, Key button) async {
+      await tester.tap(find.byKey(button));
+      await tester.pumpAndSettle();
+      expect(find.byKey(_dialog), findsOneWidget);
+      await tester.tap(find.byKey(_confirm));
+      await tester.pump();
+    }
+
+    testWidgets('active card: glyph with semantic label; cancel does nothing', (
+      tester,
+    ) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      final AppLocalizations l10n = l10nOf(tester);
+
+      expect(find.byKey(_regen(_master.keyId)), findsOneWidget);
+      expect(find.bySemanticsLabel(l10n.bookingLinkRegenerate), findsWidgets);
+      expect(
+        tester.getSize(find.byKey(_regen(_master.keyId))).height,
+        greaterThanOrEqualTo(48),
+      );
+
+      await tester.tap(find.byKey(_regen(_master.keyId)));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.bookingLinkRegenerateTitle), findsOneWidget);
+      expect(find.text(l10n.bookingLinkRegenerateBody), findsOneWidget);
+
+      await tester.tap(find.byKey(_dismiss));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_dialog), findsNothing);
+      verifyNever(() => repo.regenerate(any()));
+    });
+
+    testWidgets('confirm → new URL in place + success snack; Copy sends the '
+        'new url with ?s=c', (tester) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
+      final Completer<BookingLinkMutationOutcome> pending =
+          Completer<BookingLinkMutationOutcome>();
+      when(() => repo.regenerate(any())).thenAnswer((_) => pending.future);
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      final AppLocalizations l10n = l10nOf(tester);
+
+      await confirmRegenerate(tester, _regen(_master.keyId));
+      await tester.pump();
+
+      // In flight: progress in the header slot, the glyph gone.
+      expect(
+        find.byKey(Key('booking-link-busy-${_master.keyId}')),
+        findsOneWidget,
+      );
+      expect(find.byKey(_regen(_master.keyId)), findsNothing);
+      // ...and Share / Copy dimmed to 0.5 and deaf to taps.
+      final Finder dim = find.ancestor(
+        of: find.byKey(_share(_master.keyId)),
+        matching: find.byType(Opacity),
+      );
+      expect(tester.widget<Opacity>(dim.first).opacity, 0.5);
+      await tester.tap(find.byKey(_copy(_master.keyId)), warnIfMissed: false);
+      await tester.pump();
+      verifyNever(() => clipboard.copyText(any()));
+
+      pending.complete(
+        BookingLinkMutationOutcome.done(regenerated(_master, 'olena-new1')),
+      );
+      await pumpVelvetSnackIn(tester);
+      expectVelvetSnack(
+        l10n.bookingLinkRegenerated,
+        variant: VelvetSnackVariant.success,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_card('olena-new1')), findsOneWidget);
+      expect(find.byKey(_card(_master.keyId)), findsNothing);
+      verify(() => repo.regenerate(_master)).called(1);
+      verify(() => repo.getMine()).called(1);
+      await pumpPastVelvetSnack(tester);
+
+      await tester.tap(find.byKey(_copy('olena-new1')));
+      await tester.pump();
+      final String copied =
+          verify(() => clipboard.copyText(captureAny())).captured.single
+              as String;
+      expect(copied, 'https://beautica.app/book/olena-new1?s=c');
+      await tester.pumpAndSettle();
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('revoked card: state text, no URL / Copy / Share / glyph / '
+        'note; recreate → short confirm → currentSlug null → active', (
+      tester,
+    ) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[_revokedMaster]));
+      when(() => repo.regenerate(any())).thenAnswer(
+        (_) async => BookingLinkMutationOutcome.done(
+          regenerated(_revokedMaster, 'olena-new2'),
+        ),
+      );
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      final AppLocalizations l10n = l10nOf(tester);
+      const String id = 'revoked-master';
+
+      expect(find.byKey(_card(id)), findsOneWidget);
+      expect(find.text(l10n.bookingLinkRevokedState), findsOneWidget);
+      expect(find.text(l10n.bookingLinkRevokedBody), findsOneWidget);
+      expect(find.byKey(const Key('booking-link-url-$id')), findsNothing);
+      expect(find.byKey(_copy(id)), findsNothing);
+      expect(find.byKey(_share(id)), findsNothing);
+      expect(find.byKey(_regen(id)), findsNothing);
+      expect(find.byKey(_setup(id)), findsNothing);
+      expect(find.text(l10n.bookingLinkNotBookableMaster), findsNothing);
+
+      await tester.tap(find.byKey(_recreate(id)));
+      await tester.pumpAndSettle();
+      expect(find.text(l10n.bookingLinkRegenerateBodyRevoked), findsOneWidget);
+      expect(find.text(l10n.bookingLinkRegenerateBody), findsNothing);
+      await tester.tap(find.byKey(_confirm));
+      await pumpVelvetSnackIn(tester);
+      await tester.pumpAndSettle();
+
+      final BookingLink sent =
+          verify(() => repo.regenerate(captureAny())).captured.single
+              as BookingLink;
+      expect(sent.slug, isNull);
+      expect(sent.isRevoked, isTrue);
+      expect(find.byKey(_card('olena-new2')), findsOneWidget);
+      expect(find.byKey(_copy('olena-new2')), findsOneWidget);
+      expect(find.text(l10n.bookingLinkRevokedState), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('409 → warning snack + the links are re-read', (tester) async {
+      int loads = 0;
+      when(() => repo.getMine()).thenAnswer((_) async {
+        loads++;
+        return _enabled(<BookingLink>[
+          loads == 1 ? _master : regenerated(_master, 'olena-elsewhere'),
+        ]);
+      });
+      when(
+        () => repo.regenerate(any()),
+      ).thenAnswer((_) async => const BookingLinkMutationOutcome.stale());
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      final AppLocalizations l10n = l10nOf(tester);
+
+      await confirmRegenerate(tester, _regen(_master.keyId));
+      await pumpVelvetSnackIn(tester);
+      expectVelvetSnack(
+        l10n.bookingLinkChangedElsewhere,
+        variant: VelvetSnackVariant.warning,
+      );
+      await tester.pumpAndSettle();
+
+      expect(loads, 2);
+      expect(find.byKey(_card('olena-elsewhere')), findsOneWidget);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('404 (sharing switched off) → pops back (414 D7)', (
+      tester,
+    ) async {
+      int loads = 0;
+      when(() => repo.getMine()).thenAnswer((_) async {
+        loads++;
+        return loads == 1
+            ? _enabled(<BookingLink>[_master])
+            : BookingLinks.hidden;
+      });
+      when(
+        () => repo.regenerate(any()),
+      ).thenAnswer((_) async => const BookingLinkMutationOutcome.unavailable());
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      await confirmRegenerate(tester, _regen(_master.keyId));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookingLinkScreen), findsNothing);
+      expect(find.byKey(_home), findsOneWidget);
+    });
+
+    // The test above also passes through the load-driven D7 close (the
+    // reload says hidden). Here the reload still says visible, so only the
+    // screen's own close on `unavailable` can pop it — pins that arm.
+    testWidgets('404 → pops back even when the reload still shows links', (
+      tester,
+    ) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
+      when(
+        () => repo.regenerate(any()),
+      ).thenAnswer((_) async => const BookingLinkMutationOutcome.unavailable());
+
+      await pumpScreen(tester, role: UserRole.independentMaster);
+      await confirmRegenerate(tester, _regen(_master.keyId));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BookingLinkScreen), findsNothing);
+      expect(find.byKey(_home), findsOneWidget);
+    });
+
+    final Map<String, Object> errorCases = <String, Object>{
+      '429': const BookingLinkMutationOutcome.rateLimited(),
+      '403': const ServerFailure(statusCode: 403),
+    };
+    errorCases.forEach((String label, Object answer) {
+      testWidgets('$label → error snack, card unchanged', (tester) async {
+        when(
+          () => repo.getMine(),
+        ).thenAnswer((_) async => _enabled(<BookingLink>[_master]));
+        when(() => repo.regenerate(any())).thenAnswer((_) async {
+          if (answer is Failure) throw answer;
+          return answer as BookingLinkMutationOutcome;
+        });
+
+        await pumpScreen(tester, role: UserRole.independentMaster);
+        final AppLocalizations l10n = l10nOf(tester);
+        final BuildContext ctx = tester.element(find.byType(BookingLinkScreen));
+
+        await confirmRegenerate(tester, _regen(_master.keyId));
+        await pumpVelvetSnackIn(tester);
+        expectVelvetSnack(
+          answer is Failure
+              ? answer.userMessage(ctx)
+              : l10n.bookingLinkTooManyChanges,
+          variant: VelvetSnackVariant.error,
+        );
+        await tester.pumpAndSettle();
+        expect(find.byKey(_card(_master.keyId)), findsOneWidget);
+        expect(find.byKey(_regen(_master.keyId)), findsOneWidget);
+        verify(() => repo.getMine()).called(1);
+        await pumpPastVelvetSnack(tester);
+      });
+    });
+
+    testWidgets('owner with two salons regenerates one — the other card is '
+        'untouched', (tester) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => _enabled(<BookingLink>[_salonA, _salonB]));
+      when(() => repo.regenerate(any())).thenAnswer(
+        (_) async => BookingLinkMutationOutcome.done(
+          regenerated(_salonA, 'lumiere-new'),
+        ),
+      );
+
+      await pumpScreen(tester, role: UserRole.salonOwner);
+      await confirmRegenerate(tester, _regen(_salonA.keyId));
+      await pumpVelvetSnackIn(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_card('lumiere-new')), findsOneWidget);
+      expect(find.byKey(_card(_salonA.keyId)), findsNothing);
+      expect(find.byKey(_card(_salonB.keyId)), findsOneWidget);
+      expect(find.byKey(_regen(_salonB.keyId)), findsOneWidget);
+      final double newTop = tester
+          .getTopLeft(find.byKey(_card('lumiere-new')))
+          .dy;
+      final double bTop = tester
+          .getTopLeft(find.byKey(_card(_salonB.keyId)))
+          .dy;
+      expect(newTop, lessThan(bTop));
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('a salon link without a salon id shows no regenerate glyph', (
+      tester,
+    ) async {
+      when(() => repo.getMine()).thenAnswer(
+        (_) async =>
+            _enabled(<BookingLink>[_salonA.copyWith(salonId: null), _salonB]),
+      );
+
+      await pumpScreen(tester, role: UserRole.salonOwner);
+
+      expect(find.byKey(_regen(_salonA.keyId)), findsNothing);
+      expect(find.byKey(_regen(_salonB.keyId)), findsOneWidget);
     });
   });
 }
