@@ -172,6 +172,7 @@ import 'register_locality_persistence_flow_test.dart'
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_service_cap_flow_test.dart' as salon_booking_service_cap;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
@@ -604,6 +605,10 @@ void main() {
   // coverage fetch fails, must render the retry row (never the terminal
   // uncovered row), and a successful retry must recover it.
   group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
+  // Phase 420 (mobile-qa, Step 2.7 Rule 3b) — the 10-service visit cap:
+  // an 11th catalogue tap is refused with the cap warning and «Далі» hands
+  // the masters step exactly 10 services.
+  group('salon_booking_service_cap_flow', salon_booking_service_cap.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.

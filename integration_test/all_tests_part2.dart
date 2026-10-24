@@ -52,6 +52,7 @@ import 'salon_archive_flow_test.dart' as salon_archive;
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_service_cap_flow_test.dart' as salon_booking_service_cap;
 import 'salon_booking_pager_flow_test.dart' as salon_booking_pager;
 import 'salon_create_booking_test.dart' as salon_create_booking;
 import 'salon_service_favourite_flow_test.dart' as salon_service_favourite;
@@ -251,6 +252,10 @@ void main() {
   // coverage fetch fails, must render the retry row (never the terminal
   // uncovered row), and a successful retry must recover it.
   group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
+  // Phase 420 (mobile-qa, Step 2.7 Rule 3b) — the 10-service visit cap:
+  // an 11th catalogue tap is refused with the cap warning and «Далі» hands
+  // the masters step exactly 10 services.
+  group('salon_booking_service_cap_flow', salon_booking_service_cap.main);
   // mobile-qa (Step 2.7 Rule 3b) — the AppointmentPager rework's own 4
   // behaviours (arrow + swipe paging with inert-end proof, single-master
   // no-control, per-booking calendar pill count, cross-page comment

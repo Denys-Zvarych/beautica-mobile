@@ -4229,11 +4229,15 @@ final class FakeBackend {
   /// en-dash range `"200–600 ₴"`) and mobile renders it verbatim — mirrored
   /// here, NOT recomputed client-side.
   List<Map<String, dynamic>> _salonServiceCatalogNow() {
+    final List<Map<String, dynamic>> base =
+        _salonCatalogOverflowServices.isEmpty
+        ? _salonServiceCategories
+        : _salonServiceCategoriesWithOverflow();
     if (_salonCatalogExtraAssignmentPrices.isEmpty) {
-      return _salonServiceCategories;
+      return base;
     }
     return <Map<String, dynamic>>[
-      for (final Map<String, dynamic> group in _salonServiceCategories)
+      for (final Map<String, dynamic> group in base)
         <String, dynamic>{
           ...group,
           'services': <Map<String, dynamic>>[
@@ -4245,6 +4249,75 @@ final class FakeBackend {
         },
     ];
   }
+
+  /// Phase 420 — extra NAILS catalogue services appended by
+  /// [seedSalonCatalogOverflow]. Empty by default, so every existing consumer
+  /// of `GET /salons/salon-xyz/services` reads the baseline byte-for-byte.
+  final List<Map<String, dynamic>> _salonCatalogOverflowServices =
+      <Map<String, dynamic>>[];
+
+  /// Phase 420 — appends [count] bookable NAILS services
+  /// (`salon-svc-cap-0` … `salon-svc-cap-<count-1>`) to the `salon-xyz`
+  /// catalogue, so a flow can push the client's selection past
+  /// `maxServicesPerVisit`. Each gets a `GET …/services/{id}/masters` route
+  /// answering `master-ccc`, so the master-assignment step resolves every
+  /// selected service instead of 404ing into a degraded row.
+  void seedSalonCatalogOverflow(int count) {
+    for (int i = 0; i < count; i++) {
+      final String id = 'salon-svc-cap-$i';
+      _salonCatalogOverflowServices.add(<String, dynamic>{
+        'id': id,
+        'name': 'Манікюр $i',
+        'description': null,
+        'category': 'NAILS',
+        'serviceTypeSlug': null,
+        'serviceTypeNameUk': null,
+        'baseDurationMinutes': 30,
+        'bufferMinutesAfter': 0,
+        'isActive': true,
+        'priceType': 'FIXED',
+        'priceMin': 100,
+        'priceMax': null,
+        'priceDisplay': '100 ₴',
+        'photoUrl': null,
+      });
+      _adapter.onRoute(
+        '/api/v1/salons/salon-xyz/services/$id/masters',
+        (server) => server.replyCallback(200, (_) {
+          getBookableMastersCalls++;
+          requestedBookableMastersServiceDefIds.add(id);
+          return _okList(<Map<String, dynamic>>[
+            _bookableMasterEnvelope(
+              masterId: 'master-ccc',
+              serviceDefId: id,
+              firstName: 'Марія',
+              lastName: 'Гриценко',
+            ),
+          ]);
+        }),
+        request: const Request(method: RequestMethods.get),
+      );
+    }
+  }
+
+  List<Map<String, dynamic>> _salonServiceCategoriesWithOverflow() =>
+      <Map<String, dynamic>>[
+        for (final Map<String, dynamic> group in _salonServiceCategories)
+          if (group['category'] == 'NAILS')
+            <String, dynamic>{
+              ...group,
+              'count':
+                  (group['count'] as int) +
+                  _salonCatalogOverflowServices.length,
+              'services': <Map<String, dynamic>>[
+                ...(group['services'] as List<dynamic>)
+                    .cast<Map<String, dynamic>>(),
+                ..._salonCatalogOverflowServices,
+              ],
+            }
+          else
+            group,
+      ];
 
   Map<String, dynamic> _aggregatedCatalogService(Map<String, dynamic> svc) {
     final List<double> extra =
