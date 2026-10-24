@@ -375,3 +375,53 @@ final class DeviceApiProvider
 }
 
 String _$deviceApiHash() => r'3f4cfd4fce4dfc4d8de2c2f70e78186f0e4b367a';
+
+/// Provides the generated [BookingLinksApi] singleton (phase 413) for
+/// `GET /booking-links/mine` — the caller's shareable public booking links.
+
+@ProviderFor(bookingLinksApi)
+final bookingLinksApiProvider = BookingLinksApiProvider._();
+
+/// Provides the generated [BookingLinksApi] singleton (phase 413) for
+/// `GET /booking-links/mine` — the caller's shareable public booking links.
+
+final class BookingLinksApiProvider
+    extends
+        $FunctionalProvider<BookingLinksApi, BookingLinksApi, BookingLinksApi>
+    with $Provider<BookingLinksApi> {
+  /// Provides the generated [BookingLinksApi] singleton (phase 413) for
+  /// `GET /booking-links/mine` — the caller's shareable public booking links.
+  BookingLinksApiProvider._()
+    : super(
+        from: null,
+        argument: null,
+        retry: null,
+        name: r'bookingLinksApiProvider',
+        isAutoDispose: false,
+        dependencies: null,
+        $allTransitiveDependencies: null,
+      );
+
+  @override
+  String debugGetCreateSourceHash() => _$bookingLinksApiHash();
+
+  @$internal
+  @override
+  $ProviderElement<BookingLinksApi> $createElement($ProviderPointer pointer) =>
+      $ProviderElement(pointer);
+
+  @override
+  BookingLinksApi create(Ref ref) {
+    return bookingLinksApi(ref);
+  }
+
+  /// {@macro riverpod.override_with_value}
+  Override overrideWithValue(BookingLinksApi value) {
+    return $ProviderOverride(
+      origin: this,
+      providerOverride: $SyncValueProvider<BookingLinksApi>(value),
+    );
+  }
+}
+
+String _$bookingLinksApiHash() => r'2c0df04ea769c9b95c70c24b15dda6e4622bfef4';

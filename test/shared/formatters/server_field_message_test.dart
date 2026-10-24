@@ -199,4 +199,48 @@ void main() {
       expect(serverFieldMessageOr('ab\u009Bcd', _fallback), _fallback);
     });
   });
+
+  group('stripUnrenderableChars', () {
+    test('CONTROL — a clean name (incl. non-ASCII) is returned verbatim', () {
+      expect(stripUnrenderableChars('Салон Lumière'), 'Салон Lumière');
+    });
+
+    test('removes every bidi control', () {
+      const List<String> bidi = <String>[
+        '\u061C',
+        '\u200E',
+        '\u200F',
+        '\u202A',
+        '\u202B',
+        '\u202C',
+        '\u202D',
+        '\u202E',
+        '\u2066',
+        '\u2067',
+        '\u2068',
+        '\u2069',
+      ];
+      for (final String c in bidi) {
+        expect(
+          stripUnrenderableChars('a${c}b'),
+          'ab',
+          reason: 'U+${c.codeUnitAt(0).toRadixString(16)}',
+        );
+      }
+    });
+
+    test('removes C0 / DEL / C1 controls and line separators', () {
+      expect(
+        stripUnrenderableChars(
+          'a\u0000b\nc\rd\te\u007Ff\u0085g\u009Fh'
+          '\u2028i\u2029j',
+        ),
+        'abcdefghij',
+      );
+    });
+
+    test('trims edges after stripping', () {
+      expect(stripUnrenderableChars(' \u202E Spa \n'), 'Spa');
+    });
+  });
 }

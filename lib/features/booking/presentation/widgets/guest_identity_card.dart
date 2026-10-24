@@ -22,8 +22,9 @@
 // block, this file now exposes a second entry point,
 // [GuestIdentityCard.identity], that takes a plain `name`/`phone` pair (as
 // recovered from `Booking.clientFirstName`/`clientLastName` via
-// `BookingDisplayX.clientName` — `Booking` carries no client phone field, so
-// the reschedule path always passes `phone: null`) and builds the IDENTICAL
+// `BookingDisplayX.clientName` — `Booking.guestPhone` (Phase 417) is detail-only, role-gated and
+// rendered by the detail screen's own ContactTile, so the reschedule path
+// always passes `phone: null`) and builds the IDENTICAL
 // `NeumorphicCard` + `LabelledRow` tree — ONE `build()` method, branching only
 // on which constructor supplied the name/detail. Both constructors keep the
 // same

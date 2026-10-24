@@ -69,6 +69,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/errors/resource_unavailable.dart';
@@ -83,6 +84,8 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
+import 'package:beautica_mobile/shared/utils/phone_uri.dart';
+import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 
@@ -559,6 +562,25 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     );
   }
 
+  /// Phase 417 — opens the dialer on the guest's number. The value goes
+  /// through [canonicalTelUri] (strict allow-list) before [launchUrl]; no
+  /// `canLaunchUrl` gate (the manifest `<queries>` DIAL entry covers package
+  /// visibility). On a null URI or launch failure: the generic error snack.
+  /// The number is NEVER logged.
+  Future<void> _callGuest(BuildContext context, String phone) async {
+    final Uri? uri = canonicalTelUri(phone);
+    bool launched = false;
+    if (uri != null) {
+      try {
+        launched = await launchUrl(uri);
+      } on Object {
+        launched = false;
+      }
+    }
+    if (!context.mounted || launched) return;
+    showErrorSnack(context, AppLocalizations.of(context).errUnknown);
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<Booking> async = ref.watch(
@@ -630,6 +652,10 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           // Phase 390 — the same owner/admin read also hides the client's
           // review: they read it in the salon «Відгуки» tab instead.
           hideClientReview: hideClientReview,
+          // Phase 417 — guest phone, gated by role + guest-only (see
+          // `BookingDisplayX.guestPhoneFor`). Null → no row.
+          guestPhone: booking.guestPhoneFor(role),
+          onCallGuest: (String phone) => _callGuest(context, phone),
           transitionsEnabled: transitionsEnabled,
           // Injected clock seam — the PROVIDER footer's start-time gate reads
           // this instead of the device clock so tests can pin it. `watch` (not
@@ -659,6 +685,8 @@ class _DetailBody extends StatelessWidget {
     required this.viewer,
     required this.showPerformingMaster,
     required this.hideClientReview,
+    required this.guestPhone,
+    required this.onCallGuest,
     required this.transitionsEnabled,
     required this.now,
     required this.rescheduleLoading,
@@ -685,6 +713,15 @@ class _DetailBody extends StatelessWidget {
   /// role is null (fail closed while the session is transiently unresolved).
   /// Reuses the owning state's single role read; never re-derived here.
   final bool hideClientReview;
+
+  /// Phase 417 — the guest's E.164 phone, already gated by
+  /// `BookingDisplayX.guestPhoneFor` in the owning state. Non-null renders the
+  /// tap-to-call [ContactTile] under the counterparty header. REQUIRED for the
+  /// same reason as [transitionsEnabled]. PII — never log.
+  final String? guestPhone;
+
+  /// Opens the dialer for the tapped phone (the owning state's `_callGuest`).
+  final void Function(String phone) onCallGuest;
 
   /// Phase 331 — whether [_providerActions] may offer STATUS TRANSITIONS
   /// (complete / decline / reschedule / not-complete). Sourced from
@@ -729,6 +766,7 @@ class _DetailBody extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final BookingStatusVisual v = BookingStatusVisual.of(booking, l10n);
     final (String? addressValue, String? addressDetail) = booking.addressBlock;
+    final String? guestPhoneValue = guestPhone;
 
     // Phase 334 — the client's review of the master, PROVIDER branch only.
     // Resolved here (rather than inline in `recapCards`) so the render site
@@ -804,11 +842,33 @@ class _DetailBody extends StatelessWidget {
           // Branch point 1 of 2 (locked decision D5) — the counterparty. A
           // client sees the master; a provider sees the client. Everything
           // else on this screen is shared verbatim.
-          masterCard: BookingCounterpartyHeader(
-            booking: booking,
-            viewer: viewer,
-            showPerformingMaster: showPerformingMaster,
-          ),
+          masterCard: guestPhoneValue == null
+              ? BookingCounterpartyHeader(
+                  booking: booking,
+                  viewer: viewer,
+                  showPerformingMaster: showPerformingMaster,
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    BookingCounterpartyHeader(
+                      booking: booking,
+                      viewer: viewer,
+                      showPerformingMaster: showPerformingMaster,
+                    ),
+                    const SizedBox(height: VelvetSpacing.sm),
+                    // Phase 417 — REUSE of the shared ContactTile.
+                    ContactTile(
+                      key: const Key('booking-detail-guest-phone'),
+                      icon: Icons.phone_outlined,
+                      label: l10n.bookingDetailGuestPhone,
+                      value: guestPhoneValue,
+                      semanticLabel: l10n.bookingDetailCallGuest,
+                      onTap: () => onCallGuest(guestPhoneValue),
+                    ),
+                  ],
+                ),
           salonName: booking.salonName,
           addressLine: addressValue,
           addressDetail: addressDetail,

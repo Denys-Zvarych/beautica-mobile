@@ -17,6 +17,12 @@ class _$GuestBookingRequest extends GuestBookingRequest {
   final String name;
   @override
   final String surname;
+  @override
+  final bool privacyAccepted;
+  @override
+  final String privacyPolicyVersion;
+  @override
+  final String? clientComment;
 
   factory _$GuestBookingRequest(
           [void Function(GuestBookingRequestBuilder)? updates]) =>
@@ -27,7 +33,10 @@ class _$GuestBookingRequest extends GuestBookingRequest {
       this.masterServiceIds,
       required this.startsAt,
       required this.name,
-      required this.surname})
+      required this.surname,
+      required this.privacyAccepted,
+      required this.privacyPolicyVersion,
+      this.clientComment})
       : super._();
   @override
   GuestBookingRequest rebuild(
@@ -46,7 +55,10 @@ class _$GuestBookingRequest extends GuestBookingRequest {
         masterServiceIds == other.masterServiceIds &&
         startsAt == other.startsAt &&
         name == other.name &&
-        surname == other.surname;
+        surname == other.surname &&
+        privacyAccepted == other.privacyAccepted &&
+        privacyPolicyVersion == other.privacyPolicyVersion &&
+        clientComment == other.clientComment;
   }
 
   @override
@@ -57,6 +69,9 @@ class _$GuestBookingRequest extends GuestBookingRequest {
     _$hash = $jc(_$hash, startsAt.hashCode);
     _$hash = $jc(_$hash, name.hashCode);
     _$hash = $jc(_$hash, surname.hashCode);
+    _$hash = $jc(_$hash, privacyAccepted.hashCode);
+    _$hash = $jc(_$hash, privacyPolicyVersion.hashCode);
+    _$hash = $jc(_$hash, clientComment.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -68,7 +83,10 @@ class _$GuestBookingRequest extends GuestBookingRequest {
           ..add('masterServiceIds', masterServiceIds)
           ..add('startsAt', startsAt)
           ..add('name', name)
-          ..add('surname', surname))
+          ..add('surname', surname)
+          ..add('privacyAccepted', privacyAccepted)
+          ..add('privacyPolicyVersion', privacyPolicyVersion)
+          ..add('clientComment', clientComment))
         .toString();
   }
 }
@@ -99,6 +117,21 @@ class GuestBookingRequestBuilder
   String? get surname => _$this._surname;
   set surname(String? surname) => _$this._surname = surname;
 
+  bool? _privacyAccepted;
+  bool? get privacyAccepted => _$this._privacyAccepted;
+  set privacyAccepted(bool? privacyAccepted) =>
+      _$this._privacyAccepted = privacyAccepted;
+
+  String? _privacyPolicyVersion;
+  String? get privacyPolicyVersion => _$this._privacyPolicyVersion;
+  set privacyPolicyVersion(String? privacyPolicyVersion) =>
+      _$this._privacyPolicyVersion = privacyPolicyVersion;
+
+  String? _clientComment;
+  String? get clientComment => _$this._clientComment;
+  set clientComment(String? clientComment) =>
+      _$this._clientComment = clientComment;
+
   GuestBookingRequestBuilder() {
     GuestBookingRequest._defaults(this);
   }
@@ -111,6 +144,9 @@ class GuestBookingRequestBuilder
       _startsAt = $v.startsAt;
       _name = $v.name;
       _surname = $v.surname;
+      _privacyAccepted = $v.privacyAccepted;
+      _privacyPolicyVersion = $v.privacyPolicyVersion;
+      _clientComment = $v.clientComment;
       _$v = null;
     }
     return this;
@@ -142,6 +178,13 @@ class GuestBookingRequestBuilder
                 name, r'GuestBookingRequest', 'name'),
             surname: BuiltValueNullFieldError.checkNotNull(
                 surname, r'GuestBookingRequest', 'surname'),
+            privacyAccepted: BuiltValueNullFieldError.checkNotNull(
+                privacyAccepted, r'GuestBookingRequest', 'privacyAccepted'),
+            privacyPolicyVersion: BuiltValueNullFieldError.checkNotNull(
+                privacyPolicyVersion,
+                r'GuestBookingRequest',
+                'privacyPolicyVersion'),
+            clientComment: clientComment,
           );
     } catch (_) {
       late String _$failedField;

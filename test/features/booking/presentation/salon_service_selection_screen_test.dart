@@ -37,6 +37,8 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/booking/data/slot_repository.dart'
+    show maxServicesPerVisit;
 import 'package:beautica_mobile/features/booking/domain/salon_booking_args.dart';
 import 'package:beautica_mobile/features/booking/presentation/salon_service_selection_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_bar.dart';
@@ -46,13 +48,16 @@ import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/salon/application/salon_service_catalog_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_service_catalog.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/fakes/fake_favorite_repository.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 
 // ---------------------------------------------------------------------------
 // Auth-free favourite toggle — skips the production build()'s
@@ -116,6 +121,30 @@ const _stubCatalog = <SalonServiceCategoryEntry>[
     services: <SalonCatalogService>[_svcB1],
   ),
 ];
+
+/// One category holding [n] services `svc-0` … `svc-(n-1)` — enough rows to
+/// push past the [maxServicesPerVisit] cap (phase 420).
+List<SalonServiceCategoryEntry> _manyServicesCatalog(int n) =>
+    <SalonServiceCategoryEntry>[
+      SalonServiceCategoryEntry(
+        category: 'MANICURE',
+        displayName: 'Манікюр',
+        count: n,
+        services: <SalonCatalogService>[
+          for (int i = 0; i < n; i++)
+            SalonCatalogService(
+              id: 'svc-$i',
+              name: 'Послуга $i',
+              durationLabel: '30 хв',
+              priceDisplay: '100 ₴',
+              category: 'MANICURE',
+              durationMinutes: 30,
+              priceType: ServicePriceType.fixed,
+              priceMin: 100,
+            ),
+        ],
+      ),
+    ];
 
 /// [GoRouter] with the screen under test at its initial location, plus a
 /// terminal capture route for `/booking/salon/masters` so navigation (and the
@@ -535,6 +564,92 @@ void main() {
           containsAll(<String>['svc-a1', 'svc-a2']),
         );
         expect(captured?.selectedServiceIds, hasLength(2));
+      },
+    );
+  });
+
+  // Phase 420 — the salon catalogue let a client pick 11+ services, after
+  // which every day's availability call was rejected (backend
+  // MAX_SERVICES_PER_VISIT = 10) and the client could never book. Mirrors
+  // `service_selector_sheet_test.dart`'s «visit-selection cap (MO-3)» group.
+  group('visit-selection cap (phase 420)', () {
+    Finder checkedTile(String id) => find.descendant(
+      of: find.byKey(Key('salon_booking_service_tile_$id')),
+      matching: find.byKey(const ValueKey<bool>(true)),
+    );
+
+    testWidgets(
+      'the 11th add is refused with the cap warning snack; deselecting one '
+      'frees a slot; «Далі» carries exactly maxServicesPerVisit ids',
+      (tester) async {
+        tester.view.physicalSize = const Size(800, 8000);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+
+        SalonBookingMasterSelectionArgs? captured;
+        await tester.pumpRoutedApp(
+          _routerFor(onReached: (args) => captured = args),
+          overrides: [
+            salonServiceCatalogProvider(
+              _kSalonId,
+            ).overrideWith((ref) async => _manyServicesCatalog(12)),
+          ],
+        );
+        await tester.pumpAndSettle();
+
+        // Tap 11 tiles — the 11th add must be refused (cap = 10).
+        for (int i = 0; i < 11; i++) {
+          await tester.tap(
+            find.byKey(Key('salon_booking_service_tile_svc-$i')),
+          );
+          await tester.pump();
+        }
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(SalonServiceSelectionScreen)),
+        );
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
+        );
+        for (int i = 0; i < maxServicesPerVisit; i++) {
+          expect(checkedTile('svc-$i'), findsOneWidget, reason: 'svc-$i');
+        }
+        expect(checkedTile('svc-10'), findsNothing);
+        await pumpPastVelvetSnack(tester);
+
+        // A removal is never blocked — and it frees a slot for another add.
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-0')),
+        );
+        await tester.pump();
+        expect(checkedTile('svc-0'), findsNothing);
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-10')),
+        );
+        await tester.pump();
+        expect(checkedTile('svc-10'), findsOneWidget);
+        expect(find.byType(VelvetSnack), findsNothing);
+
+        // Back at the cap — the next add is refused again.
+        await tester.tap(
+          find.byKey(const Key('salon_booking_service_tile_svc-11')),
+        );
+        await tester.pump();
+        expect(checkedTile('svc-11'), findsNothing);
+        expectVelvetSnack(
+          l10n.bookingMaxServicesReached(maxServicesPerVisit),
+          variant: VelvetSnackVariant.warning,
+        );
+        await pumpPastVelvetSnack(tester);
+
+        await tester.tap(find.byKey(const Key('booking-summary-cta')));
+        await tester.pumpAndSettle();
+
+        expect(captured?.selectedServiceIds, hasLength(maxServicesPerVisit));
+        expect(captured?.selectedServiceIds, isNot(contains('svc-0')));
+        expect(captured?.selectedServiceIds, contains('svc-10'));
       },
     );
   });

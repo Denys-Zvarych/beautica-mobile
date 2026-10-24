@@ -34,6 +34,7 @@ class PromptLinkText extends StatelessWidget {
     required this.linkKey,
     required this.onTap,
     this.linkStyle,
+    this.textAlign = TextAlign.center,
   });
 
   /// Leading prompt (e.g. «Немає акаунту?»).
@@ -50,6 +51,11 @@ class PromptLinkText extends StatelessWidget {
 
   /// Link style; defaults to [VelvetText.link].
   final TextStyle? linkStyle;
+
+  /// Paragraph alignment. ADDITIVE (phase 414): defaults to
+  /// [TextAlign.center], which every auth caller renders with unchanged; the
+  /// booking-link card's inline warning passes [TextAlign.start].
+  final TextAlign textAlign;
 
   @override
   Widget build(BuildContext context) {
@@ -82,7 +88,7 @@ class PromptLinkText extends StatelessWidget {
           ),
         ],
       ),
-      textAlign: TextAlign.center,
+      textAlign: textAlign,
     );
   }
 }

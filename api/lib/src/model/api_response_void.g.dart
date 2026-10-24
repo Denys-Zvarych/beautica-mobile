@@ -15,11 +15,14 @@ class _$ApiResponseVoid extends ApiResponseVoid {
   final String? message;
   @override
   final BuiltMap<String, String>? errors;
+  @override
+  final String? requestId;
 
   factory _$ApiResponseVoid([void Function(ApiResponseVoidBuilder)? updates]) =>
       (ApiResponseVoidBuilder()..update(updates))._build();
 
-  _$ApiResponseVoid._({this.success, this.data, this.message, this.errors})
+  _$ApiResponseVoid._(
+      {this.success, this.data, this.message, this.errors, this.requestId})
       : super._();
   @override
   ApiResponseVoid rebuild(void Function(ApiResponseVoidBuilder) updates) =>
@@ -35,7 +38,8 @@ class _$ApiResponseVoid extends ApiResponseVoid {
         success == other.success &&
         data == other.data &&
         message == other.message &&
-        errors == other.errors;
+        errors == other.errors &&
+        requestId == other.requestId;
   }
 
   @override
@@ -45,6 +49,7 @@ class _$ApiResponseVoid extends ApiResponseVoid {
     _$hash = $jc(_$hash, data.hashCode);
     _$hash = $jc(_$hash, message.hashCode);
     _$hash = $jc(_$hash, errors.hashCode);
+    _$hash = $jc(_$hash, requestId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -55,7 +60,8 @@ class _$ApiResponseVoid extends ApiResponseVoid {
           ..add('success', success)
           ..add('data', data)
           ..add('message', message)
-          ..add('errors', errors))
+          ..add('errors', errors)
+          ..add('requestId', requestId))
         .toString();
   }
 }
@@ -81,6 +87,10 @@ class ApiResponseVoidBuilder
       _$this._errors ??= MapBuilder<String, String>();
   set errors(MapBuilder<String, String>? errors) => _$this._errors = errors;
 
+  String? _requestId;
+  String? get requestId => _$this._requestId;
+  set requestId(String? requestId) => _$this._requestId = requestId;
+
   ApiResponseVoidBuilder() {
     ApiResponseVoid._defaults(this);
   }
@@ -92,6 +102,7 @@ class ApiResponseVoidBuilder
       _data = $v.data;
       _message = $v.message;
       _errors = $v.errors?.toBuilder();
+      _requestId = $v.requestId;
       _$v = null;
     }
     return this;
@@ -119,6 +130,7 @@ class ApiResponseVoidBuilder
             data: data,
             message: message,
             errors: _errors?.build(),
+            requestId: requestId,
           );
     } catch (_) {
       late String _$failedField;

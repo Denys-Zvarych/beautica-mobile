@@ -42,6 +42,7 @@ import 'salon_shell_landing_flow_test.dart' as salon_shell_landing;
 import 'owner_relaunch_last_salon_flow_test.dart' as owner_relaunch_last_salon;
 import 'owner_own_profile_flow_test.dart' as owner_own_profile;
 import 'owner_settings_hub_flow_test.dart' as owner_settings_hub;
+import 'booking_links_flow_test.dart' as booking_links;
 import 'owner_master_mode_flow_test.dart' as owner_master_mode;
 import 'owner_master_client_visibility_flow_test.dart'
     as owner_master_client_visibility;
@@ -142,6 +143,7 @@ void main() {
   // the `hasMasterProfile` tri-state and its 404 degrade, over the wire.
   group('owner_own_profile_flow', owner_own_profile.main);
   group('owner_settings_hub_flow', owner_settings_hub.main);
+  group('booking_links_flow', booking_links.main);
   group('owner_master_mode_flow', owner_master_mode.main);
   // Phase 385 (24.1h) — decision 7: a bookable owner (service + schedule
   // set in master mode) appears in the client «Команда»; a non-bookable one

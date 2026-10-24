@@ -112,6 +112,14 @@ dependencies:
   # Android 11+ package visibility.
   url_launcher: ^6.3.2
 
+  # Native share sheet for booking links (phase 413, D6). Pinned EXACT on
+  # purpose. 12.0.2 is the newest line compatible with file_picker ^8 — every
+  # share_plus >=13 needs win32 ^6, which file_picker <12 rejects. Only ever
+  # called through ShareService
+  # (lib/core/share/share_service.dart), the single test seam — widget tests
+  # override shareServiceProvider and never hit the platform channel.
+  share_plus: 12.0.2
+
   # File picking — support "Напишіть нам" attachments (images + PDF). Returns
   # bytes (withData) so the support repository can build multipart parts without
   # a second filesystem read. Limits (count/size/type) are enforced client-side

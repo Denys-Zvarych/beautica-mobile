@@ -5860,6 +5860,14 @@
   "@bookingDetailGuestClient": {
     "description": "Fallback name on the PROVIDER view of «Деталі запису» (and the master's booking card) when a booking carries no client name at all. Note this is NOT the ordinary guest/LINK case — the backend resolves guestName/guestSurname into clientFirstName/clientLastName server-side, so a link booking normally shows a real name. This covers a genuinely nameless record."
   },
+  "bookingDetailGuestPhone": "Телефон гостя",
+  "@bookingDetailGuestPhone": {
+    "description": "Caption above the guest's phone number on the provider view of «Деталі запису» (guest/LINK bookings only; independent master, salon owner, salon admin)."
+  },
+  "bookingDetailCallGuest": "Зателефонувати",
+  "@bookingDetailCallGuest": {
+    "description": "Accessibility label of the tap-to-call guest phone row on «Деталі запису»; tapping opens the phone dialer."
+  },
   "bookingDetailGuestBookingLabel": "Запис за посиланням",
   "@bookingDetailGuestBookingLabel": {
     "description": "Muted qualifier under the client's name on the provider view of «Деталі запису», shown when the booking has no registered client account (client_id IS NULL — a LINK/guest booking). Shown on account status alone, never merely because a name is missing."
@@ -6994,5 +7002,159 @@
         "type": "int"
       }
     }
+  },
+  "bookingLinksSettingsRow": "Посилання для запису",
+  "@bookingLinksSettingsRow": {
+    "description": "Phase 414 — settings hub row opening the booking links screen."
+  },
+  "bookingLinksTitle": "Посилання для запису",
+  "@bookingLinksTitle": {
+    "description": "Phase 414 — booking links screen title."
+  },
+  "bookingLinksBackSemanticLabel": "Назад",
+  "@bookingLinksBackSemanticLabel": {
+    "description": "Phase 414 — booking links screen back button accessibility label."
+  },
+  "bookingLinksIntro": "Додайте посилання в Instagram, Telegram чи Viber — клієнти запишуться без дзвінків.",
+  "@bookingLinksIntro": {
+    "description": "Phase 414 — intro line above the link cards."
+  },
+  "bookingLinkMasterTitle": "Моє посилання",
+  "@bookingLinkMasterTitle": {
+    "description": "Phase 414 — card title for the independent master's own link."
+  },
+  "bookingLinkSalonTitle": "Посилання салону «{name}»",
+  "@bookingLinkSalonTitle": {
+    "description": "Phase 414 — card title for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkCopy": "Копіювати",
+  "@bookingLinkCopy": {
+    "description": "Phase 414 — copy-link button."
+  },
+  "bookingLinkShare": "Поділитися",
+  "@bookingLinkShare": {
+    "description": "Phase 414 — share-link button."
+  },
+  "bookingLinkCopied": "Посилання скопійовано",
+  "@bookingLinkCopied": {
+    "description": "Phase 414 — success snackbar after copying a link."
+  },
+  "bookingLinkCopiedSemantic": "Скопійовано",
+  "@bookingLinkCopiedSemantic": {
+    "description": "Phase 414 — accessibility label of the in-well copied check."
+  },
+  "bookingLinkCopyFailed": "Не вдалося скопіювати посилання",
+  "@bookingLinkCopyFailed": {
+    "description": "Phase 414 — error snackbar when the clipboard write fails."
+  },
+  "bookingLinkShareFailed": "Не вдалося відкрити меню «Поділитися»",
+  "@bookingLinkShareFailed": {
+    "description": "Phase 414 — error snackbar when the share sheet fails to open."
+  },
+  "bookingLinkShareTextMaster": "Записуйтеся онлайн: {url}",
+  "@bookingLinkShareTextMaster": {
+    "description": "Phase 414 — share-sheet text for a master link.",
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkShareTextSalon": "Записуйтеся до «{name}» онлайн: {url}",
+  "@bookingLinkShareTextSalon": {
+    "description": "Phase 414 — share-sheet text for a salon link.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "url": {
+        "type": "String"
+      }
+    }
+  },
+  "bookingLinkNotBookableMaster": "Клієнти побачать сторінку, але ще не зможуть записатися. Додайте послуги та розклад.",
+  "@bookingLinkNotBookableMaster": {
+    "description": "Phase 414 — not-bookable warning on a master link card."
+  },
+  "bookingLinkNotBookableSalon": "Клієнти побачать сторінку, але ще не зможуть записатися. Потрібен хоча б один майстер із послугами та розкладом.",
+  "@bookingLinkNotBookableSalon": {
+    "description": "Phase 414 — not-bookable warning on a salon link card."
+  },
+  "bookingLinkSetupServices": "Налаштувати",
+  "@bookingLinkSetupServices": {
+    "description": "Phase 414 — not-bookable warning link to the services screen."
+  },
+  "bookingLinkSetupTeam": "Команда",
+  "@bookingLinkSetupTeam": {
+    "description": "Phase 414 — not-bookable warning link to the salon team tab."
+  },
+  "bookingLinkHintScheduleMaster": "Щоб клієнти могли записатися, потрібно налаштувати розклад.",
+  "@bookingLinkHintScheduleMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no schedule."
+  },
+  "bookingLinkHintServicesMaster": "Щоб клієнти могли записатися, додайте хоча б одну послугу.",
+  "@bookingLinkHintServicesMaster": {
+    "description": "Phase 416 — booking-link readiness hint: master has no active service."
+  },
+  "bookingLinkHintScheduleSalon": "Жоден майстер салону ще не має розкладу, тож клієнти не зможуть записатися.",
+  "@bookingLinkHintScheduleSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no master with a schedule."
+  },
+  "bookingLinkHintServicesSalon": "У салоні ще немає жодної послуги, тож клієнти не зможуть записатися.",
+  "@bookingLinkHintServicesSalon": {
+    "description": "Phase 416 — booking-link readiness hint: salon has no service."
+  },
+  "bookingLinkHintScheduleAction": "Налаштувати розклад",
+  "@bookingLinkHintScheduleAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the schedule page."
+  },
+  "bookingLinkHintServicesAction": "Додати послугу",
+  "@bookingLinkHintServicesAction": {
+    "description": "Phase 416 — booking-link readiness hint: link to the services page."
+  },
+  "bookingLinkRegenerate": "Створити нове посилання",
+  "@bookingLinkRegenerate": {
+    "description": "Phase 415 — regenerate glyph button semantic label / tooltip and the revoked card CTA."
+  },
+  "bookingLinkRegenerateTitle": "Створити нове посилання?",
+  "@bookingLinkRegenerateTitle": {
+    "description": "Phase 415 — regenerate confirm dialog title."
+  },
+  "bookingLinkRegenerateBody": "Старе посилання перестане працювати одразу. Оновіть його в Instagram, Telegram та всюди, де ви ним ділилися.",
+  "@bookingLinkRegenerateBody": {
+    "description": "Phase 415 — regenerate confirm dialog body (active link)."
+  },
+  "bookingLinkRegenerateBodyRevoked": "Буде створено нове посилання.",
+  "@bookingLinkRegenerateBodyRevoked": {
+    "description": "Phase 415 — regenerate confirm dialog body (revoked link)."
+  },
+  "bookingLinkRegenerateConfirm": "Створити",
+  "@bookingLinkRegenerateConfirm": {
+    "description": "Phase 415 — regenerate confirm dialog action."
+  },
+  "bookingLinkRevokedState": "Посилання вимкнено",
+  "@bookingLinkRevokedState": {
+    "description": "Phase 415 — revoked card state title."
+  },
+  "bookingLinkRevokedBody": "Старе посилання більше не працює.",
+  "@bookingLinkRevokedBody": {
+    "description": "Phase 415 — revoked card state body."
+  },
+  "bookingLinkRegenerated": "Нове посилання створено",
+  "@bookingLinkRegenerated": {
+    "description": "Phase 415 — success snack after regenerate."
+  },
+  "bookingLinkChangedElsewhere": "Посилання вже змінено. Показуємо актуальне.",
+  "@bookingLinkChangedElsewhere": {
+    "description": "Phase 415 — warning snack on 409 (stale currentSlug)."
+  },
+  "bookingLinkTooManyChanges": "Забагато змін. Спробуйте пізніше.",
+  "@bookingLinkTooManyChanges": {
+    "description": "Phase 415 — snack on 429."
   }
 }

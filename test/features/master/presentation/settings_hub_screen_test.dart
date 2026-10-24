@@ -27,9 +27,13 @@
 import 'dart:async';
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
+import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -38,14 +42,20 @@ import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
+import '../../../helpers/fakes/fake_notification_repository.dart'
+    show FixedRoleAuth;
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
 /// AuthNotifier whose logout() never resolves — lets a test confirm the dialog
 /// without the tree tearing down before assertions run. Tracks invocation.
+class _MockBookingLinksRepository extends Mock
+    implements BookingLinksRepository {}
+
 class _TrackingAuthNotifier extends AuthNotifier {
   int logoutCalls = 0;
 
@@ -1053,6 +1063,181 @@ void main() {
 
       expect(find.byKey(const Key('row-contacts')), findsOneWidget);
       expect(find.byKey(const Key('row-location')), findsOneWidget);
+    });
+  });
+
+  // Phase 414 — the «Посилання для запису» row (additive `showBookingLinks`).
+  // The row watches the REAL bookingLinksVisibleProvider (role scoping
+  // included) over a mocked repository that returns BOTH a MASTER and a
+  // SALON link, so the 5-role matrix proves the role rule, not a stub.
+  group('booking links row (phase 414)', () {
+    late _MockBookingLinksRepository repo;
+
+    const BookingLink masterLink = BookingLink(
+      kind: BookingLinkKind.master,
+      slug: 'anna-x7k2',
+      url: 'https://beautica.app/book/anna-x7k2',
+      displayName: 'Anna',
+      bookable: true,
+    );
+    const BookingLink salonLink = BookingLink(
+      kind: BookingLinkKind.salon,
+      slug: 'lumiere',
+      url: 'https://beautica.app/book/s/lumiere',
+      displayName: 'Lumière',
+      salonId: 'salon-1',
+      bookable: true,
+    );
+
+    setUp(() {
+      repo = _MockBookingLinksRepository();
+      when(() => repo.getMine()).thenAnswer(
+        (_) async => const BookingLinks(
+          shareEnabled: true,
+          links: <BookingLink>[masterLink, salonLink],
+        ),
+      );
+    });
+
+    GoRouter linksHubRouter({required bool showBookingLinks}) => GoRouter(
+      initialLocation: RouteNames.masterMenu,
+      routes: <RouteBase>[
+        GoRoute(
+          path: RouteNames.masterMenu,
+          builder: (_, _) =>
+              SettingsHubScreen(showBookingLinks: showBookingLinks),
+        ),
+        GoRoute(
+          path: RouteNames.bookingLinks,
+          builder: (_, _) =>
+              const Scaffold(body: SizedBox(key: Key('stub-booking-links'))),
+        ),
+      ],
+    );
+
+    Future<void> pumpHub(
+      WidgetTester tester, {
+      required bool showBookingLinks,
+      required UserRole role,
+    }) async {
+      final GoRouter router = linksHubRouter(
+        showBookingLinks: showBookingLinks,
+      );
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          authProvider.overrideWith(() => FixedRoleAuth(role)),
+          bookingLinksRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    const Key row = Key('row-booking-links');
+
+    testWidgets('default (showBookingLinks: false) → no row and the links '
+        'are never fetched', (tester) async {
+      await pumpHub(
+        tester,
+        showBookingLinks: false,
+        role: UserRole.independentMaster,
+      );
+
+      expect(find.byKey(row), findsNothing);
+      verifyNever(() => repo.getMine());
+    });
+
+    final Map<UserRole, bool> expected = <UserRole, bool>{
+      UserRole.independentMaster: true,
+      UserRole.salonOwner: true,
+      UserRole.salonAdmin: true,
+      UserRole.salonMaster: false,
+      UserRole.client: false,
+    };
+    expected.forEach((UserRole role, bool visible) {
+      testWidgets('${role.name} with showBookingLinks: true → row '
+          '${visible ? 'shown' : 'hidden'}', (tester) async {
+        await pumpHub(tester, showBookingLinks: true, role: role);
+
+        expect(find.byKey(row), visible ? findsOneWidget : findsNothing);
+      });
+    });
+
+    testWidgets('row sits between «Локація» and «Акаунт»', (tester) async {
+      await pumpHub(
+        tester,
+        showBookingLinks: true,
+        role: UserRole.independentMaster,
+      );
+
+      final double location = tester
+          .getTopLeft(find.byKey(const Key('row-location')))
+          .dy;
+      final double links = tester.getTopLeft(find.byKey(row)).dy;
+      final double account = tester
+          .getTopLeft(find.byKey(const Key('row-account')))
+          .dy;
+      expect(location, lessThan(links));
+      expect(links, lessThan(account));
+    });
+
+    testWidgets('kill-switch off → hidden', (tester) async {
+      when(() => repo.getMine()).thenAnswer(
+        (_) async => const BookingLinks(
+          shareEnabled: false,
+          links: <BookingLink>[masterLink],
+        ),
+      );
+      await pumpHub(
+        tester,
+        showBookingLinks: true,
+        role: UserRole.independentMaster,
+      );
+
+      expect(find.byKey(row), findsNothing);
+    });
+
+    testWidgets('no links → hidden', (tester) async {
+      when(() => repo.getMine()).thenAnswer(
+        (_) async =>
+            const BookingLinks(shareEnabled: true, links: <BookingLink>[]),
+      );
+      await pumpHub(
+        tester,
+        showBookingLinks: true,
+        role: UserRole.independentMaster,
+      );
+
+      expect(find.byKey(row), findsNothing);
+    });
+
+    testWidgets('load error → hidden', (tester) async {
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 403));
+      await pumpHub(
+        tester,
+        showBookingLinks: true,
+        role: UserRole.independentMaster,
+      );
+
+      expect(find.byKey(row), findsNothing);
+    });
+
+    testWidgets('tap pushes ${RouteNames.bookingLinks}', (tester) async {
+      await pumpHub(
+        tester,
+        showBookingLinks: true,
+        role: UserRole.independentMaster,
+      );
+
+      await tester.ensureVisible(find.byKey(row));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(row));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('stub-booking-links')), findsOneWidget);
     });
   });
 }

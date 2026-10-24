@@ -17,6 +17,7 @@ part 'api_response_list_local_date.g.dart';
 /// * [data]
 /// * [message]
 /// * [errors]
+/// * [requestId]
 @BuiltValue()
 abstract class ApiResponseListLocalDate
     implements
@@ -32,6 +33,9 @@ abstract class ApiResponseListLocalDate
 
   @BuiltValueField(wireName: r'errors')
   BuiltMap<String, String>? get errors;
+
+  @BuiltValueField(wireName: r'requestId')
+  String? get requestId;
 
   ApiResponseListLocalDate._();
 
@@ -92,6 +96,13 @@ class _$ApiResponseListLocalDateSerializer
             const FullType(BuiltMap, [FullType(String), FullType(String)]),
       );
     }
+    if (object.requestId != null) {
+      yield r'requestId';
+      yield serializers.serialize(
+        object.requestId,
+        specifiedType: const FullType(String),
+      );
+    }
   }
 
   @override
@@ -145,6 +156,13 @@ class _$ApiResponseListLocalDateSerializer
                 const FullType(BuiltMap, [FullType(String), FullType(String)]),
           ) as BuiltMap<String, String>;
           result.errors.replace(valueDes);
+          break;
+        case r'requestId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.requestId = valueDes;
           break;
         default:
           unhandled.add(key);

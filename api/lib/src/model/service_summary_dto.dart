@@ -15,6 +15,7 @@ part 'service_summary_dto.g.dart';
 /// * [name]
 /// * [durationMinutes]
 /// * [priceFrom]
+/// * [category] - The service's category key — the same value as ServiceDefinitionResponse.category and CategoryRef.key; the website groups services by it (phase 383).
 @BuiltValue()
 abstract class ServiceSummaryDto
     implements Built<ServiceSummaryDto, ServiceSummaryDtoBuilder> {
@@ -29,6 +30,10 @@ abstract class ServiceSummaryDto
 
   @BuiltValueField(wireName: r'priceFrom')
   num? get priceFrom;
+
+  /// The service's category key — the same value as ServiceDefinitionResponse.category and CategoryRef.key; the website groups services by it (phase 383).
+  @BuiltValueField(wireName: r'category')
+  String? get category;
 
   ServiceSummaryDto._();
 
@@ -84,6 +89,13 @@ class _$ServiceSummaryDtoSerializer
         specifiedType: const FullType(num),
       );
     }
+    if (object.category != null) {
+      yield r'category';
+      yield serializers.serialize(
+        object.category,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
   }
 
   @override
@@ -136,6 +148,14 @@ class _$ServiceSummaryDtoSerializer
             specifiedType: const FullType(num),
           ) as num;
           result.priceFrom = valueDes;
+          break;
+        case r'category':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.category = valueDes;
           break;
         default:
           unhandled.add(key);

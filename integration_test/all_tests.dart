@@ -72,6 +72,7 @@ import 'owner_master_client_visibility_flow_test.dart'
     as owner_master_client_visibility;
 import 'admin_own_profile_flow_test.dart' as admin_own_profile;
 import 'owner_settings_hub_flow_test.dart' as owner_settings_hub;
+import 'booking_links_flow_test.dart' as booking_links;
 import 'invite_accept_admin_landing_flow_test.dart'
     as invite_accept_admin_landing;
 import 'salon_shell_tab_sync_flow_test.dart' as salon_shell_tab_sync;
@@ -140,6 +141,7 @@ import 'master_archive_review_flow_test.dart' as master_archive_review;
 import 'master_booking_provider_actions_flow_test.dart'
     as master_booking_provider_actions;
 import 'master_bookings_flow_test.dart' as master_bookings;
+import 'guest_phone_tap_to_call_flow_test.dart' as guest_phone_tap_to_call;
 import 'master_bookings_month_step_flow_test.dart'
     as master_bookings_month_step;
 import 'master_bookings_week_rail_flow_test.dart' as master_bookings_week_rail;
@@ -170,6 +172,7 @@ import 'register_locality_persistence_flow_test.dart'
 import 'salon_booking_coverage_retry_flow_test.dart'
     as salon_booking_coverage_retry;
 import 'salon_booking_flow_test.dart' as salon_booking;
+import 'salon_booking_service_cap_flow_test.dart' as salon_booking_service_cap;
 import 'salon_management_profile_flow_test.dart' as salon_management_profile;
 import 'salon_edit_forms_flow_test.dart' as salon_edit_forms;
 import 'settlement_autocomplete_flow_test.dart' as settlement_autocomplete;
@@ -280,6 +283,7 @@ void main() {
   );
   group('admin_own_profile_flow', admin_own_profile.main);
   group('owner_settings_hub_flow', owner_settings_hub.main);
+  group('booking_links_flow', booking_links.main);
   // The invite-accept -> /salons/home landing (2026-09-06 incident): an
   // invited SALON_ADMIN's session must carry `salonId` off the accept
   // envelope alone — the ONLY session-establishing flow with no `GET
@@ -471,6 +475,7 @@ void main() {
   // Phase 7.2/7.6 — the INDEPENDENT_MASTER «Мої записи» → day rail →
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
+  group('guest_phone_tap_to_call_flow', guest_phone_tap_to_call.main);
   // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
   // walk-in wizard, end to end: fill client → pick service → pick date/slot
   // → confirm → done → pop → the new booking visible in the refetched day
@@ -600,6 +605,10 @@ void main() {
   // coverage fetch fails, must render the retry row (never the terminal
   // uncovered row), and a successful retry must recover it.
   group('salon_booking_coverage_retry_flow', salon_booking_coverage_retry.main);
+  // Phase 420 (mobile-qa, Step 2.7 Rule 3b) — the 10-service visit cap:
+  // an 11th catalogue tap is refused with the cap warning and «Далі» hands
+  // the masters step exactly 10 services.
+  group('salon_booking_service_cap_flow', salon_booking_service_cap.main);
   // Phase 21.2 QA follow-up (Step 2.7 Rule 3b) — SALON_OWNER editable salon
   // profile: real login → salonManageGuard admits a real session → PATCH
   // dirty-diff proven on the real wire body (mandate 3) → DELETE.
