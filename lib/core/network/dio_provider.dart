@@ -143,7 +143,7 @@ part 'dio_provider.g.dart';
 ///
 /// Both are required — see the "WHY TWO ROOTS" analysis in the file header.
 /// These MUST stay byte-identical to the `@raw/` copies referenced by
-/// `android/app/src/main/res/xml/network_security_config.xml`; the two
+/// `android/app/src/{staging,prod}/res/xml/network_security_config.xml`; the two
 /// enforcement points are only meaningful if they agree.
 const List<String> _pinnedRootCertAssets = <String>[
   'assets/certs/isrg_root_x1.pem',

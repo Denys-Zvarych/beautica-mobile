@@ -61,7 +61,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 MOBILE_REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 MOBILE_DIR="$MOBILE_REPO_DIR"
-PKG="com.beautica.beautica_mobile"
+# phase 408 changed the package id (was com.beautica.beautica_mobile): startup baselines recorded before 408 are not comparable.
+PKG="com.beautica.app.staging"  # phase 408: the staging flavor (profile build against staging, never prod)
 REF_MODEL="Pixel 6"
 SLICE_WARN_US=100000
 SAMPLES=5
@@ -309,9 +310,9 @@ series_warm() {
 # install_profile_no_trace <serial>: build the profile APK from this tree and install it
 # without a VM-service attach (works through a remote adb server).
 install_profile_no_trace() {
-  local serial="$1" apk="$MOBILE_DIR/build/app/outputs/flutter-apk/app-profile.apk"
+  local serial="$1" apk="$MOBILE_DIR/build/app/outputs/flutter-apk/app-staging-profile.apk"
   echo "==> Build + install profile APK (--no-trace) on $serial"
-  ( cd "$MOBILE_DIR" && timeout --kill-after=10 900 flutter build apk --profile ) || { echo "ERROR: flutter build apk --profile failed" >&2; exit 1; }
+  ( cd "$MOBILE_DIR" && timeout --kill-after=10 900 flutter build apk --profile --flavor staging --dart-define-from-file=config/env/staging.json ) || { echo "ERROR: flutter build apk --profile failed" >&2; exit 1; }
   [[ -f "$apk" ]] || { echo "ERROR: $apk not produced" >&2; exit 1; }
   timeout --kill-after=10 300 adb -s "$serial" install -r "$apk" || { echo "ERROR: adb install failed" >&2; exit 1; }
 }
@@ -379,7 +380,7 @@ main() {
     install_profile_no_trace "$serial"
   else
     echo "==> Install + trace (profile, --trace-startup) on $serial"
-    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup -d "$serial" )
+    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup --flavor staging --dart-define-from-file=config/env/staging.json -d "$serial" )
   fi
 
   # --- discarded warm-up launch (dexopt) ---

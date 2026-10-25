@@ -414,6 +414,11 @@ patrol, this workflow).
 
 ### apk: BEAUTICA_BASE_URL has no /api/v1 suffix
 
+Phase 408: the APK legs no longer repeat the URL. Debug builds the `staging` flavor
+with `--dart-define-from-file=config/env/staging.json`; the release legs build the
+`prod` flavor with `config/env/prod.json`. The JSON files are the single source and
+are checked by test/core/config/env_files_test.dart.
+
 NO /api/v1 suffix — the generated OpenAPI client and raw Dio calls
 already prepend /api/v1/. A suffix here double-prefixes every URL
 (.../api/v1/api/v1/...) → 404. Contract pinned by
@@ -464,7 +469,10 @@ failed / cancelled / skipped coverage to a ::warning::).
 
 ### coverage: ci-trusted-secrets Environment (audit cycle 2 N-L2)
 
-Audit cycle 2 N-L2: CODECOV_TOKEN lives in the `ci-trusted-secrets`
+Phase 408: the token-bearing codecov upload step was removed (no CODECOV_TOKEN
+exists), so the environment below no longer guards any secret.
+
+Audit cycle 2 N-L2 (historical): CODECOV_TOKEN lived in the `ci-trusted-secrets`
 Environment (branch policy dev/main), so a workflow_dispatch from another
 branch cannot read it. A pull_request run evaluates to '' = no
 environment (never waits for approval, never trips the branch policy).

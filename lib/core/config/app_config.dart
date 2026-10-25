@@ -69,6 +69,15 @@ abstract final class AppConfig {
   /// pipeline or a careless `--dart-define` injects.
   static final String baseUrl = normalizeBaseUrl(_rawBaseUrl);
 
+  /// Phase 408 — which environment this build was baked for
+  /// (`staging` | `prod`), from `config/env/<env>.json` via
+  /// `--dart-define-from-file`. Defaults to `staging` so a plain `flutter run`
+  /// with no flavor still works; `env_guard.dart` tolerates that only in debug.
+  static const String env = String.fromEnvironment(
+    'BEAUTICA_ENV',
+    defaultValue: 'staging',
+  );
+
   /// Public website origin (`https://beautica.app`) — the ONLY origin a
   /// server-built public link (booking links, phase 413) may point at.
   ///
@@ -179,9 +188,9 @@ abstract final class AppConfig {
   /// address.
   ///
   /// Loopback hosts recognised:
-  ///   - `localhost`
-  ///   - `127.0.0.1` (IPv4 loopback)
-  ///   - `::1` (IPv6 loopback)
+  ///   - `localhost` (a trailing dot is stripped)
+  ///   - `127.0.0.0/8` (IPv4 loopback), `0.0.0.0`, `169.254.0.0/16` (link-local)
+  ///   - `::1` (IPv6 loopback) and IPv4-mapped `::ffff:a.b.c.d` (v4 classified)
   ///   - `10.0.2.2` (Android emulator → host loopback)
   ///
   /// RFC 1918 IPv4 ranges recognised:
@@ -193,8 +202,9 @@ abstract final class AppConfig {
   /// `localhost`.  Public hosts return `false`.
   ///
   /// Exposed (non-underscored) so it can be exercised directly in unit tests,
-  /// since `kReleaseMode` is always `false` under `flutter test`.
-  @visibleForTesting
+  /// since `kReleaseMode` is always `false` under `flutter test`; also reused by
+  /// `env_guard.dart` (phase 408) rather than a parallel host classifier.
+  // (phase 408: no longer @visibleForTesting — env_guard.dart calls it.)
   static bool isPrivateOrLoopbackUrl(String url) {
     final Uri uri;
     try {
@@ -202,16 +212,34 @@ abstract final class AppConfig {
     } catch (_) {
       return false;
     }
-    final host = uri.host.toLowerCase();
+    var host = uri.host.toLowerCase();
+    if (host.endsWith('.')) host = host.substring(0, host.length - 1);
     if (host.isEmpty) return false;
 
     // Hostname-style loopback / well-known emulator alias.
     if (host == 'localhost') return true;
-    if (host == '127.0.0.1') return true;
-    if (host == '::1') return true;
-    if (host == '10.0.2.2') return true; // Android emulator → host loopback
+    if (host == '::1' || host == '::') return true;
 
-    // RFC 1918 private IPv4 ranges.  Parse as four octets.
+    // IPv4-mapped IPv6 (`::ffff:a.b.c.d` or `::ffff:xxxx:xxxx`): classify the v4.
+    if (host.startsWith('::ffff:')) {
+      final mapped = host.substring('::ffff:'.length);
+      if (mapped.contains('.')) return _isPrivateOrLoopbackIpv4(mapped);
+      final groups = mapped.split(':');
+      if (groups.length == 2) {
+        final hi = int.tryParse(groups[0], radix: 16);
+        final lo = int.tryParse(groups[1], radix: 16);
+        if (hi == null || lo == null) return false;
+        return _isPrivateOrLoopbackIpv4(
+          '${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}',
+        );
+      }
+      return false;
+    }
+    return _isPrivateOrLoopbackIpv4(host);
+  }
+
+  static bool _isPrivateOrLoopbackIpv4(String host) {
+    if (host == '10.0.2.2') return true; // Android emulator → host loopback
     final parts = host.split('.');
     if (parts.length != 4) return false;
     final octets = <int>[];
@@ -220,6 +248,12 @@ abstract final class AppConfig {
       if (n == null || n < 0 || n > 255) return false;
       octets.add(n);
     }
+    // 127.0.0.0/8 loopback
+    if (octets[0] == 127) return true;
+    // 0.0.0.0 unspecified
+    if (octets.every((o) => o == 0)) return true;
+    // 169.254.0.0/16 link-local
+    if (octets[0] == 169 && octets[1] == 254) return true;
     // 10.0.0.0/8
     if (octets[0] == 10) return true;
     // 172.16.0.0/12

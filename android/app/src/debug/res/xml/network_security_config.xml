@@ -18,16 +18,17 @@
         </trust-anchors>
     </base-config>
 
-    <!-- Production Railway domain: HTTPS only, anchored to the two ISRG roots.
-         Duplicated here so debug builds can still reach prod if needed.
-         MUST stay identical to the src/main/ copy's anchors (and to
+    <!-- Live API hosts (staging + prod): HTTPS only, anchored to the two ISRG roots.
+         Duplicated here so debug builds of either flavor can still reach them.
+         MUST stay identical to the src/staging + src/prod anchors (and to
          _pinnedRootCertAssets in lib/core/network/dio_provider.dart) — this
          file OVERRIDES src/main's for debug builds, so listing fewer anchors
          here would silently give debug builds a different, weaker pin than
          the Dart SecurityContext, i.e. the two enforcement points disagreeing.
-         See the src/main/ copy for why BOTH roots are required. -->
+         See the src/main/ file header for why BOTH roots are required. -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
+        <domain includeSubdomains="false">beautica-backend-staging.up.railway.app</domain>
+        <domain includeSubdomains="false">api.beautica.app</domain>
         <trust-anchors>
             <!-- ISRG Root X1 — RSA root, expires 2035-06-04. -->
             <certificates src="@raw/isrg_root_x1" />

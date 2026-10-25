@@ -54,7 +54,7 @@ new_case() {
     JARSRC="$W/jarsrc.bin"; printf 'FAKE-BUNDLETOOL-JAR' >"$JARSRC"
     printf 'FAKE-BUNDLETOOL-JAR' >"$W/fake.jar"
     SYMDIR="$W/out/sym"; JAROVR="$W/fake.jar"; BUDGET_ENV=""; GIT_TOP=""; CWD="$FAKE"; AABP="$W/aab/app.aab"
-    DEFAULT_AAB="$FAKE/build/app/outputs/bundle/release/app-release.aab"; HIST="$H/.cache/beautica-history/download-size-history.csv"
+    DEFAULT_AAB="$FAKE/build/app/outputs/bundle/prodRelease/app-prod-release.aab"; HIST="$H/.cache/beautica-history/download-size-history.csv"
     EXTRA_ENV=(); UMASK=022; FORCE_AABPATH=""
     cat >"$BIN/flutter" <<'EOF'
 #!/usr/bin/env bash
@@ -62,7 +62,7 @@ echo "flutter $* (cwd=$PWD)" >>"$STUB_LOG/flutter.log"
 for a in "$@"; do case "$a" in --split-debug-info=*) d="${a#*=}"; [ -d "$d" ] && stat -c %a "$d" >"$STUB_LOG/symbols.mode";; esac; done
 [ -n "${STUB_SWAP_JAR:-}" ] && printf 'EVIL' >"$STUB_SWAP_JAR"
 # the real script builds into the default location, relative to beautica-mobile (cwd)
-d=build/app/outputs/bundle/release; mkdir -p "$d"; : >"$d/app-release.aab"
+d=build/app/outputs/bundle/prodRelease; mkdir -p "$d"; : >"$d/app-prod-release.aab"
 [ -n "${STUB_RO_AABDIR:-}" ] && chmod a-w "$d"
 exit 0
 EOF
@@ -124,8 +124,8 @@ run
 check ok "exit 0" '[ $RC -eq 0 ]'
 check ok "arm64 size line printed" 'grep -q "arm64-v8a download size (MAX): $ARM64_MAX bytes" <<<"$OUT"'
 check ok "PASS line" 'grep -q "PASS: within MP7 budget" <<<"$OUT"'
-check ok "flutter built appbundle --release --obfuscate --split-debug-info=<symdir>" \
-    'grep -q "build appbundle --release --obfuscate --split-debug-info=$SYMDIR" "$LOGD/flutter.log"'
+check ok "flutter built appbundle --release --flavor prod ... --obfuscate --split-debug-info=<symdir>" \
+    'grep -q "build appbundle --release --flavor prod --dart-define-from-file=config/env/prod.json --obfuscate --split-debug-info=$SYMDIR" "$LOGD/flutter.log"'
 check ok "x86_64 / armeabi rows ignored for the gate value" '! grep -q "download size (MAX): 12500000" <<<"$OUT"'
 
 new_case "budget 1000 -> exit 1 with measured size and overage printed"

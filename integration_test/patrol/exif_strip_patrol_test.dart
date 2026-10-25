@@ -250,7 +250,7 @@ void main() {
         // uCrop's Done (the toolbar check) — native, waits for the element.
         await $.platform.android.tap(
           const AndroidSelector(
-            resourceName: 'com.beautica.beautica_mobile:id/menu_crop',
+            resourceName: 'com.beautica.app.staging:id/menu_crop',
           ),
           timeout: _cropScreenTimeout,
         );

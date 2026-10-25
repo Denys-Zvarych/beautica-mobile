@@ -1,67 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Network security configuration for Beautica Mobile.
+    Network security configuration for Beautica Mobile — BASE (phase 408).
 
-    IMPORTANT: When a custom <network-security-config> is present, Android's
-    built-in cleartext allowance for 10.0.2.2 does NOT apply automatically.
-    Every local address that needs cleartext HTTP must be listed explicitly in
-    a <domain-config> block below.
+    HTTPS-only for every host, system trust store, no user CAs. This file
+    deliberately carries NO <domain-config>: the per-environment API host and its
+    ISRG anchors live in the flavor source sets, which override this file:
 
-    Production domain: HTTPS-only, cleartext blocked.
+        src/staging/res/xml/network_security_config.xml  -> beautica-backend-staging.up.railway.app
+        src/prod/res/xml/network_security_config.xml     -> api.beautica.app
 
-    Trust anchors: ISRG Root X1 (to 2035) AND ISRG Root X2 (to 2040).
+    The media hosts (media.beautica.app — Cloudflare-proxied, Google Trust Services
+    chain; *.r2.dev — not ours) are DELIBERATELY not pinned anywhere: media uses the
+    system trust store (see beautica_image.dart / media_config.dart).
 
-    WHY BOTH ROOTS (do not drop either) — verified against the live chain
-    2026-07-22. beautica-backend-production.up.railway.app is served by
-    Railway's PLATFORM WILDCARD `CN=*.up.railway.app`, and today's chain is:
+    Resource precedence is buildType > flavor > main, so src/debug's config (which adds
+    cleartext for local dev addresses) still wins for debug builds of either flavor.
 
-        leaf *.up.railway.app
-          <- Let's Encrypt YE1        (intermediate, exp 2028-09-02)
-          <- ISRG Root YE             (intermediate, exp 2032-09-02)
-          <- ISRG Root X2             (CROSS-SIGNED BY ISRG Root X1)
-
-    The chain therefore roots at X2, not X1. An X1-only anchor validates it
-    ONLY because Railway/LE still ship the X1 cross-sign of X2 as the last
-    chain element. That is a server-side chain-construction choice we do not
-    control; the moment it is dropped (X2 is natively trusted on modern
-    Android, so shortening the chain is the expected direction) an X1-only
-    anchor FAILS CLOSED and every shipped build loses all connectivity.
-    Verified with `openssl verify -no-CApath -no-CAstore`: X1-only against a
-    chain with the cross-sign removed => "unable to get local issuer
-    certificate"; X1+X2 => OK, both with and without the cross-sign.
-
-    Listing both roots is strictly widening — it can only accept chains an
-    X1-only anchor already accepted, plus the shortened one. This MUST stay in
-    lockstep with lib/core/network/dio_provider.dart's SecurityContext, which
-    loads the same two PEMs from assets/certs/ (same bytes as res/raw here).
-
-    NOT AN SPKI PIN, DELIBERATELY. See the "why root and not intermediate"
-    analysis in dio_provider.dart — Android's <pin-set> could express an
-    intermediate pin, but dart:io's SecurityContext structurally cannot, so a
-    pin-set here would be enforced on Android only and give a false sense of
-    security on iOS while adding a brick risk on both.
+    Trust anchors in the flavor files: ISRG Root X1 (to 2035) AND ISRG Root X2
+    (to 2040), same bytes as assets/certs/ (loaded by lib/core/network/dio_provider.dart
+    — keep in lockstep). Verified live 2026-10-25:
+        api.beautica.app (prod): Let's Encrypt YR2 <- ISRG Root YR <- cross-signed by ISRG Root X1
+        beautica-backend-staging.up.railway.app: Let's Encrypt YE2 <- ISRG Root YE <- cross-signed by ISRG Root X2
+    Both roots are kept in both files: widening only adds chains an X1-only anchor
+    already accepted plus the shortened (cross-sign dropped) ones; dropping either
+    would fail closed on a CA-rotation. NOT an SPKI pin, deliberately — see the
+    "why root and not intermediate" analysis in dio_provider.dart. Never add leaf or
+    intermediate pins.
 -->
 <network-security-config>
-    <!-- Production: HTTPS only, no user CAs -->
+    <!-- HTTPS only, no user CAs -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-
-    <!-- Production Railway domain: HTTPS only, anchored to the two ISRG roots -->
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">beautica-backend-production.up.railway.app</domain>
-        <trust-anchors>
-            <!-- ISRG Root X1 — RSA root, expires 2035-06-04. Currently the anchor
-                 the served chain reaches via the X1 cross-sign of X2. -->
-            <certificates src="@raw/isrg_root_x1" />
-            <!-- ISRG Root X2 — ECDSA root, expires 2040-09-17, SELF-SIGNED copy.
-                 The true root of today's chain. Required so the app keeps working
-                 if the X1 cross-sign is ever dropped from the served chain. -->
-            <certificates src="@raw/isrg_root_x2" />
-        </trust-anchors>
-    </domain-config>
 
     <!-- Debug builds: also trust user-installed CA certificates (e.g. Charles, mitmproxy).
          Cleartext dev addresses (10.0.2.2, 192.168.56.101, localhost) are NOT listed here —
