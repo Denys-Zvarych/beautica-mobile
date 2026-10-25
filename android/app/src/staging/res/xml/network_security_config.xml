@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    STAGING network security configuration (phase 408, D4). Overrides src/main's.
+    Railway staging API host only (chain: LE YE2 <- ISRG Root YE <- X2, cross-signed by X1).
+    Anchors: ISRG Root X1 + X2 (see src/main/res/xml/network_security_config.xml for the
+    why and the verified chains). Media hosts are intentionally NOT pinned.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">beautica-backend-staging.up.railway.app</domain>
+        <trust-anchors>
+            <certificates src="@raw/isrg_root_x1" />
+            <certificates src="@raw/isrg_root_x2" />
+        </trust-anchors>
+    </domain-config>
+
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

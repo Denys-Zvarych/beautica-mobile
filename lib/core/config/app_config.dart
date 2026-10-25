@@ -69,6 +69,15 @@ abstract final class AppConfig {
   /// pipeline or a careless `--dart-define` injects.
   static final String baseUrl = normalizeBaseUrl(_rawBaseUrl);
 
+  /// Phase 408 — which environment this build was baked for
+  /// (`staging` | `prod`), from `config/env/<env>.json` via
+  /// `--dart-define-from-file`. Defaults to `staging` so a plain `flutter run`
+  /// with no flavor still works; `env_guard.dart` tolerates that only in debug.
+  static const String env = String.fromEnvironment(
+    'BEAUTICA_ENV',
+    defaultValue: 'staging',
+  );
+
   /// Public website origin (`https://beautica.app`) — the ONLY origin a
   /// server-built public link (booking links, phase 413) may point at.
   ///
@@ -193,8 +202,9 @@ abstract final class AppConfig {
   /// `localhost`.  Public hosts return `false`.
   ///
   /// Exposed (non-underscored) so it can be exercised directly in unit tests,
-  /// since `kReleaseMode` is always `false` under `flutter test`.
-  @visibleForTesting
+  /// since `kReleaseMode` is always `false` under `flutter test`; also reused by
+  /// `env_guard.dart` (phase 408) rather than a parallel host classifier.
+  // (phase 408: no longer @visibleForTesting — env_guard.dart calls it.)
   static bool isPrivateOrLoopbackUrl(String url) {
     final Uri uri;
     try {

@@ -7,11 +7,39 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// Phase 066 — Firebase push is opt-in at build time. google-services.json is
+// Phase 066 / 408 — Firebase push is opt-in at build time. google-services.json is
 // git-ignored and injected by scripts/deploy_apk*.sh; CI and fresh clones build
 // without it (push is then unavailable at runtime, see core/push/).
-if (file("google-services.json").exists()) {
-    apply(plugin = "com.google.gms.google-services")
+//
+// The google-services plugin FAILS the build for a variant whose applicationId has
+// no matching `client` in the json. Phase 408 gives the app two ids (prod
+// `com.beautica.app`, staging `com.beautica.app.staging`), so the plugin is applied
+// ONLY when the json exists AND carries a client for every flavor the requested
+// tasks build (all flavors when the tasks name none, e.g. `:app:help`). Otherwise it
+// is skipped and the build is push-less (push is deferred anyway).
+val prodApplicationId = "com.beautica.app"
+val stagingApplicationId = "$prodApplicationId.staging"
+val googleServicesJson = file("google-services.json")
+if (googleServicesJson.exists()) {
+    val jsonPackages = Regex("\"package_name\"\\s*:\\s*\"([^\"]+)\"")
+        .findAll(googleServicesJson.readText())
+        .map { it.groupValues[1] }
+        .toSet()
+    val requested = gradle.startParameter.taskNames.joinToString(" ").lowercase()
+    val wantsStaging = requested.contains("staging")
+    val wantsProd = requested.contains("prod")
+    val needed = buildList {
+        if (wantsStaging || !wantsProd) add(stagingApplicationId)
+        if (wantsProd || !wantsStaging) add(prodApplicationId)
+    }
+    if (jsonPackages.containsAll(needed)) {
+        apply(plugin = "com.google.gms.google-services")
+    } else {
+        logger.warn(
+            "google-services.json has no client for $needed (has $jsonPackages): " +
+                "building WITHOUT Firebase push"
+        )
+    }
 } else {
     logger.warn("google-services.json absent: building WITHOUT Firebase push")
 }
@@ -53,7 +81,10 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.beautica.beautica_mobile"
+        // Phase 408 A5 — final id, decided 2026-10-25. PERMANENT after the first Play
+        // upload. Distinct from `namespace` above (the Kotlin/Java package of
+        // MainActivity, which stays com.beautica.beautica_mobile).
+        applicationId = prodApplicationId
         minSdk = 26
         targetSdk = 35
         versionCode = flutter.versionCode
@@ -84,7 +115,7 @@ android {
         // then loses its approval and Android routes the URL to a browser
         // instead of the app, which the logcat shows verbatim:
         //
-        //   20:51:32  clearApplicationUserData com.beautica.beautica_mobile
+        //   20:51:32  clearApplicationUserData com.beautica.app.staging
         //   20:51:40  openUrl(https://…/reset-password?token=…)
         //   20:51:40  START … cmp=org.chromium.webview_shell/.WebViewBrowserActivity
         //
@@ -106,6 +137,32 @@ android {
         // AndroidX Test Orchestrator (testOptions below), which runs each case
         // in a fresh PROCESS; clearPackageData is merely one of its options.
         testInstrumentationRunnerArguments["clearPackageData"] = "false"
+    }
+
+    // Phase 408 — two installable apps from one codebase. Per-env URLs are NOT here:
+    // they come from config/env/<flavor>.json via --dart-define-from-file (D2), and
+    // lib/core/config/env_guard.dart fails a build whose flavor and URLs disagree.
+    //   staging: com.beautica.app.staging, label "Beautica β", S-badged launcher icon
+    //            (src/staging/res), pins the staging API host (src/staging/res/xml).
+    //   prod:    com.beautica.app, label "Beautica", pins api.beautica.app (src/prod).
+    // The release-signing guard below applies to both flavors (D6).
+    flavorDimensions += "env"
+    productFlavors {
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"
+            resValue("string", "app_name", "Beautica β")
+            // Staging has no frontend host yet (FRONTEND_BASE_URL is a placeholder):
+            // unverified on purpose, so the staging app can never claim prod links.
+            manifestPlaceholders["appLinkHost"] = "staging.beautica.app"
+        }
+        create("prod") {
+            dimension = "env"
+            resValue("string", "app_name", "Beautica")
+            // Email links go to the website origin (backend FRONTEND_BASE_URL); the
+            // website serves /.well-known/assetlinks.json.
+            manifestPlaceholders["appLinkHost"] = "beautica.app"
+        }
     }
 
     // Phase 17.5 — run each patrol native test in an isolated process via the

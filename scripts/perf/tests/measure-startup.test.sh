@@ -167,8 +167,8 @@ fn_series() { OUT="$(env "${EXTRA[@]}" bash -c 'source "$1"; set +eu; shift; ser
 fn_series dev-1 0 Cold
 check "series rc 0" '[ $RC -eq 0 ]'
 check "5 samples taken" '[ "$(grep -c "am start -W" "$FAKE_LOG")" -eq 5 ]'
-check "5 force-stops of the package" '[ "$(grep -c "^-s dev-1 shell am force-stop com.beautica.beautica_mobile$" "$FAKE_LOG")" -eq 5 ]'
-check "every launch is immediately preceded by a force-stop" '[ "$(grep -B1 "am start -W" "$FAKE_LOG" | grep -c "am force-stop com.beautica.beautica_mobile")" -eq 5 ]'
+check "5 force-stops of the package" '[ "$(grep -c "^-s dev-1 shell am force-stop com.beautica.app.staging$" "$FAKE_LOG")" -eq 5 ]'
+check "every launch is immediately preceded by a force-stop" '[ "$(grep -B1 "am start -W" "$FAKE_LOG" | grep -c "am force-stop com.beautica.app.staging")" -eq 5 ]'
 check "log strictly alternates force-stop / start" '[ "$(awk "NR%2==1 && /force-stop/ {a++} NR%2==0 && /start -W/ {b++} END{print a+b}" "$FAKE_LOG")" -eq 10 ]'
 check "samples line lists all 5 (CR stripped)" 'grep -q "samples: 1900 1700 3000 1800 2100" <<<"$OUT"'
 check "median 1900" 'grep -q "^MEDIAN=1900$" <<<"$OUT"'
@@ -225,7 +225,7 @@ check "priming + 5 launches" '[ "$(grep -c "am start -W" "$FAKE_LOG")" -eq 6 ]'
 check "NO force-stop anywhere in warm" '! grep -q "force-stop" "$FAKE_LOG"'
 check "NO HOME keyevent (that is hot)" '! grep -q "KEYCODE_HOME" "$FAKE_LOG"'
 check "5 KEYCODE_BACK" '[ "$(grep -c "^-s dev-1 shell input keyevent KEYCODE_BACK$" "$FAKE_LOG")" -eq 5 ]'
-check "5 pidof checks of the package" '[ "$(grep -c "^-s dev-1 shell pidof com.beautica.beautica_mobile$" "$FAKE_LOG")" -eq 5 ]'
+check "5 pidof checks of the package" '[ "$(grep -c "^-s dev-1 shell pidof com.beautica.app.staging$" "$FAKE_LOG")" -eq 5 ]'
 check "every sample launch preceded by pidof, itself preceded by BACK" '[ "$(awk "/am start -W/ && NR>1 {if (p2 ~ /KEYCODE_BACK/ && p1 ~ /pidof/) ok++} {p2=p1; p1=\$0} END{print ok+0}" "$FAKE_LOG")" -eq 5 ]'
 check "median of the 5 samples (priming excluded) = 750" 'grep -q "^MEDIAN=750$" <<<"$OUT" && grep -q "samples: 900 700 800 600 750" <<<"$OUT"'
 echo "[13i] killed process -> sample INVALID, retried"
@@ -277,11 +277,11 @@ EXTRA=(HOME="$ROOT/home")
 
 echo "[16] --no-trace: accepted by the parser; install helper builds then adb-installs, no flutter run"
 run --check 1500 500 --no-trace; check "--no-trace accepted in --check mode" '[ $RC -eq 0 ]'
-FB="$ROOT/fakebin"; mkdir -p "$FB" "$ROOT/m/build/app/outputs/flutter-apk"; : >"$ROOT/m/build/app/outputs/flutter-apk/app-profile.apk"
+FB="$ROOT/fakebin"; mkdir -p "$FB" "$ROOT/m/build/app/outputs/flutter-apk"; : >"$ROOT/m/build/app/outputs/flutter-apk/app-staging-profile.apk"
 printf '#!/bin/sh\necho "flutter $*" >>"$LOG"\n' >"$FB/flutter"; printf '#!/bin/sh\necho "adb $*" >>"$LOG"\n' >"$FB/adb"; chmod +x "$FB/flutter" "$FB/adb"
 EXTRA=(HOME="$ROOT/home" PATH="$FB:$PATH" LOG="$ROOT/calls.log" MOBILE_DIR="$ROOT/m")
 : >"$ROOT/calls.log"; OUT="$(env "${EXTRA[@]}" bash -c 'source "$1"; set +eu; MOBILE_DIR="$2"; install_profile_no_trace SER' _ "$TARGET" "$ROOT/m" 2>&1)"; RC=$?
-check "build apk --profile then adb -s SER install -r; never flutter run" '[ $RC -eq 0 ] && grep -q "^flutter build apk --profile" "$ROOT/calls.log" && grep -q "^adb -s SER install -r .*app-profile.apk" "$ROOT/calls.log" && ! grep -q "flutter run" "$ROOT/calls.log"'
+check "build apk --profile then adb -s SER install -r; never flutter run" '[ $RC -eq 0 ] && grep -q "^flutter build apk --profile" "$ROOT/calls.log" && grep -q "^adb -s SER install -r .*app-staging-profile.apk" "$ROOT/calls.log" && ! grep -q "flutter run" "$ROOT/calls.log"'
 EXTRA=(HOME="$ROOT/home")
 
 echo

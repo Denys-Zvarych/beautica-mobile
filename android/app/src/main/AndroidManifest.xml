@@ -5,7 +5,7 @@
     <!-- Phase 066: Android 13+ runtime notification permission (requested in phase 067). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="Beautica"
+        android:label="@string/app_name"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:fullBackupContent="@xml/backup_rules"
@@ -44,16 +44,18 @@
             </intent-filter>
             <!--
                 Android App Links for the security-token deep-link (MS-MEDIUM-1, Phase 2.20
-                audit). Scoped to /invite/accept only on the production Railway domain.
+                audit). Scoped to /invite/accept only, on the per-flavor host
+                ${appLinkHost} (phase 408: prod beautica.app, staging staging.beautica.app —
+                see productFlavors in app/build.gradle.kts).
                 android:autoVerify="true" prevents a competing app from registering the same
                 URL scheme and intercepting the single-use invite token from an emailed link.
 
                 IMPORTANT — the autoVerify handshake REQUIRES a
-                /.well-known/assetlinks.json file to be published on the production domain
-                (https://beautica-backend-production.up.railway.app/.well-known/assetlinks.json).
-                Until the backend team publishes that file, these links will open as ordinary
-                browser links rather than directly in the app; this intent-filter is safe to
-                ship now and causes no regression for users.
+                /.well-known/assetlinks.json file on the flavor's host. Prod: the website
+                serves https://beautica.app/.well-known/assetlinks.json (filled once the Play
+                signing SHA-256 exists). Staging has no frontend host yet, so its link stays
+                unverified (harmless: it can never claim prod links). Until verified, these
+                links open as ordinary browser links; the filter is safe to ship.
                 Action item for backend-dev: publish assetlinks.json (Phase 2.20 backlog).
 
                 mobile-security MEDIUM (OTP task): the /reset-password autoVerify intent-filter
@@ -71,7 +73,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="beautica-backend-production.up.railway.app"
+                    android:host="${appLinkHost}"
                     android:pathPrefix="/invite/accept" />
             </intent-filter>
         </activity>

@@ -37,7 +37,9 @@ void main() {
   // Relative to the package root (`beautica-mobile/`), which is `flutter test`'s
   // working directory.
   const manifestPath = 'android/app/src/main/AndroidManifest.xml';
-  const productionHost = 'beautica-backend-production.up.railway.app';
+  // Phase 408: the host is the per-flavor Gradle placeholder (prod beautica.app,
+  // staging staging.beautica.app — pinned in network_security_config_test.dart).
+  const productionHost = r'${appLinkHost}';
 
   late String manifest;
 

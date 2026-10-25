@@ -374,8 +374,9 @@ dev_dependencies:
 # Patrol native-test configuration (Phase 17.5) — read by `patrol test` /
 # `patrol_cli`. Top-level key (the patrol_cli tool, not the Flutter framework,
 # consumes it). app_name is cosmetic; android.package_name MUST match the
-# applicationId in android/app/build.gradle.kts so patrol can install + drive
-# the right APK. iOS is declared for parity but iOS native patrol is not part of
+# applicationId of the flavor patrol drives (phase 408: `staging` =
+# com.beautica.app.staging; android/app/build.gradle.kts) so patrol can install +
+# drive the right APK. iOS is declared for parity but iOS native patrol is not part of
 # this phase (Android-only emulator job in CI).
 patrol:
   app_name: Beautica
@@ -385,8 +386,9 @@ patrol:
   # ("Expected a declaration, but got '-'"). Pointing it at integration_test
   # lets patrol_cli strip the project path → valid relative alias.
   test_directory: integration_test
+  flavor: staging
   android:
-    package_name: com.beautica.beautica_mobile
+    package_name: com.beautica.app.staging
   ios:
     bundle_id: com.beautica.beauticaMobile
 
@@ -454,6 +456,9 @@ flutter_native_splash:
 flutter:
   uses-material-design: true
   generate: true
+  # Phase 408: a bare `flutter run` / `flutter build apk` (no --flavor) targets staging,
+  # the local-dev flavor. Release/distribution builds always pass --flavor explicitly.
+  default-flavor: staging
   # assets/branding/ is intentionally NOT listed here — those files are
   # build-time inputs for flutter_launcher_icons and flutter_native_splash
   # only and are never loaded via Image.asset() at runtime.

@@ -1,0 +1,5 @@
+{
+  "BEAUTICA_ENV": "prod",
+  "BEAUTICA_BASE_URL": "https://api.beautica.app",
+  "BEAUTICA_MEDIA_ORIGIN": "media.beautica.app"
+}
