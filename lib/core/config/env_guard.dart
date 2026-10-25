@@ -11,8 +11,9 @@
 //  - debug: a mismatch is LOGGED, never thrown, so `flutter run` keeps working.
 //    A missing `appFlavor` (plain `flutter run`, no `--flavor`) is tolerated in
 //    debug only.
-//  - the `prod` flavor additionally refuses a loopback / RFC 1918 / `*staging*`
-//    host in EVERY mode, debug included (it can never legitimately talk to one).
+//  - the `prod` flavor additionally refuses, in EVERY mode (debug included), a
+//    loopback / RFC 1918 / `*staging*` host, any host off the allow-list, and a
+//    non-https or explicit-port URL.
 //
 // The check itself ([checkEnvConsistency]) is pure — flavor, env, URL and build
 // mode are parameters — so it is unit-testable; [EnvGuard.assertConsistent] wires
@@ -63,14 +64,32 @@ EnvCheckResult checkEnvConsistency({
   final bool strict = mode != EnvBuildMode.debug;
   final String host = Uri.tryParse(baseUrl)?.host.toLowerCase() ?? '';
 
-  // The prod flavor may never talk to a dev/staging host — in any build mode.
+  // The prod flavor may never talk to a dev/staging host, any non-allow-listed
+  // host, or use a non-https / explicit-port URL — in any build mode.
   if (flavor == 'prod') {
+    final Uri? uri = Uri.tryParse(baseUrl);
+    final String prodHost = kEnvApiHosts['prod']!;
     if (AppConfig.isPrivateOrLoopbackUrl(baseUrl) ||
         host.contains('staging') ||
         host.isEmpty) {
       errors.add(
         'flavor prod refuses base URL "$baseUrl" '
         '(loopback / private / staging / empty host)',
+      );
+      fatal = true;
+    } else if (host != prodHost) {
+      errors.add(
+        'flavor prod refuses base URL host "$host" (not the allow-listed '
+        '"$prodHost")',
+      );
+      fatal = true;
+    } else if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.hasPort ||
+        uri.userInfo.isNotEmpty) {
+      errors.add(
+        'flavor prod requires an https base URL with no explicit port or userinfo '
+        '(got "$baseUrl")',
       );
       fatal = true;
     }

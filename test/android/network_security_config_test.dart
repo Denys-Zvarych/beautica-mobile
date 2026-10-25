@@ -86,7 +86,12 @@ void main() {
     for (final File f in files) {
       expect(
         utf8.decode(f.readAsBytesSync(), allowMalformed: true),
-        isNot(contains('beautica-backend-production.up.railway.app')),
+        isNot(
+          contains(
+            'beautica-backend-'
+            'production.up.railway.app',
+          ),
+        ),
         reason: f.path,
       );
     }

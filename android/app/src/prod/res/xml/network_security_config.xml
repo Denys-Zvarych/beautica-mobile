@@ -4,6 +4,8 @@
     Prod API host only (chain: LE YR2 <- ISRG Root YR <- X1 cross-sign).
     Anchors: ISRG Root X1 + X2 (see src/main/res/xml/network_security_config.xml for the
     why and the verified chains). Media hosts are intentionally NOT pinned.
+    No <debug-overrides> here on purpose: lint merges same-named configs across source sets
+    and allows at most one (src/main has it); debug builds use src/debug's file anyway.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
@@ -20,10 +22,4 @@
         </trust-anchors>
     </domain-config>
 
-    <debug-overrides>
-        <trust-anchors>
-            <certificates src="system" />
-            <certificates src="user" />
-        </trust-anchors>
-    </debug-overrides>
 </network-security-config>

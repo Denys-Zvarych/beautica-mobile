@@ -61,6 +61,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 MOBILE_REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 MOBILE_DIR="$MOBILE_REPO_DIR"
+# phase 408 changed the package id (was com.beautica.beautica_mobile): startup baselines recorded before 408 are not comparable.
 PKG="com.beautica.app.staging"  # phase 408: the staging flavor (profile build against staging, never prod)
 REF_MODEL="Pixel 6"
 SLICE_WARN_US=100000
@@ -379,7 +380,7 @@ main() {
     install_profile_no_trace "$serial"
   else
     echo "==> Install + trace (profile, --trace-startup) on $serial"
-    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup -d "$serial" )
+    ( cd "$MOBILE_DIR" && flutter run --profile --trace-startup --flavor staging --dart-define-from-file=config/env/staging.json -d "$serial" )
   fi
 
   # --- discarded warm-up launch (dexopt) ---

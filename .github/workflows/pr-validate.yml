@@ -1029,10 +1029,9 @@ jobs:
       && needs.plan.outputs.run_all == 'true' && needs.unit.result == 'success'
     continue-on-error: true
     timeout-minutes: 15
-    # Phase 408: the token-bearing codecov upload step was removed (no CODECOV_TOKEN exists);
-    # only the tokenless PR upload remains. Environment kept as-is ('' on pull_request).
+    # Phase 408 audit F7: the token-bearing codecov upload was removed (no CODECOV_TOKEN exists)
+    # and no step reads a secret, so the job no longer declares the ci-trusted-secrets environment.
     # why: docs/ci/README.md#coverage-environment
-    environment: ${{ github.event_name != 'pull_request' && 'ci-trusted-secrets' || '' }}
     # Read-only token (S-L2): this job never writes to the repo or the API.
     permissions:
       contents: read

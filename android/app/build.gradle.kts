@@ -25,9 +25,14 @@ if (googleServicesJson.exists()) {
         .findAll(googleServicesJson.readText())
         .map { it.groupValues[1] }
         .toSet()
-    val requested = gradle.startParameter.taskNames.joinToString(" ").lowercase()
-    val wantsStaging = requested.contains("staging")
-    val wantsProd = requested.contains("prod")
+    // Flavor-qualified task names only (`assembleProdRelease`, `:app:installStagingDebug`,
+    // `bundleProd...`): a capitalised flavor segment directly followed by a build type, so a
+    // task or path that merely CONTAINS "prod"/"staging" (e.g. `:productionTool`) never matches.
+    val requested = gradle.startParameter.taskNames
+    val stagingTask = Regex("(?<![A-Za-z])(?:[a-z]+)?Staging(?:Debug|Profile|Release)(?![a-z])")
+    val prodTask = Regex("(?<![A-Za-z])(?:[a-z]+)?Prod(?:Debug|Profile|Release)(?![a-z])")
+    val wantsStaging = requested.any { stagingTask.containsMatchIn(it) }
+    val wantsProd = requested.any { prodTask.containsMatchIn(it) }
     val needed = buildList {
         if (wantsStaging || !wantsProd) add(stagingApplicationId)
         if (wantsProd || !wantsStaging) add(prodApplicationId)
