@@ -5,7 +5,7 @@ description: "Beautica — beauty services booking platform (Flutter app)"
 publish_to: 'none'
 
 # Version: 1.0.0+1 — bumped via Phase 11.6 release discipline.
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.11.5
