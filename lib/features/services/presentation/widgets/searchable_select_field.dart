@@ -793,97 +793,109 @@ class _SearchableSelectSheetState<T> extends State<_SearchableSelectSheet<T>> {
           borderRadius: _kSheetRadius,
           child: DecoratedBox(
             decoration: _kSheetDecoration,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Padding(
-                  padding: EdgeInsets.only(
-                    top: VelvetSpacing.sm,
-                    bottom: VelvetSpacing.xs,
+            // Phase 422 D2 — edge-to-edge: keep the last rows and footer
+            // clear of the system navigation bar; the taupe surface still runs
+            // under it. A no-op at zero inset, and while the keyboard is up
+            // (that zeroes padding.bottom).
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Padding(
+                    padding: EdgeInsets.only(
+                      top: VelvetSpacing.sm,
+                      bottom: VelvetSpacing.xs,
+                    ),
+                    child: _DragHandle(color: BrandColors.faint),
                   ),
-                  child: _DragHandle(color: BrandColors.faint),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.md,
-                    VelvetSpacing.xs,
-                    VelvetSpacing.xs,
-                    VelvetSpacing.sm,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: Text(widget.title, style: VelvetText.heading()),
-                      ),
-                      IconButton(
-                        key: const Key('select-menu-close'),
-                        icon: const Icon(Icons.close_rounded),
-                        iconSize: 20,
-                        color: BrandColors.accentDeep,
-                        constraints: const BoxConstraints(
-                          minWidth: 44,
-                          minHeight: 44,
-                        ),
-                        onPressed: () => dismissOverlay(context),
-                      ),
-                    ],
-                  ),
-                ),
-                // Search field — hidden while loading/error since there is no
-                // list to filter; this keeps the focus on the state affordance.
-                // On the REMOTE path it is always present: the query is what
-                // produces the load, so hiding the input during one would trap
-                // the user on a spinner they cannot steer out of.
-                if (widget.source != null ||
-                    widget.state == SelectFieldState.idle)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
                       VelvetSpacing.md,
-                      0,
-                      VelvetSpacing.md,
+                      VelvetSpacing.xs,
+                      VelvetSpacing.xs,
                       VelvetSpacing.sm,
                     ),
-                    child: TextField(
-                      key: const Key('select-menu-search'),
-                      controller: _searchController,
-                      onChanged: _onSearchChanged,
-                      inputFormatters: _maxQueryLength == null
-                          ? null
-                          : <TextInputFormatter>[
-                              LengthLimitingTextInputFormatter(_maxQueryLength),
-                            ],
-                      autocorrect: false,
-                      textInputAction: TextInputAction.search,
-                      style: VelvetText.input(),
-                      cursorColor: BrandColors.accent,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        filled: true,
-                        fillColor: BrandColors.white.withValues(alpha: 0.5),
-                        hintText: widget.searchHint,
-                        hintStyle: _searchHintStyle,
-                        prefixIcon: const Icon(
-                          Icons.search_rounded,
-                          size: 20,
-                          color: BrandColors.muted,
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            widget.title,
+                            style: VelvetText.heading(),
+                          ),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: VelvetSpacing.sm,
+                        IconButton(
+                          key: const Key('select-menu-close'),
+                          icon: const Icon(Icons.close_rounded),
+                          iconSize: 20,
+                          color: BrandColors.accentDeep,
+                          constraints: const BoxConstraints(
+                            minWidth: 44,
+                            minHeight: 44,
+                          ),
+                          onPressed: () => dismissOverlay(context),
                         ),
-                        enabledBorder: const OutlineInputBorder(
-                          borderRadius: _kSearchRadius,
-                          borderSide: BorderSide(color: BrandColors.faint),
-                        ),
-                        focusedBorder: const OutlineInputBorder(
-                          borderRadius: _kSearchRadius,
-                          borderSide: BorderSide(color: BrandColors.accent),
+                      ],
+                    ),
+                  ),
+                  // Search field — hidden while loading/error since there is no
+                  // list to filter; this keeps the focus on the state affordance.
+                  // On the REMOTE path it is always present: the query is what
+                  // produces the load, so hiding the input during one would trap
+                  // the user on a spinner they cannot steer out of.
+                  if (widget.source != null ||
+                      widget.state == SelectFieldState.idle)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        VelvetSpacing.md,
+                        0,
+                        VelvetSpacing.md,
+                        VelvetSpacing.sm,
+                      ),
+                      child: TextField(
+                        key: const Key('select-menu-search'),
+                        controller: _searchController,
+                        onChanged: _onSearchChanged,
+                        inputFormatters: _maxQueryLength == null
+                            ? null
+                            : <TextInputFormatter>[
+                                LengthLimitingTextInputFormatter(
+                                  _maxQueryLength,
+                                ),
+                              ],
+                        autocorrect: false,
+                        textInputAction: TextInputAction.search,
+                        style: VelvetText.input(),
+                        cursorColor: BrandColors.accent,
+                        decoration: InputDecoration(
+                          isDense: true,
+                          filled: true,
+                          fillColor: BrandColors.white.withValues(alpha: 0.5),
+                          hintText: widget.searchHint,
+                          hintStyle: _searchHintStyle,
+                          prefixIcon: const Icon(
+                            Icons.search_rounded,
+                            size: 20,
+                            color: BrandColors.muted,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: VelvetSpacing.sm,
+                          ),
+                          enabledBorder: const OutlineInputBorder(
+                            borderRadius: _kSearchRadius,
+                            borderSide: BorderSide(color: BrandColors.faint),
+                          ),
+                          focusedBorder: const OutlineInputBorder(
+                            borderRadius: _kSearchRadius,
+                            borderSide: BorderSide(color: BrandColors.accent),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                Flexible(child: _cachedBody ??= _body(context)),
-                if (widget.menuFooter != null) widget.menuFooter!(context),
-              ],
+                  Flexible(child: _cachedBody ??= _body(context)),
+                  if (widget.menuFooter != null) widget.menuFooter!(context),
+                ],
+              ),
             ),
           ),
         ),

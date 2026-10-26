@@ -185,6 +185,52 @@ void main() {
       return (router, r);
     }
 
+    // Phase 422 D2 — edge-to-edge. A 48 dp 3-button navigation bar arrives as
+    // a bottom MediaQuery inset; the screen's (now full) SafeArea must lift the
+    // pinned submit CTA by exactly that much, keep it tappable, and leave the
+    // zero-inset geometry (API <= 34) untouched. Pre-422 the SafeArea was
+    // `bottom: false` and the CTA stayed under the bar.
+    testWidgets('phase 422 — a 48 dp bottom system inset lifts the pinned '
+        'submit CTA by exactly 48 dp, and it still submits', (tester) async {
+      final _MockBookingRepository repo = _MockBookingRepository();
+      when(
+        () => repo.createReview(
+          bookingId: any(named: 'bookingId'),
+          rating: any(named: 'rating'),
+          comment: any(named: 'comment'),
+        ),
+      ).thenAnswer((_) async {});
+      await pumpReview(
+        tester,
+        repo: repo,
+        detail: (ref) async => _booking(canReview: true),
+      );
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await tester.pumpAndSettle();
+
+      final Finder submit = find.byKey(const Key('leave-review-submit'));
+      final Rect atZero = tester.getRect(submit);
+
+      final double dpr = tester.view.devicePixelRatio;
+      tester.view.padding = FakeViewPadding(bottom: 48 * dpr);
+      tester.view.viewPadding = FakeViewPadding(bottom: 48 * dpr);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      await tester.pumpAndSettle();
+
+      final Rect atInset = tester.getRect(submit);
+      final double screenBottom = tester.view.physicalSize.height / dpr;
+      expect(atInset.bottom, atZero.bottom - 48);
+      expect(atInset.bottom, lessThanOrEqualTo(screenBottom - 48));
+      expect(atInset.height, atZero.height);
+
+      await tester.tap(submit);
+      await tester.pumpAndSettle();
+      verify(
+        () => repo.createReview(bookingId: _bookingId, rating: 5, comment: ''),
+      ).called(1);
+    });
+
     // ── Phase 240 — the master card's rating + its route into reviews ──────
     //
     // `booking_mapper.dart:119` maps `masterId: dto.masterId ?? ''`, so an

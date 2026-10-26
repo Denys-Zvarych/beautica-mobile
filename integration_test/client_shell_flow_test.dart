@@ -38,6 +38,7 @@
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/shell/presentation/client_shell.dart';
 import 'package:beautica_mobile/features/shell/presentation/widgets/client_bottom_nav.dart';
+import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +47,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/edge_to_edge_inset.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -375,6 +377,63 @@ void main() {
             'branch 0 (Головна) must be the active IndexedStack child after the '
             'back-to-Home hop from branch $nonHomeBranch',
       );
+    }
+  }, timeout: const Timeout(Duration(seconds: 60)));
+  // ── Test 8 — phase 422: edge-to-edge 48 dp bottom inset ─────────────────
+  //
+  // targetSdk 36 makes edge-to-edge mandatory, so on a 3-button device the
+  // navigation bar arrives as a 48 dp bottom inset. The floating pill must sit
+  // `md + inset` above the screen bottom (not stretched under the bar), every
+  // tappable tile must clear the bar, and a tap must still hop the branch.
+  testWidgets('phase 422 — under a 48 dp system inset the pill floats above '
+      'the navigation bar, every tile clears it, and a tap still navigates', (
+    tester,
+  ) async {
+    final double inset = simulateBottomSystemInset(tester);
+    final fb = FakeBackend()..currentRole = UserRole.client;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.client);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    AppHarness.expectLocation(router, RouteNames.clientHome);
+
+    // The pill is the bar's first ClipRRect (the centre disc comes later).
+    final Rect pill = tester.getRect(
+      find
+          .descendant(
+            of: find.byType(ClientBottomNav),
+            matching: find.byType(ClipRRect),
+          )
+          .first,
+    );
+    expect(
+      pill.bottom,
+      insetTopEdge(tester, inset) - VelvetSpacing.md,
+      reason:
+          'the pill floats md above the TOP of the system bar — pre-422 it '
+          'stretched down under the bar (bottom = screen - md)',
+    );
+
+    for (final String key in <String>[
+      'client-nav-tile-0',
+      'client-nav-tile-1',
+      'client-nav-search-center',
+      'client-nav-tile-3',
+      'client-nav-tile-4',
+    ]) {
+      expectAboveBottomInset(
+        tester,
+        find.byKey(Key(key)),
+        inset,
+        what: 'bottom-nav affordance $key',
+      );
+    }
+
+    // Taps land on the tiles (hitTestWarningShouldBeFatal is on in the
+    // harness) and hop the branch.
+    for (final int index in <int>[3, 2, 0]) {
+      await tapBranch(tester, index);
+      AppHarness.expectLocation(router, branchRoute[index]!);
+      expect(find.byKey(Key(branchBodyKey[index]!)), findsOneWidget);
     }
   }, timeout: const Timeout(Duration(seconds: 60)));
 }

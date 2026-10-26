@@ -181,143 +181,150 @@ class _LocalityPickerSheetState<T>
           child: DecoratedBox(
             // VelvetTouch warm-taupe surface — no glassmorphism, no gradient.
             decoration: _kSheetDecoration,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Drag handle — visible on the warm taupe base.
-                const Padding(
-                  padding: EdgeInsets.only(
-                    top: VelvetSpacing.sm,
-                    bottom: VelvetSpacing.xs,
+            // Phase 422 D2 — edge-to-edge: keep the last rows and footer
+            // clear of the system navigation bar; the taupe surface still runs
+            // under it. A no-op at zero inset, and while the keyboard is up
+            // (that zeroes padding.bottom).
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Drag handle — visible on the warm taupe base.
+                  const Padding(
+                    padding: EdgeInsets.only(
+                      top: VelvetSpacing.sm,
+                      bottom: VelvetSpacing.xs,
+                    ),
+                    child: _DragHandle(color: BrandColors.faint),
                   ),
-                  child: _DragHandle(color: BrandColors.faint),
-                ),
-                // Header: title on the left, explicit close (X) on the right.
-                // The close button is the reliable dismiss affordance when the
-                // keyboard is open and the scrim is unreachable (Defect 6).
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.md,
-                    VelvetSpacing.xs,
-                    VelvetSpacing.xs,
-                    VelvetSpacing.sm,
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.titleLabel,
-                          style: VelvetText.heading(),
+                  // Header: title on the left, explicit close (X) on the right.
+                  // The close button is the reliable dismiss affordance when the
+                  // keyboard is open and the scrim is unreachable (Defect 6).
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      VelvetSpacing.md,
+                      VelvetSpacing.xs,
+                      VelvetSpacing.xs,
+                      VelvetSpacing.sm,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.titleLabel,
+                            style: VelvetText.heading(),
+                          ),
                         ),
-                      ),
-                      IconButton(
-                        key: const Key('locality_picker_close'),
-                        icon: const Icon(Icons.close_rounded),
-                        iconSize: 20,
-                        color: BrandColors.accentDeep,
-                        tooltip: l10n.localityPickerClose,
-                        // 44×44 hit target (touch-target-size); visual glyph 20.
-                        constraints: const BoxConstraints(
-                          minWidth: 44,
-                          minHeight: 44,
+                        IconButton(
+                          key: const Key('locality_picker_close'),
+                          icon: const Icon(Icons.close_rounded),
+                          iconSize: 20,
+                          color: BrandColors.accentDeep,
+                          tooltip: l10n.localityPickerClose,
+                          // 44×44 hit target (touch-target-size); visual glyph 20.
+                          constraints: const BoxConstraints(
+                            minWidth: 44,
+                            minHeight: 44,
+                          ),
+                          onPressed: () => context.pop(),
                         ),
-                        onPressed: () => context.pop(),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                // Search field — soft white inset on warm taupe base.
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    VelvetSpacing.md,
-                    0,
-                    VelvetSpacing.md,
-                    VelvetSpacing.sm,
-                  ),
-                  child: TextField(
-                    key: const Key('locality_picker_search'),
-                    controller: _searchController,
-                    onChanged: _onSearchChanged,
-                    autocorrect: false,
-                    textInputAction: TextInputAction.search,
-                    style: VelvetText.input(),
-                    cursorColor: BrandColors.accent,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      filled: true,
-                      fillColor: BrandColors.white.withValues(alpha: 0.5),
-                      hintText: l10n.localitySearchHint,
-                      hintStyle: _searchHintStyle,
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        size: 20,
-                        color: BrandColors.muted,
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: VelvetSpacing.sm,
-                      ),
-                      enabledBorder: const OutlineInputBorder(
-                        borderRadius: _kSearchRadius,
-                        borderSide: BorderSide(color: BrandColors.faint),
-                      ),
-                      focusedBorder: const OutlineInputBorder(
-                        borderRadius: _kSearchRadius,
-                        borderSide: BorderSide(color: BrandColors.accent),
+                  // Search field — soft white inset on warm taupe base.
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      VelvetSpacing.md,
+                      0,
+                      VelvetSpacing.md,
+                      VelvetSpacing.sm,
+                    ),
+                    child: TextField(
+                      key: const Key('locality_picker_search'),
+                      controller: _searchController,
+                      onChanged: _onSearchChanged,
+                      autocorrect: false,
+                      textInputAction: TextInputAction.search,
+                      style: VelvetText.input(),
+                      cursorColor: BrandColors.accent,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        filled: true,
+                        fillColor: BrandColors.white.withValues(alpha: 0.5),
+                        hintText: l10n.localitySearchHint,
+                        hintStyle: _searchHintStyle,
+                        prefixIcon: const Icon(
+                          Icons.search_rounded,
+                          size: 20,
+                          color: BrandColors.muted,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: VelvetSpacing.sm,
+                        ),
+                        enabledBorder: const OutlineInputBorder(
+                          borderRadius: _kSearchRadius,
+                          borderSide: BorderSide(color: BrandColors.faint),
+                        ),
+                        focusedBorder: const OutlineInputBorder(
+                          borderRadius: _kSearchRadius,
+                          borderSide: BorderSide(color: BrandColors.accent),
+                        ),
                       ),
                     ),
                   ),
-                ),
-                Flexible(
-                  child: async.when(
-                    loading: () => const _SheetLoading(),
-                    error: (err, _) => _SheetError(
-                      failure: err,
-                      onRetry: widget.onRetry,
-                      retryLabel: l10n.localityRetry,
-                    ),
-                    data: (items) {
-                      final filtered = _filter(items);
-                      if (filtered.isEmpty) {
-                        return Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(VelvetSpacing.xl),
-                            child: Text(
-                              l10n.localitySearchEmpty,
-                              key: const Key('locality_picker_empty'),
-                              style: _emptyStyle,
+                  Flexible(
+                    child: async.when(
+                      loading: () => const _SheetLoading(),
+                      error: (err, _) => _SheetError(
+                        failure: err,
+                        onRetry: widget.onRetry,
+                        retryLabel: l10n.localityRetry,
+                      ),
+                      data: (items) {
+                        final filtered = _filter(items);
+                        if (filtered.isEmpty) {
+                          return Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(VelvetSpacing.xl),
+                              child: Text(
+                                l10n.localitySearchEmpty,
+                                key: const Key('locality_picker_empty'),
+                                style: _emptyStyle,
+                              ),
                             ),
+                          );
+                        }
+                        // Isolate fling-scroll repaints from the surface layer
+                        // behind the list (it never changes on scroll).
+                        return RepaintBoundary(
+                          child: ListView.builder(
+                            padding: const EdgeInsets.only(
+                              bottom: VelvetSpacing.md,
+                            ),
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final item = filtered[index];
+                              final label = widget.labelOf(item);
+                              // Key off the item's stable UUID — unique within the
+                              // list (homonymous settlements share a `nameUk`,
+                              // which would collide on a label-derived key) and
+                              // not user-facing. Stable across filtered reorder.
+                              return LocalityPickerTile(
+                                key: ValueKey(
+                                  'locality_picker_tile_${widget.idOf(item)}',
+                                ),
+                                label: label,
+                                onTap: () => context.pop(item),
+                              );
+                            },
                           ),
                         );
-                      }
-                      // Isolate fling-scroll repaints from the surface layer
-                      // behind the list (it never changes on scroll).
-                      return RepaintBoundary(
-                        child: ListView.builder(
-                          padding: const EdgeInsets.only(
-                            bottom: VelvetSpacing.md,
-                          ),
-                          itemCount: filtered.length,
-                          itemBuilder: (context, index) {
-                            final item = filtered[index];
-                            final label = widget.labelOf(item);
-                            // Key off the item's stable UUID — unique within the
-                            // list (homonymous settlements share a `nameUk`,
-                            // which would collide on a label-derived key) and
-                            // not user-facing. Stable across filtered reorder.
-                            return LocalityPickerTile(
-                              key: ValueKey(
-                                'locality_picker_tile_${widget.idOf(item)}',
-                              ),
-                              label: label,
-                              onTap: () => context.pop(item),
-                            );
-                          },
-                        ),
-                      );
-                    },
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

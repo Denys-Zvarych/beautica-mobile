@@ -52,9 +52,13 @@ cold native compile without letting a hang run away.
 
 <a id="patrol-matrix"></a>
 
-### patrol: API 34 only
+### patrol: API 34 + API 36
 
-Matrix axis: API 34 only. API 29 was dropped — its x86_64 system image
+Matrix axis: API 34 (`default` image) and API 36 (`google_apis` image), added
+in phase 422 when the app moved to targetSdk 36 (edge-to-edge is mandatory and
+predictive back is on by default on Android 16). The two legs run in parallel
+with `fail-fast: false`; both keep `-gpu guest` and 4096M RAM / 512M heap.
+API 29 was dropped — its x86_64 system image
 crashes with a native jemalloc SIGSEGV during native-thread creation
 (art::Thread::CreateNativeThread → je_malloc) before any patrol test runs.
 The same APK runs clean on API 34, so the crash is the emulator image, not

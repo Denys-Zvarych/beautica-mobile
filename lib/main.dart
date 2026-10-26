@@ -193,6 +193,14 @@ Future<void> main() async {
   unawaited(
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]),
   );
+
+  // Phase 422 D1 — targetSdk 36 makes edge-to-edge mandatory on Android 16, so
+  // it is the single behaviour on every API level: the app draws under
+  // transparent system bars and the shared layout widgets (bottom navs, sticky
+  // footers, sheets, scaffold SafeAreas) pad their content by the insets.
+  // Fire-and-forget for the same cold-start reason as the orientation lock.
+  unawaited(SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge));
+  SystemChrome.setSystemUIOverlayStyle(velvetSystemUiOverlayStyle);
 }
 
 /// Pre-seeds the flutter_svg [PictureCache] for the SVGs shared across the
@@ -258,11 +266,17 @@ class BeauticaApp extends ConsumerWidget {
       // route. No existing builder was present, so this introduces one.
       builder: (BuildContext context, Widget? child) {
         final MediaQueryData mq = MediaQuery.of(context);
-        return MediaQuery(
-          data: mq.copyWith(
-            textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+        // Phase 422 D1 — root system-bar style. A route that sets its own
+        // (the photo viewer's light icons) wins while it is on top and hands
+        // the bars back to this one when it pops.
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: velvetSystemUiOverlayStyle,
+          child: MediaQuery(
+            data: mq.copyWith(
+              textScaler: mq.textScaler.clamp(maxScaleFactor: 1.3),
+            ),
+            child: child ?? const SizedBox.shrink(),
           ),
-          child: child ?? const SizedBox.shrink(),
         );
       },
       // Phase 1.4 — go_router, managed by Riverpod, replaces the home: param.

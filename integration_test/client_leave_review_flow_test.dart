@@ -26,6 +26,8 @@
 // KEY POLICY (AppHarness): all TAPS are key-based; Ukrainian text appears in
 // CONTENT ASSERTIONS only, and status copy is asserted through l10n.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -47,6 +49,7 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/rendered_image_url.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/edge_to_edge_inset.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -278,6 +281,58 @@ void main() {
       await tester.ensureVisible(detailStrip);
       await tester.pumpAndSettle();
       expectAvatarFallback(tester, detailStrip);
+    },
+  );
+  // ── Phase 422 — edge-to-edge: the pinned submit CTA clears the system bar ─
+  //
+  // The review screen is reached two ways. Inside the client shell (the flow
+  // above) the ClientBottomNav sits under it and absorbs the bottom inset. From
+  // the notification feed (`/notifications/bookings/:id/review`, the Phase 364
+  // root-level alias the review push deep-links into) there is NO shell, so the
+  // screen's own SafeArea is the ONLY thing between the pinned «Надіслати» CTA
+  // and a 48 dp 3-button navigation bar. Pre-422 that SafeArea was
+  // `bottom: false`: under edge-to-edge the CTA was drawn under the bar.
+  testWidgets(
+    'phase 422 — from the notification feed (no shell), under a 48 dp system '
+    'inset the submit CTA sits above the navigation bar and a tap submits',
+    (tester) async {
+      final double inset = simulateBottomSystemInset(tester);
+      final fb = FakeBackend()
+        ..currentRole = UserRole.client
+        ..bookingStatus = 'COMPLETED'
+        ..bookingCanReview = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+
+      // The feed-scoped detail alias — what a notification tap opens.
+      unawaited(router.push(RouteNames.notificationBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingDetailScreen), findsOneWidget);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-leave-review')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveReviewScreen), findsOneWidget);
+      AppHarness.expectLocation(
+        router,
+        RouteNames.notificationBookingReview('booking-1'),
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+
+      final Finder submit = find.byKey(const Key('leave-review-submit'));
+      expectAboveBottomInset(tester, submit, inset, what: 'the submit CTA');
+
+      await tester.tap(submit);
+      await AppHarness.settle(tester);
+
+      expect(fb.createReviewCalls, 1, reason: 'exactly one POST /reviews');
+      expect(fb.lastReviewBookingId, 'booking-1');
+      expect(fb.lastReviewRating, 5);
+      expect(find.byType(LeaveReviewScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
     },
   );
 }

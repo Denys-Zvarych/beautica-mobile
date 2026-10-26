@@ -40,6 +40,7 @@ import 'package:integration_test/integration_test.dart';
 
 import '../test/helpers/overflow_guard.dart';
 import 'support/app_harness.dart';
+import 'support/edge_to_edge_inset.dart';
 
 const Key _kField = Key('settlement_select_field');
 const Key _kDistrictRow = Key('locality_row_district');
@@ -412,5 +413,62 @@ void main() {
           'the SAVED cityId, labelled exactly as the picked row — neither '
           'blank, nor the previous «Київ», nor a bare name',
     );
+  });
+  // ── Phase 422 — edge-to-edge: the picker sheet's LAST row clears the
+  // system navigation bar ──────────────────────────────────────────────────
+  //
+  // The «Населений пункт» menu (`SearchableSelectField`) is a bottom-anchored
+  // modal whose list fills the sheet, so once the list scrolls its LAST row
+  // comes to rest on the sheet's bottom edge. Under edge-to-edge that edge is
+  // behind a 48 dp 3-button navigation bar unless the sheet pads by the inset
+  // — pre-422 it did not. The window is shortened to 800×400 (a compact phone
+  // / split-screen window, which Android 16 hands large-screen apps
+  // regardless of orientation locks) so the four seeded settlements overflow
+  // the list and the last one has to be scrolled to — a short list leaves its
+  // last row mid-sheet, where the assertion could not fail.
+  //
+  // The district sheet (`showLocalityPickerSheet`) carries the same fix; the
+  // fixture seeds ONE district, which can never reach the sheet's bottom, so
+  // its last-row pin lives in locality_picker_sheet_test.dart with a long list.
+  testWidgets('phase 422 — under a 48 dp system inset the settlement menu\'s '
+      'last row, scrolled to, sits above the navigation bar and picking it '
+      'still saves', (tester) async {
+    final double inset = simulateBottomSystemInset(tester);
+    final fb = _masterBackend();
+    await _openLocationScreen(tester, fb);
+
+    tester.view.physicalSize = Size(
+      tester.view.physicalSize.width,
+      400 * tester.view.devicePixelRatio,
+    );
+    addTearDown(tester.view.resetPhysicalSize);
+    await AppHarness.settle(tester);
+
+    await AppHarness.tapVisible(tester, find.byKey(_kField));
+    await AppHarness.settle(tester);
+    final Finder lastRow = find.byKey(
+      const Key('settlement_option_village-ivanivka'),
+    );
+    final Finder list = find
+        .ancestor(
+          of: find.byKey(const Key('settlement_option_city-kyiv')),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+    await tester.drag(list, const Offset(0, -600));
+    await AppHarness.settle(tester);
+
+    expectAboveBottomInset(
+      tester,
+      lastRow,
+      inset,
+      what: 'the settlement menu\'s last row',
+    );
+    await tester.tap(lastRow);
+    await AppHarness.settle(tester);
+
+    await _save(tester);
+    expect(fb.patchMasterLocalityCalls, 1);
+    expect(fb.lastPatchMasterLocalityBody!['cityId'], 'village-ivanivka');
   });
 }

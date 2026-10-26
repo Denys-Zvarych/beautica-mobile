@@ -48,6 +48,7 @@ import 'package:integration_test/integration_test.dart';
 import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/edge_to_edge_inset.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -294,6 +295,51 @@ void main() {
         description: 'count re-requested after archive pull-to-refresh',
       );
       expect(value(), 1);
+    },
+  );
+  // ── Phase 422 — edge-to-edge: the pinned submit CTA clears the system bar ─
+  //
+  // `/master/bookings/:bookingId/review` is a plain full-screen page on the
+  // root Navigator (no shell, no bottom nav under it), so the screen's own
+  // SafeArea is the only thing keeping «Надіслати» off a 48 dp 3-button
+  // navigation bar. Pre-422 it was `bottom: false`.
+  testWidgets(
+    'phase 422 — under a 48 dp system inset the client-feedback submit CTA '
+    'sits above the navigation bar and a tap reaches POST /client-reviews',
+    (tester) async {
+      final double inset = simulateBottomSystemInset(tester);
+      final fb = FakeBackend()
+        ..currentRole = UserRole.independentMaster
+        ..bookingStatus = 'COMPLETED'
+        ..bookingProviderCanReviewClient = true;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+      await AppHarness.settle(tester);
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('booking-detail-leave-client-feedback')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(LeaveClientFeedbackScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey<String>('review-star-5')));
+      await AppHarness.settle(tester);
+
+      final Finder submit = find.byKey(
+        const Key('leave-client-feedback-submit'),
+      );
+      expectAboveBottomInset(tester, submit, inset, what: 'the submit CTA');
+
+      await tester.tap(submit);
+      await AppHarness.settle(tester);
+
+      expect(fb.createClientReviewCalls, 1);
+      expect(fb.lastClientReviewBookingId, 'booking-1');
+      expect(fb.lastClientReviewRating, 5);
+      expect(find.byType(LeaveClientFeedbackScreen), findsNothing);
+      await pumpPastVelvetSnack(tester);
     },
   );
 }
