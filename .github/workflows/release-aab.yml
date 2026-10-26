@@ -1,0 +1,197 @@
+name: Release AAB
+
+# Phase 409 — signed Play upload AAB (docs/mobile-phases/phase-409-R.2-aab-release-pipeline.md).
+#
+# Trigger: the user pushes tag `mobile-v<pubspec version>` on a `main` commit (D3; only the
+# user tags, Hard Rule 9). `workflow_dispatch` with `dry_run: true` (default) builds and
+# verifies without the tag rules, producing `dry-run-*` artifacts (7 days); the dry-run AAB is
+# renamed app-prod-release-DRY-RUN-DO-NOT-UPLOAD.aab and release-verify.txt starts with
+# `DRY-RUN — DO NOT UPLOAD` (it is signed with the real upload key from non-release code).
+# A dispatch with `dry_run: false` must be run ON the release tag ref (a tag, not a branch
+# of the same name) and gets every tag rule.
+#
+# Security (repo is PUBLIC until release):
+#   * no pull_request / pull_request_target trigger: fork code can never reach this file;
+#   * job `guard` runs the tag check with NO environment, so a bad tag fails before any
+#     secret is loaded (D4, owns phase 421 D5);
+#   * only job `build` names `ci-trusted-secrets` (deployment policies: branches dev + main
+#     and a TAG-type policy mobile-v*; tag creation is limited to repo admins by the ruleset
+#     "Protect mobile-v* tags" — both applied by repo-root scripts/github-release-tag-protection.sh);
+#     the upload keystore is decoded into $RUNNER_TEMP (outside the workspace and every
+#     artifact glob) and deleted in an always() step (D5);
+#   * BEAUTICA_REQUIRE_RELEASE_SIGNING=1 arms the Gradle debug-signing guard
+#     (android/app/build.gradle.kts), and verify_release_aab.sh rule 8 checks the cert.
+#
+# No automated Play upload (D12): the user uploads artifact `aab` to the internal track (M4).
+
+on:
+  push:
+    tags: ['mobile-v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run: skip the tag/main rules, dry-run-* artifacts (7 days)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-aab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Secret-free: no `environment:`, read-only token, no credentials persisted.
+  guard:
+    name: Tag check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (full history for the main-ancestry rule)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # (a) ref == mobile-v<pubspec> and is a tag, (b) X.Y.Z+B, (c) commit is on origin/main.
+      - name: Check tag against pubspec version
+        env:
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          GITHUB_REF_TYPE: ${{ github.ref_type }}
+          GITHUB_REF: ${{ github.ref }}
+        run: ./scripts/check_release_version.sh tag
+
+  build:
+    name: Build + verify signed AAB
+    needs: guard
+    runs-on: ubuntu-24.04
+    environment: ci-trusted-secrets
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      ARTIFACT_PREFIX: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry-run-' || '' }}
+      ARTIFACT_RETENTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 7 || 90 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Flutter, pub get, codegen
+        uses: ./.github/actions/flutter-setup
+
+      # push: google-services.json injection goes here once the push track lands (D13).
+      # Until then the AAB builds push-less, which is supported (phase 066).
+
+      - name: Decode upload keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::secret BEAUTICA_KEYSTORE_BASE64 is not set in environment ci-trusted-secrets"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          chmod 600 "$RUNNER_TEMP/upload.jks"
+          echo "Upload keystore decoded into \$RUNNER_TEMP"
+
+      # D6: the ONE release build. Version comes only from pubspec (no --build-number /
+      # --build-name, § 6.1 V2).
+      # 411: append the Sentry `--dart-define`s (DSN, BEAUTICA_RELEASE) to this command.
+      - name: Build AAB (prod, release, obfuscated)
+        env:
+          BEAUTICA_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          BEAUTICA_KEYSTORE_PASSWORD: ${{ secrets.BEAUTICA_KEYSTORE_PASSWORD }}
+          BEAUTICA_KEY_ALIAS: ${{ secrets.BEAUTICA_KEY_ALIAS }}
+          BEAUTICA_KEY_PASSWORD: ${{ secrets.BEAUTICA_KEY_PASSWORD }}
+          BEAUTICA_REQUIRE_RELEASE_SIGNING: '1'
+          # Never waive the debug-signing guard here (D5); empty == not "1".
+          BEAUTICA_ALLOW_DEBUG_SIGNED_RELEASE: ''
+        run: |
+          flutter build appbundle --release --flavor prod \
+            --dart-define-from-file=config/env/prod.json \
+            --obfuscate --split-debug-info=build/symbols \
+            --extra-gen-snapshot-options=--save-obfuscation-map=build/app/obfuscation.map.json
+
+      # 411: Sentry symbol upload step (`dart run sentry_dart_plugin`) goes here.
+
+      # A dry-run AAB is renamed so the file itself says it must not be uploaded.
+      - name: Resolve AAB path (exactly one)
+        id: aab
+        run: |
+          shopt -s nullglob
+          aabs=(build/app/outputs/bundle/prodRelease/*.aab)
+          if [ "${#aabs[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one AAB in build/app/outputs/bundle/prodRelease, found ${#aabs[@]}"
+            exit 1
+          fi
+          aab="${aabs[0]}"
+          if [ "$DRY_RUN" = "true" ]; then
+            dry="$(dirname "$aab")/app-prod-release-DRY-RUN-DO-NOT-UPLOAD.aab"
+            mv "$aab" "$dry"
+            aab="$dry"
+            echo "::warning::dry run: $aab is signed with the upload key from non-release code, DO NOT UPLOAD"
+          fi
+          echo "path=$aab" >> "$GITHUB_OUTPUT"
+
+      # D7 / D9: 8 hard rules incl. 16 KB alignment and the upload-cert fingerprint.
+      # DRY_RUN (job env) makes `DRY-RUN — DO NOT UPLOAD` the report's first line.
+      - name: Verify release AAB
+        env:
+          BEAUTICA_UPLOAD_CERT_SHA256: ${{ vars.BEAUTICA_UPLOAD_CERT_SHA256 }}
+          AAB_PATH: ${{ steps.aab.outputs.path }}
+        run: ./scripts/verify_release_aab.sh "$AAB_PATH"
+
+      # D11 artifacts. The keystore is in $RUNNER_TEMP, never under these paths.
+      - name: Upload AAB
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}aab
+          path: ${{ steps.aab.outputs.path }}
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+
+      - name: Upload symbols + mappings
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}symbols
+          path: |
+            build/symbols/
+            build/app/obfuscation.map.json
+            build/app/outputs/mapping/prodRelease/mapping.txt
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}release-verify
+          path: build/release-verify.txt
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: ignore
+
+      - name: Upload merged release manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}release-manifest
+          path: build/release-manifest.xml
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: ignore
+
+      - name: Remove upload keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"

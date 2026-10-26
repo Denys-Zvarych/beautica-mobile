@@ -234,6 +234,10 @@ android {
             // native plugins (flutter_secure_storage, screen_protector, etc.).
             isMinifyEnabled = true
             isShrinkResources = true
+            // Phase 409 D8: native symbol tables packaged into the AAB for Play vitals.
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
