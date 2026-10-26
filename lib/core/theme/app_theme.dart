@@ -1,7 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'brand_colors.dart';
+
+/// System-bar style for the edge-to-edge app (phase 422 D1).
+///
+/// Both bars are transparent so the warm-taupe surface runs under them; the
+/// icons are dark because VelvetTouch is light-only. Navigation-bar contrast
+/// enforcement is off so 3-button navigation draws no grey scrim over the
+/// sticky footers, which already pad their content clear of the bar. Applied
+/// once in bootstrap and as the root [AnnotatedRegion] in `BeauticaApp`, so a
+/// route that overrides it (the black photo viewer) hands it back on pop.
+const SystemUiOverlayStyle velvetSystemUiOverlayStyle = SystemUiOverlayStyle(
+  statusBarColor: Colors.transparent,
+  statusBarIconBrightness: Brightness.dark,
+  statusBarBrightness: Brightness.light,
+  systemStatusBarContrastEnforced: false,
+  systemNavigationBarColor: Colors.transparent,
+  systemNavigationBarDividerColor: Colors.transparent,
+  systemNavigationBarIconBrightness: Brightness.dark,
+  systemNavigationBarContrastEnforced: false,
+);
 
 /// Nunito text theme with every M3 w500 role remapped to the bundled w600.
 ///

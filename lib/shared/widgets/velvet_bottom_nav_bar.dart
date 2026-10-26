@@ -91,8 +91,8 @@ const List<_NavItem> _navItems = <_NavItem>[
 /// `ServicesListScreen`, and `MasterScheduleScreen` all pass this bar to their
 /// own `Scaffold.bottomNavigationBar` — one convention, applied identically on
 /// all four, never inlined into a scrollable body or nested inside the body's
-/// own `SafeArea` (either breaks the inset accounting this bar's internal
-/// `SafeArea(top: false)` relies on — see `ProfileScaffold.bottomNavBar`'s doc
+/// own `SafeArea` (either breaks the inset accounting this bar's bottom
+/// margin relies on — see `ProfileScaffold.bottomNavBar`'s doc
 /// comment for the concrete failure mode this shipped as).
 ///
 /// Ported verbatim from
@@ -146,12 +146,21 @@ class VelvetBottomNavBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 422 D2 — edge-to-edge: the floating pill sits ABOVE the system
+    // navigation bar (the outer margin grows by the bottom inset) instead of
+    // stretching under it. The pill's inner `SafeArea(top: false,
+    // bottom: false)` keeps only the side (cutout) padding; the bottom inset
+    // is consumed by the outer margin. Only `paddingOf` is read here (no
+    // `MediaQuery.removePadding`, which calls `MediaQuery.of` and would
+    // rebuild this bar on every keyboard `viewInsets` frame). A zero inset
+    // (API <= 34, every test surface) gives the exact pre-422 geometry.
+    final double bottomInset = MediaQuery.paddingOf(context).bottom;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         VelvetSpacing.md,
         0,
         VelvetSpacing.md,
-        VelvetSpacing.md,
+        VelvetSpacing.md + bottomInset,
       ),
       child: Container(
         decoration: const BoxDecoration(
@@ -174,6 +183,7 @@ class VelvetBottomNavBar extends StatelessWidget {
           borderRadius: _pillRadius,
           child: SafeArea(
             top: false,
+            bottom: false,
             // ConstrainedBox (minHeight, not a fixed SizedBox height) so the bar
             // grows with the tile's intrinsic content at large text scales
             // (textScale 1.3 pushed the icon + pill + label past a fixed 62 dp

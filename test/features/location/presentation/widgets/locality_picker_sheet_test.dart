@@ -111,6 +111,23 @@ class _CountingLocationRepository implements LocationRepository {
 }
 
 // ---------------------------------------------------------------------------
+// Long-list fake repository — 20 oblasts, so the sheet's list overflows and
+// its LAST row comes to rest on the sheet's bottom edge once scrolled (Phase
+// 422 inset pin). A short list leaves the last row mid-sheet, where an
+// "above the inset" assertion could never fail.
+// ---------------------------------------------------------------------------
+
+class _LongListLocationRepository extends _CountingLocationRepository {
+  static final List<Oblast> oblasts = List<Oblast>.generate(
+    20,
+    (int i) => Oblast(id: 'o$i', name: 'oblast-$i', katotthCode: 'UA$i'),
+  );
+
+  @override
+  Future<List<Oblast>> fetchOblasts() async => oblasts;
+}
+
+// ---------------------------------------------------------------------------
 // Hanging fake repository — oblast fetch never resolves until told to.
 // Used to drive the explicit _SheetLoading state assertion (GAP 3).
 // ---------------------------------------------------------------------------
@@ -586,5 +603,58 @@ void main() {
         await tester.pumpAndSettle();
       },
     );
+  });
+
+  // Phase 422 D2 — edge-to-edge. A 48 dp 3-button navigation bar arrives as a
+  // bottom MediaQuery inset; the sheet's SafeArea(top: false) must keep the
+  // LAST row of a scrolled-to-the-end list above it and tappable. Pre-422 the
+  // list ran to the screen bottom, so the last row sat under the bar.
+  group('edge-to-edge bottom inset (phase 422)', () {
+    testWidgets('the last row of a long list, scrolled to, sits above a 48 dp '
+        'inset and tapping it picks it', (tester) async {
+      final double dpr = tester.view.devicePixelRatio;
+      tester.view.padding = FakeViewPadding(bottom: 48 * dpr);
+      tester.view.viewPadding = FakeViewPadding(bottom: 48 * dpr);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      final double screenBottom = tester.view.physicalSize.height / dpr;
+
+      await tester.pumpWidget(
+        _wrap(const _CascadeHarness(), _LongListLocationRepository()),
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('locality_row_oblast')));
+      await tester.pumpAndSettle();
+
+      final Oblast last = _LongListLocationRepository.oblasts.last;
+      final Finder lastRow = find.byKey(
+        ValueKey('locality_picker_tile_${last.id}'),
+      );
+      await tester.dragUntilVisible(
+        lastRow,
+        find.byType(ListView),
+        const Offset(0, -300),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -600));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(lastRow).bottom,
+        lessThanOrEqualTo(screenBottom - 48),
+        reason: 'the last row must clear the 48 dp navigation bar',
+      );
+
+      await tester.tap(lastRow);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('locality_picker_search')), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('locality_row_oblast')),
+          matching: find.text(last.name),
+        ),
+        findsOneWidget,
+        reason: 'the tap on the last row selected it',
+      );
+    });
   });
 }
