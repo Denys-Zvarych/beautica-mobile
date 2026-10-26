@@ -1,0 +1,15 @@
+# Phase 409 D7.4 / D10 — the EXACT set of <uses-permission> entries in the merged
+# manifest of the prod release AAB. scripts/verify_release_aab.sh fails when the AAB
+# declares a permission not listed here, OR when a permission listed here is gone.
+# Either way the list and the Play Console Data safety form must be reviewed together.
+#
+# Format: one permission per line, then `# why`. Blank lines and `#` lines are ignored.
+# Seeded 2026-10-26 from `bundletool dump manifest` of app-prod-release.aab (1.1.0+2,
+# targetSdk 36) after the AD_ID strip in src/main/AndroidManifest.xml.
+
+android.permission.INTERNET  # app: every API / media call (src/main/AndroidManifest.xml)
+android.permission.POST_NOTIFICATIONS  # app: Android 13+ notification runtime permission (phases 066/067)
+android.permission.WAKE_LOCK  # firebase_messaging: keeps the CPU up while a push is handled
+android.permission.ACCESS_NETWORK_STATE  # firebase-iid / firebase-messaging: connectivity before FCM registration
+com.google.android.c2dm.permission.RECEIVE  # firebase_messaging: receive FCM messages
+com.beautica.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION  # androidx.core: signature-level guard for non-exported runtime receivers (Android 13+)

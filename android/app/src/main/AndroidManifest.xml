@@ -1,9 +1,15 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Required for all network calls in all build variants (debug, profile, release). -->
     <uses-permission
         android:name="android.permission.INTERNET"/>
     <!-- Phase 066: Android 13+ runtime notification permission (requested in phase 067). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Phase 409 D10: no ad SDK and Firebase analytics collection is off, so the
+         AD_ID permission a dependency may merge in is stripped (Play Console:
+         "does not use advertising ID"). The full merged release set is pinned by
+         android/release-permissions.allow and checked by scripts/verify_release_aab.sh. -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove"/>
     <application
         android:label="@string/app_name"
         android:name="${applicationName}"
