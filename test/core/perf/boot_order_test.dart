@@ -84,4 +84,74 @@ void main() {
       '-boot:container',
     ]);
   });
+
+  // Phase 408 (D3): the flavor/env guard is the FIRST startup statement. main()
+  // cannot be driven with a bad flavor in the VM (appFlavor is a platform
+  // constant, null here and tolerated in debug), so the order is pinned on the
+  // source with comments stripped. The checker is itself proven to fail on
+  // mutated sources (production code is not touched).
+  group('EnvGuard boot order (source pin)', () {
+    String stripped(String src) => src
+        .split('\n')
+        .map((String l) => l.replaceFirst(RegExp(r'//.*$'), ''))
+        .join('\n');
+
+    List<String> orderViolations(String raw) {
+      final String src = stripped(raw);
+      final int mainStart = src.indexOf('Future<void> main()');
+      if (mainStart < 0) return <String>['main() not found'];
+      final String body = src.substring(mainStart);
+      final int binding = body.indexOf(
+        'WidgetsFlutterBinding.ensureInitialized',
+      );
+      final int guard = body.indexOf('EnvGuard.assertConsistent()');
+      final int secure = body.indexOf('AppConfig.assertSecureUrl()');
+      final int runApp = body.indexOf('runApp(');
+      final int firstAwait = body.indexOf('await ');
+      final List<String> v = <String>[];
+      if (guard < 0) return <String>['guard call missing'];
+      if (binding < 0 || guard < binding) v.add('guard before binding');
+      if (secure < 0 || guard > secure) v.add('guard after assertSecureUrl');
+      if (runApp < 0 || guard > runApp) v.add('guard after runApp');
+      if (firstAwait >= 0 && guard > firstAwait) v.add('await before guard');
+      if ('EnvGuard.assertConsistent()'.allMatches(body).length != 1) {
+        v.add('not exactly one call site');
+      }
+      return v;
+    }
+
+    final String real = File('lib/main.dart').readAsStringSync();
+
+    test('real main(): guard after binding, before assertSecureUrl / await '
+        '/ runApp, single call site', () {
+      expect(orderViolations(real), isEmpty);
+    });
+
+    test('checker goes red when guard and assertSecureUrl are swapped', () {
+      final String mutated = real
+          .replaceFirst('EnvGuard.assertConsistent();', '@@G@@')
+          .replaceFirst(
+            'AppConfig.assertSecureUrl();',
+            'AppConfig.assertSecureUrl();\n  EnvGuard.assertConsistent();',
+          )
+          .replaceFirst('@@G@@', '');
+      expect(orderViolations(mutated), contains('guard after assertSecureUrl'));
+    });
+
+    test('checker goes red when the guard is removed or follows an await', () {
+      expect(
+        orderViolations(real.replaceFirst('EnvGuard.assertConsistent();', '')),
+        contains('guard call missing'),
+      );
+      expect(
+        orderViolations(
+          real.replaceFirst(
+            'EnvGuard.assertConsistent();',
+            'await Future<void>.value();\n  EnvGuard.assertConsistent();',
+          ),
+        ),
+        contains('await before guard'),
+      );
+    });
+  });
 }

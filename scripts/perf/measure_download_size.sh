@@ -28,7 +28,7 @@
 #   AAB_PATH                   AAB to measure. ONLY valid together with --skip-build (a build
 #                              always writes the default AAB, so measuring/stamping another
 #                              path after a build would be wrong: exit 64). Default:
-#                              beautica-mobile/build/app/outputs/bundle/release/app-release.aab
+#                              beautica-mobile/build/app/outputs/bundle/prodRelease/app-prod-release.aab
 #   BUNDLETOOL_JAR             Use this bundletool jar (NOT hash-checked; warns; refused
 #                              when CI is set). Default: pinned version below, downloaded
 #                              once (https, TLS1.2+) to the mode-700 ~/.cache/beautica/ and
@@ -171,7 +171,7 @@ else
 fi
 
 # --- build / locate AAB ------------------------------------------------------
-DEFAULT_AAB="$MOBILE_DIR/build/app/outputs/bundle/release/app-release.aab"
+DEFAULT_AAB="$MOBILE_DIR/build/app/outputs/bundle/prodRelease/app-prod-release.aab"
 AAB="${AAB_PATH:-$DEFAULT_AAB}"
 STAMP="$AAB.measure-stamp"
 head_sha="$(git -C "$MOBILE_DIR" rev-parse --short HEAD 2>/dev/null || true)"
@@ -198,7 +198,7 @@ else
   fi
   chmod 700 "$SYMBOLS_ABS"
   echo "==> Building release AAB (symbols -> $SYMBOLS_ABS)"
-  ( cd "$MOBILE_DIR" && flutter build appbundle --release --obfuscate --split-debug-info="$SYMBOLS_ABS" )
+  ( cd "$MOBILE_DIR" && flutter build appbundle --release --flavor prod --dart-define-from-file=config/env/prod.json --obfuscate --split-debug-info="$SYMBOLS_ABS" )
   # Recompute AFTER the build: the tree (and HEAD) may have changed while it ran.
   compute_dirty
   head_sha="$(git -C "$MOBILE_DIR" rev-parse --short HEAD 2>/dev/null || true)"

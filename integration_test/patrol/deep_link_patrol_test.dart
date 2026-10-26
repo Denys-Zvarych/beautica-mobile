@@ -43,13 +43,14 @@ import '../../test/helpers/pump_app.dart';
 import '../support/e2e_boot_policy.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
-// The App Link host is locked to the production Railway domain in
-// AndroidManifest.xml's autoVerify intent-filter (pathPrefix /invite/accept). A
+// The App Link host is the per-flavor `${appLinkHost}` Gradle placeholder in
+// AndroidManifest.xml's autoVerify intent-filter (pathPrefix /invite/accept);
+// patrol runs the `staging` flavor (phase 408), whose host is staging.beautica.app. A
 // `token` query param is carried through to the accept-invite screen; a fake
 // value never validates (it settles loading→error), but the screen-container
 // key mounts on the first frame regardless — which is what this test asserts.
 const String _kInviteAcceptDeepLink =
-    'https://beautica-backend-production.up.railway.app'
+    'https://staging.beautica.app'
     '/invite/accept?token=patrol-e2e-smoke-token';
 
 void main() {

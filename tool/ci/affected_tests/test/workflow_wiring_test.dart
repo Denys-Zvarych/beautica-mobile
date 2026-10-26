@@ -638,15 +638,13 @@ void main() {
       expect(m, isNot(contains('install -y -qq lcov')));
       expect(m, contains(r'args+=(-a "$f")'));
       expect(m, contains('-o coverage/lcov.info'));
-      for (final n in [
-        'Upload coverage (pull_request, tokenless)',
-        'Upload coverage (push / dispatch, with token)',
-      ]) {
-        expect(
-          (step('coverage', n)['with'] as YamlMap)['file'],
-          'coverage/lcov.info',
-        );
-      }
+      // Phase 408 D9: the token-bearing upload is gone; exactly ONE codecov
+      // upload remains and it uploads the merged lcov once.
+      final uploads = steps('coverage')
+          .where((st) => (st['uses'] ?? '').toString().startsWith('codecov/'))
+          .toList();
+      expect(uploads, hasLength(1));
+      expect((uploads.single['with'] as YamlMap)['file'], 'coverage/lcov.info');
       for (final j in jobs.entries) {
         if (j.key == 'coverage') continue;
         for (final st in steps(j.key.toString())) {
@@ -880,30 +878,21 @@ void main() {
       expect(job['timeout-minutes'], lessThanOrEqualTo(15));
     });
 
-    test('S-L2: codecov is tokenless on pull_request; the token step runs '
-        'only off pull_request; the secret is referenced nowhere else', () {
-      final tokenless = step(
-        'coverage',
-        'Upload coverage (pull_request, tokenless)',
-      );
-      final withToken = step(
-        'coverage',
-        'Upload coverage (push / dispatch, with token)',
-      );
-      expect(tokenless['if'], "github.event_name == 'pull_request'");
-      expect(withToken['if'], "github.event_name != 'pull_request'");
-      expect((tokenless['with'] as YamlMap).containsKey('token'), isFalse);
+    test('S-L2: coverage has exactly one codecov upload, tokenless; '
+        'secrets.CODECOV_TOKEN appears nowhere (phase 408 D9)', () {
+      final uploads = steps('coverage')
+          .where((st) => (st['uses'] ?? '').toString().startsWith('codecov/'))
+          .toList();
+      expect(uploads, hasLength(1));
+      final upload = uploads.single;
+      expect(upload['name'], 'Upload coverage (pull_request, tokenless)');
+      expect((upload['with'] as YamlMap).containsKey('token'), isFalse);
+      expect((upload['with'] as YamlMap)['fail_ci_if_error'], isFalse);
+      expect(upload['uses'], startsWith('codecov/codecov-action@'));
       expect(
-        (withToken['with'] as YamlMap)['token'],
-        r'${{ secrets.CODECOV_TOKEN }}',
-      );
-      for (final st in [tokenless, withToken]) {
-        expect((st['with'] as YamlMap)['fail_ci_if_error'], isFalse);
-        expect(st['uses'], startsWith('codecov/codecov-action@'));
-      }
-      expect(
-        RegExp('secrets\\.CODECOV_TOKEN').allMatches(wfFile.readAsStringSync()),
-        hasLength(1),
+        RegExp(r'secrets\.CODECOV_TOKEN').allMatches(wfFile.readAsStringSync()),
+        isEmpty,
+        reason: 'phase 408 D9: no secrets.CODECOV_TOKEN reference anywhere',
       );
       expect((wf['permissions'] as YamlMap)['contents'], 'read');
     });
@@ -1085,11 +1074,9 @@ void main() {
     const trusted = 'ci-trusted-secrets';
     // The ONLY accepted `environment:` expressions: each evaluates to the
     // empty string (= no environment) on a pull_request event.
+    // Phase 408 F7: coverage no longer references a secret nor declares an
+    // environment; only the apk release leg keeps the trusted environment.
     final okEnvironment = {
-      'coverage':
-          r"${{ github.event_name != 'pull_request' && '" +
-          trusted +
-          r"' || '' }}",
       'apk':
           r"${{ (github.event_name != 'pull_request' && matrix.variant == "
               r"'release') && '" +
@@ -1111,8 +1098,11 @@ void main() {
             .where((n) => n != 'GITHUB_TOKEN');
         if (refs.isNotEmpty) withSecrets.add(j.key.toString());
       }
-      expect(withSecrets, {'apk', 'coverage'});
+      // Phase 408 D9/F7: apk is the ONLY job with secrets / the environment.
+      expect(withSecrets, {'apk'});
+      expect(withEnv, {'apk'});
       expect(withEnv, withSecrets);
+      expect((jobs['coverage'] as YamlMap).containsKey('environment'), isFalse);
     });
 
     test('N-L2: the environment expression is the pull_request-safe form '
@@ -1143,13 +1133,10 @@ void main() {
       'N-L2: the secret-using steps keep their own guards (belt and '
       'braces: a PR never reaches them even if the environment is empty)',
       () {
-        expect(
-          step(
-            'coverage',
-            'Upload coverage (push / dispatch, with token)',
-          )['if'],
-          "github.event_name != 'pull_request'",
-        );
+        // Phase 408 D9: apk only (coverage has no secret-using step any more).
+        for (final st in steps('coverage')) {
+          expect('${st['env']}${st['with']}', isNot(contains('secrets.')));
+        }
         for (final st in steps('apk')) {
           if ('${st['env']}'.contains('secrets.')) {
             expect(
@@ -1163,23 +1150,23 @@ void main() {
     );
 
     // N-L1 -------------------------------------------------------------------
-    test('N-L1: PR coverage is documented best-effort; both codecov steps '
-        'stay SHA-pinned (v4) with fail_ci_if_error false', () {
+    test('N-L1: PR coverage is documented best-effort; the single codecov '
+        'step stays SHA-pinned (v4) with fail_ci_if_error false', () {
       final src = wfFile.readAsStringSync();
       expect(src, contains('PR coverage is BEST-EFFORT'));
       expect(src, contains('dev / main runs'));
-      for (final n in [
-        'Upload coverage (pull_request, tokenless)',
-        'Upload coverage (push / dispatch, with token)',
-      ]) {
-        final st = step('coverage', n);
-        expect(
-          st['uses'],
-          matches(RegExp(r'^codecov/codecov-action@[0-9a-f]{40}$')),
-          reason: n,
-        );
-        expect((st['with'] as YamlMap)['fail_ci_if_error'], isFalse);
-      }
+      // Phase 408 D9: one tokenless step, not two.
+      final st = step('coverage', 'Upload coverage (pull_request, tokenless)');
+      expect(
+        st['uses'],
+        matches(RegExp(r'^codecov/codecov-action@[0-9a-f]{40}$')),
+      );
+      expect(
+        RegExp(r'codecov/codecov-action@[0-9a-f]{40}\s+# v4').hasMatch(src),
+        isTrue,
+        reason: 'the pin keeps its # v4 comment',
+      );
+      expect((st['with'] as YamlMap)['fail_ci_if_error'], isFalse);
     });
   }, skip: skip);
 

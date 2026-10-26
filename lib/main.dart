@@ -9,6 +9,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'core/config/app_config.dart';
+import 'core/config/env_guard.dart';
 import 'core/errors/failure_retry_policy.dart';
 import 'core/icons/beautica_asset_icons.dart';
 import 'core/network/dio_provider.dart';
@@ -58,6 +59,11 @@ Future<void> main() async {
   // SchedulerBinding.instance below hangs on Mali-G52 / this Flutter combo.
   // Phase 2.15: capture the binding so it can be passed to FlutterNativeSplash.
   final binding = WidgetsFlutterBinding.ensureInitialized();
+
+  // Phase 408 (D3): flavor vs baked BEAUTICA_ENV / BASE_URL consistency. FIRST,
+  // before any other startup work — a prod build pointed at staging (or the
+  // reverse) must die here, not after it has touched the network.
+  EnvGuard.assertConsistent();
 
   // MS-SECURE-URL: throws StateError in release/profile mode if
   // BEAUTICA_BASE_URL is not HTTPS (or a loopback/private-LAN address).

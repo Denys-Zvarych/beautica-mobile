@@ -39,7 +39,7 @@ const Duration _nativeTimeout = Duration(seconds: 60);
 
 /// uCrop's Done (the toolbar check) — same selector as the EXIF patrol test.
 const AndroidSelector _cropDone = AndroidSelector(
-  resourceName: 'com.beautica.beautica_mobile:id/menu_crop',
+  resourceName: 'com.beautica.app.staging:id/menu_crop',
 );
 
 AppLocalizations _l10n(PatrolIntegrationTester $) =>
