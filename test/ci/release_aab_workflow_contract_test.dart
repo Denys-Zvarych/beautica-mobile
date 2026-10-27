@@ -29,6 +29,25 @@
 //   D13 google-services.json is injected from a required secret (env only),
 //       jq-checked for a com.beautica.app client, proven inside the built AAB
 //       (google_app_id) before verify, and deleted in an always() step.
+//
+// Phase 423 (phase-423-play-auto-upload.md) — automatic Play Internal upload:
+//   D3  job `play-upload` needs build + release-notes, runs only on a mobile-v* tag
+//       push (never workflow_dispatch), environment ci-trusted-secrets, no checkout,
+//       no keystore / key / google-services secret.
+//   D4  `id-token: write` only in play-upload (next to contents: read).
+//   D5  build exposes `aab_sha256`; play-upload re-hashes the downloaded AAB before
+//       the upload, blocking (no if / continue-on-error).
+//   D6  status comes from vars.BEAUTICA_PLAY_RELEASE_STATUS after a draft|completed
+//       validation step.
+//   D7  r0adkll inputs: tracks internal, whatsNewDirectory, mappingFile; no
+//       debugSymbols / changesNotSentForReview / userFraction / inAppUpdatePriority;
+//       no continue-on-error anywhere in the job.
+//   D2  exactly ONE credential form: keyless WIF (google-github-actions/auth with
+//       cleanup_credentials not false) XOR serviceAccountJsonPlainText from secret
+//       BEAUTICA_PLAY_SERVICE_ACCOUNT_JSON (fallback; never inside a run:).
+//   D10 job `release-notes` needs guard, no environment, no secrets, no id-token,
+//       runs scripts/check_release_notes.sh (dispatch mode on a dry run) and uploads
+//       release-notes/ as artifact `release-notes`.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -297,11 +316,17 @@ List<String> permissionViolations(String text) {
       4,
       within: _children(w.lines, j),
     );
+    // 423 D4: only play-upload may (and must) add id-token: write.
+    final String want = job == kPlayJob
+        ? 'contents: read|id-token: write'
+        : 'contents: read';
+    if (job == kPlayJob && jp < 0) {
+      v.add('job $job must declare `contents: read` + `id-token: write`');
+    }
     if (jp >= 0 &&
-        (_inline(w.lines[jp]).isNotEmpty ||
-            grants(jp).join('|') != 'contents: read')) {
+        (_inline(w.lines[jp]).isNotEmpty || grants(jp).join('|') != want)) {
       v.add(
-        'job $job permissions widen beyond `contents: read`: '
+        'job $job permissions must be exactly `${want.replaceAll('|', ' + ')}`: '
         '${_inline(w.lines[jp])}${grants(jp)}',
       );
     }
@@ -336,9 +361,16 @@ List<String> jobTopologyViolations(String text) {
       '"${w.jobField('build', 'environment')}"',
     );
   }
+  // 423: the WIF attribute condition pins environment ci-trusted-secrets.
+  if (w.jobs.containsKey(kPlayJob) &&
+      w.jobField(kPlayJob, 'environment') != 'ci-trusted-secrets') {
+    v.add('$kPlayJob must have `environment: ci-trusted-secrets`');
+  }
   for (final String job in w.jobs.keys) {
-    if (job != 'build' && w.jobField(job, 'environment') != null) {
-      v.add('job $job names an environment; only build may');
+    if (job != 'build' &&
+        job != kPlayJob &&
+        w.jobField(job, 'environment') != null) {
+      v.add('job $job names an environment; only build and $kPlayJob may');
     }
   }
   return v;
@@ -741,6 +773,333 @@ List<String> firebaseCleanupViolations(String text) {
   return v;
 }
 
+// --- 423 Play upload + release notes ----------------------------------------
+
+const String kPlayJob = 'play-upload';
+const String kNotesJob = 'release-notes';
+const String _playJsonSecret = 'BEAUTICA_PLAY_SERVICE_ACCOUNT_JSON';
+const List<String> _playIfClauses = <String>[
+  "github.event_name == 'push'",
+  "github.ref_type == 'tag'",
+  "startsWith(github.ref, 'refs/tags/mobile-v')",
+];
+
+String _expr(String? v) => (v ?? '')
+    .replaceFirst(RegExp(r'^\$\{\{\s*'), '')
+    .replaceFirst(RegExp(r'\s*\}\}$'), '')
+    .trim();
+
+/// Live (non-comment) line indices of a job's body.
+List<int> _jobBody(Workflow w, String job) {
+  final int? j = w.jobs[job];
+  return j == null
+      ? <int>[]
+      : _children(w.lines, j).where((int i) => !_isNoise(w.lines[i])).toList();
+}
+
+bool _uses(WorkflowStep s, String action) =>
+    (s.field('uses') ?? '').startsWith('$action@');
+
+List<String> playUploadViolations(String text) {
+  final Workflow w = Workflow(text);
+  final List<String> v = <String>[];
+  if (!w.jobs.containsKey(kPlayJob)) return <String>['no `$kPlayJob` job'];
+
+  final Set<String> needs = (w.jobField(kPlayJob, 'needs') ?? '')
+      .replaceAll(RegExp(r'[\[\]\s]'), '')
+      .split(',')
+      .where((String e) => e.isNotEmpty)
+      .toSet();
+  if (needs.length != 2 || !needs.containsAll(<String>['build', kNotesJob])) {
+    v.add('$kPlayJob must have `needs: [build, $kNotesJob]`, got $needs');
+  }
+
+  // D3: tag push only. Every clause present, joined by && and nothing else.
+  final String cond = _expr(w.jobField(kPlayJob, 'if'));
+  String residue = cond;
+  for (final String c in _playIfClauses) {
+    if (!cond.contains(c)) v.add('$kPlayJob `if:` lacks `$c` (D3)');
+    residue = residue.replaceFirst(c, '');
+  }
+  if (residue.replaceAll('&&', '').trim().isNotEmpty) {
+    v.add('$kPlayJob `if:` must be only the D3 tag-push clauses, got "$cond"');
+  }
+
+  final List<int> body = _jobBody(w, kPlayJob);
+  for (final int i in body) {
+    final String l = w.lines[i];
+    if (RegExp(
+      r'BEAUTICA_(KEYSTORE|KEY_|GOOGLE_SERVICES)|upload\.jks',
+    ).hasMatch(l)) {
+      v.add('$kPlayJob line ${i + 1} touches the keystore/key/google-services');
+    }
+    for (final RegExpMatch m in RegExp(r'secrets\.(\w+)').allMatches(l)) {
+      if (m.group(1) != _playJsonSecret) {
+        v.add('$kPlayJob line ${i + 1} references secrets.${m.group(1)}');
+      }
+    }
+    if (RegExp(r'^\s*continue-on-error\s*:').hasMatch(l)) {
+      v.add('$kPlayJob line ${i + 1}: continue-on-error (D7)');
+    }
+  }
+
+  final List<WorkflowStep> steps = w.steps(kPlayJob);
+  for (final WorkflowStep s in steps) {
+    final String uses = s.field('uses') ?? '';
+    if (uses.startsWith('actions/checkout@') || uses.startsWith('./')) {
+      v.add(
+        '$kPlayJob step at line ${s.start + 1} checks out / runs repo code',
+      );
+    }
+    if ((s.field('run') ?? '').contains(_playJsonSecret)) {
+      v.add('$kPlayJob step at line ${s.start + 1}: $_playJsonSecret in run:');
+    }
+  }
+  for (final String art in <String>['aab', 'symbols', kNotesJob]) {
+    if (!steps.any(
+      (WorkflowStep s) =>
+          _uses(s, 'actions/download-artifact') &&
+          s.mapping('with')['name'] == art,
+    )) {
+      v.add('$kPlayJob does not download artifact `$art`');
+    }
+  }
+
+  final List<int> uploads = <int>[
+    for (int i = 0; i < steps.length; i++)
+      if (_uses(steps[i], 'r0adkll/upload-google-play')) i,
+  ];
+  if (uploads.length != 1) {
+    v.add('expected exactly one r0adkll upload step, found ${uploads.length}');
+    return v;
+  }
+  final int up = uploads.single;
+  final WorkflowStep upload = steps[up];
+  final Map<String, String> wi = upload.mapping('with');
+  if (upload.has('if')) v.add('upload step must not be conditional');
+  if (wi['packageName'] != 'com.beautica.app') {
+    v.add('packageName must be com.beautica.app, got ${wi['packageName']}');
+  }
+  if (wi['tracks'] != 'internal') {
+    v.add('tracks must be exactly `internal`, got "${wi['tracks']}"');
+  }
+  if (_expr(wi['status']) != 'vars.BEAUTICA_PLAY_RELEASE_STATUS') {
+    v.add('status must come from vars.BEAUTICA_PLAY_RELEASE_STATUS (D6)');
+  }
+  if (_expr(wi['releaseName']) != 'github.ref_name') {
+    v.add('releaseName must be github.ref_name');
+  }
+  for (final String k in <String>['whatsNewDirectory', 'mappingFile']) {
+    if ((wi[k] ?? '').isEmpty) v.add('upload step lacks `$k` (D7/D8)');
+  }
+  for (final String k in <String>[
+    'track',
+    'debugSymbols',
+    'changesNotSentForReview',
+    'userFraction',
+    'inAppUpdatePriority',
+  ]) {
+    if (wi.containsKey(k)) v.add('upload step must not set `$k` (D7)');
+  }
+
+  // D6: draft|completed validation of the same variable, before the upload.
+  final int status = steps.indexWhere((WorkflowStep s) {
+    final MapEntry<String, String>? e = s
+        .mapping('env')
+        .entries
+        .where(
+          (MapEntry<String, String> e) =>
+              _expr(e.value) == 'vars.BEAUTICA_PLAY_RELEASE_STATUS',
+        )
+        .firstOrNull;
+    final String run = s.field('run') ?? '';
+    return e != null &&
+        RegExp(
+          'case "\\\$${e.key}" in\n'
+          r'draft \| completed\)\n[^\n]*\n\*\)\n[^\n]*::error::[^\n]*\nexit 1 ;;',
+        ).hasMatch(run);
+  });
+  if (status < 0) {
+    v.add(
+      'no draft|completed validation step for BEAUTICA_PLAY_RELEASE_STATUS',
+    );
+  } else if (status > up) {
+    v.add('status validation must run before the upload');
+  }
+
+  // D5: sha256 of the downloaded AAB == build's verified hash, before upload.
+  final int sha = steps.indexWhere((WorkflowStep s) {
+    final MapEntry<String, String>? e = s
+        .mapping('env')
+        .entries
+        .where(
+          (MapEntry<String, String> e) =>
+              _expr(e.value) == 'needs.build.outputs.aab_sha256',
+        )
+        .firstOrNull;
+    final String run = s.field('run') ?? '';
+    return e != null &&
+        run.contains('sha256sum') &&
+        RegExp(
+          'if \\[ "\\\$actual" != "\\\$${e.key}" \\]; then\n'
+          r'echo "::error::[^\n]*"\nexit 1',
+        ).hasMatch(run);
+  });
+  if (sha < 0) {
+    v.add(
+      'no step compares the AAB sha256 with needs.build.outputs.aab_sha256',
+    );
+  } else {
+    final WorkflowStep s = steps[sha];
+    if (sha > up) v.add('sha256 check must run before the upload');
+    if (s.has('if')) v.add('sha256 check must not be conditional');
+    if (s.has('continue-on-error')) {
+      v.add('sha256 check must not continue-on-error');
+    }
+    final String? id = s.field('id');
+    if (id == null || _expr(wi['releaseFiles']) != 'steps.$id.outputs.path') {
+      v.add(
+        'releaseFiles must be the sha256-checked AAB (steps.<id>.outputs.path)',
+      );
+    }
+  }
+  final int? b = w.jobs['build'];
+  final int bo = b == null
+      ? -1
+      : _findKey(w.lines, 'outputs', 4, within: _children(w.lines, b));
+  final int bs = bo < 0
+      ? -1
+      : _findKey(w.lines, 'aab_sha256', 6, within: _children(w.lines, bo));
+  if (bs < 0 || _expr(_inline(w.lines[bs])) != 'steps.aab.outputs.sha256') {
+    v.add('build must expose outputs.aab_sha256 = steps.aab.outputs.sha256');
+  }
+  final WorkflowStep? resolve = w
+      .steps('build')
+      .where((WorkflowStep s) => s.field('id') == 'aab')
+      .firstOrNull;
+  if (resolve == null ||
+      !RegExp(
+        r'echo "sha256=\$\(sha256sum "\$aab" \| cut -d . . -f 1\)" >> "\$GITHUB_OUTPUT"',
+      ).hasMatch(resolve.field('run') ?? '')) {
+    v.add('build step `aab` must write its sha256sum to \$GITHUB_OUTPUT');
+  }
+
+  // D2: exactly one credential form.
+  final List<int> auths = <int>[
+    for (int i = 0; i < steps.length; i++)
+      if (_uses(steps[i], 'google-github-actions/auth')) i,
+  ];
+  final bool keyForm =
+      _expr(wi['serviceAccountJsonPlainText']) == 'secrets.$_playJsonSecret';
+  if (auths.length > 1) v.add('more than one google-github-actions/auth step');
+  if ((auths.isNotEmpty) == keyForm) {
+    v.add(
+      'exactly one credential form required: WIF auth step XOR '
+      'serviceAccountJsonPlainText from secrets.$_playJsonSecret',
+    );
+  }
+  if (wi.containsKey('serviceAccountJsonPlainText') && !keyForm) {
+    v.add('serviceAccountJsonPlainText must be secrets.$_playJsonSecret');
+  }
+  if (auths.length == 1) {
+    final WorkflowStep a = steps[auths.single];
+    final Map<String, String> aw = a.mapping('with');
+    if (auths.single > up) v.add('auth must run before the upload');
+    if (_expr(aw['workload_identity_provider']) !=
+        'vars.BEAUTICA_PLAY_WIF_PROVIDER') {
+      v.add(
+        'auth workload_identity_provider must be vars.BEAUTICA_PLAY_WIF_PROVIDER',
+      );
+    }
+    if (_expr(aw['service_account']) != 'vars.BEAUTICA_PLAY_SA_EMAIL') {
+      v.add('auth service_account must be vars.BEAUTICA_PLAY_SA_EMAIL');
+    }
+    if (aw.containsKey('credentials_json')) {
+      v.add('auth must be keyless (no credentials_json)');
+    }
+    if (aw['create_credentials_file'] == 'false') {
+      v.add('auth must create the credentials file');
+    }
+    if (aw['cleanup_credentials'] == 'false') {
+      v.add('auth cleanup_credentials must not be false');
+    }
+    final String? id = a.field('id');
+    if (id == null ||
+        _expr(wi['serviceAccountJson']) !=
+            'steps.$id.outputs.credentials_file_path') {
+      v.add('serviceAccountJson must be the auth step credentials_file_path');
+    }
+  } else if (keyForm && wi.containsKey('serviceAccountJson')) {
+    v.add('key form must not also set serviceAccountJson');
+  }
+  return v;
+}
+
+List<String> releaseNotesJobViolations(String text) {
+  final Workflow w = Workflow(text);
+  final List<String> v = <String>[];
+  if (!w.jobs.containsKey(kNotesJob)) return <String>['no `$kNotesJob` job'];
+  final String needs = (w.jobField(kNotesJob, 'needs') ?? '').replaceAll(
+    RegExp(r'[\[\]\s]'),
+    '',
+  );
+  if (needs != 'guard') v.add('$kNotesJob must have `needs: guard`');
+  if (w.jobField(kNotesJob, 'environment') != null) {
+    v.add('$kNotesJob must have NO environment (D10a: secret-free)');
+  }
+  for (final int i in _jobBody(w, kNotesJob)) {
+    if (w.lines[i].contains('secrets.')) {
+      v.add('$kNotesJob line ${i + 1} references a secret');
+    }
+    if (w.lines[i].contains('id-token')) {
+      v.add('$kNotesJob line ${i + 1} grants id-token');
+    }
+  }
+  final List<WorkflowStep> steps = w.steps(kNotesJob);
+  final WorkflowStep? co = steps
+      .where((WorkflowStep s) => _uses(s, 'actions/checkout'))
+      .firstOrNull;
+  if (co == null || co.mapping('with')['fetch-depth'] != '0') {
+    v.add('$kNotesJob must check out with fetch-depth: 0 (previous-tag rule)');
+  }
+  final int check = steps.indexWhere(
+    (WorkflowStep s) => RegExp(
+      r'^\./scripts/check_release_notes\.sh "\$NOTES_MODE"$',
+    ).hasMatch(s.field('run') ?? ''),
+  );
+  if (check < 0) {
+    v.add(
+      '$kNotesJob does not run ./scripts/check_release_notes.sh "\$NOTES_MODE"',
+    );
+  } else {
+    final WorkflowStep s = steps[check];
+    if (_expr(s.mapping('env')['NOTES_MODE']) !=
+        "(github.event_name == 'workflow_dispatch' && inputs.dry_run) "
+            "&& 'dispatch' || 'tag'") {
+      v.add('NOTES_MODE must be dispatch on a dry run and tag otherwise');
+    }
+    if (s.has('if')) v.add('notes check must not be conditional');
+    if (s.has('continue-on-error')) {
+      v.add('notes check must not continue-on-error');
+    }
+  }
+  final int up = steps.indexWhere(
+    (WorkflowStep s) =>
+        _uses(s, 'actions/upload-artifact') &&
+        RegExp('$kNotesJob\$').hasMatch(_withName(s)),
+  );
+  if (up < 0) {
+    v.add('$kNotesJob does not upload artifact `$kNotesJob`');
+  } else {
+    // Security LOW: only the checked file may reach Play's whatsNewDirectory.
+    if (_withField(steps[up]).trim() != 'release-notes/whatsnew-uk') {
+      v.add('release-notes artifact path must be release-notes/whatsnew-uk');
+    }
+    if (check >= 0 && up < check) v.add('notes uploaded before the check');
+  }
+  return v;
+}
+
 // --- Manifest + allow-list -------------------------------------------------
 
 String _stripXmlComments(String xml) =>
@@ -818,7 +1177,8 @@ void main() {
     test('triggers are exactly push tags mobile-v* + workflow_dispatch', () {
       expect(triggerViolations(wf), isEmpty);
     });
-    test('permissions are contents: read only (top level and per job)', () {
+    test('permissions are contents: read (top level and per job); '
+        'id-token: write only in play-upload', () {
       expect(permissionViolations(wf), isEmpty);
     });
     test('guard has no environment/secrets; build needs guard + env', () {
@@ -858,6 +1218,25 @@ void main() {
     });
     test('D13: google-services.json removed in a trailing always() step', () {
       expect(firebaseCleanupViolations(wf), isEmpty);
+    });
+    test('423: play-upload needs build + release-notes, tag push only, no '
+        'checkout/keystore, sha256 + status checks before an internal '
+        'upload, exactly one credential form', () {
+      expect(playUploadViolations(wf), isEmpty);
+    });
+    test(
+      '423: release-notes is secret-free, needs guard, runs '
+      'check_release_notes.sh and uploads release-notes/whatsnew-uk only',
+      () {
+        expect(releaseNotesJobViolations(wf), isEmpty);
+      },
+    );
+    test('423: the real file uses the keyless WIF form', () {
+      expect(wf, contains('uses: google-github-actions/auth@'));
+      expect(wf, isNot(contains('serviceAccountJsonPlainText')));
+    });
+    test('423: release-notes/whatsnew-uk exists (Play locale uk)', () {
+      expect(File('release-notes/whatsnew-uk').existsSync(), isTrue);
     });
   });
 
@@ -1455,6 +1834,391 @@ void main() {
         artifactPathViolations,
         mutate(wf, 'path: build/release-manifest.xml', 'path: android/app/'),
       );
+    });
+    // --- 423 Play upload + release notes ----------------------------------
+    const String playIf =
+        "    if: github.event_name == 'push' && github.ref_type == 'tag' && "
+        "startsWith(github.ref, 'refs/tags/mobile-v')\n";
+    String stepText(String text, String name) {
+      final int a = text.indexOf('      - name: $name\n');
+      expect(a, greaterThanOrEqualTo(0), reason: 'step missing: $name');
+      final int b = text.indexOf('\n\n', a);
+      return text.substring(a, b < 0 ? text.length : b + 2);
+    }
+
+    const String shaStep = 'Verify AAB sha256 and mapping';
+    const String statusStep = 'Validate release status';
+    const String authStep =
+        'Authenticate to Google Cloud (Workload Identity Federation)';
+    const String uploadStep = 'Upload to Play Internal testing';
+    const String authWith = '          create_credentials_file: true\n';
+    const String saJsonLine =
+        r'          serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}'
+        '\n';
+    const String keyLine =
+        r'          serviceAccountJsonPlainText: ${{ secrets.BEAUTICA_PLAY_SERVICE_ACCOUNT_JSON }}'
+        '\n';
+    String keyForm() =>
+        mutate(mutate(wf, stepText(wf, authStep), ''), saJsonLine, keyLine);
+
+    test(
+      'play: key fallback form (no auth step) is also accepted (D2/D11)',
+      () {
+        expect(playUploadViolations(keyForm()), isEmpty);
+      },
+    );
+    test('play: if removed', () {
+      red(playUploadViolations, mutate(wf, playIf, ''));
+    });
+    test('play: if mutated to always()', () {
+      red(playUploadViolations, mutate(wf, playIf, '    if: always()\n'));
+    });
+    test('play: event_name == push clause dropped', () {
+      red(
+        playUploadViolations,
+        mutate(wf, "if: github.event_name == 'push' && ", 'if: '),
+      );
+    });
+    test('play: workflow_dispatch OR-ed into the if', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          "if: github.event_name == 'push' && ",
+          "if: github.event_name == 'workflow_dispatch' || "
+              "github.event_name == 'push' && ",
+        ),
+      );
+    });
+    test('permissions: id-token: write added to build', () {
+      red(
+        permissionViolations,
+        mutate(
+          wf,
+          '    permissions:\n      contents: read\n    # 423 D5',
+          '    permissions:\n      contents: read\n      id-token: write\n'
+              '    # 423 D5',
+        ),
+      );
+    });
+    test('permissions: id-token: write added to guard', () {
+      red(
+        permissionViolations,
+        mutate(
+          wf,
+          '    timeout-minutes: 5\n    permissions:\n      contents: read\n',
+          '    timeout-minutes: 5\n    permissions:\n      contents: read\n'
+              '      id-token: write\n',
+        ),
+      );
+    });
+    test('permissions: id-token: write dropped from play-upload', () {
+      red(
+        permissionViolations,
+        mutate(
+          wf,
+          '      contents: read\n      id-token: write\n',
+          '      contents: read\n',
+        ),
+      );
+    });
+    test('play: keystore secret referenced in play-upload', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          PLAY_DIR: \${{ runner.temp }}/play\n',
+          '          PLAY_DIR: \${{ runner.temp }}/play\n'
+              '          K: \${{ secrets.BEAUTICA_KEYSTORE_BASE64 }}\n',
+        ),
+      );
+    });
+    test('play: actions/checkout added to play-upload', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '      - name: Download AAB\n',
+          '      - name: Checkout\n'
+              '        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4\n\n'
+              '      - name: Download AAB\n',
+        ),
+      );
+    });
+    test('pin: r0adkll on @v1', () {
+      red(
+        pinViolations,
+        mutate(
+          wf,
+          'r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5',
+          'r0adkll/upload-google-play@v1',
+        ),
+      );
+    });
+    test('pin: auth on @v3', () {
+      red(
+        pinViolations,
+        mutate(
+          wf,
+          'google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093',
+          'google-github-actions/auth@v3',
+        ),
+      );
+    });
+    test('play: tracks: production', () {
+      red(
+        playUploadViolations,
+        mutate(wf, 'tracks: internal', 'tracks: production'),
+      );
+    });
+    test('play: tracks: alpha', () {
+      red(
+        playUploadViolations,
+        mutate(wf, 'tracks: internal', 'tracks: alpha'),
+      );
+    });
+    test('play: status: completed hardcoded', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          status: \${{ vars.BEAUTICA_PLAY_RELEASE_STATUS }}\n',
+          '          status: completed\n',
+        ),
+      );
+    });
+    test('play: status-validation step removed', () {
+      red(playUploadViolations, mutate(wf, stepText(wf, statusStep), ''));
+    });
+    test('play: status validation lets inProgress through', () {
+      red(
+        playUploadViolations,
+        mutate(wf, 'draft | completed)', 'draft | completed | inProgress)'),
+      );
+    });
+    test('play: whatsNewDirectory removed', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          whatsNewDirectory: \${{ runner.temp }}/play/release-notes\n',
+          '',
+        ),
+      );
+    });
+    test('play: mappingFile removed', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          mappingFile: \${{ steps.aab.outputs.mapping }}\n',
+          '',
+        ),
+      );
+    });
+    test('play: debugSymbols added', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          tracks: internal\n',
+          '          tracks: internal\n          debugSymbols: x.zip\n',
+        ),
+      );
+    });
+    test('play: sha256 step removed', () {
+      red(playUploadViolations, mutate(wf, stepText(wf, shaStep), ''));
+    });
+    test('play: sha256 step made continue-on-error', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '      - name: $shaStep\n',
+          '      - name: $shaStep\n        continue-on-error: true\n',
+        ),
+      );
+    });
+    test('play: sha256 mismatch no longer exits 1', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '!= verified build \$EXPECTED_SHA256"\n            exit 1\n',
+          '!= verified build \$EXPECTED_SHA256"\n',
+        ),
+      );
+    });
+    test('play: sha256 step moved after the upload', () {
+      final String step = stepText(wf, shaStep);
+      red(playUploadViolations, '${mutate(wf, step, '')}\n$step');
+    });
+    test('play: build no longer exposes aab_sha256', () {
+      red(
+        playUploadViolations,
+        mutate(wf, '      aab_sha256: \${{ steps.aab.outputs.sha256 }}\n', ''),
+      );
+    });
+    test('play: build step aab stops hashing the AAB', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '          echo "sha256=\$(sha256sum "\$aab" | cut -d \' \' -f 1)" >> "\$GITHUB_OUTPUT"\n',
+          '',
+        ),
+      );
+    });
+    test('play: releaseFiles bypasses the checked AAB', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          'releaseFiles: \${{ steps.aab.outputs.path }}',
+          'releaseFiles: \${{ runner.temp }}/play/aab/*.aab',
+        ),
+      );
+    });
+    test('play: continue-on-error: true on the upload', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          '      - name: $uploadStep\n',
+          '      - name: $uploadStep\n        continue-on-error: true\n',
+        ),
+      );
+    });
+    test('play: needs: build dropped', () {
+      red(
+        playUploadViolations,
+        mutate(wf, 'needs: [build, release-notes]', 'needs: [release-notes]'),
+      );
+    });
+    test('play: release-notes artifact not downloaded', () {
+      red(
+        playUploadViolations,
+        mutate(wf, stepText(wf, 'Download release notes'), ''),
+      );
+    });
+    test('play: environment dropped from play-upload', () {
+      red(
+        jobTopologyViolations,
+        mutate(
+          wf,
+          '    runs-on: ubuntu-24.04\n    environment: ci-trusted-secrets\n'
+              '    timeout-minutes: 20\n',
+          '    runs-on: ubuntu-24.04\n    timeout-minutes: 20\n',
+        ),
+      );
+    });
+    test('notes: environment added to release-notes', () {
+      final String m = mutate(
+        wf,
+        '    timeout-minutes: 10\n',
+        '    timeout-minutes: 10\n    environment: ci-trusted-secrets\n',
+      );
+      red(releaseNotesJobViolations, m);
+      red(jobTopologyViolations, m);
+    });
+    test('notes: secret referenced in release-notes', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(
+          wf,
+          "          NOTES_MODE: \${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dispatch' || 'tag' }}\n",
+          "          NOTES_MODE: \${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dispatch' || 'tag' }}\n"
+              '          T: \${{ secrets.GITHUB_TOKEN }}\n',
+        ),
+      );
+    });
+    test('notes: dry-run mode no longer dispatch (stale notes would fail)', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(wf, "&& 'dispatch' || 'tag'", "&& 'tag' || 'tag'"),
+      );
+    });
+    test('notes: shallow checkout (previous tag unreachable)', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(
+          wf,
+          '      - name: Checkout (full history + tags for the previous-tag rule)\n'
+              '        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4\n'
+              '        with:\n          fetch-depth: 0\n',
+          '      - name: Checkout (full history + tags for the previous-tag rule)\n'
+              '        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4\n'
+              '        with:\n          fetch-depth: 1\n',
+        ),
+      );
+    });
+    test('notes: check made non-blocking', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(
+          wf,
+          '      - name: Check release notes\n',
+          '      - name: Check release notes\n        continue-on-error: true\n',
+        ),
+      );
+    });
+    test('notes: artifact path widened back to the release-notes/ dir', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(
+          wf,
+          'path: release-notes/whatsnew-uk\n',
+          'path: release-notes/\n',
+        ),
+      );
+    });
+    test('notes: artifact path widened to a glob', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(
+          wf,
+          'path: release-notes/whatsnew-uk\n',
+          'path: release-notes/whatsnew-*\n',
+        ),
+      );
+    });
+    test('notes: artifact not uploaded', () {
+      red(
+        releaseNotesJobViolations,
+        mutate(wf, stepText(wf, 'Upload release notes'), ''),
+      );
+    });
+    test('play: cleanup_credentials: false', () {
+      red(
+        playUploadViolations,
+        mutate(wf, authWith, '$authWith          cleanup_credentials: false\n'),
+      );
+    });
+    test('play: both credential forms present', () {
+      red(playUploadViolations, mutate(wf, saJsonLine, '$saJsonLine$keyLine'));
+    });
+    test('play: neither credential form present', () {
+      red(playUploadViolations, mutate(wf, stepText(wf, authStep), ''));
+    });
+    test('play: auth switched to a JSON key', () {
+      red(
+        playUploadViolations,
+        mutate(
+          wf,
+          authWith,
+          '$authWith          credentials_json: \${{ secrets.BEAUTICA_PLAY_SERVICE_ACCOUNT_JSON }}\n',
+        ),
+      );
+    });
+    test('play: JSON secret interpolated inside a run:', () {
+      final String m = mutate(
+        keyForm(),
+        '              echo "Play release status: \$RELEASE_STATUS" ;;\n',
+        '              echo "Play release status: \$RELEASE_STATUS" ;;\n'
+            '              echo "\${{ secrets.BEAUTICA_PLAY_SERVICE_ACCOUNT_JSON }}" > k.json ;;\n',
+      );
+      red(playUploadViolations, m);
+      red(injectionViolations, m);
     });
     test('manifest: tools:node="remove" dropped', () {
       red(
