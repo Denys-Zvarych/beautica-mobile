@@ -6,6 +6,8 @@
 #   full_before_none -> FULL | none_globs -> ignored | arb / golden_assets / path_includes -> mapped
 #   | full_globs -> FULL | dart under graph_roots -> seed
 #   | anything else -> FULL (fail-safe)
+# then, in select(): a FULL path listed in version_only whose change is the
+#   single `line`-matching line -> ignored (needs the BASE tree, else FULL).
 
 # Dart packages that can appear in import URIs and where they live.
 packages:
@@ -65,6 +67,12 @@ path_includes:
     include:
       - 'test/integration_aggregator_meta_test.dart'
       - 'test/patrol_excluded_from_fast_path_test.dart'
+  # Release notes (Play "what's new", phase 423): read only by the release
+  # workflow at tag time; the one unit test that reads them is the release
+  # contract test (release-notes/whatsnew-uk exists).
+  - when: ['release-notes/**']
+    include:
+      - 'test/ci/release_aab_workflow_contract_test.dart'
 
 # Committed golden PNGs: every *_test.dart directly beside the `goldens/` folder
 # is selected. A PNG not directly under a `goldens/` dir, or with no sibling
@@ -80,6 +88,15 @@ arb:
   globs: ['lib/l10n/*.arb']
   reader_literal: '\.arb|l10n/app_(uk|en)'
   include_always: ['test/l10n/**']
+
+# A FULL path whose BASE->HEAD change (status M) differs in EXACTLY one line,
+# and that line matches `line` on both sides, is ignored instead (a release
+# bump touches only pubspec.yaml's top-level `version:`). Any other change, a
+# missing BASE tree or an unreadable file stays FULL (fail-safe). Mirrors
+# tool/ci/pubspec_version_only.sh (guard + plan.sh native flag).
+version_only:
+  paths: ['pubspec.yaml']
+  line: '^version:'
 
 # Anything here forces mode=full.
 full_globs:
