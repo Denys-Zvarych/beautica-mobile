@@ -14,15 +14,49 @@ name: Release AAB
 #   * no pull_request / pull_request_target trigger: fork code can never reach this file;
 #   * job `guard` runs the tag check with NO environment, so a bad tag fails before any
 #     secret is loaded (D4, owns phase 421 D5);
-#   * only job `build` names `ci-trusted-secrets` (deployment policies: branches dev + main
-#     and a TAG-type policy mobile-v*; tag creation is limited to repo admins by the ruleset
+#   * only jobs `build` and `play-upload` (423) name `ci-trusted-secrets` (deployment
+#     policies: branches dev + main and a TAG-type policy mobile-v*; tag creation is
+#     limited to repo admins by the ruleset
 #     "Protect mobile-v* tags" — both applied by repo-root scripts/github-release-tag-protection.sh);
 #     the upload keystore is decoded into $RUNNER_TEMP (outside the workspace and every
 #     artifact glob) and deleted in an always() step (D5);
 #   * BEAUTICA_REQUIRE_RELEASE_SIGNING=1 arms the Gradle debug-signing guard
 #     (android/app/build.gradle.kts), and verify_release_aab.sh rule 8 checks the cert.
 #
-# No automated Play upload (D12): the user uploads artifact `aab` to the internal track (M4).
+# Firebase push (D13): secret BEAUTICA_GOOGLE_SERVICES_JSON_BASE64 (ci-trusted-secrets,
+# `base64 -w0 google-services.json`) is REQUIRED on every run, dry runs included. It is
+# decoded into android/app/google-services.json (umask 077) and jq-checked for a
+# `com.beautica.app` client. build.gradle.kts silently builds push-less when the json is
+# missing or lacks the prod client, so after the build the AAB's base resource table must
+# carry the plugin-generated `google_app_id` and this json's mobilesdk_app_id, or the run
+# fails. The json and the plugin's generated values (build/app/generated/res/
+# process*GoogleServices) are deleted in an always() step; no artifact path reaches them.
+# Push stays OFF server-side (FIREBASE_ENABLED=false); this only lets the app register.
+#
+# Play upload (phase 423, docs/mobile-phases/phase-423-play-auto-upload.md; supersedes 409
+# D12 — the manual M4 upload of artifact `aab` stays the fallback):
+#   * job `release-notes` is secret-free (no environment, contents: read) and runs
+#     scripts/check_release_notes.sh: release-notes/whatsnew-uk is UTF-8/LF, non-empty,
+#     <= 500 code points and differs from the previous mobile-v* tag (a dry run only warns).
+#     It blocks `play-upload` only, so stale notes still leave the verified AAB for M4;
+#   * job `play-upload` runs ONLY on a mobile-v* tag push (never on workflow_dispatch, dry
+#     or not), needs `build` + `release-notes`, has NO checkout (no repo code runs while an
+#     OIDC token exists) and references no keystore / key / google-services secret. It is the
+#     ONLY job with `id-token: write`. It consumes artifacts aab, symbols, release-notes and
+#     fails unless the downloaded AAB's sha256 equals build's `aab_sha256` (the bytes
+#     verify_release_aab.sh passed);
+#   * credential = keyless Workload Identity Federation (D2): google-github-actions/auth
+#     impersonates vars.BEAUTICA_PLAY_SA_EMAIL through vars.BEAUTICA_PLAY_WIF_PROVIDER (not
+#     secrets). The pool's attribute condition pins repo, owner id, this workflow file,
+#     refs/tags/mobile-v* and environment ci-trusted-secrets, so `play-upload` must declare
+#     that environment. The credentials file is removed by the action's post step
+#     (cleanup_credentials left at its default true). The Play service account may only
+#     release to testing tracks; promotion to closed/production stays manual in Play Console;
+#   * r0adkll/upload-google-play uploads to track `internal` with the release status from
+#     vars.BEAUTICA_PLAY_RELEASE_STATUS (validated: draft|completed; `draft` while the Play
+#     app is a draft app, then the user presses Roll out), the Ukrainian notes and the R8
+#     mapping.txt for the same versionCode. A failed upload makes the run red; re-running
+#     after a SUCCESSFUL upload fails on "version code already used" (fix in the Console).
 
 on:
   push:
@@ -72,6 +106,9 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+    # 423 D5: play-upload re-hashes the downloaded AAB against this.
+    outputs:
+      aab_sha256: ${{ steps.aab.outputs.sha256 }}
     env:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       ARTIFACT_PREFIX: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry-run-' || '' }}
@@ -91,8 +128,35 @@ jobs:
       - name: Set up Flutter, pub get, codegen
         uses: ./.github/actions/flutter-setup
 
-      # push: google-services.json injection goes here once the push track lands (D13).
-      # Until then the AAB builds push-less, which is supported (phase 066).
+      # D13: Firebase config for the prod AAB. Never print the file's content.
+      - name: Inject google-services.json (Firebase push)
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.BEAUTICA_GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -z "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "::error::secret BEAUTICA_GOOGLE_SERVICES_JSON_BASE64 is not set in environment ci-trusted-secrets"
+            exit 1
+          fi
+          umask 077
+          gs=android/app/google-services.json
+          if ! printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > "$gs"; then
+            rm -f "$gs"
+            echo "::error::BEAUTICA_GOOGLE_SERVICES_JSON_BASE64 is not valid base64"
+            exit 1
+          fi
+          if ! jq -e . "$gs" > /dev/null 2>&1; then
+            rm -f "$gs"
+            echo "::error::decoded google-services.json is not valid JSON"
+            exit 1
+          fi
+          if ! jq -e --arg pkg com.beautica.app \
+              'any(.client[]?; .client_info.android_client_info.package_name == $pkg)' \
+              "$gs" > /dev/null; then
+            rm -f "$gs"
+            echo "::error::google-services.json has no client for package com.beautica.app"
+            exit 1
+          fi
+          echo "google-services.json injected (client com.beautica.app present)"
 
       - name: Decode upload keystore
         env:
@@ -145,6 +209,30 @@ jobs:
             echo "::warning::dry run: $aab is signed with the upload key from non-release code, DO NOT UPLOAD"
           fi
           echo "path=$aab" >> "$GITHUB_OUTPUT"
+          # 423 D5: integrity hand-off to play-upload (mv above keeps the bytes).
+          echo "sha256=$(sha256sum "$aab" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      # D13: build.gradle.kts skips the google-services plugin SILENTLY when the json lacks
+      # the prod client, so prove the AAB carries this json's Firebase config.
+      - name: Verify AAB carries Firebase config
+        env:
+          AAB_PATH: ${{ steps.aab.outputs.path }}
+        run: |
+          res="$RUNNER_TEMP/base-resources.pb"
+          if ! unzip -p "$AAB_PATH" base/resources.pb > "$res"; then
+            echo "::error::cannot read base/resources.pb from the AAB"
+            exit 1
+          fi
+          app_id="$(jq -r --arg pkg com.beautica.app \
+            'first(.client[]? | select(.client_info.android_client_info.package_name == $pkg) | .client_info.mobilesdk_app_id) // empty' \
+            android/app/google-services.json)" || app_id=""
+          if ! grep -aq google_app_id "$res" || [ -z "$app_id" ] || ! grep -aqF "$app_id" "$res"; then
+            rm -f "$res"
+            echo "::error::AAB built WITHOUT Firebase config (google-services plugin skipped)"
+            exit 1
+          fi
+          rm -f "$res"
+          echo "AAB carries the Firebase config (google_app_id for com.beautica.app)"
 
       # D7 / D9: 8 hard rules incl. 16 KB alignment and the upload-cert fingerprint.
       # DRY_RUN (job env) makes `DRY-RUN — DO NOT UPLOAD` the report's first line.
@@ -154,7 +242,8 @@ jobs:
           AAB_PATH: ${{ steps.aab.outputs.path }}
         run: ./scripts/verify_release_aab.sh "$AAB_PATH"
 
-      # D11 artifacts. The keystore is in $RUNNER_TEMP, never under these paths.
+      # D11 artifacts. The keystore is in $RUNNER_TEMP and google-services.json in android/app,
+      # never under these paths.
       - name: Upload AAB
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
@@ -192,6 +281,147 @@ jobs:
           retention-days: ${{ env.ARTIFACT_RETENTION }}
           if-no-files-found: ignore
 
+      - name: Remove google-services.json
+        if: always()
+        run: rm -rf android/app/google-services.json build/app/generated/res/process*GoogleServices
+
       - name: Remove upload keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/upload.jks"
+
+  # 423 D10a: secret-free (no environment, no secrets, no id-token). Runs in parallel with
+  # build; blocking for play-upload only, so stale notes still leave the verified AAB (M4).
+  release-notes:
+    name: Release notes check
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      ARTIFACT_PREFIX: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry-run-' || '' }}
+      ARTIFACT_RETENTION: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 7 || 90 }}
+    steps:
+      - name: Checkout (full history + tags for the previous-tag rule)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # D9: UTF-8/LF, non-empty, <= 500 code points, differs from the previous mobile-v* tag
+      # (largest +B below this tag). A dry run (mode dispatch) only warns on "same".
+      - name: Check release notes
+        env:
+          NOTES_MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dispatch' || 'tag' }}
+        run: ./scripts/check_release_notes.sh "$NOTES_MODE"
+
+      - name: Upload release notes
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.ARTIFACT_PREFIX }}release-notes
+          # Only the checked file: the artifact root (and play-upload's whatsNewDirectory)
+          # then holds exactly whatsnew-uk.
+          path: release-notes/whatsnew-uk
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+
+  # 423 D3-D7: tag push only, never workflow_dispatch. No checkout, no keystore/key/
+  # google-services secret; the only job with id-token: write (keyless WIF, D2/D4).
+  play-upload:
+    name: Upload to Play Internal testing
+    needs: [build, release-notes]
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/mobile-v')
+    runs-on: ubuntu-24.04
+    environment: ci-trusted-secrets
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download AAB
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: aab
+          path: ${{ runner.temp }}/play/aab
+
+      - name: Download symbols + mappings
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: symbols
+          path: ${{ runner.temp }}/play/symbols
+
+      - name: Download release notes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/play/release-notes
+
+      # D5: upload only the bytes verify_release_aab.sh passed. The symbols artifact is
+      # rooted at build/ (upload-artifact's common ancestor), so mapping.txt sits at
+      # app/outputs/mapping/prodRelease/ inside it.
+      - name: Verify AAB sha256 and mapping
+        id: aab
+        env:
+          EXPECTED_SHA256: ${{ needs.build.outputs.aab_sha256 }}
+          PLAY_DIR: ${{ runner.temp }}/play
+        run: |
+          shopt -s nullglob
+          aabs=("$PLAY_DIR"/aab/*.aab)
+          if [ "${#aabs[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one AAB in artifact aab, found ${#aabs[@]}"
+            exit 1
+          fi
+          if ! [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::build did not publish a valid aab_sha256 output"
+            exit 1
+          fi
+          actual="$(sha256sum "${aabs[0]}" | cut -d ' ' -f 1)"
+          if [ "$actual" != "$EXPECTED_SHA256" ]; then
+            echo "::error::downloaded AAB sha256 $actual != verified build $EXPECTED_SHA256"
+            exit 1
+          fi
+          mapping="$PLAY_DIR/symbols/app/outputs/mapping/prodRelease/mapping.txt"
+          if [ ! -s "$mapping" ]; then
+            echo "::error::mapping.txt missing from artifact symbols"
+            exit 1
+          fi
+          echo "path=${aabs[0]}" >> "$GITHUB_OUTPUT"
+          echo "mapping=$mapping" >> "$GITHUB_OUTPUT"
+          echo "AAB sha256 matches the verified build ($actual)"
+
+      # D6: draft while the Play app is a draft app, completed after its first public
+      # rollout. inProgress/halted (staged rollout) are refused on purpose.
+      - name: Validate release status
+        env:
+          RELEASE_STATUS: ${{ vars.BEAUTICA_PLAY_RELEASE_STATUS }}
+        run: |
+          case "$RELEASE_STATUS" in
+            draft | completed)
+              echo "Play release status: $RELEASE_STATUS" ;;
+            *)
+              echo "::error::variable BEAUTICA_PLAY_RELEASE_STATUS must be draft or completed (environment ci-trusted-secrets), got '$RELEASE_STATUS'"
+              exit 1 ;;
+          esac
+
+      # D2: keyless WIF, service-account impersonation. No long-lived key anywhere.
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        id: gcp-auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093  # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.BEAUTICA_PLAY_WIF_PROVIDER }}
+          service_account: ${{ vars.BEAUTICA_PLAY_SA_EMAIL }}
+          create_credentials_file: true
+
+      # D7/D8: fixed inputs. No debugSymbols (native symbols are in the AAB), no
+      # changesNotSentForReview / userFraction / inAppUpdatePriority, no continue-on-error.
+      - name: Upload to Play Internal testing
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5  # v1.1.5
+        with:
+          serviceAccountJson: ${{ steps.gcp-auth.outputs.credentials_file_path }}
+          packageName: com.beautica.app
+          releaseFiles: ${{ steps.aab.outputs.path }}
+          tracks: internal
+          status: ${{ vars.BEAUTICA_PLAY_RELEASE_STATUS }}
+          releaseName: ${{ github.ref_name }}
+          whatsNewDirectory: ${{ runner.temp }}/play/release-notes
+          mappingFile: ${{ steps.aab.outputs.mapping }}

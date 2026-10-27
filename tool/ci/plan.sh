@@ -82,6 +82,15 @@ diff_to_file() {
   rm -f "$raw"
 }
 
+# pubspec_version_only <base> <head> (sibling script): a pubspec.yaml change that
+# touches ONLY the top-level `version:` line (release bump) is not native. Missing
+# helper or any git failure -> pubspec.yaml stays native (fail closed).
+# shellcheck source=tool/ci/pubspec_version_only.sh
+if ! . "$(dirname "${BASH_SOURCE[0]}")/pubspec_version_only.sh" 2>/dev/null ||
+   ! declare -F pubspec_version_only >/dev/null; then
+  pubspec_version_only() { return 1; }
+fi
+
 # is_native_path <path>: identical globs to the retired `changes` job.
 is_native_path() {
   case "$1" in
@@ -134,7 +143,14 @@ if [ "$EVENT_NAME" = "pull_request" ]; then
     while IFS=$'\t' read -r _status p1 p2; do
       for p in "$p1" "${p2:-}"; do
         [ -n "$p" ] || continue
-        if is_native_path "$p"; then native="true"; fi
+        if is_native_path "$p"; then
+          # Version-only bump of pubspec.yaml (real merge-base diff) is not native.
+          if [ "$p" = pubspec.yaml ] && pubspec_version_only "$mb" "$HEAD_SHA"; then
+            :
+          else
+            native="true"
+          fi
+        fi
       done
     done <"$changes_file"
   fi

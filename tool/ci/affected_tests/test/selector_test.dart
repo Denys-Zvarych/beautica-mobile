@@ -244,8 +244,10 @@ void main() {
           for (final pi in rules.pathIncludes)
             for (final g in pi.when) g.source,
         },
-        {'integration_test/all_tests*.dart'},
+        {'integration_test/all_tests*.dart', 'release-notes/**'},
       );
+      expect(rules.versionOnlyPaths, ['pubspec.yaml']);
+      expect(rules.versionOnlyLine.pattern, '^version:');
       expect(
         {for (final g in rules.goldenAssetGlobs) g.source},
         {'test/**/goldens/*.png'},
@@ -1208,5 +1210,221 @@ void main() {
         expect(classify('brand_new_dir/x.txt', rules).kind, PathKind.full);
       },
     );
+  });
+
+  group('T14 version-only pubspec bump + release notes', () {
+    const pub =
+        'name: beautica_mobile\n'
+        'version: 1.4.0+12\n'
+        'environment:\n'
+        '  sdk: ^3.11.0\n'
+        'dependencies:\n'
+        '  some_pkg:\n'
+        '    version: ^1.0.0\n';
+    const notesTest = 'test/ci/release_aab_workflow_contract_test.dart';
+
+    Selection run(String head, {String? base = pub, String changes = ''}) {
+      FixtureRepo mk(String? text) => FixtureRepo({
+        'pubspec.yaml': ?text,
+        'release-notes/whatsnew-uk': 'x\n',
+        notesTest: 'void main() {}\n',
+        ...filler(60),
+      });
+      final b = mk(base), h = mk(head);
+      addTearDown(b.dispose);
+      addTearDown(h.dispose);
+      return h.run(changes.isEmpty ? m('pubspec.yaml') : changes, base: b);
+    }
+
+    String bump(String s) =>
+        s.replaceFirst('version: 1.4.0+12', 'version: 1.4.1+13');
+
+    test('version-only bump -> none (ignored, rule names it)', () {
+      final s = run(bump(pub));
+      expect(s.mode, Mode.none);
+      expect(
+        s.reasons.map((r) => '${r.path} ${r.rule}'),
+        contains('pubspec.yaml none: version-only change'),
+      );
+    });
+
+    test('version bump + release notes -> selective, only the notes test', () {
+      final s = run(
+        bump(pub),
+        changes: '${m('pubspec.yaml')}${m('release-notes/whatsnew-uk')}',
+      );
+      expect(s.mode, Mode.selective);
+      expect(s.unit, [notesTest]);
+      expect(s.golden, isEmpty);
+      expect(s.integration, isEmpty);
+    });
+
+    test('release notes alone -> path_includes the contract test only', () {
+      final s = run(pub, changes: m('release-notes/whatsnew-uk'));
+      expect(
+        classify('release-notes/whatsnew-uk', rules).kind,
+        PathKind.mapped,
+      );
+      expect(s.mode, Mode.selective);
+      expect(s.unit, [notesTest]);
+    });
+
+    final fullCases = <String, String>{
+      'version + dependency': '${bump(pub)}  other_pkg: ^2.0.0\n',
+      'dependency only': '$pub  other_pkg: ^2.0.0\n',
+      'indented dependency version:': pub.replaceFirst(
+        '    version: ^1.0.0',
+        '    version: ^1.1.0',
+      ),
+      'sdk constraint': pub.replaceFirst('sdk: ^3.11.0', 'sdk: ^3.12.0'),
+      'second top-level version: added': '${pub}version: 9.9.9+99\n',
+      'version line removed': pub.replaceFirst('version: 1.4.0+12\n', ''),
+      'trailing newline dropped': bump(pub).trimRight(),
+      'comment line # version: added': pub.replaceFirst(
+        'name:',
+        '# version: 2\nname:',
+      ),
+    };
+    fullCases.forEach((name, head) {
+      test('$name -> full', () {
+        final s = run(head);
+        expect(s.mode, Mode.full, reason: name);
+        expect(
+          s.reasons.map((r) => r.rule),
+          contains('full: pubspec.yaml'),
+          reason: name,
+        );
+      });
+    });
+
+    test('unchanged text -> full (not a version-only change)', () {
+      expect(run(pub).mode, Mode.full);
+    });
+
+    test('no BASE tree -> full (fail closed)', () {
+      final h = FixtureRepo({'pubspec.yaml': bump(pub), ...filler(60)});
+      addTearDown(h.dispose);
+      expect(h.run(m('pubspec.yaml')).mode, Mode.full);
+    });
+
+    test('BASE tree lacks pubspec.yaml -> full (fail closed)', () {
+      expect(run(bump(pub), base: null).mode, Mode.full);
+    });
+
+    test('only status M qualifies (A / R into pubspec.yaml -> full)', () {
+      expect(run(bump(pub), changes: 'A\tpubspec.yaml\n').mode, Mode.full);
+      expect(
+        run(bump(pub), changes: 'R090\told.yaml\tpubspec.yaml\n').mode,
+        Mode.full,
+      );
+    });
+
+    test('version-only rule is limited to the listed paths', () {
+      // api/pubspec.yaml with a pure version bump is still FULL.
+      FixtureRepo mk(String text) =>
+          FixtureRepo({'api/pubspec.yaml': text, ...filler(60)});
+      final b = mk(pub), h = mk(bump(pub));
+      addTearDown(b.dispose);
+      addTearDown(h.dispose);
+      expect(h.run(m('api/pubspec.yaml'), base: b).mode, Mode.full);
+    });
+
+    test('versionOnlyChange unit rows', () {
+      final re = RegExp('^version:');
+      expect(
+        versionOnlyChange('a\nversion: 1\nb', 'a\nversion: 2\nb', re),
+        isTrue,
+      );
+      expect(versionOnlyChange('version: 1', 'version: 1', re), isFalse);
+      expect(versionOnlyChange(null, 'version: 2', re), isFalse);
+      expect(versionOnlyChange('version: 1', null, re), isFalse);
+      expect(versionOnlyChange('  version: 1', '  version: 2', re), isFalse);
+      expect(
+        versionOnlyChange('version: 1\nx: 1', 'version: 2\nx: 2', re),
+        isFalse,
+      );
+    });
+
+    test(
+      'extractTree without pubspec.yaml at the ref: no crash, stays selective',
+      () {
+        final repo = FixtureRepo({
+          'lib/a.dart': '',
+          'test/a_test.dart': pkg('a.dart'),
+          'integration_test/x_test.dart': '',
+          // Like the e2e fixtures: the other archived paths exist, only the
+          // version_only path (pubspec.yaml) is absent.
+          'api/pubspec.yaml': 'name: beautica_api\n',
+          'api/lib/a.dart': '',
+          ...filler(60),
+        });
+        addTearDown(repo.dispose);
+        for (final a in [
+          ['init', '-q'],
+          ['add', '-A'],
+          [
+            '-c',
+            'user.email=t@t',
+            '-c',
+            'user.name=t',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '-qm',
+            'b',
+          ],
+        ]) {
+          final r = Process.runSync('git', ['-C', repo.root, ...a]);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+        }
+        final dest = Directory.systemTemp.createTempSync('sel_x_');
+        addTearDown(() => dest.deleteSync(recursive: true));
+        extractTree(repo.root, 'HEAD', dest.path, rules);
+        expect(File(p.join(dest.path, 'lib/a.dart')).existsSync(), isTrue);
+        expect(File(p.join(dest.path, 'pubspec.yaml')).existsSync(), isFalse);
+        final s = select_(
+          root: repo.root,
+          changes: parseChanges(m('lib/a.dart')),
+          rules: rules,
+          baseRoot: dest.path,
+        );
+        expect(s.mode, Mode.selective);
+        expect(s.unit, contains('test/a_test.dart'));
+      },
+    );
+
+    test('extractTree archives the version_only paths (real git)', () {
+      final repo = FixtureRepo({
+        'pubspec.yaml': pub,
+        'api/pubspec.yaml': 'name: beautica_api\n',
+        'lib/a.dart': '',
+        'test/a_test.dart': '',
+        'integration_test/x_test.dart': '',
+        'api/lib/a.dart': '',
+      });
+      addTearDown(repo.dispose);
+      for (final a in [
+        ['init', '-q'],
+        ['add', '-A'],
+        [
+          '-c',
+          'user.email=t@t',
+          '-c',
+          'user.name=t',
+          '-c',
+          'commit.gpgsign=false',
+          'commit',
+          '-qm',
+          'b',
+        ],
+      ]) {
+        final r = Process.runSync('git', ['-C', repo.root, ...a]);
+        expect(r.exitCode, 0, reason: '${r.stderr}');
+      }
+      final dest = Directory.systemTemp.createTempSync('sel_x_');
+      addTearDown(() => dest.deleteSync(recursive: true));
+      extractTree(repo.root, 'HEAD', dest.path, rules);
+      expect(File(p.join(dest.path, 'pubspec.yaml')).readAsStringSync(), pub);
+    });
   });
 }

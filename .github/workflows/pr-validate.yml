@@ -94,7 +94,9 @@ jobs:
         with:
           path: pr
           # Full history is only needed for the PR merge-base diff.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # 0 is FALSY in Actions expressions: `== 'pull_request' && 0 || 1` always gave 1
+          # (shallow, base commit missing, "diff unavailable", every PR ran FULL). Truthy value first.
+          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
           persist-credentials: false
 
       - name: Resolve the checked-out commit
@@ -526,11 +528,13 @@ jobs:
 
       # Phase 409: release scripts used by release-aab.yml. Table for the tag check
       # (T1) and per-rule falsification of the AAB verifier on crafted input (T3).
-      - name: Self-test release scripts (tag check, AAB verifier)
+      # Phase 423: release-notes check table (rules 1-4, previous-tag selection).
+      - name: Self-test release scripts (tag check, AAB verifier, release notes)
         shell: bash
         run: |
           ./scripts/test/test_check_release_version.sh
           ./scripts/test/test_verify_release_aab.sh
+          ./scripts/test/test_check_release_notes.sh
 
       # Self-test of the patrol retry gate (fail-closed matrix on log fixtures).
       # why: docs/ci/patrol.md#patrol-retry

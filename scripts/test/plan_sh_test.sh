@@ -302,6 +302,126 @@ else
   rc=1
 fi
 
+# Version-only pubspec bump (release PRs): tool/ci/pubspec_version_only.sh,
+# used by the guard (no force-full) and plan.sh (no native). Real git fixtures,
+# real scripts end-to-end. Fail closed: anything else keeps today's behaviour.
+vrepo="$tmp/vo-repo"
+git init -q "$vrepo"
+vg() { git -C "$vrepo" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
+cat >"$vrepo/pubspec.yaml" <<'YAML'
+name: beautica_mobile
+version: 1.4.0+12
+environment:
+  sdk: ^3.11.0
+dependencies:
+  some_pkg:
+    hosted: https://pub.example
+    version: ^1.0.0
+YAML
+mkdir -p "$vrepo/lib"; echo a >"$vrepo/lib/a.dart"
+vg add -A; vg commit -qm base; vbase="$(vg rev-parse HEAD)"
+# vo_case <name> <want guard out ("" = none)> <want native> <bash mutation run in the repo>
+vo_case() {
+  vg checkout -q "$vbase"
+  (cd "$vrepo" && bash -c "$4")
+  vg add -A; vg commit -qm head --allow-empty
+  local head ofile grc gout pout
+  head="$(vg rev-parse HEAD)"; ofile="$tmp/vo-guard-out.txt"; : >"$ofile"
+  grc=0
+  (cd "$vrepo" && BASE_SHA="$vbase" HEAD_SHA="$head" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$ofile" \
+    bash "$guard" >/dev/null 2>&1) || grc=$?
+  gout="$(tr '\n' ' ' <"$ofile")"
+  pout="$(cd "$vrepo" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=pull_request \
+    BASE_SHA="$vbase" HEAD_SHA="$head" PLAN_OUT_DIR="$tmp/vo-plan" bash "$plan")"
+  local pnative pmode
+  pnative="$(sed -n 's/^native=//p' <<<"$pout")"; pmode="$(sed -n 's/^mode=//p' <<<"$pout")"
+  # Non-vacuous: pubspec.yaml is in the diff unless the case is (d).
+  local inlist=1; grep -qxF $'M\tpubspec.yaml' "$tmp/vo-plan/changes.txt" || inlist=0
+  local wantlist=1; case "$1" in "(d)"*) wantlist=0 ;; esac
+  if [ "$grc" = 0 ] && [ "$gout" = "$2" ] && [ "$pnative" = "$3" ] && [ "$pmode" = selective ] && [ "$inlist" = "$wantlist" ]; then
+    printf '  PASS  version-only: %s\n' "$1"
+  else
+    printf '  FAIL  version-only: %s (want guard=[%s] native=%s, got rc=%s guard=[%s] native=%s mode=%s pubspec-in-diff=%s)\n' \
+      "$1" "$2" "$3" "$grc" "$gout" "$pnative" "$pmode" "$inlist"; rc=1
+  fi
+}
+FULL="mode=full run_all=true "
+vo_case "(a) version-only bump -> not forced, not native" "" false \
+  "sed -i 's/^version: 1.4.0+12$/version: 1.4.1+13/' pubspec.yaml"
+vo_case "(a2) version-only bump + release notes -> not forced, not native" "" false \
+  "sed -i 's/^version: .*/version: 1.5.0+14/' pubspec.yaml; mkdir -p release-notes; echo 'Нове' >release-notes/whatsnew-uk"
+vo_case "(b) version + dependency change -> forced, native" "$FULL" true \
+  "sed -i 's/^version: .*/version: 1.4.1+13/; \$a\\  other_pkg: ^2.0.0' pubspec.yaml"
+vo_case "(c) dependency-only change -> forced, native" "$FULL" true \
+  "printf '  other_pkg: ^2.0.0\n' >>pubspec.yaml"
+vo_case "(d) pubspec unchanged -> not forced, not native" "" false \
+  "echo b >lib/a.dart"
+vo_case "(f) indented dependency 'version:' line -> forced, native" "$FULL" true \
+  "sed -i 's/^    version: \\^1.0.0$/    version: ^1.1.0/' pubspec.yaml"
+vo_case "(f2) sdk constraint change -> forced, native" "$FULL" true \
+  "sed -i 's/^  sdk: .*/  sdk: ^3.12.0/' pubspec.yaml"
+vo_case "(f3) second top-level version: line added -> forced, native" "$FULL" true \
+  "printf 'version: 9.9.9+99\n' >>pubspec.yaml"
+vo_case "(f4) version line removed -> forced, native" "$FULL" true \
+  "sed -i '/^version:/d' pubspec.yaml"
+vo_case "(f5) version bump + trailing newline dropped -> forced, native" "$FULL" true \
+  "sed -i 's/^version: .*/version: 1.4.1+13/' pubspec.yaml; printf '%s' \"\$(cat pubspec.yaml)\" >pubspec.yaml"
+vo_case "(f6) version bump + mode change -> forced, native" "$FULL" true \
+  "sed -i 's/^version: .*/version: 1.4.1+13/' pubspec.yaml; chmod +x pubspec.yaml"
+vo_case "(f7) version: moved into a comment-only edit (# version:) -> forced, native" "$FULL" true \
+  "sed -i 's/^name: beautica_mobile$/# version: 2.0.0\nname: beautica_mobile/' pubspec.yaml"
+# The exemption is pubspec.yaml-only: another forced / native path in the same PR still counts.
+vo_case "(g) version-only bump + tool/ci change -> forced (guard), not native" "$FULL" false \
+  "sed -i 's/^version: .*/version: 1.4.1+13/' pubspec.yaml; mkdir -p tool/ci; echo x >tool/ci/x.sh"
+vo_case "(g2) version-only bump + lib/routing change -> not forced, native" "" true \
+  "sed -i 's/^version: .*/version: 1.4.1+13/' pubspec.yaml; mkdir -p lib/routing; echo x >lib/routing/r.dart"
+# (e) fail closed: no merge-base / unresolvable base / missing helper.
+vg checkout -q "$vbase"; sed -i 's/^version: .*/version: 1.4.1+13/' "$vrepo/pubspec.yaml"
+vg add -A; vg commit -qm vonly; vhead="$(vg rev-parse HEAD)"
+: >"$tmp/vo-guard-out.txt"; grc=0
+(cd "$vrepo" && BASE_SHA=deadbeef HEAD_SHA="$vhead" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/vo-guard-out.txt" \
+  bash "$guard" >/dev/null 2>&1) || grc=$?
+[ "$grc" = 0 ] && [ "$(tr '\n' ' ' <"$tmp/vo-guard-out.txt")" = "$FULL" ] \
+  && echo "  PASS  version-only: (e) guard, unresolvable base -> full (fail closed)" \
+  || { echo "  FAIL  version-only: (e) guard, unresolvable base"; rc=1; }
+pout="$(cd "$vrepo" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=pull_request BASE_SHA="$vbase" \
+  HEAD_SHA="$vhead" PLAN_FORCE_MERGE_BASE_FAIL=1 PLAN_OUT_DIR="$tmp/vo-plan" bash "$plan")"
+grep -q '^mode=full$' <<<"$pout" && grep -q '^native=true$' <<<"$pout" \
+  && echo "  PASS  version-only: (e) plan, merge-base failure -> full + native" \
+  || { echo "  FAIL  version-only: (e) plan, merge-base failure"; rc=1; }
+pout="$(cd "$vrepo" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=pull_request BASE_SHA=deadbeef \
+  HEAD_SHA="$vhead" PLAN_OUT_DIR="$tmp/vo-plan" bash "$plan")"
+grep -q '^mode=full$' <<<"$pout" && grep -q '^native=true$' <<<"$pout" \
+  && echo "  PASS  version-only: (e) plan, unresolvable base -> full + native" \
+  || { echo "  FAIL  version-only: (e) plan, unresolvable base"; rc=1; }
+# Fixture-file mode has no real diff: a pubspec.yaml row stays native.
+printf 'M\tpubspec.yaml\n' >"$tmp/vo-fx.txt"
+pout="$(env -u GITHUB_OUTPUT EVENT_NAME=pull_request PLAN_CHANGES_FILE="$tmp/vo-fx.txt" PLAN_OUT_DIR="$tmp/vo-plan" bash "$plan")"
+grep -q '^native=true$' <<<"$pout" && echo "  PASS  version-only: (e) no git diff (fixture mb) -> native" \
+  || { echo "  FAIL  version-only: (e) fixture mb native"; rc=1; }
+# Helper absent (copied scripts without it): both callers fall back to today's behaviour.
+nohelp="$tmp/nohelper"; mkdir -p "$nohelp"; cp "$guard" "$plan" "$nohelp/"
+: >"$tmp/vo-guard-out.txt"
+(cd "$vrepo" && BASE_SHA="$vbase" HEAD_SHA="$vhead" RUNNER_TEMP="$tmp" GITHUB_OUTPUT="$tmp/vo-guard-out.txt" \
+  bash "$nohelp/ci_paths_guard.sh" >/dev/null 2>&1) || true
+[ "$(tr '\n' ' ' <"$tmp/vo-guard-out.txt")" = "$FULL" ] \
+  && echo "  PASS  version-only: (e) guard without helper -> full" || { echo "  FAIL  version-only: (e) guard without helper"; rc=1; }
+pout="$(cd "$vrepo" && env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY EVENT_NAME=pull_request BASE_SHA="$vbase" \
+  HEAD_SHA="$vhead" PLAN_OUT_DIR="$tmp/vo-plan" bash "$nohelp/plan.sh")"
+grep -q '^native=true$' <<<"$pout" && echo "  PASS  version-only: (e) plan without helper -> native" \
+  || { echo "  FAIL  version-only: (e) plan without helper"; rc=1; }
+# The helper itself: unit rows (sourced; cwd = the fixture repo).
+# shellcheck source=tool/ci/pubspec_version_only.sh
+. "$repo/tool/ci/pubspec_version_only.sh"
+h_case() { # <name> <want 0|1> <base> <head>
+  local got=0; (cd "$vrepo" && pubspec_version_only "$3" "$4") || got=$?
+  if [ "$got" -eq "$2" ]; then printf '  PASS  helper: %s\n' "$1"; else printf '  FAIL  helper: %s (want %s got %s)\n' "$1" "$2" "$got"; rc=1; fi
+}
+h_case "version-only -> 0"        0 "$vbase" "$vhead"
+h_case "same commit (empty diff) -> 1" 1 "$vbase" "$vbase"
+h_case "bad base sha -> 1"        1 deadbeef "$vhead"
+h_case "empty args -> 1"          1 "" ""
+
 # Every actions/checkout step must set `persist-credentials: false` (the token
 # must not sit in .git/config readable by PR code). No allow-list: no job here
 # needs authenticated git after checkout (plan uses merge-base/diff on fetched history).

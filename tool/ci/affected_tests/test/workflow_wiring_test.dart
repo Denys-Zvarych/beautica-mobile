@@ -1509,9 +1509,14 @@ void main() {
       final tree = co.singleWhere(
         (s) => s['name'] == 'Checkout tree under test (full history)',
       );
+      // 0 is falsy in Actions expressions, so `cond && 0 || 1` always yields 1 (shallow
+      // clone, base missing, every PR forced FULL). The truthy branch must come first.
+      final depth = (tree['with'] as YamlMap)['fetch-depth'].toString();
+      expect(depth, r"${{ github.event_name != 'pull_request' && 1 || 0 }}");
       expect(
-        (tree['with'] as YamlMap)['fetch-depth'].toString(),
-        r"${{ github.event_name == 'pull_request' && 0 || 1 }}",
+        depth,
+        isNot(matches(RegExp(r'&&\s*0\s*\|\|'))),
+        reason: 'a falsy 0 in the && branch is always skipped',
       );
       expect([
         for (final s in co) s['name'],

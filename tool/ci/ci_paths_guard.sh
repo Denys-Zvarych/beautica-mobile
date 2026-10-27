@@ -14,7 +14,19 @@
 #   otherwise. Exit 1 (fail closed) on a forbidden path in the diff.
 #
 # Sourcing this file only defines is_forced / is_forbidden (table-tested by
-# scripts/test/plan_sh_test.sh; parity with rules.yaml in guard_parity_test.dart).
+# scripts/test/plan_sh_test.sh; parity with rules.yaml in guard_parity_test.dart)
+# and pubspec_version_only (sibling pubspec_version_only.sh).
+#
+# Version-only exemption: a pubspec.yaml change that touches ONLY the top-level
+# `version:` line (a release bump) does not force full. is_forced still lists
+# pubspec.yaml (parity); main() applies the exemption. Missing helper or any git
+# failure -> pubspec.yaml forces full as before (fail closed).
+
+# shellcheck source=tool/ci/pubspec_version_only.sh
+if ! . "$(dirname "${BASH_SOURCE[0]}")/pubspec_version_only.sh" 2>/dev/null ||
+   ! declare -F pubspec_version_only >/dev/null; then
+  pubspec_version_only() { return 1; }
+fi
 
 force() { { echo "mode=full"; echo "run_all=true"; } >> "$GITHUB_OUTPUT"; echo "::notice::mode forced to full: $1"; }
 
@@ -59,7 +71,13 @@ main() {
       echo "::error::PR diff contains a build artefact path (path withheld: PR-controlled); build/, .dart_tool/ and trusted/ are never committed (fail closed)"
       exit 1
     fi
-    if is_forced "$f"; then forced=1; fi
+    if is_forced "$f"; then
+      if [ "$f" = pubspec.yaml ] && pubspec_version_only "$mb" "$HEAD_SHA"; then
+        echo "::notice::pubspec.yaml: version-only change, not forcing full"
+      else
+        forced=1
+      fi
+    fi
   done <"$raw"
   if [ "$forced" -eq 1 ]; then force "CI machinery / test config changed"; fi
 }

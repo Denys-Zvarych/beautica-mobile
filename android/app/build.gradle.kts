@@ -148,8 +148,8 @@ android {
     // Phase 408 — two installable apps from one codebase. Per-env URLs are NOT here:
     // they come from config/env/<flavor>.json via --dart-define-from-file (D2), and
     // lib/core/config/env_guard.dart fails a build whose flavor and URLs disagree.
-    //   staging: com.beautica.app.staging, label "Beautica β", S-badged launcher icon
-    //            (src/staging/res), pins the staging API host (src/staging/res/xml).
+    //   staging: com.beautica.app.staging, same label "Beautica" and launcher icon as prod
+    //            (no override, user 2026-10-27), pins the staging API host (src/staging/res/xml).
     //   prod:    com.beautica.app, label "Beautica", pins api.beautica.app (src/prod).
     // The release-signing guard below applies to both flavors (D6).
     flavorDimensions += "env"
@@ -157,7 +157,7 @@ android {
         create("staging") {
             dimension = "env"
             applicationIdSuffix = ".staging"
-            resValue("string", "app_name", "Beautica β")
+            resValue("string", "app_name", "Beautica")
             // Staging has no frontend host yet (FRONTEND_BASE_URL is a placeholder):
             // unverified on purpose, so the staging app can never claim prod links.
             manifestPlaceholders["appLinkHost"] = "staging.beautica.app"

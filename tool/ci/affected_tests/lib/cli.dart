@@ -235,9 +235,27 @@ int _runShardList(
   return 0;
 }
 
-/// `git archive <ref>` of the graph roots into [dest]; returns [dest].
+/// `git archive <ref>` of the graph roots (+ api/pubspec.yaml and the
+/// `version_only` paths that exist at [ref]) into [dest]; returns [dest].
+///
+/// A `version_only` path absent at [ref] is left out (git archive fails on a
+/// pathspec that matches nothing): its exemption is then unavailable and a
+/// change to it stays FULL (no BASE file -> fail closed).
 String extractTree(String repoRoot, String ref, String dest, Rules rules) {
-  final paths = [...rules.graphRoots, 'api/pubspec.yaml'];
+  bool existsAt(String path) =>
+      Process.runSync('git', [
+        '-C',
+        repoRoot,
+        'cat-file',
+        '-e',
+        '$ref:$path',
+      ]).exitCode ==
+      0;
+  final paths = [
+    ...rules.graphRoots,
+    'api/pubspec.yaml',
+    ...rules.versionOnlyPaths.where(existsAt),
+  ];
   final archive = Process.runSync('git', [
     '-C',
     repoRoot,
