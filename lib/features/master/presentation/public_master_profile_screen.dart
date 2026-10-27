@@ -652,22 +652,18 @@ class _AboutTab extends StatelessWidget {
         // ever shows the muted placeholder — never the master's own
         // `AddLink` «Додати опис» affordance (that lives on the master's OWN
         // profile screens: `MasterProfileScreen` / `SalonMasterProfileScreen`).
-        if (hasBio) ...<Widget>[
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: Text(
-              l10n.publicMasterBioLabel,
-              style: VelvetText.sectionLabel(),
-            ),
-          ),
+        //
+        // No inner «Про майстра» section heading above the bio: it repeated
+        // the tab label verbatim, so the tab itself is the heading.
+        if (hasBio)
           NeumorphicInset(
             radius: VelvetRadii.card,
             child: Padding(
               padding: const EdgeInsets.all(VelvetSpacing.md + 2),
               child: Text(master.bio!, style: VelvetText.bodyStrong()),
             ),
-          ),
-        ] else
+          )
+        else
           Text(
             l10n.publicMasterAboutEmpty,
             key: const Key('public-master-profile-about-empty'),

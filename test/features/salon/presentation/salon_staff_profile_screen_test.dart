@@ -819,6 +819,86 @@ void main() {
   });
 
   // -------------------------------------------------------------------
+  // «Про майстра» tab — no inner heading repeating the tab label.
+  // -------------------------------------------------------------------
+  group('About tab bio has no duplicate heading', () {
+    testWidgets('with a bio, the tab panel shows the bio and no inner '
+        '«Про майстра» section heading (the tab label is the only one)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (_masterMember, _masterServices),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      final Finder panel = find.byKey(
+        const Key('salon-staff-profile-reveal-3'),
+      );
+      expect(panel, findsOneWidget);
+      // The bio renders inside the tab panel.
+      expect(
+        find.descendant(
+          of: panel,
+          matching: find.byKey(const Key('salon-staff-profile-bio')),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: panel, matching: find.text(_masterMember.bio!)),
+        findsOneWidget,
+      );
+      // No inner heading repeating the tab label inside the panel.
+      expect(
+        find.descendant(
+          of: panel,
+          matching: find.text(l10n.publicMasterBioLabel),
+        ),
+        findsNothing,
+      );
+      // The tab label itself appears exactly once on screen.
+      expect(find.text(l10n.publicMasterTabAbout), findsOneWidget);
+      expect(
+        find.byKey(const Key('salon-staff-profile-about-empty')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('without a bio, the muted empty-about copy is unchanged', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        const SalonStaffProfileScreen(salonId: _kSalonId, memberId: _kMasterId),
+        overrides: _overrides(
+          _kMasterId,
+          (ref) async => (_masterMemberNoExtras, const <MasterService>[]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('uk'));
+      expect(find.byKey(const Key('salon-staff-profile-bio')), findsNothing);
+      final Finder empty = find.byKey(
+        const Key('salon-staff-profile-about-empty'),
+      );
+      expect(empty, findsOneWidget);
+      final Text emptyText = tester.widget<Text>(empty);
+      expect(emptyText.data, l10n.publicMasterAboutEmpty);
+      expect(emptyText.style?.color, BrandColors.muted);
+      expect(find.text(l10n.publicMasterTabAbout), findsOneWidget);
+    });
+  });
+
+  // -------------------------------------------------------------------
   // Phase 354 — «Про майстра» / «Послуги» / «Відгуки» tabs (MASTER only).
   // -------------------------------------------------------------------
   group('tabs (Phase 354)', () {
