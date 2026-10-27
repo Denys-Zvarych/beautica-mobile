@@ -526,11 +526,13 @@ jobs:
 
       # Phase 409: release scripts used by release-aab.yml. Table for the tag check
       # (T1) and per-rule falsification of the AAB verifier on crafted input (T3).
-      - name: Self-test release scripts (tag check, AAB verifier)
+      # Phase 423: release-notes check table (rules 1-4, previous-tag selection).
+      - name: Self-test release scripts (tag check, AAB verifier, release notes)
         shell: bash
         run: |
           ./scripts/test/test_check_release_version.sh
           ./scripts/test/test_verify_release_aab.sh
+          ./scripts/test/test_check_release_notes.sh
 
       # Self-test of the patrol retry gate (fail-closed matrix on log fixtures).
       # why: docs/ci/patrol.md#patrol-retry
