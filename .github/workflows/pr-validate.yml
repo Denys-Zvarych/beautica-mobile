@@ -94,7 +94,9 @@ jobs:
         with:
           path: pr
           # Full history is only needed for the PR merge-base diff.
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          # 0 is FALSY in Actions expressions: `== 'pull_request' && 0 || 1` always gave 1
+          # (shallow, base commit missing, "diff unavailable", every PR ran FULL). Truthy value first.
+          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
           persist-credentials: false
 
       - name: Resolve the checked-out commit

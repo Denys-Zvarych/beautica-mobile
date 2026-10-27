@@ -4364,9 +4364,9 @@
   "@bookingSuccessTitle": {
     "description": "Headline on the booking success screen shown after POST /bookings succeeds."
   },
-  "bookingSuccessSubline": "Майстер підтвердить ваш запис найближчим часом.\nСповіщення надійде, щойно він відповість.",
+  "bookingSuccessSubline": "Ваш запис підтверджено.\nУсі деталі — у розділі «Записи».",
   "@bookingSuccessSubline": {
-    "description": "Reassuring subline under the booking success screen's headline."
+    "description": "Subline under the booking success screen's headline. Bookings are created CONFIRMED (auto-approved) and notifications are off until release, so it must not say the master will confirm or promise a notification. «Записи»/Bookings = clientNavBookings tab label."
   },
   "bookingSuccessAddCalendarCta": "Додати в календар",
   "@bookingSuccessAddCalendarCta": {
@@ -5548,9 +5548,9 @@
   "@salonBookingSuccessTitle": {
     "description": "Headline on the salon booking success screen after every per-master booking succeeded."
   },
-  "salonBookingSuccessSubline": "Майстри підтвердять ваші записи найближчим часом.\nСповіщення надійде, щойно вони відповідять.",
+  "salonBookingSuccessSubline": "Ваші записи підтверджено.\nУсі деталі — у розділі «Записи».",
   "@salonBookingSuccessSubline": {
-    "description": "Reassuring subline under the salon booking success headline."
+    "description": "Subline under the salon booking success headline. Bookings are created CONFIRMED (auto-approved) and notifications are off until release, so it must not say the masters will confirm or promise a notification. «Записи»/Bookings = clientNavBookings tab label."
   },
   "salonSchedulePagerSemantics": "Майстер {current} з {count}. {done} заплановано.",
   "@salonSchedulePagerSemantics": {

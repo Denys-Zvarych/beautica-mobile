@@ -265,6 +265,30 @@ Future<GoRouter> _pumpMultiService(WidgetTester tester) async {
 }
 
 void main() {
+  // Copy regression (fix/booking-success-copy): bookings are created
+  // CONFIRMED and notifications are dark until release — the subline must not
+  // say the masters "will confirm" nor promise a notification.
+  testWidgets(
+    'subline says the appointments are confirmed — no pending-confirmation '
+    'or notification promise',
+    (tester) async {
+      await _pumpTall(tester);
+      await _pump(tester);
+
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(SalonBookingSuccessScreen)),
+      );
+      expect(find.text(l10n.salonBookingSuccessSubline), findsOneWidget);
+      // i18n-finder-ok: negative regression probe for the retired copy.
+      expect(find.textContaining('підтвердять'), findsNothing);
+      // i18n-finder-ok: negative regression probe for the retired copy.
+      expect(find.textContaining('Сповіщення'), findsNothing);
+      // i18n-finder-ok: positive probe for the confirmed-state wording.
+      expect(find.textContaining('підтверджено'), findsOneWidget);
+      expect(l10n.salonBookingSuccessSubline, contains(l10n.clientNavBookings));
+    },
+  );
+
   testWidgets(
     'lists one card per confirmed appointment + the success headline',
     (tester) async {

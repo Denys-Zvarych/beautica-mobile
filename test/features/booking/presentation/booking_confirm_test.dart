@@ -3183,6 +3183,30 @@ void main() {
       },
     );
 
+    // Copy regression (fix/booking-success-copy): every booking is created
+    // CONFIRMED (auto-approved) and notifications are dark until release, so
+    // the subline must state the booking IS confirmed — never that the master
+    // "will confirm" it, and never promise a notification.
+    testWidgets(
+      'subline says the booking is confirmed — no pending-confirmation or '
+      'notification promise',
+      (tester) async {
+        await pump(tester);
+
+        final l10n = AppLocalizations.of(
+          tester.element(find.byType(BookingSuccessScreen)),
+        );
+        expect(find.text(l10n.bookingSuccessSubline), findsOneWidget);
+        // i18n-finder-ok: negative regression probes for the retired copy.
+        expect(find.textContaining('підтвердить'), findsNothing);
+        // i18n-finder-ok: negative regression probe for the retired copy.
+        expect(find.textContaining('Сповіщення'), findsNothing);
+        // i18n-finder-ok: positive probe for the confirmed-state wording.
+        expect(find.textContaining('підтверджено'), findsOneWidget);
+        expect(l10n.bookingSuccessSubline, contains(l10n.clientNavBookings));
+      },
+    );
+
     testWidgets('subline text renders at fontSize: 11', (tester) async {
       await pump(tester);
 
