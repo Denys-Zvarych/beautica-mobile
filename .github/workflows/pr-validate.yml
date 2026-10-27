@@ -524,6 +524,14 @@ jobs:
         shell: bash
         run: ./scripts/test/test_raw_network_image_guard.sh
 
+      # Phase 409: release scripts used by release-aab.yml. Table for the tag check
+      # (T1) and per-rule falsification of the AAB verifier on crafted input (T3).
+      - name: Self-test release scripts (tag check, AAB verifier)
+        shell: bash
+        run: |
+          ./scripts/test/test_check_release_version.sh
+          ./scripts/test/test_verify_release_aab.sh
+
       # Self-test of the patrol retry gate (fail-closed matrix on log fixtures).
       # why: docs/ci/patrol.md#patrol-retry
       - name: Self-test patrol retry gate
@@ -1702,12 +1710,18 @@ jobs:
     # 45 min bound (2026-07-22: a hung emulator sat ~90 min).
     # why: docs/ci/patrol.md#patrol-timeout
     timeout-minutes: 45
-    # API 34 only: the API 29 x86_64 image crashes (jemalloc SIGSEGV) before any test.
+    # API 34 + 36 (phase 422 R4b: targetSdk 36 — edge-to-edge, predictive back).
+    # API 29 dropped: its x86_64 image crashes (jemalloc SIGSEGV) before any test.
+    # API 34 keeps the runner's `default` image; 36 uses `google_apis`.
     # why: docs/ci/patrol.md#patrol-matrix
     strategy:
       fail-fast: false
       matrix:
-        api-level: [34]
+        include:
+          - api-level: 34
+            target: default
+          - api-level: 36
+            target: google_apis
     # `plan` supplies the native-surface flag (it replaced the old `changes`
     # job). If plan fails, patrol is skipped and `ci-gate` goes red.
     needs: plan
@@ -1763,6 +1777,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
           # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.
@@ -1819,6 +1834,7 @@ jobs:
         uses: reactivecircus/android-emulator-runner@0a638108440efd5c7f980e6ba145dbcdd8f32009  # v2.37.0
         with:
           api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
           arch: x86_64
           profile: pixel_6
           # -gpu guest renders inside the guest: no host-side swiftshader ColorBuffer crash.

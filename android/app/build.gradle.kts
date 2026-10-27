@@ -52,8 +52,9 @@ if (googleServicesJson.exists()) {
 android {
     namespace = "com.beautica.beautica_mobile"
     // Phase 0 — locked SDK levels per ARCHITECTURE-mobile.md § 2.
-    // compileSdk 36 is required by Flutter 3.41 toolchain; targetSdk 35
-    // matches current Play Store policy; minSdk 26 covers ~96% of devices.
+    // compileSdk 36 is required by Flutter 3.41 toolchain; targetSdk 36 is the
+    // Play Store floor from 2026-08-31 (phase 422); minSdk 26 covers ~96% of
+    // devices.
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -91,7 +92,7 @@ android {
         // MainActivity, which stays com.beautica.beautica_mobile).
         applicationId = prodApplicationId
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
@@ -233,6 +234,10 @@ android {
             // native plugins (flutter_secure_storage, screen_protector, etc.).
             isMinifyEnabled = true
             isShrinkResources = true
+            // Phase 409 D8: native symbol tables packaged into the AAB for Play vitals.
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

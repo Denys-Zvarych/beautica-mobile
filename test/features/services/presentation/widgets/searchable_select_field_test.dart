@@ -751,4 +751,49 @@ void main() {
       });
     });
   });
+
+  // Phase 422 D2 — edge-to-edge. A 48 dp 3-button navigation bar arrives as a
+  // bottom MediaQuery inset; the menu's SafeArea(top: false) must keep the
+  // LAST option of a scrolled-to-the-end list above it and tappable. Pre-422
+  // the list ran to the screen bottom, so the last option sat under the bar.
+  // 40 options so the list overflows the 0.8-height sheet — a short list
+  // leaves its last row mid-sheet, where this assertion could never fail.
+  testWidgets('phase 422 — the last option of a long list, scrolled to, sits '
+      'above a 48 dp bottom inset and tapping it selects it', (tester) async {
+    final List<SelectOption<String>> many = List<SelectOption<String>>.generate(
+      40,
+      (int i) => SelectOption<String>(
+        value: 'V$i',
+        label: 'option $i',
+        rowKey: Key('opt-V$i'),
+      ),
+    );
+    final harness = await _pumpField(tester, options: many);
+    tester.view.padding = const FakeViewPadding(bottom: 48);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 48);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    await tester.pumpAndSettle();
+    await _openMenu(tester);
+
+    const Key lastKey = Key('opt-V39');
+    final Finder list = find.byType(ListView).last;
+    await tester.dragUntilVisible(
+      find.byKey(lastKey),
+      list,
+      const Offset(0, -400),
+    );
+    await tester.drag(list, const Offset(0, -2000));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getRect(find.byKey(lastKey)).bottom,
+      lessThanOrEqualTo(1400 - 48),
+      reason: 'the last option must clear the 48 dp navigation bar',
+    );
+
+    await tester.tap(find.byKey(lastKey));
+    await tester.pumpAndSettle();
+    expect(harness.selected, 'V39');
+  });
 }

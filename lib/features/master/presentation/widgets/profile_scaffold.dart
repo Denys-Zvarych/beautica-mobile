@@ -87,8 +87,8 @@ class ProfileScaffold extends StatelessWidget {
   /// matters for more than tidiness: `Scaffold` only zeroes the bottom
   /// [MediaQuery] padding it hands to `body` when `bottomNavigationBar` is
   /// non-null (see `Scaffold.build`'s `removeBottomPadding` wiring), so the
-  /// bar's own internal `SafeArea(top: false)` is the ONE place the device's
-  /// real bottom inset gets consumed. Nesting the bar inside the body's own
+  /// bar itself (its bottom margin since phase 422) is the ONE place the
+  /// device's real bottom inset gets consumed. Nesting the bar inside the body's own
   /// outer `SafeArea` instead (the previous shape here) let that outer
   /// `SafeArea` strip the inset before the bar ever saw it, so this screen
   /// rendered a shorter, differently-positioned bar than the ones hosted via

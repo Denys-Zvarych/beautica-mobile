@@ -160,8 +160,9 @@ class _LeaveReviewScreenState extends ConsumerState<LeaveReviewScreen> {
 
     return Scaffold(
       backgroundColor: BrandColors.base,
+      // Phase 422 D2 — full SafeArea: the pinned submit CTA under the scroll
+      // must clear the edge-to-edge navigation bar. No-op at zero inset.
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             _TopBar(

@@ -143,8 +143,9 @@ void main() {
 
     test('scanner finds the build/patrol invocations (not vacuous)', () {
       final String all = wf.map((File f) => f.readAsStringSync()).join('\n');
-      expect(_count(wf), greaterThanOrEqualTo(5));
+      expect(_count(wf), greaterThanOrEqualTo(6));
       expect(all, contains('flutter build apk'));
+      expect(all, contains('flutter build appbundle'));
       expect(all, contains('patrol build'));
       expect(all, contains('patrol test'));
     });
@@ -154,6 +155,45 @@ void main() {
         expect(violations(f.readAsStringSync(), file: f.path), isEmpty);
       });
     }
+  });
+
+  // Phase 409 D6: the Play upload AAB is built by exactly ONE invocation, prod only,
+  // version from pubspec only, with the obfuscation/symbol flags 411 relies on.
+  group('release-aab.yml (phase 409 D6)', () {
+    const String path = '.github/workflows/release-aab.yml';
+
+    List<String> appbundleLines() => logicalLines(File(path).readAsStringSync())
+        .map((MapEntry<int, String> e) => e.value.trim())
+        .where(
+          (String t) =>
+              !t.startsWith('#') &&
+              RegExp(r'flutter\s+build\s+appbundle').hasMatch(t),
+        )
+        .toList();
+
+    test('has exactly one appbundle invocation', () {
+      expect(appbundleLines(), hasLength(1));
+    });
+
+    test('builds prod release with the D6 flags', () {
+      final String t = appbundleLines().single;
+      for (final String flag in <String>[
+        '--release',
+        '--flavor prod',
+        '--dart-define-from-file=config/env/prod.json',
+        '--obfuscate',
+        '--split-debug-info=build/symbols',
+        '--extra-gen-snapshot-options=--save-obfuscation-map=build/app/obfuscation.map.json',
+      ]) {
+        expect(t, contains(flag));
+      }
+    });
+
+    test('never overrides the pubspec version (§ 6.1 V2)', () {
+      final String t = appbundleLines().single;
+      expect(t, isNot(contains('--build-number')));
+      expect(t, isNot(contains('--build-name')));
+    });
   });
 
   group('scripts/perf', () {

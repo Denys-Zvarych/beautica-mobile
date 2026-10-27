@@ -162,12 +162,21 @@ class ClientBottomNav extends StatelessWidget {
       label: kBeautyPassportLabel,
     );
 
+    // Phase 422 D2 — edge-to-edge: the floating pill sits ABOVE the system
+    // navigation bar (the outer margin grows by the bottom inset) instead of
+    // stretching under it. The pill's inner `SafeArea(top: false,
+    // bottom: false)` keeps only the side (cutout) padding; the bottom inset
+    // is consumed by the outer margin. Only `paddingOf` is read here (no
+    // `MediaQuery.removePadding`, which calls `MediaQuery.of` and would
+    // rebuild this bar on every keyboard `viewInsets` frame). A zero inset
+    // (API <= 34, every test surface) gives the exact pre-422 geometry.
+    final double bottomInset = MediaQuery.paddingOf(context).bottom;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         VelvetSpacing.md,
         0,
         VelvetSpacing.md,
-        VelvetSpacing.md,
+        VelvetSpacing.md + bottomInset,
       ),
       // The center disc overflows the bar's top edge, so the stack is taller
       // than the bar and clipping is disabled.
@@ -190,6 +199,7 @@ class ClientBottomNav extends StatelessWidget {
                   borderRadius: _barRadius,
                   child: SafeArea(
                     top: false,
+                    bottom: false,
                     child: SizedBox(
                       height: _barHeight,
                       // Tighter layout: instead of spreading four Expanded
