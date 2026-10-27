@@ -1345,6 +1345,54 @@ void main() {
       );
     });
 
+    test(
+      'extractTree without pubspec.yaml at the ref: no crash, stays selective',
+      () {
+        final repo = FixtureRepo({
+          'lib/a.dart': '',
+          'test/a_test.dart': pkg('a.dart'),
+          'integration_test/x_test.dart': '',
+          // Like the e2e fixtures: the other archived paths exist, only the
+          // version_only path (pubspec.yaml) is absent.
+          'api/pubspec.yaml': 'name: beautica_api\n',
+          'api/lib/a.dart': '',
+          ...filler(60),
+        });
+        addTearDown(repo.dispose);
+        for (final a in [
+          ['init', '-q'],
+          ['add', '-A'],
+          [
+            '-c',
+            'user.email=t@t',
+            '-c',
+            'user.name=t',
+            '-c',
+            'commit.gpgsign=false',
+            'commit',
+            '-qm',
+            'b',
+          ],
+        ]) {
+          final r = Process.runSync('git', ['-C', repo.root, ...a]);
+          expect(r.exitCode, 0, reason: '${r.stderr}');
+        }
+        final dest = Directory.systemTemp.createTempSync('sel_x_');
+        addTearDown(() => dest.deleteSync(recursive: true));
+        extractTree(repo.root, 'HEAD', dest.path, rules);
+        expect(File(p.join(dest.path, 'lib/a.dart')).existsSync(), isTrue);
+        expect(File(p.join(dest.path, 'pubspec.yaml')).existsSync(), isFalse);
+        final s = select_(
+          root: repo.root,
+          changes: parseChanges(m('lib/a.dart')),
+          rules: rules,
+          baseRoot: dest.path,
+        );
+        expect(s.mode, Mode.selective);
+        expect(s.unit, contains('test/a_test.dart'));
+      },
+    );
+
     test('extractTree archives the version_only paths (real git)', () {
       final repo = FixtureRepo({
         'pubspec.yaml': pub,
