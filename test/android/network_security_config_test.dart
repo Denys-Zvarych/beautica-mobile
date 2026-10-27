@@ -119,7 +119,8 @@ void main() {
         stagingBlock!.group(1),
         contains('applicationIdSuffix = ".staging"'),
       );
-      expect(stagingBlock.group(1), contains('Beautica β'));
+      // Same launcher label as prod (user 2026-10-27: no β marker).
+      expect(stagingBlock.group(1), contains('"app_name", "Beautica")'));
       expect(prodBlock!.group(1), isNot(contains('applicationIdSuffix')));
       expect(prodBlock.group(1), contains('"app_name", "Beautica")'));
     });
@@ -154,25 +155,33 @@ void main() {
     expect(manifest, contains('android:pathPrefix="/invite/accept"'));
   });
 
-  test('staging launcher icon override exists at every density', () {
-    for (final String d in <String>[
-      'mdpi',
-      'hdpi',
-      'xhdpi',
-      'xxhdpi',
-      'xxxhdpi',
-    ]) {
+  // User 2026-10-27: staging uses the same launcher icon as prod (the S badge was removed),
+  // so no flavor may override the main icon set.
+  test('no flavor overrides the main launcher icon', () {
+    for (final String flavor in <String>['staging', 'prod']) {
+      for (final String d in <String>[
+        'mdpi',
+        'hdpi',
+        'xhdpi',
+        'xxhdpi',
+        'xxxhdpi',
+      ]) {
+        for (final String icon in <String>[
+          'mipmap-$d/launcher_icon.png',
+          'drawable-$d/ic_launcher_foreground.png',
+          'drawable-$d/ic_launcher_monochrome.png',
+        ]) {
+          expect(
+            File('$_res/$flavor/res/$icon').existsSync(),
+            isFalse,
+            reason: '$flavor/$icon',
+          );
+        }
+      }
       expect(
-        File('$_res/staging/res/mipmap-$d/launcher_icon.png').existsSync(),
+        File('$_res/main/res/mipmap-xxxhdpi/launcher_icon.png').existsSync(),
         isTrue,
-        reason: d,
-      );
-      expect(
-        File(
-          '$_res/staging/res/drawable-$d/ic_launcher_foreground.png',
-        ).existsSync(),
-        isTrue,
-        reason: d,
+        reason: 'main icon set must exist',
       );
     }
   });
