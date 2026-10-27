@@ -3005,6 +3005,20 @@
   "@settingsHubHelp": {
     "description": "Label for the Help / Contact-us row in the master settings hub; navigates to the support-contact screen."
   },
+  "settingsHubAppVersion": "Версія {version} ({build})",
+  "@settingsHubAppVersion": {
+    "description": "Muted app-version caption at the bottom of every settings hub (master, salon, client). version = pubspec semver, build = build number.",
+    "placeholders": {
+      "version": {
+        "type": "String",
+        "example": "1.3.0"
+      },
+      "build": {
+        "type": "String",
+        "example": "4"
+      }
+    }
+  },
   "settingsHubDeleteAccount": "Видалити акаунт",
   "@settingsHubDeleteAccount": {
     "description": "Label for the CLIENT-only delete-account row at the bottom of the CLIENT settings hub, below logout. Also reused as the confirm dialog's title and destructive confirm-button label (mirrors how `logout` is reused for the logout dialog)."
@@ -7156,5 +7170,21 @@
   "bookingLinkTooManyChanges": "Забагато змін. Спробуйте пізніше.",
   "@bookingLinkTooManyChanges": {
     "description": "Phase 415 — snack on 429."
+  },
+  "externalLinkOpenError": "Не вдалося відкрити посилання",
+  "@externalLinkOpenError": {
+    "description": "Shared — error snack when an external web link (terms / privacy) cannot be opened in the browser."
+  },
+  "accountLegalSection": "Правова інформація",
+  "@accountLegalSection": {
+    "description": "Account page — section label above the privacy-policy and terms-of-use rows."
+  },
+  "accountPrivacyPolicy": "Політика конфіденційності",
+  "@accountPrivacyPolicy": {
+    "description": "Account page — row opening https://beautica.app/privacy in the external browser (Google Play User Data policy)."
+  },
+  "accountTermsOfUse": "Умови використання",
+  "@accountTermsOfUse": {
+    "description": "Account page — row opening https://beautica.app/terms in the external browser."
   }
 }

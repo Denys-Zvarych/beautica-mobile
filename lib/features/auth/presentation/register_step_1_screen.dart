@@ -18,6 +18,7 @@
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -28,6 +29,8 @@ import '../../../core/theme/velvet_text.dart';
 import '../../../core/widgets/neumorphic.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../routing/route_names.dart';
+import '../../../shared/utils/open_external_uri.dart';
+import '../../../shared/utils/public_web_links.dart';
 import '../../../shared/validators/email_validator.dart';
 import '../../../shared/validators/password_validator.dart';
 import '../state/register_draft_notifier.dart';
@@ -59,6 +62,12 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   String? _confirmError;
   List<PasswordRule>? _rules;
 
+  // Terms / privacy inline links — created once with the State (never in
+  // build) and disposed in [dispose]. Both open the public website's legal
+  // page in the external browser via the shared [openExternalUri].
+  final TapGestureRecognizer _termsRecognizer = TapGestureRecognizer();
+  final TapGestureRecognizer _privacyRecognizer = TapGestureRecognizer();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -72,6 +81,8 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
   @override
   void initState() {
     super.initState();
+    _termsRecognizer.onTap = () => _openLegal(PublicWebLinks.terms);
+    _privacyRecognizer.onTap = () => _openLegal(PublicWebLinks.privacy);
     // Pre-fill from the draft (e.g. when the user returns to Step 1 via the
     // back link from Step 2).
     final draft = ref.read(registerDraftProvider);
@@ -88,7 +99,18 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _termsRecognizer.dispose();
+    _privacyRecognizer.dispose();
     super.dispose();
+  }
+
+  void _openLegal(Uri uri) {
+    openExternalUri(
+      context,
+      uri,
+      errorMessage: AppLocalizations.of(context).externalLinkOpenError,
+      logName: 'auth.register.step1',
+    );
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────
@@ -248,6 +270,7 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
 
           // ── Terms line (full rich text) ────────────────────────────────
           Text.rich(
+            key: const ValueKey<String>('step1_terms_line'),
             TextSpan(
               style: VelvetText.feedback(BrandColors.muted),
               children: <InlineSpan>[
@@ -256,11 +279,15 @@ class _RegisterStep1ScreenState extends ConsumerState<RegisterStep1Screen> {
                 TextSpan(
                   text: l10n.registerTermsTerms,
                   style: VelvetText.linkSmall,
+                  recognizer: _termsRecognizer,
+                  semanticsIdentifier: 'step1_terms_link',
                 ),
                 TextSpan(text: l10n.registerTermsConjunction),
                 TextSpan(
                   text: l10n.registerTermsPrivacy,
                   style: VelvetText.linkSmall,
+                  recognizer: _privacyRecognizer,
+                  semanticsIdentifier: 'step1_privacy_link',
                 ),
               ],
             ),

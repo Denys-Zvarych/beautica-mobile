@@ -111,6 +111,17 @@ Capture full device logcat in the background so a crash stack
 surface "Process crashed", not the device-side stack. Backgrounded
 on its own line so it survives this line's sh -c exit.
 
+<a id="patrol-soft-ime"></a>
+
+### patrol: soft keyboard with a hardware keyboard (2026-10-27)
+
+The AVD reports a hardware keyboard, and Android then hides the soft IME
+unless `settings secure show_ime_with_hard_keyboard` is 1.
+`otp_keyboard_reshow_patrol_test.dart` observes the REAL soft keyboard via
+the engine IME inset (`view.viewInsets.bottom`), so without this setting it
+fails on arrival with that hint. A system setting, so it survives patrol's
+reinstall + clearPackageData. Set in both attempts, `|| true`.
+
 <a id="approve-loop"></a>
 
 ### patrol: background App Link re-approval loop

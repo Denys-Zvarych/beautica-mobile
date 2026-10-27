@@ -69,6 +69,7 @@ import '../../settings/domain/account_settings_extras.dart';
 import '../../settings/presentation/logout_action.dart';
 import '../application/salon_management_profile_notifier.dart';
 import 'widgets/salon_cover_widgets.dart';
+import 'package:beautica_mobile/shared/widgets/app_version_label.dart';
 
 /// The salon settings hub — «Мої салони» / «Про салон» / «Локація» /
 /// «Контакти» (all owner-only) / «Надіслані запрошення» / «Загальне» /
@@ -342,6 +343,10 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
               ),
             ),
           ),
+
+          // Muted app-version caption — the hub's very last line (shared
+          // [AppVersionLabel]; renders nothing while loading / on error).
+          const AppVersionLabel(),
         ],
       ),
     );

@@ -35,6 +35,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'widgets/section_scaffold.dart';
 import 'widgets/settings_row.dart';
+import 'package:beautica_mobile/shared/widgets/app_version_label.dart';
 
 /// The settings hub reached from the master profile menu icon.
 //
@@ -373,6 +374,9 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
               ),
             ),
           ),
+          // Muted app-version caption — the hub's very last line (shared
+          // [AppVersionLabel]; renders nothing while loading / on error).
+          const AppVersionLabel(),
         ],
       ),
     );

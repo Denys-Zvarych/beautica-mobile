@@ -23,8 +23,14 @@
 // See integration_test/support/app_harness.dart for the policy rationale.
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/login_screen.dart';
+import 'package:beautica_mobile/features/auth/presentation/verification_screen.dart';
+import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:beautica_mobile/shared/util/mask_email.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -118,6 +124,84 @@ void main() {
       );
       expect(find.byType(SalonShellScreen), findsOneWidget);
       expect(fb.loginCalls, equals(1));
+    },
+  );
+
+  // ── Test 4 — unverified account: real prod 403 → banner → verify → /done ──
+  //
+  // Regression (fix/login-unverified-403): prod answers an unverified login
+  // with HTTP 403 {code:"EMAIL_NOT_VERIFIED", email}. The app only decoded the
+  // code on a 401, so the user got the generic error snack instead of the
+  // verify banner. FakeBackend(loginEmailNotVerified: true) replies with that
+  // exact 403 body and the response travels through the REAL
+  // ErrorMapperInterceptor on FakeBackend's Dio — no hand-built failure.
+  //
+  // Resend is NOT driven: VerificationScreen starts the resend row on a 30 s
+  // initial cooldown, and the live integration binding runs real timers.
+
+  testWidgets(
+    'unverified account: login 403 EMAIL_NOT_VERIFIED → verify banner → '
+    'VerificationScreen for that email → OTP → /done',
+    (tester) async {
+      const String email = 'master@beautica.ua';
+      final fb = FakeBackend(loginEmailNotVerified: true);
+      final GoRouter router = await AppHarness.boot(tester, fb);
+
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+
+      // Still on /login, showing the EMAIL_NOT_VERIFIED banner — not a snack.
+      AppHarness.expectLocation(router, RouteNames.login);
+      expect(fb.loginCalls, equals(1));
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(LoginScreen)),
+      );
+      final Finder banner = find.byKey(
+        const Key('login-email-not-verified-banner'),
+      );
+      expect(banner, findsOneWidget, reason: '403 must surface the banner');
+      expect(
+        tester.widget<AuthBanner>(banner).message,
+        equals(l10n.loginUnverifiedMessage),
+      );
+      expect(find.byType(VelvetSnack), findsNothing);
+
+      // Banner action → /verification for the SAME email.
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('auth_banner_action')),
+      );
+      await AppHarness.settle(tester);
+      AppHarness.expectLocation(router, RouteNames.verification);
+      expect(
+        tester
+            .widget<VerificationScreen>(find.byType(VerificationScreen))
+            .email,
+        equals(email),
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is RichText && w.text.toPlainText().contains(maskEmail(email)),
+        ),
+        findsOneWidget,
+        reason: 'VerificationScreen must render the masked login email',
+      );
+
+      // OTP → /done; verify-email carried the banner's email.
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('verify_code_input')),
+        '123456',
+      );
+      await tester.pump();
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const ValueKey<String>('verify_submit')),
+      );
+      await AppHarness.settle(tester);
+
+      AppHarness.expectLocation(router, RouteNames.done);
+      expect(fb.verifyEmailCalls, equals(1));
+      expect(fb.lastVerifyEmailEmail, equals(email));
     },
   );
 }

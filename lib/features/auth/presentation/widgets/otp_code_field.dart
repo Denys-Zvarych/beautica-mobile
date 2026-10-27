@@ -42,13 +42,22 @@ class OtpCodeField extends StatelessWidget {
   /// Accessibility label announced for the OTP entry as a whole.
   final String semanticsLabel;
 
+  void _onTap() {
+    if (focusNode.hasFocus) {
+      // Android keeps focus when the IME is dismissed via back/hide; re-show it.
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    } else {
+      focusNode.requestFocus();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label: semanticsLabel,
       textField: true,
       child: GestureDetector(
-        onTap: focusNode.requestFocus,
+        onTap: _onTap,
         child: Stack(
           alignment: Alignment.center,
           children: <Widget>[

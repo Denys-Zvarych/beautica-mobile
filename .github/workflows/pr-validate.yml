@@ -1798,6 +1798,9 @@ jobs:
             adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat.txt" 2>&1 &
             # Keep the ADB-install verifier out of the way during patrol's reinstall.
             adb shell settings put global verifier_verify_adb_installs 0 || true
+            # Show the soft IME even with the AVD's hardware keyboard (OTP re-show patrol flow).
+            # why: docs/ci/patrol.md#patrol-soft-ime
+            adb shell settings put secure show_ime_with_hard_keyboard 1 || true
             # BACKGROUND RE-APPROVAL LOOP (load-bearing): cadence MUST stay 1s; stops via
             # the sentinel file; ONE self-contained line.
             # why: docs/ci/patrol.md#approve-loop
@@ -1855,6 +1858,9 @@ jobs:
             adb logcat -c || true; adb logcat -b all -v time > "$GITHUB_WORKSPACE/patrol-logcat-attempt2.txt" 2>&1 &
             # Keep the ADB-install verifier out of the way during patrol's reinstall.
             adb shell settings put global verifier_verify_adb_installs 0 || true
+            # Show the soft IME even with the AVD's hardware keyboard (OTP re-show patrol flow).
+            # why: docs/ci/patrol.md#patrol-soft-ime
+            adb shell settings put secure show_ime_with_hard_keyboard 1 || true
             # BACKGROUND RE-APPROVAL LOOP (load-bearing): cadence MUST stay 1s; stops via
             # the sentinel file; ONE self-contained line.
             # why: docs/ci/patrol.md#approve-loop

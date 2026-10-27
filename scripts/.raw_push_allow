@@ -18,7 +18,7 @@ lib/features/notifications/presentation/notification_navigation.dart:455:router.
 # ServicesListScreen._opening (held until the pushed screen pops; then refreshes).
 lib/features/services/presentation/services_list_screen.dart:317:context.push<void>(location)
 # _requestingChangePasswordOtp flag guards the OTP request that precedes the push.
-lib/features/settings/presentation/settings_screen.dart:214:context.push(RouteNames.changePassword)
+lib/features/settings/presentation/settings_screen.dart:252:context.push(RouteNames.changePassword)
 # EXCEPTION (NOT a guarded site): user rule 2026-10-15 + phase-262 D5 keep
 # booking_confirm_screen.dart byte-identical to HEAD, so its «Відгуки» link
 # stays a raw push. Remove this entry if that file is ever cleared for pushOnce.
