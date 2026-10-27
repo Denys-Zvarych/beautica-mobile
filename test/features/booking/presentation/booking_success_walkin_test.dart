@@ -156,6 +156,9 @@ void main() {
       expect(find.text(l10n.bookingSuccessTitle), findsOneWidget);
       expect(find.text(l10n.bookingSuccessSubline), findsOneWidget);
       expect(find.text(l10n.bookingSuccessHomeCta), findsOneWidget);
+      // Copy regression (fix/booking-success-copy): auto-approved booking —
+      // never "the master will confirm". i18n-finder-ok: retired-copy probe.
+      expect(find.textContaining('підтвердить'), findsNothing);
     });
 
     testWidgets('should_showRescheduleCopy_when_isRescheduleTrue', (

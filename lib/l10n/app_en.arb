@@ -4364,9 +4364,9 @@
   "@bookingSuccessTitle": {
     "description": "Headline on the booking success screen shown after POST /bookings succeeds."
   },
-  "bookingSuccessSubline": "The specialist will confirm your booking shortly.\nYou'll get a notification as soon as they respond.",
+  "bookingSuccessSubline": "Your booking is confirmed.\nYou'll find all the details under Bookings.",
   "@bookingSuccessSubline": {
-    "description": "Reassuring subline under the booking success screen's headline."
+    "description": "Subline under the booking success screen's headline. Bookings are created CONFIRMED (auto-approved) and notifications are off until release, so it must not say the master will confirm or promise a notification. «Записи»/Bookings = clientNavBookings tab label."
   },
   "bookingSuccessAddCalendarCta": "Add to calendar",
   "@bookingSuccessAddCalendarCta": {
@@ -5548,9 +5548,9 @@
   "@salonBookingSuccessTitle": {
     "description": "Headline on the salon booking success screen after every per-master booking succeeded."
   },
-  "salonBookingSuccessSubline": "The masters will confirm your appointments shortly.\nYou'll be notified as soon as they respond.",
+  "salonBookingSuccessSubline": "Your appointments are confirmed.\nYou'll find all the details under Bookings.",
   "@salonBookingSuccessSubline": {
-    "description": "Reassuring subline under the salon booking success headline."
+    "description": "Subline under the salon booking success headline. Bookings are created CONFIRMED (auto-approved) and notifications are off until release, so it must not say the masters will confirm or promise a notification. «Записи»/Bookings = clientNavBookings tab label."
   },
   "salonSchedulePagerSemantics": "Master {current} of {count}. {done} scheduled.",
   "@salonSchedulePagerSemantics": {
