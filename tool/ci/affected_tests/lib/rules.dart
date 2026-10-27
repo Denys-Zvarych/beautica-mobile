@@ -59,6 +59,8 @@ final class Rules {
     required this.arbGlobs,
     required this.arbReaderLiteral,
     required this.arbIncludeAlways,
+    required this.versionOnlyPaths,
+    required this.versionOnlyLine,
   });
 
   factory Rules.fromYaml(String source) {
@@ -67,7 +69,13 @@ final class Rules {
     final integ = y['integration'] as YamlMap;
     final golden = y['golden_assets'] as YamlMap? ?? YamlMap();
     final arb = y['arb'] as YamlMap? ?? YamlMap();
+    final vo = y['version_only'] as YamlMap? ?? YamlMap();
     return Rules._(
+      versionOnlyPaths: [
+        for (final s in (vo['paths'] as YamlList? ?? YamlList())) s as String,
+      ],
+      // No `line` -> a regex that never matches: the exemption is off.
+      versionOnlyLine: RegExp((vo['line'] as String?) ?? r'(?!)'),
       pathIncludes: [
         for (final e in (y['path_includes'] as YamlList? ?? YamlList()))
           PathInclude(_globs((e as YamlMap)['when']), _globs(e['include'])),
@@ -135,6 +143,11 @@ final class Rules {
   final List<RuleGlob> arbGlobs;
   final RegExp arbReaderLiteral;
   final List<RuleGlob> arbIncludeAlways;
+
+  /// `version_only`: exact FULL paths whose single-line `line`-matching change
+  /// (e.g. pubspec.yaml's `version:`) is ignored instead.
+  final List<String> versionOnlyPaths;
+  final RegExp versionOnlyLine;
 
   bool isHub(String path) => hubs.any((h) => h.matches(path));
 

@@ -235,9 +235,14 @@ int _runShardList(
   return 0;
 }
 
-/// `git archive <ref>` of the graph roots into [dest]; returns [dest].
+/// `git archive <ref>` of the graph roots (+ api/pubspec.yaml and the
+/// `version_only` paths) into [dest]; returns [dest].
 String extractTree(String repoRoot, String ref, String dest, Rules rules) {
-  final paths = [...rules.graphRoots, 'api/pubspec.yaml'];
+  final paths = [
+    ...rules.graphRoots,
+    'api/pubspec.yaml',
+    ...rules.versionOnlyPaths,
+  ];
   final archive = Process.runSync('git', [
     '-C',
     repoRoot,

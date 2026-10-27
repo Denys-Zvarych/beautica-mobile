@@ -88,6 +88,23 @@ bool _isTest(String path) => path.endsWith('_test.dart');
   return (unit: unit..sort(), golden: golden..sort(), flows: flows..sort());
 }
 
+/// True iff [base] and [head] differ in EXACTLY one line and that line matches
+/// [line] on both sides (a version-only bump). Null text (missing file / no
+/// BASE tree), equal text or any other difference -> false (stay FULL).
+/// Mirrors tool/ci/pubspec_version_only.sh.
+bool versionOnlyChange(String? base, String? head, RegExp line) {
+  if (base == null || head == null) return false;
+  final a = base.split('\n'), b = head.split('\n');
+  if (a.length != b.length) return false;
+  var diffs = 0;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] == b[i]) continue;
+    if (++diffs > 1) return false;
+    if (!line.hasMatch(a[i]) || !line.hasMatch(b[i])) return false;
+  }
+  return diffs == 1;
+}
+
 /// Selects the tests affected by [changes] in the tree at [root].
 ///
 /// [baseRoot] (optional) is the BASE tree: deleted/renamed Dart files are
@@ -110,9 +127,25 @@ Selection select({
   final mappedPicks = <RuleGlob>[]; // path_includes -> fixed test sets
   final goldenPngs = <String>[]; // committed golden images (live + removed)
   final arbPaths = <String>[];
+  String? readIn(String? dir, String path) {
+    if (dir == null) return null;
+    final f = File(p.join(dir, path));
+    return f.existsSync() ? readTextSync(f) : null;
+  }
+
   for (final c in changes) {
     for (final path in c.livePaths) {
-      final k = classify(path, rules);
+      var k = classify(path, rules);
+      if (k.kind == PathKind.full &&
+          c.status == 'M' &&
+          rules.versionOnlyPaths.contains(path) &&
+          versionOnlyChange(
+            readIn(baseRoot, path),
+            readIn(root, path),
+            rules.versionOnlyLine,
+          )) {
+        k = Classification(path, PathKind.none, 'none: version-only change');
+      }
       reasons.add(Reason(path, k.rule));
       if (k.kind != PathKind.none) codeChanged.add(path);
       switch (k.kind) {
