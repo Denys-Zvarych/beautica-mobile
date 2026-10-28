@@ -36,9 +36,6 @@
 // (Key('btn-menu-master')) pushes RouteNames.masterMenu — the settings hub that
 // lists the per-section edit pages (personal / contacts / location / account).
 
-import 'dart:developer';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -65,8 +62,8 @@ import 'package:beautica_mobile/features/services/presentation/services_list_not
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
-import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
@@ -861,48 +858,21 @@ class _AboutTab extends StatelessWidget {
   ///
   /// Invoked fire-and-forget from the tile's synchronous [ContactTile.onTap];
   /// [context.mounted] is re-checked after the await before touching the tree.
-  /// No PII (handle/URL) is logged.
-  static Future<void> _openInstagram(
-    BuildContext context,
-    String? rawValue,
-  ) async {
-    final Uri? uri = canonicalInstagramUri(rawValue);
-    if (uri == null) {
-      _showInstagramError(context);
-      return;
-    }
-
-    bool launched = false;
-    try {
-      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } on Object catch (error) {
-      if (kDebugMode) {
-        log(
-          'Instagram launch threw',
-          name: 'feature.master',
-          level: 900,
-          error: error,
-        );
-      }
-    }
-
-    if (!context.mounted) return;
-    if (!launched) _showInstagramError(context);
-  }
-
-  /// Shows the localized "couldn't open Instagram" error VelvetSnack.
+  /// No PII (handle/URL) is logged. The launch/snack sequence is the shared
+  /// [openExternalUri] (`shared/utils/open_external_uri.dart`).
   ///
   /// This is the master's OWN tab-root screen — its `bottomNavBar` always
   /// renders the shared `VelvetBottomNavBar` (never suppressed), so the
-  /// bottom-anchored snack needs `bottomInset` to clear it; see
+  /// bottom-anchored error snack needs `bottomInset` to clear it; see
   /// `VelvetSizes.bottomNavClearanceMaster`'s doc.
-  static void _showInstagramError(BuildContext context) {
-    showErrorSnack(
-      context,
-      AppLocalizations.of(context).masterInstagramOpenError,
-      bottomInset: VelvetSizes.bottomNavClearanceMaster,
-    );
-  }
+  static Future<void> _openInstagram(BuildContext context, String? rawValue) =>
+      openExternalUri(
+        context,
+        canonicalInstagramUri(rawValue),
+        errorMessage: AppLocalizations.of(context).masterInstagramOpenError,
+        bottomInset: VelvetSizes.bottomNavClearanceMaster,
+        logName: 'feature.master',
+      );
 }
 
 // ---------------------------------------------------------------------------

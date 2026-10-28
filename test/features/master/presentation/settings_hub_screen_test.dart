@@ -48,6 +48,7 @@ import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_notification_repository.dart'
     show FixedRoleAuth;
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/fake_package_info.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 
@@ -1239,5 +1240,26 @@ void main() {
 
       expect(find.byKey(const Key('stub-booking-links')), findsOneWidget);
     });
+  });
+
+  // Muted app-version caption — the hub's very last line, below «Вийти».
+  testWidgets('app-version label renders below the logout row', (tester) async {
+    final router = _hubRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpRoutedApp(
+      router,
+      overrides: <Object>[appPackageInfoOverride()],
+    );
+    await tester.pumpAndSettle();
+
+    final Finder label = find.byKey(const Key('app-version-label'));
+    expect(label, findsOneWidget);
+    expect(find.text(fakeAppVersionText()), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text(fakeAppVersionText())).dy,
+      greaterThan(tester.getBottomLeft(find.byKey(const Key('row-logout'))).dy),
+      reason: 'the version line must sit at the very bottom, under «Вийти»',
+    );
   });
 }

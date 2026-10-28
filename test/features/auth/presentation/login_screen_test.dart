@@ -26,10 +26,14 @@
 
 import 'dart:async';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/error_mapper_interceptor.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -39,10 +43,12 @@ import 'package:beautica_mobile/features/auth/presentation/widgets/auth_scaffold
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http_mock_adapter/http_mock_adapter.dart';
 
 import 'package:beautica_mobile/features/auth/state/login_notice_notifier.dart';
 
@@ -1226,6 +1232,123 @@ void main() {
       },
     );
   });
+
+  group('LoginScreen — real auth stack (fix/login-unverified-403)', () {
+    // -----------------------------------------------------------------------
+    // Test 19 — regression (fix/login-unverified-403): the REAL prod 403
+    // EMAIL_NOT_VERIFIED body, driven through the real ErrorMapperInterceptor
+    // + HttpAuthRepository + AuthNotifier (only the socket is faked), shows
+    // the verify banner — and its action carries the email to /verification.
+    // Tests 8/11 stub the notifier with a hand-built UnauthorizedFailure,
+    // which is exactly why CI stayed green while prod showed a generic error.
+    // -----------------------------------------------------------------------
+    testWidgets(
+      '19. real 403 EMAIL_NOT_VERIFIED through the interceptor → verify '
+      'banner, no snack; action pushes /verification with the email',
+      (tester) async {
+        const String email = 'unverified@example.com';
+        final h = _RealAuthStackHarness()..stubLogin403EmailNotVerified(email);
+        addTearDown(h.router.dispose);
+
+        await tester.pumpWidget(h.app());
+        await tester.pumpAndSettle();
+        await h.submit(tester, email);
+
+        final l10n = lookupAppLocalizations(const Locale('uk'));
+        final Finder banner = find.byKey(
+          const Key('login-email-not-verified-banner'),
+        );
+        expect(banner, findsOneWidget, reason: '403 must surface the banner');
+        expect(
+          tester.widget<AuthBanner>(banner).message,
+          l10n.loginUnverifiedMessage,
+        );
+        expect(find.byType(VelvetSnack), findsNothing);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('auth_banner_action')),
+        );
+        await tester.pumpAndSettle();
+        expect(h.verificationExtra, email);
+      },
+    );
+  });
+}
+
+/// Wires the REAL auth stack under [LoginScreen]: Dio + production
+/// [ErrorMapperInterceptor] + generated API + [HttpAuthRepository]; the
+/// [DioAdapter] is the only fake. `authProvider` is NOT overridden.
+class _RealAuthStackHarness {
+  _RealAuthStackHarness() {
+    dio.interceptors.add(ErrorMapperInterceptor());
+    adapter = DioAdapter(dio: dio);
+  }
+
+  final Dio dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080'));
+  late final DioAdapter adapter;
+  Object? verificationExtra;
+
+  late final GoRouter router = GoRouter(
+    initialLocation: RouteNames.login,
+    routes: <RouteBase>[
+      GoRoute(
+        path: RouteNames.login,
+        builder: (context, state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: RouteNames.verification,
+        builder: (context, state) {
+          verificationExtra = state.extra;
+          return const Scaffold(body: SizedBox.shrink());
+        },
+      ),
+    ],
+  );
+
+  void stubLogin403EmailNotVerified(String email) => adapter.onPost(
+    '/api/v1/auth/login',
+    (s) => s.reply(403, <String, dynamic>{
+      'success': false,
+      'message': 'Email not verified',
+      'data': <String, dynamic>{'code': 'EMAIL_NOT_VERIFIED', 'email': email},
+    }),
+    data: Matchers.any,
+  );
+
+  Widget app() => ProviderScope(
+    retry: beauticaProviderRetry,
+    overrides: [
+      authRepositoryProvider.overrideWith(
+        (_) => HttpAuthRepository(
+          AuthControllerApi(dio, standardSerializers),
+          UserControllerApi(dio, standardSerializers),
+          TokenRefreshLock(),
+        ),
+      ),
+      secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+    ],
+    child: MaterialApp.router(
+      routerConfig: router,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      locale: const Locale('uk'),
+    ),
+  );
+
+  Future<void> submit(WidgetTester tester, String email) async {
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('login_email')),
+      email,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('login_password')),
+      'Secret1234',
+    );
+    final Finder submit = find.byKey(const ValueKey<String>('login_submit'));
+    await tester.ensureVisible(submit);
+    await tester.tap(submit);
+    await tester.pumpAndSettle();
+  }
 }
 
 /// Counts [login] calls and keeps each one pending until [gate] completes —

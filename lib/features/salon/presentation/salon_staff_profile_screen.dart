@@ -1000,21 +1000,14 @@ class _StaffAboutTab extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
+        // No inner «Про майстра» section heading above the bio: it repeated
+        // the tab label verbatim, so the tab itself is the heading (same fix
+        // as `PublicMasterProfileScreen`'s `_AboutTab`).
         if (bio != null)
           Column(
             key: const Key('salon-staff-profile-bio'),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Padding(
-                padding: const EdgeInsets.only(
-                  left: 4,
-                  bottom: VelvetSpacing.xs,
-                ),
-                child: Text(
-                  l10n.publicMasterBioLabel,
-                  style: VelvetText.sectionLabel(),
-                ),
-              ),
               NeumorphicInset(
                 radius: VelvetRadii.card,
                 child: Padding(

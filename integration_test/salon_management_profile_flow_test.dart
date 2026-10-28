@@ -366,8 +366,13 @@ void main() {
         await tester.tap(find.byKey(const Key('row-salon-general')));
         await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('row-delete-salon')), findsOneWidget);
-        await tester.tap(find.byKey(const Key('row-delete-salon')));
+        final Finder deleteSalonRow = find.byKey(const Key('row-delete-salon'));
+        expect(deleteSalonRow, findsOneWidget);
+        // The «Правова інформація» section pushes this row below the
+        // 800x600 test window's fold — scroll it into view before tapping.
+        await tester.ensureVisible(deleteSalonRow);
+        await tester.pumpAndSettle();
+        await tester.tap(deleteSalonRow);
         await tester.pumpAndSettle();
 
         expect(find.byKey(const Key('delete-salon-dialog')), findsOneWidget);
@@ -434,7 +439,10 @@ void main() {
 
     await tester.tap(find.byKey(const Key('row-salon-general')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('row-delete-salon')));
+    final Finder deleteSalonRow = find.byKey(const Key('row-delete-salon'));
+    await tester.ensureVisible(deleteSalonRow);
+    await tester.pumpAndSettle();
+    await tester.tap(deleteSalonRow);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('btn-confirm-delete-salon')));
     await tester.pumpAndSettle();

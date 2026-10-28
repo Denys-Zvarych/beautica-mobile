@@ -12,6 +12,11 @@
 //   A8 — notifications switch never flips locally (push unavailable → OFF);
 //        the full "mirror Android" contract is in
 //        settings_notifications_toggle_test.dart.
+//   A11 — «Правова інформація» group (privacy + terms rows) renders with no
+//        authenticated session (no role gate).
+//   A12/A13 — privacy / terms rows launch https://beautica.app/{privacy,terms}
+//        in the external browser.
+//   A14 — a failed launch shows the externalLinkOpenError snack.
 //
 // The logout confirm/cancel/double-tap/failure/secure-storage-clear flow is
 // covered on the hub test (settings_hub_screen_test.dart) — that is the only
@@ -38,6 +43,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
@@ -84,6 +92,12 @@ Widget _buildApp({
     locale: const Locale('uk'),
   ),
 );
+
+/// Mock [UrlLauncherPlatform] — `launchUrl(uri, mode: ...)` routes through
+/// `UrlLauncherPlatform.instance.launchUrl(url, options)`.
+class _MockUrlLauncher extends Mock
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {}
 
 void main() {
   group('SettingsScreen (Account page)', () {
@@ -402,5 +416,123 @@ void main() {
         );
       },
     );
+  });
+
+  group('SettingsScreen — legal rows (every role, no session gate)', () {
+    late _MockUrlLauncher launcher;
+    late UrlLauncherPlatform originalPlatform;
+    final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+
+    setUpAll(() => registerFallbackValue(const LaunchOptions()));
+
+    setUp(() {
+      originalPlatform = UrlLauncherPlatform.instance;
+      launcher = _MockUrlLauncher();
+      UrlLauncherPlatform.instance = launcher;
+    });
+
+    tearDown(() => UrlLauncherPlatform.instance = originalPlatform);
+
+    Future<void> pumpScreen(WidgetTester tester) async {
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      // FakeAuthRepository with no signed-in user → no authenticated session,
+      // so the rows below are proven independent of any role.
+      await tester.pumpWidget(
+        _buildApp(
+          router: router,
+          repo: FakeAuthRepository(),
+          storage: FakeSecureStorage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapRow(WidgetTester tester, Key key) async {
+      final Finder row = find.byKey(key);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('A11. «Правова інформація» section + privacy and terms rows '
+        'render as SettingsRows with their l10n labels', (tester) async {
+      await pumpScreen(tester);
+
+      expect(find.byKey(const Key('account-legal-section')), findsOneWidget);
+      expect(find.text(l10n.accountLegalSection), findsOneWidget);
+      for (final (Key key, String label) in <(Key, String)>[
+        (const Key('row-privacy-policy'), l10n.accountPrivacyPolicy),
+        (const Key('row-terms-of-use'), l10n.accountTermsOfUse),
+      ]) {
+        final Finder row = find.byKey(key);
+        expect(row, findsOneWidget);
+        expect(tester.widget(row), isA<SettingsRow>());
+        expect(
+          find.descendant(of: row, matching: find.text(label)),
+          findsOneWidget,
+        );
+      }
+      // Order: change-password → privacy → terms.
+      final double pw = tester
+          .getTopLeft(find.byKey(const Key('row-change-password')))
+          .dy;
+      final double privacy = tester
+          .getTopLeft(find.byKey(const Key('row-privacy-policy')))
+          .dy;
+      final double terms = tester
+          .getTopLeft(find.byKey(const Key('row-terms-of-use')))
+          .dy;
+      expect(pw < privacy && privacy < terms, isTrue);
+    });
+
+    for (final (String name, Key key, String url) in <(String, Key, String)>[
+      (
+        'A12. privacy row',
+        const Key('row-privacy-policy'),
+        'https://beautica.app/privacy',
+      ),
+      (
+        'A13. terms row',
+        const Key('row-terms-of-use'),
+        'https://beautica.app/terms',
+      ),
+    ]) {
+      testWidgets('$name launches $url in the external browser', (
+        tester,
+      ) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+        await pumpScreen(tester);
+
+        await tapRow(tester, key);
+
+        final List<dynamic> captured = verify(
+          () => launcher.launchUrl(captureAny(), captureAny()),
+        ).captured;
+        expect(captured, hasLength(2), reason: 'exactly one launch');
+        expect(captured[0], url);
+        expect(
+          (captured[1] as LaunchOptions).mode,
+          PreferredLaunchMode.externalApplication,
+        );
+        expect(find.text(l10n.externalLinkOpenError), findsNothing);
+      });
+    }
+
+    testWidgets('A14. a failed launch shows the externalLinkOpenError snack', (
+      tester,
+    ) async {
+      when(
+        () => launcher.launchUrl(any(), any()),
+      ).thenThrow(Exception('no browser'));
+      await pumpScreen(tester);
+
+      await tapRow(tester, const Key('row-terms-of-use'));
+
+      expect(find.text(l10n.externalLinkOpenError), findsOneWidget);
+    });
   });
 }

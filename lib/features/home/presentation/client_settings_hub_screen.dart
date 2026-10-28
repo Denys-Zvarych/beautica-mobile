@@ -34,6 +34,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 
 import 'package:beautica_mobile/features/master/presentation/widgets/section_scaffold.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
+import 'package:beautica_mobile/shared/widgets/app_version_label.dart';
 
 /// The CLIENT settings hub reached from the home-hub menu icon.
 class ClientSettingsHubScreen extends ConsumerStatefulWidget {
@@ -238,6 +239,10 @@ class _ClientSettingsHubScreenState
               ),
             ),
           ),
+
+          // Muted app-version caption — the hub's very last line (shared
+          // [AppVersionLabel]; renders nothing while loading / on error).
+          const AppVersionLabel(),
         ],
       ),
     );

@@ -2122,6 +2122,51 @@ void main() {
   // screen — an empty bio shows the muted placeholder, never the master's own
   // `AddLink`.
   // ──────────────────────────────────────────────────────────────────────────
+  group('About tab bio has no duplicate heading', () {
+    testWidgets('with a bio, the tab panel shows the bio and no inner '
+        '«Про майстра» section heading (the tab label is the only one)', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: _overrides((ref) => _stubData),
+      );
+      await tester.pumpAndSettle();
+
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(PublicMasterProfileScreen)),
+      );
+      final Finder aboutTab = find.byKey(
+        const Key('public-master-profile-about-tab'),
+      );
+      expect(aboutTab, findsOneWidget);
+      // The bio itself renders inside the tab panel.
+      expect(
+        find.descendant(of: aboutTab, matching: find.text(_stubMaster.bio!)),
+        findsOneWidget,
+      );
+      // No inner heading repeating the tab label inside the panel.
+      expect(
+        find.descendant(
+          of: aboutTab,
+          matching: find.text(l10n.publicMasterBioLabel),
+        ),
+        findsNothing,
+      );
+      // The tab label itself is still there, exactly once on screen.
+      expect(find.text(l10n.publicMasterTabAbout), findsOneWidget);
+      expect(
+        find.byKey(const Key('public-master-profile-about-empty')),
+        findsNothing,
+      );
+    });
+  });
+
   group('About tab empty state (Phase 351)', () {
     testWidgets('empty bio shows the muted publicMasterAboutEmpty text', (
       tester,

@@ -20,6 +20,9 @@
 //   3.   Resend timer counts down and re-enables the resend link at 0.
 //   3b.  Tapping verify_resend clears the OTP input and hides the resend link.
 //   3c.  ResendThrottledFailure adopts server retryAfterSeconds.
+//   3e2e. Resend end to end over the REAL HttpAuthRepository + FakeBackend:
+//         nothing fires during the 30 s mount cooldown; after 31 s a tap
+//         POSTs /api/v1/auth/resend-verification with the login email.
 //   4.   Verify success navigates to /done (→ home via redirect).
 //   4b.  Verify success persists refresh token and arrives at home.
 //   5.   Verify failure (VerificationFailure.invalidCode) shows inline copy.
@@ -42,7 +45,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/network/token_refresh_lock.dart';
+import 'package:beautica_mobile/features/auth/data/http_auth_repository.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/storage/storage_keys.dart';
 import 'package:beautica_mobile/features/auth/state/pending_locality.dart';
@@ -67,6 +73,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 
+import '../../../../integration_test/support/fake_backend.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
@@ -3671,6 +3678,67 @@ void main() {
         );
       },
     );
+  });
+
+  group('VerificationScreen — resend end to end (FakeBackend)', () {
+    testWidgets('3e2e. after the 30 s cooldown, tapping resend POSTs '
+        '/api/v1/auth/resend-verification with the login email', (
+      tester,
+    ) async {
+      const String loginEmail = 'master@beautica.ua';
+      final FakeBackend fb = FakeBackend();
+      final router = _makeRouter(email: loginEmail);
+      addTearDown(router.dispose);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: [
+            // REAL repository over FakeBackend's Dio (production
+            // ErrorMapperInterceptor + generated API) — only the socket is
+            // faked, so the request body is what the app really sends.
+            authRepositoryProvider.overrideWith(
+              (_) => HttpAuthRepository(
+                AuthControllerApi(fb.dio, standardSerializers),
+                UserControllerApi(fb.dio, standardSerializers),
+                TokenRefreshLock(),
+              ),
+            ),
+            secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+          ],
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Mount cooldown: a tap inside the first 30 s must not reach the wire.
+      await tester.tap(
+        find.byKey(const ValueKey<String>('verify_resend')),
+        warnIfMissed: false,
+      );
+      await tester.pump(const Duration(seconds: 1));
+      expect(
+        fb.resendVerificationCalls,
+        0,
+        reason: 'resend must stay inert during the initial 30 s cooldown',
+      );
+
+      // Past the cooldown — the link is live.
+      await tester.pump(const Duration(seconds: 31));
+      await tester.tap(find.byKey(const ValueKey<String>('verify_resend')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(fb.resendVerificationCalls, 1);
+      expect(fb.lastResendVerificationEmail, loginEmail);
+
+      // Drain the post-resend cooldown so no timer outlives the test.
+      await tester.pump(const Duration(seconds: 61));
+    });
   });
 }
 

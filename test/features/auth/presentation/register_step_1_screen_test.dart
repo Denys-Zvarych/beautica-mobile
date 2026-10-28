@@ -28,6 +28,12 @@
 //      neumorphic, VelvetTouch icon tile consistency).
 //  17. 129-char password satisfies all checklist rows but is blocked by
 //      validateNewPassword (errPasswordLength) — max-128 hard gate.
+//  18. Tapping the «Умовами» span launches https://beautica.app/terms in the
+//      external browser (LaunchMode.externalApplication).
+//  19. Tapping the «Політикою конфіденційності» span launches
+//      https://beautica.app/privacy in the external browser.
+//  20. A failed launch shows the externalLinkOpenError error snack.
+//  21. Both link spans carry their stable semanticsIdentifier.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -40,6 +46,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
@@ -134,6 +143,32 @@ _makeContainerWithRepo({UserRole? role = UserRole.client}) {
     container.read(registerDraftProvider.notifier).start(role);
   }
   return (container: container, repo: repo);
+}
+
+/// Mock [UrlLauncherPlatform] — `launchUrl(uri, mode: ...)` routes through
+/// `UrlLauncherPlatform.instance.launchUrl(url, options)`, so swapping the
+/// instance asserts the exact URL + mode without firing a real intent.
+class _MockUrlLauncher extends Mock
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {}
+
+/// Finds the inline [TextSpan] carrying [identifier] inside the terms line.
+TextSpan? _linkSpan(WidgetTester tester, String identifier) {
+  final RichText rich = tester.widget<RichText>(
+    find.descendant(
+      of: find.byKey(const ValueKey<String>('step1_terms_line')),
+      matching: find.byType(RichText),
+    ),
+  );
+  TextSpan? found;
+  rich.text.visitChildren((InlineSpan span) {
+    if (span is TextSpan && span.semanticsIdentifier == identifier) {
+      found = span;
+      return false;
+    }
+    return true;
+  });
+  return found;
 }
 
 // ---------------------------------------------------------------------------
@@ -966,5 +1001,108 @@ void main() {
         );
       },
     );
+  });
+
+  group('RegisterStep1Screen — terms / privacy links', () {
+    late _MockUrlLauncher launcher;
+    late UrlLauncherPlatform originalPlatform;
+    final AppLocalizations l10n = lookupAppLocalizations(const Locale('uk'));
+
+    setUpAll(() => registerFallbackValue(const LaunchOptions()));
+
+    setUp(() {
+      originalPlatform = UrlLauncherPlatform.instance;
+      launcher = _MockUrlLauncher();
+      UrlLauncherPlatform.instance = launcher;
+    });
+
+    tearDown(() => UrlLauncherPlatform.instance = originalPlatform);
+
+    Future<void> pumpScreen(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final container = _makeContainer();
+      addTearDown(container.dispose);
+      final router = _makeRouter();
+      addTearDown(router.dispose);
+      await tester.pumpWidget(_buildApp(router: router, container: container));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> tapLink(WidgetTester tester, String text) async {
+      await tester.tapOnText(
+        find.textRange.ofSubstring(
+          text,
+          descendentOf: find.byKey(const ValueKey<String>('step1_terms_line')),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    for (final (String name, String Function() label, String url)
+        in <(String, String Function(), String)>[
+          (
+            '18. terms',
+            () => l10n.registerTermsTerms,
+            'https://beautica.app/terms',
+          ),
+          (
+            '19. privacy',
+            () => l10n.registerTermsPrivacy,
+            'https://beautica.app/privacy',
+          ),
+        ]) {
+      testWidgets('$name link launches $url in the external browser', (
+        tester,
+      ) async {
+        when(
+          () => launcher.launchUrl(any(), any()),
+        ).thenAnswer((_) async => true);
+        await pumpScreen(tester);
+
+        await tapLink(tester, label());
+
+        final List<dynamic> captured = verify(
+          () => launcher.launchUrl(captureAny(), captureAny()),
+        ).captured;
+        expect(captured, hasLength(2), reason: 'exactly one launch');
+        expect(captured[0], url);
+        expect(
+          (captured[1] as LaunchOptions).mode,
+          PreferredLaunchMode.externalApplication,
+        );
+        // Still on Step 1 — the link never navigates in-app.
+        expect(find.text('step-2'), findsNothing);
+        expect(find.text(l10n.externalLinkOpenError), findsNothing);
+      });
+    }
+
+    testWidgets('20. a failed launch shows the externalLinkOpenError snack', (
+      tester,
+    ) async {
+      when(
+        () => launcher.launchUrl(any(), any()),
+      ).thenAnswer((_) async => false);
+      await pumpScreen(tester);
+
+      await tapLink(tester, l10n.registerTermsPrivacy);
+
+      expect(find.text(l10n.externalLinkOpenError), findsOneWidget);
+    });
+
+    testWidgets('21. both link spans carry a stable semanticsIdentifier and '
+        'a tap recognizer', (tester) async {
+      await pumpScreen(tester);
+
+      final TextSpan? terms = _linkSpan(tester, 'step1_terms_link');
+      final TextSpan? privacy = _linkSpan(tester, 'step1_privacy_link');
+      expect(terms?.text, l10n.registerTermsTerms);
+      expect(privacy?.text, l10n.registerTermsPrivacy);
+      expect(terms?.recognizer, isNotNull);
+      expect(privacy?.recognizer, isNotNull);
+      verifyNever(() => launcher.launchUrl(any(), any()));
+    });
   });
 }

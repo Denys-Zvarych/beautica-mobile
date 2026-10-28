@@ -309,6 +309,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           // ── EMAIL_NOT_VERIFIED inline banner
           if (_showUnverified) ...<Widget>[
             AuthBanner(
+              key: const Key('login-email-not-verified-banner'),
               icon: Icons.mark_email_unread_outlined,
               color: BrandColors.accent,
               message: l10n.loginUnverifiedMessage,

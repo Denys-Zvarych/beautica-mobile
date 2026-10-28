@@ -163,6 +163,69 @@ void main() {
       final rejected = _captureRejected(_httpError(403));
       expect(rejected.error, isA<UnknownFailure>());
     });
+
+    test('HTTP 403 with EMAIL_NOT_VERIFIED → UnauthorizedFailure with '
+        'emailNotVerified == true', () {
+      final rejected = _captureRejected(
+        _httpError(
+          403,
+          path: '/api/v1/auth/login',
+          body: {
+            'success': false,
+            'data': {
+              'code': 'EMAIL_NOT_VERIFIED',
+              'email': 'master@beautica.ua',
+            },
+            'message': 'Email not verified',
+          },
+        ),
+      );
+      expect(rejected.error, isA<UnauthorizedFailure>());
+      final failure = rejected.error as UnauthorizedFailure;
+      expect(failure.emailNotVerified, isTrue);
+    });
+
+    test('HTTP 403 with EMAIL_NOT_VERIFIED on a NON-login path → '
+        'UnknownFailure (no refresh-and-retry trigger)', () {
+      final rejected = _captureRejected(
+        _httpError(
+          403,
+          path: '/api/v1/users/me',
+          body: {
+            'success': false,
+            'data': {'code': 'EMAIL_NOT_VERIFIED'},
+            'message': 'Email not verified',
+          },
+        ),
+      );
+      expect(rejected.error, isA<UnknownFailure>());
+    });
+
+    test('HTTP 403 on login with EMAIL_NOT_VERIFIED only in message (no '
+        'data.code) → UnknownFailure', () {
+      final rejected = _captureRejected(
+        _httpError(
+          403,
+          path: '/api/v1/auth/login',
+          body: {'success': false, 'message': 'EMAIL_NOT_VERIFIED'},
+        ),
+      );
+      expect(rejected.error, isA<UnknownFailure>());
+    });
+
+    test('HTTP 403 with a non-EMAIL_NOT_VERIFIED body → UnknownFailure', () {
+      final rejected = _captureRejected(
+        _httpError(
+          403,
+          body: {
+            'success': false,
+            'data': {'code': 'FORBIDDEN'},
+            'message': 'Access denied',
+          },
+        ),
+      );
+      expect(rejected.error, isA<UnknownFailure>());
+    });
   });
 
   group('ErrorMapperInterceptor — network-level errors', () {

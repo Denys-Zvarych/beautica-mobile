@@ -9,9 +9,11 @@
 //   5. Tapping the field requests focus on the hidden TextField.
 //   6. The supplied [semanticsLabel] is applied to the OTP entry as a whole.
 //   7. The supplied [fieldKey] locates the hidden TextField.
+//   8. Tapping a cell re-shows the IME after it was hidden while focused.
 
 import 'package:beautica_mobile/features/auth/presentation/widgets/otp_code_field.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const _kFieldKey = ValueKey<String>('test_otp_input');
@@ -152,5 +154,36 @@ void main() {
         TextInputType.number,
       );
     });
+
+    testWidgets(
+      '8. tapping a cell re-shows the keyboard after it was hidden while focused',
+      (tester) async {
+        await tester.pumpWidget(
+          _harness(controller: controller, focusNode: focusNode),
+        );
+        await tester.pump();
+
+        expect(focusNode.hasFocus, isTrue);
+        expect(tester.testTextInput.isVisible, isTrue);
+
+        // Android back gesture / hide button: IME goes away, focus stays.
+        await SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+        expect(tester.testTextInput.isVisible, isFalse);
+        expect(focusNode.hasFocus, isTrue);
+
+        // Tap a visible CELL (not the 1x1 hidden TextField at the centre).
+        await tester.tapAt(
+          tester.getTopLeft(find.byType(AnimatedContainer).first) +
+              const Offset(10, 25),
+        );
+        await tester.pump();
+
+        expect(
+          tester.testTextInput.isVisible,
+          isTrue,
+          reason: 'tapping a cell must re-show the IME',
+        );
+      },
+    );
   });
 }

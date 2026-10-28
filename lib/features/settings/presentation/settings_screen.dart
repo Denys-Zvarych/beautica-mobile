@@ -45,6 +45,16 @@
 // bookings belong to their CLIENTS, not to them, so the CLIENT-authored
 // default text would misstate whose bookings are cancelled.
 //
+// Legal group (2026-10-27, Google Play User Data policy) — «Правова
+// інформація» section with «Політика конфіденційності» and «Умови
+// використання», below «Змінити пароль» and above the destructive blocks.
+// Unconditional: visible to every role (this page is shared across roles) and
+// independent of the session. Both open the public website page in the
+// external browser through the shared [openExternalUri]; the rows are plain
+// [SettingsRow]s, identical in look to their siblings. No «Підтримка» row:
+// every hub that leads here (master / salon-master hub, salon settings, client
+// hub) already carries the in-app «Допомога» row → `RouteNames.contactSupport`.
+//
 // Security: screenshot protection acquired via the app-wide
 // ScreenProtectionManager (ref-counted; active in non-debug builds).
 //
@@ -79,6 +89,9 @@ import '../../../l10n/app_localizations.dart';
 import '../../../routing/role_home.dart';
 import '../../../routing/route_names.dart';
 import '../../../shared/feedback/show_velvet_snack.dart';
+import '../../../shared/utils/open_external_uri.dart';
+import '../../../shared/utils/public_web_links.dart';
+import '../../../shared/widgets/section_header.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -111,6 +124,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   late final CurvedAnimation _anim5; // delete-salon row (Phase 21.13)
   late final CurvedAnimation _anim6; // delete-account divider (relocated)
   late final CurvedAnimation _anim7; // delete-account row (relocated)
+  // One slide animation per curve, built once in initState and reused by
+  // [_reveal] so rebuilds allocate no new `Animation<Offset>` objects.
+  late final Map<CurvedAnimation, Animation<Offset>> _slides;
 
   // Delete-account re-entrancy guard, shared with [runDeleteAccountFlow].
   // Never bound to a widget — see `delete_account_flow.dart`'s flag-lifetime
@@ -151,6 +167,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     _anim5 = _curve(0.36, 0.82);
     _anim6 = _curve(0.42, 0.90);
     _anim7 = _curve(0.48, 0.98);
+    _slides = <CurvedAnimation, Animation<Offset>>{
+      for (final CurvedAnimation a in <CurvedAnimation>[
+        _anim0,
+        _anim1,
+        _anim2,
+        _anim3,
+        _anim4,
+        _anim5,
+        _anim6,
+        _anim7,
+      ])
+        a: _slideTween.animate(a),
+    };
     _controller.forward();
   }
 
@@ -177,11 +206,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Widget _reveal(CurvedAnimation anim, Widget child) {
-    final Animation<Offset> slide = _slideTween.animate(anim);
+    final Animation<Offset> slide = _slides[anim] ?? _slideTween.animate(anim);
     // dim-decorative: screen entrance fade (`_reveal`); 1 at rest
     return FadeTransition(
       opacity: anim,
       child: SlideTransition(position: slide, child: child),
+    );
+  }
+
+  void _openLegal(Uri uri) {
+    openExternalUri(
+      context,
+      uri,
+      errorMessage: AppLocalizations.of(context).externalLinkOpenError,
+      logName: 'feature.settings.account',
     );
   }
 
@@ -356,6 +394,39 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               // is visibly — not silently — ignored.
               loading: _requestingChangePasswordOtp,
               onTap: _openChangePassword,
+            ),
+          ),
+          // Legal group — every role, no session gate (see file header).
+          // Reveals with «Змінити пароль» (shares its interval).
+          const SizedBox(height: VelvetSpacing.lg),
+          _reveal(
+            _anim3,
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.sm),
+              child: SectionHeader(
+                key: const Key('account-legal-section'),
+                title: l10n.accountLegalSection,
+                titleStyle: VelvetText.sectionLabel(),
+              ),
+            ),
+          ),
+          _reveal(
+            _anim3,
+            SettingsRow(
+              key: const Key('row-privacy-policy'),
+              icon: Icons.privacy_tip_outlined,
+              label: l10n.accountPrivacyPolicy,
+              onTap: () => _openLegal(PublicWebLinks.privacy),
+            ),
+          ),
+          const SizedBox(height: VelvetSpacing.md),
+          _reveal(
+            _anim3,
+            SettingsRow(
+              key: const Key('row-terms-of-use'),
+              icon: Icons.description_outlined,
+              label: l10n.accountTermsOfUse,
+              onTap: () => _openLegal(PublicWebLinks.terms),
             ),
           ),
           // Phase 21.13 — owner-only «Видалити салон», additive and fails

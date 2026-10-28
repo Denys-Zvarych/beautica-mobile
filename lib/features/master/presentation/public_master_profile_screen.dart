@@ -49,9 +49,6 @@
 // was wrong. Instagram/portfolio stay independent-only — unchanged, see
 // `_AboutTab`.
 
-import 'dart:developer';
-
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -78,6 +75,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
@@ -654,22 +652,18 @@ class _AboutTab extends StatelessWidget {
         // ever shows the muted placeholder — never the master's own
         // `AddLink` «Додати опис» affordance (that lives on the master's OWN
         // profile screens: `MasterProfileScreen` / `SalonMasterProfileScreen`).
-        if (hasBio) ...<Widget>[
-          Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: VelvetSpacing.xs),
-            child: Text(
-              l10n.publicMasterBioLabel,
-              style: VelvetText.sectionLabel(),
-            ),
-          ),
+        //
+        // No inner «Про майстра» section heading above the bio: it repeated
+        // the tab label verbatim, so the tab itself is the heading.
+        if (hasBio)
           NeumorphicInset(
             radius: VelvetRadii.card,
             child: Padding(
               padding: const EdgeInsets.all(VelvetSpacing.md + 2),
               child: Text(master.bio!, style: VelvetText.bodyStrong()),
             ),
-          ),
-        ] else
+          )
+        else
           Text(
             l10n.publicMasterAboutEmpty,
             key: const Key('public-master-profile-about-empty'),
@@ -711,44 +705,21 @@ class _AboutTab extends StatelessWidget {
   /// [rawValue] through [canonicalInstagramUri] (STRICT https + host/charset
   /// allow-list) before launch — an unvalidated string is never handed to
   /// [launchUrl]. On a null result / launch failure a localized VelvetSnack shows.
-  static Future<void> _openInstagram(
-    BuildContext context,
-    String? rawValue,
-  ) async {
-    final Uri? uri = canonicalInstagramUri(rawValue);
-    if (uri == null) {
-      _showInstagramError(context);
-      return;
-    }
-    bool launched = false;
-    try {
-      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } on Object catch (error) {
-      if (kDebugMode) {
-        log(
-          'Instagram launch threw',
-          name: 'feature.master.public',
-          level: 900,
-          error: error,
-        );
-      }
-    }
-    if (!context.mounted) return;
-    if (!launched) _showInstagramError(context);
-  }
-
-  /// This route is registered TOP-LEVEL, outside the CLIENT `StatefulShellRoute`
+  ///
+  /// Error snack: this route is registered TOP-LEVEL, outside the CLIENT
+  /// `StatefulShellRoute`
   /// (app_router.dart) — pushed full-screen OVER `ClientShell`, which replaces
   /// it entirely (the shared `ClientBottomNav` is not part of this route's
   /// tree at all). The screen's own bottom slot is `_BookingShelf`, a local
   /// per-screen CTA, not the shared nav bar the `bottomNavClearance*` constants
   /// exist to clear — so no `bottomInset` is needed here.
-  static void _showInstagramError(BuildContext context) {
-    showErrorSnack(
-      context,
-      AppLocalizations.of(context).masterInstagramOpenError,
-    );
-  }
+  static Future<void> _openInstagram(BuildContext context, String? rawValue) =>
+      openExternalUri(
+        context,
+        canonicalInstagramUri(rawValue),
+        errorMessage: AppLocalizations.of(context).masterInstagramOpenError,
+        logName: 'feature.master.public',
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -780,7 +751,7 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
     final Failure? failure = await ref
         .read(favoriteToggleProvider.notifier)
         .toggle(_target);
-    // See `_showInstagramError`'s doc above — this top-level route sits over
+    // See `_openInstagram`'s route doc above — this top-level route sits over
     // `ClientShell`, not inside it, so no `bottomInset` is needed here either.
     if (failure != null && mounted) {
       showErrorSnack(context, failure.userMessage(context));
