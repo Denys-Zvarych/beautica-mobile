@@ -271,6 +271,12 @@ const List<String> kPiiPathPrefixes = <String>[
   // `/reports/*` route are both covered; no exact [kPiiPaths] entry, so the
   // cardinality ledger is unchanged.
   '/api/v1/reports',
+  // Phase 425/426 — provider → client blocks (backend 397). `GET /blocks`
+  // and the `POST /blocks` echo carry the blocked client's display name,
+  // avatar URL and masked phone. A prefix so the bare path and
+  // `DELETE /blocks/{blockId}` are both covered; no exact [kPiiPaths] entry,
+  // so the cardinality ledger is unchanged.
+  '/api/v1/blocks',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

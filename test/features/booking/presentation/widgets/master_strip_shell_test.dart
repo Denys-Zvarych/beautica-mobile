@@ -480,4 +480,62 @@ void main() {
       expect(find.byType(Expanded), findsOneWidget, reason: 'the name column');
     });
   });
+
+  group('phase 425 — additive action slot', () {
+    testWidgets('the card keeps its label; the action is its own tappable '
+        'button beside it', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      int taps = 0;
+      await tester.pumpApp(
+        Center(
+          child: SizedBox(
+            width: 360,
+            child: MasterStripShell(
+              key: const Key('shell'),
+              semanticsLabel: 'Клієнт Олена',
+              name: 'Олена',
+              action: Semantics(
+                button: true,
+                label: 'more',
+                child: GestureDetector(
+                  key: const Key('shell-action'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => taps++,
+                  child: const SizedBox(width: 44, height: 40),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getSemantics(find.byKey(const Key('shell'))).label,
+        'Клієнт Олена', // i18n-finder-ok: fixture label
+      );
+      expect(find.bySemanticsLabel('more'), findsOne);
+      await tester.tap(find.byKey(const Key('shell-action')));
+      expect(taps, 1);
+      // The action sits at the card's trailing edge, right of the name.
+      expect(
+        tester.getCenter(find.byKey(const Key('shell-action'))).dx,
+        // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
+        greaterThan(tester.getCenter(find.text('Олена')).dx),
+      );
+      handle.dispose();
+    });
+
+    test('action and onTap are mutually exclusive', () {
+      expect(
+        () => MasterStripShell(
+          semanticsLabel: 'x',
+          name: 'x',
+          onTap: () {},
+          action: const SizedBox(),
+        ),
+        throwsAssertionError,
+      );
+    });
+  });
 }

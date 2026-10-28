@@ -6,6 +6,7 @@ doc/ApiResponseAppointmentDetailResponse.md
 doc/ApiResponseAuthResponse.md
 doc/ApiResponseAvailableSlotsResponse.md
 doc/ApiResponseAvatarResponse.md
+doc/ApiResponseBlockResponse.md
 doc/ApiResponseBookingDetailResponse.md
 doc/ApiResponseBookingLinkResponse.md
 doc/ApiResponseBookingLinksResponse.md
@@ -17,6 +18,7 @@ doc/ApiResponseGuestTokenResponse.md
 doc/ApiResponseInvitePreviewResponse.md
 doc/ApiResponseInviteResponse.md
 doc/ApiResponseListApprovedCategoryResponse.md
+doc/ApiResponseListBlockResponse.md
 doc/ApiResponseListBookableMasterResponse.md
 doc/ApiResponseListCatalogCategoryResponse.md
 doc/ApiResponseListCityDistrictResponse.md
@@ -92,6 +94,8 @@ doc/AuthResponse.md
 doc/AvailableSlotResponse.md
 doc/AvailableSlotsResponse.md
 doc/AvatarResponse.md
+doc/BlockControllerApi.md
+doc/BlockResponse.md
 doc/BookableMasterResponse.md
 doc/BookingControllerApi.md
 doc/BookingDetailResponse.md
@@ -120,6 +124,7 @@ doc/ClientReviewResponse.md
 doc/ContactSupportRequest.md
 doc/ContactSupportResponse.md
 doc/CreateAppointmentRequest.md
+doc/CreateBlockRequest.md
 doc/CreateBookingRequest.md
 doc/CreateCategoryRequestRequest.md
 doc/CreateClientReviewRequest.md
@@ -283,6 +288,7 @@ lib/beautica_api.dart
 lib/src/api.dart
 lib/src/api/appointment_controller_api.dart
 lib/src/api/auth_controller_api.dart
+lib/src/api/block_controller_api.dart
 lib/src/api/booking_controller_api.dart
 lib/src/api/booking_links_api.dart
 lib/src/api/category_request_controller_api.dart
@@ -324,6 +330,7 @@ lib/src/model/api_response_appointment_detail_response.dart
 lib/src/model/api_response_auth_response.dart
 lib/src/model/api_response_available_slots_response.dart
 lib/src/model/api_response_avatar_response.dart
+lib/src/model/api_response_block_response.dart
 lib/src/model/api_response_booking_detail_response.dart
 lib/src/model/api_response_booking_link_response.dart
 lib/src/model/api_response_booking_links_response.dart
@@ -335,6 +342,7 @@ lib/src/model/api_response_guest_token_response.dart
 lib/src/model/api_response_invite_preview_response.dart
 lib/src/model/api_response_invite_response.dart
 lib/src/model/api_response_list_approved_category_response.dart
+lib/src/model/api_response_list_block_response.dart
 lib/src/model/api_response_list_bookable_master_response.dart
 lib/src/model/api_response_list_catalog_category_response.dart
 lib/src/model/api_response_list_city_district_response.dart
@@ -408,6 +416,7 @@ lib/src/model/auth_response.dart
 lib/src/model/available_slot_response.dart
 lib/src/model/available_slots_response.dart
 lib/src/model/avatar_response.dart
+lib/src/model/block_response.dart
 lib/src/model/bookable_master_response.dart
 lib/src/model/booking_detail_response.dart
 lib/src/model/booking_link_mutation_request.dart
@@ -431,6 +440,7 @@ lib/src/model/client_review_response.dart
 lib/src/model/contact_support_request.dart
 lib/src/model/contact_support_response.dart
 lib/src/model/create_appointment_request.dart
+lib/src/model/create_block_request.dart
 lib/src/model/create_booking_request.dart
 lib/src/model/create_category_request_request.dart
 lib/src/model/create_client_review_request.dart
@@ -569,7 +579,8 @@ lib/src/model/working_hours_request.dart
 lib/src/model/working_hours_response.dart
 lib/src/serializers.dart
 pubspec.yaml
-test/api_response_report_response_test.dart
-test/create_report_request_test.dart
-test/report_controller_api_test.dart
-test/report_response_test.dart
+test/api_response_block_response_test.dart
+test/api_response_list_block_response_test.dart
+test/block_controller_api_test.dart
+test/block_response_test.dart
+test/create_block_request_test.dart

@@ -27,6 +27,7 @@
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking_links/domain/booking_link_access.dart';
+import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -288,6 +289,19 @@ String? authRedirectForLocation(
           location.startsWith('${RouteNames.bookingLinks}/'))) {
     final Authenticated auth = session.value! as Authenticated;
     if (!bookingLinksAllowedFor(auth.user.role)) {
+      return roleHomePath(auth.user.role);
+    }
+  }
+
+  // Role gate (Phase 426): «Заблоковані клієнти» is only accessible to the
+  // roles that own a block list — the domain's [clientBlocksAllowedFor]
+  // (INDEPENDENT_MASTER, SALON_OWNER, SALON_ADMIN). SALON_MASTER / CLIENT are
+  // redirected to their own landing.
+  if (isAuthenticated &&
+      (location == RouteNames.blockedClients ||
+          location.startsWith('${RouteNames.blockedClients}/'))) {
+    final Authenticated auth = session.value! as Authenticated;
+    if (!clientBlocksAllowedFor(auth.user.role)) {
       return roleHomePath(auth.user.role);
     }
   }

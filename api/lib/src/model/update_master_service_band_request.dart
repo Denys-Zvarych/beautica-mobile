@@ -19,9 +19,9 @@ part 'update_master_service_band_request.g.dart';
 /// * [clearBand]
 /// * [clearDurationOverride]
 /// * [notEmpty]
-/// * [clearBandCoherent]
 /// * [clearDurationOverrideCoherent]
 /// * [bandLegal]
+/// * [clearBandCoherent]
 @BuiltValue()
 abstract class UpdateMasterServiceBandRequest
     implements
@@ -49,14 +49,14 @@ abstract class UpdateMasterServiceBandRequest
   @BuiltValueField(wireName: r'notEmpty')
   bool? get notEmpty;
 
-  @BuiltValueField(wireName: r'clearBandCoherent')
-  bool? get clearBandCoherent;
-
   @BuiltValueField(wireName: r'clearDurationOverrideCoherent')
   bool? get clearDurationOverrideCoherent;
 
   @BuiltValueField(wireName: r'bandLegal')
   bool? get bandLegal;
+
+  @BuiltValueField(wireName: r'clearBandCoherent')
+  bool? get clearBandCoherent;
 
   UpdateMasterServiceBandRequest._();
 
@@ -138,13 +138,6 @@ class _$UpdateMasterServiceBandRequestSerializer
         specifiedType: const FullType(bool),
       );
     }
-    if (object.clearBandCoherent != null) {
-      yield r'clearBandCoherent';
-      yield serializers.serialize(
-        object.clearBandCoherent,
-        specifiedType: const FullType(bool),
-      );
-    }
     if (object.clearDurationOverrideCoherent != null) {
       yield r'clearDurationOverrideCoherent';
       yield serializers.serialize(
@@ -156,6 +149,13 @@ class _$UpdateMasterServiceBandRequestSerializer
       yield r'bandLegal';
       yield serializers.serialize(
         object.bandLegal,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.clearBandCoherent != null) {
+      yield r'clearBandCoherent';
+      yield serializers.serialize(
+        object.clearBandCoherent,
         specifiedType: const FullType(bool),
       );
     }
@@ -234,13 +234,6 @@ class _$UpdateMasterServiceBandRequestSerializer
           ) as bool;
           result.notEmpty = valueDes;
           break;
-        case r'clearBandCoherent':
-          final valueDes = serializers.deserialize(
-            value,
-            specifiedType: const FullType(bool),
-          ) as bool;
-          result.clearBandCoherent = valueDes;
-          break;
         case r'clearDurationOverrideCoherent':
           final valueDes = serializers.deserialize(
             value,
@@ -254,6 +247,13 @@ class _$UpdateMasterServiceBandRequestSerializer
             specifiedType: const FullType(bool),
           ) as bool;
           result.bandLegal = valueDes;
+          break;
+        case r'clearBandCoherent':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.clearBandCoherent = valueDes;
           break;
         default:
           unhandled.add(key);

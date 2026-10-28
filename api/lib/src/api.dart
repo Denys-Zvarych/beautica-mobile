@@ -11,6 +11,7 @@ import 'package:beautica_api/src/auth/bearer_auth.dart';
 import 'package:beautica_api/src/auth/oauth.dart';
 import 'package:beautica_api/src/api/appointment_controller_api.dart';
 import 'package:beautica_api/src/api/auth_controller_api.dart';
+import 'package:beautica_api/src/api/block_controller_api.dart';
 import 'package:beautica_api/src/api/booking_controller_api.dart';
 import 'package:beautica_api/src/api/booking_links_api.dart';
 import 'package:beautica_api/src/api/category_request_controller_api.dart';
@@ -119,6 +120,12 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   AuthControllerApi getAuthControllerApi() {
     return AuthControllerApi(dio, serializers);
+  }
+
+  /// Get BlockControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  BlockControllerApi getBlockControllerApi() {
+    return BlockControllerApi(dio, serializers);
   }
 
   /// Get BookingControllerApi instance, base route and serializer can be overridden by a given but be careful,

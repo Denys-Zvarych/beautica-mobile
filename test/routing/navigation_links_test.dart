@@ -421,6 +421,8 @@ void main() {
       // Phase 414 — «Посилання для запису», pushed from the three allowed
       // settings hubs.
       'bookingLinks': RouteNames.bookingLinks,
+      // Phase 426 — «Заблоковані клієнти», pushed from «Акаунт».
+      'blockedClients': RouteNames.blockedClients,
       // Phase 356 — the admin hub's «Особисті дані» / «Контакти» edit leaves,
       // reusing the CLIENT editor screens via `doneRoute`.
       'adminEditPersonal': RouteNames.adminEditPersonal,

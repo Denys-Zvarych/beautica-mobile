@@ -70,6 +70,8 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -100,6 +102,9 @@ class PublicMasterProfileScreen extends ConsumerStatefulWidget {
 
   /// Backend Master-row UUID of the profile being viewed.
   final String masterId;
+
+  /// Phase 425 — the top bar's «⋯» (report this profile).
+  static const Key reportKey = Key('public-master-report');
 
   @override
   ConsumerState<PublicMasterProfileScreen> createState() =>
@@ -211,9 +216,40 @@ class _PublicMasterProfileScreenState
       publicMasterProfileProvider(widget.masterId),
     );
 
+    final bool showReport = ref.watch(isClientProvider);
     return ProfileScaffold(
       title: l10n.publicMasterProfileTitle,
-      trailing: _FavoriteToggleButton(masterId: widget.masterId),
+      // Phase 425 — with [heart, «⋯»] the title yields to the trailing pair
+      // instead of being painted over at 320–360 dp (centred when it fits).
+      fitWholeTitle: showReport,
+      // Phase 425 D1 — [heart, «⋯»]: «⋯» far right opens the report sheet
+      // directly. Client sessions only: the route is `clientOnlyGuard`ed, so
+      // a non-client here is the viewer's OWN profile (never reportable) —
+      // they keep the lone heart, byte-identical to before.
+      trailing: showReport
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _FavoriteToggleButton(masterId: widget.masterId),
+                const SizedBox(width: VelvetSpacing.sm + 4),
+                NeumorphicIconButton(
+                  key: PublicMasterProfileScreen.reportKey,
+                  icon: Icons.more_horiz_rounded,
+                  semanticLabel: l10n.profileReportAction,
+                  onTap: () => reportProfile(
+                    context,
+                    targetType: ReportTargetType.masterProfile,
+                    targetId: widget.masterId,
+                    name: switch (async.value) {
+                      (final Master m, _) =>
+                        '${m.firstName} ${m.lastName}'.trim(),
+                      null => l10n.publicMasterProfileTitle,
+                    },
+                  ),
+                ),
+              ],
+            )
+          : _FavoriteToggleButton(masterId: widget.masterId),
       // The booking shelf is only meaningful once the master has resolved —
       // shown for EVERY resolved master, independent or salon-affiliated
       // (Phase 358 — restores the pre-351 behaviour; `RouteNames.bookingNew`

@@ -13,6 +13,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseAuthResponse.serializer)
       ..add(ApiResponseAvailableSlotsResponse.serializer)
       ..add(ApiResponseAvatarResponse.serializer)
+      ..add(ApiResponseBlockResponse.serializer)
       ..add(ApiResponseBookingDetailResponse.serializer)
       ..add(ApiResponseBookingLinkResponse.serializer)
       ..add(ApiResponseBookingLinksResponse.serializer)
@@ -24,6 +25,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseInvitePreviewResponse.serializer)
       ..add(ApiResponseInviteResponse.serializer)
       ..add(ApiResponseListApprovedCategoryResponse.serializer)
+      ..add(ApiResponseListBlockResponse.serializer)
       ..add(ApiResponseListBookableMasterResponse.serializer)
       ..add(ApiResponseListCatalogCategoryResponse.serializer)
       ..add(ApiResponseListCityDistrictResponse.serializer)
@@ -103,6 +105,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(AvailableSlotResponse.serializer)
       ..add(AvailableSlotsResponse.serializer)
       ..add(AvatarResponse.serializer)
+      ..add(BlockResponse.serializer)
+      ..add(BlockResponseKindEnum.serializer)
       ..add(BookableMasterResponse.serializer)
       ..add(BookingDetailResponse.serializer)
       ..add(BookingDetailResponseMasterTypeEnum.serializer)
@@ -134,6 +138,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ContactSupportRequest.serializer)
       ..add(ContactSupportResponse.serializer)
       ..add(CreateAppointmentRequest.serializer)
+      ..add(CreateBlockRequest.serializer)
       ..add(CreateBookingRequest.serializer)
       ..add(CreateCategoryRequestRequest.serializer)
       ..add(CreateClientReviewRequest.serializer)
@@ -325,6 +330,13 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(AvailableSlotResponse)]),
           () => ListBuilder<AvailableSlotResponse>())
+      ..addBuilderFactory(
+          const FullType(BuiltList, const [const FullType(BlockResponse)]),
+          () => ListBuilder<BlockResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltList, const [const FullType(BookableMasterResponse)]),
@@ -698,6 +710,10 @@ Serializers _$serializers = (Serializers().toBuilder()
           const FullType(
               BuiltList, const [const FullType(WorkingHoursResponse)]),
           () => ListBuilder<WorkingHoursResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(
               BuiltMap, const [const FullType(String), const FullType(String)]),

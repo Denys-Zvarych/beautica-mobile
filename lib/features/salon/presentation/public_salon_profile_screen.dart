@@ -48,6 +48,8 @@ import 'package:beautica_mobile/features/favorites/application/favorite_toggle_n
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -79,6 +81,9 @@ import 'widgets/salon_services_accordion.dart';
 /// CLIENT-facing read-only profile of the salon identified by [salonId].
 class PublicSalonProfileScreen extends ConsumerStatefulWidget {
   const PublicSalonProfileScreen({super.key, required this.salonId});
+
+  /// Phase 425 — the cover's «⋯» (report this salon).
+  static const Key reportKey = Key('public-salon-report');
 
   /// Backend Salon-row UUID of the profile being viewed.
   ///
@@ -654,7 +659,7 @@ class _CoverAndHero extends StatelessWidget {
               Positioned(
                 top: topInset + VelvetSpacing.sm,
                 right: VelvetSpacing.lg,
-                child: _FavoriteToggleButton(salonId: salon.id),
+                child: _CoverTrailing(salon: salon),
               ),
             ],
           ),
@@ -1751,6 +1756,45 @@ class _ServicesTab extends ConsumerWidget {
                 }
               },
             ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _CoverTrailing — phase 425 D1: [heart, «⋯»] on the loaded cover
+// ---------------------------------------------------------------------------
+
+/// The loaded cover's top-right controls. A client session gets the heart and,
+/// far right, a «⋯» (`CoverIconButton`) that opens the report sheet directly
+/// (`SALON_PROFILE`). The route is `clientOnlyGuard`ed, so a non-client here
+/// is looking at their OWN salon — they keep the lone heart, exactly as
+/// before.
+class _CoverTrailing extends ConsumerWidget {
+  const _CoverTrailing({required this.salon});
+
+  final Salon salon;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final Widget heart = _FavoriteToggleButton(salonId: salon.id);
+    if (!ref.watch(isClientProvider)) return heart;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        heart,
+        const SizedBox(width: VelvetSpacing.sm + 4),
+        CoverIconButton(
+          key: PublicSalonProfileScreen.reportKey,
+          icon: Icons.more_horiz_rounded,
+          semanticLabel: AppLocalizations.of(context).profileReportAction,
+          onTap: () => reportProfile(
+            context,
+            targetType: ReportTargetType.salonProfile,
+            targetId: salon.id,
+            name: salon.name,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -685,7 +685,12 @@ void main() {
       );
       expect(_section, findsOneWidget, reason: 'anti-vacuity');
       expect(more, findsNothing);
-      expect(find.byType(ReviewMoreButton), findsNothing);
+      // Scoped to the review section: since phase 425 the client strip above
+      // carries its own «⋯» (also a `ReviewMoreButton`).
+      expect(
+        find.descendant(of: _section, matching: find.byType(ReviewMoreButton)),
+        findsNothing,
+      );
     });
 
     testWidgets('screen readers reach the report action on the block node '

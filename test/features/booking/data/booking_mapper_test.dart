@@ -649,6 +649,51 @@ void main() {
     });
   });
 
+  group('BookingMapper.fromDto — client block state (phase 425 / 397)', () {
+    BookingDetailResponse dto({
+      bool? blocked,
+      String? blockId,
+      bool? blockable,
+    }) =>
+        (_validDto(id: 'b-block').toBuilder()
+              ..clientBlocked = blocked
+              ..clientBlockId = blockId
+              ..clientBlockable = blockable)
+            .build();
+
+    test('blocked + id map through; blockable is carried as sent', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: true, blockId: 'blk-1', blockable: false),
+      );
+      expect(b.clientBlocked, isTrue);
+      expect(b.clientBlockId, 'blk-1');
+      expect(b.clientBlockable, isFalse);
+    });
+
+    test('blockable true, not blocked → no block id', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: false, blockable: true),
+      );
+      expect(b.clientBlocked, isFalse);
+      expect(b.clientBlockId, isNull);
+      expect(b.clientBlockable, isTrue);
+    });
+
+    test('absent fields fail CLOSED: not blocked, not blockable, no id', () {
+      final Booking b = BookingMapper.fromDto(dto());
+      expect(b.clientBlocked, isFalse);
+      expect(b.clientBlockId, isNull);
+      expect(b.clientBlockable, isFalse);
+    });
+
+    test('an id without clientBlocked is dropped (never a DELETE target)', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: false, blockId: 'blk-stray'),
+      );
+      expect(b.clientBlockId, isNull);
+    });
+  });
+
   group('BookingMapper.fromDto — clientAvatarUrl', () {
     test('a present https photo URL maps through unchanged', () {
       final BookingDetailResponse dto =

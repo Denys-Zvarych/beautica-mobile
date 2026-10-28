@@ -68,6 +68,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/errors/failures.dart';
+import '../../../core/navigation/single_flight.dart';
 import '../../../core/icons/app_icon.dart';
 import '../../../core/icons/beautica_asset_icons.dart';
 import '../../../core/push/notification_permission_provider.dart';
@@ -396,6 +397,23 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
               onTap: _openChangePassword,
             ),
           ),
+          // Phase 426 D1 — «Заблоковані клієнти», provider roles only
+          // (independent master, salon owner, salon admin; fails closed —
+          // see [canManageClientBlocksProvider]). After «Змінити пароль»,
+          // before the legal group: an account-level privacy control.
+          // Reveals with «Змінити пароль» (shares its interval).
+          if (ref.watch(canManageClientBlocksProvider)) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _reveal(
+              _anim3,
+              SettingsRow(
+                key: const Key('row-blocked-clients'),
+                icon: Icons.block_rounded,
+                label: l10n.blockedClientsRowLabel,
+                onTap: () => context.pushOnce(RouteNames.blockedClients),
+              ),
+            ),
+          ],
           // Legal group — every role, no session gate (see file header).
           // Reveals with «Змінити пароль» (shares its interval).
           const SizedBox(height: VelvetSpacing.lg),

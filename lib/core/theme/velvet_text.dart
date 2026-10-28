@@ -219,6 +219,11 @@ abstract final class VelvetText {
   /// that were allocating a new TextStyle on every parent rebuild (Batch-2 A5).
   static final TextStyle linkSmall = _linkStyle.copyWith(fontSize: 11);
 
+  /// Link at 12 sp — the «Розблокувати» trailing action on a blocked-client
+  /// card (phase 426; preview `link().copyWith(fontSize: 12)`), hoisted so
+  /// a list row never allocates a TextStyle per build.
+  static final TextStyle linkCompact = _linkStyle.copyWith(fontSize: 12);
+
   // ---------------------------------------------------------------------------
   // Phase 4.2 fix (PERF MEDIUM-1) — pre-cached feedback variants for the
   // master profile city label and role chip, replacing per-frame

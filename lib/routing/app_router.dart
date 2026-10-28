@@ -104,6 +104,7 @@ import '../features/home/presentation/client_location_edit_screen.dart';
 import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/favorites/presentation/favorites_screen.dart';
+import '../features/moderation/presentation/blocked_clients_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
@@ -966,6 +967,13 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingLinks,
         builder: (context, state) => const BookingLinkScreen(),
+      ),
+      // Phase 426 — «Заблоковані клієнти». Standalone literal leaf, same
+      // shape as booking links above. Role-gated in `auth_redirect.dart`
+      // (INDEPENDENT_MASTER / SALON_OWNER / SALON_ADMIN only).
+      GoRoute(
+        path: RouteNames.blockedClients,
+        builder: (context, state) => const BlockedClientsScreen(),
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.

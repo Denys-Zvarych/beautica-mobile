@@ -1496,6 +1496,13 @@ final class HttpBookingRepository implements BookingRepository {
   Failure _mapBookingWriteException(DioException e) {
     final statusCode = e.response?.statusCode;
     if (statusCode == 409) {
+      // Phase 425 (backend 398) — the provider blocked this client. Checked
+      // first; the neutral server message is shown as-is.
+      final BookingUnavailableFailure? unavailable = decodeBookingUnavailable(
+        e.response?.data,
+        cause: e,
+      );
+      if (unavailable != null) return unavailable;
       // BOOKING_ALREADY_ELAPSED (backend 952e441): the booking's window is
       // already past the SERVER clock — checked before the slot-conflict
       // fallbacks (the reschedule endpoint shares the 409 status with both).

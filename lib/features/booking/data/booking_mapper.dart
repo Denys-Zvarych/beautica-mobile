@@ -235,6 +235,15 @@ abstract final class BookingMapper {
       // this booking is one line of a multi-service visit. Carried through for
       // MO-5's list grouping — nothing keys off it yet.
       appointmentId: dto.appointmentId,
+      // Phase 425 — backend 397 block state, served on `GET /bookings/{id}`
+      // to a blocker-role viewer only (false/null everywhere else). The
+      // `?? false` defaults FAIL CLOSED: an absent flag never offers a block
+      // or an unblock. The block id is kept only while `clientBlocked` is
+      // true — an id without the flag is a broken payload, never a target
+      // for `DELETE /blocks/{id}`.
+      clientBlocked: dto.clientBlocked ?? false,
+      clientBlockId: (dto.clientBlocked ?? false) ? dto.clientBlockId : null,
+      clientBlockable: dto.clientBlockable ?? false,
     );
   }
 

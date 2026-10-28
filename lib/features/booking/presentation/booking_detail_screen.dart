@@ -80,6 +80,12 @@ import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/moderation/application/block_notifier.dart';
+import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
@@ -577,6 +583,91 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
         logName: 'feature.booking.detail',
       );
 
+  /// Phase 425 D2/D3 — the client strip's «⋯» for a provider viewer, or
+  /// `null` when there is nothing to offer: report a REGISTERED client
+  /// (every provider role); block / unblock only for the roles
+  /// [clientBlocksAllowedFor] admits (independent master, salon owner, salon
+  /// admin — never a salon master), and then only as the server allows:
+  /// «Заблокувати» when `clientBlockable`, «Розблокувати» when
+  /// `clientBlocked` with its `clientBlockId`. A null role fails closed.
+  VoidCallback? _clientMoreFor(Booking booking, UserRole? role) {
+    if (role == null || role == UserRole.client) return null;
+    final bool canReport = booking.clientId != null;
+    final bool roleMayBlock = clientBlocksAllowedFor(role);
+    final String? blockId = booking.clientBlockId;
+    final bool blocked = booking.clientBlocked && blockId != null;
+    final bool canBlock =
+        roleMayBlock &&
+        (blocked || (!booking.clientBlocked && booking.clientBlockable));
+    if (!canReport && !canBlock) return null;
+    return () => _onClientMore(
+      booking,
+      canReport: canReport,
+      canBlock: canBlock,
+      blocked: blocked,
+    );
+  }
+
+  Future<void> _onClientMore(
+    Booking booking, {
+    required bool canReport,
+    required bool canBlock,
+    required bool blocked,
+  }) async {
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String name = booking.clientName ?? l10n.bookingDetailGuestClient;
+    final ClientAction? action = await showClientActionsSheet(
+      context,
+      name: name,
+      canReport: canReport,
+      canBlock: canBlock,
+      blocked: blocked,
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case ClientAction.report:
+        final String? clientId = booking.clientId;
+        if (clientId == null) return;
+        await showReportSheet(
+          context,
+          targetType: ReportTargetType.clientProfile,
+          targetId: clientId,
+          subject: l10n.reportSubjectClient(name),
+        );
+      case ClientAction.block:
+        if (!await showBlockClientDialog(context, name)) return;
+        if (!mounted) return;
+        final BlockWriteResult result = await ref
+            .read(clientBlockControllerProvider.notifier)
+            .block(booking.id);
+        if (!mounted) return;
+        _showBlockOutcome(result, l10n.clientBlockedSnack);
+      case ClientAction.unblock:
+        final String? blockId = booking.clientBlockId;
+        if (blockId == null) return;
+        if (!await showUnblockClientDialog(context, name)) return;
+        if (!mounted) return;
+        final BlockWriteResult result = await ref
+            .read(clientBlockControllerProvider.notifier)
+            .unblock(bookingId: booking.id, blockId: blockId);
+        if (!mounted) return;
+        _showBlockOutcome(result, l10n.clientUnblockedSnack);
+    }
+  }
+
+  /// Success → [successMessage]; failure → its own copy; a call ignored
+  /// because another write was in flight → nothing at all.
+  void _showBlockOutcome(BlockWriteResult result, String successMessage) {
+    switch (result) {
+      case BlockWriteDone():
+        showSuccessSnack(context, successMessage);
+      case BlockWriteFailed(:final Failure failure):
+        showErrorSnack(context, failure.userMessage(context));
+      case BlockWriteInProgress():
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<Booking> async = ref.watch(
@@ -667,6 +758,9 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           onLeaveReview: () => _onLeaveReview(booking),
           onLeaveClientFeedback: () => _onLeaveClientFeedback(booking),
           onAddToCalendar: () => _onAddToCalendar(context, booking),
+          onClientMore: viewer.isProvider
+              ? _clientMoreFor(booking, role)
+              : null,
         );
       },
     );
@@ -694,6 +788,7 @@ class _DetailBody extends StatelessWidget {
     required this.onLeaveReview,
     required this.onLeaveClientFeedback,
     required this.onAddToCalendar,
+    this.onClientMore,
   });
 
   final Booking booking;
@@ -756,6 +851,9 @@ class _DetailBody extends StatelessWidget {
   /// Track 7.x Wave B — the PROVIDER'S «Залишити відгук про клієнта».
   final VoidCallback onLeaveClientFeedback;
   final VoidCallback onAddToCalendar;
+
+  /// Phase 425 — the client strip's «⋯»; `null` renders no «⋯».
+  final VoidCallback? onClientMore;
 
   @override
   Widget build(BuildContext context) {
@@ -843,6 +941,7 @@ class _DetailBody extends StatelessWidget {
                   booking: booking,
                   viewer: viewer,
                   showPerformingMaster: showPerformingMaster,
+                  onMore: onClientMore,
                 )
               : Column(
                   mainAxisSize: MainAxisSize.min,
@@ -852,6 +951,7 @@ class _DetailBody extends StatelessWidget {
                       booking: booking,
                       viewer: viewer,
                       showPerformingMaster: showPerformingMaster,
+                      onMore: onClientMore,
                     ),
                     const SizedBox(height: VelvetSpacing.sm),
                     // Phase 417 — REUSE of the shared ContactTile.

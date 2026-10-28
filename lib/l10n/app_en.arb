@@ -7275,5 +7275,147 @@
   "portfolioViewerReport": "Report photo",
   "@portfolioViewerReport": {
     "description": "Tooltip of the flag button in the portfolio photo viewer."
+  },
+  "bookingErrUnavailable": "Booking with this master/salon is currently unavailable",
+  "@bookingErrUnavailable": {
+    "description": "Client booking create 409 BOOKING_UNAVAILABLE fallback (backend 398) when the server sent no message."
+  },
+  "reportSubjectProfile": "Profile: {name}",
+  "@reportSubjectProfile": {
+    "description": "Report sheet subtitle for a master/salon profile.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectClient": "Client: {name}",
+  "@reportSubjectClient": {
+    "description": "Report sheet subtitle for a client (provider's booking detail).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "profileReportAction": "Report",
+  "@profileReportAction": {
+    "description": "Semantics label of the «⋯» on a public master/salon profile (opens the report sheet)."
+  },
+  "clientMoreActions": "More client actions",
+  "@clientMoreActions": {
+    "description": "Semantics label of the «⋯» on the booking-detail client strip."
+  },
+  "clientActionReport": "Report client",
+  "@clientActionReport": {
+    "description": "Client actions sheet — report row."
+  },
+  "clientActionBlock": "Block client",
+  "@clientActionBlock": {
+    "description": "Client actions sheet — block row."
+  },
+  "clientActionUnblock": "Unblock",
+  "@clientActionUnblock": {
+    "description": "Client actions sheet — unblock row (client already blocked)."
+  },
+  "blockDialogTitle": "Block {name}?",
+  "@blockDialogTitle": {
+    "description": "Block-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "blockDialogBody": "The client won't be able to book with you. Existing bookings stay.",
+  "@blockDialogBody": {
+    "description": "Block-client confirm dialog body."
+  },
+  "blockDialogConfirm": "Block",
+  "@blockDialogConfirm": {
+    "description": "Block-client confirm dialog — destructive action."
+  },
+  "blockDialogDismiss": "Don't block",
+  "@blockDialogDismiss": {
+    "description": "Block-client confirm dialog — back-out."
+  },
+  "unblockDialogTitle": "Unblock {name}?",
+  "@unblockDialogTitle": {
+    "description": "Unblock-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "unblockDialogBody": "The client will be able to book with you again.",
+  "@unblockDialogBody": {
+    "description": "Unblock-client confirm dialog body."
+  },
+  "unblockDialogConfirm": "Unblock",
+  "@unblockDialogConfirm": {
+    "description": "Unblock-client confirm dialog — action."
+  },
+  "unblockDialogDismiss": "Keep blocked",
+  "@unblockDialogDismiss": {
+    "description": "Unblock-client confirm dialog — back-out."
+  },
+  "clientBlockedSnack": "Client blocked",
+  "@clientBlockedSnack": {
+    "description": "Success snack after blocking a client."
+  },
+  "clientUnblockedSnack": "Client unblocked",
+  "@clientUnblockedSnack": {
+    "description": "Success snack after unblocking a client."
+  },
+  "clientBlockErrRateLimited": "Too many block changes, try again later",
+  "@clientBlockErrRateLimited": {
+    "description": "Error snack when block/unblock hits the per-user rate limit (HTTP 429)."
+  },
+  "blockedClientsRowLabel": "Blocked clients",
+  "@blockedClientsRowLabel": {
+    "description": "Phase 426 — «Акаунт» row opening the blocked-clients list (provider roles only)."
+  },
+  "blockedClientsTitle": "Blocked clients",
+  "@blockedClientsTitle": {
+    "description": "Phase 426 — blocked-clients screen title."
+  },
+  "blockedClientsBackSemanticLabel": "Back",
+  "@blockedClientsBackSemanticLabel": {
+    "description": "Phase 426 — blocked-clients back button semantics."
+  },
+  "blockedClientsIntro": "These clients can't book with you. Existing bookings stay. We don't tell them they're blocked.",
+  "@blockedClientsIntro": {
+    "description": "Phase 426 — blocked-clients intro line under the title."
+  },
+  "blockedClientsEmptyTitle": "You haven't blocked any clients",
+  "@blockedClientsEmptyTitle": {
+    "description": "Phase 426 — blocked-clients empty state title."
+  },
+  "blockedClientsEmptyBody": "To block a client, open a booking: client card → «⋯».",
+  "@blockedClientsEmptyBody": {
+    "description": "Phase 426 — blocked-clients empty state body: where blocking happens."
+  },
+  "blockedClientsBlockedOn": "Blocked {date}",
+  "@blockedClientsBlockedOn": {
+    "description": "Phase 426 — blocked-clients row meta line: the day the block was made, e.g. «Заблоковано 12 жовтня».",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "blockedClientsUnblock": "Unblock",
+  "@blockedClientsUnblock": {
+    "description": "Phase 426 — blocked-clients row trailing action."
+  },
+  "blockedClientsUnblockSemantics": "Unblock {name}",
+  "@blockedClientsUnblockSemantics": {
+    "description": "Phase 426 — blocked-clients row unblock action, screen-reader label.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

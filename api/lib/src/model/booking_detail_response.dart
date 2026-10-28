@@ -55,6 +55,9 @@ part 'booking_detail_response.g.dart';
 /// * [clientAvgRating] - The booking client's aggregate rating from providers' reviews of them, 1.00-5.00, read off the denormalized users.avg_rating column. NULL when clientReviewCount is 0 (the unreviewed state is not a rating — render 'no reviews yet', never 0) and NULL for a guest/no-client booking. Number only: review comments are never exposed here. Intended for provider viewers; a client viewer only ever receives their own.
 /// * [clientReviewCount] - How many provider reviews clientAvgRating is computed from. 0 for an unreviewed registered client; NULL for a guest/no-client booking (no account, so 'unknown' rather than 'zero').
 /// * [guestPhone] - E.164 phone of the GUEST who booked through a link (or the walk-in phone a staff member typed), for the provider's tap-to-call. NON-NULL ONLY when ALL hold: this is the booking DETAIL read (GET /bookings/{id}), the viewer's ROLE is INDEPENDENT_MASTER (their own link's booking), SALON_OWNER or an assigned SALON_ADMIN of the salon - a SALON_MASTER NEVER sees it, even as the performing master - and NOT the owning client, the booking is a guest booking (client_id IS NULL) and it has not been anonymised/erased. NULL on every list/feed row, on the create and reschedule responses, for a client viewer, and ALWAYS for a booking made by a registered account: a registered user's phone is never exposed to any provider.
+/// * [clientBlocked] - True when the booking's client is blocked in the VIEWER's block scope (independent master: own; salon owner/admin: the salon). Detail read only; false on every list row, on create/reschedule responses and for client / salon-master viewers.
+/// * [clientBlockId] - Id of that block, for DELETE /blocks/{blockId}. Null when clientBlocked is false.
+/// * [clientBlockable] - True when the viewer may block this booking's client (POST /blocks would not answer 400/403/404): a provider viewer in scope, and a registered client or a link guest with a verified phone. False for a STAFF walk-in, an erased guest, list rows and non-provider viewers.
 @BuiltValue()
 abstract class BookingDetailResponse
     implements Built<BookingDetailResponse, BookingDetailResponseBuilder> {
@@ -204,6 +207,18 @@ abstract class BookingDetailResponse
   /// E.164 phone of the GUEST who booked through a link (or the walk-in phone a staff member typed), for the provider's tap-to-call. NON-NULL ONLY when ALL hold: this is the booking DETAIL read (GET /bookings/{id}), the viewer's ROLE is INDEPENDENT_MASTER (their own link's booking), SALON_OWNER or an assigned SALON_ADMIN of the salon - a SALON_MASTER NEVER sees it, even as the performing master - and NOT the owning client, the booking is a guest booking (client_id IS NULL) and it has not been anonymised/erased. NULL on every list/feed row, on the create and reschedule responses, for a client viewer, and ALWAYS for a booking made by a registered account: a registered user's phone is never exposed to any provider.
   @BuiltValueField(wireName: r'guestPhone')
   String? get guestPhone;
+
+  /// True when the booking's client is blocked in the VIEWER's block scope (independent master: own; salon owner/admin: the salon). Detail read only; false on every list row, on create/reschedule responses and for client / salon-master viewers.
+  @BuiltValueField(wireName: r'clientBlocked')
+  bool? get clientBlocked;
+
+  /// Id of that block, for DELETE /blocks/{blockId}. Null when clientBlocked is false.
+  @BuiltValueField(wireName: r'clientBlockId')
+  String? get clientBlockId;
+
+  /// True when the viewer may block this booking's client (POST /blocks would not answer 400/403/404): a provider viewer in scope, and a registered client or a link guest with a verified phone. False for a STAFF walk-in, an erased guest, list rows and non-provider viewers.
+  @BuiltValueField(wireName: r'clientBlockable')
+  bool? get clientBlockable;
 
   BookingDetailResponse._();
 
@@ -526,6 +541,27 @@ class _$BookingDetailResponseSerializer
       yield serializers.serialize(
         object.guestPhone,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.clientBlocked != null) {
+      yield r'clientBlocked';
+      yield serializers.serialize(
+        object.clientBlocked,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.clientBlockId != null) {
+      yield r'clientBlockId';
+      yield serializers.serialize(
+        object.clientBlockId,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.clientBlockable != null) {
+      yield r'clientBlockable';
+      yield serializers.serialize(
+        object.clientBlockable,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -862,6 +898,28 @@ class _$BookingDetailResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.guestPhone = valueDes;
+          break;
+        case r'clientBlocked':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.clientBlocked = valueDes;
+          break;
+        case r'clientBlockId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
+          result.clientBlockId = valueDes;
+          break;
+        case r'clientBlockable':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.clientBlockable = valueDes;
           break;
         default:
           unhandled.add(key);

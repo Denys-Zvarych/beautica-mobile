@@ -45,6 +45,9 @@ final Booking _guest = Booking(
   endAt: _start.add(const Duration(minutes: 90)),
   status: BookingStatus.confirmed,
   canReview: false,
+  // Backend 397: a LINK guest with a verified phone is blockable for an
+  // independent master, so the strip carries its «⋯».
+  clientBlockable: true,
 );
 
 void main() {

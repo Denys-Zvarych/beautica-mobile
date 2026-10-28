@@ -72,6 +72,29 @@ void reportPortfolioPhoto(BuildContext context, PortfolioPhoto photo) {
   );
 }
 
+/// Phase 425 D1 — the public master/salon profile «⋯»: opens the report sheet
+/// DIRECTLY (no actions sheet — clients never block) for the profile
+/// [targetId] of [targetType] (`masterProfile` / `salonProfile`), subtitled
+/// «Профіль: [name]».
+void reportProfile(
+  BuildContext context, {
+  required ReportTargetType targetType,
+  required String targetId,
+  required String name,
+}) {
+  assert(
+    targetType == ReportTargetType.masterProfile ||
+        targetType == ReportTargetType.salonProfile,
+    'reportProfile: only MASTER_PROFILE / SALON_PROFILE.',
+  );
+  showReportSheet(
+    context,
+    targetType: targetType,
+    targetId: targetId,
+    subject: AppLocalizations.of(context).reportSubjectProfile(name),
+  );
+}
+
 /// The sheet body: reason rows, optional comment (required for «Інше»), an
 /// error banner and the submit CTA.
 class ReportSheet extends ConsumerStatefulWidget {

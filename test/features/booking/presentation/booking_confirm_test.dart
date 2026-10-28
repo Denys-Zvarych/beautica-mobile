@@ -19,6 +19,7 @@
 // and `appointmentRepositoryProvider` (create path) / `bookingRepositoryProvider`
 // (reschedule path) with hand-written fakes — no mocktail.
 
+import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 import 'package:beautica_mobile/features/booking/domain/pending_actions_scope.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -957,6 +958,43 @@ void main() {
 
         expect(locationOf(router), equals(RouteNames.bookingSuccess));
         expect(find.byType(BookingSuccessScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'phase 425 — a 409 BOOKING_UNAVAILABLE shows the neutral VelvetBanner '
+      'with the server message as-is, no retry action',
+      (tester) async {
+        final fake = _FakeAppointmentRepository(
+          appointmentToReturn: _appointmentFixture(),
+          errorToThrow: const BookingUnavailableFailure(
+            serverMessage: 'Запис до цього майстра зараз недоступний',
+          ),
+        );
+        final router = await pump(tester, fake);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(locationOf(router), equals(RouteNames.bookingConfirm));
+        expect(
+          find.byKey(const Key('booking-unavailable-banner')),
+          findsOneWidget,
+        );
+        expect(find.byType(VelvetBanner), findsOneWidget);
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsNothing,
+        );
+        // i18n-finder-ok: backend message rendered verbatim.
+        expect(
+          // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
+          find.text('Запис до цього майстра зараз недоступний'),
+          findsOneWidget,
+        );
+        final VelvetBanner banner = tester.widget(find.byType(VelvetBanner));
+        expect(banner.actionLabel, isNull);
+        expect(banner.onAction, isNull);
       },
     );
 

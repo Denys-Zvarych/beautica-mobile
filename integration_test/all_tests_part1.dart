@@ -114,6 +114,8 @@ import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
 import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
 import 'ugc_report_content_flow_test.dart' as ugc_report_content;
+import 'ugc_profile_report_block_flow_test.dart' as ugc_profile_report_block;
+import 'ugc_blocked_clients_flow_test.dart' as ugc_blocked_clients;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
 import 'salon_admin_edit_master_schedule_flow_test.dart'
@@ -387,6 +389,14 @@ void main() {
   // Phase 424 — report a review (incl. «Інше» comment gate, 429 banner)
   // and a portfolio photo from the viewer; owner rail has no flag.
   group('ugc_report_content_flow', ugc_report_content.main);
+  // Phase 425 — profile «⋯» report (master + salon), provider blocks the
+  // client from «Деталі запису» (role × guest matrix), 409
+  // BOOKING_UNAVAILABLE neutral banner (independent + salon).
+  group('ugc_profile_report_block_flow', ugc_profile_report_block.main);
+  // Phase 426 — «Заблоковані клієнти» list (role-gated row, CLIENT + GUEST
+  // rows, unblock = ONE DELETE, empty) + «Деталі запису» block / unblock and
+  // 429 on the REAL `/blocks` wire (no repository override).
+  group('ugc_blocked_clients_flow', ugc_blocked_clients.main);
   // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
   // outcomes: the happy-path 204 (anchored on the target flow above), the
   // reactive 409 refusal re-showing the blocked dialog with no optimistic

@@ -467,6 +467,7 @@ final class FakeBackend {
     _wireNotifications();
     _wireBookingLinks();
     _wireDeviceTokens();
+    _wireBlocks();
     if (wirePortfolio) _wirePortfolio();
   }
 
@@ -771,6 +772,48 @@ final class FakeBackend {
   /// verbatim so a flow can also prove the APP's own defence-in-depth gate
   /// by seeding it onto a registered-client booking). Never on a listing.
   String? bookingGuestPhone;
+
+  /// Phase 425 — backend 397 `clientBlockable` on the seeded `booking-1`'s
+  /// DETAIL response. Null (default) = derived like the server: `true` for a
+  /// blocker-role viewer (independent master / salon owner / salon admin),
+  /// `false` otherwise. Set `false` to model a STAFF walk-in / erased guest.
+  bool? bookingClientBlockable;
+
+  /// Phase 425 — backend 397 `clientBlockId` on the seeded `booking-1`'s
+  /// DETAIL response; non-null also sets `clientBlocked: true`.
+  String? bookingClientBlockId;
+
+  /// Phase 426 (mobile-qa) — backend 397 `/api/v1/blocks`, served on the wire
+  /// so the REAL `HttpClientBlockRepository` + generated `BlockControllerApi`
+  /// are on the E2E path. STATEFUL: [blocks] is the caller's list in the
+  /// server's order (newest first, `BlockResponse` JSON); `POST` prepends a
+  /// row and, for `booking-1`, sets [bookingClientBlockId] so the refreshed
+  /// detail reads `clientBlocked: true`; `DELETE /blocks/{id}` removes the row
+  /// (204, also when already gone) and clears [bookingClientBlockId] if it
+  /// was that block.
+  final List<Map<String, dynamic>> blocks = <Map<String, dynamic>>[];
+
+  /// Every `GET /api/v1/blocks`.
+  int blockListCalls = 0;
+
+  /// The `bookingId` of every `POST /api/v1/blocks`, in order.
+  final List<String> blockPostBookingIds = <String>[];
+
+  /// The `{blockId}` of every `DELETE /api/v1/blocks/{blockId}`, in order.
+  final List<String> blockDeleteIds = <String>[];
+
+  /// When non-null, BOTH block writes (POST + DELETE) answer this status with
+  /// an error envelope and change nothing (e.g. `429` — the per-user
+  /// block-write budget). RE-WIRES ON WRITE: `replyCallback` captures the
+  /// status at registration time (see [unassignServiceBlocked]).
+  int? get blockWriteFailureStatusCode => _blockWriteFailureStatusCode;
+  set blockWriteFailureStatusCode(int? value) {
+    _blockWriteFailureStatusCode = value;
+    _wireBlocks();
+  }
+
+  int? _blockWriteFailureStatusCode;
+  int _blockSeq = 0;
   int? bookingClientReviewCount;
   String? clientPhone;
   // oblastId/oblastName are emitted on GET /users/me so the search-page
@@ -5440,6 +5483,17 @@ final class FakeBackend {
     'clientId': bookingClientIsGuest ? null : 'client-1',
     if (includeReviewByClient && bookingGuestPhone != null)
       'guestPhone': bookingGuestPhone,
+    // Phase 425 / backend 397 — the block state, DETAIL-only (every list row
+    // and non-blocker viewer gets false/null/false on the real wire).
+    if (includeReviewByClient) ...<String, dynamic>{
+      'clientBlocked': bookingClientBlockId != null,
+      'clientBlockId': bookingClientBlockId,
+      'clientBlockable':
+          bookingClientBlockable ??
+          (currentRole == UserRole.independentMaster ||
+              currentRole == UserRole.salonOwner ||
+              currentRole == UserRole.salonAdmin),
+    },
     'clientFirstName': clientFirstName,
     'clientLastName': clientLastName,
     if (bookingClientAvatarUrl != null)
@@ -12030,6 +12084,64 @@ final class FakeBackend {
         return null;
       }),
       request: const Request(method: RequestMethods.delete, data: Matchers.any),
+    );
+  }
+
+  /// Phase 426 (mobile-qa) — backend 397 `/api/v1/blocks` (see [blocks]).
+  /// Re-callable: a later registration of the same route replaces the
+  /// earlier one.
+  void _wireBlocks() {
+    final int? fail = _blockWriteFailureStatusCode;
+    final Map<String, dynamic> failBody = <String, dynamic>{
+      'success': false,
+      'data': null,
+      'message': 'FAKE-$fail: block write refused',
+    };
+
+    _adapter.onRoute(
+      '/api/v1/blocks',
+      (server) => server.replyCallback(200, (_) {
+        blockListCalls++;
+        return _okList(List<Map<String, dynamic>>.of(blocks));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
+    // 201 new / 200 existing — the client decodes both the same way; the
+    // fake always answers 201 and dedupes on the booking id (397 D5).
+    _adapter.onRoute(
+      '/api/v1/blocks',
+      (server) => server.replyCallback(fail ?? 201, (req) {
+        final String bookingId =
+            _decodeBody(req.data)['bookingId'] as String? ?? '';
+        blockPostBookingIds.add(bookingId);
+        if (fail != null) return failBody;
+        final Map<String, dynamic> row = <String, dynamic>{
+          'id': 'block-new-${++_blockSeq}',
+          'kind': bookingClientIsGuest ? 'GUEST' : 'CLIENT',
+          'displayName': '$clientFirstName $clientLastName',
+          'createdAt': kFixedNow.toUtc().toIso8601String(),
+        };
+        blocks.insert(0, row);
+        if (bookingId == 'booking-1') {
+          bookingClientBlockId = row['id'] as String;
+        }
+        return _ok(row);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    _adapter.onRoute(
+      RegExp(r'/api/v1/blocks/[^/]+$'),
+      (server) => server.replyCallback(fail ?? 204, (req) {
+        final String id = req.path.split('/').last;
+        blockDeleteIds.add(id);
+        if (fail != null) return failBody;
+        blocks.removeWhere((Map<String, dynamic> b) => b['id'] == id);
+        if (bookingClientBlockId == id) bookingClientBlockId = null;
+        return null;
+      }),
+      request: const Request(method: RequestMethods.delete),
     );
   }
 

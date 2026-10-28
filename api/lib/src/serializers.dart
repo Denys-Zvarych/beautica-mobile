@@ -19,6 +19,7 @@ import 'package:beautica_api/src/model/api_response_appointment_detail_response.
 import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
+import 'package:beautica_api/src/model/api_response_block_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_link_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_links_response.dart';
@@ -30,6 +31,7 @@ import 'package:beautica_api/src/model/api_response_guest_token_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_preview_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_approved_category_response.dart';
+import 'package:beautica_api/src/model/api_response_list_block_response.dart';
 import 'package:beautica_api/src/model/api_response_list_bookable_master_response.dart';
 import 'package:beautica_api/src/model/api_response_list_catalog_category_response.dart';
 import 'package:beautica_api/src/model/api_response_list_city_district_response.dart';
@@ -103,6 +105,7 @@ import 'package:beautica_api/src/model/auth_response.dart';
 import 'package:beautica_api/src/model/available_slot_response.dart';
 import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
+import 'package:beautica_api/src/model/block_response.dart';
 import 'package:beautica_api/src/model/bookable_master_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
 import 'package:beautica_api/src/model/booking_link_mutation_request.dart';
@@ -126,6 +129,7 @@ import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_appointment_request.dart';
+import 'package:beautica_api/src/model/create_block_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_client_review_request.dart';
@@ -270,6 +274,7 @@ part 'serializers.g.dart';
   ApiResponseAuthResponse,
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
+  ApiResponseBlockResponse,
   ApiResponseBookingDetailResponse,
   ApiResponseBookingLinkResponse,
   ApiResponseBookingLinksResponse,
@@ -281,6 +286,7 @@ part 'serializers.g.dart';
   ApiResponseInvitePreviewResponse,
   ApiResponseInviteResponse,
   ApiResponseListApprovedCategoryResponse,
+  ApiResponseListBlockResponse,
   ApiResponseListBookableMasterResponse,
   ApiResponseListCatalogCategoryResponse,
   ApiResponseListCityDistrictResponse,
@@ -354,6 +360,7 @@ part 'serializers.g.dart';
   AvailableSlotResponse,
   AvailableSlotsResponse,
   AvatarResponse,
+  BlockResponse,
   BookableMasterResponse,
   BookingDetailResponse,
   BookingLinkMutationRequest,
@@ -377,6 +384,7 @@ part 'serializers.g.dart';
   ContactSupportRequest,
   ContactSupportResponse,
   CreateAppointmentRequest,
+  CreateBlockRequest,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreateClientReviewRequest,

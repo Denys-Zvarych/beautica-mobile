@@ -53,7 +53,12 @@ class MasterStripShell extends StatelessWidget {
     this.avatarInitials,
     this.avatarImageKey,
     this.onTap,
-  });
+    this.action,
+  }) : assert(
+         action == null || onTap == null,
+         'MasterStripShell: `action` and `onTap` are mutually exclusive — a '
+         'tappable card cannot also host its own button.',
+       );
 
   /// The full localized accessibility label for the card.
   final String semanticsLabel;
@@ -108,6 +113,14 @@ class MasterStripShell extends StatelessWidget {
   /// rest-state marker would either shift every one of them or make the same
   /// object look like two different objects depending on the screen.
   final VoidCallback? onTap;
+
+  /// ADDITIVE (phase 425 D2): a trailing control at the END of the outer row,
+  /// vertically centred against the avatar — the provider's «⋯» on the
+  /// booking client strip. It sits OUTSIDE the card's merged identity node
+  /// (which still announces [semanticsLabel]) so the control stays its own
+  /// focusable button. `null` (every other call site) emits the exact tree
+  /// this shell had before.
+  final Widget? action;
 
   /// Camel-wash surface — the same lighter taupe used by the pinned booking
   /// summary shelf, so the strip reads as sitting on its own elevated card.
@@ -215,48 +228,78 @@ class MasterStripShell extends StatelessWidget {
           )
         : middle;
 
-    Widget content = Padding(
-      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
-      child: Row(
-        children: <Widget>[
-          MasterAvatarBadge(
-            gradient: avatarGradient,
-            bordered: avatarBordered,
-            imageUrl: avatarImageUrl,
-            initials: avatarInitials,
-            imageKey: avatarImageKey,
-          ),
-          const SizedBox(width: VelvetSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                if (topLabel != null) ...<Widget>[
-                  Text(topLabel!, style: VelvetText.masterStripLabel),
-                  const SizedBox(height: 2),
-                ],
-                Text(
-                  name,
-                  style: VelvetText.masterStripName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (subLine != null) ...<Widget>[
-                  // Same 2dp the top-label gap above uses — one spelling for
-                  // "hairline gap inside this card's text column". Was a
-                  // `middleGap` parameter until 2026-09-19 (audit LOW): it
-                  // had exactly ONE production value across all ten booking
-                  // screens and no `lib/` call site ever set it, so it was a
-                  // knob that could only ever drift the shared card apart.
-                  const SizedBox(height: 2),
-                  subLine,
-                ],
+    final Widget identity = Row(
+      children: <Widget>[
+        MasterAvatarBadge(
+          gradient: avatarGradient,
+          bordered: avatarBordered,
+          imageUrl: avatarImageUrl,
+          initials: avatarInitials,
+          imageKey: avatarImageKey,
+        ),
+        const SizedBox(width: VelvetSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (topLabel != null) ...<Widget>[
+                Text(topLabel!, style: VelvetText.masterStripLabel),
+                const SizedBox(height: 2),
               ],
+              Text(
+                name,
+                style: VelvetText.masterStripName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (subLine != null) ...<Widget>[
+                // Same 2dp the top-label gap above uses — one spelling for
+                // "hairline gap inside this card's text column". Was a
+                // `middleGap` parameter until 2026-09-19 (audit LOW): it
+                // had exactly ONE production value across all ten booking
+                // screens and no `lib/` call site ever set it, so it was a
+                // knob that could only ever drift the shared card apart.
+                const SizedBox(height: 2),
+                subLine,
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+
+    final Widget? trailingAction = action;
+    if (trailingAction != null) {
+      // Phase 425 — the action branch. The card keeps ONE labelled node
+      // ([semanticsLabel], so `getSemantics(card)` reads exactly as before);
+      // its visible identity text is excluded (the label already says it),
+      // and the action stays its own focusable child button.
+      return Semantics(
+        container: true,
+        label: semanticsLabel,
+        child: Material(
+          type: MaterialType.transparency,
+          child: DecoratedBox(
+            decoration: _decoration,
+            child: Padding(
+              padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: ExcludeSemantics(child: identity)),
+                  const SizedBox(width: VelvetSpacing.xs),
+                  Semantics(container: true, child: trailingAction),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
+        ),
+      );
+    }
+
+    Widget content = Padding(
+      padding: const EdgeInsets.all(VelvetSpacing.sm + 4),
+      child: identity,
     );
 
     final VoidCallback? tap = onTap;

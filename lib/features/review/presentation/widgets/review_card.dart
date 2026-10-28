@@ -210,11 +210,25 @@ class ReviewCard extends StatelessWidget {
 /// hitTest` never adds itself to the hit path, so `tester.tap(find.byKey(…))`
 /// on the root key would always be refused.
 class ReviewMoreButton extends StatelessWidget {
-  const ReviewMoreButton({super.key, this.tapKey, required this.onTap});
+  const ReviewMoreButton({
+    super.key,
+    this.tapKey,
+    required this.onTap,
+    this.icon = Icons.more_vert_rounded,
+    this.semanticLabel,
+  });
 
   /// Key of the tappable surface (see class doc).
   final Key? tapKey;
   final VoidCallback onTap;
+
+  /// ADDITIVE (phase 425): the glyph. Defaults to the review card's «⋮»; the
+  /// booking client strip passes `Icons.more_horiz_rounded` («⋯»).
+  final IconData icon;
+
+  /// ADDITIVE (phase 425): the spoken label. `null` keeps
+  /// «Більше дій з відгуком».
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -222,20 +236,16 @@ class ReviewMoreButton extends StatelessWidget {
       offset: const Offset(10, 0),
       child: Semantics(
         button: true,
-        label: AppLocalizations.of(context).reviewMoreActions,
+        label: semanticLabel ?? AppLocalizations.of(context).reviewMoreActions,
         excludeSemantics: true,
         child: GestureDetector(
           key: tapKey,
           behavior: HitTestBehavior.opaque,
           onTap: onTap,
-          child: const SizedBox(
+          child: SizedBox(
             height: 40,
             width: 44,
-            child: Icon(
-              Icons.more_vert_rounded,
-              size: 20,
-              color: BrandColors.muted,
-            ),
+            child: Icon(icon, size: 20, color: BrandColors.muted),
           ),
         ),
       ),

@@ -16,6 +16,9 @@
 // with a fake that always succeeds, plus a CLIENT-authenticated [authProvider]
 // stub (mirrors PublicMasterProfileScreen's test harness).
 
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'dart:async';
 
 import 'package:beautica_api/beautica_api.dart'
@@ -4496,6 +4499,56 @@ void main() {
         );
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 425 D1 — «⋯» report entry on the cover
+  // -------------------------------------------------------------------------
+
+  group('phase 425 — cover «⋯» report', () {
+    Future<void> pumpLoaded(WidgetTester tester, {UserRole? role}) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: <Object>[
+          ..._overrides(),
+          // The viewer's role only matters through `isClientProvider`.
+          if (role != null)
+            isClientProvider.overrideWith((ref) => role == UserRole.client),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('client: «⋯» far right, heart to its left', (tester) async {
+      await pumpLoaded(tester);
+      final Finder more = find.byKey(PublicSalonProfileScreen.reportKey);
+      final Finder heart = find.byKey(const Key('salon-favorite-toggle'));
+      expect(more, findsOne);
+      expect(heart, findsOne);
+      expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(more).dx));
+    });
+
+    testWidgets('client: «⋯» opens the report sheet directly for the '
+        'SALON_PROFILE', (tester) async {
+      await pumpLoaded(tester);
+      await tester.tap(find.byKey(PublicSalonProfileScreen.reportKey));
+      await tester.pumpAndSettle();
+
+      final ReportSheet sheet = tester.widget(find.byType(ReportSheet));
+      expect(sheet.targetType, ReportTargetType.salonProfile);
+      expect(sheet.targetId, _stubSalon.id);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ReportSheet)),
+      );
+      expect(sheet.subject, l10n.reportSubjectProfile(_stubSalon.name));
+    });
+
+    testWidgets('a non-client session (own salon) gets no «⋯»', (tester) async {
+      await pumpLoaded(tester, role: UserRole.salonOwner);
+      expect(find.byKey(PublicSalonProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('salon-favorite-toggle')), findsOne);
+    });
   });
 }
 

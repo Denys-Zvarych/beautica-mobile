@@ -7275,5 +7275,147 @@
   "portfolioViewerReport": "Поскаржитися на фото",
   "@portfolioViewerReport": {
     "description": "Tooltip of the flag button in the portfolio photo viewer."
+  },
+  "bookingErrUnavailable": "Запис до цього майстра/салону зараз недоступний",
+  "@bookingErrUnavailable": {
+    "description": "Client booking create 409 BOOKING_UNAVAILABLE fallback (backend 398) when the server sent no message."
+  },
+  "reportSubjectProfile": "Профіль: {name}",
+  "@reportSubjectProfile": {
+    "description": "Report sheet subtitle for a master/salon profile.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectClient": "Клієнт: {name}",
+  "@reportSubjectClient": {
+    "description": "Report sheet subtitle for a client (provider's booking detail).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "profileReportAction": "Поскаржитися",
+  "@profileReportAction": {
+    "description": "Semantics label of the «⋯» on a public master/salon profile (opens the report sheet)."
+  },
+  "clientMoreActions": "Більше дій з клієнтом",
+  "@clientMoreActions": {
+    "description": "Semantics label of the «⋯» on the booking-detail client strip."
+  },
+  "clientActionReport": "Поскаржитися на клієнта",
+  "@clientActionReport": {
+    "description": "Client actions sheet — report row."
+  },
+  "clientActionBlock": "Заблокувати клієнта",
+  "@clientActionBlock": {
+    "description": "Client actions sheet — block row."
+  },
+  "clientActionUnblock": "Розблокувати",
+  "@clientActionUnblock": {
+    "description": "Client actions sheet — unblock row (client already blocked)."
+  },
+  "blockDialogTitle": "Заблокувати {name}?",
+  "@blockDialogTitle": {
+    "description": "Block-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "blockDialogBody": "Клієнт не зможе записатися до вас. Наявні записи збережуться.",
+  "@blockDialogBody": {
+    "description": "Block-client confirm dialog body."
+  },
+  "blockDialogConfirm": "Заблокувати",
+  "@blockDialogConfirm": {
+    "description": "Block-client confirm dialog — destructive action."
+  },
+  "blockDialogDismiss": "Не блокувати",
+  "@blockDialogDismiss": {
+    "description": "Block-client confirm dialog — back-out."
+  },
+  "unblockDialogTitle": "Розблокувати {name}?",
+  "@unblockDialogTitle": {
+    "description": "Unblock-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "unblockDialogBody": "Клієнт знову зможе записатися до вас.",
+  "@unblockDialogBody": {
+    "description": "Unblock-client confirm dialog body."
+  },
+  "unblockDialogConfirm": "Розблокувати",
+  "@unblockDialogConfirm": {
+    "description": "Unblock-client confirm dialog — action."
+  },
+  "unblockDialogDismiss": "Залишити заблокованим",
+  "@unblockDialogDismiss": {
+    "description": "Unblock-client confirm dialog — back-out."
+  },
+  "clientBlockedSnack": "Клієнта заблоковано",
+  "@clientBlockedSnack": {
+    "description": "Success snack after blocking a client."
+  },
+  "clientUnblockedSnack": "Клієнта розблоковано",
+  "@clientUnblockedSnack": {
+    "description": "Success snack after unblocking a client."
+  },
+  "clientBlockErrRateLimited": "Забагато змін блокувань, спробуйте пізніше",
+  "@clientBlockErrRateLimited": {
+    "description": "Error snack when block/unblock hits the per-user rate limit (HTTP 429)."
+  },
+  "blockedClientsRowLabel": "Заблоковані клієнти",
+  "@blockedClientsRowLabel": {
+    "description": "Phase 426 — «Акаунт» row opening the blocked-clients list (provider roles only)."
+  },
+  "blockedClientsTitle": "Заблоковані клієнти",
+  "@blockedClientsTitle": {
+    "description": "Phase 426 — blocked-clients screen title."
+  },
+  "blockedClientsBackSemanticLabel": "Назад",
+  "@blockedClientsBackSemanticLabel": {
+    "description": "Phase 426 — blocked-clients back button semantics."
+  },
+  "blockedClientsIntro": "Ці клієнти не можуть записатися до вас. Наявні записи збережуться. Про блокування їм не повідомляємо.",
+  "@blockedClientsIntro": {
+    "description": "Phase 426 — blocked-clients intro line under the title."
+  },
+  "blockedClientsEmptyTitle": "Ви не заблокували жодного клієнта",
+  "@blockedClientsEmptyTitle": {
+    "description": "Phase 426 — blocked-clients empty state title."
+  },
+  "blockedClientsEmptyBody": "Заблокувати клієнта можна з запису: картка клієнта → «⋯».",
+  "@blockedClientsEmptyBody": {
+    "description": "Phase 426 — blocked-clients empty state body: where blocking happens."
+  },
+  "blockedClientsBlockedOn": "Заблоковано {date}",
+  "@blockedClientsBlockedOn": {
+    "description": "Phase 426 — blocked-clients row meta line: the day the block was made, e.g. «Заблоковано 12 жовтня».",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "blockedClientsUnblock": "Розблокувати",
+  "@blockedClientsUnblock": {
+    "description": "Phase 426 — blocked-clients row trailing action."
+  },
+  "blockedClientsUnblockSemantics": "Розблокувати {name}",
+  "@blockedClientsUnblockSemantics": {
+    "description": "Phase 426 — blocked-clients row unblock action, screen-reader label.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
   }
 }

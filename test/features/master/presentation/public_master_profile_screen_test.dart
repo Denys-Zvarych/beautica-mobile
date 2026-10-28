@@ -13,6 +13,10 @@
 // CLIENT so the favourite heart's notifier resolves without touching storage.
 // mobile-qa deepens this suite after the screen ships.
 
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
@@ -2357,6 +2361,69 @@ void main() {
         );
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 425 D1 — «⋯» report entry in the top bar
+  // -------------------------------------------------------------------------
+
+  group('phase 425 — profile «⋯» report', () {
+    Future<void> pumpLoaded(WidgetTester tester, {UserRole? role}) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) => _stubData),
+          // The viewer's role only matters through `isClientProvider`.
+          if (role != null)
+            isClientProvider.overrideWith((ref) => role == UserRole.client),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('client: «⋯» sits far right with the heart to its left', (
+      tester,
+    ) async {
+      await pumpLoaded(tester);
+      final Finder more = find.byKey(PublicMasterProfileScreen.reportKey);
+      final Finder heart = find.byKey(
+        const Key('public-master-favorite-toggle'),
+      );
+      expect(more, findsOne);
+      expect(heart, findsOne);
+      expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(more).dx));
+      expect(
+        tester.getTopRight(more).dx,
+        greaterThan(tester.getTopRight(heart).dx),
+      );
+    });
+
+    testWidgets('client: «⋯» opens the report sheet DIRECTLY for the '
+        'MASTER_PROFILE (no actions sheet, no block)', (tester) async {
+      await pumpLoaded(tester);
+      await tester.tap(find.byKey(PublicMasterProfileScreen.reportKey));
+      await tester.pumpAndSettle();
+
+      final ReportSheet sheet = tester.widget(find.byType(ReportSheet));
+      expect(sheet.targetType, ReportTargetType.masterProfile);
+      expect(sheet.targetId, _kMasterId);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ReportSheet)),
+      );
+      expect(sheet.subject, l10n.reportSubjectProfile('Олена Ковальчук'));
+      expect(find.byType(ClientActionsSheet), findsNothing);
+    });
+
+    testWidgets('a non-client session (own profile) gets no «⋯», '
+        'heart unchanged', (tester) async {
+      await pumpLoaded(tester, role: UserRole.independentMaster);
+      expect(find.byKey(PublicMasterProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('public-master-favorite-toggle')), findsOne);
+    });
   });
 }
 

@@ -89,6 +89,9 @@ Class | Method | HTTP request | Description
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**validateInvite**](doc/AuthControllerApi.md#validateinvite) | **GET** /api/v1/auth/invite/validate | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyEmail**](doc/AuthControllerApi.md#verifyemail) | **POST** /api/v1/auth/verify-email | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyPasswordResetOtp**](doc/AuthControllerApi.md#verifypasswordresetotp) | **POST** /api/v1/auth/verify-password-reset-otp | 
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**block**](doc/BlockControllerApi.md#block) | **POST** /api/v1/blocks | Block the client of a booking
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**list**](doc/BlockControllerApi.md#list) | **GET** /api/v1/blocks | List blocked clients
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**unblock**](doc/BlockControllerApi.md#unblock) | **DELETE** /api/v1/blocks/{blockId} | Unblock a client
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
@@ -235,6 +238,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseAuthResponse](doc/ApiResponseAuthResponse.md)
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
+ - [ApiResponseBlockResponse](doc/ApiResponseBlockResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
  - [ApiResponseBookingLinkResponse](doc/ApiResponseBookingLinkResponse.md)
  - [ApiResponseBookingLinksResponse](doc/ApiResponseBookingLinksResponse.md)
@@ -246,6 +250,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseInvitePreviewResponse](doc/ApiResponseInvitePreviewResponse.md)
  - [ApiResponseInviteResponse](doc/ApiResponseInviteResponse.md)
  - [ApiResponseListApprovedCategoryResponse](doc/ApiResponseListApprovedCategoryResponse.md)
+ - [ApiResponseListBlockResponse](doc/ApiResponseListBlockResponse.md)
  - [ApiResponseListBookableMasterResponse](doc/ApiResponseListBookableMasterResponse.md)
  - [ApiResponseListCatalogCategoryResponse](doc/ApiResponseListCatalogCategoryResponse.md)
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
@@ -319,6 +324,7 @@ Class | Method | HTTP request | Description
  - [AvailableSlotResponse](doc/AvailableSlotResponse.md)
  - [AvailableSlotsResponse](doc/AvailableSlotsResponse.md)
  - [AvatarResponse](doc/AvatarResponse.md)
+ - [BlockResponse](doc/BlockResponse.md)
  - [BookableMasterResponse](doc/BookableMasterResponse.md)
  - [BookingDetailResponse](doc/BookingDetailResponse.md)
  - [BookingLinkMutationRequest](doc/BookingLinkMutationRequest.md)
@@ -342,6 +348,7 @@ Class | Method | HTTP request | Description
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
  - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
+ - [CreateBlockRequest](doc/CreateBlockRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)
