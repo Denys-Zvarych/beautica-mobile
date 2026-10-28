@@ -7397,7 +7397,7 @@
   "@blockedClientsBackSemanticLabel": {
     "description": "Phase 426 — blocked-clients back button semantics."
   },
-  "blockedClientsIntro": "Ці клієнти не можуть записатися до вас. Наявні записи збережуться. Про блокування їм не повідомляємо.",
+  "blockedClientsIntro": "Ці клієнти не можуть записатися до вас. Їхні майбутні записи скасовано автоматично. Про блокування їм не повідомляємо.",
   "@blockedClientsIntro": {
     "description": "Phase 426 — blocked-clients intro line under the title."
   },

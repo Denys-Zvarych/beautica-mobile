@@ -7397,7 +7397,7 @@
   "@blockedClientsBackSemanticLabel": {
     "description": "Phase 426 — blocked-clients back button semantics."
   },
-  "blockedClientsIntro": "These clients can't book with you. Existing bookings stay. We don't tell them they're blocked.",
+  "blockedClientsIntro": "These clients can't book with you. Their future bookings were cancelled automatically. We don't tell them they're blocked.",
   "@blockedClientsIntro": {
     "description": "Phase 426 — blocked-clients intro line under the title."
   },
