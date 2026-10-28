@@ -342,9 +342,9 @@ class _RegisterStep3ScreenState extends ConsumerState<RegisterStep3Screen> {
       // register() returns null only when an AsyncError was captured.
       if (result == null) {
         final error = ref.read(authProvider).error;
-        // Phase / backlog — Backend dev mode (disclose-duplicate-registration)
-        // returns 409 + data.code == EMAIL_ALREADY_REGISTERED for a duplicate
-        // email. Surface as an inline AuthBanner with a localised message + a
+        // Phase / backlog — the backend returns 409 + data.code ==
+        // EMAIL_ALREADY_REGISTERED for a duplicate email in every profile
+        // (prod included). Surface as an inline AuthBanner with a localised message + a
         // Sign In CTA so the user can navigate to /login without re-submitting
         // the form. The duplicate-email signal is intentionally NOT a snackbar
         // because the recovery action (Sign In) is a primary affordance, not a

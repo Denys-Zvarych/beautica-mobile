@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../helpers/fake_package_info.dart';
 import '../../../helpers/pump_app.dart';
 
 /// AuthNotifier whose logout() never resolves — lets a test confirm the dialog
@@ -242,5 +243,26 @@ void main() {
       );
       expect(find.byType(AlertDialog), findsNothing);
     });
+  });
+
+  // Muted app-version caption — the hub's very last line, below «Вийти».
+  testWidgets('app-version label renders below the logout row', (tester) async {
+    final router = _hubRouter();
+    addTearDown(router.dispose);
+
+    await tester.pumpRoutedApp(
+      router,
+      overrides: <Object>[appPackageInfoOverride()],
+    );
+    await tester.pumpAndSettle();
+
+    final Finder label = find.byKey(const Key('app-version-label'));
+    expect(label, findsOneWidget);
+    expect(find.text(fakeAppVersionText()), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text(fakeAppVersionText())).dy,
+      greaterThan(tester.getBottomLeft(find.byKey(const Key('row-logout'))).dy),
+      reason: 'the version line must sit at the very bottom, under «Вийти»',
+    );
   });
 }

@@ -215,7 +215,7 @@ final class NotFoundFailure extends Failure {
 /// The auth interceptor handles 401 by attempting a token refresh first;
 /// this failure is only thrown when the refresh itself also fails.
 ///
-/// [emailNotVerified] is `true` when the backend 401 body contains the
+/// [emailNotVerified] is `true` when the backend 401/403 body contains the
 /// `EMAIL_NOT_VERIFIED` sub-code (account exists but OTP has not been completed).
 /// Check this typed field instead of probing [cause].toString() — that pattern
 /// couples UI logic to the internal DioException representation (MEDIUM-2,
@@ -223,9 +223,11 @@ final class NotFoundFailure extends Failure {
 final class UnauthorizedFailure extends Failure {
   const UnauthorizedFailure({super.cause, this.emailNotVerified = false});
 
-  /// `true` when the backend 401 body carries the `EMAIL_NOT_VERIFIED` sub-code.
+  /// `true` when the backend 401/403 body carries the `EMAIL_NOT_VERIFIED`
+  /// sub-code.
   ///
-  /// Set by [ErrorMapperInterceptor] when the 401 response contains that code.
+  /// Set by [ErrorMapperInterceptor] when the 401/403 response contains that
+  /// code.
   /// Used by [LoginScreen] to decide whether to navigate to the verification
   /// screen instead of showing a generic "wrong credentials" error.
   final bool emailNotVerified;

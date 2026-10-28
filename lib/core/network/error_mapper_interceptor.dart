@@ -274,21 +274,36 @@ final class ErrorMapperInterceptor extends Interceptor {
 
       if (statusCode == 401) {
         // MEDIUM-2 (mobile-security 2026-05-24): decode the EMAIL_NOT_VERIFIED
-        // sub-code into a typed field so login_screen.dart can branch on
-        // `e.emailNotVerified` instead of probing `e.cause?.toString()`.
+        // sub-code (401/403 — see the 403 block below) into a typed field so
+        // login_screen.dart can branch on `e.emailNotVerified` instead of
+        // probing `e.cause?.toString()`.
         final bool emailNotVerified = _extractEmailNotVerified(err);
         return UnauthorizedFailure(
           cause: err,
           emailNotVerified: emailNotVerified,
         );
       }
+      // The backend login endpoint answers an unverified account with
+      // HTTP 403 {success:false, data:{code:"EMAIL_NOT_VERIFIED", email}}
+      // (backend commit 129423df, pinned by backend tests). Map that one
+      // body code to the same typed failure as the 401 variant; every other
+      // 403 still falls through to `UnknownFailure`.
+      //
+      // Scoped to the login path and to the structured `data.code` only (no
+      // `message.contains` fallback): `UnauthorizedFailure` drives
+      // `retryOnceOnUnauthorized`'s refresh-and-retry, so an unscoped mapping
+      // would let any endpoint's 403 trigger a token refresh.
+      if (statusCode == 403 &&
+          path.endsWith('/auth/login') &&
+          _hasEmailNotVerifiedDataCode(err)) {
+        return UnauthorizedFailure(cause: err, emailNotVerified: true);
+      }
       if (statusCode == 404) return NotFoundFailure(cause: err);
-      // HTTP 409 Conflict — backend `disclose-duplicate-registration` mode
-      // (currently dev only via application-local.yml) returns 409 with
+      // HTTP 409 Conflict — the backend returns 409 with
       // {success:false, data:{code:"EMAIL_ALREADY_REGISTERED"}} on duplicate
-      // registration. Surface as the dedicated typed failure so the step-3
-      // submit handler can render an inline error + Sign In CTA without
-      // probing strings. This mapping is NOT path-gated — it keys purely on
+      // registration in every profile (prod included). Surface as the
+      // dedicated typed failure so the step-3 submit handler can render an
+      // inline error + Sign In CTA without probing strings. This mapping is NOT path-gated — it keys purely on
       // the body code — so it also covers backend Phase 287's
       // `POST /auth/invite` / `POST /salons/{id}/invite`, which return the
       // SAME {code:"EMAIL_ALREADY_REGISTERED"} envelope when the invited
@@ -330,7 +345,7 @@ final class ErrorMapperInterceptor extends Interceptor {
   /// Returns `true` when the 409 response body contains the
   /// `EMAIL_ALREADY_REGISTERED` sub-code.
   ///
-  /// Expected backend envelope shape (`disclose-duplicate-registration=true`):
+  /// Expected backend envelope shape (all profiles, prod included):
   /// ```json
   /// {
   ///   "success": false,
@@ -356,15 +371,17 @@ final class ErrorMapperInterceptor extends Interceptor {
     return false;
   }
 
-  /// Returns `true` when the 401 response body contains the `EMAIL_NOT_VERIFIED`
-  /// sub-code (i.e. the account exists but OTP has not been completed).
+  /// Returns `true` when the 401/403 response body contains the
+  /// `EMAIL_NOT_VERIFIED` sub-code (i.e. the account exists but OTP has not
+  /// been completed).
   ///
   /// Expected backend envelope shape:
   /// ```json
   /// { "success": false, "data": { "code": "EMAIL_NOT_VERIFIED" } }
   /// ```
-  /// Returns `false` on any other 401 shape (wrong credentials, expired token,
-  /// malformed body) so that the fallback generic-unauthorized handling applies.
+  /// Returns `false` on any other 401/403 shape (wrong credentials, expired
+  /// token, malformed body) so that the fallback handling applies (generic
+  /// unauthorized for 401, `UnknownFailure` for 403).
   bool _extractEmailNotVerified(DioException err) {
     try {
       final body = err.response?.data;
@@ -383,6 +400,16 @@ final class ErrorMapperInterceptor extends Interceptor {
       // Swallow parse errors — fall back to false.
     }
     return false;
+  }
+
+  /// Strict variant of [_extractEmailNotVerified] for the 403 login branch:
+  /// `true` only when the body carries `data.code == "EMAIL_NOT_VERIFIED"`.
+  /// No top-level `message` fallback.
+  bool _hasEmailNotVerifiedDataCode(DioException err) {
+    final body = err.response?.data;
+    if (body is! Map<String, dynamic>) return false;
+    final data = body['data'];
+    return data is Map<String, dynamic> && data['code'] == 'EMAIL_NOT_VERIFIED';
   }
 
   /// Extracts the typed `data.code` string from the verify-email envelope

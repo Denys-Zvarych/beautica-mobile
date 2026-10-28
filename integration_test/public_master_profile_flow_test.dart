@@ -226,6 +226,32 @@ void main() {
       // multi-category / uncategorized fixtures, which would be pure
       // duplication to re-derive here against the single-category fake-
       // backend fixture. ──────────────────────────────────────────────────
+      // ── «Про майстра» tab (default) — the wire bio renders with NO inner
+      // section heading repeating the tab label. ──────────────────────────
+      final Finder aboutTab = find.byKey(
+        const Key('public-master-profile-about-tab'),
+      );
+      expect(
+        find.descendant(
+          of: aboutTab,
+          // i18n-finder-ok: master's bio is fixture data, not UI copy
+          matching: find.text('Майстриня манікюру з 6-річним досвідом.'),
+        ),
+        findsOneWidget,
+        reason: 'the wire bio must render inside the About tab',
+      );
+      expect(
+        find.descendant(
+          of: aboutTab,
+          // i18n-finder-ok: asserting the ABSENCE of the locked tab-label copy
+          matching: find.text('Про майстра'),
+        ),
+        findsNothing,
+        reason:
+            'the About tab must not repeat its own label as an inner heading '
+            'above the bio',
+      );
+
       await tester.tap(find.byKey(const Key('public-master-profile-tab-1')));
       await tester.pumpAndSettle();
 

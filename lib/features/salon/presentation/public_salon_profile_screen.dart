@@ -27,7 +27,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
@@ -54,6 +53,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/expandable_note.dart';
@@ -1087,43 +1087,19 @@ class _AboutTab extends StatelessWidget {
   /// Opens the salon's Instagram, sanitising [rawValue] through
   /// [canonicalInstagramUri] (STRICT https + host/charset allow-list) before
   /// launch — mirrors [PublicMasterProfileScreen]'s identical guard.
-  static Future<void> _openInstagram(
-    BuildContext context,
-    String? rawValue,
-  ) async {
-    final Uri? uri = canonicalInstagramUri(rawValue);
-    if (uri == null) {
-      _showInstagramError(context);
-      return;
-    }
-    bool launched = false;
-    try {
-      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } on Object catch (error) {
-      if (kDebugMode) {
-        log(
-          'Instagram launch threw',
-          name: 'feature.salon.public',
-          level: 900,
-          error: error,
-        );
-      }
-    }
-    if (!context.mounted) return;
-    if (!launched) _showInstagramError(context);
-  }
-
-  /// Same top-level-route reasoning as `PublicMasterProfileScreen`'s identical
+  ///
+  /// Error snack: same top-level-route reasoning as `PublicMasterProfileScreen`'s identical
   /// method: this route is registered OUTSIDE the CLIENT `StatefulShellRoute`,
   /// pushed full-screen over `ClientShell` (which it replaces entirely), and
   /// its own bottom slot is the local `_BookingShelf` CTA, not the shared
   /// `ClientBottomNav` — so no `bottomInset` is needed here.
-  static void _showInstagramError(BuildContext context) {
-    showErrorSnack(
-      context,
-      AppLocalizations.of(context).masterInstagramOpenError,
-    );
-  }
+  static Future<void> _openInstagram(BuildContext context, String? rawValue) =>
+      openExternalUri(
+        context,
+        canonicalInstagramUri(rawValue),
+        errorMessage: AppLocalizations.of(context).masterInstagramOpenError,
+        logName: 'feature.salon.public',
+      );
 }
 
 // ---------------------------------------------------------------------------
@@ -1796,7 +1772,7 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
     final Failure? failure = await ref
         .read(favoriteToggleProvider.notifier)
         .toggle(_target);
-    // See `_showInstagramError`'s doc above — no `bottomInset` needed on this
+    // See `_openInstagram`'s route doc above — no `bottomInset` needed on this
     // top-level route.
     if (failure != null && mounted) {
       showErrorSnack(context, failure.userMessage(context));

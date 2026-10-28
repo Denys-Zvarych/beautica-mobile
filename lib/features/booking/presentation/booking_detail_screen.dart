@@ -85,6 +85,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/calendar/add_to_calendar.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/utils/phone_uri.dart';
+import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/formatters/booking_date_labels.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -567,19 +568,14 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `canLaunchUrl` gate (the manifest `<queries>` DIAL entry covers package
   /// visibility). On a null URI or launch failure: the generic error snack.
   /// The number is NEVER logged.
-  Future<void> _callGuest(BuildContext context, String phone) async {
-    final Uri? uri = canonicalTelUri(phone);
-    bool launched = false;
-    if (uri != null) {
-      try {
-        launched = await launchUrl(uri);
-      } on Object {
-        launched = false;
-      }
-    }
-    if (!context.mounted || launched) return;
-    showErrorSnack(context, AppLocalizations.of(context).errUnknown);
-  }
+  Future<void> _callGuest(BuildContext context, String phone) =>
+      openExternalUri(
+        context,
+        canonicalTelUri(phone),
+        errorMessage: AppLocalizations.of(context).errUnknown,
+        mode: LaunchMode.platformDefault,
+        logName: 'feature.booking.detail',
+      );
 
   @override
   Widget build(BuildContext context) {

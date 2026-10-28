@@ -205,6 +205,31 @@ void main() {
       );
     });
 
+    test('NEGATIVE: 403 EMAIL_NOT_VERIFIED (real backend shape) → '
+        'UnauthorizedFailure with emailNotVerified flag', () async {
+      final h = _wire();
+      h.adapter.onPost(
+        _loginPath,
+        (s) => s.reply(403, {
+          'success': false,
+          'data': {'code': 'EMAIL_NOT_VERIFIED', 'email': 'master@beautica.ua'},
+          'message': 'Email not verified',
+        }),
+        data: Matchers.any,
+      );
+
+      await expectLater(
+        h.repo.login(email: 'master@beautica.ua', password: 'pw'),
+        throwsA(
+          isA<UnauthorizedFailure>().having(
+            (f) => f.emailNotVerified,
+            'emailNotVerified',
+            isTrue,
+          ),
+        ),
+      );
+    });
+
     test('NEGATIVE: 400 field errors → ValidationFailure', () async {
       final h = _wire();
       h.adapter.onPost(

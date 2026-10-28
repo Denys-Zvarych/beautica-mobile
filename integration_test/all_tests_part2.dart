@@ -11,6 +11,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'kyiv_day_boundary_flow_test.dart' as kyiv_day_boundary;
+import 'legal_links_and_otp_keyboard_flow_test.dart'
+    as legal_links_and_otp_keyboard;
 import 'master_appointment_child_booking_actions_flow_test.dart'
     as master_appointment_child_booking_actions;
 import 'master_archive_flow_test.dart' as master_archive;
@@ -119,6 +121,10 @@ void main() {
   // PROVIDER-view booking detail journey (Step 2.7 Rule 3b).
   group('master_bookings_flow', master_bookings.main);
   group('guest_phone_tap_to_call_flow', guest_phone_tap_to_call.main);
+  // fix/login-unverified-403 (mobile-qa, Rule 3b) — Account privacy row +
+  // step-1 terms link launch the beautica.app legal URLs; a cell tap re-shows
+  // the OTP keyboard on /verification.
+  group('legal_links_and_otp_keyboard_flow', legal_links_and_otp_keyboard.main);
   // Phase 248 (mobile-dev) — the «+» add-booking entry point → the Phase 247
   // walk-in wizard, end to end: fill client → pick service → pick date/slot
   // → confirm → done → pop → the new booking visible in the refetched day

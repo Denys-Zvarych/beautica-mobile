@@ -57,7 +57,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_edit_actions.dart';
@@ -83,9 +82,9 @@ import 'package:beautica_mobile/features/master/presentation/master_role_label.d
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
 import 'package:beautica_mobile/shared/utils/instagram_url.dart';
+import 'package:beautica_mobile/shared/utils/open_external_uri.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/contact_tile.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
@@ -1309,31 +1308,13 @@ class _AboutReadView extends StatelessWidget {
     );
   }
 
-  static Future<void> _openInstagram(
-    BuildContext context,
-    String rawValue,
-  ) async {
-    final Uri? uri = canonicalInstagramUri(rawValue);
-    if (uri == null) {
-      _showInstagramError(context);
-      return;
-    }
-    bool launched = false;
-    try {
-      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } on Object {
-      launched = false;
-    }
-    if (!context.mounted) return;
-    if (!launched) _showInstagramError(context);
-  }
-
-  static void _showInstagramError(BuildContext context) {
-    showErrorSnack(
-      context,
-      AppLocalizations.of(context).masterInstagramOpenError,
-    );
-  }
+  static Future<void> _openInstagram(BuildContext context, String rawValue) =>
+      openExternalUri(
+        context,
+        canonicalInstagramUri(rawValue),
+        errorMessage: AppLocalizations.of(context).masterInstagramOpenError,
+        logName: 'feature.salon.management',
+      );
 }
 
 // `_AddLink` — PROMOTED to `lib/shared/widgets/add_link.dart` as `AddLink`

@@ -25,6 +25,7 @@
 //  POST /api/v1/auth/login               — validates email+password against fixtures
 //  POST /api/v1/auth/register/{role}     — returns verificationRequired envelope
 //  POST /api/v1/auth/verify-email        — returns auth tokens
+//  POST /api/v1/auth/resend-verification — 200 no-op; records calls + email
 //  GET  /api/v1/users/me                 — returns user from current session
 //  GET  /api/v1/salons/mine              — Phase 21.1 My Salons Hub (SALON_OWNER landing)
 //  POST /api/v1/auth/logout              — no-op 200
@@ -438,6 +439,7 @@ final class FakeBackend {
     this.declineBookingDelay,
     this.requestCategoryDelay,
     this.forgotPasswordFailureStatusCode,
+    this.loginEmailNotVerified = false,
     this.mediaAvatarUploadStatus,
     this.adminOwnerCatalogueErrorsAndDefinitionPatch403 = false,
   }) : dio = Dio(BaseOptions(baseUrl: 'http://localhost:8080')) {
@@ -1262,6 +1264,16 @@ final class FakeBackend {
   int registerCalls = 0;
   int verifyEmailCalls = 0;
 
+  /// The `email` field of the most recent `POST /api/v1/auth/verify-email`.
+  String? lastVerifyEmailEmail;
+
+  /// `POST /api/v1/auth/resend-verification` call count.
+  int resendVerificationCalls = 0;
+
+  /// The `email` field of the most recent
+  /// `POST /api/v1/auth/resend-verification`.
+  String? lastResendVerificationEmail;
+
   /// `POST /api/v1/auth/invite/accept` call count.
   int acceptInviteCalls = 0;
 
@@ -1297,6 +1309,17 @@ final class FakeBackend {
   /// routes are wired once from the constructor, so pass it to `FakeBackend()`
   /// rather than mutating it after boot.
   final int? forgotPasswordFailureStatusCode;
+
+  /// When `true`, `POST /api/v1/auth/login` answers with the REAL prod shape
+  /// for an unverified account: HTTP **403**
+  /// `{success:false, data:{code:"EMAIL_NOT_VERIFIED", email}, message:"Email
+  /// not verified"}` (backend commit 129423df). The 403 reaches the app
+  /// through the real [ErrorMapperInterceptor] installed above, so a flow
+  /// using this pins the 403 → `UnauthorizedFailure(emailNotVerified: true)`
+  /// mapping end to end — a hand-built failure would not.
+  ///
+  /// Read at construction time (routes are wired once from the constructor).
+  final bool loginEmailNotVerified;
 
   /// `POST /api/v1/auth/forgot-password` call count + the last requested email.
   int forgotPasswordCalls = 0;
@@ -7532,11 +7555,22 @@ final class FakeBackend {
     // POST /api/v1/auth/login — accept any email/password; use currentRole
     _adapter.onRoute(
       '/api/v1/auth/login',
-      (server) => server.replyCallback(200, (_) {
-        loginCalls++;
-        final user = userJsonForRole(currentRole);
-        return _authResponse(user);
-      }),
+      (server) =>
+          server.replyCallback(loginEmailNotVerified ? 403 : 200, (req) {
+            loginCalls++;
+            if (loginEmailNotVerified) {
+              return <String, dynamic>{
+                'success': false,
+                'message': 'Email not verified',
+                'data': <String, dynamic>{
+                  'code': 'EMAIL_NOT_VERIFIED',
+                  'email': _decodeBody(req.data)['email'],
+                },
+              };
+            }
+            final user = userJsonForRole(currentRole);
+            return _authResponse(user);
+          }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
 
@@ -7629,9 +7663,22 @@ final class FakeBackend {
     // POST /api/v1/auth/verify-email
     _adapter.onRoute(
       '/api/v1/auth/verify-email',
-      (server) => server.replyCallback(200, (_) {
+      (server) => server.replyCallback(200, (req) {
         verifyEmailCalls++;
+        lastVerifyEmailEmail = _decodeBody(req.data)['email'] as String?;
         return _authResponse(_masterUserJson);
+      }),
+      request: const Request(method: RequestMethods.post, data: Matchers.any),
+    );
+
+    // POST /api/v1/auth/resend-verification — the backend answers a generic
+    // 200 (anti-enumeration); the fake records the call and its email.
+    _adapter.onRoute(
+      '/api/v1/auth/resend-verification',
+      (server) => server.replyCallback(200, (req) {
+        resendVerificationCalls++;
+        lastResendVerificationEmail = _decodeBody(req.data)['email'] as String?;
+        return _okVoid;
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );
