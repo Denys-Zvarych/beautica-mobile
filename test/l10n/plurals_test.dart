@@ -43,6 +43,13 @@ void main() {
     expect(l10n.calendarBookingsForDay(3), '3 записи');
     // `many` — 5..20 → "записів".
     expect(l10n.calendarBookingsForDay(5), '5 записів');
+
+    // Phase 398 — block auto-cancel snack.
+    expect(l10n.clientBlockCancelledBookingsSnack(1), 'Скасовано 1 запис');
+    expect(l10n.clientBlockCancelledBookingsSnack(3), 'Скасовано 3 записи');
+    expect(l10n.clientBlockCancelledBookingsSnack(5), 'Скасовано 5 записів');
+    expect(l10n.clientBlockCancelledBookingsSnack(21), 'Скасовано 21 запис');
+    expect(l10n.clientBlockCancelledBookingsSnack(12), 'Скасовано 12 записів');
   });
 
   testWidgets('English plural picks =0/=1/other', (WidgetTester tester) async {
@@ -70,5 +77,9 @@ void main() {
     expect(l10n.calendarBookingsForDay(1), '1 booking');
     expect(l10n.calendarBookingsForDay(3), '3 bookings');
     expect(l10n.calendarBookingsForDay(7), '7 bookings');
+
+    // Phase 398 — block auto-cancel snack.
+    expect(l10n.clientBlockCancelledBookingsSnack(1), '1 booking cancelled');
+    expect(l10n.clientBlockCancelledBookingsSnack(3), '3 bookings cancelled');
   });
 }

@@ -21,7 +21,7 @@ class BlockControllerApi {
   const BlockControllerApi(this._dio, this._serializers);
 
   /// Block the client of a booking
-  /// Blocks the client of a booking in the caller&#39;s scope: an independent master blocks for themselves, a salon owner/admin for the whole salon. A registered client is blocked by account only, a link guest by the phone verified at booking time; the two are never linked. Silent (the client is not notified) and idempotent: an existing block of the same client in the same scope returns 200. Shares a per-user budget with DELETE (429 with Retry-After).
+  /// Blocks the client of a booking in the caller&#39;s scope: an independent master blocks for themselves, a salon owner/admin for the whole salon. A registered client is blocked by account only, a link guest by the phone verified at booking time; the two are never linked. A new block also cancels (DECLINED) every future confirmed booking of that client in the scope; the client gets only the ordinary provider-cancel notice, never a block notice. cancelledBookings carries the count of cancelled visits (a multi-service visit counts once). Idempotent: an existing block of the same client in the same scope returns 200 and cancels nothing. Shares a per-user budget with DELETE (429 with Retry-After).
   ///
   /// Parameters:
   /// * [createBlockRequest]

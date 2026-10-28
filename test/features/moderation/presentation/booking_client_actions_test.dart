@@ -11,6 +11,7 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/salon_board_refresh_gate.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
@@ -25,6 +26,7 @@ import 'package:beautica_mobile/features/moderation/presentation/widgets/content
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -97,6 +99,7 @@ Future<_Env> _pump(
   Booking booking, {
   required UserRole role,
   ClientBlockRepository? blocks,
+  String? salonId,
 }) async {
   tester.view.physicalSize = const Size(800, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -104,7 +107,7 @@ Future<_Env> _pump(
   addTearDown(tester.view.resetDevicePixelRatio);
   final _Env env = _Env(blocks: blocks);
   await tester.pumpApp(
-    BookingDetailScreen(bookingId: booking.id),
+    BookingDetailScreen(bookingId: booking.id, salonId: salonId),
     overrides: <Object>[
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
@@ -297,11 +300,28 @@ void main() {
       ); // i18n-finder-ok: verbatim preview copy
       expect(
         find.text(
-          'Клієнт не зможе записатися до вас. Наявні записи збережуться.',
-        ), // i18n-finder-ok: verbatim preview copy
+          'Якщо ви заблокуєте цього клієнта, усі його майбутні записи до вас '
+          'буде автоматично скасовано, і він не зможе записатися до вас, '
+          'доки ви його не розблокуєте вручну.',
+        ), // i18n-finder-ok: verbatim user-approved copy (2026-10-28)
         findsOne,
       );
-      expect(find.text(l10n.blockDialogDismiss), findsOne);
+      expect(
+        find.descendant(
+          of: find.byKey(BlockClientDialog.confirmKey),
+          // i18n-finder-ok: verbatim approved button copy, asserted literally on purpose
+          matching: find.text('Заблокувати'),
+        ),
+        findsOne,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(BlockClientDialog.dismissKey),
+          // i18n-finder-ok: verbatim approved button copy, asserted literally on purpose
+          matching: find.text('Скасувати'),
+        ),
+        findsOne,
+      );
 
       final int buildsBefore = env.detailBuilds;
       await tester.tap(find.byKey(BlockClientDialog.confirmKey));
@@ -312,6 +332,100 @@ void main() {
       expect(repo.calls, <String>['block:b1']);
       expect(find.text(l10n.clientBlockedSnack), findsOne);
       expect(env.detailBuilds, buildsBefore + 1);
+    });
+
+    // Phase 398 — the block auto-cancelled N future visits: the snack says
+    // how many (ICU plural), replacing «Клієнта заблоковано»; 0 → the plain
+    // snack.
+    for (final (int count, String? snack) in <(int, String?)>[
+      (0, null),
+      (1, 'Скасовано 1 запис'), // i18n-finder-ok: verbatim plural form
+      (3, 'Скасовано 3 записи'), // i18n-finder-ok: verbatim plural form
+      (5, 'Скасовано 5 записів'), // i18n-finder-ok: verbatim plural form
+    ]) {
+      testWidgets('cancelledBookings $count → '
+          '${snack ?? '«Клієнта заблоковано» only'}', (tester) async {
+        final FakeClientBlockRepository repo = FakeClientBlockRepository()
+          ..cancelOnNewBlock = count;
+        await _pump(
+          tester,
+          _booking(),
+          role: UserRole.independentMaster,
+          blocks: repo,
+        );
+        final AppLocalizations l10n = _l10n(tester);
+        await _openSheet(tester);
+        await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+        await tester.pumpAndSettle();
+
+        expect(repo.calls, <String>['block:b1']);
+        if (snack == null) {
+          expect(find.text(l10n.clientBlockedSnack), findsOne);
+          expect(
+            find.textContaining('Скасовано'),
+            findsNothing,
+          ); // i18n-finder-ok: absence of the plural snack
+        } else {
+          expect(find.text(snack), findsOne);
+          expect(find.text(l10n.clientBlockedSnack), findsNothing);
+        }
+      });
+    }
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.salonAdmin,
+    ]) {
+      testWidgets('$role (salon-wide block) gets the salon dialog body', (
+        tester,
+      ) async {
+        await _pump(tester, _booking(), role: role);
+        await _openSheet(tester);
+        await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text(
+            'Якщо ви заблокуєте цього клієнта, усі його майбутні записи до '
+            'вашого салону буде автоматично скасовано, і він не зможе '
+            'записатися до вашого салону, доки ви його не розблокуєте вручну.',
+          ), // i18n-finder-ok: verbatim user-approved copy (2026-10-28)
+          findsOne,
+        );
+        expect(find.text(_l10n(tester).blockDialogBody), findsNothing);
+      });
+    }
+
+    // Phase 398 — the salon board mount forwards ITS salonId to the
+    // bulk-cancel fan-out, so the salon «Записи» board (tab not selected →
+    // deferred onto the refresh gate) drops the cancelled visits too.
+    testWidgets('salon mount: a block that cancelled visits marks THIS '
+        "salon's board stale; the plural snack replaces the plain one", (
+      tester,
+    ) async {
+      final FakeClientBlockRepository repo = FakeClientBlockRepository()
+        ..cancelOnNewBlock = 2;
+      await _pump(
+        tester,
+        _booking(),
+        role: UserRole.salonOwner,
+        blocks: repo,
+        salonId: 'salon-1',
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      await _openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.blockKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(BlockClientDialog.confirmKey));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.clientBlockCancelledBookingsSnack(2)), findsOne);
+      final SalonBoardRefreshGate gate = ProviderScope.containerOf(
+        tester.element(find.byType(BookingDetailScreen)),
+      ).read(salonBoardRefreshGateProvider);
+      expect(gate.takeStale('salon-1'), isTrue);
     });
 
     testWidgets('backing out of the confirm blocks nothing', (tester) async {
@@ -400,8 +514,11 @@ void main() {
         findsOne,
       );
       expect(
-        // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
-        find.text('Залишити заблокованим'),
+        find.descendant(
+          of: find.byKey(UnblockClientDialog.dismissKey),
+          // i18n-finder-ok: verbatim approved button copy, asserted literally on purpose
+          matching: find.text('Скасувати'),
+        ),
         findsOne,
       ); // i18n-finder-ok: verbatim preview copy
 

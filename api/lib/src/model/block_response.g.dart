@@ -79,6 +79,8 @@ class _$BlockResponse extends BlockResponse {
   final String? maskedPhone;
   @override
   final DateTime? createdAt;
+  @override
+  final int? cancelledBookings;
 
   factory _$BlockResponse([void Function(BlockResponseBuilder)? updates]) =>
       (BlockResponseBuilder()..update(updates))._build();
@@ -89,7 +91,8 @@ class _$BlockResponse extends BlockResponse {
       this.displayName,
       this.avatarUrl,
       this.maskedPhone,
-      this.createdAt})
+      this.createdAt,
+      this.cancelledBookings})
       : super._();
   @override
   BlockResponse rebuild(void Function(BlockResponseBuilder) updates) =>
@@ -107,7 +110,8 @@ class _$BlockResponse extends BlockResponse {
         displayName == other.displayName &&
         avatarUrl == other.avatarUrl &&
         maskedPhone == other.maskedPhone &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        cancelledBookings == other.cancelledBookings;
   }
 
   @override
@@ -119,6 +123,7 @@ class _$BlockResponse extends BlockResponse {
     _$hash = $jc(_$hash, avatarUrl.hashCode);
     _$hash = $jc(_$hash, maskedPhone.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, cancelledBookings.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -131,7 +136,8 @@ class _$BlockResponse extends BlockResponse {
           ..add('displayName', displayName)
           ..add('avatarUrl', avatarUrl)
           ..add('maskedPhone', maskedPhone)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('cancelledBookings', cancelledBookings))
         .toString();
   }
 }
@@ -164,6 +170,11 @@ class BlockResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  int? _cancelledBookings;
+  int? get cancelledBookings => _$this._cancelledBookings;
+  set cancelledBookings(int? cancelledBookings) =>
+      _$this._cancelledBookings = cancelledBookings;
+
   BlockResponseBuilder() {
     BlockResponse._defaults(this);
   }
@@ -177,6 +188,7 @@ class BlockResponseBuilder
       _avatarUrl = $v.avatarUrl;
       _maskedPhone = $v.maskedPhone;
       _createdAt = $v.createdAt;
+      _cancelledBookings = $v.cancelledBookings;
       _$v = null;
     }
     return this;
@@ -204,6 +216,7 @@ class BlockResponseBuilder
           avatarUrl: avatarUrl,
           maskedPhone: maskedPhone,
           createdAt: createdAt,
+          cancelledBookings: cancelledBookings,
         );
     replace(_$result);
     return _$result;

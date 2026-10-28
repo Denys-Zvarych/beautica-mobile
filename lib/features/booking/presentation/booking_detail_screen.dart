@@ -605,6 +605,8 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
       canReport: canReport,
       canBlock: canBlock,
       blocked: blocked,
+      // Phase 398 — a salon owner / admin blocks for the whole salon.
+      salonScope: role == UserRole.salonOwner || role == UserRole.salonAdmin,
     );
   }
 
@@ -613,6 +615,7 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
     required bool canReport,
     required bool canBlock,
     required bool blocked,
+    required bool salonScope,
   }) async {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String name = booking.clientName ?? l10n.bookingDetailGuestClient;
@@ -635,13 +638,28 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
           subject: l10n.reportSubjectClient(name),
         );
       case ClientAction.block:
-        if (!await showBlockClientDialog(context, name)) return;
+        if (!await showBlockClientDialog(
+          context,
+          name,
+          salonScope: salonScope,
+        )) {
+          return;
+        }
         if (!mounted) return;
         final BlockWriteResult result = await ref
             .read(clientBlockControllerProvider.notifier)
-            .block(booking.id);
+            // `null` on every non-salon mount — see `widget.salonId`'s doc.
+            .block(booking.id, salonId: widget.salonId);
         if (!mounted) return;
-        _showBlockOutcome(result, l10n.clientBlockedSnack);
+        // Phase 398 — the block auto-cancelled future visits: say how many
+        // (the snack host is single-slot, so this REPLACES the plain
+        // «Клієнта заблоковано», never stacks on it).
+        _showBlockOutcome(result, switch (result) {
+          BlockWriteDone(:final int cancelledBookings)
+              when cancelledBookings > 0 =>
+            l10n.clientBlockCancelledBookingsSnack(cancelledBookings),
+          _ => l10n.clientBlockedSnack,
+        });
       case ClientAction.unblock:
         final String? blockId = booking.clientBlockId;
         if (blockId == null) return;

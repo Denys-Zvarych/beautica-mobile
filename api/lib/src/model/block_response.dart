@@ -18,6 +18,7 @@ part 'block_response.g.dart';
 /// * [avatarUrl] - Live avatar of the blocked account. CLIENT rows only; null for GUEST.
 /// * [maskedPhone] - Masked guest phone, last four digits only. GUEST rows only; null for CLIENT.
 /// * [createdAt]
+/// * [cancelledBookings] - Future visits this request cancelled (phase 398): a standalone booking counts 1, a multi-service visit counts 1. Set on a 201 that created the block; 0 on a repeat (200) and on every GET /blocks row.
 @BuiltValue()
 abstract class BlockResponse
     implements Built<BlockResponse, BlockResponseBuilder> {
@@ -41,6 +42,10 @@ abstract class BlockResponse
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
+
+  /// Future visits this request cancelled (phase 398): a standalone booking counts 1, a multi-service visit counts 1. Set on a 201 that created the block; 0 on a repeat (200) and on every GET /blocks row.
+  @BuiltValueField(wireName: r'cancelledBookings')
+  int? get cancelledBookings;
 
   BlockResponse._();
 
@@ -107,6 +112,13 @@ class _$BlockResponseSerializer implements PrimitiveSerializer<BlockResponse> {
       yield serializers.serialize(
         object.createdAt,
         specifiedType: const FullType(DateTime),
+      );
+    }
+    if (object.cancelledBookings != null) {
+      yield r'cancelledBookings';
+      yield serializers.serialize(
+        object.cancelledBookings,
+        specifiedType: const FullType(int),
       );
     }
   }
@@ -177,6 +189,13 @@ class _$BlockResponseSerializer implements PrimitiveSerializer<BlockResponse> {
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.createdAt = valueDes;
+          break;
+        case r'cancelledBookings':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(int),
+          ) as int;
+          result.cancelledBookings = valueDes;
           break;
         default:
           unhandled.add(key);

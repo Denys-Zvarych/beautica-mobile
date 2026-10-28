@@ -8,6 +8,12 @@
 // + `ConfirmDialogBadge` + `DestructiveButton` / `NeumorphicButton`, opened
 // through `showDialogOnce` and closed through `dismissOverlay`. Backing out
 // (barrier, back gesture, the quiet back-out) resolves `false`.
+//
+// Copy deviation (2026-10-28, user decision): blocking now auto-cancels every
+// future booking of the client with this provider, so `blockDialogBody` says
+// so instead of the preview's «Наявні записи збережуться». A salon owner /
+// admin blocks for the whole salon and gets the salon variant
+// (`blockDialogBodySalon`, `salonScope: true`).
 
 import 'package:flutter/material.dart';
 
@@ -20,11 +26,19 @@ import 'package:beautica_mobile/shared/widgets/confirm_dialog_shell.dart';
 import 'package:beautica_mobile/shared/widgets/destructive_action.dart';
 
 /// «Заблокувати {name}?» — `true` only on the red confirm.
-Future<bool> showBlockClientDialog(BuildContext context, String name) async {
+///
+/// [salonScope] (phase 398) — the caller is a salon owner / admin, whose
+/// block covers the whole salon, so the body names the salon
+/// (`blockDialogBodySalon`). Defaults to the independent-master copy.
+Future<bool> showBlockClientDialog(
+  BuildContext context,
+  String name, {
+  bool salonScope = false,
+}) async {
   final bool? ok = await showDialogOnce<bool>(
     context: context,
     barrierDismissible: true,
-    builder: (_) => BlockClientDialog(name: name),
+    builder: (_) => BlockClientDialog(name: name, salonScope: salonScope),
   );
   return ok ?? false;
 }
@@ -41,9 +55,17 @@ Future<bool> showUnblockClientDialog(BuildContext context, String name) async {
 
 /// The destructive block confirmation.
 class BlockClientDialog extends StatelessWidget {
-  const BlockClientDialog({super.key, required this.name});
+  const BlockClientDialog({
+    super.key,
+    required this.name,
+    this.salonScope = false,
+  });
 
   final String name;
+
+  /// `true` for a salon owner / admin (salon-wide block) — swaps the body to
+  /// `blockDialogBodySalon`. Everything else is identical.
+  final bool salonScope;
 
   static const Key confirmKey = Key('block-client-confirm');
   static const Key dismissKey = Key('block-client-dismiss');
@@ -59,7 +81,7 @@ class BlockClientDialog extends StatelessWidget {
         alpha: 0.16,
       ),
       title: l10n.blockDialogTitle(name),
-      message: l10n.blockDialogBody,
+      message: salonScope ? l10n.blockDialogBodySalon : l10n.blockDialogBody,
       action: DestructiveButton(
         key: confirmKey,
         label: l10n.blockDialogConfirm,

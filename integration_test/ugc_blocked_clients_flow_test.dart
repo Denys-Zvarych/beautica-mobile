@@ -25,6 +25,7 @@ import 'dart:async';
 
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/booking/presentation/booking_detail_screen.dart';
+import 'package:beautica_mobile/features/booking/presentation/master_bookings_screen.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_counterparty_header.dart';
 import 'package:beautica_mobile/features/moderation/presentation/blocked_clients_screen.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/block_confirm_dialog.dart';
@@ -32,6 +33,7 @@ import 'package:beautica_mobile/features/moderation/presentation/widgets/content
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -274,6 +276,83 @@ void main() {
     expect(find.byKey(ClientActionsSheet.unblockKey), findsOneWidget);
     expect(find.byKey(ClientActionsSheet.blockKey), findsNothing);
     await _dismissSheet(tester);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // Backend 398 — a NEW block DECLINEs the client's future visits in scope
+  // and answers only their COUNT. The real journey: «Мої записи» day list →
+  // card → «Деталі запису» → block → the plural snack names the count (and
+  // replaces «Клієнта заблоковано») → back → the cancelled visit is gone from
+  // the day list (DECLINED is hidden by default), refetched on the REAL wire.
+  testWidgets('block that auto-cancels visits: «Скасовано 3 записи» snack, '
+      'and back on «Мої записи» the cancelled visit has left the day list', (
+    tester,
+  ) async {
+    final FakeBackend fb = FakeBackend()
+      ..currentRole = UserRole.independentMaster
+      // On the harness's pinned «today» so the landing day shows the card
+      // (fixture clock == app clock — M15).
+      ..bookingStartsAt = kFixedNow
+          .add(const Duration(hours: 1))
+          .toIso8601String()
+      ..bookingEndsAt = kFixedNow
+          .add(const Duration(hours: 2, minutes: 30))
+          .toIso8601String()
+      ..blockCancelsFutureVisits = 3;
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    // A working window on the landing day (opening at 15:00 Kyiv = kFixedNow,
+    // so the 16:00 card sits inside the grid's first viewport), or the grid
+    // hides the card. Seeded after boot: `kyivToday` needs the time zones
+    // `AppHarness.boot` initialises.
+    fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+      FakeBackend.seedEffectiveScheduleDay(
+        kyivToday(() => kFixedNow),
+        intervals: const <(String, String)>[('15:00:00', '21:00:00')],
+      ),
+    ]);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+    await AppHarness.settle(tester);
+    expect(find.byType(MasterBookingsScreen), findsOneWidget);
+
+    final Finder card = find.byKey(const Key('master-booking-card-booking-1'));
+    await AppHarness.pumpUntilFound(tester, card);
+    await AppHarness.tapVisible(tester, card);
+    await AppHarness.settle(tester);
+    expect(find.byType(BookingDetailScreen), findsOneWidget);
+
+    await _openClientSheet(tester);
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(ClientActionsSheet.blockKey),
+    );
+    await AppHarness.settle(tester);
+    final int listCallsBefore = fb.getMyBookingsCalls;
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(BlockClientDialog.confirmKey),
+        matching: find.text(_l10n.blockDialogConfirm),
+      ),
+    );
+    await AppHarness.settle(tester);
+
+    expect(fb.blockPostBookingIds, <String>['booking-1']);
+    expect(fb.bookingStatus, 'DECLINED', reason: 'server-side cascade ran');
+    _expectSnack(_l10n.clientBlockCancelledBookingsSnack(3));
+    // i18n-finder-ok: pins the uk `few` plural form on the real snack
+    expect(find.text('Скасовано 3 записи'), findsOneWidget);
+    expect(find.text(_l10n.clientBlockedSnack), findsNothing);
+    await pumpPastVelvetSnack(tester);
+
+    router.pop();
+    await AppHarness.settle(tester);
+    expect(find.byType(MasterBookingsScreen), findsOneWidget);
+    await AppHarness.pumpUntilGone(tester, card);
+    expect(card, findsNothing);
+    expect(
+      fb.getMyBookingsCalls,
+      greaterThan(listCallsBefore),
+      reason: 'the day list refetched after the bulk cancel',
+    );
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('walk-in the server marks clientBlockable=false (registered '

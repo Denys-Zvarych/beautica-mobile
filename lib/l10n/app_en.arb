@@ -7327,15 +7327,19 @@
       }
     }
   },
-  "blockDialogBody": "The client won't be able to book with you. Existing bookings stay.",
+  "blockDialogBody": "If you block this client, all their upcoming bookings with you will be cancelled automatically, and they won't be able to book with you until you unblock them manually.",
   "@blockDialogBody": {
-    "description": "Block-client confirm dialog body."
+    "description": "Block-client confirm dialog body. Blocking auto-cancels every future booking of this client with the provider."
+  },
+  "blockDialogBodySalon": "If you block this client, all their upcoming bookings at your salon will be cancelled automatically, and they won't be able to book at your salon until you unblock them manually.",
+  "@blockDialogBodySalon": {
+    "description": "Block-client confirm dialog body, salon scope (salon owner/admin block for the whole salon). Blocking auto-cancels every future booking of this client at the salon."
   },
   "blockDialogConfirm": "Block",
   "@blockDialogConfirm": {
     "description": "Block-client confirm dialog — destructive action."
   },
-  "blockDialogDismiss": "Don't block",
+  "blockDialogDismiss": "Cancel",
   "@blockDialogDismiss": {
     "description": "Block-client confirm dialog — back-out."
   },
@@ -7356,13 +7360,22 @@
   "@unblockDialogConfirm": {
     "description": "Unblock-client confirm dialog — action."
   },
-  "unblockDialogDismiss": "Keep blocked",
+  "unblockDialogDismiss": "Cancel",
   "@unblockDialogDismiss": {
     "description": "Unblock-client confirm dialog — back-out."
   },
   "clientBlockedSnack": "Client blocked",
   "@clientBlockedSnack": {
     "description": "Success snack after blocking a client."
+  },
+  "clientBlockCancelledBookingsSnack": "{count, plural, =1{1 booking cancelled} other{{count} bookings cancelled}}",
+  "@clientBlockCancelledBookingsSnack": {
+    "description": "Success snack after blocking a client when the block auto-cancelled future visits (backend 398 BlockResponse.cancelledBookings > 0). Counts VISITS.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   },
   "clientUnblockedSnack": "Client unblocked",
   "@clientUnblockedSnack": {

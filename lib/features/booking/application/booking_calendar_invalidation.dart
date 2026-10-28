@@ -618,6 +618,29 @@ void invalidateBookingViewsAfterBookingCreated(Ref ref, {String? salonId}) {
   invalidatePendingBookingActionsCountFromRef(ref);
 }
 
+/// Phase 398 — invalidates every provider-side booking view after a SERVER-
+/// side bulk cancel whose booking ids and dates the client never learns: a
+/// NEW client block auto-cancels that client's other future visits and
+/// returns only their COUNT (`BlockResponse.cancelledBookings`).
+///
+/// REUSE-FIRST: the day-list / rail-dot / salon-board / pending-count half is
+/// [invalidateBookingViewsAfterBookingCreated] verbatim — the one helper in
+/// this file built for "some day changed, the caller cannot say which" (it
+/// enumerates [DayKeepAliveLru.liveQueries] with the `isWatched` eager-read
+/// gate, and defers the salon board while its tab is not selected). The only
+/// addition is [masterArchiveProvider]: the archive is the HISTORY partition,
+/// which includes CANCELLED, so the newly cancelled visits must appear there.
+/// Bare family, same as [invalidateBookingViewsAfterProviderClose] —
+/// autoDispose per filter combination, a no-op for any combination not on
+/// screen.
+///
+/// Same DROPPED-not-REFILLED contract as every helper in this file. Callers
+/// gate on a non-zero count so a repeat block costs no request.
+void invalidateBookingViewsAfterBulkCancel(Ref ref, {String? salonId}) {
+  invalidateBookingViewsAfterBookingCreated(ref, salonId: salonId);
+  ref.invalidate(masterArchiveProvider);
+}
+
 /// Replays the board-scoped invalidations that
 /// [invalidateBookingViewsAfterBookingCreated] skipped while the salon
 /// «Записи» tab was not selected — see that function's LOW-4 section for the

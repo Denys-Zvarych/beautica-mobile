@@ -14,6 +14,7 @@ Name | Type | Description | Notes
 **avatarUrl** | **String** | Live avatar of the blocked account. CLIENT rows only; null for GUEST. | [optional] 
 **maskedPhone** | **String** | Masked guest phone, last four digits only. GUEST rows only; null for CLIENT. | [optional] 
 **createdAt** | [**DateTime**](DateTime.md) |  | [optional] 
+**cancelledBookings** | **int** | Future visits this request cancelled (phase 398): a standalone booking counts 1, a multi-service visit counts 1. Set on a 201 that created the block; 0 on a repeat (200) and on every GET /blocks row. | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

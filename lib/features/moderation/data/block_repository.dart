@@ -151,6 +151,11 @@ ClientBlock? clientBlockFromDto(BlockResponse? dto) {
         ? null
         : maskedPhone,
     createdAt: createdAt,
+    // Absent (pre-398 backend) or nonsensical negative → nothing cancelled.
+    cancelledBookings: switch (dto.cancelledBookings) {
+      final int n when n > 0 => n,
+      _ => 0,
+    },
   );
 }
 

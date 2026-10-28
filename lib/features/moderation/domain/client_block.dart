@@ -6,7 +6,9 @@
 //   DELETE /blocks/{blockId}      → 204 (also 204 when already gone)
 //   GET    /blocks                → [BlockResponse]
 //   BlockResponse { id, kind: CLIENT | GUEST, displayName, avatarUrl?,
-//                   maskedPhone?, createdAt }
+//                   maskedPhone?, createdAt, cancelledBookings? }
+//   (398: `cancelledBookings` = future VISITS a NEW block auto-cancelled;
+//    0 on a repeat and on every list row)
 // Errors: 400 STAFF walk-in, 403 CLIENT / SALON_MASTER, 404 booking not in
 // the caller's scope. The blocked party is never told (397 D5).
 //
@@ -47,6 +49,11 @@ abstract class ClientBlock with _$ClientBlock {
     /// never sees a raw phone or its hash.
     String? maskedPhone,
     required DateTime createdAt,
+
+    /// Phase 398 — future visits this block auto-cancelled (a multi-service
+    /// visit counts once). Only a fresh `POST /blocks` can be non-zero; a
+    /// repeat block and every list row carry 0.
+    @Default(0) int cancelledBookings,
   }) = _ClientBlock;
 
   const ClientBlock._();

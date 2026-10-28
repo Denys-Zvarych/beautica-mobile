@@ -120,6 +120,28 @@ Map<String, Object?> _err(String message) => <String, Object?>{
 };
 
 void main() {
+  group('block — POST /blocks cancelledBookings (phase 398)', () {
+    for (final (Object? wire, int expected) in <(Object?, int)>[
+      (3, 3),
+      (1, 1),
+      (0, 0),
+      (-2, 0),
+      (null, 0),
+    ]) {
+      test('wire $wire → $expected', () async {
+        final r = _build(
+          status: 201,
+          body: _ok(<String, Object?>{
+            ..._guestRow(),
+            'cancelledBookings': wire,
+          }),
+        );
+        final ClientBlock block = await r.repo.block(_bookingId);
+        expect(block.cancelledBookings, expected);
+      });
+    }
+  });
+
   group('block — POST /blocks', () {
     for (final int status in <int>[200, 201]) {
       test('$status sends exactly {bookingId} and maps the block', () async {
@@ -137,6 +159,7 @@ void main() {
         expect(block.maskedPhone, '+380 •• ••• 12 34');
         expect(block.avatarUrl, isNull);
         expect(block.createdAt, DateTime.utc(2026, 10, 28, 10, 15));
+        expect(block.cancelledBookings, 0, reason: 'absent → 0');
       });
     }
 

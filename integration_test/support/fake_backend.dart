@@ -793,6 +793,15 @@ final class FakeBackend {
   /// was that block.
   final List<Map<String, dynamic>> blocks = <Map<String, dynamic>>[];
 
+  /// Backend 398 — `cancelledBookings` a NEW block reports: the server
+  /// DECLINEs every future CONFIRMED visit of that client in scope and returns
+  /// only their COUNT. When > 0 and the seeded `booking-1` is still
+  /// CONFIRMED, a `POST /blocks` flips [bookingStatus] to `DECLINED` (so the
+  /// default day list, which hides DECLINED, drops it on its next fetch) and
+  /// answers this count. A repeat (booking-1 already blocked) and every
+  /// `GET /blocks` row carry 0, as on the real wire.
+  int blockCancelsFutureVisits = 0;
+
   /// Every `GET /api/v1/blocks`.
   int blockListCalls = 0;
 
@@ -12122,11 +12131,20 @@ final class FakeBackend {
           'displayName': '$clientFirstName $clientLastName',
           'createdAt': kFixedNow.toUtc().toIso8601String(),
         };
+        final bool isNewBlock =
+            bookingId != 'booking-1' || bookingClientBlockId == null;
+        final int cancelled =
+            isNewBlock &&
+                blockCancelsFutureVisits > 0 &&
+                bookingStatus == 'CONFIRMED'
+            ? blockCancelsFutureVisits
+            : 0;
+        if (cancelled > 0) bookingStatus = 'DECLINED';
         blocks.insert(0, row);
         if (bookingId == 'booking-1') {
           bookingClientBlockId = row['id'] as String;
         }
-        return _ok(row);
+        return _ok(<String, dynamic>{...row, 'cancelledBookings': cancelled});
       }),
       request: const Request(method: RequestMethods.post, data: Matchers.any),
     );

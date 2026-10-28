@@ -4,14 +4,18 @@
 // with the typed [Failure] for the caller's snack, or [BlockWriteInProgress]
 // when another write is already in flight (the call did NOTHING — the caller
 // shows nothing; security MEDIUM: an ignored call must never read as a
-// success). On success it refreshes ONLY the
-// booking's detail (its `clientBlocked` flag drives «Заблокувати» /
-// «Розблокувати») and the block list (D6). Discovery, search and favourites
-// are deliberately untouched: a block never hides a provider.
+// success). On success it refreshes the booking's detail (its `clientBlocked`
+// flag drives «Заблокувати» / «Розблокувати») and the block list (D6). When a
+// NEW block auto-cancelled future visits (phase 398, `cancelledBookings > 0`)
+// it also drops the provider-side calendar / salon board / archive through
+// `invalidateBookingViewsAfterBulkCancel`; a repeat block (count 0) adds no
+// request. Discovery, search and favourites are deliberately untouched: a
+// block never hides a provider.
 
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
 import 'package:beautica_mobile/features/moderation/application/blocked_list_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
@@ -25,7 +29,12 @@ sealed class BlockWriteResult {
 
 /// The write reached the server and succeeded.
 final class BlockWriteDone extends BlockWriteResult {
-  const BlockWriteDone();
+  const BlockWriteDone({this.cancelledBookings = 0});
+
+  /// Phase 398 — future visits a NEW block auto-cancelled (backend
+  /// `BlockResponse.cancelledBookings`). Always 0 for an unblock or a repeat
+  /// block.
+  final int cancelledBookings;
 }
 
 /// The write failed with [failure].
@@ -48,10 +57,15 @@ class ClientBlockController extends _$ClientBlockController {
   bool build() => false;
 
   /// Blocks the client of [bookingId] (`POST /blocks`).
-  Future<BlockWriteResult> block(String bookingId) =>
-      _run(bookingId, (repo) async {
-        await repo.block(bookingId);
-      });
+  /// [BlockWriteDone.cancelledBookings] carries how many future visits the
+  /// block auto-cancelled (phase 398). [salonId] is the salon board this
+  /// detail was opened from (`null` on every non-salon mount) — forwarded to
+  /// the calendar fan-out so the board's list and rail dots drop too.
+  Future<BlockWriteResult> block(String bookingId, {String? salonId}) => _run(
+    bookingId,
+    (repo) async => (await repo.block(bookingId)).cancelledBookings,
+    salonId: salonId,
+  );
 
   /// Unblocks the client of [bookingId] with ONE `DELETE /blocks/{blockId}` —
   /// [blockId] is the booking detail's `clientBlockId`. Refreshes that
@@ -59,23 +73,31 @@ class ClientBlockController extends _$ClientBlockController {
   Future<BlockWriteResult> unblock({
     required String bookingId,
     required String blockId,
-  }) => _run(bookingId, (repo) => repo.unblock(blockId));
+  }) => _run(bookingId, (repo) async {
+    await repo.unblock(blockId);
+    return 0;
+  });
 
   /// Phase 426 — unblocks [blockId] straight from the «Заблоковані клієнти»
   /// list, which already holds the block id (`DELETE /blocks/{blockId}`).
   /// Refreshes the list and every open booking detail (their
   /// `clientBlocked` flag may have been this block).
   Future<BlockWriteResult> unblockById(String blockId) =>
-      _run(null, (repo) => repo.unblock(blockId));
+      _run(null, (repo) async {
+        await repo.unblock(blockId);
+        return 0;
+      });
 
   Future<BlockWriteResult> _run(
     String? bookingId,
-    Future<void> Function(ClientBlockRepository repo) write,
-  ) async {
+    Future<int> Function(ClientBlockRepository repo) write, {
+    String? salonId,
+  }) async {
     if (state) return const BlockWriteInProgress();
     state = true;
+    final int cancelledBookings;
     try {
-      await write(ref.read(clientBlockRepositoryProvider));
+      cancelledBookings = await write(ref.read(clientBlockRepositoryProvider));
     } on Failure catch (e) {
       state = false;
       return BlockWriteFailed(e);
@@ -97,6 +119,14 @@ class ClientBlockController extends _$ClientBlockController {
     // cycle-safe: see above — blockedClientsProvider watches only the
     // repository.
     ref.invalidate(blockedClientsProvider);
-    return const BlockWriteDone();
+    if (cancelledBookings > 0) {
+      // Phase 398 — the server cancelled this client's other future visits;
+      // only their count comes back, so drop every live provider-side booking
+      // view (the shared fan-out the walk-in create already uses). Gated so a
+      // repeat block (count 0) costs nothing. cycle-safe: none of those
+      // providers watches this controller.
+      invalidateBookingViewsAfterBulkCancel(ref, salonId: salonId);
+    }
+    return BlockWriteDone(cancelledBookings: cancelledBookings);
   }
 }

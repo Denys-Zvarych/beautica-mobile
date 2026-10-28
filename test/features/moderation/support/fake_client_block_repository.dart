@@ -6,6 +6,8 @@
 //   • [staffBookingIds] → ValidationFailure (400, STAFF walk-in).
 //   • [outOfScopeBookingIds] → NotFoundFailure (404).
 // [nextFailure] forces the next call to throw (then clears).
+//   • Phase 398 — a NEW block reports [cancelOnNewBlock] auto-cancelled
+//     visits; a repeat block and every stored / listed row report 0.
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/moderation/data/block_repository.dart';
@@ -25,6 +27,9 @@ final class FakeClientBlockRepository implements ClientBlockRepository {
 
   /// Thrown (once) by the next call.
   Failure? nextFailure;
+
+  /// Phase 398 — `cancelledBookings` a NEW block reports (repeats: 0).
+  int cancelOnNewBlock = 0;
 
   /// Every call, in order: `block:<bookingId>`, `unblock:<blockId>`, `list`.
   final List<String> calls = <String>[];
@@ -60,15 +65,16 @@ final class FakeClientBlockRepository implements ClientBlockRepository {
     if (outOfScopeBookingIds.contains(bookingId)) {
       throw const NotFoundFailure();
     }
-    return _byBooking.putIfAbsent(
-      bookingId,
-      () => ClientBlock(
-        id: 'block-${++_seq}',
-        kind: ClientBlockKind.client,
-        displayName: 'Клієнт $bookingId',
-        createdAt: DateTime.utc(2026, 10, 28, 12),
-      ),
+    final ClientBlock? existing = _byBooking[bookingId];
+    if (existing != null) return existing;
+    final ClientBlock created = ClientBlock(
+      id: 'block-${++_seq}',
+      kind: ClientBlockKind.client,
+      displayName: 'Клієнт $bookingId',
+      createdAt: DateTime.utc(2026, 10, 28, 12),
     );
+    _byBooking[bookingId] = created;
+    return created.copyWith(cancelledBookings: cancelOnNewBlock);
   }
 
   @override

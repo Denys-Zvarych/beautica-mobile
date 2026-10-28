@@ -8,7 +8,9 @@ import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
+import 'package:beautica_mobile/features/booking/application/booked_days_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_detail_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/salon_board_refresh_gate.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/moderation/application/block_notifier.dart';
@@ -42,6 +44,10 @@ class _Harness {
     container = ProviderContainer(
       overrides: <Object>[
         clientBlockRepositoryProvider.overrideWithValue(repo),
+        bookedDaysProvider.overrideWith((ref) async {
+          bookedDaysBuilds++;
+          return <DateTime>{};
+        }),
         bookingDetailProvider('b1').overrideWith((ref) async {
           detailBuilds['b1'] = (detailBuilds['b1'] ?? 0) + 1;
           return _booking('b1');
@@ -57,7 +63,11 @@ class _Harness {
     container.listen(bookingDetailProvider('b1'), (_, _) {});
     container.listen(bookingDetailProvider('b2'), (_, _) {});
     container.listen(blockedClientsProvider, (_, _) {});
+    // The master's rail dots — a calendar view the bulk-cancel fan-out drops.
+    container.listen(bookedDaysProvider, (_, _) {});
   }
+
+  int bookedDaysBuilds = 0;
 
   final ClientBlockRepository repo;
   late final ProviderContainer container;
@@ -69,6 +79,7 @@ class _Harness {
   Future<void> settle() async {
     await container.read(bookingDetailProvider('b1').future);
     await container.read(bookingDetailProvider('b2').future);
+    await container.read(bookedDaysProvider.future);
     await container
         .read(blockedClientsProvider.future)
         .catchError((Object _) => const <ClientBlock>[]);
@@ -76,6 +87,77 @@ class _Harness {
 }
 
 void main() {
+  group('block — cancelledBookings (phase 398)', () {
+    test(
+      'a new block carries the auto-cancelled count; a repeat carries 0',
+      () async {
+        final FakeClientBlockRepository repo = FakeClientBlockRepository()
+          ..cancelOnNewBlock = 4;
+        final _Harness h = _Harness(repo);
+        addTearDown(h.container.dispose);
+        await h.settle();
+
+        final BlockWriteResult first = await h.notifier.block('b1');
+        final BlockWriteResult repeat = await h.notifier.block('b1');
+
+        expect((first as BlockWriteDone).cancelledBookings, 4);
+        expect((repeat as BlockWriteDone).cancelledBookings, 0);
+      },
+    );
+
+    test('count > 0 drops the provider-side calendar views; a repeat block '
+        '(count 0) drops none', () async {
+      final FakeClientBlockRepository repo = FakeClientBlockRepository()
+        ..cancelOnNewBlock = 2;
+      final _Harness h = _Harness(repo);
+      addTearDown(h.container.dispose);
+      await h.settle();
+      expect(h.bookedDaysBuilds, 1);
+
+      await h.notifier.block('b1');
+      await h.settle();
+      expect(h.bookedDaysBuilds, 2, reason: 'rail dots refetched once');
+
+      await h.notifier.block('b1');
+      await h.settle();
+      expect(h.bookedDaysBuilds, 2, reason: 'repeat block adds no request');
+    });
+
+    test('a plain block (count 0) leaves the calendar views alone', () async {
+      final _Harness h = _Harness(FakeClientBlockRepository());
+      addTearDown(h.container.dispose);
+      await h.settle();
+
+      await h.notifier.block('b1');
+      await h.settle();
+
+      expect(h.bookedDaysBuilds, 1);
+    });
+
+    test('salonId reaches the salon-board half of the fan-out only when '
+        'count > 0', () async {
+      final _Harness cancelled = _Harness(
+        FakeClientBlockRepository()..cancelOnNewBlock = 1,
+      );
+      addTearDown(cancelled.container.dispose);
+      await cancelled.notifier.block('b1', salonId: 's1');
+      // The board tab is not selected (shell default), so the board refresh
+      // is deferred onto the gate rather than dropped.
+      expect(
+        cancelled.container.read(salonBoardRefreshGateProvider).takeStale('s1'),
+        isTrue,
+      );
+
+      final _Harness none = _Harness(FakeClientBlockRepository());
+      addTearDown(none.container.dispose);
+      await none.notifier.block('b1', salonId: 's1');
+      expect(
+        none.container.read(salonBoardRefreshGateProvider).takeStale('s1'),
+        isFalse,
+      );
+    });
+  });
+
   group('block', () {
     test('stores the block, returns null and refreshes the booking detail '
         'and the block list only', () async {
@@ -89,6 +171,7 @@ void main() {
       await h.settle();
 
       expect(result, isA<BlockWriteDone>());
+      expect((result as BlockWriteDone).cancelledBookings, 0);
       expect(repo.stored, hasLength(1));
       expect(h.detailBuilds['b1'], 2, reason: 'b1 detail invalidated');
       expect(h.detailBuilds['b2'], 1, reason: 'other bookings untouched');
