@@ -36,7 +36,7 @@ import 'package:beautica_mobile/features/support/domain/support_attachment.dart'
 import 'package:beautica_mobile/features/support/domain/support_limits.dart';
 import 'package:beautica_mobile/features/support/presentation/support_controller.dart';
 import 'package:beautica_mobile/features/support/presentation/widgets/attachment_tray.dart';
-import 'package:beautica_mobile/features/support/presentation/widgets/message_area.dart';
+import 'package:beautica_mobile/shared/widgets/message_area.dart';
 import 'package:beautica_mobile/features/support/presentation/widgets/support_success_card.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';

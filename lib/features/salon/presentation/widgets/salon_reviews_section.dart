@@ -23,6 +23,8 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -50,9 +52,18 @@ String salonReviewSortLabel(AppLocalizations l10n, SalonReviewSort sort) {
 /// The "Відгуки" tab body: a rating-summary card, a sort header, and the
 /// list of individual review cards.
 class SalonReviewsSection extends ConsumerStatefulWidget {
-  const SalonReviewsSection({super.key, required this.salonId});
+  const SalonReviewsSection({
+    super.key,
+    required this.salonId,
+    this.reportable = false,
+  });
 
   final String salonId;
+
+  /// ADDITIVE (phase 424 D2): each review card gets a «⋮» that opens the
+  /// report sheet. Hosts set it where the viewer is not the review's author;
+  /// `false` (the default) renders every card exactly as before.
+  final bool reportable;
 
   @override
   ConsumerState<SalonReviewsSection> createState() =>
@@ -123,7 +134,21 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
                 : Column(
                     children: <Widget>[
                       for (int i = 0; i < reviews.length; i++) ...<Widget>[
-                        _salonReviewCard(reviews[i]),
+                        _salonReviewCard(
+                          reviews[i],
+                          // Never on the viewer's own review (phase 424 D2).
+                          onMore:
+                              widget.reportable && !reviews[i].authoredByViewer
+                              ? () => showReportSheet(
+                                  context,
+                                  targetType: ReportTargetType.review,
+                                  targetId: reviews[i].id,
+                                  subject: l10n.reportSubjectReview(
+                                    reviews[i].clientDisplayName,
+                                  ),
+                                )
+                              : null,
+                        ),
                         if (i < reviews.length - 1)
                           const SizedBox(height: VelvetSpacing.md),
                       ],
@@ -366,7 +391,7 @@ class _ReviewListSkeleton extends StatelessWidget {
 /// muted service-name sub-line from the item's [SalonReviewItem.serviceName]
 /// (master reviews have no service, so their cards pass no
 /// [ReviewCard.serviceName]). The name is rendered as-is with no label.
-ReviewCard _salonReviewCard(SalonReviewItem item) {
+ReviewCard _salonReviewCard(SalonReviewItem item, {VoidCallback? onMore}) {
   final String? service = item.serviceName;
   return ReviewCard(
     data: ReviewCardData(
@@ -379,5 +404,6 @@ ReviewCard _salonReviewCard(SalonReviewItem item) {
     ),
     keyPrefix: 'salon-review',
     serviceName: (service != null && service.isNotEmpty) ? service : null,
+    onMore: onMore,
   );
 }

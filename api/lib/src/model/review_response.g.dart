@@ -21,6 +21,8 @@ class _$ReviewResponse extends ReviewResponse {
   final String? comment;
   @override
   final DateTime? createdAt;
+  @override
+  final bool? authoredByViewer;
 
   factory _$ReviewResponse([void Function(ReviewResponseBuilder)? updates]) =>
       (ReviewResponseBuilder()..update(updates))._build();
@@ -32,7 +34,8 @@ class _$ReviewResponse extends ReviewResponse {
       this.serviceName,
       this.rating,
       this.comment,
-      this.createdAt})
+      this.createdAt,
+      this.authoredByViewer})
       : super._();
   @override
   ReviewResponse rebuild(void Function(ReviewResponseBuilder) updates) =>
@@ -51,7 +54,8 @@ class _$ReviewResponse extends ReviewResponse {
         serviceName == other.serviceName &&
         rating == other.rating &&
         comment == other.comment &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        authoredByViewer == other.authoredByViewer;
   }
 
   @override
@@ -64,6 +68,7 @@ class _$ReviewResponse extends ReviewResponse {
     _$hash = $jc(_$hash, rating.hashCode);
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, authoredByViewer.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -77,7 +82,8 @@ class _$ReviewResponse extends ReviewResponse {
           ..add('serviceName', serviceName)
           ..add('rating', rating)
           ..add('comment', comment)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('authoredByViewer', authoredByViewer))
         .toString();
   }
 }
@@ -115,6 +121,11 @@ class ReviewResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  bool? _authoredByViewer;
+  bool? get authoredByViewer => _$this._authoredByViewer;
+  set authoredByViewer(bool? authoredByViewer) =>
+      _$this._authoredByViewer = authoredByViewer;
+
   ReviewResponseBuilder() {
     ReviewResponse._defaults(this);
   }
@@ -129,6 +140,7 @@ class ReviewResponseBuilder
       _rating = $v.rating;
       _comment = $v.comment;
       _createdAt = $v.createdAt;
+      _authoredByViewer = $v.authoredByViewer;
       _$v = null;
     }
     return this;
@@ -157,6 +169,7 @@ class ReviewResponseBuilder
           rating: rating,
           comment: comment,
           createdAt: createdAt,
+          authoredByViewer: authoredByViewer,
         );
     replace(_$result);
     return _$result;

@@ -19,7 +19,7 @@
 // stale applied-query chip on screen.
 //
 // The treatment is lifted VERBATIM from the canonical in-app min-length error,
-// `features/support/presentation/widgets/message_area.dart` — no new visual
+// `shared/widgets/message_area.dart` — no new visual
 // language:
 //   • `NeumorphicInset(focused:, hasError:)` — the 2 dp ring flips to
 //     [BrandColors.error] (#B0452F) while the term is below the minimum, and to

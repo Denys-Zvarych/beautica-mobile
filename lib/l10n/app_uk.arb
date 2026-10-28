@@ -7186,5 +7186,94 @@
   "accountTermsOfUse": "Умови використання",
   "@accountTermsOfUse": {
     "description": "Account page — row opening https://beautica.app/terms in the external browser."
+  },
+  "reportSheetTitle": "Поскаржитися",
+  "@reportSheetTitle": {
+    "description": "Report sheet (phase 424) — sheet title; also the tooltip/semantics verb."
+  },
+  "reportSheetReasonLabel": "Що не так?",
+  "@reportSheetReasonLabel": {
+    "description": "Report sheet — label above the reason rows."
+  },
+  "reportReasonSpam": "Спам або реклама",
+  "@reportReasonSpam": {
+    "description": "Report reason SPAM."
+  },
+  "reportReasonOffensive": "Образливий зміст",
+  "@reportReasonOffensive": {
+    "description": "Report reason OFFENSIVE."
+  },
+  "reportReasonHarassment": "Переслідування або погрози",
+  "@reportReasonHarassment": {
+    "description": "Report reason HARASSMENT."
+  },
+  "reportReasonFalseInfo": "Неправдива інформація",
+  "@reportReasonFalseInfo": {
+    "description": "Report reason FALSE_INFO."
+  },
+  "reportReasonSexualContent": "Відвертий або сексуальний зміст",
+  "@reportReasonSexualContent": {
+    "description": "Report reason SEXUAL_CONTENT."
+  },
+  "reportReasonOther": "Інше",
+  "@reportReasonOther": {
+    "description": "Report reason OTHER (comment required)."
+  },
+  "reportCommentLabelOptional": "Коментар (необовʼязково)",
+  "@reportCommentLabelOptional": {
+    "description": "Report sheet — comment field label when the comment is optional."
+  },
+  "reportCommentLabelRequired": "Опишіть проблему",
+  "@reportCommentLabelRequired": {
+    "description": "Report sheet — comment field label when reason «Інше» makes it required."
+  },
+  "reportCommentHint": "Що саме не так?",
+  "@reportCommentHint": {
+    "description": "Report sheet — comment field hint."
+  },
+  "reportCommentHelper": "Скарга анонімна — автор не дізнається, хто її надіслав.",
+  "@reportCommentHelper": {
+    "description": "Report sheet — helper under the comment field."
+  },
+  "reportCommentRequiredError": "Для «Інше» напишіть кілька слів",
+  "@reportCommentRequiredError": {
+    "description": "Report sheet — inline error when «Інше» has a too-short comment (backend needs >= 5 chars)."
+  },
+  "reportSubmit": "Надіслати скаргу",
+  "@reportSubmit": {
+    "description": "Report sheet — submit CTA."
+  },
+  "reportSent": "Дякуємо, ми перевіримо скаргу",
+  "@reportSent": {
+    "description": "Success snack after a report is sent."
+  },
+  "reportErrRateLimited": "Забагато скарг, спробуйте пізніше",
+  "@reportErrRateLimited": {
+    "description": "Report sheet banner on HTTP 429."
+  },
+  "reportErrGeneric": "Не вдалося надіслати скаргу. Можливо, цей вміст уже видалено.",
+  "@reportErrGeneric": {
+    "description": "Report sheet banner on 404 / any other failure."
+  },
+  "reportSubjectReview": "Відгук від {name}",
+  "@reportSubjectReview": {
+    "description": "Report sheet subtitle for a review; name = masked reviewer name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectPortfolioPhoto": "Фото з портфоліо",
+  "@reportSubjectPortfolioPhoto": {
+    "description": "Report sheet subtitle for a portfolio photo."
+  },
+  "reviewMoreActions": "Більше дій з відгуком",
+  "@reviewMoreActions": {
+    "description": "Semantics label of the «⋮» on a review card."
+  },
+  "portfolioViewerReport": "Поскаржитися на фото",
+  "@portfolioViewerReport": {
+    "description": "Tooltip of the flag button in the portfolio photo viewer."
   }
 }

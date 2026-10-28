@@ -74,6 +74,7 @@ import 'package:beautica_api/src/model/api_response_passport_response.dart';
 import 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_registration_response.dart';
+import 'package:beautica_api/src/model/api_response_report_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
@@ -128,6 +129,7 @@ import 'package:beautica_api/src/model/create_appointment_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_client_review_request.dart';
+import 'package:beautica_api/src/model/create_report_request.dart';
 import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
@@ -200,6 +202,7 @@ import 'package:beautica_api/src/model/register_device_token_request.dart';
 import 'package:beautica_api/src/model/register_independent_master_request.dart';
 import 'package:beautica_api/src/model/register_request.dart';
 import 'package:beautica_api/src/model/registration_response.dart';
+import 'package:beautica_api/src/model/report_response.dart';
 import 'package:beautica_api/src/model/reschedule_booking_request.dart';
 import 'package:beautica_api/src/model/resend_verification_request.dart';
 import 'package:beautica_api/src/model/reset_password_request.dart';
@@ -224,6 +227,8 @@ import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
 import 'package:beautica_api/src/model/salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/salon_service_category_group.dart';
+import 'package:beautica_api/src/model/salon_service_coverage.dart';
+import 'package:beautica_api/src/model/salon_service_master_ref.dart';
 import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
@@ -320,6 +325,7 @@ part 'serializers.g.dart';
   ApiResponsePendingBookingActionsCountResponse,
   ApiResponsePublicSalonResponse,
   ApiResponseRegistrationResponse,
+  ApiResponseReportResponse,
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonAdminResponse,
@@ -374,6 +380,7 @@ part 'serializers.g.dart';
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreateClientReviewRequest,
+  CreateReportRequest,
   CreateReviewRequest,
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
@@ -446,6 +453,7 @@ part 'serializers.g.dart';
   RegisterIndependentMasterRequest,
   RegisterRequest,
   RegistrationResponse,
+  ReportResponse,
   RescheduleBookingRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
@@ -470,6 +478,8 @@ part 'serializers.g.dart';
   SalonSearchResult,
   SalonServiceCatalogResponse,
   SalonServiceCategoryGroup,
+  SalonServiceCoverage,
+  SalonServiceMasterRef,
   SalonStaffMemberResponse,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,

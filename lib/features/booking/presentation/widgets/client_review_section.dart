@@ -48,11 +48,23 @@
 // reader cannot interpret at all. The section therefore wraps the whole block
 // in a [Semantics] node that spells the rating out and excludes the
 // descendants, exactly as `OutboundNote` does for a note.
+//
+// ## Report «⋮» (phase 424 D2)
+//
+// With [ClientReviewSection.reportable] set and a review id on the wire, the
+// card shows the shared «⋮» that opens the report sheet (`targetType REVIEW`,
+// the review's own id). The viewer here is always the PROVIDER — never the
+// review's author — so no `authoredByViewer` check applies. Because the block
+// excludes its descendants' semantics, the same action is also exposed as a
+// custom semantics action on the block node, so TalkBack users reach it too.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 
@@ -70,6 +82,7 @@ class ClientReviewSection extends StatelessWidget {
     required this.review,
     required this.bookingId,
     required this.clientDisplayName,
+    this.reportable = false,
   });
 
   /// The client's review of the master, already mapped off
@@ -86,6 +99,10 @@ class ClientReviewSection extends StatelessWidget {
   /// needs no guest fallback of its own).
   final String clientDisplayName;
 
+  /// ADDITIVE (phase 424 D2): offer the «⋮» report affordance when the review
+  /// carries an id. `false` (the default) renders exactly as before.
+  final bool reportable;
+
   /// Widget-key namespace handed to [ReviewCard], alongside `salon-review`
   /// and `master-review`.
   static const String keyPrefix = 'client-review';
@@ -94,11 +111,25 @@ class ClientReviewSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String? comment = review.comment;
+    final String? reviewId = review.id;
+    final VoidCallback? onMore = (reportable && reviewId != null)
+        ? () => showReportSheet(
+            context,
+            targetType: ReportTargetType.review,
+            targetId: reviewId,
+            subject: l10n.reportSubjectReview(clientDisplayName),
+          )
+        : null;
     return Semantics(
       label: comment == null
           ? l10n.bookingDetailClientReviewSemanticsNoComment(review.rating)
           : l10n.bookingDetailClientReviewSemantics(review.rating, comment),
       excludeSemantics: true,
+      customSemanticsActions: onMore == null
+          ? null
+          : <CustomSemanticsAction, VoidCallback>{
+              CustomSemanticsAction(label: l10n.reviewMoreActions): onMore,
+            },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -119,6 +150,7 @@ class ClientReviewSection extends StatelessWidget {
               comment: comment,
             ),
             keyPrefix: keyPrefix,
+            onMore: onMore,
           ),
         ],
       ),

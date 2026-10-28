@@ -104,6 +104,7 @@ BookingDetailResponse _dtoWithReview({
   required String id,
   int? rating,
   String? comment,
+  String? reviewId,
   BookingDetailResponseStatusEnum status =
       BookingDetailResponseStatusEnum.COMPLETED,
 }) =>
@@ -121,6 +122,7 @@ BookingDetailResponse _dtoWithReview({
           ..durationMinutesAtBooking = 60
           ..canReview = false
           ..reviewByClient = (ClientAuthoredReviewResponseBuilder()
+            ..id = reviewId
             ..rating = rating
             ..comment = comment)
           ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
@@ -1173,6 +1175,23 @@ void main() {
       expect(review, isNotNull);
       expect(review?.rating, 5);
       expect(review?.comment, 'Дуже задоволена, дякую!');
+      expect(review?.id, isNull, reason: 'no id on the wire → no id');
+    });
+
+    test('phase 424 — the review id is mapped (the REVIEW report target); an '
+        'empty id collapses to null', () {
+      expect(
+        BookingMapper.fromDto(
+          _dtoWithReview(id: 'b-id', rating: 5, reviewId: 'rev-1'),
+        ).reviewByClient?.id,
+        'rev-1',
+      );
+      expect(
+        BookingMapper.fromDto(
+          _dtoWithReview(id: 'b-empty', rating: 5, reviewId: ''),
+        ).reviewByClient?.id,
+        isNull,
+      );
     });
 
     test('a null comment stays null — a client who rated without writing '

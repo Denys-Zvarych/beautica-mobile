@@ -693,7 +693,7 @@ class _LoadedBody extends StatelessWidget {
             // have two consumers, and only that second file sees the other.
             2 => _ServicesTab(salonId: salonId),
             _ => SliverToBoxAdapter(
-              child: SalonReviewsSection(salonId: salonId),
+              child: SalonReviewsSection(salonId: salonId, reportable: true),
             ),
           },
         ),

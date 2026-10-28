@@ -48,6 +48,7 @@ import 'package:beautica_mobile/features/favorites/application/favorite_toggle_n
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -501,7 +502,7 @@ class _LoadedBody extends StatelessWidget {
                     // so the client immediately sees the narrowed roster.
                     onSwitchToMasters: () => onTabSelected(1),
                   ),
-                  _ => SalonReviewsSection(salonId: salonId),
+                  _ => SalonReviewsSection(salonId: salonId, reportable: true),
                 },
               ),
             ),
@@ -1144,8 +1145,12 @@ class _SalonAboutPortfolio extends ConsumerWidget {
                     initialVisibleCount: kSalonPortfolioInitialCount,
                     tileLook: PortfolioTileLook.raisedPhoto,
                     // Phase 407 (D3/D5) — salon photos only.
-                    onPhotoTap: (int i) =>
-                        showPortfolioPhotoViewer(context, photos, i),
+                    onPhotoTap: (int i) => showPortfolioPhotoViewer(
+                      context,
+                      photos,
+                      i,
+                      onReport: reportPortfolioPhoto,
+                    ),
                   ),
                 ),
           loading: () => const SizedBox.shrink(),

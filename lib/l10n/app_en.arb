@@ -7186,5 +7186,94 @@
   "accountTermsOfUse": "Terms of use",
   "@accountTermsOfUse": {
     "description": "Account page — row opening https://beautica.app/terms in the external browser."
+  },
+  "reportSheetTitle": "Report",
+  "@reportSheetTitle": {
+    "description": "Report sheet (phase 424) — sheet title; also the tooltip/semantics verb."
+  },
+  "reportSheetReasonLabel": "What's wrong?",
+  "@reportSheetReasonLabel": {
+    "description": "Report sheet — label above the reason rows."
+  },
+  "reportReasonSpam": "Spam or advertising",
+  "@reportReasonSpam": {
+    "description": "Report reason SPAM."
+  },
+  "reportReasonOffensive": "Offensive content",
+  "@reportReasonOffensive": {
+    "description": "Report reason OFFENSIVE."
+  },
+  "reportReasonHarassment": "Harassment or threats",
+  "@reportReasonHarassment": {
+    "description": "Report reason HARASSMENT."
+  },
+  "reportReasonFalseInfo": "False information",
+  "@reportReasonFalseInfo": {
+    "description": "Report reason FALSE_INFO."
+  },
+  "reportReasonSexualContent": "Explicit or sexual content",
+  "@reportReasonSexualContent": {
+    "description": "Report reason SEXUAL_CONTENT."
+  },
+  "reportReasonOther": "Other",
+  "@reportReasonOther": {
+    "description": "Report reason OTHER (comment required)."
+  },
+  "reportCommentLabelOptional": "Comment (optional)",
+  "@reportCommentLabelOptional": {
+    "description": "Report sheet — comment field label when the comment is optional."
+  },
+  "reportCommentLabelRequired": "Describe the problem",
+  "@reportCommentLabelRequired": {
+    "description": "Report sheet — comment field label when reason «Інше» makes it required."
+  },
+  "reportCommentHint": "What exactly is wrong?",
+  "@reportCommentHint": {
+    "description": "Report sheet — comment field hint."
+  },
+  "reportCommentHelper": "Reports are anonymous — the author won't know who sent it.",
+  "@reportCommentHelper": {
+    "description": "Report sheet — helper under the comment field."
+  },
+  "reportCommentRequiredError": "For «Other», write a few words",
+  "@reportCommentRequiredError": {
+    "description": "Report sheet — inline error when «Інше» has a too-short comment (backend needs >= 5 chars)."
+  },
+  "reportSubmit": "Send report",
+  "@reportSubmit": {
+    "description": "Report sheet — submit CTA."
+  },
+  "reportSent": "Thanks, we'll review the report",
+  "@reportSent": {
+    "description": "Success snack after a report is sent."
+  },
+  "reportErrRateLimited": "Too many reports, try again later",
+  "@reportErrRateLimited": {
+    "description": "Report sheet banner on HTTP 429."
+  },
+  "reportErrGeneric": "Couldn't send the report. This content may have been removed.",
+  "@reportErrGeneric": {
+    "description": "Report sheet banner on 404 / any other failure."
+  },
+  "reportSubjectReview": "Review by {name}",
+  "@reportSubjectReview": {
+    "description": "Report sheet subtitle for a review; name = masked reviewer name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectPortfolioPhoto": "Portfolio photo",
+  "@reportSubjectPortfolioPhoto": {
+    "description": "Report sheet subtitle for a portfolio photo."
+  },
+  "reviewMoreActions": "More review actions",
+  "@reviewMoreActions": {
+    "description": "Semantics label of the «⋮» on a review card."
+  },
+  "portfolioViewerReport": "Report photo",
+  "@portfolioViewerReport": {
+    "description": "Tooltip of the flag button in the portfolio photo viewer."
   }
 }

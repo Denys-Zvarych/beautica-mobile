@@ -101,6 +101,7 @@ class ReviewCard extends StatelessWidget {
     required this.data,
     required this.keyPrefix,
     this.serviceName,
+    this.onMore,
   });
 
   final ReviewCardData data;
@@ -112,9 +113,18 @@ class ReviewCard extends StatelessWidget {
   /// or null to hide the sub-line entirely.
   final String? serviceName;
 
+  /// ADDITIVE (phase 424 D2): opens the report sheet. Hosts pass it only when
+  /// the viewer is not the review's author. `null` (the default) renders no
+  /// «⋮» and the header row is exactly as before.
+  final VoidCallback? onMore;
+
+  /// Widget key of the «⋮» slot for the card of review [id].
+  static Key moreKey(String keyPrefix, String id) => Key('$keyPrefix-more-$id');
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final VoidCallback? more = onMore;
     final DateTime? createdAt = data.createdAt;
     final String? relativeDate = createdAt == null
         ? null
@@ -145,6 +155,11 @@ class ReviewCard extends StatelessWidget {
                 const SizedBox(width: VelvetSpacing.sm),
                 Text(relativeDate, style: VelvetText.feedbackMutedSm),
               ],
+              if (more != null)
+                ReviewMoreButton(
+                  tapKey: ReviewCard.moreKey(keyPrefix, data.id),
+                  onTap: more,
+                ),
             ],
           ),
           const SizedBox(height: VelvetSpacing.sm + 2),
@@ -178,6 +193,51 @@ class ReviewCard extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+/// Phase 424 — the review card's «⋮» affordance. Quiet on purpose: a muted
+/// glyph with no surface of its own, so a list of reviews does not read as a
+/// list of buttons. 40 dp tall so the header row keeps the avatar's 40 dp
+/// height (the card does not grow); 44 wide to stay comfortably tappable. It
+/// pulls 10 dp into the card's right padding so the glyph's optical edge lines
+/// up with the card content edge.
+///
+/// [tapKey] sits on the [GestureDetector] — the hit target — NOT on this
+/// widget: the root is a `Transform` (optical nudge) and `RenderTransform.
+/// hitTest` never adds itself to the hit path, so `tester.tap(find.byKey(…))`
+/// on the root key would always be refused.
+class ReviewMoreButton extends StatelessWidget {
+  const ReviewMoreButton({super.key, this.tapKey, required this.onTap});
+
+  /// Key of the tappable surface (see class doc).
+  final Key? tapKey;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.translate(
+      offset: const Offset(10, 0),
+      child: Semantics(
+        button: true,
+        label: AppLocalizations.of(context).reviewMoreActions,
+        excludeSemantics: true,
+        child: GestureDetector(
+          key: tapKey,
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: const SizedBox(
+            height: 40,
+            width: 44,
+            child: Icon(
+              Icons.more_vert_rounded,
+              size: 20,
+              color: BrandColors.muted,
+            ),
+          ),
+        ),
       ),
     );
   }

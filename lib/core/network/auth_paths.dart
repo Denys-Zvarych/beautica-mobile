@@ -265,6 +265,12 @@ const List<String> kPiiPathPrefixes = <String>[
   // device-bound credential-class identifier), including in error responses.
   // A prefix so any future `/devices/*` route is covered too.
   '/api/v1/devices/',
+  // Phase 424 — UGC content reports (backend 395). `POST /api/v1/reports`
+  // carries the reporter's free-text `comment` (it may quote the reported
+  // content or name a person). A prefix so the bare path and any future
+  // `/reports/*` route are both covered; no exact [kPiiPaths] entry, so the
+  // cardinality ledger is unchanged.
+  '/api/v1/reports',
 ];
 
 /// Path SEGMENTS (substring match) for dynamic routes whose `{masterId}` /

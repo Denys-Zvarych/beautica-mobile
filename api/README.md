@@ -166,6 +166,10 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**reviews**](doc/PublicBookingControllerApi.md#reviews) | **GET** /api/v1/book/{slug}/reviews | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonInfo**](doc/PublicBookingControllerApi.md#saloninfo) | **GET** /api/v1/book/s/{slug}/info | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonReviews**](doc/PublicBookingControllerApi.md#salonreviews) | **GET** /api/v1/book/s/{slug}/reviews | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**availability1**](doc/PublicSalonBookingControllerApi.md#availability1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/availability | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**book1**](doc/PublicSalonBookingControllerApi.md#book1) | **POST** /api/v1/book/s/{slug}/masters/{masterId}/booking | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**bookableDays1**](doc/PublicSalonBookingControllerApi.md#bookabledays1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/bookable-days | 
+[*ReportControllerApi*](doc/ReportControllerApi.md) | [**createReport**](doc/ReportControllerApi.md#createreport) | **POST** /api/v1/reports | Report a review, photo or profile
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -286,6 +290,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePendingBookingActionsCountResponse](doc/ApiResponsePendingBookingActionsCountResponse.md)
  - [ApiResponsePublicSalonResponse](doc/ApiResponsePublicSalonResponse.md)
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
+ - [ApiResponseReportResponse](doc/ApiResponseReportResponse.md)
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonAdminResponse](doc/ApiResponseSalonAdminResponse.md)
@@ -340,6 +345,7 @@ Class | Method | HTTP request | Description
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)
+ - [CreateReportRequest](doc/CreateReportRequest.md)
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
@@ -412,6 +418,7 @@ Class | Method | HTTP request | Description
  - [RegisterIndependentMasterRequest](doc/RegisterIndependentMasterRequest.md)
  - [RegisterRequest](doc/RegisterRequest.md)
  - [RegistrationResponse](doc/RegistrationResponse.md)
+ - [ReportResponse](doc/ReportResponse.md)
  - [RescheduleBookingRequest](doc/RescheduleBookingRequest.md)
  - [ResendVerificationRequest](doc/ResendVerificationRequest.md)
  - [ResetPasswordRequest](doc/ResetPasswordRequest.md)
@@ -436,6 +443,8 @@ Class | Method | HTTP request | Description
  - [SalonSearchResult](doc/SalonSearchResult.md)
  - [SalonServiceCatalogResponse](doc/SalonServiceCatalogResponse.md)
  - [SalonServiceCategoryGroup](doc/SalonServiceCategoryGroup.md)
+ - [SalonServiceCoverage](doc/SalonServiceCoverage.md)
+ - [SalonServiceMasterRef](doc/SalonServiceMasterRef.md)
  - [SalonStaffMemberResponse](doc/SalonStaffMemberResponse.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)

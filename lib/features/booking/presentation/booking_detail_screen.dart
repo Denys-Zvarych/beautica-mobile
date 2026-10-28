@@ -922,8 +922,9 @@ class _DetailBody extends StatelessWidget {
         // written DURING the booking's life (the brief at creation, the
         // reason at closure) and the review comes AFTER closure, so the
         // column reads chronologically top to bottom. It is also reference
-        // material rather than an action — nothing here is tappable, and
-        // nothing above it should be pushed down for it.
+        // material rather than an action — nothing here is tappable (bar the
+        // phase 424 «⋮» report affordance), and nothing above it should be
+        // pushed down for it.
         //
         // The null check is the WHOLE gate — `reviewByClient` is non-null
         // only when the server actually sent a review, which it does only
@@ -943,6 +944,9 @@ class _DetailBody extends StatelessWidget {
             // the person named above it.
             clientDisplayName:
                 booking.clientName ?? l10n.bookingDetailGuestClient,
+            // Phase 424 D2 — the viewer on this (provider) branch is never the
+            // review's author, so the «⋮» report affordance is always offered.
+            reportable: true,
           ),
       ],
     );

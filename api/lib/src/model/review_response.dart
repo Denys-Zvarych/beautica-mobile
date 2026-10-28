@@ -18,6 +18,7 @@ part 'review_response.g.dart';
 /// * [rating]
 /// * [comment]
 /// * [createdAt]
+/// * [authoredByViewer] - True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
 @BuiltValue()
 abstract class ReviewResponse
     implements Built<ReviewResponse, ReviewResponseBuilder> {
@@ -41,6 +42,10 @@ abstract class ReviewResponse
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
+
+  /// True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
+  @BuiltValueField(wireName: r'authoredByViewer')
+  bool? get authoredByViewer;
 
   ReviewResponse._();
 
@@ -117,6 +122,13 @@ class _$ReviewResponseSerializer
         specifiedType: const FullType(DateTime),
       );
     }
+    if (object.authoredByViewer != null) {
+      yield r'authoredByViewer';
+      yield serializers.serialize(
+        object.authoredByViewer,
+        specifiedType: const FullType(bool),
+      );
+    }
   }
 
   @override
@@ -190,6 +202,13 @@ class _$ReviewResponseSerializer
             specifiedType: const FullType(DateTime),
           ) as DateTime;
           result.createdAt = valueDes;
+          break;
+        case r'authoredByViewer':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.authoredByViewer = valueDes;
           break;
         default:
           unhandled.add(key);

@@ -54,5 +54,10 @@ abstract class SalonReviewItem with _$SalonReviewItem {
     required int rating,
     required String comment,
     required DateTime createdAt,
+
+    /// Phase 424 — `true` when the signed-in viewer wrote this review
+    /// (backend `SalonReviewResponse.authoredByViewer`); the card then offers
+    /// no «⋮» report affordance. Absent on the wire → `false`.
+    @Default(false) bool authoredByViewer,
   }) = _SalonReviewItem;
 }

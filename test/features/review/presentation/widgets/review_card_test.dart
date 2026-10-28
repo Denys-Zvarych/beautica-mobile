@@ -260,4 +260,77 @@ void main() {
     expect(texts, contains('Манікюр'));
     expect(find.byIcon(Icons.spa_outlined), findsOneWidget);
   });
+
+  group('onMore (phase 424 D2)', () {
+    testWidgets('null (default) → no «⋮» affordance', (tester) async {
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(id: 'a'),
+            keyPrefix: 'master-review',
+          ),
+        ),
+      );
+      expect(find.byType(ReviewMoreButton), findsNothing);
+      expect(find.byIcon(Icons.more_vert_rounded), findsNothing);
+      expect(
+        find.byKey(ReviewCard.moreKey('master-review', 'a')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('non-null → «⋮» under its key; a tap calls onMore once', (
+      tester,
+    ) async {
+      int taps = 0;
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(id: 'a'),
+            keyPrefix: 'salon-review',
+            onMore: () => taps++,
+          ),
+        ),
+      );
+      final Finder more = find.byKey(ReviewCard.moreKey('salon-review', 'a'));
+      expect(more, findsOneWidget);
+      expect(find.byIcon(Icons.more_vert_rounded), findsOneWidget);
+
+      // Tap BY KEY with the hit-test warning fatal: the key must sit on the
+      // hit target (the GestureDetector), not on the Transform root, whose
+      // `RenderTransform` never joins the hit path.
+      final bool savedFatal = WidgetController.hitTestWarningShouldBeFatal;
+      WidgetController.hitTestWarningShouldBeFatal = true;
+      addTearDown(
+        () => WidgetController.hitTestWarningShouldBeFatal = savedFatal,
+      );
+      await tester.tap(more);
+      await tester.pump();
+      expect(taps, 1);
+    });
+
+    testWidgets('«⋮» does not grow the card (header stays 40 dp tall)', (
+      tester,
+    ) async {
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(id: 'a'),
+            keyPrefix: 'k',
+          ),
+        ),
+      );
+      final double plain = tester.getSize(find.byKey(const Key('k-a'))).height;
+      await tester.pumpApp(
+        _host(
+          ReviewCard(
+            data: _data(id: 'a'),
+            keyPrefix: 'k',
+            onMore: () {},
+          ),
+        ),
+      );
+      expect(tester.getSize(find.byKey(const Key('k-a'))).height, plain);
+    });
+  });
 }

@@ -8,7 +8,7 @@ part of 'salon_booking_slug_master_item.dart';
 
 class _$SalonBookingSlugMasterItem extends SalonBookingSlugMasterItem {
   @override
-  final String masterSlug;
+  final String? masterSlug;
   @override
   final String name;
   @override
@@ -19,18 +19,21 @@ class _$SalonBookingSlugMasterItem extends SalonBookingSlugMasterItem {
   final num? avgRating;
   @override
   final int reviewCount;
+  @override
+  final String masterId;
 
   factory _$SalonBookingSlugMasterItem(
           [void Function(SalonBookingSlugMasterItemBuilder)? updates]) =>
       (SalonBookingSlugMasterItemBuilder()..update(updates))._build();
 
   _$SalonBookingSlugMasterItem._(
-      {required this.masterSlug,
+      {this.masterSlug,
       required this.name,
       this.avatarUrl,
       this.professionalTitle,
       this.avgRating,
-      required this.reviewCount})
+      required this.reviewCount,
+      required this.masterId})
       : super._();
   @override
   SalonBookingSlugMasterItem rebuild(
@@ -50,7 +53,8 @@ class _$SalonBookingSlugMasterItem extends SalonBookingSlugMasterItem {
         avatarUrl == other.avatarUrl &&
         professionalTitle == other.professionalTitle &&
         avgRating == other.avgRating &&
-        reviewCount == other.reviewCount;
+        reviewCount == other.reviewCount &&
+        masterId == other.masterId;
   }
 
   @override
@@ -62,6 +66,7 @@ class _$SalonBookingSlugMasterItem extends SalonBookingSlugMasterItem {
     _$hash = $jc(_$hash, professionalTitle.hashCode);
     _$hash = $jc(_$hash, avgRating.hashCode);
     _$hash = $jc(_$hash, reviewCount.hashCode);
+    _$hash = $jc(_$hash, masterId.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -74,7 +79,8 @@ class _$SalonBookingSlugMasterItem extends SalonBookingSlugMasterItem {
           ..add('avatarUrl', avatarUrl)
           ..add('professionalTitle', professionalTitle)
           ..add('avgRating', avgRating)
-          ..add('reviewCount', reviewCount))
+          ..add('reviewCount', reviewCount)
+          ..add('masterId', masterId))
         .toString();
   }
 }
@@ -109,6 +115,10 @@ class SalonBookingSlugMasterItemBuilder
   int? get reviewCount => _$this._reviewCount;
   set reviewCount(int? reviewCount) => _$this._reviewCount = reviewCount;
 
+  String? _masterId;
+  String? get masterId => _$this._masterId;
+  set masterId(String? masterId) => _$this._masterId = masterId;
+
   SalonBookingSlugMasterItemBuilder() {
     SalonBookingSlugMasterItem._defaults(this);
   }
@@ -122,6 +132,7 @@ class SalonBookingSlugMasterItemBuilder
       _professionalTitle = $v.professionalTitle;
       _avgRating = $v.avgRating;
       _reviewCount = $v.reviewCount;
+      _masterId = $v.masterId;
       _$v = null;
     }
     return this;
@@ -143,8 +154,7 @@ class SalonBookingSlugMasterItemBuilder
   _$SalonBookingSlugMasterItem _build() {
     final _$result = _$v ??
         _$SalonBookingSlugMasterItem._(
-          masterSlug: BuiltValueNullFieldError.checkNotNull(
-              masterSlug, r'SalonBookingSlugMasterItem', 'masterSlug'),
+          masterSlug: masterSlug,
           name: BuiltValueNullFieldError.checkNotNull(
               name, r'SalonBookingSlugMasterItem', 'name'),
           avatarUrl: avatarUrl,
@@ -152,6 +162,8 @@ class SalonBookingSlugMasterItemBuilder
           avgRating: avgRating,
           reviewCount: BuiltValueNullFieldError.checkNotNull(
               reviewCount, r'SalonBookingSlugMasterItem', 'reviewCount'),
+          masterId: BuiltValueNullFieldError.checkNotNull(
+              masterId, r'SalonBookingSlugMasterItem', 'masterId'),
         );
     replace(_$result);
     return _$result;

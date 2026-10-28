@@ -276,7 +276,12 @@ abstract final class BookingMapper {
       }
       return null;
     }
-    return ClientAuthoredReview(rating: rating, comment: dto.comment);
+    final String? id = dto.id;
+    return ClientAuthoredReview(
+      id: (id == null || id.isEmpty) ? null : id,
+      rating: rating,
+      comment: dto.comment,
+    );
   }
 
   /// Entries that fail [fromDto]'s required-field check (or carry an

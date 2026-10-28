@@ -706,7 +706,10 @@ class _StaffProfileBody extends StatelessWidget {
                                   );
                                 },
                               ),
-                      _ => MasterReviewsBody(masterId: member.masterId),
+                      _ => MasterReviewsBody(
+                        masterId: member.masterId,
+                        reportable: true,
+                      ),
                     },
                   ),
                 ),

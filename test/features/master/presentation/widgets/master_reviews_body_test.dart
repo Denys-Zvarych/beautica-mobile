@@ -39,7 +39,11 @@ import 'package:beautica_mobile/features/master/application/master_review_summar
 import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/master_reviews_body.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
@@ -47,6 +51,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../helpers/pump_app.dart';
+import '../../../../helpers/velvet_snack_matchers.dart';
+import '../../../moderation/support/fake_content_report_repository.dart';
+
+final AppLocalizations _l10n = lookupAppLocalizations(const Locale('uk'));
 
 const String _kMasterIdA = 'master-a';
 const String _kMasterIdB = 'master-b';
@@ -330,5 +338,94 @@ void main() {
         );
       },
     );
+  });
+
+  // Phase 424 D2 — `reportable` wires each card's «⋮» to the report sheet for
+  // THAT review; the default renders no affordance at all.
+  group('reportable (phase 424 D2)', () {
+    final MasterReviewItem review = _reviewFor(_kMasterIdA);
+    final Key more = ReviewCard.moreKey('master-review', review.id);
+    List<Object> overrides(FakeContentReportRepository repo) => <Object>[
+      masterReviewSummaryProvider(_kMasterIdA).overrideWith((ref) => _summaryA),
+      masterReviewsProvider(
+        _kMasterIdA,
+        MasterReviewSort.newest,
+      ).overrideWith((ref) => <MasterReviewItem>[review]),
+      contentReportRepositoryProvider.overrideWithValue(repo),
+    ];
+
+    testWidgets('default (false) → no «⋮» on any card', (tester) async {
+      await tester.pumpApp(
+        const MasterReviewsBody(masterId: _kMasterIdA),
+        overrides: overrides(FakeContentReportRepository()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key('master-review-${review.id}')), findsOneWidget);
+      expect(find.byKey(more), findsNothing);
+      expect(find.byType(ReviewMoreButton), findsNothing);
+    });
+
+    testWidgets('true → «⋮» opens the report sheet for THIS review; the '
+        'submitted request targets REVIEW + its id', (tester) async {
+      final FakeContentReportRepository repo = FakeContentReportRepository();
+      await tester.pumpApp(
+        const MasterReviewsBody(masterId: _kMasterIdA, reportable: true),
+        overrides: overrides(repo),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(more));
+      await tester.pumpAndSettle();
+      expect(find.byType(ReportSheet), findsOneWidget);
+      expect(
+        find.text(_l10n.reportSubjectReview(review.clientDisplayName)),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(ReportSheet.reasonKey(ReportReason.spam)));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(ReportSheet.submitKey));
+      await tester.tap(find.text(_l10n.reportSubmit));
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.requests.single,
+        ContentReportRequest(
+          targetType: ReportTargetType.review,
+          targetId: review.id,
+          reason: ReportReason.spam,
+        ),
+      );
+      expect(find.byType(ReportSheet), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('authoredByViewer → no «⋮» on the viewer\'s own review even '
+        'when reportable', (tester) async {
+      final MasterReviewItem own = review.copyWith(authoredByViewer: true);
+      await tester.pumpApp(
+        const MasterReviewsBody(masterId: _kMasterIdA, reportable: true),
+        overrides: <Object>[
+          masterReviewSummaryProvider(
+            _kMasterIdA,
+          ).overrideWith((ref) => _summaryA),
+          masterReviewsProvider(
+            _kMasterIdA,
+            MasterReviewSort.newest,
+          ).overrideWith((ref) => <MasterReviewItem>[own]),
+          contentReportRepositoryProvider.overrideWithValue(
+            FakeContentReportRepository(),
+          ),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(Key('master-review-${own.id}')),
+        findsOneWidget,
+        reason: 'anti-vacuity — the card itself renders',
+      );
+      expect(find.byKey(more), findsNothing);
+      expect(find.byType(ReviewMoreButton), findsNothing);
+    });
   });
 }

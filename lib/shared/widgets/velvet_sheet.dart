@@ -19,14 +19,19 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 
 /// Presents [builder] in a transparent-backed modal sheet, the way every
 /// VelvetTouch option sheet is shown (the chrome supplies the surface).
+///
+/// [isScrollControlled] (ADDITIVE, phase 424) — a sheet holding a text field
+/// (the report sheet) passes `true` so it can rise above the keyboard. The
+/// default `false` keeps every existing sheet unchanged.
 Future<T?> showVelvetSheet<T>(
   BuildContext context, {
   required WidgetBuilder builder,
+  bool isScrollControlled = false,
 }) {
   return showModalBottomSheetOnce<T>(
     context: context,
     backgroundColor: Colors.transparent,
-    isScrollControlled: false,
+    isScrollControlled: isScrollControlled,
     builder: builder,
   );
 }
@@ -38,10 +43,15 @@ class VelvetSheetChrome extends StatelessWidget {
     super.key,
     required this.title,
     required this.children,
+    this.subtitle,
   });
 
   final String title;
   final List<Widget> children;
+
+  /// ADDITIVE (phase 424): one muted context line under [title] (e.g. «Відгук
+  /// від Олена К.»). `null` (the default) renders exactly as before.
+  final String? subtitle;
 
   static const BorderRadius _sheetRadius = BorderRadius.vertical(
     top: Radius.circular(VelvetRadii.card),
@@ -49,6 +59,7 @@ class VelvetSheetChrome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String? sub = subtitle;
     return DecoratedBox(
       decoration: const BoxDecoration(
         color: BrandColors.base,
@@ -83,6 +94,13 @@ class VelvetSheetChrome extends StatelessWidget {
                 padding: const EdgeInsets.only(left: 6),
                 child: Text(title, style: VelvetText.subheading()),
               ),
+              if (sub != null) ...<Widget>[
+                const SizedBox(height: VelvetSpacing.xs),
+                Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: Text(sub, style: VelvetText.feedbackMutedSm),
+                ),
+              ],
               const SizedBox(height: VelvetSpacing.md),
               for (int i = 0; i < children.length; i++) ...<Widget>[
                 children[i],

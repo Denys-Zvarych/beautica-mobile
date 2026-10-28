@@ -27,6 +27,7 @@ Name | Type | Description | Notes
 **serviceCategories** | [**BuiltList&lt;SalonServiceCategoryGroup&gt;**](SalonServiceCategoryGroup.md) | Bookable services grouped by category — GET /salons/{id}/services, unchanged. | 
 **ratingDistribution** | [**BuiltList&lt;RatingBucket&gt;**](RatingBucket.md) | Zero-filled 5..1 histogram — GET /salons/{id}/reviews/summary. | 
 **latestReviews** | [**BuiltList&lt;SalonReviewResponse&gt;**](SalonReviewResponse.md) | The newest 5 reviews — the SalonReviewResponse rows of GET /salons/{id}/reviews. | 
+**serviceCoverage** | [**BuiltList&lt;SalonServiceCoverage&gt;**](SalonServiceCoverage.md) | Phase 391 — per service of serviceCategories (same order): the bookable masters who perform it, as {masterId, masterServiceId}; masters follow the roster order and are always roster members. Drives the salon wizard's master step. | 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

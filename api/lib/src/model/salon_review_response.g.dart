@@ -25,6 +25,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
   final String? comment;
   @override
   final DateTime? createdAt;
+  @override
+  final bool? authoredByViewer;
 
   factory _$SalonReviewResponse(
           [void Function(SalonReviewResponseBuilder)? updates]) =>
@@ -39,7 +41,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
       this.serviceName,
       this.rating,
       this.comment,
-      this.createdAt})
+      this.createdAt,
+      this.authoredByViewer})
       : super._();
   @override
   SalonReviewResponse rebuild(
@@ -62,7 +65,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
         serviceName == other.serviceName &&
         rating == other.rating &&
         comment == other.comment &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        authoredByViewer == other.authoredByViewer;
   }
 
   @override
@@ -77,6 +81,7 @@ class _$SalonReviewResponse extends SalonReviewResponse {
     _$hash = $jc(_$hash, rating.hashCode);
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, authoredByViewer.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -92,7 +97,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
           ..add('serviceName', serviceName)
           ..add('rating', rating)
           ..add('comment', comment)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('authoredByViewer', authoredByViewer))
         .toString();
   }
 }
@@ -140,6 +146,11 @@ class SalonReviewResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  bool? _authoredByViewer;
+  bool? get authoredByViewer => _$this._authoredByViewer;
+  set authoredByViewer(bool? authoredByViewer) =>
+      _$this._authoredByViewer = authoredByViewer;
+
   SalonReviewResponseBuilder() {
     SalonReviewResponse._defaults(this);
   }
@@ -156,6 +167,7 @@ class SalonReviewResponseBuilder
       _rating = $v.rating;
       _comment = $v.comment;
       _createdAt = $v.createdAt;
+      _authoredByViewer = $v.authoredByViewer;
       _$v = null;
     }
     return this;
@@ -186,6 +198,7 @@ class SalonReviewResponseBuilder
           rating: rating,
           comment: comment,
           createdAt: createdAt,
+          authoredByViewer: authoredByViewer,
         );
     replace(_$result);
     return _$result;

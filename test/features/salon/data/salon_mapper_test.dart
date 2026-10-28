@@ -26,6 +26,7 @@ import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/salon/data/salon_mapper.dart';
+import 'package:beautica_mobile/features/salon/domain/salon_review.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -687,4 +688,40 @@ void main() {
       expect(salon.cityHromadaName, isNull);
     });
   });
+
+  group(
+    'SalonReviewMapper.reviewsFromDtoList — authoredByViewer (phase 424)',
+    () {
+      SalonReviewResponse dto(String id, bool? authored) => SalonReviewResponse(
+        (b) => b
+          ..id = id
+          ..masterId = 'm-1'
+          ..clientDisplayName = 'Olena K.'
+          ..rating = 5
+          ..comment = 'Great'
+          ..createdAt = DateTime.utc(2026)
+          ..authoredByViewer = authored,
+      );
+
+      test('true/false/absent maps to true/false/false', () {
+        final List<SalonReviewItem> out = SalonReviewMapper.reviewsFromDtoList(
+          <SalonReviewResponse>[
+            dto('own', true),
+            dto('other', false),
+            dto('legacy', null),
+          ],
+        );
+        expect(out.map((SalonReviewItem r) => r.id), <String>[
+          'own',
+          'other',
+          'legacy',
+        ]);
+        expect(out.map((SalonReviewItem r) => r.authoredByViewer), <bool>[
+          true,
+          false,
+          false,
+        ]);
+      });
+    },
+  );
 }

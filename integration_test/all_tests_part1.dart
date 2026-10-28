@@ -113,6 +113,7 @@ import 'salon_pending_invites_flow_test.dart' as salon_pending_invites;
 import 'salon_staff_settings_flow_test.dart' as salon_staff_settings;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
 import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
+import 'ugc_report_content_flow_test.dart' as ugc_report_content;
 import 'salon_staff_settings_admin_gate_flow_test.dart'
     as salon_staff_settings_admin_gate;
 import 'salon_admin_edit_master_schedule_flow_test.dart'
@@ -383,6 +384,9 @@ void main() {
   // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
   // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
   group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
+  // Phase 424 — report a review (incl. «Інше» comment gate, 429 banner)
+  // and a portfolio photo from the viewer; owner rail has no flag.
+  group('ugc_report_content_flow', ugc_report_content.main);
   // Phase 319 (Step 2.7 Rule 3b) — the salon-target UNASSIGN journey, both
   // outcomes: the happy-path 204 (anchored on the target flow above), the
   // reactive 409 refusal re-showing the blocked dialog with no optimistic

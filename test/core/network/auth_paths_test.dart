@@ -757,6 +757,15 @@ void main() {
       expect(kPiiPaths.length, equals(23));
     });
   });
+  group('content report paths (phase 424)', () {
+    test('/api/v1/reports is a PII route; kPiiPaths count unchanged', () {
+      expect(isPiiPath('/api/v1/reports'), isTrue);
+      expect(isPiiPath('/api/v1/reports?x=1'), isTrue);
+      expect(kPiiPathPrefixes, contains('/api/v1/reports'));
+      expect(kAuthPaths.contains('/api/v1/reports'), isFalse);
+      expect(kPiiPaths.length, equals(23));
+    });
+  });
   group('media upload paths (Phase 070)', () {
     test('every /media/ route is a PII path and never a public path', () {
       for (final p in const <String>[

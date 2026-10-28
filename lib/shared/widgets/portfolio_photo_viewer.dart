@@ -26,18 +26,25 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 /// D5 — [photos] is the list the tapped rail is SHOWING (the viewer never
 /// fetches). It is capped to the newest [kPortfolioMaxPhotos], exactly as
 /// the rail caps its tiles, so a tile index always maps to the same photo.
+///
+/// [onReport] (ADDITIVE, phase 424 D3) is forwarded to the viewer; `null`
+/// (the default — owner management screens) shows no report button.
 Future<void> showPortfolioPhotoViewer(
   BuildContext context,
   List<PortfolioPhoto> photos,
-  int initialIndex,
-) {
+  int initialIndex, {
+  PortfolioPhotoReportCallback? onReport,
+}) {
   final List<PortfolioPhoto> shown = List<PortfolioPhoto>.unmodifiable(
     photos.take(kPortfolioMaxPhotos),
   );
   final MaterialPageRoute<void> route = MaterialPageRoute<void>(
     fullscreenDialog: true,
-    builder: (BuildContext _) =>
-        PortfolioPhotoViewer(photos: shown, initialIndex: initialIndex),
+    builder: (BuildContext _) => PortfolioPhotoViewer(
+      photos: shown,
+      initialIndex: initialIndex,
+      onReport: onReport,
+    ),
   );
   // Single-flight: a double-tapped tile opens ONE viewer. The probe lets a
   // viewer removed without its future completing (stack replaced under it)
@@ -50,6 +57,12 @@ Future<void> showPortfolioPhotoViewer(
         route.isActive ? true : (route.navigator == null ? null : false),
   );
 }
+
+/// Phase 424 D3 — reports the photo currently shown. [context] is the
+/// VIEWER's context (the viewer sits on the root navigator, so a sheet must be
+/// shown from it to appear above the photo).
+typedef PortfolioPhotoReportCallback =
+    void Function(BuildContext context, PortfolioPhoto photo);
 
 /// Phase 407 (9.12, D1) — the full-screen, READ-ONLY portfolio photo viewer:
 /// a horizontal [PageView] of pinch-zoomable photos ([InteractiveViewer],
@@ -90,6 +103,7 @@ class PortfolioPhotoViewer extends StatefulWidget {
     super.key,
     required this.photos,
     this.initialIndex = 0,
+    this.onReport,
   });
 
   /// The photos to page through, in rail order.
@@ -98,9 +112,14 @@ class PortfolioPhotoViewer extends StatefulWidget {
   /// The page shown first (clamped into range).
   final int initialIndex;
 
+  /// ADDITIVE (phase 424 D3): non-null → a flag button left of close reports
+  /// the shown photo. `null` (the default) → no button, chrome unchanged.
+  final PortfolioPhotoReportCallback? onReport;
+
   static const Key pagerKey = Key('portfolio-viewer-pager');
   static const Key closeKey = Key('portfolio-viewer-close');
   static const Key indicatorKey = Key('portfolio-viewer-indicator');
+  static const Key reportKey = Key('portfolio-viewer-report');
 
   /// The page of [photo] (keyed by photo id).
   static Key pageKey(String photoId) => Key('portfolio-viewer-page-$photoId');
@@ -260,6 +279,7 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final List<PortfolioPhoto> photos = widget.photos;
     final int total = photos.length;
+    final PortfolioPhotoReportCallback? report = widget.onReport;
     final double dpr = MediaQuery.devicePixelRatioOf(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -324,6 +344,20 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                               ),
                         ),
                       const Spacer(),
+                      if (report != null && total > 0) ...<Widget>[
+                        IconButton(
+                          key: PortfolioPhotoViewer.reportKey,
+                          tooltip: l10n.portfolioViewerReport,
+                          onPressed: () =>
+                              report(context, photos[_index.value]),
+                          style: IconButton.styleFrom(
+                            backgroundColor: _kChromeFill,
+                            foregroundColor: BrandColors.white,
+                          ),
+                          icon: const Icon(Icons.outlined_flag_rounded),
+                        ),
+                        const SizedBox(width: VelvetSpacing.sm),
+                      ],
                       IconButton(
                         key: PortfolioPhotoViewer.closeKey,
                         tooltip: l10n.portfolioViewerClose,

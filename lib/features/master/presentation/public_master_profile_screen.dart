@@ -70,6 +70,7 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -550,7 +551,10 @@ class _PublicProfileBody extends StatelessWidget {
                       keyPrefix: 'public-master-profile-category',
                       interactive: false,
                     ),
-                    _ => MasterReviewsBody(masterId: masterId),
+                    _ => MasterReviewsBody(
+                      masterId: masterId,
+                      reportable: true,
+                    ),
                   },
                 ),
               ),
@@ -610,6 +614,7 @@ class _PublicPortfolioRail extends ConsumerWidget {
             context,
             photos ?? const <PortfolioPhoto>[],
             i,
+            onReport: reportPortfolioPhoto,
           ),
         ),
       ],
