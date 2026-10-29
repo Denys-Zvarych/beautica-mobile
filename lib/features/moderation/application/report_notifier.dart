@@ -8,6 +8,8 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 
@@ -68,11 +70,24 @@ class ReportController extends _$ReportController {
   Future<void> submit(ContentReportRequest request) async {
     if (state is ReportSubmitSending) return;
     state = const ReportSubmitSending();
+    // Phase 428 add-on — whose report this is. Captured BEFORE the call: a
+    // logout → login while it is in flight must not mark the target in the
+    // NEXT user's reported set.
+    final String? submitter = authUserIdOrNull(ref.read(authProvider));
     try {
       final ContentReport report = await ref
           .read(contentReportRepositoryProvider)
           .create(request);
       if (!ref.mounted) return;
+      // Phase 428 add-on — "report once, ever": hide every «⋮» for this
+      // target right away (the server set is loaded once per session) — only
+      // while the same user is signed in.
+      if (submitter != null &&
+          authUserIdOrNull(ref.read(authProvider)) == submitter) {
+        ref
+            .read(myReportedTargetsProvider.notifier)
+            .markReported(request.targetType, request.targetId);
+      }
       state = ReportSubmitSent(report);
     } on Failure catch (e) {
       if (!ref.mounted) return;

@@ -28,6 +28,11 @@ enum ReportTargetType {
   final String wireName;
 }
 
+/// Phase 428 add-on — one thing the signed-in user has already reported
+/// (backend 415 `GET /reports/mine`). A record: value equality, so it can key
+/// a `Set` lookup.
+typedef ReportedTarget = ({ReportTargetType type, String id});
+
 /// Why it is being reported — backend 395 D3 `ReportReason`, in sheet order.
 enum ReportReason {
   spam('SPAM'),

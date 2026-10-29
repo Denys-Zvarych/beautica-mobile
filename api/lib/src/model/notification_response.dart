@@ -28,7 +28,7 @@ abstract class NotificationResponse
 
   @BuiltValueField(wireName: r'type')
   NotificationResponseTypeEnum? get type;
-  // enum typeEnum {  BOOKING_CREATED,  BOOKING_CANCELLED_BY_CLIENT,  BOOKING_DECLINED,  BOOKING_NOT_COMPLETED,  BOOKING_RESCHEDULED,  REVIEW_REQUESTED,  BOOKING_CANCELLED_SALON_CLOSED,  BOOKING_CANCELLED_MASTER_REMOVED,  REVIEW_RECEIVED,  INVITE_ACCEPTED,  CATEGORY_REQUEST_APPROVED,  CATEGORY_REQUEST_REJECTED,  SERVICE_TYPE_SUGGESTION_APPROVED,  SERVICE_TYPE_SUGGESTION_REJECTED,  };
+  // enum typeEnum {  BOOKING_CREATED,  BOOKING_CANCELLED_BY_CLIENT,  BOOKING_DECLINED,  BOOKING_NOT_COMPLETED,  BOOKING_RESCHEDULED,  REVIEW_REQUESTED,  BOOKING_CANCELLED_SALON_CLOSED,  BOOKING_CANCELLED_MASTER_REMOVED,  REVIEW_RECEIVED,  INVITE_ACCEPTED,  CATEGORY_REQUEST_APPROVED,  CATEGORY_REQUEST_REJECTED,  SERVICE_TYPE_SUGGESTION_APPROVED,  SERVICE_TYPE_SUGGESTION_REJECTED,  REPORT_CONTENT_REMOVED,  REPORT_NO_VIOLATION,  REPORT_REVIEWED,  CONTENT_REMOVED,  REVIEW_ABOUT_YOU_REMOVED,  };
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
@@ -252,6 +252,21 @@ class NotificationResponseTypeEnum extends EnumClass {
   @BuiltValueEnumConst(wireName: r'SERVICE_TYPE_SUGGESTION_REJECTED')
   static const NotificationResponseTypeEnum SERVICE_TYPE_SUGGESTION_REJECTED =
       _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED;
+  @BuiltValueEnumConst(wireName: r'REPORT_CONTENT_REMOVED')
+  static const NotificationResponseTypeEnum REPORT_CONTENT_REMOVED =
+      _$notificationResponseTypeEnum_REPORT_CONTENT_REMOVED;
+  @BuiltValueEnumConst(wireName: r'REPORT_NO_VIOLATION')
+  static const NotificationResponseTypeEnum REPORT_NO_VIOLATION =
+      _$notificationResponseTypeEnum_REPORT_NO_VIOLATION;
+  @BuiltValueEnumConst(wireName: r'REPORT_REVIEWED')
+  static const NotificationResponseTypeEnum REPORT_REVIEWED =
+      _$notificationResponseTypeEnum_REPORT_REVIEWED;
+  @BuiltValueEnumConst(wireName: r'CONTENT_REMOVED')
+  static const NotificationResponseTypeEnum CONTENT_REMOVED =
+      _$notificationResponseTypeEnum_CONTENT_REMOVED;
+  @BuiltValueEnumConst(wireName: r'REVIEW_ABOUT_YOU_REMOVED')
+  static const NotificationResponseTypeEnum REVIEW_ABOUT_YOU_REMOVED =
+      _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED;
   @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
   static const NotificationResponseTypeEnum unknownDefaultOpenApi =
       _$notificationResponseTypeEnum_unknownDefaultOpenApi;

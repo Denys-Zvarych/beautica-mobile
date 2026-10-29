@@ -18,6 +18,7 @@ Name | Type | Description | Notes
 **subjectRole** | **String** |  | [optional] 
 **categoryName** | **String** |  | [optional] 
 **decisionReason** | **String** |  | [optional] 
+**contentKind** | **String** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

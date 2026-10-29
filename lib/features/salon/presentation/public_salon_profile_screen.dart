@@ -28,6 +28,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
@@ -51,6 +52,7 @@ import 'package:beautica_mobile/features/favorites/application/favorite_toggle_n
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
@@ -1213,6 +1215,13 @@ class _SalonAboutPortfolio extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Phase 428 add-on — ANY signed-in viewer may report a photo (backend 395:
+    // every authenticated user except the author; providers included), so
+    // the hide-once-reported check applies to every signed-in role. An
+    // anonymous viewer has no reported set and never triggers
+    // `GET /reports/mine`.
+    final bool signedIn =
+        ref.watch(authProvider.select(authUserIdOrNull)) != null;
     return ref
         .watch(salonPortfolioProvider(salonId))
         .when(
@@ -1232,6 +1241,7 @@ class _SalonAboutPortfolio extends ConsumerWidget {
                       photos,
                       i,
                       onReport: reportPortfolioPhoto,
+                      isReported: signedIn ? isPortfolioPhotoReported : null,
                     ),
                   ),
                 ),
@@ -1858,6 +1868,10 @@ class _CoverTrailing extends ConsumerWidget {
       initialIsFavorite: salon.isFavorite,
     );
     if (!ref.watch(isClientProvider)) return heart;
+    // Phase 428 add-on — already reported → no «⋯» (report once, ever).
+    if (watchIsReported(ref, ReportTargetType.salonProfile, salon.id)) {
+      return heart;
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[

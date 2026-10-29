@@ -22,6 +22,7 @@ import 'package:beautica_mobile/core/media/upload/upload_failure.dart'
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,6 +68,7 @@ Future<void> _pumpHost(
   List<PortfolioPhoto> photos = _photos,
   int initialIndex = 0,
   PortfolioPhotoReportCallback? onReport,
+  PortfolioPhotoReportedCheck? isReported,
 }) async {
   await tester.pumpApp(
     Scaffold(
@@ -79,6 +81,7 @@ Future<void> _pumpHost(
               photos,
               initialIndex,
               onReport: onReport,
+              isReported: isReported,
             ),
             child: const Text('open'),
           ),
@@ -813,6 +816,27 @@ void main() {
       // The context sits UNDER the viewer, so a sheet shown from it lands
       // above the photo (the viewer is on the root navigator).
       expect(calls.single.$1.widget, isA<PortfolioPhotoViewer>());
+    });
+  });
+
+  // Phase 428 add-on — `isReported` hides the flag per SHOWN photo.
+  group('isReported (phase 428)', () {
+    final Finder report = find.byKey(PortfolioPhotoViewer.reportKey);
+
+    testWidgets('a reported photo shows no flag; paging to an unreported one '
+        'brings it back', (tester) async {
+      // RED WHEN the viewer ignores `isReported`.
+      await _pumpHost(
+        tester,
+        onReport: (BuildContext _, PortfolioPhoto _) {},
+        isReported: (WidgetRef _, PortfolioPhoto photo) => photo.id == 'p1',
+      );
+      expect(find.byKey(PortfolioPhotoViewer.closeKey), findsOneWidget);
+      expect(report, findsNothing);
+
+      await tester.fling(_pager, const Offset(-400, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(report, findsOneWidget);
     });
   });
 }

@@ -3,6 +3,8 @@
 // masked reviewer name as subtitle); the default renders no affordance; the
 // viewer's OWN review (`authoredByViewer`) never offers it.
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
@@ -15,6 +17,7 @@ import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../../helpers/no_reported_targets.dart';
 import '../../../../helpers/pump_app.dart';
 import '../../../../helpers/velvet_snack_matchers.dart';
 import '../../../moderation/support/fake_content_report_repository.dart';
@@ -135,5 +138,53 @@ void main() {
     expect(_more('sr-1'), findsNothing);
     expect(_more('sr-2'), findsOneWidget);
     expect(find.byType(ReviewMoreButton), findsOneWidget);
+  });
+
+  testWidgets('phase 428 — a review the viewer ALREADY reported loses its «⋮»; '
+      'the other card keeps it', (tester) async {
+    // RED WHEN the section stops checking the reported set.
+    await tester.pumpApp(
+      const SalonReviewsSection(salonId: _kSalonId, reportable: true),
+      overrides: <Object>[
+        ..._overrides(FakeContentReportRepository()),
+        reportedTargetsOverride(<ReportedTarget>{
+          (type: ReportTargetType.review, id: _first.id),
+        }),
+      ],
+    );
+    await tester.pumpAndSettle();
+    expect(_more(_first.id), findsNothing);
+    expect(_more(_second.id), findsOneWidget);
+  });
+
+  testWidgets('phase 428 — marking ONE review reported rebuilds only THAT '
+      'card; the other card is not rebuilt', (tester) async {
+    // RED WHEN the section watches the whole reported set in its own build.
+    await tester.pumpApp(
+      const SalonReviewsSection(salonId: _kSalonId, reportable: true),
+      overrides: <Object>[
+        ..._overrides(FakeContentReportRepository()),
+        reportedTargetsOverride(const <ReportedTarget>{}),
+      ],
+    );
+    await tester.pumpAndSettle();
+    final Finder cardA = find.byKey(Key('salon-review-${_first.id}'));
+    final Finder cardB = find.byKey(Key('salon-review-${_second.id}'));
+    final Widget beforeA = tester.widget(cardA);
+    final Widget beforeB = tester.widget(cardB);
+
+    ProviderScope.containerOf(tester.element(cardA))
+        .read(myReportedTargetsProvider.notifier)
+        .markReported(ReportTargetType.review, _first.id);
+    await tester.pump();
+
+    expect(_more(_first.id), findsNothing);
+    expect(_more(_second.id), findsOneWidget);
+    expect(identical(tester.widget(cardA), beforeA), isFalse);
+    expect(
+      identical(tester.widget(cardB), beforeB),
+      isTrue,
+      reason: 'the unaffected card must not rebuild',
+    );
   });
 }

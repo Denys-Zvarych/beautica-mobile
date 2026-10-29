@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -134,21 +135,34 @@ class _SalonReviewsSectionState extends ConsumerState<SalonReviewsSection> {
                 : Column(
                     children: <Widget>[
                       for (int i = 0; i < reviews.length; i++) ...<Widget>[
-                        _salonReviewCard(
-                          reviews[i],
-                          // Never on the viewer's own review (phase 424 D2).
-                          onMore:
-                              widget.reportable && !reviews[i].authoredByViewer
-                              ? () => showReportSheet(
-                                  context,
-                                  targetType: ReportTargetType.review,
-                                  targetId: reviews[i].id,
-                                  subject: l10n.reportSubjectReview(
-                                    reviews[i].clientDisplayName,
-                                  ),
-                                )
-                              : null,
-                        ),
+                        // Never on the viewer's own review (phase 424 D2).
+                        if (widget.reportable && !reviews[i].authoredByViewer)
+                          // Phase 428 add-on — report once, ever. Per-card
+                          // Consumer + per-target select: a report flips ONE
+                          // card, never the whole list.
+                          Consumer(
+                            builder: (BuildContext context, WidgetRef ref, _) =>
+                                _salonReviewCard(
+                                  reviews[i],
+                                  onMore:
+                                      watchIsReported(
+                                        ref,
+                                        ReportTargetType.review,
+                                        reviews[i].id,
+                                      )
+                                      ? null
+                                      : () => showReportSheet(
+                                          context,
+                                          targetType: ReportTargetType.review,
+                                          targetId: reviews[i].id,
+                                          subject: l10n.reportSubjectReview(
+                                            reviews[i].clientDisplayName,
+                                          ),
+                                        ),
+                                ),
+                          )
+                        else
+                          _salonReviewCard(reviews[i], onMore: null),
                         if (i < reviews.length - 1)
                           const SizedBox(height: VelvetSpacing.md),
                       ],

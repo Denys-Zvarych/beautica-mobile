@@ -64,6 +64,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../../../helpers/no_reported_targets.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
@@ -4542,6 +4543,24 @@ void main() {
         tester.element(find.byType(ReportSheet)),
       );
       expect(sheet.subject, l10n.reportSubjectProfile(_stubSalon.name));
+    });
+
+    testWidgets('phase 428 — a salon the client ALREADY reported has no «⋯»; '
+        'the heart stays', (tester) async {
+      // RED WHEN `_CoverTrailing` stops checking the reported set.
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: <Object>[
+          ..._overrides(),
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.salonProfile, id: _stubSalon.id),
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(PublicSalonProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('salon-favorite-toggle')), findsOne);
     });
 
     testWidgets('a non-client session (own salon) gets no «⋯»', (tester) async {

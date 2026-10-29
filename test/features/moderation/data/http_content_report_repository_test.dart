@@ -243,6 +243,62 @@ void main() {
     );
   });
 
+  // Phase 428 add-on — GET /api/v1/reports/mine (backend 415).
+  group('mine', () {
+    test(
+      'GETs /api/v1/reports/mine and maps every known target type',
+      () async {
+        final b = _build(
+          status: 200,
+          body: <String, Object?>{
+            'success': true,
+            'data': <Object?>[
+              <String, Object?>{'targetType': 'REVIEW', 'targetId': 'r1'},
+              <String, Object?>{
+                'targetType': 'PORTFOLIO_PHOTO',
+                'targetId': 'p1',
+              },
+              <String, Object?>{
+                'targetType': 'MASTER_PROFILE',
+                'targetId': 'm1',
+              },
+              <String, Object?>{
+                'targetType': 'SALON_PROFILE',
+                'targetId': 's1',
+              },
+              <String, Object?>{
+                'targetType': 'CLIENT_PROFILE',
+                'targetId': 'c1',
+              },
+              <String, Object?>{
+                'targetType': 'CLIENT_REVIEW',
+                'targetId': 'cr1',
+              },
+              // Dropped: unknown type, missing id.
+              <String, Object?>{'targetType': 'MARTIAN', 'targetId': 'x'},
+              <String, Object?>{'targetType': 'REVIEW'},
+            ],
+          },
+        );
+        final Set<ReportedTarget> got = await b.repo.mine();
+        expect(b.adapter.paths.single, '/api/v1/reports/mine');
+        expect(got, <ReportedTarget>{
+          (type: ReportTargetType.review, id: 'r1'),
+          (type: ReportTargetType.portfolioPhoto, id: 'p1'),
+          (type: ReportTargetType.masterProfile, id: 'm1'),
+          (type: ReportTargetType.salonProfile, id: 's1'),
+          (type: ReportTargetType.clientProfile, id: 'c1'),
+          (type: ReportTargetType.clientReview, id: 'cr1'),
+        });
+      },
+    );
+
+    test('503 → ServerFailure', () async {
+      final b = _build(status: 503, body: <String, Object?>{'success': false});
+      await expectLater(b.repo.mine(), throwsA(isA<ServerFailure>()));
+    });
+  });
+
   group('error mapping', () {
     test('429 → ServerFailure(statusCode: 429) → rateLimited banner', () async {
       final b = _build(status: 429, body: _errorEnvelope('Too many reports'));

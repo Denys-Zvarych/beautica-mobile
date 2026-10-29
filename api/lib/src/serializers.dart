@@ -42,6 +42,7 @@ import 'package:beautica_api/src/model/api_response_list_master_service_response
 import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
+import 'package:beautica_api/src/model/api_response_list_reported_target_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_master_effective_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
@@ -210,6 +211,7 @@ import 'package:beautica_api/src/model/register_independent_master_request.dart'
 import 'package:beautica_api/src/model/register_request.dart';
 import 'package:beautica_api/src/model/registration_response.dart';
 import 'package:beautica_api/src/model/report_response.dart';
+import 'package:beautica_api/src/model/reported_target_response.dart';
 import 'package:beautica_api/src/model/reschedule_booking_request.dart';
 import 'package:beautica_api/src/model/resend_verification_request.dart';
 import 'package:beautica_api/src/model/reset_password_request.dart';
@@ -303,6 +305,7 @@ part 'serializers.g.dart';
   ApiResponseListMasterWorkingDayResponse,
   ApiResponseListOblastResponse,
   ApiResponseListPlatformServiceTypeResponse,
+  ApiResponseListReportedTargetResponse,
   ApiResponseListSalonMasterEffectiveScheduleResponse,
   ApiResponseListSalonResponse,
   ApiResponseListSalonStaffMemberResponse,
@@ -471,6 +474,7 @@ part 'serializers.g.dart';
   RegisterRequest,
   RegistrationResponse,
   ReportResponse,
+  ReportedTargetResponse,
   RescheduleBookingRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,

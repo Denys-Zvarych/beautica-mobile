@@ -659,6 +659,26 @@ void main() {
       await pumpPastVelvetSnack(tester);
     });
 
+    testWidgets('phase 428 — a review the provider ALREADY reported has no '
+        '«⋮»; the card still renders', (tester) async {
+      // RED WHEN `ClientReviewSection` stops checking the reported set (the
+      // fake's `mine()` is the session's `GET /reports/mine`).
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(id: reviewId, rating: 1),
+        ),
+        role: UserRole.independentMaster,
+        reports: FakeContentReportRepository(
+          preReported: <ReportedTarget>{
+            (type: ReportTargetType.review, id: reviewId),
+          },
+        ),
+      );
+      expect(_section, findsOneWidget, reason: 'anti-vacuity');
+      expect(more, findsNothing);
+    });
+
     testWidgets('a SALON_MASTER provider is offered «⋮» too', (tester) async {
       await _pump(
         tester,

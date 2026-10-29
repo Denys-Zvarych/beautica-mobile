@@ -60,9 +60,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
@@ -76,7 +78,7 @@ import '../../domain/client_authored_review.dart';
 /// `Booking.reviewByClient` is non-null. This widget does NOT re-check either
 /// condition: it has no access to the session, and a null review has nothing
 /// to draw. The caller owns both gates — see `booking_detail_screen.dart`.
-class ClientReviewSection extends StatelessWidget {
+class ClientReviewSection extends ConsumerWidget {
   const ClientReviewSection({
     super.key,
     required this.review,
@@ -108,11 +110,18 @@ class ClientReviewSection extends StatelessWidget {
   static const String keyPrefix = 'client-review';
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final AppLocalizations l10n = AppLocalizations.of(context);
     final String? comment = review.comment;
     final String? reviewId = review.id;
-    final VoidCallback? onMore = (reportable && reviewId != null)
+    // Phase 428 add-on — a review the viewer already reported loses its «⋮»
+    // (report once, ever). Watched only when reporting is offered.
+    final bool alreadyReported =
+        reportable &&
+        reviewId != null &&
+        watchIsReported(ref, ReportTargetType.review, reviewId);
+    final VoidCallback? onMore =
+        (reportable && reviewId != null && !alreadyReported)
         ? () => showReportSheet(
             context,
             targetType: ReportTargetType.review,

@@ -13,8 +13,8 @@ lib/features/auth/presentation/forgot_password_request_screen.dart:129:context.p
 # bookingRescheduleInFlightProvider guards the whole fetch-then-push.
 lib/features/booking/presentation/reschedule_navigation.dart:260:context.push(
 # NotificationsScreen._opening guards every feed-row tap; push-tap dispatch is not a user tap.
-lib/features/notifications/presentation/notification_navigation.dart:405:GoRouter.of(context).push<Object?>(fallbackRoute)
-lib/features/notifications/presentation/notification_navigation.dart:455:router.push<Object?>(location, extra: extra)
+lib/features/notifications/presentation/notification_navigation.dart:410:GoRouter.of(context).push<Object?>(fallbackRoute)
+lib/features/notifications/presentation/notification_navigation.dart:460:router.push<Object?>(location, extra: extra)
 # ServicesListScreen._opening (held until the pushed screen pops; then refreshes).
 lib/features/services/presentation/services_list_screen.dart:317:context.push<void>(location)
 # _requestingChangePasswordOtp flag guards the OTP request that precedes the push.

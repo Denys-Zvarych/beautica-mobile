@@ -7430,5 +7430,15 @@
         "type": "String"
       }
     }
-  }
+  },
+  "notificationTitleReportReviewed": "Report reviewed",
+  "notificationTitleContentRemoved": "Content removed",
+  "notificationBodyReportContentRemoved": "Thank you! We reviewed your report and removed the content.",
+  "notificationBodyReportNoViolation": "We reviewed your report and found no rule violations.",
+  "notificationBodyReportReviewed": "Thank you! We reviewed your report.",
+  "notificationBodyContentRemovedReview": "Your review was removed for violating the community guidelines.",
+  "notificationBodyContentRemovedClientReview": "Your review of a client was removed for violating the community guidelines.",
+  "notificationBodyContentRemovedPhoto": "Your photo was removed for violating the community guidelines.",
+  "notificationTitleReviewAboutYouRemoved": "Review removed",
+  "notificationBodyReviewAboutYouRemoved": "A review about you was removed by Beautica moderation for violating the community guidelines."
 }

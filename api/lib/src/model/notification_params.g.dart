@@ -56,9 +56,56 @@ final BuiltSet<NotificationParamsSubjectRoleEnum>
   _$notificationParamsSubjectRoleEnum_unknownDefaultOpenApi,
 ]);
 
+const NotificationParamsContentKindEnum
+    _$notificationParamsContentKindEnum_REVIEW =
+    const NotificationParamsContentKindEnum._('REVIEW');
+const NotificationParamsContentKindEnum
+    _$notificationParamsContentKindEnum_CLIENT_REVIEW =
+    const NotificationParamsContentKindEnum._('CLIENT_REVIEW');
+const NotificationParamsContentKindEnum
+    _$notificationParamsContentKindEnum_PORTFOLIO_PHOTO =
+    const NotificationParamsContentKindEnum._('PORTFOLIO_PHOTO');
+const NotificationParamsContentKindEnum
+    _$notificationParamsContentKindEnum_PROFILE =
+    const NotificationParamsContentKindEnum._('PROFILE');
+const NotificationParamsContentKindEnum
+    _$notificationParamsContentKindEnum_unknownDefaultOpenApi =
+    const NotificationParamsContentKindEnum._('unknownDefaultOpenApi');
+
+NotificationParamsContentKindEnum _$notificationParamsContentKindEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'REVIEW':
+      return _$notificationParamsContentKindEnum_REVIEW;
+    case 'CLIENT_REVIEW':
+      return _$notificationParamsContentKindEnum_CLIENT_REVIEW;
+    case 'PORTFOLIO_PHOTO':
+      return _$notificationParamsContentKindEnum_PORTFOLIO_PHOTO;
+    case 'PROFILE':
+      return _$notificationParamsContentKindEnum_PROFILE;
+    case 'unknownDefaultOpenApi':
+      return _$notificationParamsContentKindEnum_unknownDefaultOpenApi;
+    default:
+      return _$notificationParamsContentKindEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<NotificationParamsContentKindEnum>
+    _$notificationParamsContentKindEnumValues = BuiltSet<
+        NotificationParamsContentKindEnum>(const <NotificationParamsContentKindEnum>[
+  _$notificationParamsContentKindEnum_REVIEW,
+  _$notificationParamsContentKindEnum_CLIENT_REVIEW,
+  _$notificationParamsContentKindEnum_PORTFOLIO_PHOTO,
+  _$notificationParamsContentKindEnum_PROFILE,
+  _$notificationParamsContentKindEnum_unknownDefaultOpenApi,
+]);
+
 Serializer<NotificationParamsSubjectRoleEnum>
     _$notificationParamsSubjectRoleEnumSerializer =
     _$NotificationParamsSubjectRoleEnumSerializer();
+Serializer<NotificationParamsContentKindEnum>
+    _$notificationParamsContentKindEnumSerializer =
+    _$NotificationParamsContentKindEnumSerializer();
 
 class _$NotificationParamsSubjectRoleEnumSerializer
     implements PrimitiveSerializer<NotificationParamsSubjectRoleEnum> {
@@ -98,6 +145,42 @@ class _$NotificationParamsSubjectRoleEnumSerializer
           _fromWire[serialized] ?? (serialized is String ? serialized : ''));
 }
 
+class _$NotificationParamsContentKindEnumSerializer
+    implements PrimitiveSerializer<NotificationParamsContentKindEnum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'REVIEW': 'REVIEW',
+    'CLIENT_REVIEW': 'CLIENT_REVIEW',
+    'PORTFOLIO_PHOTO': 'PORTFOLIO_PHOTO',
+    'PROFILE': 'PROFILE',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'REVIEW': 'REVIEW',
+    'CLIENT_REVIEW': 'CLIENT_REVIEW',
+    'PORTFOLIO_PHOTO': 'PORTFOLIO_PHOTO',
+    'PROFILE': 'PROFILE',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[NotificationParamsContentKindEnum];
+  @override
+  final String wireName = 'NotificationParamsContentKindEnum';
+
+  @override
+  Object serialize(
+          Serializers serializers, NotificationParamsContentKindEnum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  NotificationParamsContentKindEnum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      NotificationParamsContentKindEnum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$NotificationParams extends NotificationParams {
   @override
   final String? counterpartName;
@@ -119,6 +202,8 @@ class _$NotificationParams extends NotificationParams {
   final String? categoryName;
   @override
   final String? decisionReason;
+  @override
+  final NotificationParamsContentKindEnum? contentKind;
 
   factory _$NotificationParams(
           [void Function(NotificationParamsBuilder)? updates]) =>
@@ -134,7 +219,8 @@ class _$NotificationParams extends NotificationParams {
       this.subjectName,
       this.subjectRole,
       this.categoryName,
-      this.decisionReason})
+      this.decisionReason,
+      this.contentKind})
       : super._();
   @override
   NotificationParams rebuild(
@@ -158,7 +244,8 @@ class _$NotificationParams extends NotificationParams {
         subjectName == other.subjectName &&
         subjectRole == other.subjectRole &&
         categoryName == other.categoryName &&
-        decisionReason == other.decisionReason;
+        decisionReason == other.decisionReason &&
+        contentKind == other.contentKind;
   }
 
   @override
@@ -174,6 +261,7 @@ class _$NotificationParams extends NotificationParams {
     _$hash = $jc(_$hash, subjectRole.hashCode);
     _$hash = $jc(_$hash, categoryName.hashCode);
     _$hash = $jc(_$hash, decisionReason.hashCode);
+    _$hash = $jc(_$hash, contentKind.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -190,7 +278,8 @@ class _$NotificationParams extends NotificationParams {
           ..add('subjectName', subjectName)
           ..add('subjectRole', subjectRole)
           ..add('categoryName', categoryName)
-          ..add('decisionReason', decisionReason))
+          ..add('decisionReason', decisionReason)
+          ..add('contentKind', contentKind))
         .toString();
   }
 }
@@ -242,6 +331,11 @@ class NotificationParamsBuilder
   set decisionReason(String? decisionReason) =>
       _$this._decisionReason = decisionReason;
 
+  NotificationParamsContentKindEnum? _contentKind;
+  NotificationParamsContentKindEnum? get contentKind => _$this._contentKind;
+  set contentKind(NotificationParamsContentKindEnum? contentKind) =>
+      _$this._contentKind = contentKind;
+
   NotificationParamsBuilder() {
     NotificationParams._defaults(this);
   }
@@ -259,6 +353,7 @@ class NotificationParamsBuilder
       _subjectRole = $v.subjectRole;
       _categoryName = $v.categoryName;
       _decisionReason = $v.decisionReason;
+      _contentKind = $v.contentKind;
       _$v = null;
     }
     return this;
@@ -290,6 +385,7 @@ class NotificationParamsBuilder
           subjectRole: subjectRole,
           categoryName: categoryName,
           decisionReason: decisionReason,
+          contentKind: contentKind,
         );
     replace(_$result);
     return _$result;

@@ -29,6 +29,7 @@ doc/ApiResponseListMasterServiceResponse.md
 doc/ApiResponseListMasterWorkingDayResponse.md
 doc/ApiResponseListOblastResponse.md
 doc/ApiResponseListPlatformServiceTypeResponse.md
+doc/ApiResponseListReportedTargetResponse.md
 doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md
 doc/ApiResponseListSalonResponse.md
 doc/ApiResponseListSalonStaffMemberResponse.md
@@ -218,6 +219,7 @@ doc/RegisterRequest.md
 doc/RegistrationResponse.md
 doc/ReportControllerApi.md
 doc/ReportResponse.md
+doc/ReportedTargetResponse.md
 doc/RescheduleBookingRequest.md
 doc/ResendVerificationRequest.md
 doc/ResetPasswordRequest.md
@@ -361,6 +363,7 @@ lib/src/model/api_response_list_master_service_response.dart
 lib/src/model/api_response_list_master_working_day_response.dart
 lib/src/model/api_response_list_oblast_response.dart
 lib/src/model/api_response_list_platform_service_type_response.dart
+lib/src/model/api_response_list_reported_target_response.dart
 lib/src/model/api_response_list_salon_master_effective_schedule_response.dart
 lib/src/model/api_response_list_salon_response.dart
 lib/src/model/api_response_list_salon_staff_member_response.dart
@@ -530,6 +533,7 @@ lib/src/model/register_independent_master_request.dart
 lib/src/model/register_request.dart
 lib/src/model/registration_response.dart
 lib/src/model/report_response.dart
+lib/src/model/reported_target_response.dart
 lib/src/model/reschedule_booking_request.dart
 lib/src/model/resend_verification_request.dart
 lib/src/model/reset_password_request.dart
@@ -595,6 +599,8 @@ lib/src/serializers.dart
 pubspec.yaml
 test/api_response_block_response_test.dart
 test/api_response_list_block_response_test.dart
+test/api_response_list_reported_target_response_test.dart
 test/block_controller_api_test.dart
 test/block_response_test.dart
 test/create_block_request_test.dart
+test/reported_target_response_test.dart

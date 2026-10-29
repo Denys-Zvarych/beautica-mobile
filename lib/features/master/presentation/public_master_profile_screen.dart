@@ -53,6 +53,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
@@ -73,6 +74,7 @@ import 'package:beautica_mobile/features/master/application/public_master_profil
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
@@ -264,7 +266,11 @@ class _PublicMasterProfileScreenState
       publicMasterProfileProvider(widget.masterId),
     );
 
-    final bool showReport = ref.watch(isClientProvider);
+    // Phase 428 add-on — a profile the client already reported loses its «⋯»
+    // (report once, ever): the heart stands alone, as for a non-client.
+    final bool showReport =
+        ref.watch(isClientProvider) &&
+        !watchIsReported(ref, ReportTargetType.masterProfile, widget.masterId);
     return ProfileScaffold(
       title: l10n.publicMasterProfileTitle,
       onRefresh: _refreshAll,
@@ -695,6 +701,13 @@ class _PublicPortfolioRail extends ConsumerWidget {
     final AsyncValue<List<PortfolioPhoto>> async = ref.watch(
       portfolioProvider(PortfolioOwner.masterSelf(masterId)),
     );
+    // Phase 428 add-on — ANY signed-in viewer may report a photo (backend 395:
+    // every authenticated user except the author; providers included), so
+    // the hide-once-reported check applies to every signed-in role. An
+    // anonymous viewer has no reported set and never triggers
+    // `GET /reports/mine`.
+    final bool signedIn =
+        ref.watch(authProvider.select(authUserIdOrNull)) != null;
     final List<PortfolioPhoto>? photos = async.value;
     final bool hidden = photos == null ? async.hasError : photos.isEmpty;
     if (hidden) return const SizedBox.shrink();
@@ -712,6 +725,7 @@ class _PublicPortfolioRail extends ConsumerWidget {
             photos ?? const <PortfolioPhoto>[],
             i,
             onReport: reportPortfolioPhoto,
+            isReported: signedIn ? isPortfolioPhotoReported : null,
           ),
         ),
       ],

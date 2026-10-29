@@ -805,6 +805,15 @@ final class FakeBackend {
   /// Every `GET /api/v1/blocks`.
   int blockListCalls = 0;
 
+  /// Phase 428 add-on — rows `GET /api/v1/reports/mine` returns
+  /// (`{targetType, targetId}`). Empty by default: every flow's report «⋮»
+  /// shows exactly as before.
+  final List<Map<String, dynamic>> reportedTargetRows =
+      <Map<String, dynamic>>[];
+
+  /// How many times `GET /api/v1/reports/mine` was served.
+  int myReportsCalls = 0;
+
   /// The `bookingId` of every `POST /api/v1/blocks`, in order.
   final List<String> blockPostBookingIds = <String>[];
 
@@ -12138,6 +12147,16 @@ final class FakeBackend {
   /// Re-callable: a later registration of the same route replaces the
   /// earlier one.
   void _wireBlocks() {
+    // Phase 428 add-on — the session's reported targets (backend 415).
+    _adapter.onRoute(
+      '/api/v1/reports/mine',
+      (server) => server.replyCallback(200, (_) {
+        myReportsCalls++;
+        return _okList(List<Map<String, dynamic>>.of(reportedTargetRows));
+      }),
+      request: const Request(method: RequestMethods.get),
+    );
+
     final int? fail = _blockWriteFailureStatusCode;
     final Map<String, dynamic> failBody = <String, dynamic>{
       'success': false,

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart' show DeviceGestureSettings;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemUiOverlayStyle;
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
@@ -34,6 +35,7 @@ Future<void> showPortfolioPhotoViewer(
   List<PortfolioPhoto> photos,
   int initialIndex, {
   PortfolioPhotoReportCallback? onReport,
+  PortfolioPhotoReportedCheck? isReported,
 }) {
   final List<PortfolioPhoto> shown = List<PortfolioPhoto>.unmodifiable(
     photos.take(kPortfolioMaxPhotos),
@@ -44,6 +46,7 @@ Future<void> showPortfolioPhotoViewer(
       photos: shown,
       initialIndex: initialIndex,
       onReport: onReport,
+      isReported: isReported,
     ),
   );
   // Single-flight: a double-tapped tile opens ONE viewer. The probe lets a
@@ -63,6 +66,12 @@ Future<void> showPortfolioPhotoViewer(
 /// shown from it to appear above the photo).
 typedef PortfolioPhotoReportCallback =
     void Function(BuildContext context, PortfolioPhoto photo);
+
+/// Phase 428 add-on — whether [photo] was already reported by the viewer
+/// (report once, ever). Called from a [Consumer]'s build, so it may
+/// `ref.watch`: the flag hides the moment the answer flips.
+typedef PortfolioPhotoReportedCheck =
+    bool Function(WidgetRef ref, PortfolioPhoto photo);
 
 /// Phase 407 (9.12, D1) — the full-screen, READ-ONLY portfolio photo viewer:
 /// a horizontal [PageView] of pinch-zoomable photos ([InteractiveViewer],
@@ -104,6 +113,7 @@ class PortfolioPhotoViewer extends StatefulWidget {
     required this.photos,
     this.initialIndex = 0,
     this.onReport,
+    this.isReported,
   });
 
   /// The photos to page through, in rail order.
@@ -115,6 +125,11 @@ class PortfolioPhotoViewer extends StatefulWidget {
   /// ADDITIVE (phase 424 D3): non-null → a flag button left of close reports
   /// the shown photo. `null` (the default) → no button, chrome unchanged.
   final PortfolioPhotoReportCallback? onReport;
+
+  /// ADDITIVE (phase 428 add-on): with [onReport], hides the flag button for
+  /// a photo the viewer already reported. `null` (the default) → the flag
+  /// shows for every photo, chrome unchanged.
+  final PortfolioPhotoReportedCheck? isReported;
 
   static const Key pagerKey = Key('portfolio-viewer-pager');
   static const Key closeKey = Key('portfolio-viewer-close');
@@ -344,20 +359,43 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
                               ),
                         ),
                       const Spacer(),
-                      if (report != null && total > 0) ...<Widget>[
-                        IconButton(
-                          key: PortfolioPhotoViewer.reportKey,
-                          tooltip: l10n.portfolioViewerReport,
-                          onPressed: () =>
-                              report(context, photos[_index.value]),
-                          style: IconButton.styleFrom(
-                            backgroundColor: _kChromeFill,
-                            foregroundColor: BrandColors.white,
-                          ),
-                          icon: const Icon(Icons.outlined_flag_rounded),
-                        ),
+                      if (report != null &&
+                          total > 0 &&
+                          widget.isReported == null) ...<Widget>[
+                        _reportButton(context, l10n, report, photos),
                         const SizedBox(width: VelvetSpacing.sm),
                       ],
+                      if (report != null && total > 0)
+                        if (widget.isReported
+                            case final PortfolioPhotoReportedCheck reported)
+                          // Phase 428 add-on — per shown photo, reactive.
+                          ValueListenableBuilder<int>(
+                            valueListenable: _index,
+                            builder: (BuildContext _, int index, Widget? _) =>
+                                Consumer(
+                                  builder:
+                                      (
+                                        BuildContext _,
+                                        WidgetRef ref,
+                                        Widget? _,
+                                      ) => reported(ref, photos[index])
+                                      ? const SizedBox.shrink()
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: <Widget>[
+                                            _reportButton(
+                                              context,
+                                              l10n,
+                                              report,
+                                              photos,
+                                            ),
+                                            const SizedBox(
+                                              width: VelvetSpacing.sm,
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                          ),
                       IconButton(
                         key: PortfolioPhotoViewer.closeKey,
                         tooltip: l10n.portfolioViewerClose,
@@ -378,6 +416,26 @@ class _PortfolioPhotoViewerState extends State<PortfolioPhotoViewer> {
       ),
     );
   }
+}
+
+/// The report (flag) chrome button — one builder for both the plain and the
+/// already-reported-aware paths.
+extension on _PortfolioPhotoViewerState {
+  Widget _reportButton(
+    BuildContext context,
+    AppLocalizations l10n,
+    PortfolioPhotoReportCallback report,
+    List<PortfolioPhoto> photos,
+  ) => IconButton(
+    key: PortfolioPhotoViewer.reportKey,
+    tooltip: l10n.portfolioViewerReport,
+    onPressed: () => report(context, photos[_index.value]),
+    style: IconButton.styleFrom(
+      backgroundColor: _kChromeFill,
+      foregroundColor: BrandColors.white,
+    ),
+    icon: const Icon(Icons.outlined_flag_rounded),
+  );
 }
 
 /// The chrome's scrim fill — black at 45 % so cream glyphs stay legible over

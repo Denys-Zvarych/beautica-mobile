@@ -176,6 +176,7 @@ Class | Method | HTTP request | Description
 [*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**book1**](doc/PublicSalonBookingControllerApi.md#book1) | **POST** /api/v1/book/s/{slug}/masters/{masterId}/booking | 
 [*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**bookableDays1**](doc/PublicSalonBookingControllerApi.md#bookabledays1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/bookable-days | 
 [*ReportControllerApi*](doc/ReportControllerApi.md) | [**createReport**](doc/ReportControllerApi.md#createreport) | **POST** /api/v1/reports | Report a review, photo or profile
+[*ReportControllerApi*](doc/ReportControllerApi.md) | [**myReports**](doc/ReportControllerApi.md#myreports) | **GET** /api/v1/reports/mine | My reported targets
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -264,6 +265,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListMasterWorkingDayResponse](doc/ApiResponseListMasterWorkingDayResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
+ - [ApiResponseListReportedTargetResponse](doc/ApiResponseListReportedTargetResponse.md)
  - [ApiResponseListSalonMasterEffectiveScheduleResponse](doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
@@ -432,6 +434,7 @@ Class | Method | HTTP request | Description
  - [RegisterRequest](doc/RegisterRequest.md)
  - [RegistrationResponse](doc/RegistrationResponse.md)
  - [ReportResponse](doc/ReportResponse.md)
+ - [ReportedTargetResponse](doc/ReportedTargetResponse.md)
  - [RescheduleBookingRequest](doc/RescheduleBookingRequest.md)
  - [ResendVerificationRequest](doc/ResendVerificationRequest.md)
  - [ResetPasswordRequest](doc/ResetPasswordRequest.md)

@@ -72,6 +72,7 @@ export 'package:beautica_api/src/model/api_response_list_master_service_response
 export 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 export 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 export 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
+export 'package:beautica_api/src/model/api_response_list_reported_target_response.dart';
 export 'package:beautica_api/src/model/api_response_list_salon_master_effective_schedule_response.dart';
 export 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 export 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
@@ -240,6 +241,7 @@ export 'package:beautica_api/src/model/register_independent_master_request.dart'
 export 'package:beautica_api/src/model/register_request.dart';
 export 'package:beautica_api/src/model/registration_response.dart';
 export 'package:beautica_api/src/model/report_response.dart';
+export 'package:beautica_api/src/model/reported_target_response.dart';
 export 'package:beautica_api/src/model/reschedule_booking_request.dart';
 export 'package:beautica_api/src/model/resend_verification_request.dart';
 export 'package:beautica_api/src/model/reset_password_request.dart';

@@ -40,6 +40,10 @@ abstract interface class ContentReportRepository {
   ///     (safe to retry — the endpoint is idempotent per target).
   ///   - [NetworkFailure] / [ServerFailure] / [UnknownFailure] otherwise.
   Future<ContentReport> create(ContentReportRequest request);
+
+  /// Phase 428 add-on — every target the signed-in user has reported
+  /// (backend 415 `GET /reports/mine`). Unknown target types are dropped.
+  Future<Set<ReportedTarget>> mine();
 }
 
 /// HTTP implementation of [ContentReportRepository].
@@ -91,6 +95,37 @@ final class HttpContentReportRepository implements ContentReportRepository {
       throw const ResponseUnusableFailure();
     }
     return ContentReport(id: id, status: status, createdAt: createdAt);
+  }
+
+  @override
+  Future<Set<ReportedTarget>> mine() async {
+    final Response<ApiResponseListReportedTargetResponse> response;
+    try {
+      response = await _api.myReports();
+    } on Failure {
+      rethrow;
+    } on DioException catch (e, st) {
+      if (kDebugMode) {
+        log(
+          'mine failed: ${e.type} ${e.response?.statusCode}',
+          name: _tag,
+          level: 900,
+          stackTrace: st,
+        );
+      }
+      throw mapContentReportDioException(e);
+    }
+    final Set<ReportedTarget> out = <ReportedTarget>{};
+    for (final ReportedTargetResponse row
+        in response.data?.data ?? const <ReportedTargetResponse>[]) {
+      final String? wire = knownEnumName(row.targetType);
+      final String? id = row.targetId;
+      if (wire == null || id == null || id.isEmpty) continue;
+      for (final ReportTargetType t in ReportTargetType.values) {
+        if (t.wireName == wire) out.add((type: t, id: id));
+      }
+    }
+    return out;
   }
 
   static CreateReportRequestTargetTypeEnum _targetTypeDto(

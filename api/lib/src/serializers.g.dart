@@ -36,6 +36,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(ApiResponseListMasterWorkingDayResponse.serializer)
       ..add(ApiResponseListOblastResponse.serializer)
       ..add(ApiResponseListPlatformServiceTypeResponse.serializer)
+      ..add(ApiResponseListReportedTargetResponse.serializer)
       ..add(ApiResponseListSalonMasterEffectiveScheduleResponse.serializer)
       ..add(ApiResponseListSalonResponse.serializer)
       ..add(ApiResponseListSalonStaffMemberResponse.serializer)
@@ -200,6 +201,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(MediaFileResponseMediaTypeEnum.serializer)
       ..add(MyReviewResponse.serializer)
       ..add(NotificationParams.serializer)
+      ..add(NotificationParamsContentKindEnum.serializer)
       ..add(NotificationParamsSubjectRoleEnum.serializer)
       ..add(NotificationResponse.serializer)
       ..add(NotificationResponseTypeEnum.serializer)
@@ -243,6 +245,8 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(RegistrationResponse.serializer)
       ..add(ReportResponse.serializer)
       ..add(ReportResponseStatusEnum.serializer)
+      ..add(ReportedTargetResponse.serializer)
+      ..add(ReportedTargetResponseTargetTypeEnum.serializer)
       ..add(RescheduleBookingRequest.serializer)
       ..add(ResendVerificationRequest.serializer)
       ..add(ResetPasswordRequest.serializer)
@@ -495,6 +499,14 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RatingBucket)]),
           () => ListBuilder<RatingBucket>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ReportedTargetResponse)]),
+          () => ListBuilder<ReportedTargetResponse>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltMap, const [const FullType(String), const FullType(String)]),
+          () => MapBuilder<String, String>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RevenueByMasterDto)]),
           () => ListBuilder<RevenueByMasterDto>())

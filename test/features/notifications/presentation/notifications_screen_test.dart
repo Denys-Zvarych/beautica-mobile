@@ -214,6 +214,69 @@ void main() {
       }
     });
 
+    // Phase 428 — the 4 moderation outcomes render their locked copy and
+    // glyph (never the «unknown» row), for any role (D6).
+    testWidgets('should_renderModerationOutcomes_withLockedCopyAndGlyph', (
+      WidgetTester tester,
+    ) async {
+      final List<AppNotification> items = <AppNotification>[
+        moderationNotif(
+          'm1',
+          type: AppNotificationType.reportContentRemoved,
+          contentKind: ModeratedContentKind.review,
+        ),
+        moderationNotif(
+          'm2',
+          type: AppNotificationType.reportNoViolation,
+          contentKind: ModeratedContentKind.portfolioPhoto,
+        ),
+        moderationNotif(
+          'm3',
+          type: AppNotificationType.reportReviewed,
+          contentKind: ModeratedContentKind.profile,
+        ),
+        moderationNotif(
+          'm4',
+          type: AppNotificationType.contentRemoved,
+          contentKind: ModeratedContentKind.clientReview,
+        ),
+        moderationNotif(
+          'm5',
+          type: AppNotificationType.reviewAboutYouRemoved,
+          contentKind: ModeratedContentKind.review,
+        ),
+      ];
+      await _pumpFeed(tester, _repoOf(items), width: 400, height: 4000);
+
+      expect(find.text(uk.notificationTitleReportReviewed), findsNWidgets(3));
+      expect(find.text(uk.notificationTitleContentRemoved), findsOneWidget);
+      expect(find.text(uk.notificationTitleUnknown), findsNothing);
+      // Exact locked literals are pinned in notification_copy_test; here each
+      // row must render ITS body (one of each, none swapped).
+      expect(
+        find.text(uk.notificationBodyReportContentRemoved),
+        findsOneWidget,
+      );
+      expect(find.text(uk.notificationBodyReportNoViolation), findsOneWidget);
+      expect(find.text(uk.notificationBodyReportReviewed), findsOneWidget);
+      expect(
+        find.text(uk.notificationBodyContentRemovedClientReview),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.fact_check_rounded), findsNWidgets(3));
+      expect(find.byIcon(Icons.gpp_maybe_rounded), findsOneWidget);
+      // REVIEW_ABOUT_YOU_REMOVED.
+      expect(
+        find.text(uk.notificationTitleReviewAboutYouRemoved),
+        findsOneWidget,
+      );
+      expect(
+        find.text(uk.notificationBodyReviewAboutYouRemoved),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.reviews_rounded), findsOneWidget);
+    });
+
     testWidgets('should_renderClientCopy_forAClient', (
       WidgetTester tester,
     ) async {

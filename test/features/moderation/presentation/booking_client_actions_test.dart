@@ -33,6 +33,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 import '../support/fake_client_block_repository.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
 import '../support/fake_content_report_repository.dart';
 
 const String _clientFull = 'Олена Ковальчук';
@@ -87,10 +88,11 @@ Booking _booking({
 }
 
 class _Env {
-  _Env({ClientBlockRepository? blocks})
-    : blocks = blocks ?? FakeClientBlockRepository();
+  _Env({ClientBlockRepository? blocks, Set<ReportedTarget>? preReported})
+    : blocks = blocks ?? FakeClientBlockRepository(),
+      reports = FakeContentReportRepository(preReported: preReported);
   final ClientBlockRepository blocks;
-  final FakeContentReportRepository reports = FakeContentReportRepository();
+  final FakeContentReportRepository reports;
   int detailBuilds = 0;
 }
 
@@ -100,12 +102,13 @@ Future<_Env> _pump(
   required UserRole role,
   ClientBlockRepository? blocks,
   String? salonId,
+  Set<ReportedTarget>? preReported,
 }) async {
   tester.view.physicalSize = const Size(800, 2400);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-  final _Env env = _Env(blocks: blocks);
+  final _Env env = _Env(blocks: blocks, preReported: preReported);
   await tester.pumpApp(
     BookingDetailScreen(bookingId: booking.id, salonId: salonId),
     overrides: <Object>[
@@ -136,6 +139,64 @@ Future<void> _openSheet(WidgetTester tester) async {
 }
 
 void main() {
+  // Phase 428 add-on — report once, ever: an already-reported client loses
+  // the REPORT entry only; the block action stays.
+  group('already-reported client (phase 428)', () {
+    const Set<ReportedTarget> reportedC1 = <ReportedTarget>{
+      (type: ReportTargetType.clientProfile, id: 'c1'),
+    };
+
+    testWidgets('independent master: block stays, report is gone', (
+      tester,
+    ) async {
+      // RED WHEN `_clientMoreFor` stops checking the reported set.
+      await _pump(
+        tester,
+        _booking(),
+        role: UserRole.independentMaster,
+        preReported: reportedC1,
+      );
+      await _openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsOne);
+    });
+
+    testWidgets('salon master (report only): no «⋯» at all', (tester) async {
+      await _pump(
+        tester,
+        _booking(),
+        role: UserRole.salonMaster,
+        preReported: reportedC1,
+      );
+      expect(_more, findsNothing);
+    });
+
+    testWidgets('reporting from the sheet hides the entry at once', (
+      tester,
+    ) async {
+      // RED WHEN `ReportController.submit` stops calling `markReported`.
+      final _Env env = await _pump(
+        tester,
+        _booking(),
+        role: UserRole.independentMaster,
+      );
+      await _openSheet(tester);
+      await tester.tap(find.byKey(ClientActionsSheet.reportKey));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ReportSheet.reasonKey(ReportReason.spam)));
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(ReportSheet.submitKey));
+      await tester.tap(find.byKey(ReportSheet.submitKey));
+      await tester.pumpAndSettle();
+      expect(env.reports.requests, hasLength(1));
+      await pumpPastVelvetSnack(tester);
+
+      await _openSheet(tester);
+      expect(find.byKey(ClientActionsSheet.reportKey), findsNothing);
+      expect(find.byKey(ClientActionsSheet.blockKey), findsOne);
+    });
+  });
+
   group('who gets the «⋯»', () {
     for (final UserRole role in <UserRole>[
       UserRole.independentMaster,

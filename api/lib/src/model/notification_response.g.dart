@@ -49,6 +49,21 @@ const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED =
     const NotificationResponseTypeEnum._('SERVICE_TYPE_SUGGESTION_REJECTED');
 const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_REPORT_CONTENT_REMOVED =
+    const NotificationResponseTypeEnum._('REPORT_CONTENT_REMOVED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_REPORT_NO_VIOLATION =
+    const NotificationResponseTypeEnum._('REPORT_NO_VIOLATION');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_REPORT_REVIEWED =
+    const NotificationResponseTypeEnum._('REPORT_REVIEWED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_CONTENT_REMOVED =
+    const NotificationResponseTypeEnum._('CONTENT_REMOVED');
+const NotificationResponseTypeEnum
+    _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED =
+    const NotificationResponseTypeEnum._('REVIEW_ABOUT_YOU_REMOVED');
+const NotificationResponseTypeEnum
     _$notificationResponseTypeEnum_unknownDefaultOpenApi =
     const NotificationResponseTypeEnum._('unknownDefaultOpenApi');
 
@@ -83,6 +98,16 @@ NotificationResponseTypeEnum _$notificationResponseTypeEnumValueOf(
       return _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED;
     case 'SERVICE_TYPE_SUGGESTION_REJECTED':
       return _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED;
+    case 'REPORT_CONTENT_REMOVED':
+      return _$notificationResponseTypeEnum_REPORT_CONTENT_REMOVED;
+    case 'REPORT_NO_VIOLATION':
+      return _$notificationResponseTypeEnum_REPORT_NO_VIOLATION;
+    case 'REPORT_REVIEWED':
+      return _$notificationResponseTypeEnum_REPORT_REVIEWED;
+    case 'CONTENT_REMOVED':
+      return _$notificationResponseTypeEnum_CONTENT_REMOVED;
+    case 'REVIEW_ABOUT_YOU_REMOVED':
+      return _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED;
     case 'unknownDefaultOpenApi':
       return _$notificationResponseTypeEnum_unknownDefaultOpenApi;
     default:
@@ -107,6 +132,11 @@ final BuiltSet<NotificationResponseTypeEnum>
   _$notificationResponseTypeEnum_CATEGORY_REQUEST_REJECTED,
   _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_APPROVED,
   _$notificationResponseTypeEnum_SERVICE_TYPE_SUGGESTION_REJECTED,
+  _$notificationResponseTypeEnum_REPORT_CONTENT_REMOVED,
+  _$notificationResponseTypeEnum_REPORT_NO_VIOLATION,
+  _$notificationResponseTypeEnum_REPORT_REVIEWED,
+  _$notificationResponseTypeEnum_CONTENT_REMOVED,
+  _$notificationResponseTypeEnum_REVIEW_ABOUT_YOU_REMOVED,
   _$notificationResponseTypeEnum_unknownDefaultOpenApi,
 ]);
 
@@ -131,6 +161,11 @@ class _$NotificationResponseTypeEnumSerializer
     'CATEGORY_REQUEST_REJECTED': 'CATEGORY_REQUEST_REJECTED',
     'SERVICE_TYPE_SUGGESTION_APPROVED': 'SERVICE_TYPE_SUGGESTION_APPROVED',
     'SERVICE_TYPE_SUGGESTION_REJECTED': 'SERVICE_TYPE_SUGGESTION_REJECTED',
+    'REPORT_CONTENT_REMOVED': 'REPORT_CONTENT_REMOVED',
+    'REPORT_NO_VIOLATION': 'REPORT_NO_VIOLATION',
+    'REPORT_REVIEWED': 'REPORT_REVIEWED',
+    'CONTENT_REMOVED': 'CONTENT_REMOVED',
+    'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
     'unknownDefaultOpenApi': 'unknown_default_open_api',
   };
   static const Map<Object, String> _fromWire = const <Object, String>{
@@ -148,6 +183,11 @@ class _$NotificationResponseTypeEnumSerializer
     'CATEGORY_REQUEST_REJECTED': 'CATEGORY_REQUEST_REJECTED',
     'SERVICE_TYPE_SUGGESTION_APPROVED': 'SERVICE_TYPE_SUGGESTION_APPROVED',
     'SERVICE_TYPE_SUGGESTION_REJECTED': 'SERVICE_TYPE_SUGGESTION_REJECTED',
+    'REPORT_CONTENT_REMOVED': 'REPORT_CONTENT_REMOVED',
+    'REPORT_NO_VIOLATION': 'REPORT_NO_VIOLATION',
+    'REPORT_REVIEWED': 'REPORT_REVIEWED',
+    'CONTENT_REMOVED': 'CONTENT_REMOVED',
+    'REVIEW_ABOUT_YOU_REMOVED': 'REVIEW_ABOUT_YOU_REMOVED',
     'unknown_default_open_api': 'unknownDefaultOpenApi',
   };
 

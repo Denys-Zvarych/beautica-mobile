@@ -20,7 +20,9 @@ final class FakeContentReportRepository implements ContentReportRepository {
     this.rateLimit = 20,
     Set<String>? hiddenTargetIds,
     DateTime? now,
+    Set<ReportedTarget>? preReported,
   }) : hiddenTargetIds = hiddenTargetIds ?? <String>{},
+       preReported = preReported ?? <ReportedTarget>{},
        _now = now ?? DateTime.utc(2026, 10, 28, 12);
 
   final int rateLimit;
@@ -45,6 +47,31 @@ final class FakeContentReportRepository implements ContentReportRepository {
 
   /// Distinct reports stored.
   int get storedCount => _open.length;
+
+  /// Phase 428 add-on — targets reported BEFORE this session (what a fresh
+  /// `GET /reports/mine` returns on top of the reports stored here).
+  final Set<ReportedTarget> preReported;
+
+  /// How many times [mine] was called.
+  int mineCalls = 0;
+
+  /// Thrown (once) by the next [mine].
+  Failure? nextMineFailure;
+
+  @override
+  Future<Set<ReportedTarget>> mine() async {
+    mineCalls++;
+    final Failure? forced = nextMineFailure;
+    if (forced != null) {
+      nextMineFailure = null;
+      throw forced;
+    }
+    return <ReportedTarget>{
+      ...preReported,
+      for (final (ReportTargetType, String) key in _open.keys)
+        (type: key.$1, id: key.$2),
+    };
+  }
 
   @override
   Future<ContentReport> create(ContentReportRequest request) async {

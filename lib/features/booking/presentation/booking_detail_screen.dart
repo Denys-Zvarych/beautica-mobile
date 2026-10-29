@@ -71,6 +71,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/errors/resource_unavailable.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
@@ -592,7 +593,12 @@ class _BookingDetailScreenState extends ConsumerState<BookingDetailScreen> {
   /// `clientBlocked` with its `clientBlockId`. A null role fails closed.
   VoidCallback? _clientMoreFor(Booking booking, UserRole? role) {
     if (role == null || role == UserRole.client) return null;
-    final bool canReport = booking.clientId != null;
+    // Phase 428 add-on — a client already reported loses the REPORT entry
+    // only; block / unblock stay (report once, ever). Called from build.
+    final String? clientId = booking.clientId;
+    final bool canReport =
+        clientId != null &&
+        !watchIsReported(ref, ReportTargetType.clientProfile, clientId);
     final bool roleMayBlock = clientBlocksAllowedFor(role);
     final String? blockId = booking.clientBlockId;
     final bool blocked = booking.clientBlocked && blockId != null;

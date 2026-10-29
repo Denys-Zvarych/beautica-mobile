@@ -33,6 +33,7 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/widgets/client_review_section.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
@@ -43,6 +44,7 @@ import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
@@ -191,6 +193,46 @@ void main() {
       RouteNames.masterPublicProfile('master-aaa'),
     );
     await pumpPastVelvetSnack(tester);
+  }, timeout: const Timeout(Duration(seconds: 90)));
+
+  // Phase 428 add-on — report once, ever: after a report the review's «⋮» is
+  // gone, and stays gone when the reported set is re-read from the server
+  // (the provider restarted, as on the next app start).
+  testWidgets('CLIENT reports a review → its «⋮» disappears, and stays gone '
+      'after the reported set reloads from GET /reports/mine', (tester) async {
+    // RED WHEN the review list stops honouring the reported set, or the
+    // submit stops marking it, or `GET /reports/mine` stops being read.
+    final FakeBackend fb = FakeBackend()..currentRole = UserRole.client;
+    final FakeContentReportRepository repo = FakeContentReportRepository();
+    await _bootClientOnPublicMaster(tester, fb, repo);
+    await _openReviewSheet(tester);
+    await _pick(tester, ReportReason.spam);
+    await _submit(tester);
+    expect(repo.requests, hasLength(1));
+    expect(_sheet, findsNothing);
+    await pumpPastVelvetSnack(tester);
+
+    expect(_more, findsNothing, reason: 'hidden at once after the submit');
+    expect(
+      find.byKey(const Key('master-review-$_kReviewId')),
+      findsOneWidget,
+      reason: 'the review itself still renders',
+    );
+
+    // «Restart»: drop the session's set; it is re-read from the server.
+    final int readsBefore = repo.mineCalls;
+    ProviderScope.containerOf(
+      tester.element(find.byType(PublicMasterProfileScreen)),
+    ).invalidate(myReportedTargetsProvider);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => repo.mineCalls > readsBefore,
+      description: 'GET /reports/mine to be re-read',
+    );
+    await AppHarness.settle(tester);
+
+    expect(_more, findsNothing, reason: 'still hidden from the server set');
+    expect(find.byKey(const Key('master-review-$_kReviewId')), findsOneWidget);
   }, timeout: const Timeout(Duration(seconds: 90)));
 
   testWidgets('429 (rate limit exhausted): the rate-limited banner shows, the '

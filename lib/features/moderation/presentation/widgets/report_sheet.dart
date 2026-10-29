@@ -21,6 +21,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/features/moderation/application/report_notifier.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -71,6 +72,12 @@ void reportPortfolioPhoto(BuildContext context, PortfolioPhoto photo) {
     subject: AppLocalizations.of(context).reportSubjectPortfolioPhoto,
   );
 }
+
+/// Phase 428 add-on — the `PortfolioPhotoViewer.isReported` every public
+/// profile passes with [reportPortfolioPhoto]: a photo the viewer already
+/// reported loses its flag (report once, ever).
+bool isPortfolioPhotoReported(WidgetRef ref, PortfolioPhoto photo) =>
+    watchIsReported(ref, ReportTargetType.portfolioPhoto, photo.id);
 
 /// Phase 425 D1 — the public master/salon profile «⋯»: opens the report sheet
 /// DIRECTLY (no actions sheet — clients never block) for the profile

@@ -28,6 +28,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -240,20 +241,33 @@ class _SortableReviewListState extends ConsumerState<_SortableReviewList> {
                   itemCount: reviews.length,
                   itemBuilder: (BuildContext context, int i) {
                     final MasterReviewItem r = reviews[i];
-                    final Widget card = _masterReviewCard(
-                      r,
-                      // Never on the viewer's own review (phase 424 D2).
-                      onMore: widget.reportable && !r.authoredByViewer
-                          ? () => showReportSheet(
-                              context,
-                              targetType: ReportTargetType.review,
-                              targetId: r.id,
-                              subject: l10n.reportSubjectReview(
-                                r.clientDisplayName,
-                              ),
-                            )
-                          : null,
-                    );
+                    // Never on the viewer's own review (phase 424 D2).
+                    final Widget card = widget.reportable && !r.authoredByViewer
+                        // Phase 428 add-on — report once, ever. Per-card
+                        // Consumer + per-target select: a report flips ONE
+                        // card, never the whole shrink-wrapped list.
+                        ? Consumer(
+                            builder: (BuildContext context, WidgetRef ref, _) =>
+                                _masterReviewCard(
+                                  r,
+                                  onMore:
+                                      watchIsReported(
+                                        ref,
+                                        ReportTargetType.review,
+                                        r.id,
+                                      )
+                                      ? null
+                                      : () => showReportSheet(
+                                          context,
+                                          targetType: ReportTargetType.review,
+                                          targetId: r.id,
+                                          subject: l10n.reportSubjectReview(
+                                            r.clientDisplayName,
+                                          ),
+                                        ),
+                                ),
+                          )
+                        : _masterReviewCard(r, onMore: null);
                     // Gap between cards, not after the last — matches the
                     // previous Column's inter-card SizedBox exactly.
                     if (i == reviews.length - 1) return card;
