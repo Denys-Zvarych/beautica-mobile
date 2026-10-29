@@ -171,7 +171,7 @@ final List<Object> _reviewOverrides = <Object>[
         clientDisplayName: 'Ірина К.',
         rating: 5,
         comment: 'Чудова робота',
-        createdAt: DateTime(2026, 9, 1),
+        createdAt: goldenReviewCreatedAt(45),
       ),
     ],
   ),

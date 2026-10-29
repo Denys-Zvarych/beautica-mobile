@@ -108,8 +108,6 @@ const _stubSummary = SalonReviewSummary(
   distribution: <int>[0, 0, 0, 0, 1],
 );
 
-final DateTime _fixedNow = DateTime(2026, 7, 1);
-
 List<SalonReviewItem> _stubReviews(SalonReviewSort sort) => <SalonReviewItem>[
   SalonReviewItem(
     id: 'review-1',
@@ -119,7 +117,7 @@ List<SalonReviewItem> _stubReviews(SalonReviewSort sort) => <SalonReviewItem>[
     serviceName: 'Манікюр з покриттям',
     rating: 5,
     comment: 'Найкращий салон!',
-    createdAt: _fixedNow.subtract(const Duration(days: 3)),
+    createdAt: goldenReviewCreatedAt(135),
   ),
 ];
 
