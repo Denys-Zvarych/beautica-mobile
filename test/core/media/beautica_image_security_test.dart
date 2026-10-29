@@ -62,6 +62,12 @@ void main() {
       expect(isAllowedMediaUrl('not a url'), isFalse);
       expect(isAllowedMediaUrl('$_kHost/x.png'), isFalse);
     });
+
+    test('rejects an explicit non-443 port; allows :443 and no port', () {
+      expect(isAllowedMediaUrl('https://$_kHost:8443/x.png'), isFalse);
+      expect(isAllowedMediaUrl('https://$_kHost:443/x.png'), isTrue);
+      expect(isAllowedMediaUrl('https://$_kHost/x.png'), isTrue);
+    });
   });
 
   test('with an EMPTY allowlist, even a valid https URL is rejected '

@@ -32,6 +32,16 @@ void main() {
       );
     });
 
+    test('a migration pair (new + legacy host) allows both, in order', () {
+      // Phase 430: staging allows its custom domain and the old r2.dev host.
+      expect(
+        MediaConfig.parseForTest(
+          'media-staging.beautica.app,pub-abc.r2.dev',
+        ).toList(),
+        <String>['media-staging.beautica.app', 'pub-abc.r2.dev'],
+      );
+    });
+
     test('duplicates collapse', () {
       expect(
         MediaConfig.parseForTest('pub-abc.r2.dev,pub-abc.r2.dev'),
