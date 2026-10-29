@@ -952,10 +952,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) {
-          final extras = state.extra as AccountSettingsExtras?;
+          final Object? extra = state.extra;
+          final AccountSettingsExtras? extras = extra is AccountSettingsExtras
+              ? extra
+              : null;
           return SettingsScreen(
             salonId: extras?.salonId,
             showDeleteSalon: extras?.showDeleteSalon ?? false,
+            fromSalonSettings: extras?.fromSalonSettings ?? false,
           );
         },
       ),

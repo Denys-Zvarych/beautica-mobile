@@ -33,6 +33,10 @@ import 'package:beautica_mobile/core/icons/beautica_asset_icons.dart';
 import 'package:beautica_mobile/core/push/push_available_provider.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
+import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
+import 'package:beautica_mobile/features/auth/domain/user.dart';
+import 'package:beautica_mobile/features/auth/domain/user_role.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/master/presentation/widgets/settings_row.dart';
 import 'package:beautica_mobile/features/settings/presentation/settings_screen.dart';
@@ -49,6 +53,7 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 
 import '../../../helpers/fakes/fake_auth_repository.dart';
 import '../../../helpers/fakes/fake_secure_storage.dart';
+import '../../../helpers/pump_app.dart';
 import '../../../helpers/velvet_snack_matchers.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 
@@ -98,6 +103,18 @@ Widget _buildApp({
 class _MockUrlLauncher extends Mock
     with MockPlatformInterfaceMixin
     implements UrlLauncherPlatform {}
+
+/// Seeds an authenticated session for [role] (A15–A17).
+class _AuthenticatedAs extends AuthNotifier {
+  _AuthenticatedAs(this.role);
+  final UserRole role;
+
+  @override
+  Future<AuthSession> build() async => AuthSession.authenticated(
+    user: User(id: 'u-${role.name}', email: '${role.name}@b.ua', role: role),
+    accessToken: 'tok',
+  );
+}
 
 void main() {
   group('SettingsScreen (Account page)', () {
@@ -534,5 +551,67 @@ void main() {
 
       expect(find.text(l10n.externalLinkOpenError), findsOneWidget);
     });
+  });
+
+  // User request 2026-10-29 — «Змінити пароль» leaves the SALON_ADMIN's
+  // salon-settings path («Загальне» → this page with fromSalonSettings: true)
+  // and stays on their personal settings path (own-profile hub → this page
+  // with no extra). The owner keeps it on the salon path.
+  group('SettingsScreen — «Змінити пароль» per role and entry path', () {
+    final Finder row = find.byKey(const Key('row-change-password'));
+
+    Future<void> pumpAs(
+      WidgetTester tester,
+      UserRole role, {
+      required bool fromSalonSettings,
+    }) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        SettingsScreen(
+          salonId: fromSalonSettings ? 'salon-1' : null,
+          fromSalonSettings: fromSalonSettings,
+        ),
+        overrides: <Object>[
+          authProvider.overrideWith(() => _AuthenticatedAs(role)),
+          authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
+          secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'A15. SALON_ADMIN from salon settings: no change-password row',
+      (tester) async {
+        await pumpAs(tester, UserRole.salonAdmin, fromSalonSettings: true);
+        expect(row, findsNothing);
+        // The rest of the page still renders.
+        expect(find.byKey(const Key('row-notifications')), findsOneWidget);
+        expect(find.byKey(const Key('row-blocked-clients')), findsOneWidget);
+      },
+    );
+
+    testWidgets('A16. SALON_ADMIN from personal settings: row still shown', (
+      tester,
+    ) async {
+      await pumpAs(tester, UserRole.salonAdmin, fromSalonSettings: false);
+      expect(row, findsOneWidget);
+    });
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonOwner,
+      UserRole.independentMaster,
+      UserRole.client,
+    ]) {
+      testWidgets('A17. ${role.name}: row shown on both paths', (tester) async {
+        await pumpAs(tester, role, fromSalonSettings: true);
+        expect(row, findsOneWidget, reason: 'salon path');
+        await pumpAs(tester, role, fromSalonSettings: false);
+        expect(row, findsOneWidget, reason: 'default path');
+      });
+    }
   });
 }

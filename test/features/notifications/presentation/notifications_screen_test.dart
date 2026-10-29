@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/notifications/presentation/unread_notif
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_feed_parts.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/l10n/app_localizations_en.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
@@ -176,6 +177,18 @@ String _iso(String raw) => NotificationCopy.sanitize(raw)!;
 
 void main() {
   setUp(() => _clockNow = _start);
+
+  // User request 2026-10-29: the provider-side decline title is the short
+  // «Запис скасовано» (was «Запис у вашому дні скасовано»). The rendering
+  // test below reads the title through the key, so it cannot catch a copy
+  // regression on its own — pin the literal here.
+  test('should_useShortProviderDeclineTitle', () {
+    expect(uk.notificationTitleDeclinedProvider, 'Запис скасовано');
+    expect(
+      AppLocalizationsEn().notificationTitleDeclinedProvider,
+      'Booking cancelled',
+    );
+  });
 
   group('rendering', () {
     testWidgets('should_renderEveryType_withItsTitle_forAProvider', (

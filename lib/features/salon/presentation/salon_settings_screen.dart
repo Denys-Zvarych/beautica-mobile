@@ -192,6 +192,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
       extra: AccountSettingsExtras(
         salonId: widget.salonId,
         showDeleteSalon: isOwner,
+        // The account page hides «Змінити пароль» for a SALON_ADMIN on this
+        // path only (see `SettingsScreen._showChangePasswordRow`).
+        fromSalonSettings: true,
       ),
     );
   }

@@ -3381,7 +3381,7 @@
   "@notificationTitleDeclinedClient": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
   },
-  "notificationTitleDeclinedProvider": "A booking in your day was cancelled",
+  "notificationTitleDeclinedProvider": "Booking cancelled",
   "@notificationTitleDeclinedProvider": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
   },

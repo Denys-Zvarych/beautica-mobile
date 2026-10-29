@@ -96,7 +96,12 @@ import '../../../shared/widgets/section_header.dart';
 
 /// Account settings page — VelvetTouch neumorphic design.
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, this.salonId, this.showDeleteSalon = false});
+  const SettingsScreen({
+    super.key,
+    this.salonId,
+    this.showDeleteSalon = false,
+    this.fromSalonSettings = false,
+  });
 
   /// Backend Salon-row UUID the owner-only «Видалити салон» row targets.
   /// `null` (the default) means the row never renders, regardless of
@@ -108,6 +113,13 @@ class SettingsScreen extends ConsumerStatefulWidget {
   /// The row still fails closed on a null [salonId] — see this file's header
   /// doc.
   final bool showDeleteSalon;
+
+  /// True when pushed from the salon settings hub's «Загальне» row. A
+  /// SALON_ADMIN on that path gets no «Змінити пароль» row (it stays on the
+  /// admin's own-profile settings path). Defaults to `false` so every other
+  /// caller renders exactly as before — see [_SettingsScreenState
+  /// ._showChangePasswordRow].
+  final bool fromSalonSettings;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -259,6 +271,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     }
   }
 
+  /// «Змінити пароль» is a personal-account action. A SALON_ADMIN opening this
+  /// page from the salon settings hub («Загальне») does not get it; they reach
+  /// it from their own-profile settings hub instead (no `extra`, so
+  /// [SettingsScreen.fromSalonSettings] is `false`). Every other role — the
+  /// SALON_OWNER on the same salon path included — and every other path keep
+  /// the row. Hides only on a positively-identified admin, so an unsettled
+  /// session keeps today's behaviour.
+  bool get _showChangePasswordRow =>
+      !(widget.fromSalonSettings &&
+          ref.watch(authProvider.select(authUserRoleOrNull)) ==
+              UserRole.salonAdmin);
+
   /// True while the owner-only delete-salon call is in flight.
   bool _deletingSalon = false;
 
@@ -378,25 +402,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           const SizedBox(height: VelvetSpacing.md),
           _reveal(_anim2, const _NotificationsToggleRow()),
-          const SizedBox(height: VelvetSpacing.md),
           // Beautica OTP task Phase B5 — "Change password" entry point. Opens
           // the SAME generalized ResetOtpVerificationScreen the forgot-password
           // flow uses (RouteNames.changePassword), bound to the authenticated
-          // requestChangePasswordOtp() call instead.
-          _reveal(
-            _anim3,
-            SettingsRow(
-              key: const Key('row-change-password'),
-              icon: Icons.lock_outline_rounded,
-              label: l10n.changePasswordRowLabel,
-              // mobile-perf MEDIUM: surface the in-flight OTP request visually
-              // (dimmed row + spinner instead of the chevron) so a slow
-              // network doesn't read as an unresponsive tap, and a second tap
-              // is visibly — not silently — ignored.
-              loading: _requestingChangePasswordOtp,
-              onTap: _openChangePassword,
+          // requestChangePasswordOtp() call instead. Hidden for a SALON_ADMIN
+          // on the salon-settings path — see [_showChangePasswordRow].
+          if (_showChangePasswordRow) ...<Widget>[
+            const SizedBox(height: VelvetSpacing.md),
+            _reveal(
+              _anim3,
+              SettingsRow(
+                key: const Key('row-change-password'),
+                icon: Icons.lock_outline_rounded,
+                label: l10n.changePasswordRowLabel,
+                // mobile-perf MEDIUM: surface the in-flight OTP request visually
+                // (dimmed row + spinner instead of the chevron) so a slow
+                // network doesn't read as an unresponsive tap, and a second tap
+                // is visibly — not silently — ignored.
+                loading: _requestingChangePasswordOtp,
+                onTap: _openChangePassword,
+              ),
             ),
-          ),
+          ],
           // Phase 426 D1 — «Заблоковані клієнти», provider roles only
           // (independent master, salon owner, salon admin; fails closed —
           // see [canManageClientBlocksProvider]). After «Змінити пароль»,

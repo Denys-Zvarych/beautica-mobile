@@ -167,6 +167,8 @@ GoRouter _router() => GoRouter(
               SizedBox(key: Key('stub-account-salonId-${typed?.salonId}')),
               if (typed?.showDeleteSalon ?? false)
                 const SizedBox(key: Key('stub-account-show-delete-salon')),
+              if (typed?.fromSalonSettings ?? false)
+                const SizedBox(key: Key('stub-account-from-salon-settings')),
             ],
           ),
         );
@@ -474,6 +476,13 @@ void main() {
         findsOneWidget,
         reason: 'an owner must forward showDeleteSalon: true',
       );
+      expect(
+        find.byKey(const Key('stub-account-from-salon-settings')),
+        findsOneWidget,
+        reason:
+            'the account page must know it came from salon settings, so it '
+            'can hide «Змінити пароль» for an admin',
+      );
     });
 
     testWidgets('admin: forwards salonId but showDeleteSalon: false', (
@@ -498,6 +507,13 @@ void main() {
         find.byKey(const Key('stub-account-show-delete-salon')),
         findsNothing,
         reason: 'an admin must NOT forward showDeleteSalon: true',
+      );
+      expect(
+        find.byKey(const Key('stub-account-from-salon-settings')),
+        findsOneWidget,
+        reason:
+            'the account page must know it came from salon settings, so it '
+            'can hide «Змінити пароль» for an admin',
       );
     });
   });
