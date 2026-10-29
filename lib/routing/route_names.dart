@@ -67,10 +67,10 @@ abstract final class RouteNames {
   static const String settings = '/settings';
 
   /// Phase 414 — «Посилання для запису» ([BookingLinkScreen]). Pushed from
-  /// the settings-hub row of the three roles that may share links
-  /// (INDEPENDENT_MASTER `masterMenu`, SALON_OWNER `ownerSettings`,
-  /// SALON_ADMIN `adminSettings`). A standalone top-level literal (the
-  /// [settings] route has no children); role-gated in `auth_redirect.dart`,
+  /// the «Посилання для запису» row of the three roles that may share links
+  /// (INDEPENDENT_MASTER `masterMenu`; SALON_OWNER / SALON_ADMIN salon
+  /// «Налаштування», [salonManageSettings]). A standalone top-level literal
+  /// (the [settings] route has no children); role-gated in `auth_redirect.dart`,
   /// which bounces SALON_MASTER / CLIENT to their landing.
   static const String bookingLinks = '/settings/booking-links';
 

@@ -1217,8 +1217,9 @@ GoRouter appRouter(Ref ref) {
           personalInfoRoute: RouteNames.adminEditPersonal,
           contactsRoute: RouteNames.adminEditContacts,
           fallbackHomeRoute: RouteNames.adminOwnProfile,
-          // Phase 414 — SALON_ADMIN shares its salon's link.
-          showBookingLinks: true,
+          // No `showBookingLinks` — SALON_ADMIN reaches «Посилання для
+          // запису» from salon «Налаштування» only (user decision
+          // 2026-10-29).
         ),
       ),
       // Phase 356 — «Особисті дані» edit for a SALON_ADMIN. REUSES
@@ -1247,8 +1248,9 @@ GoRouter appRouter(Ref ref) {
           showContacts: false,
           personalInfoRoute: RouteNames.ownerEditPersonal,
           fallbackHomeRoute: RouteNames.ownerMasterProfile,
-          // Phase 414 — SALON_OWNER shares its salons' links.
-          showBookingLinks: true,
+          // No `showBookingLinks` — SALON_OWNER reaches «Посилання для
+          // запису» from salon «Налаштування» only (user decision
+          // 2026-10-29).
         ),
       ),
       // Phase 367 / 399 — «Особисті дані» for a SALON_OWNER. REUSES

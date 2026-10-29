@@ -4,9 +4,10 @@
 //     SALON_OWNER, SALON_ADMIN admitted; SALON_MASTER / CLIENT bounced to
 //     roleHomePath; signed out → login.
 //   • the PRODUCTION router registers the route and builds BookingLinkScreen.
-//   • the PRODUCTION hub routes pass `showBookingLinks: true` for
-//     masterMenu / ownerSettings / adminSettings and leave it `false` for the
-//     salon master's `/staff/settings` (D1 / user access rule).
+//   • the PRODUCTION hub routes pass `showBookingLinks: true` ONLY for
+//     masterMenu; ownerSettings / adminSettings (salons reach the row from
+//     salon «Налаштування» only — user decision 2026-10-29) and the salon
+//     master's `/staff/settings` leave it `false`.
 
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/features/auth/data/auth_repository_provider.dart';
@@ -133,8 +134,8 @@ void main() {
 
     final Map<String, bool> hubs = <String, bool>{
       RouteNames.masterMenu: true,
-      RouteNames.ownerSettings: true,
-      RouteNames.adminSettings: true,
+      RouteNames.ownerSettings: false,
+      RouteNames.adminSettings: false,
       RouteNames.salonMasterSettings: false,
     };
     hubs.forEach((String location, bool show) {

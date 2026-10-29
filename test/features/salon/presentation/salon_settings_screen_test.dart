@@ -56,6 +56,8 @@ import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -65,6 +67,7 @@ import 'package:beautica_mobile/features/settings/domain/account_settings_extras
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/fake_package_info.dart';
 import '../../../helpers/pump_app.dart';
@@ -76,6 +79,32 @@ const String _kSalonId = 'salon-1';
 /// A Cyrillic fixture here would read as a localized-copy finder and trip
 /// `forbid_cyrillic_finder` for no benefit.
 const String _kSalonName = 'Velvet Studio';
+
+class _MockBookingLinksRepository extends Mock
+    implements BookingLinksRepository {}
+
+/// The salon's own SALON link — what `GET /booking-links/mine` returns to a
+/// SALON_OWNER / SALON_ADMIN (role scoping keeps SALON links for both).
+const BookingLink _salonLink = BookingLink(
+  kind: BookingLinkKind.salon,
+  slug: 'velvet-studio',
+  url: 'https://beautica.app/book/s/velvet-studio',
+  displayName: _kSalonName,
+  salonId: _kSalonId,
+  bookable: true,
+);
+
+/// Default links repository for every test: share kill-switch OFF, so the
+/// «Посилання для запису» row stays hidden and the suite never touches the
+/// real Dio stack. The booking-links group swaps in its own.
+_MockBookingLinksRepository _hiddenLinksRepo() {
+  final _MockBookingLinksRepository repo = _MockBookingLinksRepository();
+  when(() => repo.getMine()).thenAnswer(
+    (_) async =>
+        const BookingLinks(shareEnabled: false, links: <BookingLink>[]),
+  );
+  return repo;
+}
 
 const _stubOwner = User(
   id: 'owner-1',
@@ -180,6 +209,11 @@ GoRouter _router() => GoRouter(
           const Scaffold(body: SizedBox(key: Key('stub-help'))),
     ),
     GoRoute(
+      path: '/settings/booking-links',
+      builder: (context, state) =>
+          const Scaffold(body: SizedBox(key: Key('stub-booking-links'))),
+    ),
+    GoRoute(
       path: '/salons/:salonId/manage',
       builder: (context, state) => Scaffold(
         body: SizedBox(
@@ -252,9 +286,13 @@ List<Object> _overrides(
   User user, {
   SalonManagementProfile Function() profile =
       _SettledSalonManagementProfile.new,
+  BookingLinksRepository? linksRepo,
 }) => <Object>[
   authProvider.overrideWith(() => _StubAuthNotifier(user)),
   salonManagementProfileProvider(_kSalonId).overrideWith(profile),
+  bookingLinksRepositoryProvider.overrideWithValue(
+    linksRepo ?? _hiddenLinksRepo(),
+  ),
 ];
 
 /// The eight row keys the screen renders for an OWNER, in the design's
@@ -814,5 +852,102 @@ void main() {
       greaterThan(tester.getBottomLeft(find.byKey(const Key('row-logout'))).dy),
       reason: 'the version line must sit at the very bottom, under «Вийти»',
     );
+  });
+
+  // User decision 2026-10-29 — salons reach «Посилання для запису» ONLY from
+  // here (never the owner's master-mode / admin's personal hub). The row is
+  // the shared `BookingLinksSettingsRow` over the REAL
+  // `bookingLinksVisibleProvider`; only the repository is mocked.
+  group('«Посилання для запису» row', () {
+    const Key row = Key('row-booking-links');
+
+    _MockBookingLinksRepository visibleRepo() {
+      final _MockBookingLinksRepository repo = _MockBookingLinksRepository();
+      when(() => repo.getMine()).thenAnswer(
+        (_) async => const BookingLinks(
+          shareEnabled: true,
+          links: <BookingLink>[_salonLink],
+        ),
+      );
+      return repo;
+    }
+
+    for (final (String label, User user) in <(String, User)>[
+      ('owner', _stubOwner),
+      ('admin', _stubAdmin),
+    ]) {
+      testWidgets('$label: renders between «Надіслані запрошення» and '
+          '«Загальне»', (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(user, linksRepo: visibleRepo()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(row), findsOneWidget);
+        final double invites = tester
+            .getTopLeft(find.byKey(const Key('row-salon-sent-invites')))
+            .dy;
+        final double links = tester.getTopLeft(find.byKey(row)).dy;
+        final double general = tester
+            .getTopLeft(find.byKey(const Key('row-salon-general')))
+            .dy;
+        expect(invites, lessThan(links));
+        expect(links, lessThan(general));
+      });
+
+      testWidgets('$label: tap pushes /settings/booking-links', (tester) async {
+        final router = _router();
+        addTearDown(router.dispose);
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: _overrides(user, linksRepo: visibleRepo()),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.byKey(row));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(row));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('stub-booking-links')), findsOneWidget);
+      });
+    }
+
+    testWidgets('kill-switch off → hidden, every other row still renders', (
+      tester,
+    ) async {
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(router, overrides: _overrides(_stubOwner));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(row), findsNothing);
+      for (final key in _ownerOrderedKeys) {
+        expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+      }
+    });
+
+    testWidgets('load error → hidden', (tester) async {
+      final _MockBookingLinksRepository repo = _MockBookingLinksRepository();
+      when(
+        () => repo.getMine(),
+      ).thenAnswer((_) async => throw const ServerFailure(statusCode: 500));
+      final router = _router();
+      addTearDown(router.dispose);
+
+      await tester.pumpRoutedApp(
+        router,
+        overrides: _overrides(_stubAdmin, linksRepo: repo),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(row), findsNothing);
+    });
   });
 }

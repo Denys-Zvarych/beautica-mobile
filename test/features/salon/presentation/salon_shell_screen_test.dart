@@ -66,6 +66,8 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/home/application/client_edit_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/my_salons_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
@@ -153,9 +155,36 @@ class _SettledSalonManagementProfile extends SalonManagementProfile {
       (_stubSalon, const <SalonStaffMember>[]);
 }
 
+/// Phase 414 perf — the salon manage screen warms the booking-links load for
+/// owner / admin (`ref.listen(bookingLinksVisibleProvider, ...)`); without
+/// this the read reaches the real Dio client (`BookingLinksApi.getMine`) and
+/// leaves a pending Timer behind.
+///
+/// The load never settles (the "first in-flight load" state, which reads as
+/// NOT visible): a SETTLED load is pinned by `bookingLinksForAccount` and its
+/// 60 s TTL timer would outlive every test whose container outlives the tree.
+/// An error is no better (Riverpod 3 retries it on a timer). No test in this
+/// file asserts on booking links.
+class _PendingBookingLinksRepository implements BookingLinksRepository {
+  _PendingBookingLinksRepository();
+
+  final Completer<BookingLinks> _never = Completer<BookingLinks>();
+
+  @override
+  Future<BookingLinks> getMine() => _never.future;
+
+  @override
+  Future<BookingLinkMutationOutcome> regenerate(BookingLink link) =>
+      throw UnimplementedError();
+}
+
+Object _bookingLinksOverride() => bookingLinksRepositoryProvider
+    .overrideWithValue(_PendingBookingLinksRepository());
+
 List<Object> _ownerOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  _bookingLinksOverride(),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_OwnedMySalons.new),
   salonManagementProfileProvider(
@@ -178,6 +207,7 @@ class _SettledClientEditProfile extends ClientEditProfile {
 List<Object> _adminOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  _bookingLinksOverride(),
   authProvider.overrideWith(_AdminAuthNotifier.new),
   clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
   salonManagementProfileProvider(
@@ -207,6 +237,7 @@ class _MultiOwnedMySalons extends MySalons {
 List<Object> _ownerOverridesMultiSalon() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  _bookingLinksOverride(),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_MultiOwnedMySalons.new),
   salonManagementProfileProvider(
@@ -804,6 +835,7 @@ void main() {
         final ProviderContainer container = await pumpRouted(tester, <Object>[
           // Phase 404 — timer-free portfolio (the container outlives the tree).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           authProvider.overrideWith(_PendingAuthNotifier.new),
           clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
           salonManagementProfileProvider(
@@ -1588,6 +1620,7 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -1720,6 +1753,7 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -1883,6 +1917,7 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
           salonManagementProfileProvider(
@@ -2187,6 +2222,7 @@ void main() {
         overrides: <Object>[
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           authProvider.overrideWith(_OwnerAuthNotifier.new),
           mySalonsProvider.overrideWith(() => _CompleterMySalons(salons)),
           salonManagementProfileProvider(
@@ -2245,6 +2281,7 @@ void main() {
         overrides: <Object>[
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          _bookingLinksOverride(),
           authProvider.overrideWith(_OwnerAuthNotifier.new),
           mySalonsProvider.overrideWith(_OtherOnlyMySalons.new),
           salonManagementProfileProvider(
