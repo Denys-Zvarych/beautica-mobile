@@ -22,7 +22,9 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/application/favorites_notifier.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -354,6 +356,266 @@ void main() {
         reason:
             'the next signed-in user must never inherit the previous one\'s '
             'favorite flags through this keepAlive map',
+      );
+    });
+  });
+
+  // Review-trust fix — a successful MASTER/SALON toggle refreshes a MOUNTED
+  // «Улюблені» list (assigning refresh, never invalidate), and fetches nothing
+  // when the list was never opened.
+  group('FavoriteToggleNotifier.toggle — refreshes favoritesProvider', () {
+    const FavoriteItem masterRow = FavoriteItem(
+      id: 'master-1',
+      kind: FavoriteKind.master,
+      name: 'Master One',
+      initials: 'MO',
+    );
+
+    /// Mounts `favoritesProvider` (a live listener, like the shell branch) and
+    /// waits for its first load; returns the subscription.
+    Future<ProviderSubscription<AsyncValue<List<FavoriteItem>>>> mountList(
+      ProviderContainer container,
+    ) async {
+      final sub = container.listen<AsyncValue<List<FavoriteItem>>>(
+        favoritesProvider,
+        (_, _) {},
+      );
+      addTearDown(sub.close);
+      await container.read(favoritesProvider.future);
+      return sub;
+    }
+
+    test('a master ADD refreshes a mounted list with the new row', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      await mountList(container);
+      expect(repo.mastersCalls, 1);
+      expect(container.read(favoritesProvider).value, isEmpty);
+
+      repo.masters = const <FavoriteItem>[masterRow];
+      expect(
+        await container.read(favoriteToggleProvider.notifier).toggle(_master),
+        isNull,
+      );
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 2, reason: 'the add must refetch the list');
+      expect(
+        repo.salonsCalls,
+        1,
+        reason: 'a master toggle refetches masters only (refresh(only:))',
+      );
+      expect(
+        container.read(favoritesProvider).value,
+        equals(const <FavoriteItem>[masterRow]),
+      );
+    });
+
+    test('a master REMOVE refreshes a mounted list without the row', () async {
+      final repo = FakeFavoriteRepository()
+        ..masters = const <FavoriteItem>[masterRow];
+      final container = await _makeContainer(repo);
+      await mountList(container);
+      expect(container.read(favoritesProvider).value, hasLength(1));
+
+      final notifier = container.read(favoriteToggleProvider.notifier);
+      notifier.primeIfAbsent(_master, isFavorite: true);
+      repo.masters = const <FavoriteItem>[];
+      expect(await notifier.toggle(_master), isNull);
+      await pumpEventQueue();
+
+      expect(repo.removeCalls, equals(<FavoriteTarget>[_master]));
+      expect(repo.mastersCalls, 2, reason: 'the remove must refetch the list');
+      expect(container.read(favoritesProvider).value, isEmpty);
+    });
+
+    test('a salon toggle refreshes a mounted list too', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      await mountList(container);
+
+      await container.read(favoriteToggleProvider.notifier).toggle(_salon);
+      await pumpEventQueue();
+
+      expect(repo.salonsCalls, 2);
+      expect(
+        repo.mastersCalls,
+        1,
+        reason: 'a salon toggle refetches salons only',
+      );
+    });
+
+    test('nothing is fetched when the list is NOT mounted', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      await notifier.toggle(_master); // add
+      await notifier.toggle(_master); // remove
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 0);
+      expect(repo.salonsCalls, 0);
+      expect(container.exists(favoritesProvider), isFalse);
+    });
+
+    test('refreshFavorites: false suppresses the refetch', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      await mountList(container);
+
+      await container
+          .read(favoriteToggleProvider.notifier)
+          .toggle(_master, refreshFavorites: false);
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 1);
+    });
+
+    test('a SERVICE toggle never refetches the list', () async {
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      await mountList(container);
+
+      await container
+          .read(favoriteToggleProvider.notifier)
+          .toggle(
+            const FavoriteTarget(type: FavoriteTargetType.service, id: 's-1'),
+            refreshWishlist: false,
+          );
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 1);
+    });
+
+    test('a FAILED toggle does not refetch the list', () async {
+      final repo = FakeFavoriteRepository()..addResult = const NetworkFailure();
+      final container = await _makeContainer(repo);
+      await mountList(container);
+
+      expect(
+        await container.read(favoriteToggleProvider.notifier).toggle(_master),
+        isNotNull,
+      );
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 1);
+    });
+
+    test('two toggles inside ONE refresh window both reach the list', () async {
+      // RED WHEN `Favorites.refresh`'s trailing re-run is dropped: the second
+      // toggle's refresh joins the in-flight GET (which predates it), so
+      // master-2 never shows.
+      const FavoriteItem secondRow = FavoriteItem(
+        id: 'master-2',
+        kind: FavoriteKind.master,
+        name: 'Master Two',
+        initials: 'MT',
+      );
+      const FavoriteTarget second = FavoriteTarget(
+        type: FavoriteTargetType.master,
+        id: 'master-2',
+      );
+      final Completer<void> gate = Completer<void>();
+      final repo = FakeFavoriteRepository()..snapshotRowsAtCall = true;
+      final container = await _makeContainer(repo);
+      await mountList(container);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      repo
+        ..mastersDelay = gate.future
+        ..masters = const <FavoriteItem>[masterRow];
+      expect(await notifier.toggle(_master), isNull);
+      await pumpEventQueue();
+      repo.masters = const <FavoriteItem>[masterRow, secondRow];
+      expect(await notifier.toggle(second), isNull);
+
+      gate.complete();
+      await pumpEventQueue();
+
+      expect(repo.mastersCalls, 3, reason: 'mount + in-flight + ONE re-run');
+      expect(
+        container.read(favoritesProvider).value,
+        equals(const <FavoriteItem>[masterRow, secondRow]),
+      );
+    });
+
+    test(
+      'a session change mid-call: no heart write, no list refresh',
+      () async {
+        // RED WHEN the `if (!r.mounted) return null;` after the await in
+        // `toggle` is dropped: the old user's heart lands in the new session's
+        // map, and the old user's toggle refetches the list.
+        final Completer<void> gate = Completer<void>();
+        final repo = FakeFavoriteRepository()..addDelay = gate.future;
+        final container = await _makeContainer(repo);
+        await mountList(container);
+        final notifier = container.read(favoriteToggleProvider.notifier);
+
+        final Future<Failure?> pending = notifier.toggle(_master);
+        expect(
+          container.read(favoriteToggleProvider)[_master]?.pending,
+          isTrue,
+        );
+
+        final auth =
+            container.read(authProvider.notifier) as _MutableAuthNotifier;
+        auth.setSession(
+          const AuthSession.authenticated(
+            user: User(
+              id: 'u2',
+              email: 'other@example.com',
+              role: UserRole.client,
+              firstName: 'Other',
+              lastName: 'Client',
+            ),
+            accessToken: 'token-2',
+          ),
+        );
+        expect(container.read(favoriteToggleProvider), isEmpty);
+
+        gate.complete();
+        expect(await pending, isNull);
+        await pumpEventQueue();
+
+        expect(
+          container.read(favoriteToggleProvider),
+          isEmpty,
+          reason: "the old session's heart must not reach the new session",
+        );
+        expect(
+          repo.mastersCalls,
+          1,
+          reason: 'no refresh for a retired session',
+        );
+      },
+    );
+
+    test('a session change mid-call skips the failure revert too', () async {
+      final Completer<void> gate = Completer<void>();
+      final repo = FakeFavoriteRepository()
+        ..addDelay = gate.future
+        ..addResult = const NetworkFailure();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      final Future<Failure?> pending = notifier.toggle(_master);
+      final auth =
+          container.read(authProvider.notifier) as _MutableAuthNotifier;
+      auth.setSession(const AuthSession.unauthenticated());
+      expect(container.read(favoriteToggleProvider), isEmpty);
+      // The new session favourites the same target meanwhile.
+      container
+          .read(favoriteToggleProvider.notifier)
+          .primeIfAbsent(_master, isFavorite: true);
+
+      gate.complete();
+      expect(await pending, isNull);
+
+      expect(
+        container.read(favoriteToggleProvider)[_master]?.isFavorite,
+        isTrue,
+        reason: "the old session's revert must not stomp the new session",
       );
     });
   });

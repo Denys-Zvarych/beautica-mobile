@@ -38,9 +38,15 @@
 // assertions are on WIRE values, and those values are deliberately Latin, so
 // no `// i18n-finder-ok:` escape is needed anywhere in this file.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorite_cards.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorites_filter.dart';
+import 'package:beautica_mobile/features/master/presentation/public_master_profile_screen.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -769,6 +775,239 @@ void main() {
       reason:
           'the rating readout drifted off the first line\'s top — the '
           'identity row is no longer top-aligned against the real app tree',
+    );
+  });
+
+  // ── Review-trust fix B — «Улюблені» follows a heart toggled ELSEWHERE ─────
+  //
+  // The list is branch 1 of the client shell's IndexedStack: once visited it
+  // stays MOUNTED with its data. Before the fix a heart toggled on a search
+  // card or a profile never reached it — the client saw a stale list until a
+  // manual pull-to-refresh. Every flow below visits «Улюблені» FIRST (so the
+  // provider is live, which is the bug's precondition) and NEVER pulls to
+  // refresh: the only thing that can update the list is the toggle itself.
+
+  /// Lands on «Улюблені» with NO master saved (the salon row stays, so the
+  /// screen is in its loaded state, not empty), and seeds the fake so a
+  /// MASTER add of `master-aaa` persists like the real backend.
+  Future<GoRouter> openFavoritesWithoutMaster(WidgetTester tester) async {
+    fakeBackend
+      ..favoriteMasterRows = <Map<String, dynamic>>[]
+      ..favoriteMasterRowsOnAdd = <String, Map<String, dynamic>>{
+        _kMasterId: _masterRow(masterId: _kMasterId),
+      };
+    final GoRouter router = await openFavorites(tester);
+    await AppHarness.pumpUntilFound(tester, find.byKey(_salonCard(_kSalonId)));
+    expect(find.byKey(_masterCard(_kMasterId)), findsNothing);
+    return router;
+  }
+
+  /// Taps the public master profile's heart and waits for the [call]ed
+  /// counter to reach [expected] AND for the follow-up narrowed refresh.
+  Future<void> tapProfileHeart(
+    WidgetTester tester, {
+    required int Function() call,
+    required int expected,
+  }) async {
+    final int mastersBefore = fakeBackend.listMasterFavoritesCalls;
+    final Finder heart = find.byKey(const Key('public-master-favorite-toggle'));
+    await AppHarness.pumpUntilFound(tester, heart.hitTestable());
+    await tester.tap(heart);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => call() == expected,
+      description: 'the favourite write to land',
+    );
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fakeBackend.listMasterFavoritesCalls > mastersBefore,
+      description: 'the post-toggle refresh to re-issue GET /favorites/masters',
+    );
+    await AppHarness.settle(tester);
+  }
+
+  testWidgets('Test 10 — a master hearted on a SEARCH card appears in the '
+      'already-mounted «Улюблені» list without any reload', (
+    WidgetTester tester,
+  ) async {
+    final GoRouter router = await openFavoritesWithoutMaster(tester);
+    final int salonsBefore = fakeBackend.listSalonFavoritesCalls;
+
+    // «Пошук» → browse-all masters (same entry as client_search_flow_test).
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(const Key('client-nav-search-center')),
+    );
+    final Finder showMasters = find.byKey(const Key('search_show_masters_cta'));
+    await AppHarness.pumpUntilFound(tester, showMasters.hitTestable());
+    await tester.tap(showMasters);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(const Key('results_list')),
+    );
+    AppHarness.expectNestedPushLocation(router, RouteNames.clientSearchResults);
+
+    final int mastersBefore = fakeBackend.listMasterFavoritesCalls;
+    // Hit-testable gate: the results page slides in over 500 ms.
+    final Finder heart = find.byKey(const Key('favorite_master_$_kMasterId'));
+    await AppHarness.pumpUntilFound(tester, heart.hitTestable());
+    await tester.tap(heart);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fakeBackend.addFavoriteCalls == 1,
+      description: 'POST /favorites {MASTER} to land',
+    );
+    expect(fakeBackend.lastAddFavoriteBody?['targetType'], 'MASTER');
+    expect(fakeBackend.lastAddFavoriteBody?['targetId'], _kMasterId);
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fakeBackend.listMasterFavoritesCalls > mastersBefore,
+      description: 'the toggle to refresh the mounted «Улюблені» list',
+    );
+
+    // Back to «Улюблені» by the nav tile — a plain branch switch, no pull.
+    await tester.tap(find.byKey(_kNavTileFavorites));
+    await AppHarness.pumpUntilFound(tester, find.byKey(_kFavoritesBranch));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+    expect(find.text(_kMasterName), findsOneWidget);
+    expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
+    // `refresh(only: master)` — a master heart must not refetch every salon.
+    expect(
+      fakeBackend.listSalonFavoritesCalls,
+      salonsBefore,
+      reason: 'a MASTER toggle refetched the salons feed too',
+    );
+  });
+
+  testWidgets('Test 11 — a favourited master UNhearted on their profile is '
+      'gone from «Улюблені» on return, without any reload', (
+    WidgetTester tester,
+  ) async {
+    final GoRouter router = await openFavoritesWithoutMaster(tester);
+
+    // Favourite on the profile (this session) — the list picks it up.
+    unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byType(PublicMasterProfileScreen),
+    );
+    await tapProfileHeart(
+      tester,
+      call: () => fakeBackend.addFavoriteCalls,
+      expected: 1,
+    );
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await AppHarness.settle(tester);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+
+    // Already favourited → open their profile from the row and unheart.
+    await AppHarness.tapVisible(tester, find.byKey(_masterCard(_kMasterId)));
+    await AppHarness.settle(tester);
+    AppHarness.expectNestedPushLocation(router, '/masters/$_kMasterId');
+    await tapProfileHeart(
+      tester,
+      call: () => fakeBackend.removeFavoriteCalls,
+      expected: 1,
+    );
+    expect(fakeBackend.lastRemoveFavoriteQuery?['targetType'], 'MASTER');
+    expect(fakeBackend.lastRemoveFavoriteQuery?['targetId'], _kMasterId);
+    expect(fakeBackend.addFavoriteCalls, 1, reason: 'the unheart re-ADDED');
+
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await AppHarness.settle(tester);
+    expect(find.byKey(_kFavoritesBranch), findsOneWidget);
+    expect(
+      find.byKey(_masterCard(_kMasterId)),
+      findsNothing,
+      reason: '«Улюблені» still lists a master unhearted on the profile',
+    );
+    expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
+  });
+
+  testWidgets('Test 12 — a FAILED post-toggle refresh keeps the list (no '
+      'error screen), and returning to «Улюблені» repairs it', (
+    WidgetTester tester,
+  ) async {
+    final GoRouter router = await openFavoritesWithoutMaster(tester);
+
+    unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byType(PublicMasterProfileScreen),
+    );
+    // The narrowed refresh after this add will 500.
+    fakeBackend.forceListMasterFavoritesFailure(500);
+    await tapProfileHeart(
+      tester,
+      call: () => fakeBackend.addFavoriteCalls,
+      expected: 1,
+    );
+    fakeBackend.forceListMasterFavoritesFailure(null);
+    final int mastersBefore = fakeBackend.listMasterFavoritesCalls;
+
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await AppHarness.settle(tester);
+    expect(find.byKey(_kFavoritesBranch), findsOneWidget);
+    expect(
+      find.byKey(const Key('favorites-error')),
+      findsNothing,
+      reason: 'a failed BACKGROUND refresh swapped the list for the error',
+    );
+    // The return to `/favorites` saw the list stale and reloaded it whole.
+    await AppHarness.pumpUntilCondition(
+      tester,
+      () => fakeBackend.listMasterFavoritesCalls > mastersBefore,
+      description: 'the stale-list repair on returning to «Улюблені»',
+    );
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+    expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
+  });
+
+  // ── Review-trust fix A — the report sheet closes by dragging down ─────────
+
+  testWidgets('Test 13 — on a public master profile, «⋯» opens the report '
+      'sheet and dragging its handle down closes it', (
+    WidgetTester tester,
+  ) async {
+    final GoRouter router = await openFavorites(tester);
+    unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(PublicMasterProfileScreen.reportKey),
+    );
+    await AppHarness.settle(tester);
+
+    await AppHarness.tapVisible(
+      tester,
+      find.byKey(PublicMasterProfileScreen.reportKey),
+    );
+    await AppHarness.settle(tester);
+    expect(find.byType(ReportSheet), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(VelvetSheetChrome.handleKey),
+      const Offset(0, 400),
+    );
+    await AppHarness.settle(tester);
+
+    expect(
+      find.byType(ReportSheet),
+      findsNothing,
+      reason: 'dragging the handle down did not dismiss the report sheet',
+    );
+    expect(find.byType(PublicMasterProfileScreen), findsOneWidget);
+    AppHarness.expectLocation(
+      router,
+      RouteNames.masterPublicProfile(_kMasterId),
     );
   });
 }

@@ -89,6 +89,21 @@ class _SettledAuthNotifier extends AuthNotifier {
       const AuthSession.authenticated(user: _user, accessToken: 'token');
 }
 
+/// A toggle map that already holds a settled `isFavorite: false` for
+/// [_target] — the state «unliked elsewhere, row still on «Улюблені»». The real
+/// notifier prunes settled `false` entries today; seeding it directly pins
+/// that `unfavorite` never turns into an add WHATEVER the map holds.
+class _SeededFalseToggle extends FavoriteToggleNotifier {
+  _SeededFalseToggle(this._target);
+
+  final FavoriteTarget _target;
+
+  @override
+  Map<FavoriteTarget, FavoriteEntry> build() => <FavoriteTarget, FavoriteEntry>{
+    _target: const FavoriteEntry(isFavorite: false),
+  };
+}
+
 /// Fresh container per test, disposed in a tearDown (M1).
 ///
 /// The two `container.listen` calls are LOAD-BEARING, not decoration. Both
@@ -273,6 +288,74 @@ void main() {
       expect(repo.removeCalls, isEmpty);
       expect(_ids(container), <String>['m1']);
     });
+
+    test(
+      'does NOT refetch the list — its own optimistic edit stands',
+      () async {
+        // RED WHEN `refreshFavorites: false` is dropped from `unfavorite`'s
+        // toggle call: the toggle's MASTER/SALON branch would then refresh this
+        // mounted list, refetching out from under the optimistic remove.
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1'), _master('m2')];
+        final ProviderContainer container = _container(repo);
+        await container.read(authProvider.future);
+        final List<FavoriteItem> items = await container.read(
+          favoritesProvider.future,
+        );
+        expect(repo.mastersCalls, 1);
+
+        final Failure? failure = await container
+            .read(favoritesProvider.notifier)
+            .unfavorite(items.first);
+        await pumpEventQueue();
+
+        expect(failure, isNull);
+        expect(repo.mastersCalls, 1, reason: 'unfavorite must not refetch');
+        expect(repo.salonsCalls, 1);
+        expect(_ids(container), <String>['m2']);
+      },
+    );
+
+    test(
+      'with the toggle map already FALSE: no POST, no DELETE, row dropped',
+      () async {
+        // RED WHEN the `known.isFavorite == false` guard in `unfavorite` is
+        // dropped: `toggle` flips the map to true and POSTs an add — the
+        // client's REMOVE re-adds the favourite.
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1'), _master('m2')];
+        final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            favoriteRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_SettledAuthNotifier.new),
+            favoriteToggleProvider.overrideWith(
+              () => _SeededFalseToggle(_master('m1').target),
+            ),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+        container.listen(favoritesProvider, (_, _) {});
+        final List<FavoriteItem> items = await container.read(
+          favoritesProvider.future,
+        );
+
+        final Failure? failure = await container
+            .read(favoritesProvider.notifier)
+            .unfavorite(items.first);
+
+        expect(failure, isNull);
+        expect(repo.addCalls, isEmpty, reason: 'an unfavorite never adds');
+        expect(repo.removeCalls, isEmpty);
+        expect(_ids(container), <String>['m2']);
+        expect(
+          container
+              .read(favoriteToggleProvider)[_master('m1').target]
+              ?.isFavorite,
+          isNot(isTrue),
+        );
+      },
+    );
   });
 
   group('Favorites.refresh — SINGLE FLIGHT (perf MEDIUM pin)', () {
@@ -370,6 +453,217 @@ void main() {
 
         gate.complete();
         await pending;
+      },
+    );
+  });
+
+  group('Favorites.refresh — trailing re-run, narrowed reload, dispose', () {
+    test('calls during an in-flight load queue exactly ONE trailing re-run '
+        'that sees the newest server state', () async {
+      // RED WHEN the trailing re-run is dropped from `_run`: the list keeps
+      // the in-flight GET's (older) answer, missing m2 and m3.
+      final Completer<void> gate = Completer<void>();
+      final FakeFavoriteRepository repo = FakeFavoriteRepository()
+        ..snapshotRowsAtCall = true
+        ..masters = <FavoriteItem>[_master('m1')];
+      final ProviderContainer container = _container(repo);
+      await container.read(favoritesProvider.future);
+      final Favorites notifier = container.read(favoritesProvider.notifier);
+
+      repo.mastersDelay = gate.future;
+      final Future<void> first = notifier.refresh();
+      await Future<void>.delayed(Duration.zero);
+      repo.masters = <FavoriteItem>[_master('m1'), _master('m2')];
+      final Future<void> second = notifier.refresh();
+      repo.masters = <FavoriteItem>[
+        _master('m1'),
+        _master('m2'),
+        _master('m3'),
+      ];
+      final Future<void> third = notifier.refresh();
+      expect(identical(first, second), isTrue);
+      expect(identical(first, third), isTrue);
+
+      gate.complete();
+      await first;
+
+      expect(repo.mastersCalls, 3, reason: 'initial + in-flight + ONE re-run');
+      expect(repo.salonsCalls, 3);
+      expect(_ids(container), <String>['m1', 'm2', 'm3']);
+    });
+
+    test(
+      'refresh(only: master) refetches masters only and keeps salons',
+      () async {
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1')]
+          ..salons = <FavoriteItem>[_salon('s1')];
+        final ProviderContainer container = _container(repo);
+        await container.read(favoritesProvider.future);
+
+        repo.masters = <FavoriteItem>[_master('m2'), _master('m1')];
+        repo.salons = const <FavoriteItem>[];
+        await container
+            .read(favoritesProvider.notifier)
+            .refresh(only: FavoriteTargetType.master);
+
+        expect(repo.mastersCalls, 2);
+        expect(repo.salonsCalls, 1);
+        expect(_ids(container), <String>['m2', 'm1', 's1']);
+      },
+    );
+
+    test(
+      'refresh(only: salon) refetches salons only and keeps masters',
+      () async {
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1')]
+          ..salons = <FavoriteItem>[_salon('s1')];
+        final ProviderContainer container = _container(repo);
+        await container.read(favoritesProvider.future);
+
+        repo.salons = <FavoriteItem>[_salon('s2'), _salon('s1')];
+        await container
+            .read(favoritesProvider.notifier)
+            .refresh(only: FavoriteTargetType.salon);
+
+        expect(repo.mastersCalls, 1);
+        expect(repo.salonsCalls, 2);
+        expect(_ids(container), <String>['m1', 's2', 's1']);
+      },
+    );
+
+    test(
+      'a FAILED narrowed refresh keeps the current list (no error screen)',
+      () async {
+        // RED WHEN the narrowed-failure branch in `_run` is dropped: the
+        // background follow-up to a heart toggle would replace a good list with
+        // AsyncError and `favorites_screen.dart` would show `_ErrorBody`.
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1')]
+          ..salons = <FavoriteItem>[_salon('s1')];
+        final ProviderContainer container = _container(repo);
+        await container.read(favoritesProvider.future);
+
+        repo.mastersResult = const NetworkFailure();
+        await container
+            .read(favoritesProvider.notifier)
+            .refresh(only: FavoriteTargetType.master);
+
+        expect(repo.mastersCalls, 2, reason: 'the narrowed refresh did run');
+        expect(
+          container.read(favoritesProvider),
+          isA<AsyncData<List<FavoriteItem>>>(),
+        );
+        expect(_ids(container), <String>['m1', 's1']);
+      },
+    );
+
+    test('a FAILED full refresh still surfaces the error', () async {
+      final FakeFavoriteRepository repo = FakeFavoriteRepository()
+        ..masters = <FavoriteItem>[_master('m1')];
+      final ProviderContainer container = _container(repo);
+      await container.read(favoritesProvider.future);
+
+      repo.mastersResult = const NetworkFailure();
+      await container.read(favoritesProvider.notifier).refresh();
+
+      expect(
+        container.read(favoritesProvider),
+        isA<AsyncError<List<FavoriteItem>>>(),
+      );
+    });
+
+    test('a FAILED narrowed refresh marks the list stale; the next refresh '
+        'is FULL and a full success clears it', () async {
+      // RED WHEN the `_stale` flag is dropped: the follow-up narrowed refresh
+      // stays narrowed (salons never refetched) and `isStale` reads false.
+      final FakeFavoriteRepository repo = FakeFavoriteRepository()
+        ..masters = <FavoriteItem>[_master('m1')]
+        ..salons = <FavoriteItem>[_salon('s1')];
+      final ProviderContainer container = _container(repo);
+      await container.read(favoritesProvider.future);
+      final Favorites notifier = container.read(favoritesProvider.notifier);
+      expect(notifier.isStale, isFalse);
+
+      repo.mastersResult = const NetworkFailure();
+      await notifier.refresh(only: FavoriteTargetType.master);
+      expect(notifier.isStale, isTrue);
+
+      repo
+        ..mastersResult = null
+        ..salons = <FavoriteItem>[_salon('s2')];
+      await notifier.refresh(only: FavoriteTargetType.master);
+
+      expect(repo.salonsCalls, 2, reason: 'a stale list is reloaded whole');
+      expect(_ids(container), <String>['m1', 's2']);
+      expect(notifier.isStale, isFalse);
+    });
+
+    test('a FAILED keepRowsOnFailure refresh keeps the list and stays stale; '
+        'a stale-widened narrowed refresh that fails keeps it too', () async {
+      // RED WHEN `keepRowsOnFailure` is ignored (or background-ness is read
+      // AFTER the stale widening): the repair's failure swaps the list for
+      // AsyncError, whose retry would cancel pending undo windows.
+      final FakeFavoriteRepository repo = FakeFavoriteRepository()
+        ..masters = <FavoriteItem>[_master('m1')]
+        ..salons = <FavoriteItem>[_salon('s1')];
+      final ProviderContainer container = _container(repo);
+      await container.read(favoritesProvider.future);
+      final Favorites notifier = container.read(favoritesProvider.notifier);
+
+      repo.mastersResult = const NetworkFailure();
+      await notifier.refresh(only: FavoriteTargetType.master);
+      expect(notifier.isStale, isTrue);
+
+      await notifier.refresh(keepRowsOnFailure: true);
+      expect(repo.salonsCalls, 2, reason: 'the repair was a FULL reload');
+      expect(
+        container.read(favoritesProvider),
+        isA<AsyncData<List<FavoriteItem>>>(),
+      );
+      expect(_ids(container), <String>['m1', 's1']);
+      expect(notifier.isStale, isTrue);
+
+      await notifier.refresh(only: FavoriteTargetType.salon);
+      expect(repo.salonsCalls, 3, reason: 'stale → widened to FULL');
+      expect(
+        container.read(favoritesProvider),
+        isA<AsyncData<List<FavoriteItem>>>(),
+      );
+      expect(notifier.isStale, isTrue);
+    });
+
+    test(
+      'a refresh outliving the provider (logout) never writes state',
+      () async {
+        // RED WHEN the `if (!ref.mounted) return;` in `_run` is dropped: the
+        // late `state =` on the disposed notifier throws out of the future.
+        final Completer<void> gate = Completer<void>();
+        final FakeFavoriteRepository repo = FakeFavoriteRepository()
+          ..masters = <FavoriteItem>[_master('m1')];
+        final ProviderContainer container = ProviderContainer(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            favoriteRepositoryProvider.overrideWithValue(repo),
+            authProvider.overrideWith(_SettledAuthNotifier.new),
+          ].cast(),
+        );
+        addTearDown(container.dispose);
+        final ProviderSubscription<AsyncValue<List<FavoriteItem>>> sub =
+            container.listen(favoritesProvider, (_, _) {});
+        await container.read(favoritesProvider.future);
+
+        repo.mastersDelay = gate.future;
+        final Future<void> pending = container
+            .read(favoritesProvider.notifier)
+            .refresh();
+        sub.close();
+        await pumpEventQueue();
+        expect(container.exists(favoritesProvider), isFalse);
+
+        gate.complete();
+        await expectLater(pending, completes);
       },
     );
   });

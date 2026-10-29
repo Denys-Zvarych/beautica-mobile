@@ -16,6 +16,7 @@ import 'package:beautica_mobile/features/moderation/presentation/widgets/report_
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,6 +41,7 @@ bool _resolved = false;
 Future<FakeContentReportRepository> _open_(
   WidgetTester tester, {
   FakeContentReportRepository? repo,
+  double height = 1400,
 }) async {
   final FakeContentReportRepository r = repo ?? FakeContentReportRepository();
   _result = null;
@@ -65,7 +67,7 @@ Future<FakeContentReportRepository> _open_(
       ),
     ),
     overrides: <Object>[contentReportRepositoryProvider.overrideWithValue(r)],
-    height: 1400,
+    height: height,
   );
   await tester.tap(find.byKey(_open));
   await tester.pumpAndSettle();
@@ -82,6 +84,30 @@ Future<void> _tapSubmit(WidgetTester tester) async {
   await tester.ensureVisible(_submit);
   await tester.tap(find.text(_l10n.reportSubmit));
   await tester.pumpAndSettle();
+}
+
+/// Pumps in [interval] steps until the report sheet is AT REST: either gone
+/// (a dismiss ran to completion) or its route animation is back at
+/// `completed` (fully open, nothing moving). Condition-based instead of a
+/// fixed wait — `pumpAndSettle` cannot be used while the CTA spinner spins.
+/// A blocked dismiss returns at once; an unblocked one pumps until the sheet
+/// has left, so the caller's `findsOneWidget` then fails.
+Future<void> _pumpUntilSheetAtRest(
+  WidgetTester tester, {
+  Duration timeout = const Duration(seconds: 5),
+  Duration interval = const Duration(milliseconds: 50),
+}) async {
+  final int maxTicks = (timeout.inMicroseconds / interval.inMicroseconds)
+      .ceil();
+  for (int i = 0; i < maxTicks; i++) {
+    if (_sheet.evaluate().isEmpty) return;
+    final AnimationStatus? status = ModalRoute.of(
+      tester.element(_sheet),
+    )?.animation?.status;
+    if (status == AnimationStatus.completed) return;
+    await tester.pump(interval);
+  }
+  fail('_pumpUntilSheetAtRest timed out after $timeout');
 }
 
 void main() {
@@ -332,5 +358,197 @@ void main() {
     expect(_resolved, isTrue);
     expect(_result, isNull);
     expect(repo.requests, isEmpty);
+  });
+
+  // Review-trust fix — on a real phone (732dp) the sheet overflows; the fixed
+  // header (handle/title/subtitle) must still drag-dismiss it, and the body
+  // must still scroll.
+  group('overflowing sheet at height 732', () {
+    Finder bodyScrollable() => find
+        .descendant(
+          of: find.byType(VelvetSheetChrome),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    testWidgets('the body overflows and still scrolls; the header stays put', (
+      tester,
+    ) async {
+      await _open_(tester, height: 732);
+      final ScrollableState scroll = tester.state<ScrollableState>(
+        bodyScrollable(),
+      );
+      expect(
+        scroll.position.maxScrollExtent,
+        greaterThan(0),
+        reason:
+            'the report sheet must overflow at 732dp for this to prove '
+            'anything',
+      );
+      final Offset handleBefore = tester.getCenter(
+        find.byKey(VelvetSheetChrome.handleKey),
+      );
+
+      await tester.drag(
+        find.byKey(ReportSheet.reasonKey(ReportReason.falseInfo)),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_sheet, findsOneWidget);
+      expect(scroll.position.pixels, greaterThan(0));
+      expect(
+        tester.getCenter(find.byKey(VelvetSheetChrome.handleKey)),
+        handleBefore,
+        reason: 'the handle is a fixed header, not scrolled content',
+      );
+    });
+
+    testWidgets('dragging the handle down 500px dismisses the sheet', (
+      tester,
+    ) async {
+      final FakeContentReportRepository repo = await _open_(
+        tester,
+        height: 732,
+      );
+      expect(
+        tester
+            .state<ScrollableState>(bodyScrollable())
+            .position
+            .maxScrollExtent,
+        greaterThan(0),
+      );
+
+      await tester.drag(
+        find.byKey(VelvetSheetChrome.handleKey),
+        const Offset(0, 500),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_sheet, findsNothing);
+      expect(_resolved, isTrue);
+      expect(_result, isNull);
+      expect(repo.requests, isEmpty);
+    });
+
+    testWidgets('pulling the body down at its top dismisses the sheet '
+        '(dismissOnOverscroll)', (tester) async {
+      await _open_(tester, height: 732);
+
+      await tester.drag(
+        find.byKey(ReportSheet.reasonKey(ReportReason.spam)),
+        const Offset(0, 300),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_sheet, findsNothing);
+      expect(_resolved, isTrue);
+      expect(_result, isNull);
+    });
+
+    testWidgets('a pull under 48px at the body top does NOT dismiss', (
+      tester,
+    ) async {
+      // RED WHEN the overscroll accumulator/threshold in velvet_sheet.dart's
+      // `_OverscrollDismiss` is dropped: the first pixel of overscroll pops.
+      await _open_(tester, height: 732);
+
+      await tester.drag(
+        find.byKey(ReportSheet.reasonKey(ReportReason.spam)),
+        const Offset(0, 40),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_sheet, findsOneWidget);
+      expect(_resolved, isFalse);
+    });
+  });
+
+  // Audit LOW — the 3-line comment field is a NESTED scrollable; overscrolling
+  // inside it must not close the sheet (and lose the typed text).
+  testWidgets('dragging inside an overflowing comment field keeps the sheet', (
+    tester,
+  ) async {
+    // RED WHEN `if (n.depth != 0) return false;` is removed from
+    // `_OverscrollDismissState._onScroll`.
+    await _open_(tester);
+    const String text = 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6';
+    final Finder field = find.byKey(ReportSheet.commentFieldKey);
+    await tester.ensureVisible(field);
+    await tester.enterText(field, text);
+    await tester.pumpAndSettle();
+    final Finder fieldScrollable = find
+        .descendant(of: field, matching: find.byType(Scrollable))
+        .first;
+    expect(
+      tester.state<ScrollableState>(fieldScrollable).position.maxScrollExtent,
+      greaterThan(0),
+      reason:
+          'the comment must overflow its 3 lines for this to prove anything',
+    );
+
+    await tester.drag(field, const Offset(0, 300));
+    await tester.pumpAndSettle();
+
+    expect(_sheet, findsOneWidget);
+    expect(_resolved, isFalse);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller?.text,
+      text,
+    );
+  });
+
+  // Audit INFO — closing the sheet mid-submit would hide the confirmation of
+  // a report that still lands: drag, overscroll and back are all blocked.
+  testWidgets('the sheet cannot be dismissed while a submit is in flight', (
+    tester,
+  ) async {
+    final FakeContentReportRepository repo = FakeContentReportRepository()
+      ..gate = Completer<void>();
+    await _open_(tester, repo: repo, height: 732);
+    await _pick(tester, ReportReason.spam);
+    await tester.ensureVisible(_submit);
+    await tester.tap(find.text(_l10n.reportSubmit));
+    await tester.pump();
+    expect(repo.requests, hasLength(1));
+
+    // Header drag (the modal sheet's own drag-to-dismiss).
+    await tester.drag(
+      find.byKey(VelvetSheetChrome.handleKey),
+      const Offset(0, 500),
+    );
+    await _pumpUntilSheetAtRest(tester);
+    expect(_sheet, findsOneWidget, reason: 'header drag must be blocked');
+
+    // Body overscroll at the top.
+    final ScrollableState body = tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byType(VelvetSheetChrome),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    body.position.jumpTo(0);
+    await tester.pump();
+    await tester.drag(
+      find.byKey(ReportSheet.reasonKey(ReportReason.offensive)),
+      const Offset(0, 300),
+    );
+    await _pumpUntilSheetAtRest(tester);
+    expect(_sheet, findsOneWidget, reason: 'overscroll must be blocked');
+
+    // System back.
+    await tester.binding.handlePopRoute();
+    await _pumpUntilSheetAtRest(tester);
+    expect(_sheet, findsOneWidget, reason: 'back must be blocked');
+    expect(_resolved, isFalse);
+
+    repo.gate!.complete();
+    repo.gate = null;
+    await tester.pumpAndSettle();
+    expect(_sheet, findsNothing);
+    expect(_result, isTrue, reason: 'the confirmation path still runs');
+    await pumpPastVelvetSnack(tester);
   });
 }

@@ -1535,6 +1535,15 @@ final class FakeBackend {
   /// `districtLabel`, `avgRating`, `street`, `buildingNo`, `locationNote`.
   List<Map<String, dynamic>> favoriteSalonRows = <Map<String, dynamic>>[];
 
+  /// ADDITIVE (review-trust fix, mobile-qa): `FavoriteMasterResponse` rows
+  /// keyed by master id that a `POST /api/v1/favorites` {MASTER, id} APPENDS
+  /// to [favoriteMasterRows] — mirroring the real backend's persistence, so a
+  /// following `GET /favorites/masters` genuinely reflects a heart tapped on a
+  /// search card or a profile. EMPTY by default: an unknown id stays a no-op,
+  /// exactly as before, so no pre-existing flow changes behaviour.
+  Map<String, Map<String, dynamic>> favoriteMasterRowsOnAdd =
+      <String, Map<String, dynamic>>{};
+
   /// Status code `GET /api/v1/favorites/masters` fails with, or null for the
   /// default 200. Set via [forceListMasterFavoritesFailure] — never assign
   /// directly, because the route has to be RE-REGISTERED for a status change to
@@ -10017,6 +10026,19 @@ final class FakeBackend {
             favoriteServiceRows = <Map<String, dynamic>>[
               ...favoriteServiceRows,
               <String, dynamic>{'masterServiceId': targetId, ...fields},
+            ];
+          }
+        } else if (body['targetType'] == 'MASTER') {
+          // See [favoriteMasterRowsOnAdd] — an unseeded id is a no-op.
+          final String targetId = (body['targetId'] as String?) ?? '';
+          final Map<String, dynamic>? row = favoriteMasterRowsOnAdd[targetId];
+          if (row != null &&
+              !favoriteMasterRows.any(
+                (Map<String, dynamic> r) => r['masterId'] == targetId,
+              )) {
+            favoriteMasterRows = <Map<String, dynamic>>[
+              row,
+              ...favoriteMasterRows,
             ];
           }
         } else if (body['targetType'] == 'SALON_SERVICE') {

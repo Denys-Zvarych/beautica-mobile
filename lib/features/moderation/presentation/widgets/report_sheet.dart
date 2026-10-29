@@ -112,6 +112,7 @@ class ReportSheet extends ConsumerStatefulWidget {
   static const Key commentFieldKey = Key('report-comment-field');
   static const Key submitKey = Key('report-submit');
   static const Key bannerKey = Key('report-error-banner');
+  static const Key dragBlockerKey = Key('report-drag-blocker');
 
   /// Tap target of the row for [reason].
   static Key reasonKey(ReportReason reason) =>
@@ -183,6 +184,31 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
       _ => null,
     };
 
+    // While a submit is in flight the sheet cannot be closed — closing it
+    // would hide the «Дякуємо…» confirmation of a report that still lands.
+    // `PopScope` blocks back, the barrier tap and the body overscroll (all go
+    // through `maybePop`); the modal sheet's own drag-to-dismiss calls
+    // `Navigator.pop` directly, so a no-op vertical-drag recognizer claims
+    // drags on the fixed header first (inner recognizers win the arena). The
+    // detector stays in the tree either way, so toggling never remounts the
+    // body (scroll offset, typed comment).
+    return PopScope(
+      canPop: !submitting,
+      child: GestureDetector(
+        key: ReportSheet.dragBlockerKey,
+        behavior: HitTestBehavior.opaque,
+        onVerticalDragStart: submitting ? (DragStartDetails _) {} : null,
+        child: _body(context, l10n, submitting, banner),
+      ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    AppLocalizations l10n,
+    bool submitting,
+    String? banner,
+  ) {
     return Padding(
       // Rides above the keyboard (showVelvetSheet isScrollControlled: true).
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -193,6 +219,9 @@ class _ReportSheetState extends ConsumerState<ReportSheet> {
         child: VelvetSheetChrome(
           title: l10n.reportSheetTitle,
           subtitle: widget.subject,
+          // Tall enough to overflow on real phones: pulling the body down at
+          // its top dismisses too, not only a drag on the fixed header.
+          dismissOnOverscroll: true,
           children: <Widget>[
             Padding(
               padding: const EdgeInsets.only(left: 6),
