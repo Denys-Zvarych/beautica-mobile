@@ -972,6 +972,55 @@ void main() {
     expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
   });
 
+  // ── isFavorite (backend 6d1fcbc9) — the profile heart starts from the server
+
+  testWidgets('Test 12b — a master favourited in an EARLIER session opens with '
+      'a FILLED heart, and one tap REMOVES the favourite', (
+    WidgetTester tester,
+  ) async {
+    // RED WHEN the profile stops seeding its heart from
+    // `MasterDetailResponse.isFavorite`: the heart opens empty (this session
+    // never toggled it) and the tap POSTs an ADD instead of a DELETE.
+    fakeBackend.publicMasterIsFavorite = true;
+    final GoRouter router = await openFavorites(tester);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+
+    unawaited(router.push(RouteNames.masterPublicProfile(_kMasterId)));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byType(PublicMasterProfileScreen),
+    );
+    final Finder heart = find.byKey(const Key('public-master-favorite-toggle'));
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.descendant(of: heart, matching: find.byIcon(Icons.favorite_rounded)),
+    );
+
+    await tapProfileHeart(
+      tester,
+      call: () => fakeBackend.removeFavoriteCalls,
+      expected: 1,
+    );
+    expect(fakeBackend.addFavoriteCalls, 0, reason: 'the tap ADDED');
+    expect(fakeBackend.lastRemoveFavoriteQuery?['targetType'], 'MASTER');
+    expect(fakeBackend.lastRemoveFavoriteQuery?['targetId'], _kMasterId);
+    expect(
+      find.descendant(
+        of: heart,
+        matching: find.byIcon(Icons.favorite_border_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    expect(await tester.binding.handlePopRoute(), isTrue);
+    await AppHarness.settle(tester);
+    expect(find.byKey(_kFavoritesBranch), findsOneWidget);
+    expect(find.byKey(_masterCard(_kMasterId)), findsNothing);
+  });
+
   // ── Review-trust fix A — the report sheet closes by dragging down ─────────
 
   testWidgets('Test 13 — on a public master profile, «⋯» opens the report '

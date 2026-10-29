@@ -37,6 +37,8 @@ class _$MasterSearchResult extends MasterSearchResult {
   final String? locationNote;
   @override
   final BuiltList<String>? matchedServiceNames;
+  @override
+  final bool? isFavorite;
 
   factory _$MasterSearchResult(
           [void Function(MasterSearchResultBuilder)? updates]) =>
@@ -57,7 +59,8 @@ class _$MasterSearchResult extends MasterSearchResult {
       this.street,
       this.buildingNo,
       this.locationNote,
-      this.matchedServiceNames})
+      this.matchedServiceNames,
+      this.isFavorite})
       : super._();
   @override
   MasterSearchResult rebuild(
@@ -86,7 +89,8 @@ class _$MasterSearchResult extends MasterSearchResult {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
-        matchedServiceNames == other.matchedServiceNames;
+        matchedServiceNames == other.matchedServiceNames &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -107,6 +111,7 @@ class _$MasterSearchResult extends MasterSearchResult {
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, matchedServiceNames.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -128,7 +133,8 @@ class _$MasterSearchResult extends MasterSearchResult {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
-          ..add('matchedServiceNames', matchedServiceNames))
+          ..add('matchedServiceNames', matchedServiceNames)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -203,6 +209,10 @@ class MasterSearchResultBuilder
   set matchedServiceNames(ListBuilder<String>? matchedServiceNames) =>
       _$this._matchedServiceNames = matchedServiceNames;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   MasterSearchResultBuilder() {
     MasterSearchResult._defaults(this);
   }
@@ -225,6 +235,7 @@ class MasterSearchResultBuilder
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
       _matchedServiceNames = $v.matchedServiceNames?.toBuilder();
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -263,6 +274,7 @@ class MasterSearchResultBuilder
             buildingNo: buildingNo,
             locationNote: locationNote,
             matchedServiceNames: _matchedServiceNames?.build(),
+            isFavorite: isFavorite,
           );
     } catch (_) {
       late String _$failedField;

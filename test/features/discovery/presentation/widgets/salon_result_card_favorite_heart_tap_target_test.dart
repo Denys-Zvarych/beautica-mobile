@@ -533,4 +533,36 @@ void main() {
       },
     );
   });
+
+  // isFavorite (backend 6d1fcbc9) — the search payload seeds the heart, so a
+  // salon favourited in an earlier session renders FILLED and a tap REMOVES.
+  group('server isFavorite seeds the heart', () {
+    testWidgets('isFavorite: true → filled heart; one tap sends a DELETE', (
+      tester,
+    ) async {
+      // RED WHEN the card stops passing `initialIsFavorite: salon.isFavorite`:
+      // the heart reads empty and the tap POSTs an ADD.
+      final repo = FakeFavoriteRepository();
+      await pumpCard(
+        tester,
+        repo: repo,
+        salon: _salon().copyWith(isFavorite: true),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(FavoriteHeartButton),
+          matching: find.byIcon(Icons.favorite_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byType(FavoriteHeartButton));
+      await tester.pumpAndSettle();
+
+      expect(repo.addCalls, isEmpty);
+      expect(repo.removeCalls, hasLength(1));
+      expect(repo.removeCalls.single.id, 'salon-1');
+    });
+  });
 }

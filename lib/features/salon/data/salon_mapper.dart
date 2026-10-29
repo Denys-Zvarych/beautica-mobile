@@ -90,6 +90,7 @@ abstract final class SalonMapper {
       coverImageUrl: dto.coverImageUrl,
       avgRating: dto.avgRating?.toDouble(),
       reviewCount: dto.reviewCount ?? 0,
+      isFavorite: dto.isFavorite ?? false,
     );
   }
 

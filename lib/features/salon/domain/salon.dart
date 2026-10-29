@@ -160,6 +160,12 @@ abstract class Salon with _$Salon {
     /// remaining public/private field split on [Salon] — [phone] used to
     /// share it and no longer does.
     bool? isPrimary,
+
+    /// Whether the signed-in CLIENT has favourited this salon — the server's
+    /// `isFavorite` (backend `6d1fcbc9`). Seeds the heart's initial state via
+    /// `FavoriteToggleNotifier.syncFromServer`. ADDITIVE, defaults to `false`
+    /// (only `PublicSalonResponse` carries it; also what the backend sends to anonymous and non-client callers).
+    @Default(false) bool isFavorite,
   }) = _Salon;
 
   /// The salon's settlement as a [Settlement], for

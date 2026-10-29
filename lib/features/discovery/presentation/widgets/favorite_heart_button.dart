@@ -6,9 +6,11 @@
 // notifier; on error the notifier reverts the flag and this widget calls
 // [onError] so the host screen can show a snackbar.
 //
-// It primes the notifier with [initialIsFavorite] on first build (the search
-// payload carries no favorited flag yet, so cards seed `false`) — a later seed
-// never stomps a user toggle (see [FavoriteToggleNotifier.primeIfAbsent]).
+// It syncs the notifier with [initialIsFavorite] — the payload's server
+// `isFavorite` — on first build and whenever the target or flag changes (a
+// recycled card, a refreshed payload). The sync can clear a stale filled heart
+// but never overrides a toggle in flight or this session's own toggle (see
+// [FavoriteToggleNotifier.syncFromServer]).
 //
 // ## Tap-target floor — fixed, by the overlay technique ONLY
 //
@@ -123,13 +125,30 @@ class _FavoriteHeartButtonState extends ConsumerState<FavoriteHeartButton> {
   @override
   void initState() {
     super.initState();
-    // Seed the flag after the first frame so we don't mutate a provider during
-    // build. primeIfAbsent never overwrites an existing (possibly toggled) flag.
+    _syncFromServer();
+  }
+
+  @override
+  void didUpdateWidget(covariant FavoriteHeartButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A recycled card (new target) or a refreshed payload (new flag).
+    if (oldWidget.target != widget.target ||
+        oldWidget.initialIsFavorite != widget.initialIsFavorite) {
+      _syncFromServer();
+    }
+  }
+
+  /// Applies the payload's server flag after the frame (never mutate a
+  /// provider during build). `syncFromServer` can clear a stale filled heart
+  /// but never overrides a toggle in flight or this session's own toggle.
+  void _syncFromServer() {
+    final FavoriteTarget target = widget.target;
+    final bool isFavorite = widget.initialIsFavorite;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref
           .read(favoriteToggleProvider.notifier)
-          .primeIfAbsent(widget.target, isFavorite: widget.initialIsFavorite);
+          .syncFromServer(target, isFavorite: isFavorite);
     });
   }
 

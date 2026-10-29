@@ -3601,6 +3601,20 @@ final class FakeBackend {
   /// that seam) because no flow using this flag asserts on the address.
   bool publicMasterTypeSalon = false;
 
+  /// Backend `6d1fcbc9` — `master-aaa`'s public detail wires
+  /// `isFavorite: <this>`, the signed-in client's server-side favourite flag
+  /// the profile heart is seeded from. Defaults to `false` (what the real
+  /// backend sends a client who has not favourited the master), so every
+  /// pre-existing flow's heart starts empty exactly as before.
+  bool publicMasterIsFavorite = false;
+
+  /// Moderation takedown seam — ids of `master-aaa`'s seeded public reviews
+  /// the moderator has removed. Removed rows are dropped from every
+  /// `GET /masters/master-aaa/reviews` response from then on (the summary is
+  /// left as is; no flow asserts on it). Empty by default, so every
+  /// pre-existing flow sees both seeded reviews exactly as before.
+  final Set<String> publicMasterRemovedReviewIds = <String>{};
+
   Map<String, dynamic> _publicMasterDetailEnvelope() => _ok(<String, dynamic>{
     'masterId': 'master-aaa',
     'firstName': 'Софія',
@@ -3624,6 +3638,7 @@ final class FakeBackend {
         ? kPublicMasterReviewCountAfterReview
         : kPublicMasterReviewCountBeforeReview,
     'masterType': publicMasterTypeSalon ? 'SALON_MASTER' : 'INDEPENDENT_MASTER',
+    'isFavorite': publicMasterIsFavorite,
   });
 
   /// PUBLIC active-services list for `master-aaa` — a deterministic TWO-item
@@ -4709,7 +4724,8 @@ final class FakeBackend {
   /// BEFORE sorting, so it lands in the right place in every sort bucket.
   List<Map<String, dynamic>> _publicMasterReviewsFor(String? sort) {
     final List<Map<String, dynamic>> list = <Map<String, dynamic>>[
-      ..._publicMasterReviews,
+      for (final Map<String, dynamic> r in _publicMasterReviews)
+        if (!publicMasterRemovedReviewIds.contains(r['id'])) r,
       if (publicMasterReviewLanded) _clientPublicReview,
     ];
     switch (sort) {

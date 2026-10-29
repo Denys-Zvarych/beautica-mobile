@@ -197,6 +197,8 @@ class SalonResultCard extends ConsumerWidget {
       containerPad: VelvetSpacing.md,
       heartKey: Key('favorite_salon_${salon.salonId}'),
       target: FavoriteTarget(type: FavoriteTargetType.salon, id: salon.salonId),
+      // Server truth syncs the heart (syncFromServer: never overrides a toggle).
+      initialIsFavorite: salon.isFavorite,
       semanticAddLabel: l10n.favoriteAddLabel,
       semanticRemoveLabel: l10n.favoriteRemoveLabel,
       onError: onFavoriteError,

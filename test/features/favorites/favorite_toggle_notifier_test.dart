@@ -619,4 +619,108 @@ void main() {
       );
     });
   });
+
+  // Audit cycle 1 (heart priming) — server snapshots go through
+  // `syncFromServer`, which can CLEAR a heart but never beats a pending toggle
+  // or this session's own toggle.
+  group('FavoriteToggleNotifier.syncFromServer', () {
+    test('after a successful UNfavourite, a stale sync(true) leaves the heart '
+        'empty', () async {
+      // RED WHEN the per-session `_locallyToggled` check is dropped: a
+      // 5-minute-old cached profile saying `true` re-fills the heart the user
+      // just emptied.
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+      notifier.syncFromServer(_master, isFavorite: true);
+      expect(notifier.isFavorite(_master), isTrue);
+
+      expect(await notifier.toggle(_master), isNull); // unfavourite
+      expect(repo.removeCalls, equals(<FavoriteTarget>[_master]));
+
+      notifier.syncFromServer(_master, isFavorite: true); // stale snapshot
+      expect(notifier.isFavorite(_master), isFalse);
+    });
+
+    test('a server FALSE after a refresh empties a filled heart', () async {
+      // RED WHEN sync is add-only (the old `primeIfAbsent` semantics): the
+      // heart stays filled although the server says the favourite is gone.
+      final repo = FakeFavoriteRepository();
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      notifier.syncFromServer(_master, isFavorite: true);
+      expect(notifier.isFavorite(_master), isTrue);
+      notifier.syncFromServer(_master, isFavorite: false);
+
+      expect(notifier.isFavorite(_master), isFalse);
+      expect(container.read(favoriteToggleProvider), isEmpty);
+    });
+
+    test('a PENDING toggle is never overwritten', () async {
+      // RED WHEN the `pending` check is dropped: the snapshot replaces the
+      // in-flight entry and the double-tap guard is lost.
+      final gate = Completer<void>();
+      final repo = FakeFavoriteRepository()..addDelay = gate.future;
+      final container = await _makeContainer(repo);
+      final notifier = container.read(favoriteToggleProvider.notifier);
+
+      final Future<Failure?> pending = notifier.toggle(_master);
+      notifier.syncFromServer(_master, isFavorite: false);
+
+      final FavoriteEntry? entry = container.read(
+        favoriteToggleProvider,
+      )[_master];
+      expect(entry?.isFavorite, isTrue);
+      expect(entry?.pending, isTrue);
+
+      gate.complete();
+      expect(await pending, isNull);
+      expect(notifier.isFavorite(_master), isTrue);
+    });
+
+    test(
+      'a NEW session forgets the local decisions — sync applies again',
+      () async {
+        final repo = FakeFavoriteRepository();
+        final container = await _makeContainer(repo);
+        final notifier = container.read(favoriteToggleProvider.notifier);
+        expect(await notifier.toggle(_master), isNull); // local: favourited
+        notifier.syncFromServer(_master, isFavorite: false);
+        expect(notifier.isFavorite(_master), isTrue, reason: 'local wins');
+
+        final auth =
+            container.read(authProvider.notifier) as _MutableAuthNotifier;
+        auth.setSession(
+          const AuthSession.authenticated(
+            user: User(
+              id: 'u3',
+              email: 'third@example.com',
+              role: UserRole.client,
+              firstName: 'Third',
+              lastName: 'Client',
+            ),
+            accessToken: 'token-3',
+          ),
+        );
+        expect(container.read(favoriteToggleProvider), isEmpty);
+
+        container
+            .read(favoriteToggleProvider.notifier)
+            .syncFromServer(_master, isFavorite: true);
+        expect(
+          container.read(favoriteToggleProvider.notifier).isFavorite(_master),
+          isTrue,
+        );
+        container
+            .read(favoriteToggleProvider.notifier)
+            .syncFromServer(_master, isFavorite: false);
+        expect(
+          container.read(favoriteToggleProvider.notifier).isFavorite(_master),
+          isFalse,
+          reason: 'the previous session\'s toggle must not shield the target',
+        );
+      },
+    );
+  });
 }

@@ -182,10 +182,42 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
     // Only a different signed-in identity may clear this map — that is the
     // leak this watch was added to close.
     ref.watch(authProvider.select(authUserIdOrNull));
+    // A new session starts with no local decisions (see [syncFromServer]).
+    _locallyToggled.clear();
     return const <FavoriteTarget, FavoriteEntry>{};
   }
 
+  /// Targets the user has SUCCESSFULLY toggled in this session. Their local
+  /// result is authoritative over any server snapshot read afterwards (a
+  /// keepAlive-cached profile, a recycled search card can be minutes old).
+  /// Cleared in [build], i.e. on every session change.
+  final Set<FavoriteTarget> _locallyToggled = <FavoriteTarget>{};
+
+  /// Applies the SERVER's favourite flag for [target] — the path every
+  /// surface that loaded `isFavorite` from the backend uses (profile hearts,
+  /// search cards, service rows via `FavoriteHeartButton`).
+  ///
+  /// Unlike [primeIfAbsent] it can CLEAR a heart (a `false` from a refreshed
+  /// profile empties a stale filled heart), but it never overrides:
+  ///   * a toggle in flight (`pending`) — the call's own result lands next;
+  ///   * a target the user toggled this session — the local result wins over
+  ///     a snapshot that may predate it (an unfavourite must not be re-filled
+  ///     by a 5-minute-old cached profile saying `true`).
+  /// Otherwise the server value is set, `true` or `false`.
+  void syncFromServer(FavoriteTarget target, {required bool isFavorite}) {
+    final FavoriteEntry? current = state[target];
+    if (current != null && current.pending) return;
+    if (_locallyToggled.contains(target)) return;
+    if ((current?.isFavorite ?? false) == isFavorite) return;
+    _set(target, FavoriteEntry(isFavorite: isFavorite));
+  }
+
   /// Seeds [target]'s flag to [isFavorite] only if it is not already tracked.
+  ///
+  /// Kept ONLY for the "this row is a favourite by definition" seed a list
+  /// takes right before its own toggle (`Favorites.unfavorite`,
+  /// `WishlistNotifier.removeService`). Anything that read `isFavorite` from
+  /// the server uses [syncFromServer] instead.
   ///
   /// Cards call this once when they first build so the heart starts in the
   /// correct state (from the search result's own favorited flag, or `false`
@@ -252,8 +284,10 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
         await r.read(favoriteRepositoryProvider).remove(target);
       }
       if (!r.mounted) return null;
-      // 3. Success — keep the flipped flag, clear pending.
+      // 3. Success — keep the flipped flag, clear pending. From now on this
+      // session's result beats any server snapshot ([syncFromServer]).
       _set(target, FavoriteEntry(isFavorite: next));
+      _locallyToggled.add(target);
       // Phase 240 fix, widened in audit cycle 3 — a successful SERVICE toggle
       // (add OR remove) tells the wish list to refetch, UNLESS the caller
       // opted out via [refreshWishlist] (see the file header).

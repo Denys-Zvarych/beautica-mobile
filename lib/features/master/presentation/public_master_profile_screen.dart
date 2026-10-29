@@ -55,6 +55,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/features/master/domain/master_review.dart';
+import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
+import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
@@ -73,6 +76,7 @@ import 'package:beautica_mobile/features/services/domain/master_service.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -209,6 +213,50 @@ class _PublicMasterProfileScreenState
     }
   }
 
+  /// Pull-to-refresh — reloads the profile AND every section it shows: the
+  /// review summary (rating card), each review list already loaded (any sort)
+  /// and the portfolio. A moderated review/photo otherwise stayed on screen
+  /// until restart: every one of these families is held by a `keepAlive` TTL.
+  ///
+  /// The review side goes through [invalidateMasterReviewSurfaces] (FIX C:
+  /// exists → invalidate → eager re-read if pinned), so a pinned member of a
+  /// tab that is not selected is rebuilt rather than disposed — the
+  /// offstage-pause trap — and the sort-keyed keepAlive family is never
+  /// bare-refreshed. The awaited `ref.read(...future)`s only keep the spinner
+  /// up until the reloads land. The portfolio (no sort key) is `refresh`ed.
+  /// Sections never opened are skipped: they load fresh on first view.
+  /// Failures land in each provider's own error state, so the spinner always
+  /// settles.
+  Future<void> _refreshAll() async {
+    final String id = widget.masterId;
+    final PortfolioOwner owner = PortfolioOwner.masterSelf(id);
+    // Which sections were live BEFORE the fan-out — those are awaited below.
+    final bool summaryPinned = ref.exists(masterReviewSummaryProvider(id));
+    final List<MasterReviewSort> pinnedSorts = <MasterReviewSort>[
+      for (final MasterReviewSort sort in MasterReviewSort.values)
+        if (ref.exists(masterReviewsProvider(id, sort))) sort,
+    ];
+    // The ONE review fan-out (REUSE — the FIX C helper the leave-review flow
+    // uses): profile + summary + every review sort, each review family member
+    // exists-checked, invalidated, then eagerly re-read only if it was pinned
+    // — never a bare refresh of the sort-keyed keepAlive family (the
+    // "ProviderSubscription closed" crash shape).
+    invalidateMasterReviewSurfaces(ref, id);
+    await Future.wait(
+      <Future<Object?>>[
+        ref.read(publicMasterProfileProvider(id).future),
+        if (summaryPinned) ref.read(masterReviewSummaryProvider(id).future),
+        for (final MasterReviewSort sort in pinnedSorts)
+          ref.read(masterReviewsProvider(id, sort).future),
+        if (ref.exists(portfolioProvider(owner)))
+          ref.refresh(portfolioProvider(owner).future),
+      ].map(
+        (Future<Object?> f) =>
+            f.then<Object?>((_) => null, onError: (_) => null),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
@@ -219,6 +267,7 @@ class _PublicMasterProfileScreenState
     final bool showReport = ref.watch(isClientProvider);
     return ProfileScaffold(
       title: l10n.publicMasterProfileTitle,
+      onRefresh: _refreshAll,
       // Phase 425 — with [heart, «⋯»] the title yields to the trailing pair
       // instead of being painted over at 320–360 dp (centred when it fits).
       fitWholeTitle: showReport,
@@ -230,7 +279,13 @@ class _PublicMasterProfileScreenState
           ? Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                _FavoriteToggleButton(masterId: widget.masterId),
+                _FavoriteToggleButton(
+                  masterId: widget.masterId,
+                  initialIsFavorite: switch (async.value) {
+                    (final Master m, _) => m.isFavorite,
+                    null => null,
+                  },
+                ),
                 const SizedBox(width: VelvetSpacing.sm + 4),
                 NeumorphicIconButton(
                   key: PublicMasterProfileScreen.reportKey,
@@ -249,7 +304,13 @@ class _PublicMasterProfileScreenState
                 ),
               ],
             )
-          : _FavoriteToggleButton(masterId: widget.masterId),
+          : _FavoriteToggleButton(
+              masterId: widget.masterId,
+              initialIsFavorite: switch (async.value) {
+                (final Master m, _) => m.isFavorite,
+                null => null,
+              },
+            ),
       // The booking shelf is only meaningful once the master has resolved —
       // shown for EVERY resolved master, independent or salon-affiliated
       // (Phase 358 — restores the pre-351 behaviour; `RouteNames.bookingNew`
@@ -772,9 +833,13 @@ class _AboutTab extends StatelessWidget {
 /// toggle; the button depresses on press. On a failed toggle the notifier
 /// reverts the optimistic flag and a localized VelvetSnack is shown.
 class _FavoriteToggleButton extends ConsumerStatefulWidget {
-  const _FavoriteToggleButton({required this.masterId});
+  const _FavoriteToggleButton({required this.masterId, this.initialIsFavorite});
 
   final String masterId;
+
+  /// The server's `isFavorite` for this master, or `null` while the profile is
+  /// still loading. ADDITIVE — `null` (the default) primes nothing.
+  final bool? initialIsFavorite;
 
   @override
   ConsumerState<_FavoriteToggleButton> createState() =>
@@ -786,6 +851,37 @@ class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
 
   FavoriteTarget get _target =>
       FavoriteTarget(type: FavoriteTargetType.master, id: widget.masterId);
+
+  @override
+  void initState() {
+    super.initState();
+    _syncIfKnown();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FavoriteToggleButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialIsFavorite != widget.initialIsFavorite) {
+      _syncIfKnown();
+    }
+  }
+
+  /// Applies the server's `isFavorite` once the profile has loaded, and again
+  /// whenever a refresh changes it — `syncFromServer`, post-frame (never
+  /// mutates a provider during build). It can empty a stale filled heart but
+  /// never overrides a toggle in flight or this session's own toggle. Without
+  /// it a master favourited in an earlier session showed an empty heart and one
+  /// tap sent an ADD instead of a REMOVE.
+  void _syncIfKnown() {
+    final bool? known = widget.initialIsFavorite;
+    if (known == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (!mounted) return;
+      ref
+          .read(favoriteToggleProvider.notifier)
+          .syncFromServer(_target, isFavorite: known);
+    });
+  }
 
   Future<void> _onTap() async {
     setState(() => _pressed = false);

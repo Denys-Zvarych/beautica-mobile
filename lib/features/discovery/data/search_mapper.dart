@@ -110,6 +110,7 @@ abstract final class MasterSearchMapper {
         dto.matchedServiceNames?.toList(growable: false) ?? const <String>[];
 
     return MasterSearchItem(
+      isFavorite: dto.isFavorite ?? false,
       masterId: id,
       firstName: dto.firstName ?? '',
       lastName: dto.lastName ?? '',
@@ -183,6 +184,7 @@ abstract final class SalonSearchMapper {
         dto.matchedServiceNames?.toList(growable: false) ?? const <String>[];
 
     return SalonSearchItem(
+      isFavorite: dto.isFavorite ?? false,
       salonId: id,
       name: dto.name ?? '',
       avatarUrl: dto.avatarUrl,

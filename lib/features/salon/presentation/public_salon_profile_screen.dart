@@ -30,6 +30,9 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_photo.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_owner.dart';
+import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
@@ -51,6 +54,7 @@ import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
 import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/review/presentation/review_surface_invalidation.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/feedback/show_velvet_snack.dart';
@@ -68,6 +72,9 @@ import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
 
 import '../application/public_salon_profile_notifier.dart';
 import '../application/salon_portfolio_notifier.dart';
+import '../domain/salon_review.dart';
+import '../application/salon_reviews_notifier.dart';
+import '../application/salon_review_summary_notifier.dart';
 import '../application/salon_service_catalog_notifier.dart';
 import '../application/salon_service_filter_notifier.dart';
 import '../domain/salon.dart';
@@ -183,6 +190,66 @@ class _PublicSalonProfileScreenState
     }
   }
 
+  /// Pull-to-refresh — reloads the profile (detail + masters rail) AND every
+  /// section it shows: the review summary, each review list already loaded
+  /// (any sort), the portfolio, the services catalogue and — when a service
+  /// filter is active — its master coverage. A moderated review/photo
+  /// otherwise stayed on screen until restart (each family is held by a
+  /// `keepAlive` TTL).
+  ///
+  /// The review side goes through [invalidateSalonReviewSurfaces] (FIX C:
+  /// exists → invalidate → eager re-read if pinned), so pinned members of
+  /// tabs that are not mounted are rebuilt rather than disposed (the
+  /// offstage-pause trap) and the sort-keyed keepAlive family is never
+  /// bare-refreshed. The other sections (no sort key) are `refresh`ed.
+  /// Sections never opened are skipped — they load fresh on first view. Failures land in each provider's own
+  /// error state, so the spinner always settles. Mirrors
+  /// `PublicMasterProfileScreen`'s refresh.
+  Future<void> _refreshAll() async {
+    final String id = widget.salonId;
+    final SalonServiceSelection? filter = ref.read(
+      salonServiceFilterProvider(id),
+    );
+    final SalonBookingMasterSelectionArgs? coverageArgs = filter == null
+        ? null
+        : SalonBookingMasterSelectionArgs(
+            salonId: id,
+            selectedServiceIds: <String>[filter.id],
+          );
+    // Which sections were live BEFORE the fan-out — those are awaited below.
+    final bool summaryPinned = ref.exists(salonReviewSummaryProvider(id));
+    final List<SalonReviewSort> pinnedSorts = <SalonReviewSort>[
+      for (final SalonReviewSort sort in SalonReviewSort.values)
+        if (ref.exists(salonReviewsProvider(id, sort))) sort,
+    ];
+    // The ONE review fan-out (REUSE — FIX C, `review_surface_invalidation
+    // .dart`): profile + summary + every review sort, exists → invalidate →
+    // eager re-read if pinned; never a bare refresh of the sort-keyed
+    // keepAlive family.
+    invalidateSalonReviewSurfaces(ref, id);
+    await Future.wait(
+      <Future<Object?>>[
+        ref.read(publicSalonProfileProvider(id).future),
+        if (summaryPinned) ref.read(salonReviewSummaryProvider(id).future),
+        for (final SalonReviewSort sort in pinnedSorts)
+          ref.read(salonReviewsProvider(id, sort).future),
+        // The SHARED portfolio provider — `salonPortfolioProvider` only
+        // delegates to it (watches its `.future`), so refreshing the delegate
+        // would replay the shared cache instead of refetching.
+        if (ref.exists(portfolioProvider(PortfolioOwner.salon(id))))
+          ref.refresh(portfolioProvider(PortfolioOwner.salon(id)).future),
+        if (ref.exists(salonServiceCatalogProvider(id)))
+          ref.refresh(salonServiceCatalogProvider(id).future),
+        if (coverageArgs != null &&
+            ref.exists(salonMasterServiceCoverageProvider(coverageArgs)))
+          ref.refresh(salonMasterServiceCoverageProvider(coverageArgs).future),
+      ].map(
+        (Future<Object?> f) =>
+            f.then<Object?>((_) => null, onError: (Object _) => null),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final AsyncValue<PublicSalonProfileData> async = ref.watch(
@@ -215,52 +282,62 @@ class _PublicSalonProfileScreenState
       // contribute a genuinely lazy `SliverGrid.builder`. Only one tab body is
       // ever mounted (`_LoadedBody`'s `switch (tab)`), so there is no
       // nested-scrollable hazard.
-      body: CustomScrollView(
-        physics: const BouncingScrollPhysics(),
-        slivers: <Widget>[
-          SliverPadding(
-            padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
-            sliver: async.when(
-              loading: () => SliverToBoxAdapter(
-                child: _LoadingBody(
-                  salonId: widget.salonId,
-                  topInset: topInset,
-                  coverHeight: _coverHeight,
-                  heroProtrusion: _heroProtrusion,
-                ),
-              ),
-              error: (Object e, _) => SliverToBoxAdapter(
-                child: _ErrorBody(
-                  salonId: widget.salonId,
-                  topInset: topInset,
-                  failure: e is Failure ? e : UnknownFailure(cause: e),
-                  onRetry: () => ref.invalidate(
-                    publicSalonProfileProvider(widget.salonId),
+      // Pull-to-refresh (the app-wide [AppRefreshIndicator]). The screen is
+      // edge-to-edge (cover under the status bar), so the spinner disc is
+      // offset by the inset. `AlwaysScrollable` keeps the pull available on a
+      // short tab; the bounce feel is unchanged.
+      body: AppRefreshIndicator(
+        onRefresh: _refreshAll,
+        edgeOffset: topInset,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          slivers: <Widget>[
+            SliverPadding(
+              padding: const EdgeInsets.only(bottom: VelvetSpacing.xxl),
+              sliver: async.when(
+                loading: () => SliverToBoxAdapter(
+                  child: _LoadingBody(
+                    salonId: widget.salonId,
+                    topInset: topInset,
+                    coverHeight: _coverHeight,
+                    heroProtrusion: _heroProtrusion,
                   ),
                 ),
+                error: (Object e, _) => SliverToBoxAdapter(
+                  child: _ErrorBody(
+                    salonId: widget.salonId,
+                    topInset: topInset,
+                    failure: e is Failure ? e : UnknownFailure(cause: e),
+                    onRetry: () => ref.invalidate(
+                      publicSalonProfileProvider(widget.salonId),
+                    ),
+                  ),
+                ),
+                data: (PublicSalonProfileData data) {
+                  _startReveal();
+                  return _LoadedBody(
+                    salonId: widget.salonId,
+                    salon: data.$1,
+                    masters: data.$2,
+                    serviceFilter: serviceFilter,
+                    topInset: topInset,
+                    coverHeight: _coverHeight,
+                    tab: _tab,
+                    onTabSelected: (int i) => setState(() => _tab = i),
+                    anim0: _anim0,
+                    anim1: _anim1,
+                    anim2: _anim2,
+                    slide0: _slide0,
+                    slide1: _slide1,
+                    slide2: _slide2,
+                  );
+                },
               ),
-              data: (PublicSalonProfileData data) {
-                _startReveal();
-                return _LoadedBody(
-                  salonId: widget.salonId,
-                  salon: data.$1,
-                  masters: data.$2,
-                  serviceFilter: serviceFilter,
-                  topInset: topInset,
-                  coverHeight: _coverHeight,
-                  tab: _tab,
-                  onTabSelected: (int i) => setState(() => _tab = i),
-                  anim0: _anim0,
-                  anim1: _anim1,
-                  anim2: _anim2,
-                  slide0: _slide0,
-                  slide1: _slide1,
-                  slide2: _slide2,
-                );
-              },
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1776,7 +1853,10 @@ class _CoverTrailing extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final Widget heart = _FavoriteToggleButton(salonId: salon.id);
+    final Widget heart = _FavoriteToggleButton(
+      salonId: salon.id,
+      initialIsFavorite: salon.isFavorite,
+    );
     if (!ref.watch(isClientProvider)) return heart;
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1804,9 +1884,13 @@ class _CoverTrailing extends ConsumerWidget {
 // ---------------------------------------------------------------------------
 
 class _FavoriteToggleButton extends ConsumerStatefulWidget {
-  const _FavoriteToggleButton({required this.salonId});
+  const _FavoriteToggleButton({required this.salonId, this.initialIsFavorite});
 
   final String salonId;
+
+  /// The server's `isFavorite` for this salon, or `null` while the profile is
+  /// still loading. ADDITIVE — `null` (the default) primes nothing.
+  final bool? initialIsFavorite;
 
   @override
   ConsumerState<_FavoriteToggleButton> createState() =>
@@ -1816,6 +1900,37 @@ class _FavoriteToggleButton extends ConsumerStatefulWidget {
 class _FavoriteToggleButtonState extends ConsumerState<_FavoriteToggleButton> {
   FavoriteTarget get _target =>
       FavoriteTarget(type: FavoriteTargetType.salon, id: widget.salonId);
+
+  @override
+  void initState() {
+    super.initState();
+    _syncIfKnown();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FavoriteToggleButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialIsFavorite != widget.initialIsFavorite) {
+      _syncIfKnown();
+    }
+  }
+
+  /// Applies the server's `isFavorite` once the profile has loaded, and again
+  /// whenever a refresh changes it — `syncFromServer`, post-frame (never
+  /// mutates a provider during build). It can empty a stale filled heart but
+  /// never overrides a toggle in flight or this session's own toggle. Without
+  /// it a salon favourited in an earlier session showed an empty heart and one
+  /// tap sent an ADD instead of a REMOVE.
+  void _syncIfKnown() {
+    final bool? known = widget.initialIsFavorite;
+    if (known == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (!mounted) return;
+      ref
+          .read(favoriteToggleProvider.notifier)
+          .syncFromServer(_target, isFavorite: known);
+    });
+  }
 
   Future<void> _onTap() async {
     final Failure? failure = await ref

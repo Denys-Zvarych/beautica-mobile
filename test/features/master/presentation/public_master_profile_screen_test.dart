@@ -51,6 +51,7 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -59,6 +60,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../helpers/fakes/fake_favorite_repository.dart';
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
@@ -2424,6 +2426,187 @@ void main() {
       expect(find.byKey(PublicMasterProfileScreen.reportKey), findsNothing);
       expect(find.byKey(const Key('public-master-favorite-toggle')), findsOne);
     });
+  });
+
+  // isFavorite (backend 6d1fcbc9) — the profile seeds the heart from
+  // `MasterDetailResponse.isFavorite` once the master has loaded.
+  group('server isFavorite seeds the heart', () {
+    testWidgets('isFavorite: true → filled heart; one tap sends a DELETE', (
+      tester,
+    ) async {
+      // RED WHEN the screen stops passing `initialIsFavorite` from the loaded
+      // master: the heart reads empty and the tap POSTs an ADD.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final FakeFavoriteRepository repo = FakeFavoriteRepository();
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            (ref) => (_stubMaster.copyWith(isFavorite: true), _stubServices),
+          ),
+          favoriteRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final Finder heart = find.byKey(
+        const Key('public-master-favorite-toggle'),
+      );
+      expect(
+        find.descendant(
+          of: heart,
+          matching: find.byIcon(Icons.favorite_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(heart);
+      await tester.pumpAndSettle();
+
+      expect(repo.addCalls, isEmpty);
+      expect(repo.removeCalls, hasLength(1));
+      expect(repo.removeCalls.single.id, _kMasterId);
+    });
+  });
+
+  // Pull-to-refresh — a moderated review/photo must not stay on screen until
+  // restart: pulling down reloads the profile and every section it shows.
+  group('pull-to-refresh', () {
+    testWidgets('pulling down refetches the profile, the portfolio, the review '
+        'summary and the loaded reviews', (tester) async {
+      // RED WHEN `onRefresh: _refreshAll` is dropped (no pull at all) or a
+      // section is left out of `_refreshAll`.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      int profileCalls = 0;
+      int summaryCalls = 0;
+      int reviewsCalls = 0;
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+        masterPortfolio: _kPortfolio,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) {
+            profileCalls++;
+            return _stubData;
+          }, media: media),
+          masterReviewSummaryProvider(_kMasterId).overrideWith((ref) async {
+            summaryCalls++;
+            return const MasterReviewSummary(
+              avgRating: 4.8,
+              reviewCount: 1,
+              distribution: <int>[0, 0, 0, 0, 1],
+            );
+          }),
+          masterReviewsProvider(
+            _kMasterId,
+            MasterReviewSort.newest,
+          ).overrideWith((ref) async {
+            reviewsCalls++;
+            return const <MasterReviewItem>[];
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      final int profileBefore = profileCalls;
+      final int portfolioBefore = media.masterPortfolioReads.length;
+      expect(profileBefore, greaterThan(0));
+      expect(portfolioBefore, greaterThan(0));
+
+      // Pull on «Про майстра»: profile + portfolio.
+      await tester.fling(
+        find.byKey(const Key('public-master-profile-name')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        profileCalls,
+        greaterThan(profileBefore),
+        reason: 'the profile was not refetched',
+      );
+      expect(
+        media.masterPortfolioReads.length,
+        greaterThan(portfolioBefore),
+        reason: 'the portfolio was not refetched',
+      );
+
+      // Pull on «Відгуки»: summary + the loaded review list.
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
+      await tester.pumpAndSettle();
+      final int profileMid = profileCalls;
+      final int summaryBefore = summaryCalls;
+      final int reviewsBefore = reviewsCalls;
+      expect(reviewsBefore, greaterThan(0));
+      await tester.fling(
+        find.byType(MasterReviewsBody),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(profileCalls, greaterThan(profileMid));
+      expect(
+        summaryCalls,
+        greaterThan(summaryBefore),
+        reason: 'summary not refetched',
+      );
+      expect(
+        reviewsCalls,
+        greaterThan(reviewsBefore),
+        reason: 'reviews not refetched',
+      );
+    });
+  });
+
+  // Audit cycle 1 (heart priming) — a refresh that brings `isFavorite: false`
+  // EMPTIES a heart that an earlier load filled (unfavourited elsewhere).
+  testWidgets('a pull whose profile now says isFavorite: false empties the '
+      'heart', (tester) async {
+    // RED WHEN the heart only ever ADDS (primeIfAbsent) or does not re-sync
+    // when the refreshed profile's flag changes.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    bool serverFavorite = true;
+    await tester.pumpApp(
+      const PublicMasterProfileScreen(masterId: _kMasterId),
+      overrides: <Object>[
+        ..._overrides(
+          (ref) =>
+              (_stubMaster.copyWith(isFavorite: serverFavorite), _stubServices),
+        ),
+        favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+      ],
+    );
+    await tester.pumpAndSettle();
+    final Finder heart = find.byKey(const Key('public-master-favorite-toggle'));
+    expect(
+      find.descendant(of: heart, matching: find.byIcon(Icons.favorite_rounded)),
+      findsOneWidget,
+    );
+
+    serverFavorite = false; // unfavourited on another device
+    await tester.fling(
+      find.byKey(const Key('public-master-profile-name')),
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: heart,
+        matching: find.byIcon(Icons.favorite_border_rounded),
+      ),
+      findsOneWidget,
+    );
   });
 }
 

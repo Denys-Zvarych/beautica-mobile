@@ -31,6 +31,8 @@ class _$SalonSearchResult extends SalonSearchResult {
   final String? locationNote;
   @override
   final BuiltList<String>? matchedServiceNames;
+  @override
+  final bool? isFavorite;
 
   factory _$SalonSearchResult(
           [void Function(SalonSearchResultBuilder)? updates]) =>
@@ -48,7 +50,8 @@ class _$SalonSearchResult extends SalonSearchResult {
       this.street,
       this.buildingNo,
       this.locationNote,
-      this.matchedServiceNames})
+      this.matchedServiceNames,
+      this.isFavorite})
       : super._();
   @override
   SalonSearchResult rebuild(void Function(SalonSearchResultBuilder) updates) =>
@@ -73,7 +76,8 @@ class _$SalonSearchResult extends SalonSearchResult {
         street == other.street &&
         buildingNo == other.buildingNo &&
         locationNote == other.locationNote &&
-        matchedServiceNames == other.matchedServiceNames;
+        matchedServiceNames == other.matchedServiceNames &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -91,6 +95,7 @@ class _$SalonSearchResult extends SalonSearchResult {
     _$hash = $jc(_$hash, buildingNo.hashCode);
     _$hash = $jc(_$hash, locationNote.hashCode);
     _$hash = $jc(_$hash, matchedServiceNames.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -109,7 +114,8 @@ class _$SalonSearchResult extends SalonSearchResult {
           ..add('street', street)
           ..add('buildingNo', buildingNo)
           ..add('locationNote', locationNote)
-          ..add('matchedServiceNames', matchedServiceNames))
+          ..add('matchedServiceNames', matchedServiceNames)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -171,6 +177,10 @@ class SalonSearchResultBuilder
   set matchedServiceNames(ListBuilder<String>? matchedServiceNames) =>
       _$this._matchedServiceNames = matchedServiceNames;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   SalonSearchResultBuilder() {
     SalonSearchResult._defaults(this);
   }
@@ -190,6 +200,7 @@ class SalonSearchResultBuilder
       _buildingNo = $v.buildingNo;
       _locationNote = $v.locationNote;
       _matchedServiceNames = $v.matchedServiceNames?.toBuilder();
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -225,6 +236,7 @@ class SalonSearchResultBuilder
             buildingNo: buildingNo,
             locationNote: locationNote,
             matchedServiceNames: _matchedServiceNames?.build(),
+            isFavorite: isFavorite,
           );
     } catch (_) {
       late String _$failedField;

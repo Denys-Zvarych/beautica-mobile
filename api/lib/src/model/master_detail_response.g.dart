@@ -216,6 +216,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
   final MasterDetailResponseCitySettlementTypeEnum? citySettlementType;
   @override
   final String? cityHromadaNameUk;
+  @override
+  final bool? isFavorite;
 
   factory _$MasterDetailResponse(
           [void Function(MasterDetailResponseBuilder)? updates]) =>
@@ -245,7 +247,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
       this.bookingsThisMonth,
       this.region,
       this.citySettlementType,
-      this.cityHromadaNameUk})
+      this.cityHromadaNameUk,
+      this.isFavorite})
       : super._();
   @override
   MasterDetailResponse rebuild(
@@ -283,7 +286,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
         bookingsThisMonth == other.bookingsThisMonth &&
         region == other.region &&
         citySettlementType == other.citySettlementType &&
-        cityHromadaNameUk == other.cityHromadaNameUk;
+        cityHromadaNameUk == other.cityHromadaNameUk &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -313,6 +317,7 @@ class _$MasterDetailResponse extends MasterDetailResponse {
     _$hash = $jc(_$hash, region.hashCode);
     _$hash = $jc(_$hash, citySettlementType.hashCode);
     _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -343,7 +348,8 @@ class _$MasterDetailResponse extends MasterDetailResponse {
           ..add('bookingsThisMonth', bookingsThisMonth)
           ..add('region', region)
           ..add('citySettlementType', citySettlementType)
-          ..add('cityHromadaNameUk', cityHromadaNameUk))
+          ..add('cityHromadaNameUk', cityHromadaNameUk)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -458,6 +464,10 @@ class MasterDetailResponseBuilder
   set cityHromadaNameUk(String? cityHromadaNameUk) =>
       _$this._cityHromadaNameUk = cityHromadaNameUk;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   MasterDetailResponseBuilder() {
     MasterDetailResponse._defaults(this);
   }
@@ -489,6 +499,7 @@ class MasterDetailResponseBuilder
       _region = $v.region;
       _citySettlementType = $v.citySettlementType;
       _cityHromadaNameUk = $v.cityHromadaNameUk;
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -536,6 +547,7 @@ class MasterDetailResponseBuilder
             region: region,
             citySettlementType: citySettlementType,
             cityHromadaNameUk: cityHromadaNameUk,
+            isFavorite: isFavorite,
           );
     } catch (_) {
       late String _$failedField;
