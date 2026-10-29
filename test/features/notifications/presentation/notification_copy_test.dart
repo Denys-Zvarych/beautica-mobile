@@ -953,6 +953,32 @@ void main() {
       });
     }
 
+    test('reportReviewed on a PROFILE says the report was confirmed; every '
+        'other kind keeps the neutral line', () {
+      // RED WHEN the PROFILE branch in `NotificationCopy.body` is dropped.
+      const AppNotificationType t = AppNotificationType.reportReviewed;
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(t, kind: ModeratedContentKind.profile),
+          isClient: true,
+        ),
+        "Дякуємо! Скаргу підтверджено — ми зв'яжемося з власником профілю.",
+      );
+      for (final ModeratedContentKind? kind in <ModeratedContentKind?>[
+        ModeratedContentKind.review,
+        ModeratedContentKind.clientReview,
+        ModeratedContentKind.portfolioPhoto,
+        null,
+      ]) {
+        expect(
+          NotificationCopy.body(uk, row(t, kind: kind), isClient: false),
+          'Дякуємо! Ми переглянули вашу скаргу.',
+          reason: '$kind',
+        );
+      }
+    });
+
     test('contentRemoved: title, glyph and a body per contentKind', () {
       const AppNotificationType t = AppNotificationType.contentRemoved;
       expect(NotificationCopy.title(uk, t, isClient: true), 'Вміст видалено');

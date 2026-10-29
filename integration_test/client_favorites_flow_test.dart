@@ -40,6 +40,7 @@
 
 import 'dart:async';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorite_cards.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorites_filter.dart';
@@ -161,11 +162,13 @@ Map<String, dynamic> _masterRow({
   String? categoryCode,
   String? categoryLabel,
   List<Map<String, dynamic>>? categories,
+  // ADDITIVE: the master's photo on the wire (null for every existing row).
+  String? avatarUrl,
 }) => <String, dynamic>{
   'masterId': masterId,
   'firstName': firstName,
   'lastName': lastName,
-  'avatarUrl': null,
+  'avatarUrl': avatarUrl,
   'cityLabel': 'Kyiv',
   'districtLabel': null,
   'avgRating': avgRating,
@@ -970,6 +973,34 @@ void main() {
       find.byKey(_masterCard(_kMasterId)),
     );
     expect(find.byKey(_salonCard(_kSalonId)), findsOneWidget);
+  });
+
+  // ── Favourite cards show the provider's photo (avatarUrl on the wire) ────
+
+  testWidgets('Test 12c — a favourited master WITH an avatar renders their '
+      'photo, not the initials disc', (WidgetTester tester) async {
+    // RED WHEN the mapper drops `avatarUrl` or the card stops passing it to
+    // MasterMark.
+    const String avatar = 'https://media.test/marta.webp';
+    fakeBackend.favoriteMasterRows = <Map<String, dynamic>>[
+      _masterRow(masterId: _kMasterId, avatarUrl: avatar),
+    ];
+    await openFavorites(tester);
+    await AppHarness.pumpUntilFound(
+      tester,
+      find.byKey(_masterCard(_kMasterId)),
+    );
+
+    final Finder image = find.byKey(
+      const ValueKey<String>('favorite-avatar-master-$_kMasterId'),
+    );
+    expect(image, findsOneWidget);
+    expect(tester.widget<RemoteImage>(image).url, avatar);
+    // The salon row (no avatar on the wire) keeps its storefront well.
+    expect(
+      find.byKey(const ValueKey<String>('favorite-avatar-salon-$_kSalonId')),
+      findsNothing,
+    );
   });
 
   // ── isFavorite (backend 6d1fcbc9) — the profile heart starts from the server

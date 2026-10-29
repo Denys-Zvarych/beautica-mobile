@@ -245,10 +245,16 @@ void main() {
           type: AppNotificationType.reviewAboutYouRemoved,
           contentKind: ModeratedContentKind.review,
         ),
+        // REPORT_REVIEWED on a non-profile kind keeps the neutral line.
+        moderationNotif(
+          'm6',
+          type: AppNotificationType.reportReviewed,
+          contentKind: ModeratedContentKind.review,
+        ),
       ];
       await _pumpFeed(tester, _repoOf(items), width: 400, height: 4000);
 
-      expect(find.text(uk.notificationTitleReportReviewed), findsNWidgets(3));
+      expect(find.text(uk.notificationTitleReportReviewed), findsNWidgets(4));
       expect(find.text(uk.notificationTitleContentRemoved), findsOneWidget);
       expect(find.text(uk.notificationTitleUnknown), findsNothing);
       // Exact locked literals are pinned in notification_copy_test; here each
@@ -258,12 +264,18 @@ void main() {
         findsOneWidget,
       );
       expect(find.text(uk.notificationBodyReportNoViolation), findsOneWidget);
+      // m3 (PROFILE) → «confirmed»; m6 (REVIEW) → the neutral line.
+      // RED WHEN the PROFILE branch is dropped: two neutral, no «confirmed».
+      expect(
+        find.text(uk.notificationBodyReportReviewedProfile),
+        findsOneWidget,
+      );
       expect(find.text(uk.notificationBodyReportReviewed), findsOneWidget);
       expect(
         find.text(uk.notificationBodyContentRemovedClientReview),
         findsOneWidget,
       );
-      expect(find.byIcon(Icons.fact_check_rounded), findsNWidgets(3));
+      expect(find.byIcon(Icons.fact_check_rounded), findsNWidgets(4));
       expect(find.byIcon(Icons.gpp_maybe_rounded), findsOneWidget);
       // REVIEW_ABOUT_YOU_REMOVED.
       expect(

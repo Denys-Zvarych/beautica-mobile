@@ -39,6 +39,8 @@ class MasterMark extends StatelessWidget {
     this.size = kFavoriteMarkSize,
     this.imageUrl,
     this.imageKey,
+    this.monogramWhileLoading = false,
+    this.decodeToCover = false,
   });
 
   final String initials;
@@ -52,6 +54,14 @@ class MasterMark extends StatelessWidget {
 
   /// Key forwarded to the photo's [RemoteImage]. `null` by default.
   final Key? imageKey;
+
+  /// ADDITIVE: show the initials while [imageUrl] loads instead of the bare
+  /// disc. `false` (the default) keeps every existing caller as it was.
+  final bool monogramWhileLoading;
+
+  /// ADDITIVE: decode with `RemoteImage.decodeToCover` so a non-square avatar
+  /// is not decoded soft. `false` (the default) keeps every existing caller.
+  final bool decodeToCover;
 
   /// The disc's own dark shadow — a deeper warm mocha than the card's, so it
   /// is visibly darker than the camel face and reads as genuine depth.
@@ -111,6 +121,8 @@ class MasterMark extends StatelessWidget {
               shape: RemoteImageShape.circle,
               excludeFromSemantics: true,
               fallback: monogram,
+              decodeToCover: decodeToCover,
+              loadingPlaceholder: monogramWhileLoading ? monogram : null,
             ),
     );
   }

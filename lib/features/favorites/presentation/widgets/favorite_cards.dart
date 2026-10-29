@@ -56,6 +56,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -264,13 +265,26 @@ class _IdentityLine extends StatelessWidget {
 /// The identity mark for a salon: a recessed rounded-square well with a
 /// storefront glyph — a door pressed into the surface.
 class SalonMark extends StatelessWidget {
-  const SalonMark({super.key, this.size = kFavoriteMarkSize});
+  const SalonMark({
+    super.key,
+    this.size = kFavoriteMarkSize,
+    this.imageUrl,
+    this.imageKey,
+  });
 
   final double size;
 
+  /// ADDITIVE: the salon's photo, clipped to the same squircle; the
+  /// storefront well stays as the fallback (missing / disallowed / failed
+  /// image). `null` (the default) renders exactly the well, as before.
+  final String? imageUrl;
+
+  /// Key on the [RemoteImage] when [imageUrl] is set (tests find it).
+  final Key? imageKey;
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final Widget well = SizedBox(
       height: size,
       width: size,
       child: NeumorphicInset(
@@ -282,6 +296,25 @@ class SalonMark extends StatelessWidget {
             color: BrandColors.accentDeep,
           ),
         ),
+      ),
+    );
+    final String? url = imageUrl;
+    if (url == null) return well;
+    return SizedBox(
+      height: size,
+      width: size,
+      child: RemoteImage(
+        key: imageKey,
+        url: url,
+        width: size,
+        height: size,
+        borderRadius: BorderRadius.circular(_kSalonMarkRadius),
+        excludeFromSemantics: true,
+        fallback: well,
+        // The well while loading (no pop-in); cover-decoded so a non-square
+        // logo is not soft.
+        loadingPlaceholder: well,
+        decodeToCover: true,
       ),
     );
   }
@@ -403,7 +436,14 @@ class FavoriteMasterCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          MasterMark(initials: item.initials),
+          MasterMark(
+            initials: item.initials,
+            imageUrl: item.avatarUrl,
+            imageKey: ValueKey<String>('favorite-avatar-master-${item.id}'),
+            // No pop-in, and a crisp crop of a non-square avatar.
+            monogramWhileLoading: true,
+            decodeToCover: true,
+          ),
           const SizedBox(width: VelvetSpacing.md - 2),
           Expanded(
             child: Column(
@@ -491,7 +531,10 @@ class FavoriteSalonCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const SalonMark(),
+          SalonMark(
+            imageUrl: item.avatarUrl,
+            imageKey: ValueKey<String>('favorite-avatar-salon-${item.id}'),
+          ),
           const SizedBox(width: VelvetSpacing.md - 2),
           Expanded(
             child: Column(

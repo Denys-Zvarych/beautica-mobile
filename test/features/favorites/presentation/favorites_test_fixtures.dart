@@ -69,6 +69,7 @@ FavoriteItem favMaster(
   String? street,
   String? buildingNo,
   String? locationNote,
+  String? avatarUrl,
 }) => FavoriteItem(
   id: id,
   kind: FavoriteKind.master,
@@ -86,6 +87,7 @@ FavoriteItem favMaster(
   street: street,
   buildingNo: buildingNo,
   locationNote: locationNote,
+  avatarUrl: avatarUrl,
 );
 
 FavoriteItem favSalon(
@@ -100,6 +102,7 @@ FavoriteItem favSalon(
   String? street,
   String? buildingNo,
   String? locationNote,
+  String? avatarUrl,
 }) => FavoriteItem(
   id: id,
   kind: FavoriteKind.salon,
@@ -116,6 +119,7 @@ FavoriteItem favSalon(
   street: street,
   buildingNo: buildingNo,
   locationNote: locationNote,
+  avatarUrl: avatarUrl,
 );
 
 // ---------------------------------------------------------------------------

@@ -120,6 +120,8 @@ abstract final class FavoriteMapper {
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: _visibleOrNull(dto.locationNote),
+      // Raw, as the search mapper does — `RemoteImage` vets the host.
+      avatarUrl: dto.avatarUrl,
     );
   }
 
@@ -143,6 +145,8 @@ abstract final class FavoriteMapper {
       street: dto.street,
       buildingNo: dto.buildingNo,
       locationNote: _visibleOrNull(dto.locationNote),
+      // Raw, as the search mapper does — `RemoteImage` vets the host.
+      avatarUrl: dto.avatarUrl,
     );
   }
 

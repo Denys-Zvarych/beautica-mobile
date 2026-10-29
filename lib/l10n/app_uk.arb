@@ -7470,5 +7470,9 @@
   "notificationBodyReviewAboutYouRemoved": "Відгук про вас видалено модерацією Beautica: він порушував правила спільноти.",
   "@notificationBodyReviewAboutYouRemoved": {
     "description": "Phase 428 — body of REVIEW_ABOUT_YOU_REMOVED (locked; same for REVIEW and CLIENT_REVIEW)."
+  },
+  "notificationBodyReportReviewedProfile": "Дякуємо! Скаргу підтверджено — ми зв'яжемося з власником профілю.",
+  "@notificationBodyReportReviewedProfile": {
+    "description": "Phase 428 — body of REPORT_REVIEWED when params.contentKind == PROFILE (a confirmed profile report)."
   }
 }

@@ -101,7 +101,11 @@ abstract final class NotificationCopy {
       case AppNotificationType.reportNoViolation:
         return l10n.notificationBodyReportNoViolation;
       case AppNotificationType.reportReviewed:
-        return l10n.notificationBodyReportReviewed;
+        // A confirmed PROFILE report gets its own line (the owner is
+        // contacted); every other kind keeps the neutral one.
+        return p.contentKind == ModeratedContentKind.profile
+            ? l10n.notificationBodyReportReviewedProfile
+            : l10n.notificationBodyReportReviewed;
       case AppNotificationType.contentRemoved:
         return switch (p.contentKind) {
           ModeratedContentKind.clientReview =>

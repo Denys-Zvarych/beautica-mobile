@@ -7440,5 +7440,6 @@
   "notificationBodyContentRemovedClientReview": "Your review of a client was removed for violating the community guidelines.",
   "notificationBodyContentRemovedPhoto": "Your photo was removed for violating the community guidelines.",
   "notificationTitleReviewAboutYouRemoved": "Review removed",
-  "notificationBodyReviewAboutYouRemoved": "A review about you was removed by Beautica moderation for violating the community guidelines."
+  "notificationBodyReviewAboutYouRemoved": "A review about you was removed by Beautica moderation for violating the community guidelines.",
+  "notificationBodyReportReviewedProfile": "Thank you! Your report was confirmed — we will contact the profile owner."
 }
