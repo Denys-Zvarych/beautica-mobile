@@ -6,6 +6,73 @@ part of 'salon_review_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const SalonReviewResponseSource_Enum _$salonReviewResponseSourceEnum_APP =
+    const SalonReviewResponseSource_Enum._('APP');
+const SalonReviewResponseSource_Enum
+    _$salonReviewResponseSourceEnum_GUEST_LINK =
+    const SalonReviewResponseSource_Enum._('GUEST_LINK');
+const SalonReviewResponseSource_Enum
+    _$salonReviewResponseSourceEnum_unknownDefaultOpenApi =
+    const SalonReviewResponseSource_Enum._('unknownDefaultOpenApi');
+
+SalonReviewResponseSource_Enum _$salonReviewResponseSourceEnumValueOf(
+    String name) {
+  switch (name) {
+    case 'APP':
+      return _$salonReviewResponseSourceEnum_APP;
+    case 'GUEST_LINK':
+      return _$salonReviewResponseSourceEnum_GUEST_LINK;
+    case 'unknownDefaultOpenApi':
+      return _$salonReviewResponseSourceEnum_unknownDefaultOpenApi;
+    default:
+      return _$salonReviewResponseSourceEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<SalonReviewResponseSource_Enum>
+    _$salonReviewResponseSourceEnumValues = BuiltSet<
+        SalonReviewResponseSource_Enum>(const <SalonReviewResponseSource_Enum>[
+  _$salonReviewResponseSourceEnum_APP,
+  _$salonReviewResponseSourceEnum_GUEST_LINK,
+  _$salonReviewResponseSourceEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<SalonReviewResponseSource_Enum>
+    _$salonReviewResponseSourceEnumSerializer =
+    _$SalonReviewResponseSource_EnumSerializer();
+
+class _$SalonReviewResponseSource_EnumSerializer
+    implements PrimitiveSerializer<SalonReviewResponseSource_Enum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'APP': 'APP',
+    'GUEST_LINK': 'GUEST_LINK',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'APP': 'APP',
+    'GUEST_LINK': 'GUEST_LINK',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[SalonReviewResponseSource_Enum];
+  @override
+  final String wireName = 'SalonReviewResponseSource_Enum';
+
+  @override
+  Object serialize(
+          Serializers serializers, SalonReviewResponseSource_Enum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  SalonReviewResponseSource_Enum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      SalonReviewResponseSource_Enum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$SalonReviewResponse extends SalonReviewResponse {
   @override
   final String? id;
@@ -27,6 +94,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
   final DateTime? createdAt;
   @override
   final bool? authoredByViewer;
+  @override
+  final SalonReviewResponseSource_Enum? source_;
 
   factory _$SalonReviewResponse(
           [void Function(SalonReviewResponseBuilder)? updates]) =>
@@ -42,7 +111,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
       this.rating,
       this.comment,
       this.createdAt,
-      this.authoredByViewer})
+      this.authoredByViewer,
+      this.source_})
       : super._();
   @override
   SalonReviewResponse rebuild(
@@ -66,7 +136,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
         rating == other.rating &&
         comment == other.comment &&
         createdAt == other.createdAt &&
-        authoredByViewer == other.authoredByViewer;
+        authoredByViewer == other.authoredByViewer &&
+        source_ == other.source_;
   }
 
   @override
@@ -82,6 +153,7 @@ class _$SalonReviewResponse extends SalonReviewResponse {
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
     _$hash = $jc(_$hash, authoredByViewer.hashCode);
+    _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -98,7 +170,8 @@ class _$SalonReviewResponse extends SalonReviewResponse {
           ..add('rating', rating)
           ..add('comment', comment)
           ..add('createdAt', createdAt)
-          ..add('authoredByViewer', authoredByViewer))
+          ..add('authoredByViewer', authoredByViewer)
+          ..add('source_', source_))
         .toString();
   }
 }
@@ -151,6 +224,11 @@ class SalonReviewResponseBuilder
   set authoredByViewer(bool? authoredByViewer) =>
       _$this._authoredByViewer = authoredByViewer;
 
+  SalonReviewResponseSource_Enum? _source_;
+  SalonReviewResponseSource_Enum? get source_ => _$this._source_;
+  set source_(SalonReviewResponseSource_Enum? source_) =>
+      _$this._source_ = source_;
+
   SalonReviewResponseBuilder() {
     SalonReviewResponse._defaults(this);
   }
@@ -168,6 +246,7 @@ class SalonReviewResponseBuilder
       _comment = $v.comment;
       _createdAt = $v.createdAt;
       _authoredByViewer = $v.authoredByViewer;
+      _source_ = $v.source_;
       _$v = null;
     }
     return this;
@@ -199,6 +278,7 @@ class SalonReviewResponseBuilder
           comment: comment,
           createdAt: createdAt,
           authoredByViewer: authoredByViewer,
+          source_: source_,
         );
     replace(_$result);
     return _$result;

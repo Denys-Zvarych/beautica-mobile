@@ -124,6 +124,9 @@ Class | Method | HTTP request | Description
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listSalonFavorites**](doc/FavoriteControllerApi.md#listsalonfavorites) | **GET** /api/v1/favorites/salons | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listServiceFavorites**](doc/FavoriteControllerApi.md#listservicefavorites) | **GET** /api/v1/favorites/services | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**removeFavorite**](doc/FavoriteControllerApi.md#removefavorite) | **DELETE** /api/v1/favorites | 
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**getInvite**](doc/GuestReviewsApi.md#getinvite) | **GET** /api/v1/public/review-invites/{token} | Read a review invite
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**optOut**](doc/GuestReviewsApi.md#optout) | **POST** /api/v1/public/review-invites/{token}/opt-out | Stop review-invite SMS for this phone
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**submit**](doc/GuestReviewsApi.md#submit) | **POST** /api/v1/public/review-invites/{token}/reviews | Submit the guest&#39;s review(s)
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
@@ -369,6 +372,9 @@ Class | Method | HTTP request | Description
  - [GuestBookingRequest](doc/GuestBookingRequest.md)
  - [GuestBookingResponse](doc/GuestBookingResponse.md)
  - [GuestClientDto](doc/GuestClientDto.md)
+ - [GuestReviewItemRequest](doc/GuestReviewItemRequest.md)
+ - [GuestReviewSubmitRequest](doc/GuestReviewSubmitRequest.md)
+ - [GuestReviewSubmitResponse](doc/GuestReviewSubmitResponse.md)
  - [GuestTokenResponse](doc/GuestTokenResponse.md)
  - [IndependentMasterUpdateRequest](doc/IndependentMasterUpdateRequest.md)
  - [InviteAcceptRequest](doc/InviteAcceptRequest.md)
@@ -433,6 +439,9 @@ Class | Method | HTTP request | Description
  - [RevenueByMasterDto](doc/RevenueByMasterDto.md)
  - [RevenueByServiceDto](doc/RevenueByServiceDto.md)
  - [RevenueResponse](doc/RevenueResponse.md)
+ - [ReviewInviteItemResponse](doc/ReviewInviteItemResponse.md)
+ - [ReviewInviteOptOutRequest](doc/ReviewInviteOptOutRequest.md)
+ - [ReviewInviteResponse](doc/ReviewInviteResponse.md)
  - [ReviewResponse](doc/ReviewResponse.md)
  - [RotateAdminRequest](doc/RotateAdminRequest.md)
  - [RotateMasterRequest](doc/RotateMasterRequest.md)

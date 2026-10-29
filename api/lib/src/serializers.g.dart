@@ -166,6 +166,9 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(GuestBookingRequest.serializer)
       ..add(GuestBookingResponse.serializer)
       ..add(GuestClientDto.serializer)
+      ..add(GuestReviewItemRequest.serializer)
+      ..add(GuestReviewSubmitRequest.serializer)
+      ..add(GuestReviewSubmitResponse.serializer)
       ..add(GuestTokenResponse.serializer)
       ..add(IndependentMasterUpdateRequest.serializer)
       ..add(InviteAcceptRequest.serializer)
@@ -247,7 +250,11 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(RevenueByMasterDto.serializer)
       ..add(RevenueByServiceDto.serializer)
       ..add(RevenueResponse.serializer)
+      ..add(ReviewInviteItemResponse.serializer)
+      ..add(ReviewInviteOptOutRequest.serializer)
+      ..add(ReviewInviteResponse.serializer)
       ..add(ReviewResponse.serializer)
+      ..add(ReviewResponseSource_Enum.serializer)
       ..add(RotateAdminRequest.serializer)
       ..add(RotateMasterRequest.serializer)
       ..add(SalonAdminResponse.serializer)
@@ -260,6 +267,7 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..add(SalonResponse.serializer)
       ..add(SalonResponseCitySettlementTypeEnum.serializer)
       ..add(SalonReviewResponse.serializer)
+      ..add(SalonReviewResponseSource_Enum.serializer)
       ..add(SalonReviewSummaryResponse.serializer)
       ..add(SalonSearchRequest.serializer)
       ..add(SalonSearchRequestSortEnum.serializer)
@@ -423,6 +431,10 @@ Serializers _$serializers = (Serializers().toBuilder()
               BuiltList, const [const FullType(FavoriteServiceResponse)]),
           () => ListBuilder<FavoriteServiceResponse>())
       ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(GuestReviewItemRequest)]),
+          () => ListBuilder<GuestReviewItemRequest>())
+      ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(MasterSearchResult)]),
           () => ListBuilder<MasterSearchResult>())
       ..addBuilderFactory(
@@ -493,6 +505,10 @@ Serializers _$serializers = (Serializers().toBuilder()
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(RevenueByDateDto)]),
           () => ListBuilder<RevenueByDateDto>())
+      ..addBuilderFactory(
+          const FullType(
+              BuiltList, const [const FullType(ReviewInviteItemResponse)]),
+          () => ListBuilder<ReviewInviteItemResponse>())
       ..addBuilderFactory(
           const FullType(BuiltList, const [const FullType(ReviewResponse)]),
           () => ListBuilder<ReviewResponse>())

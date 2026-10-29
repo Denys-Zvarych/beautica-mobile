@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -19,6 +20,7 @@ part 'review_response.g.dart';
 /// * [comment]
 /// * [createdAt]
 /// * [authoredByViewer] - True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
+/// * [source_] - Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
 @BuiltValue()
 abstract class ReviewResponse
     implements Built<ReviewResponse, ReviewResponseBuilder> {
@@ -46,6 +48,11 @@ abstract class ReviewResponse
   /// True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
   @BuiltValueField(wireName: r'authoredByViewer')
   bool? get authoredByViewer;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueField(wireName: r'source')
+  ReviewResponseSource_Enum? get source_;
+  // enum source_Enum {  APP,  GUEST_LINK,  };
 
   ReviewResponse._();
 
@@ -129,6 +136,13 @@ class _$ReviewResponseSerializer
         specifiedType: const FullType(bool),
       );
     }
+    if (object.source_ != null) {
+      yield r'source';
+      yield serializers.serialize(
+        object.source_,
+        specifiedType: const FullType(ReviewResponseSource_Enum),
+      );
+    }
   }
 
   @override
@@ -210,6 +224,13 @@ class _$ReviewResponseSerializer
           ) as bool;
           result.authoredByViewer = valueDes;
           break;
+        case r'source':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(ReviewResponseSource_Enum),
+          ) as ReviewResponseSource_Enum;
+          result.source_ = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -237,4 +258,30 @@ class _$ReviewResponseSerializer
     );
     return result.build();
   }
+}
+
+class ReviewResponseSource_Enum extends EnumClass {
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'APP')
+  static const ReviewResponseSource_Enum APP = _$reviewResponseSourceEnum_APP;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'GUEST_LINK')
+  static const ReviewResponseSource_Enum GUEST_LINK =
+      _$reviewResponseSourceEnum_GUEST_LINK;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const ReviewResponseSource_Enum unknownDefaultOpenApi =
+      _$reviewResponseSourceEnum_unknownDefaultOpenApi;
+
+  static Serializer<ReviewResponseSource_Enum> get serializer =>
+      _$reviewResponseSourceEnumSerializer;
+
+  const ReviewResponseSource_Enum._(String name) : super(name);
+
+  static BuiltSet<ReviewResponseSource_Enum> get values =>
+      _$reviewResponseSourceEnumValues;
+  static ReviewResponseSource_Enum valueOf(String name) =>
+      _$reviewResponseSourceEnumValueOf(name);
 }

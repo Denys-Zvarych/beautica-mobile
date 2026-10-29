@@ -150,6 +150,9 @@ import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
 import 'package:beautica_api/src/model/guest_client_dto.dart';
+import 'package:beautica_api/src/model/guest_review_item_request.dart';
+import 'package:beautica_api/src/model/guest_review_submit_request.dart';
+import 'package:beautica_api/src/model/guest_review_submit_response.dart';
 import 'package:beautica_api/src/model/guest_token_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
@@ -214,6 +217,9 @@ import 'package:beautica_api/src/model/revenue_by_date_dto.dart';
 import 'package:beautica_api/src/model/revenue_by_master_dto.dart';
 import 'package:beautica_api/src/model/revenue_by_service_dto.dart';
 import 'package:beautica_api/src/model/revenue_response.dart';
+import 'package:beautica_api/src/model/review_invite_item_response.dart';
+import 'package:beautica_api/src/model/review_invite_opt_out_request.dart';
+import 'package:beautica_api/src/model/review_invite_response.dart';
 import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/rotate_master_request.dart';
@@ -405,6 +411,9 @@ part 'serializers.g.dart';
   GuestBookingRequest,
   GuestBookingResponse,
   GuestClientDto,
+  GuestReviewItemRequest,
+  GuestReviewSubmitRequest,
+  GuestReviewSubmitResponse,
   GuestTokenResponse,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
@@ -469,6 +478,9 @@ part 'serializers.g.dart';
   RevenueByMasterDto,
   RevenueByServiceDto,
   RevenueResponse,
+  ReviewInviteItemResponse,
+  ReviewInviteOptOutRequest,
+  ReviewInviteResponse,
   ReviewResponse,
   RotateAdminRequest,
   RotateMasterRequest,

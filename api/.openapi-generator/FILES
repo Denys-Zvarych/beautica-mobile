@@ -148,6 +148,10 @@ doc/ForgotPasswordRequest.md
 doc/GuestBookingRequest.md
 doc/GuestBookingResponse.md
 doc/GuestClientDto.md
+doc/GuestReviewItemRequest.md
+doc/GuestReviewSubmitRequest.md
+doc/GuestReviewSubmitResponse.md
+doc/GuestReviewsApi.md
 doc/GuestTokenResponse.md
 doc/IndependentMasterControllerApi.md
 doc/IndependentMasterUpdateRequest.md
@@ -222,6 +226,9 @@ doc/RevenueByMasterDto.md
 doc/RevenueByServiceDto.md
 doc/RevenueResponse.md
 doc/ReviewControllerApi.md
+doc/ReviewInviteItemResponse.md
+doc/ReviewInviteOptOutRequest.md
+doc/ReviewInviteResponse.md
 doc/ReviewResponse.md
 doc/RotateAdminRequest.md
 doc/RotateMasterRequest.md
@@ -297,6 +304,7 @@ lib/src/api/client_review_controller_api.dart
 lib/src/api/dashboard_controller_api.dart
 lib/src/api/device_controller_api.dart
 lib/src/api/favorite_controller_api.dart
+lib/src/api/guest_reviews_api.dart
 lib/src/api/independent_master_controller_api.dart
 lib/src/api/location_controller_api.dart
 lib/src/api/master_controller_api.dart
@@ -462,6 +470,9 @@ lib/src/model/forgot_password_request.dart
 lib/src/model/guest_booking_request.dart
 lib/src/model/guest_booking_response.dart
 lib/src/model/guest_client_dto.dart
+lib/src/model/guest_review_item_request.dart
+lib/src/model/guest_review_submit_request.dart
+lib/src/model/guest_review_submit_response.dart
 lib/src/model/guest_token_response.dart
 lib/src/model/independent_master_update_request.dart
 lib/src/model/invite_accept_request.dart
@@ -526,6 +537,9 @@ lib/src/model/revenue_by_date_dto.dart
 lib/src/model/revenue_by_master_dto.dart
 lib/src/model/revenue_by_service_dto.dart
 lib/src/model/revenue_response.dart
+lib/src/model/review_invite_item_response.dart
+lib/src/model/review_invite_opt_out_request.dart
+lib/src/model/review_invite_response.dart
 lib/src/model/review_response.dart
 lib/src/model/rotate_admin_request.dart
 lib/src/model/rotate_master_request.dart
