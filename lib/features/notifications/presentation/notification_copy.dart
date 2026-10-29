@@ -62,6 +62,13 @@ abstract final class NotificationCopy {
       l10n.notificationTitleServiceTypeApproved,
     AppNotificationType.serviceTypeSuggestionRejected =>
       l10n.notificationTitleServiceTypeRejected,
+    // Phase 428 — role-agnostic (D6).
+    AppNotificationType.reportContentRemoved ||
+    AppNotificationType.reportNoViolation ||
+    AppNotificationType.reportReviewed => l10n.notificationTitleReportReviewed,
+    AppNotificationType.contentRemoved => l10n.notificationTitleContentRemoved,
+    AppNotificationType.reviewAboutYouRemoved =>
+      l10n.notificationTitleReviewAboutYouRemoved,
     AppNotificationType.unknown => l10n.notificationTitleUnknown,
   };
 
@@ -79,6 +86,43 @@ abstract final class NotificationCopy {
   }) {
     final NotificationParams p = item.params;
     if (item.type == AppNotificationType.unknown) return null;
+
+    // Phase 428 — moderation outcomes: fixed, role-agnostic copy (D3/D6); no
+    // names or UGC are carried, so there is no «params gone» case.
+    //
+    // Adding a moderation type (as REVIEW_ABOUT_YOU_REMOVED was):
+    // regenerate the API, then one arm each in `AppNotificationType`,
+    // `NotificationMapper.typeFromDto`, [title], this switch, [glyph] and
+    // `isBookingNotificationType` (false) — the compiler flags every
+    // exhaustive switch — plus its ARB keys and a `moderationNotif` fixture.
+    switch (item.type) {
+      case AppNotificationType.reportContentRemoved:
+        return l10n.notificationBodyReportContentRemoved;
+      case AppNotificationType.reportNoViolation:
+        return l10n.notificationBodyReportNoViolation;
+      case AppNotificationType.reportReviewed:
+        // A confirmed PROFILE report gets its own line (the owner is
+        // contacted); every other kind keeps the neutral one.
+        return p.contentKind == ModeratedContentKind.profile
+            ? l10n.notificationBodyReportReviewedProfile
+            : l10n.notificationBodyReportReviewed;
+      case AppNotificationType.contentRemoved:
+        return switch (p.contentKind) {
+          ModeratedContentKind.clientReview =>
+            l10n.notificationBodyContentRemovedClientReview,
+          ModeratedContentKind.portfolioPhoto =>
+            l10n.notificationBodyContentRemovedPhoto,
+          // REVIEW, plus the D3 fallback for null / PROFILE (never sent with
+          // CONTENT_REMOVED — backend 415 D1).
+          ModeratedContentKind.review ||
+          ModeratedContentKind.profile ||
+          null => l10n.notificationBodyContentRemovedReview,
+        };
+      case AppNotificationType.reviewAboutYouRemoved:
+        return l10n.notificationBodyReviewAboutYouRemoved;
+      default:
+        break;
+    }
 
     if (item.type == AppNotificationType.inviteAccepted) {
       final String? subject = sanitize(p.subjectName);
@@ -415,6 +459,11 @@ abstract final class NotificationCopy {
       Icons.check_circle_rounded,
     AppNotificationType.categoryRequestRejected ||
     AppNotificationType.serviceTypeSuggestionRejected => Icons.cancel_rounded,
+    AppNotificationType.reportContentRemoved ||
+    AppNotificationType.reportNoViolation ||
+    AppNotificationType.reportReviewed => Icons.fact_check_rounded,
+    AppNotificationType.contentRemoved => Icons.gpp_maybe_rounded,
+    AppNotificationType.reviewAboutYouRemoved => Icons.reviews_rounded,
     AppNotificationType.unknown => Icons.notifications_rounded,
   };
 

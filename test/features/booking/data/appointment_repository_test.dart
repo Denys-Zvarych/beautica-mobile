@@ -281,6 +281,35 @@ void main() {
     );
 
     test(
+      '409 BOOKING_UNAVAILABLE → BookingUnavailableFailure (phase 425)',
+      () async {
+        when(
+          () => appointmentApi.createAppointment(
+            createAppointmentRequest: any(named: 'createAppointmentRequest'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'BOOKING_UNAVAILABLE'},
+            'message': 'Запис до цього салону зараз недоступний',
+          }),
+        );
+
+        await expectLater(
+          repository.createAppointment(req),
+          throwsA(
+            isA<BookingUnavailableFailure>().having(
+              (f) => f.serverMessage,
+              'serverMessage',
+              'Запис до цього салону зараз недоступний',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
       () async {
         when(

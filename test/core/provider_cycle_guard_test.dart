@@ -80,7 +80,9 @@ import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/favorites/application/favorite_toggle_notifier.dart';
+import 'package:beautica_mobile/features/favorites/application/favorites_notifier.dart';
 import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
 import 'package:beautica_mobile/features/master/data/master_repository.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_notifier.dart';
@@ -189,6 +191,14 @@ class _CycleGuardSalonRosterScheduleRepository extends Fake
 /// The salon id the `SalonManagementProfile.save()` / `.deleteSalon()`
 /// entrypoints below operate on.
 const String _cycleGuardSalonId = 'cycle-guard-salon-1';
+
+/// One saved master for the `favoritesProvider.unfavorite()` registry row.
+const FavoriteItem _cycleGuardFavoriteMaster = FavoriteItem(
+  id: 'cycle-guard-master-1',
+  kind: FavoriteKind.master,
+  name: 'Cycle Guard Master',
+  initials: 'CG',
+);
 
 const _cycleGuardSalon = Salon(
   id: _cycleGuardSalonId,
@@ -560,6 +570,97 @@ final List<_TeardownEntrypoint> _entrypoints = <_TeardownEntrypoint>[
             'toggle() must settle the target favorited via the normal '
             'optimistic-success path — no manual invalidation of ITSELF, no '
             'cycle.',
+      );
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // favoriteToggleProvider.notifier.toggle() — review-trust fix.
+  //
+  // A successful MASTER/SALON toggle now `ref.read(favoritesProvider.notifier)
+  // .refresh()`es a MOUNTED «Улюблені» list. `favoritesProvider.build()` only
+  // watches `favoriteRepositoryProvider`; `unfavorite()` only `ref.read`s the
+  // toggle notifier — no back-edge. Subscribing to `favoritesProvider` makes
+  // `ref.exists` true so the refresh actually runs on the real graph.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'favoriteToggleProvider.notifier.toggle() (MASTER add → mounted '
+        'favoritesProvider refresh)',
+    extraOverrides: <Object>[
+      favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        favoritesProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(favoritesProvider.future);
+      await container
+          .read(favoriteToggleProvider.notifier)
+          .toggle(
+            const FavoriteTarget(type: FavoriteTargetType.master, id: 'm-1'),
+          );
+      await container.read(favoritesProvider.notifier).refresh();
+    },
+    settle: (container) {
+      final FavoriteEntry? entry = container.read(
+        favoriteToggleProvider,
+      )[const FavoriteTarget(type: FavoriteTargetType.master, id: 'm-1')];
+      expect(
+        entry?.isFavorite,
+        isTrue,
+        reason:
+            'toggle() must settle the MASTER target favorited and refresh the '
+            'mounted favoritesProvider — no cycle.',
+      );
+      expect(container.read(favoritesProvider).hasValue, isTrue);
+    },
+  ),
+
+  // -------------------------------------------------------------------------
+  // favoritesProvider.notifier.unfavorite() — review-trust fix.
+  //
+  // `unfavorite` reads the toggle notifier and calls `toggle(...,
+  // refreshFavorites: false)`; the toggle's favourites-refresh branch is the
+  // only edge back into `favoritesProvider` and it is suppressed here. Must
+  // complete without `CircularDependencyError` with the list subscribed.
+  // -------------------------------------------------------------------------
+  _TeardownEntrypoint(
+    description:
+        'favoritesProvider.notifier.unfavorite() (→ toggle '
+        'refreshFavorites: false)',
+    extraOverrides: <Object>[
+      favoriteRepositoryProvider.overrideWithValue(
+        FakeFavoriteRepository()
+          ..masters = const <FavoriteItem>[_cycleGuardFavoriteMaster],
+      ),
+    ],
+    subscribeCycleClosers: (container) => <ProviderSubscription<Object?>>[
+      container.listen<Object?>(
+        favoritesProvider,
+        (_, _) {},
+        fireImmediately: true,
+      ),
+    ],
+    run: (container) async {
+      await container.read(authProvider.future);
+      await container.read(favoritesProvider.future);
+      await container
+          .read(favoritesProvider.notifier)
+          .unfavorite(_cycleGuardFavoriteMaster);
+    },
+    settle: (container) {
+      expect(
+        container.read(favoritesProvider).value,
+        isEmpty,
+        reason:
+            'unfavorite() must settle the row removed via its own optimistic '
+            'edit — no refetch, no cycle.',
       );
     },
   ),

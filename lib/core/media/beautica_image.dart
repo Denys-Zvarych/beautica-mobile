@@ -464,10 +464,12 @@ enum RemoteImageShape {
 ///         avatar/thumbnail variants whose identity is announced by adjacent
 ///         text or an enclosing `Semantics`.
 ///
-/// Deliberately NO loading placeholder / cross-fade: the sites this replaces
+/// By default NO loading placeholder / cross-fade: the sites this replaces
 /// showed a blank box (inside their own decorated container) until the first
 /// frame, and adding cached_network_image's placeholder/fade layout would
-/// change intrinsic sizing. The box is always [width]×[height].
+/// change intrinsic sizing. The box is always [width]×[height]. A site may opt
+/// in to a plain [loadingPlaceholder] (no fade, same box) — the favourites
+/// marks show their own fallback there.
 class RemoteImage extends StatelessWidget {
   const RemoteImage({
     super.key,
@@ -480,6 +482,7 @@ class RemoteImage extends StatelessWidget {
     this.fit = BoxFit.cover,
     this.excludeFromSemantics = false,
     this.decodeToCover = false,
+    this.loadingPlaceholder,
   }) : assert(
          shape != RemoteImageShape.roundedRect || borderRadius != null,
          'roundedRect requires a borderRadius',
@@ -516,6 +519,11 @@ class RemoteImage extends StatelessWidget {
   /// tile), where a fit decode would be upscaled and look soft.
   final bool decodeToCover;
 
+  /// ADDITIVE: shown (inside the same clip) until the first frame decodes, so
+  /// the photo does not pop in over an empty box. `null` (the default) keeps
+  /// the long-standing no-placeholder behaviour described on the class.
+  final Widget? loadingPlaceholder;
+
   @override
   Widget build(BuildContext context) {
     if (!isAllowedMediaUrl(url)) {
@@ -534,6 +542,12 @@ class RemoteImage extends StatelessWidget {
       fit: fit,
       excludeFromSemantics: excludeFromSemantics,
       errorBuilder: (_, _, _) => fallback,
+      frameBuilder: switch (loadingPlaceholder) {
+        null => null,
+        final Widget placeholder =>
+          (BuildContext _, Widget child, int? frame, bool wasSyncLoaded) =>
+              wasSyncLoaded || frame != null ? child : placeholder,
+      },
     );
     // Pin animated WebP to frame 0 — see the class doc and _ClientAvatarMark's
     // ANIMATED SOURCES header.

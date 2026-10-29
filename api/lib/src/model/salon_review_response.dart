@@ -3,6 +3,7 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:built_collection/built_collection.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
 
@@ -20,6 +21,8 @@ part 'salon_review_response.g.dart';
 /// * [rating]
 /// * [comment]
 /// * [createdAt]
+/// * [authoredByViewer] - True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
+/// * [source_] - Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
 @BuiltValue()
 abstract class SalonReviewResponse
     implements Built<SalonReviewResponse, SalonReviewResponseBuilder> {
@@ -49,6 +52,15 @@ abstract class SalonReviewResponse
 
   @BuiltValueField(wireName: r'createdAt')
   DateTime? get createdAt;
+
+  /// True when the authenticated caller wrote this review (the app hides «Поскаржитися» on it); always false for an anonymous caller and on booking-link (slug) pages.
+  @BuiltValueField(wireName: r'authoredByViewer')
+  bool? get authoredByViewer;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueField(wireName: r'source')
+  SalonReviewResponseSource_Enum? get source_;
+  // enum source_Enum {  APP,  GUEST_LINK,  };
 
   SalonReviewResponse._();
 
@@ -142,6 +154,20 @@ class _$SalonReviewResponseSerializer
         specifiedType: const FullType(DateTime),
       );
     }
+    if (object.authoredByViewer != null) {
+      yield r'authoredByViewer';
+      yield serializers.serialize(
+        object.authoredByViewer,
+        specifiedType: const FullType(bool),
+      );
+    }
+    if (object.source_ != null) {
+      yield r'source';
+      yield serializers.serialize(
+        object.source_,
+        specifiedType: const FullType(SalonReviewResponseSource_Enum),
+      );
+    }
   }
 
   @override
@@ -230,6 +256,20 @@ class _$SalonReviewResponseSerializer
           ) as DateTime;
           result.createdAt = valueDes;
           break;
+        case r'authoredByViewer':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.authoredByViewer = valueDes;
+          break;
+        case r'source':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(SalonReviewResponseSource_Enum),
+          ) as SalonReviewResponseSource_Enum;
+          result.source_ = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -257,4 +297,31 @@ class _$SalonReviewResponseSerializer
     );
     return result.build();
   }
+}
+
+class SalonReviewResponseSource_Enum extends EnumClass {
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'APP')
+  static const SalonReviewResponseSource_Enum APP =
+      _$salonReviewResponseSourceEnum_APP;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'GUEST_LINK')
+  static const SalonReviewResponseSource_Enum GUEST_LINK =
+      _$salonReviewResponseSourceEnum_GUEST_LINK;
+
+  /// Who wrote the review (phase 399): APP = a client account in the app; GUEST_LINK = a booking-link guest through an SMS invite, clientDisplayName is then the guest's «Ім'я П.» snapshot.
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const SalonReviewResponseSource_Enum unknownDefaultOpenApi =
+      _$salonReviewResponseSourceEnum_unknownDefaultOpenApi;
+
+  static Serializer<SalonReviewResponseSource_Enum> get serializer =>
+      _$salonReviewResponseSourceEnumSerializer;
+
+  const SalonReviewResponseSource_Enum._(String name) : super(name);
+
+  static BuiltSet<SalonReviewResponseSource_Enum> get values =>
+      _$salonReviewResponseSourceEnumValues;
+  static SalonReviewResponseSource_Enum valueOf(String name) =>
+      _$salonReviewResponseSourceEnumValueOf(name);
 }

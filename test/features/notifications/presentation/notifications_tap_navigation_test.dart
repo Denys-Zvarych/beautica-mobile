@@ -412,6 +412,35 @@ void main() {
     expect(find.text(uk.notificationsBookingUnavailable), findsNothing);
   });
 
+  // Phase 428 D5 — a moderation outcome (target NONE) only marks read: no
+  // navigation, no «unavailable» snack.
+  for (final AppNotificationType type in <AppNotificationType>[
+    AppNotificationType.reportContentRemoved,
+    AppNotificationType.reportNoViolation,
+    AppNotificationType.reportReviewed,
+    AppNotificationType.contentRemoved,
+    AppNotificationType.reviewAboutYouRemoved,
+  ]) {
+    testWidgets('should_onlyMarkRead_noSnack_when_${type.name}Tapped', (
+      WidgetTester tester,
+    ) async {
+      final _Harness h = await _open(tester, UserRole.client, <AppNotification>[
+        moderationNotif('n1', type: type),
+      ]);
+
+      await _tapAndSettle(tester, 'n1');
+
+      expect(find.byType(NotificationsScreen), findsOneWidget);
+      expect(find.byType(BookingDetailScreen), findsNothing);
+      expect(_isRead(h, 'n1'), isTrue);
+      await tester.pump();
+      // fixed-wait-ok: one snack-entrance length; a snack would be mounted by now.
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.byType(VelvetSnack), findsNothing);
+      expect(find.text(uk.notificationsBookingUnavailable), findsNothing);
+    });
+  }
+
   testWidgets('should_markReadAndSnackbar_when_bookingTypeHasNoTarget', (
     WidgetTester tester,
   ) async {

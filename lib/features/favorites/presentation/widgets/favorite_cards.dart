@@ -56,6 +56,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
@@ -75,21 +76,13 @@ import 'package:beautica_mobile/features/discovery/presentation/widgets/result_a
 import 'package:beautica_mobile/features/discovery/presentation/widgets/result_card_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/formatters/address_lines.dart';
+import 'package:beautica_mobile/shared/widgets/master_mark.dart';
+import 'package:beautica_mobile/shared/widgets/raised_card_shell.dart';
 import 'package:beautica_mobile/shared/widgets/salon_affiliation_line.dart';
 
 import '../../domain/favorite_item.dart';
 
-/// **One size for both identity marks** — the master's portrait disc and the
-/// salon's storefront well are the same square (user decision 2026-08-24).
-///
-/// WHY 56 SPECIFICALLY. The mark is a FLOOR under a card's text column:
-/// whichever is taller sets the card height. A single mark value S has to
-/// thread a needle — below ~58, or a salon carrying a street stops being taller
-/// than one without (both flatten to the same height); above ~52, or an
-/// independent master falls to the same height as a full-address salon and then
-/// below it. 56 is the largest integer inside that window, so it is the biggest
-/// mark that still leaves all four row shapes a distinct height.
-const double kFavoriteMarkSize = 56;
+export 'package:beautica_mobile/shared/widgets/master_mark.dart';
 
 /// Corner radius of the salon's squircle well — 15 of 56 (27%), which reads
 /// squarer against the master's full circle than the same 15 did at 48.
@@ -266,78 +259,32 @@ class _IdentityLine extends StatelessWidget {
   }
 }
 
-/// The identity mark for a master: a raised camel-gradient disc with initials.
-class MasterMark extends StatelessWidget {
-  const MasterMark({
-    super.key,
-    required this.initials,
-    this.size = kFavoriteMarkSize,
-  });
-
-  final String initials;
-  final double size;
-
-  /// The disc's own dark shadow — a deeper warm mocha than the card's, so it
-  /// is visibly darker than the camel face and reads as genuine depth.
-  static const Color _discShadow = Color(0xFF8C6A44);
-
-  static const BoxDecoration _decoration = BoxDecoration(
-    shape: BoxShape.circle,
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: <Color>[
-        BrandColors.accentLogo,
-        BrandColors.accent,
-        BrandColors.accentLatte,
-      ],
-      stops: <double>[0.0, 0.55, 1.0],
-    ),
-    boxShadow: <BoxShadow>[
-      BoxShadow(color: _discShadow, offset: Offset(4, 4), blurRadius: 10),
-      BoxShadow(
-        color: BrandColors.shadowLightStrong,
-        offset: Offset(-4, -4),
-        blurRadius: 10,
-      ),
-    ],
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: size,
-      width: size,
-      decoration: _decoration,
-      child: Center(
-        child: Text(
-          // raw-ui-string-ok: the provider's own initials, derived from their
-          // name — data, not UI copy.
-          initials,
-          style: VelvetText.displayName().copyWith(
-            // Runtime-computed from [size], not an inline literal: the mark's
-            // glyph must stay proportional to the disc at any extent a caller
-            // (or a golden) asks for. Allow-listed in
-            // `scripts/.inline_fontsize_allow`.
-            fontSize: size * 0.32,
-            color: BrandColors.white,
-          ),
-        ),
-      ),
-    );
-  }
-}
+// [MasterMark] + [kFavoriteMarkSize] MOVED (phase 426) to
+// `shared/widgets/master_mark.dart` and re-exported above.
 
 /// The identity mark for a salon: a recessed rounded-square well with a
 /// storefront glyph — a door pressed into the surface.
 class SalonMark extends StatelessWidget {
-  const SalonMark({super.key, this.size = kFavoriteMarkSize});
+  const SalonMark({
+    super.key,
+    this.size = kFavoriteMarkSize,
+    this.imageUrl,
+    this.imageKey,
+  });
 
   final double size;
 
+  /// ADDITIVE: the salon's photo, clipped to the same squircle; the
+  /// storefront well stays as the fallback (missing / disallowed / failed
+  /// image). `null` (the default) renders exactly the well, as before.
+  final String? imageUrl;
+
+  /// Key on the [RemoteImage] when [imageUrl] is set (tests find it).
+  final Key? imageKey;
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    final Widget well = SizedBox(
       height: size,
       width: size,
       child: NeumorphicInset(
@@ -349,6 +296,25 @@ class SalonMark extends StatelessWidget {
             color: BrandColors.accentDeep,
           ),
         ),
+      ),
+    );
+    final String? url = imageUrl;
+    if (url == null) return well;
+    return SizedBox(
+      height: size,
+      width: size,
+      child: RemoteImage(
+        key: imageKey,
+        url: url,
+        width: size,
+        height: size,
+        borderRadius: BorderRadius.circular(_kSalonMarkRadius),
+        excludeFromSemantics: true,
+        fallback: well,
+        // The well while loading (no pop-in); cover-decoded so a non-square
+        // logo is not soft.
+        loadingPlaceholder: well,
+        decodeToCover: true,
       ),
     );
   }
@@ -405,67 +371,9 @@ class _UnlikeHeartState extends State<UnlikeHeart> {
   }
 }
 
-/// The shared card shell — identical for both kinds. Raised taupe pillow that
-/// depresses on tap, radius 24, § 9 `extrudedCard` shadows.
-///
-/// NOT [NeumorphicCard]: that widget is a static raised surface with a fixed
-/// `lg` padding and no press state, and giving it one would change every
-/// surface in the app that already uses it. This shell adds the press-scale
-/// and takes per-kind padding, so it stays local — and it is the ONLY shell
-/// either card kind uses, so the two can never drift apart.
-class _FavoriteShell extends StatefulWidget {
-  const _FavoriteShell({
-    required this.semanticLabel,
-    required this.onTap,
-    required this.padding,
-    required this.child,
-  });
-
-  final String semanticLabel;
-  final VoidCallback onTap;
-  final EdgeInsets padding;
-  final Widget child;
-
-  @override
-  State<_FavoriteShell> createState() => _FavoriteShellState();
-}
-
-class _FavoriteShellState extends State<_FavoriteShell> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return RepaintBoundary(
-      child: Semantics(
-        button: true,
-        label: widget.semanticLabel,
-        child: GestureDetector(
-          onTapDown: (_) => setState(() => _pressed = true),
-          onTapCancel: () => setState(() => _pressed = false),
-          onTapUp: (_) {
-            setState(() => _pressed = false);
-            widget.onTap();
-          },
-          child: AnimatedScale(
-            scale: _pressed ? 0.985 : 1,
-            duration: const Duration(milliseconds: 110),
-            curve: Curves.easeOut,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              padding: widget.padding,
-              decoration: BoxDecoration(
-                color: BrandColors.base,
-                borderRadius: BorderRadius.circular(VelvetRadii.card),
-                boxShadow: _pressed ? null : VelvetShadows.extrudedCard,
-              ),
-              child: widget.child,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
+// The card shell (was the private `_FavoriteShell`) is PROMOTED (phase 426)
+// to [RaisedCardShell] in `shared/widgets/raised_card_shell.dart` — the ONLY
+// shell either card kind uses, so the two can never drift apart.
 
 /// Master favourite: raised circular portrait, name, affiliation line
 /// (salon-attached masters only), address block, rating, unlike heart.
@@ -503,7 +411,7 @@ class FavoriteMasterCard extends StatelessWidget {
     final bool hasAddress =
         locality != null || streetLine != null || note != null;
 
-    return _FavoriteShell(
+    return RaisedCardShell(
       semanticLabel: l10n.favoritesMasterCardLabel(
         item.name,
         // The affiliation line has no spoken form of its own (it renders as
@@ -528,7 +436,14 @@ class FavoriteMasterCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          MasterMark(initials: item.initials),
+          MasterMark(
+            initials: item.initials,
+            imageUrl: item.avatarUrl,
+            imageKey: ValueKey<String>('favorite-avatar-master-${item.id}'),
+            // No pop-in, and a crisp crop of a non-square avatar.
+            monogramWhileLoading: true,
+            decodeToCover: true,
+          ),
           const SizedBox(width: VelvetSpacing.md - 2),
           Expanded(
             child: Column(
@@ -599,7 +514,7 @@ class FavoriteSalonCard extends StatelessWidget {
     final String? locality = formatLocality(item.cityLabel, item.districtLabel);
     final String? streetLine = buildStreetLine(item.street, item.buildingNo);
 
-    return _FavoriteShell(
+    return RaisedCardShell(
       semanticLabel: l10n.favoritesSalonCardLabel(
         item.name,
         <String>[?locality, ?streetLine, ?item.locationNote].join('. '),
@@ -616,7 +531,10 @@ class FavoriteSalonCard extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
-          const SalonMark(),
+          SalonMark(
+            imageUrl: item.avatarUrl,
+            imageKey: ValueKey<String>('favorite-avatar-salon-${item.id}'),
+          ),
           const SizedBox(width: VelvetSpacing.md - 2),
           Expanded(
             child: Column(

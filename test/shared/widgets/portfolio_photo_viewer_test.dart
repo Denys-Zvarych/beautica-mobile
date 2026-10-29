@@ -22,6 +22,7 @@ import 'package:beautica_mobile/core/media/upload/upload_failure.dart'
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/shared/widgets/portfolio_photo_viewer.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -66,6 +67,8 @@ Future<void> _pumpHost(
   WidgetTester tester, {
   List<PortfolioPhoto> photos = _photos,
   int initialIndex = 0,
+  PortfolioPhotoReportCallback? onReport,
+  PortfolioPhotoReportedCheck? isReported,
 }) async {
   await tester.pumpApp(
     Scaffold(
@@ -73,8 +76,13 @@ Future<void> _pumpHost(
         builder: (BuildContext context) => Center(
           child: TextButton(
             key: _open,
-            onPressed: () =>
-                showPortfolioPhotoViewer(context, photos, initialIndex),
+            onPressed: () => showPortfolioPhotoViewer(
+              context,
+              photos,
+              initialIndex,
+              onReport: onReport,
+              isReported: isReported,
+            ),
             child: const Text('open'),
           ),
         ),
@@ -759,6 +767,76 @@ void main() {
       await tester.pumpAndSettle();
       expect(_indicatorLabel(tester), _l10n.portfolioViewerPosition(3, 3));
       handle.dispose();
+    });
+  });
+
+  group('report (phase 424 D3)', () {
+    final Finder report = find.byKey(PortfolioPhotoViewer.reportKey);
+
+    testWidgets('onReport null (owner screens) → no report button', (
+      tester,
+    ) async {
+      await _pumpHost(tester);
+      expect(report, findsNothing);
+      expect(find.byIcon(Icons.outlined_flag_rounded), findsNothing);
+      expect(find.byKey(PortfolioPhotoViewer.closeKey), findsOneWidget);
+    });
+
+    testWidgets('onReport set → flag button LEFT of close, tooltip from the '
+        'ARB; a tap reports the SHOWN photo with the viewer context', (
+      tester,
+    ) async {
+      final List<(BuildContext, PortfolioPhoto)> calls =
+          <(BuildContext, PortfolioPhoto)>[];
+      await _pumpHost(
+        tester,
+        initialIndex: 0,
+        onReport: (BuildContext ctx, PortfolioPhoto photo) =>
+            calls.add((ctx, photo)),
+      );
+      expect(report, findsOneWidget);
+      expect(
+        tester.getCenter(report).dx,
+        lessThan(
+          tester.getCenter(find.byKey(PortfolioPhotoViewer.closeKey)).dx,
+        ),
+      );
+      expect(
+        tester.widget<IconButton>(report).tooltip,
+        _l10n.portfolioViewerReport,
+      );
+
+      await tester.fling(_pager, const Offset(-400, 0), 1000);
+      await tester.pumpAndSettle();
+      await tester.tap(report);
+      await tester.pump();
+
+      expect(calls, hasLength(1));
+      expect(calls.single.$2.id, 'p2');
+      // The context sits UNDER the viewer, so a sheet shown from it lands
+      // above the photo (the viewer is on the root navigator).
+      expect(calls.single.$1.widget, isA<PortfolioPhotoViewer>());
+    });
+  });
+
+  // Phase 428 add-on — `isReported` hides the flag per SHOWN photo.
+  group('isReported (phase 428)', () {
+    final Finder report = find.byKey(PortfolioPhotoViewer.reportKey);
+
+    testWidgets('a reported photo shows no flag; paging to an unreported one '
+        'brings it back', (tester) async {
+      // RED WHEN the viewer ignores `isReported`.
+      await _pumpHost(
+        tester,
+        onReport: (BuildContext _, PortfolioPhoto _) {},
+        isReported: (WidgetRef _, PortfolioPhoto photo) => photo.id == 'p1',
+      );
+      expect(find.byKey(PortfolioPhotoViewer.closeKey), findsOneWidget);
+      expect(report, findsNothing);
+
+      await tester.fling(_pager, const Offset(-400, 0), 1000);
+      await tester.pumpAndSettle();
+      expect(report, findsOneWidget);
     });
   });
 }

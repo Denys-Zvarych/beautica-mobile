@@ -11,6 +11,7 @@ part 'client_authored_review_response.g.dart';
 /// The review this booking's CLIENT left about the master (rating + full comment). Null when no review exists for the booking. NOT the provider's review of the client — that is a separate entity, written through POST /client-reviews and gated by providerCanReviewClient.
 ///
 /// Properties:
+/// * [id] - The review's id — targetId for POST /reports (targetType REVIEW).
 /// * [rating] - The client's star rating for this booking, 1-5.
 /// * [comment] - The client's review text, verbatim and unabridged, or null when they rated without writing anything. Already public via GET /masters/{id}/reviews — never truncated or masked here.
 @BuiltValue()
@@ -18,6 +19,10 @@ abstract class ClientAuthoredReviewResponse
     implements
         Built<ClientAuthoredReviewResponse,
             ClientAuthoredReviewResponseBuilder> {
+  /// The review's id — targetId for POST /reports (targetType REVIEW).
+  @BuiltValueField(wireName: r'id')
+  String? get id;
+
   /// The client's star rating for this booking, 1-5.
   @BuiltValueField(wireName: r'rating')
   int? get rating;
@@ -56,6 +61,13 @@ class _$ClientAuthoredReviewResponseSerializer
     ClientAuthoredReviewResponse object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
+    if (object.id != null) {
+      yield r'id';
+      yield serializers.serialize(
+        object.id,
+        specifiedType: const FullType(String),
+      );
+    }
     if (object.rating != null) {
       yield r'rating';
       yield serializers.serialize(
@@ -95,6 +107,13 @@ class _$ClientAuthoredReviewResponseSerializer
       final key = serializedList[i] as String;
       final value = serializedList[i + 1];
       switch (key) {
+        case r'id':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.id = valueDes;
+          break;
         case r'rating':
           final valueDes = serializers.deserialize(
             value,

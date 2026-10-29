@@ -107,5 +107,11 @@ abstract class SalonSearchItem with _$SalonSearchItem {
     /// surfaces the service(s) that actually matched instead of the generic
     /// top-3. Pre-joined ONCE at map time (same perf rule as [servicesLine]).
     @Default(null) String? matchedServicesLine,
+
+    /// Whether the signed-in CLIENT has favourited this salon — the server's
+    /// `isFavorite` (backend `6d1fcbc9`). Seeds the heart's initial state via
+    /// `FavoriteToggleNotifier.syncFromServer`. ADDITIVE, defaults to `false`
+    /// (also what the backend sends to anonymous and non-client callers).
+    @Default(false) bool isFavorite,
   }) = _SalonSearchItem;
 }

@@ -38,13 +38,19 @@ import 'package:beautica_mobile/features/booking/presentation/booking_detail_scr
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_notes.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/booking_summary_cards.dart';
 import 'package:beautica_mobile/features/booking/presentation/widgets/client_review_section.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/velvet_snack_matchers.dart';
+import '../../moderation/support/fake_content_report_repository.dart';
 
 // Fixture identities injected BY this test — backend data, never app copy,
 // and locale-invariant by construction (a person's name is not translated).
@@ -118,6 +124,7 @@ Future<void> _pump(
   WidgetTester tester,
   Booking booking, {
   required UserRole? role,
+  FakeContentReportRepository? reports,
 }) async {
   await tester.pumpApp(
     BookingDetailScreen(bookingId: booking.id),
@@ -125,6 +132,9 @@ Future<void> _pump(
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(_MockBookingRepository()),
       bookingDetailProvider(booking.id).overrideWith((ref) async => booking),
+      contentReportRepositoryProvider.overrideWithValue(
+        reports ?? FakeContentReportRepository(),
+      ),
       // The viewer role is derived from the SESSION — the same path
       // production uses — never by overriding `bookingViewerRoleProvider`.
       authProvider.overrideWith(
@@ -594,5 +604,163 @@ void main() {
           'creation, the reason at closure) and the review comes AFTER '
           'closure, so the column must read top to bottom in that order',
     );
+  });
+
+  // Phase 424 D2 — the provider is never the author of the client's review,
+  // so the block offers the shared «⋮» whenever the wire carries the review id.
+  group('phase 424 — report «⋮»', () {
+    const String reviewId = 'review-77';
+    final Finder more = find.byKey(
+      ReviewCard.moreKey(ClientReviewSection.keyPrefix, 'b1'),
+    );
+
+    testWidgets('a review with an id → «⋮» opens the report sheet and submits '
+        'REVIEW + the review id (never the booking id)', (tester) async {
+      final FakeContentReportRepository repo = FakeContentReportRepository();
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(
+            id: reviewId,
+            rating: 1,
+            comment: _reviewComment,
+          ),
+        ),
+        role: UserRole.independentMaster,
+        reports: repo,
+      );
+      final AppLocalizations l10n = _l10n(tester);
+      expect(_section, findsOneWidget);
+      expect(more, findsOneWidget);
+
+      await tester.ensureVisible(more);
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      expect(find.byType(ReportSheet), findsOneWidget);
+      expect(find.text(l10n.reportSubjectReview(_clientFull)), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(ReportSheet.reasonKey(ReportReason.offensive)),
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.byKey(ReportSheet.submitKey));
+      await tester.tap(find.text(l10n.reportSubmit));
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.requests.single,
+        const ContentReportRequest(
+          targetType: ReportTargetType.review,
+          targetId: reviewId,
+          reason: ReportReason.offensive,
+        ),
+      );
+      expect(find.byType(ReportSheet), findsNothing);
+      await pumpPastVelvetSnack(tester);
+    });
+
+    testWidgets('phase 428 — a review the provider ALREADY reported has no '
+        '«⋮»; the card still renders', (tester) async {
+      // RED WHEN `ClientReviewSection` stops checking the reported set (the
+      // fake's `mine()` is the session's `GET /reports/mine`).
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(id: reviewId, rating: 1),
+        ),
+        role: UserRole.independentMaster,
+        reports: FakeContentReportRepository(
+          preReported: <ReportedTarget>{
+            (type: ReportTargetType.review, id: reviewId),
+          },
+        ),
+      );
+      expect(_section, findsOneWidget, reason: 'anti-vacuity');
+      expect(more, findsNothing);
+    });
+
+    testWidgets('a SALON_MASTER provider is offered «⋮» too', (tester) async {
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(id: reviewId, rating: 4),
+        ),
+        role: UserRole.salonMaster,
+      );
+      expect(_section, findsOneWidget);
+      expect(more, findsOneWidget);
+    });
+
+    testWidgets('no review id on the wire → no «⋮» (nothing to report '
+        'against); the card still renders', (tester) async {
+      await _pump(
+        tester,
+        _booking(
+          reviewByClient: const ClientAuthoredReview(
+            rating: 4,
+            comment: _reviewComment,
+          ),
+        ),
+        role: UserRole.independentMaster,
+      );
+      expect(_section, findsOneWidget, reason: 'anti-vacuity');
+      expect(more, findsNothing);
+      // Scoped to the review section: since phase 425 the client strip above
+      // carries its own «⋯» (also a `ReviewMoreButton`).
+      expect(
+        find.descendant(of: _section, matching: find.byType(ReviewMoreButton)),
+        findsNothing,
+      );
+    });
+
+    testWidgets('screen readers reach the report action on the block node '
+        '(descendants are excluded)', (tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await _pump(
+          tester,
+          _booking(
+            reviewByClient: const ClientAuthoredReview(
+              id: reviewId,
+              rating: 2,
+              comment: _reviewComment,
+            ),
+          ),
+          role: UserRole.independentMaster,
+        );
+        final AppLocalizations l10n = _l10n(tester);
+        final SemanticsNode node = tester.getSemantics(
+          find.descendant(of: _section, matching: find.byType(Semantics)).first,
+        );
+        final int actionId = CustomSemanticsAction.getIdentifier(
+          CustomSemanticsAction(label: l10n.reviewMoreActions),
+        );
+        expect(
+          node.getSemanticsData().customSemanticsActionIds,
+          contains(actionId),
+          reason: 'the «⋮» is inside an excludeSemantics subtree',
+        );
+        expect(
+          node.label,
+          contains(l10n.bookingDetailClientReviewSemantics(2, _reviewComment)),
+        );
+        expect(find.byType(ReportSheet), findsNothing, reason: 'anti-vacuity');
+
+        node.owner!.performAction(
+          node.id,
+          SemanticsAction.customAction,
+          actionId,
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ReportSheet), findsOneWidget);
+        expect(
+          find.text(l10n.reportSubjectReview(_clientFull)),
+          findsOneWidget,
+        );
+      } finally {
+        handle.dispose();
+      }
+    });
   });
 }

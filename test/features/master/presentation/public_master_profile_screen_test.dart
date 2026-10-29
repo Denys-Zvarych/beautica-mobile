@@ -13,6 +13,10 @@
 // CLIENT so the favourite heart's notifier resolves without touching storage.
 // mobile-qa deepens this suite after the screen ships.
 
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/content_actions_sheet.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'dart:async';
 
 import 'package:beautica_mobile/core/media/beautica_image.dart';
@@ -47,6 +51,9 @@ import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/add_link.dart';
 import 'package:beautica_mobile/shared/widgets/error_state.dart';
 import 'package:beautica_mobile/shared/widgets/skeleton_shimmer.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
+import 'package:beautica_mobile/features/moderation/data/content_report_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +62,9 @@ import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import '../../../helpers/fakes/fake_favorite_repository.dart';
+import '../../moderation/support/fake_content_report_repository.dart';
+import '../../../helpers/no_reported_targets.dart';
 import '../../../helpers/fakes/fake_media_upload_repository.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
@@ -166,6 +176,16 @@ class _StubAuthNotifier extends AuthNotifier {
   );
 }
 
+/// Phase 428 — a fixed session for the reported-set gate tests: anonymous
+/// ([session] unauthenticated) or a signed-in PROVIDER.
+class _FixedAuthNotifier extends AuthNotifier {
+  _FixedAuthNotifier(this.session);
+  final AuthSession session;
+
+  @override
+  Future<AuthSession> build() async => session;
+}
+
 // ---------------------------------------------------------------------------
 // Overrides
 // ---------------------------------------------------------------------------
@@ -179,11 +199,16 @@ const List<PortfolioPhoto> _kPortfolio = <PortfolioPhoto>[
 List<Object> _overrides(
   FutureOr<PublicMasterProfileData> Function(Ref ref) create, {
   FakeMediaUploadRepository? media,
+  AuthSession? session,
 }) => <Object>[
   mediaUploadRepositoryProvider.overrideWithValue(
     media ?? FakeMediaUploadRepository(masterPortfolio: _kPortfolio),
   ),
-  authProvider.overrideWith(_StubAuthNotifier.new),
+  // ADDITIVE (phase 428): [session] swaps the default signed-in CLIENT.
+  if (session == null)
+    authProvider.overrideWith(_StubAuthNotifier.new)
+  else
+    authProvider.overrideWith(() => _FixedAuthNotifier(session)),
   publicMasterProfileProvider(_kMasterId).overrideWith(create),
   // The read-only service-categories section (ServiceCategoryCardList) watches
   // approvedCategoriesProvider for category-label resolution. Left
@@ -1438,8 +1463,10 @@ void main() {
     Future<FakeMediaUploadRepository> pumpWithMedia(
       WidgetTester tester,
       MasterType type,
-      FakeMediaUploadRepository media,
-    ) async {
+      FakeMediaUploadRepository media, {
+      List<Object> extra = const <Object>[],
+      AuthSession? session,
+    }) async {
       tester.view.physicalSize = const Size(800, 2400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -1447,11 +1474,136 @@ void main() {
       final Master master = _stubMaster.copyWith(type: type);
       await tester.pumpApp(
         const PublicMasterProfileScreen(masterId: _kMasterId),
-        overrides: _overrides((ref) => (master, _stubServices), media: media),
+        overrides: <Object>[
+          ..._overrides(
+            (ref) => (master, _stubServices),
+            media: media,
+            session: session,
+          ),
+          ...extra,
+        ],
       );
       await tester.pumpAndSettle();
       return media;
     }
+
+    // Phase 428 — the hide-once-reported check follows who may REPORT: any
+    // signed-in viewer (backend 395 — providers included). Only an ANONYMOUS
+    // viewer skips it, so they never read the reported set.
+    testWidgets('phase 428 — an anonymous viewer does not fetch the reported '
+        'set', (tester) async {
+      // RED WHEN `isReported` is passed to the viewer without the signed-in
+      // gate.
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'a', url: 'https://media.test/a.webp'),
+      ];
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      final FakeContentReportRepository reports = FakeContentReportRepository();
+      await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolio: photos),
+        session: const AuthSession.unauthenticated(),
+        extra: <Object>[
+          contentReportRepositoryProvider.overrideWithValue(reports),
+        ],
+      );
+      await tester.ensureVisible(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(reports.mineCalls, 0);
+      // Stronger than the call count (the provider itself short-circuits a
+      // signed-out session): the reported set is never even CREATED.
+      expect(
+        ProviderScope.containerOf(
+          tester.element(find.byType(PortfolioPhotoViewer)),
+        ).exists(myReportedTargetsProvider),
+        isFalse,
+      );
+    });
+
+    testWidgets('phase 428 — a signed-in PROVIDER who reported a photo no '
+        'longer sees its flag', (tester) async {
+      // RED WHEN the viewer's `isReported` is gated on the CLIENT role: a
+      // provider (who may report — backend 395) would keep the flag.
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'a', url: 'https://media.test/a.webp'),
+      ];
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolio: photos),
+        session: const AuthSession.authenticated(
+          user: User(
+            id: 'master-9',
+            email: 'm9@beautica.ua',
+            role: UserRole.independentMaster,
+          ),
+          accessToken: 't9',
+        ),
+        extra: <Object>[
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.portfolioPhoto, id: 'a'),
+          }),
+        ],
+      );
+      await tester.ensureVisible(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.closeKey), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
+
+    // Phase 428 add-on — a photo the client already reported shows no flag
+    // in the viewer (report once, ever).
+    testWidgets('phase 428 — an ALREADY-reported photo has no report flag in '
+        'the viewer', (tester) async {
+      // RED WHEN the profile stops passing `isReported:` to the viewer.
+      const List<PortfolioPhoto> photos = <PortfolioPhoto>[
+        PortfolioPhoto(id: 'a', url: 'https://media.test/a.webp'),
+      ];
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+      addTearDown(() {
+        debugMediaCacheManager = null;
+        MediaConfig.debugAllowedHosts = null;
+      });
+      await pumpWithMedia(
+        tester,
+        MasterType.independentMaster,
+        FakeMediaUploadRepository(masterPortfolio: photos),
+        extra: <Object>[
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.portfolioPhoto, id: 'a'),
+          }),
+        ],
+      );
+      await tester.ensureVisible(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('portfolio-photo-a')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(PortfolioPhotoViewer), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.closeKey), findsOneWidget);
+      expect(find.byKey(PortfolioPhotoViewer.reportKey), findsNothing);
+    });
 
     for (final MasterType type in <MasterType>[
       MasterType.salonMaster,
@@ -2356,6 +2508,271 @@ void main() {
               'salonId needed (Phase 350 D4).',
         );
       },
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 425 D1 — «⋯» report entry in the top bar
+  // -------------------------------------------------------------------------
+
+  group('phase 425 — profile «⋯» report', () {
+    Future<void> pumpLoaded(WidgetTester tester, {UserRole? role}) async {
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) => _stubData),
+          // The viewer's role only matters through `isClientProvider`.
+          if (role != null)
+            isClientProvider.overrideWith((ref) => role == UserRole.client),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('client: «⋯» sits far right with the heart to its left', (
+      tester,
+    ) async {
+      await pumpLoaded(tester);
+      final Finder more = find.byKey(PublicMasterProfileScreen.reportKey);
+      final Finder heart = find.byKey(
+        const Key('public-master-favorite-toggle'),
+      );
+      expect(more, findsOne);
+      expect(heart, findsOne);
+      expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(more).dx));
+      expect(
+        tester.getTopRight(more).dx,
+        greaterThan(tester.getTopRight(heart).dx),
+      );
+    });
+
+    testWidgets('client: «⋯» opens the report sheet DIRECTLY for the '
+        'MASTER_PROFILE (no actions sheet, no block)', (tester) async {
+      await pumpLoaded(tester);
+      await tester.tap(find.byKey(PublicMasterProfileScreen.reportKey));
+      await tester.pumpAndSettle();
+
+      final ReportSheet sheet = tester.widget(find.byType(ReportSheet));
+      expect(sheet.targetType, ReportTargetType.masterProfile);
+      expect(sheet.targetId, _kMasterId);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ReportSheet)),
+      );
+      expect(sheet.subject, l10n.reportSubjectProfile('Олена Ковальчук'));
+      expect(find.byType(ClientActionsSheet), findsNothing);
+    });
+
+    testWidgets('phase 428 — a profile the client ALREADY reported has no '
+        '«⋯»; the heart stays', (tester) async {
+      // RED WHEN the screen stops checking the reported set.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) => _stubData),
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.masterProfile, id: _kMasterId),
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(PublicMasterProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('public-master-favorite-toggle')), findsOne);
+    });
+
+    testWidgets('a non-client session (own profile) gets no «⋯», '
+        'heart unchanged', (tester) async {
+      await pumpLoaded(tester, role: UserRole.independentMaster);
+      expect(find.byKey(PublicMasterProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('public-master-favorite-toggle')), findsOne);
+    });
+  });
+
+  // isFavorite (backend 6d1fcbc9) — the profile seeds the heart from
+  // `MasterDetailResponse.isFavorite` once the master has loaded.
+  group('server isFavorite seeds the heart', () {
+    testWidgets('isFavorite: true → filled heart; one tap sends a DELETE', (
+      tester,
+    ) async {
+      // RED WHEN the screen stops passing `initialIsFavorite` from the loaded
+      // master: the heart reads empty and the tap POSTs an ADD.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final FakeFavoriteRepository repo = FakeFavoriteRepository();
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides(
+            (ref) => (_stubMaster.copyWith(isFavorite: true), _stubServices),
+          ),
+          favoriteRepositoryProvider.overrideWithValue(repo),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      final Finder heart = find.byKey(
+        const Key('public-master-favorite-toggle'),
+      );
+      expect(
+        find.descendant(
+          of: heart,
+          matching: find.byIcon(Icons.favorite_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(heart);
+      await tester.pumpAndSettle();
+
+      expect(repo.addCalls, isEmpty);
+      expect(repo.removeCalls, hasLength(1));
+      expect(repo.removeCalls.single.id, _kMasterId);
+    });
+  });
+
+  // Pull-to-refresh — a moderated review/photo must not stay on screen until
+  // restart: pulling down reloads the profile and every section it shows.
+  group('pull-to-refresh', () {
+    testWidgets('pulling down refetches the profile, the portfolio, the review '
+        'summary and the loaded reviews', (tester) async {
+      // RED WHEN `onRefresh: _refreshAll` is dropped (no pull at all) or a
+      // section is left out of `_refreshAll`.
+      tester.view.physicalSize = const Size(800, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      int profileCalls = 0;
+      int summaryCalls = 0;
+      int reviewsCalls = 0;
+      final FakeMediaUploadRepository media = FakeMediaUploadRepository(
+        masterPortfolio: _kPortfolio,
+      );
+      await tester.pumpApp(
+        const PublicMasterProfileScreen(masterId: _kMasterId),
+        overrides: <Object>[
+          ..._overrides((ref) {
+            profileCalls++;
+            return _stubData;
+          }, media: media),
+          masterReviewSummaryProvider(_kMasterId).overrideWith((ref) async {
+            summaryCalls++;
+            return const MasterReviewSummary(
+              avgRating: 4.8,
+              reviewCount: 1,
+              distribution: <int>[0, 0, 0, 0, 1],
+            );
+          }),
+          masterReviewsProvider(
+            _kMasterId,
+            MasterReviewSort.newest,
+          ).overrideWith((ref) async {
+            reviewsCalls++;
+            return const <MasterReviewItem>[];
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      final int profileBefore = profileCalls;
+      final int portfolioBefore = media.masterPortfolioReads.length;
+      expect(profileBefore, greaterThan(0));
+      expect(portfolioBefore, greaterThan(0));
+
+      // Pull on «Про майстра»: profile + portfolio.
+      await tester.fling(
+        find.byKey(const Key('public-master-profile-name')),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        profileCalls,
+        greaterThan(profileBefore),
+        reason: 'the profile was not refetched',
+      );
+      expect(
+        media.masterPortfolioReads.length,
+        greaterThan(portfolioBefore),
+        reason: 'the portfolio was not refetched',
+      );
+
+      // Pull on «Відгуки»: summary + the loaded review list.
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
+      await tester.pumpAndSettle();
+      final int profileMid = profileCalls;
+      final int summaryBefore = summaryCalls;
+      final int reviewsBefore = reviewsCalls;
+      expect(reviewsBefore, greaterThan(0));
+      await tester.fling(
+        find.byType(MasterReviewsBody),
+        const Offset(0, 400),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(profileCalls, greaterThan(profileMid));
+      expect(
+        summaryCalls,
+        greaterThan(summaryBefore),
+        reason: 'summary not refetched',
+      );
+      expect(
+        reviewsCalls,
+        greaterThan(reviewsBefore),
+        reason: 'reviews not refetched',
+      );
+    });
+  });
+
+  // Audit cycle 1 (heart priming) — a refresh that brings `isFavorite: false`
+  // EMPTIES a heart that an earlier load filled (unfavourited elsewhere).
+  testWidgets('a pull whose profile now says isFavorite: false empties the '
+      'heart', (tester) async {
+    // RED WHEN the heart only ever ADDS (primeIfAbsent) or does not re-sync
+    // when the refreshed profile's flag changes.
+    tester.view.physicalSize = const Size(800, 2400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    bool serverFavorite = true;
+    await tester.pumpApp(
+      const PublicMasterProfileScreen(masterId: _kMasterId),
+      overrides: <Object>[
+        ..._overrides(
+          (ref) =>
+              (_stubMaster.copyWith(isFavorite: serverFavorite), _stubServices),
+        ),
+        favoriteRepositoryProvider.overrideWithValue(FakeFavoriteRepository()),
+      ],
+    );
+    await tester.pumpAndSettle();
+    final Finder heart = find.byKey(const Key('public-master-favorite-toggle'));
+    expect(
+      find.descendant(of: heart, matching: find.byIcon(Icons.favorite_rounded)),
+      findsOneWidget,
+    );
+
+    serverFavorite = false; // unfavourited on another device
+    await tester.fling(
+      find.byKey(const Key('public-master-profile-name')),
+      const Offset(0, 400),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: heart,
+        matching: find.byIcon(Icons.favorite_border_rounded),
+      ),
+      findsOneWidget,
     );
   });
 }

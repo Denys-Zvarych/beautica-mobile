@@ -58,6 +58,7 @@ abstract final class MasterReviewMapper {
           // instant-ok: last-resort fallback for a malformed/absent DTO timestamp
           createdAt: dto.createdAt ?? DateTime.now(),
           serviceName: dto.serviceName,
+          authoredByViewer: dto.authoredByViewer ?? false,
         ),
       );
     }

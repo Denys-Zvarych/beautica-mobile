@@ -32,6 +32,7 @@ Name | Type | Description | Notes
 **region** | **String** | Oblast name of the master's own settlement (cityId). Null when no city is set, and on the public path for salon-affiliated masters (masked like city). | [optional] 
 **citySettlementType** | **String** | Kind of the master's own settlement (cityId). Null when no city is set, and wherever cityId is masked. | [optional] 
 **cityHromadaNameUk** | **String** | Bare hromada adjective of the master's own settlement, populated only when its name is ambiguous within its oblast; null otherwise and wherever cityId is masked. | [optional] 
+**isFavorite** | **bool** | Whether the signed-in CLIENT has favourited this master. Always false for anonymous and non-CLIENT callers. Decorated per request, after the cache read. The nested salon.isFavorite is always false. | [optional] [default to false]
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

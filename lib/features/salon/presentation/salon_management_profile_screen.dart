@@ -74,6 +74,7 @@ import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_links_provider.dart';
 import 'package:beautica_mobile/features/location/domain/resolved_locality.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 import 'package:beautica_mobile/features/location/state/resolved_locality_provider.dart';
@@ -374,6 +375,18 @@ class _SalonManagementProfileScreenState
     final AsyncValue<SalonManagementProfileData> async = ref.watch(
       salonManagementProfileProvider(widget.salonId),
     );
+    // Phase 414 perf — warm the «Посилання для запису» row of the salon
+    // «Налаштування» (pushed from the loaded body's gear): keeping
+    // [bookingLinksVisibleProvider] alive while this screen is mounted means
+    // the settings row reads the SAME cached `/booking-links/mine` load on
+    // arrival instead of popping in after it (shifting the rows below past
+    // their entrance reveal). `listen`, not `watch`: the load never rebuilds
+    // this screen. Owner / admin only — the only salon roles that may see
+    // links — and only once the profile has loaded, i.e. once the gear that
+    // leads to «Налаштування» exists.
+    if ((isOwner || role == UserRole.salonAdmin) && async.hasValue) {
+      ref.listen<bool>(bookingLinksVisibleProvider, (_, _) {});
+    }
     final double topInset = MediaQuery.of(context).padding.top;
 
     return Scaffold(
@@ -693,7 +706,7 @@ class _LoadedBody extends StatelessWidget {
             // have two consumers, and only that second file sees the other.
             2 => _ServicesTab(salonId: salonId),
             _ => SliverToBoxAdapter(
-              child: SalonReviewsSection(salonId: salonId),
+              child: SalonReviewsSection(salonId: salonId, reportable: true),
             ),
           },
         ),

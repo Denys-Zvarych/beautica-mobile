@@ -2,9 +2,9 @@
 // about the master, as the PROVIDER reads it on «Деталі запису».
 //
 // Mirrors the generated `ClientAuthoredReviewResponse` DTO (backend #127),
-// which carries exactly two fields and nothing else: a 1–5 [rating] and an
-// optional [comment]. There is deliberately no review id, no author name and
-// no timestamp on the wire — the booking already identifies the client and the
+// which carries a 1–5 [rating], an optional [comment] and (phase 424 /
+// backend 395) the review [id] used only as a content-report target. There is
+// deliberately no author name and no timestamp on the wire — the booking already identifies the client and the
 // visit, so re-sending either would be redundant. The render site
 // (`booking_detail_screen.dart`) therefore seeds the shared `ReviewCard`'s id
 // from the BOOKING id and its display name from the booking's own client name.
@@ -41,6 +41,11 @@ part 'client_authored_review.freezed.dart';
 @freezed
 abstract class ClientAuthoredReview with _$ClientAuthoredReview {
   const factory ClientAuthoredReview({
+    /// Phase 424 — the review's own id (backend 395 added it to the wire):
+    /// the `targetId` of a `REVIEW` content report. `null` when the server
+    /// sent none — the block then offers no «⋮» (nothing to report against).
+    String? id,
+
     /// The client's star rating for this booking, 1–5.
     required int rating,
 

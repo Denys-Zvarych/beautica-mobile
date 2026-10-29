@@ -27,4 +27,20 @@ void main() {
     ),
     size: const Size(360, 640),
   );
+
+  // Phase 424 D3 — onReport set: the flag button sits left of close in the
+  // same scrim style. The default (no onReport) master above is unchanged.
+  photoGolden(
+    'portfolio_photo_viewer_with_report',
+    () => PortfolioPhotoViewer(
+      photos: const <PortfolioPhoto>[
+        PortfolioPhoto(id: 'p1', url: kGoldenAllowedUrl),
+        PortfolioPhoto(id: 'p2', url: kGoldenAllowedUrl),
+        PortfolioPhoto(id: 'p3', url: kGoldenAllowedUrl),
+      ],
+      initialIndex: 2,
+      onReport: (BuildContext _, PortfolioPhoto _) {},
+    ),
+    size: const Size(360, 640),
+  );
 }

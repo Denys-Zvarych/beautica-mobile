@@ -104,6 +104,7 @@ BookingDetailResponse _dtoWithReview({
   required String id,
   int? rating,
   String? comment,
+  String? reviewId,
   BookingDetailResponseStatusEnum status =
       BookingDetailResponseStatusEnum.COMPLETED,
 }) =>
@@ -121,6 +122,7 @@ BookingDetailResponse _dtoWithReview({
           ..durationMinutesAtBooking = 60
           ..canReview = false
           ..reviewByClient = (ClientAuthoredReviewResponseBuilder()
+            ..id = reviewId
             ..rating = rating
             ..comment = comment)
           ..masterType = BookingDetailResponseMasterTypeEnum.INDEPENDENT_MASTER)
@@ -644,6 +646,51 @@ void main() {
 
     test('an absent guestPhone stays null', () {
       expect(BookingMapper.fromDto(dto(null)).guestPhone, isNull);
+    });
+  });
+
+  group('BookingMapper.fromDto — client block state (phase 425 / 397)', () {
+    BookingDetailResponse dto({
+      bool? blocked,
+      String? blockId,
+      bool? blockable,
+    }) =>
+        (_validDto(id: 'b-block').toBuilder()
+              ..clientBlocked = blocked
+              ..clientBlockId = blockId
+              ..clientBlockable = blockable)
+            .build();
+
+    test('blocked + id map through; blockable is carried as sent', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: true, blockId: 'blk-1', blockable: false),
+      );
+      expect(b.clientBlocked, isTrue);
+      expect(b.clientBlockId, 'blk-1');
+      expect(b.clientBlockable, isFalse);
+    });
+
+    test('blockable true, not blocked → no block id', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: false, blockable: true),
+      );
+      expect(b.clientBlocked, isFalse);
+      expect(b.clientBlockId, isNull);
+      expect(b.clientBlockable, isTrue);
+    });
+
+    test('absent fields fail CLOSED: not blocked, not blockable, no id', () {
+      final Booking b = BookingMapper.fromDto(dto());
+      expect(b.clientBlocked, isFalse);
+      expect(b.clientBlockId, isNull);
+      expect(b.clientBlockable, isFalse);
+    });
+
+    test('an id without clientBlocked is dropped (never a DELETE target)', () {
+      final Booking b = BookingMapper.fromDto(
+        dto(blocked: false, blockId: 'blk-stray'),
+      );
+      expect(b.clientBlockId, isNull);
     });
   });
 
@@ -1173,6 +1220,23 @@ void main() {
       expect(review, isNotNull);
       expect(review?.rating, 5);
       expect(review?.comment, 'Дуже задоволена, дякую!');
+      expect(review?.id, isNull, reason: 'no id on the wire → no id');
+    });
+
+    test('phase 424 — the review id is mapped (the REVIEW report target); an '
+        'empty id collapses to null', () {
+      expect(
+        BookingMapper.fromDto(
+          _dtoWithReview(id: 'b-id', rating: 5, reviewId: 'rev-1'),
+        ).reviewByClient?.id,
+        'rev-1',
+      );
+      expect(
+        BookingMapper.fromDto(
+          _dtoWithReview(id: 'b-empty', rating: 5, reviewId: ''),
+        ).reviewByClient?.id,
+        isNull,
+      );
     });
 
     test('a null comment stays null — a client who rated without writing '

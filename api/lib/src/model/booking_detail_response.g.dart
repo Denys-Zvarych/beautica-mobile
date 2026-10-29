@@ -276,6 +276,12 @@ class _$BookingDetailResponse extends BookingDetailResponse {
   final int? clientReviewCount;
   @override
   final String? guestPhone;
+  @override
+  final bool? clientBlocked;
+  @override
+  final String? clientBlockId;
+  @override
+  final bool? clientBlockable;
 
   factory _$BookingDetailResponse(
           [void Function(BookingDetailResponseBuilder)? updates]) =>
@@ -323,7 +329,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
       this.reviewByClient,
       this.clientAvgRating,
       this.clientReviewCount,
-      this.guestPhone})
+      this.guestPhone,
+      this.clientBlocked,
+      this.clientBlockId,
+      this.clientBlockable})
       : super._();
   @override
   BookingDetailResponse rebuild(
@@ -379,7 +388,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
         reviewByClient == other.reviewByClient &&
         clientAvgRating == other.clientAvgRating &&
         clientReviewCount == other.clientReviewCount &&
-        guestPhone == other.guestPhone;
+        guestPhone == other.guestPhone &&
+        clientBlocked == other.clientBlocked &&
+        clientBlockId == other.clientBlockId &&
+        clientBlockable == other.clientBlockable;
   }
 
   @override
@@ -427,6 +439,9 @@ class _$BookingDetailResponse extends BookingDetailResponse {
     _$hash = $jc(_$hash, clientAvgRating.hashCode);
     _$hash = $jc(_$hash, clientReviewCount.hashCode);
     _$hash = $jc(_$hash, guestPhone.hashCode);
+    _$hash = $jc(_$hash, clientBlocked.hashCode);
+    _$hash = $jc(_$hash, clientBlockId.hashCode);
+    _$hash = $jc(_$hash, clientBlockable.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -475,7 +490,10 @@ class _$BookingDetailResponse extends BookingDetailResponse {
           ..add('reviewByClient', reviewByClient)
           ..add('clientAvgRating', clientAvgRating)
           ..add('clientReviewCount', clientReviewCount)
-          ..add('guestPhone', guestPhone))
+          ..add('guestPhone', guestPhone)
+          ..add('clientBlocked', clientBlocked)
+          ..add('clientBlockId', clientBlockId)
+          ..add('clientBlockable', clientBlockable))
         .toString();
   }
 }
@@ -678,6 +696,21 @@ class BookingDetailResponseBuilder
   String? get guestPhone => _$this._guestPhone;
   set guestPhone(String? guestPhone) => _$this._guestPhone = guestPhone;
 
+  bool? _clientBlocked;
+  bool? get clientBlocked => _$this._clientBlocked;
+  set clientBlocked(bool? clientBlocked) =>
+      _$this._clientBlocked = clientBlocked;
+
+  String? _clientBlockId;
+  String? get clientBlockId => _$this._clientBlockId;
+  set clientBlockId(String? clientBlockId) =>
+      _$this._clientBlockId = clientBlockId;
+
+  bool? _clientBlockable;
+  bool? get clientBlockable => _$this._clientBlockable;
+  set clientBlockable(bool? clientBlockable) =>
+      _$this._clientBlockable = clientBlockable;
+
   BookingDetailResponseBuilder() {
     BookingDetailResponse._defaults(this);
   }
@@ -727,6 +760,9 @@ class BookingDetailResponseBuilder
       _clientAvgRating = $v.clientAvgRating;
       _clientReviewCount = $v.clientReviewCount;
       _guestPhone = $v.guestPhone;
+      _clientBlocked = $v.clientBlocked;
+      _clientBlockId = $v.clientBlockId;
+      _clientBlockable = $v.clientBlockable;
       _$v = null;
     }
     return this;
@@ -792,6 +828,9 @@ class BookingDetailResponseBuilder
             clientAvgRating: clientAvgRating,
             clientReviewCount: clientReviewCount,
             guestPhone: guestPhone,
+            clientBlocked: clientBlocked,
+            clientBlockId: clientBlockId,
+            clientBlockable: clientBlockable,
           );
     } catch (_) {
       late String _$failedField;

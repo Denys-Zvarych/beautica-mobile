@@ -358,6 +358,52 @@ void main() {
       );
     });
 
+    test('409 BOOKING_UNAVAILABLE → BookingUnavailableFailure carrying the '
+        'server message (phase 425 / backend 398)', () async {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'BOOKING_UNAVAILABLE'},
+          'message': 'Запис до цього майстра зараз недоступний',
+        }),
+      );
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(
+          isA<BookingUnavailableFailure>().having(
+            (f) => f.serverMessage,
+            'serverMessage',
+            'Запис до цього майстра зараз недоступний',
+          ),
+        ),
+      );
+    });
+
+    test('409 with another data.code stays ConflictFailure', () async {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+          'data': <String, dynamic>{'code': 'SOMETHING_ELSE'},
+          'message': 'x',
+        }),
+      );
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
     test('connectionError → NetworkFailure', () async {
       when(
         () => bookingApi.createBooking(

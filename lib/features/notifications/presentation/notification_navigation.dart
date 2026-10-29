@@ -189,6 +189,11 @@ bool isBookingNotificationType(AppNotificationType type) => switch (type) {
   AppNotificationType.categoryRequestRejected ||
   AppNotificationType.serviceTypeSuggestionApproved ||
   AppNotificationType.serviceTypeSuggestionRejected ||
+  AppNotificationType.reportContentRemoved ||
+  AppNotificationType.reportNoViolation ||
+  AppNotificationType.reportReviewed ||
+  AppNotificationType.contentRemoved ||
+  AppNotificationType.reviewAboutYouRemoved ||
   AppNotificationType.unknown => false,
 };
 

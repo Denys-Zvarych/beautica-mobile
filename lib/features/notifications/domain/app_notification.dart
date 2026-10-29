@@ -33,8 +33,42 @@ enum AppNotificationType {
   serviceTypeSuggestionApproved,
   serviceTypeSuggestionRejected,
 
+  /// Phase 428 (backend 415) — to a REPORTER: the reported content was
+  /// removed.
+  reportContentRemoved,
+
+  /// Phase 428 — to a REPORTER: no rule violation found (dismissed/restored).
+  reportNoViolation,
+
+  /// Phase 428 — to a REPORTER of a PROFILE: the report was reviewed (neutral
+  /// copy — a profile outcome is never spelled out).
+  reportReviewed,
+
+  /// Phase 428 — to the AUTHOR: their content was removed by moderation. The
+  /// variant is [NotificationParams.contentKind].
+  contentRemoved,
+
+  /// Phase 428 — to the SUBJECT of a review (the reviewed provider or client):
+  /// a review about them was removed. `contentKind` is REVIEW / CLIENT_REVIEW;
+  /// the copy is the same for both.
+  reviewAboutYouRemoved,
+
   /// A wire value this build predates. Rendered as a generic row; never throws.
   unknown,
+}
+
+/// Phase 428 — the moderation-outcome types. They lead nowhere by design
+/// (backend 415 D9): the mapper forces [NoTarget] for them whatever target the
+/// wire carries.
+extension AppNotificationTypeModeration on AppNotificationType {
+  bool get isModerationOutcome => switch (this) {
+    AppNotificationType.reportContentRemoved ||
+    AppNotificationType.reportNoViolation ||
+    AppNotificationType.reportReviewed ||
+    AppNotificationType.contentRemoved ||
+    AppNotificationType.reviewAboutYouRemoved => true,
+    _ => false,
+  };
 }
 
 /// Where tapping a notification leads.
@@ -63,6 +97,10 @@ sealed class NotificationTarget with _$NotificationTarget {
   /// Mark-read only.
   const factory NotificationTarget.none() = NoTarget;
 }
+
+/// Phase 428 — what kind of content a moderation-outcome notification is
+/// about (backend `NotificationParams.contentKind`).
+enum ModeratedContentKind { review, clientReview, portfolioPhoto, profile }
 
 /// Display parameters. Every field is nullable: the backend nulls them when the
 /// recipient lost access to the subject (e.g. removed from the salon), and the
@@ -98,6 +136,10 @@ abstract class NotificationParams with _$NotificationParams {
 
     /// Phase 412 — admin's optional reject reason. Never logged.
     String? decisionReason,
+
+    /// Phase 428 — the moderated content's kind, set only on the 4
+    /// moderation-outcome types; `null` when absent or unrecognised.
+    ModeratedContentKind? contentKind,
   }) = _NotificationParams;
 
   const NotificationParams._();

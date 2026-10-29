@@ -9,9 +9,12 @@
 //     snack; Share → share text carries the link + `?s=s` (419).
 //   • SALON_OWNER: salon card Copy + Share → /book/s/<slug> + `?s=c` /
 //     `?s=s` (419).
-//   • SALON_OWNER: hub → screen → one SALON card per salon, NO master card
-//     even though the server still sends one (client-side role scoping).
-//   • SALON_ADMIN: hub → screen → its salon card.
+//   • SALON_OWNER: salon «Налаштування» → screen → one SALON card per salon,
+//     NO master card even though the server still sends one (client-side
+//     role scoping); the owner's master-mode hub has NO row (user decision
+//     2026-10-29: salons reach links from salon settings only).
+//   • SALON_ADMIN: salon «Налаштування» → screen → its salon card; back
+//     returns to salon settings; the admin's personal hub has NO row.
 //   • SALON_MASTER: hub has no row and the links are never fetched.
 //   • SALON_MASTER / CLIENT deep link to the route → redirected to their
 //     own home; the screen never renders and the links are never fetched.
@@ -30,6 +33,7 @@ import 'package:beautica_mobile/features/booking_links/domain/booking_link_url.d
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_screen.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/widgets/booking_link_card.dart';
 import 'package:beautica_mobile/features/master/presentation/settings_hub_screen.dart';
+import 'package:beautica_mobile/features/salon/presentation/salon_settings_screen.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -44,6 +48,7 @@ import '../test/helpers/overflow_guard.dart';
 import '../test/helpers/pump_app.dart';
 import '../test/helpers/velvet_snack_matchers.dart';
 import 'support/app_harness.dart';
+import 'support/fake_backend.dart' show userJsonForRole;
 
 class _FakeClipboard implements ClipboardService {
   final List<String> copied = <String>[];
@@ -138,6 +143,25 @@ Future<void> _openHub(
   router.go(hubLocation);
   await AppHarness.settle(tester);
   expect(find.byType(SettingsHubScreen), findsOneWidget);
+}
+
+/// SALON_OWNER / SALON_ADMIN entry point (user decision 2026-10-29): the
+/// salon «Налаштування» page for the role's salon — the owner's first
+/// `GET /salons/mine` salon, the admin's own `user.salonId`.
+Future<void> _openSalonSettings(
+  WidgetTester tester,
+  GoRouter router,
+  FakeBackend fb,
+  UserRole role,
+) async {
+  final String salonId = switch (role) {
+    UserRole.salonOwner => '${fb.mySalons.first['id']}',
+    UserRole.salonAdmin => '${userJsonForRole(role)['salonId']}',
+    _ => throw ArgumentError.value(role, 'role', 'salon roles only'),
+  };
+  router.go(RouteNames.salonManageSettings(salonId));
+  await AppHarness.settle(tester);
+  expect(find.byType(SalonSettingsScreen), findsOneWidget);
 }
 
 /// Phase 419 (418 dropped utm_*): what reaches the clipboard / share sheet
@@ -243,7 +267,7 @@ void main() {
         share: share,
       );
 
-      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openSalonSettings(tester, router, fb, UserRole.salonOwner);
       await _openLinks(tester, router);
       final String slug = '${_salonA['slug']}';
       await AppHarness.tapVisible(
@@ -427,7 +451,11 @@ void main() {
         share: _FakeShare(),
       );
 
+      // The owner's master-mode hub no longer carries the row.
       await _openHub(tester, router, RouteNames.ownerSettings);
+      expect(find.byKey(_row), findsNothing);
+
+      await _openSalonSettings(tester, router, fb, UserRole.salonOwner);
       await _openLinks(tester, router);
 
       expect(find.byType(BookingLinkCard), findsNWidgets(2));
@@ -475,7 +503,7 @@ void main() {
         share: _FakeShare(),
       );
 
-      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openSalonSettings(tester, router, fb, UserRole.salonOwner);
       await _openLinks(tester, router);
 
       final String primary = '${_salonA['slug']}';
@@ -544,7 +572,7 @@ void main() {
         share: _FakeShare(),
       );
 
-      await _openHub(tester, router, RouteNames.adminSettings);
+      await _openSalonSettings(tester, router, fb, UserRole.salonAdmin);
       await _openLinks(tester, router);
 
       final Finder services = find.byKey(
@@ -561,7 +589,8 @@ void main() {
     });
   });
 
-  testWidgets('SALON_ADMIN: its salon card only', (tester) async {
+  testWidgets('SALON_ADMIN: salon settings → its salon card only; back → '
+      'salon settings; personal hub has no row', (tester) async {
     await mockNetworkImagesFor(() async {
       final FakeBackend fb = FakeBackend()
         ..bookingLinksMine = _enabled(<Map<String, dynamic>>[_salonA]);
@@ -573,7 +602,11 @@ void main() {
         share: _FakeShare(),
       );
 
+      // The admin's personal hub no longer carries the row.
       await _openHub(tester, router, RouteNames.adminSettings);
+      expect(find.byKey(_row), findsNothing);
+
+      await _openSalonSettings(tester, router, fb, UserRole.salonAdmin);
       await _openLinks(tester, router);
 
       expect(find.byType(BookingLinkCard), findsOneWidget);
@@ -581,6 +614,15 @@ void main() {
         find.byKey(Key('booking-link-card-${_salonA['slug']}')),
         findsOneWidget,
       );
+
+      // Back returns to salon «Налаштування» (the row pushed, not went).
+      await AppHarness.tapVisible(
+        tester,
+        find.byKey(const Key('btn-back-booking-links')),
+      );
+      await AppHarness.settle(tester);
+      expect(find.byType(BookingLinkScreen), findsNothing);
+      expect(find.byType(SalonSettingsScreen), findsOneWidget);
     });
   });
 
@@ -784,7 +826,7 @@ void main() {
         clipboard: _FakeClipboard(),
         share: _FakeShare(),
       );
-      await _openHub(tester, router, RouteNames.adminSettings);
+      await _openSalonSettings(tester, router, fb, UserRole.salonAdmin);
       await _openLinks(tester, router);
 
       await confirmRegenerate(
@@ -830,7 +872,7 @@ void main() {
         clipboard: clipboard,
         share: _FakeShare(),
       );
-      await _openHub(tester, router, RouteNames.ownerSettings);
+      await _openSalonSettings(tester, router, fb, UserRole.salonOwner);
       await _openLinks(tester, router);
       final String slugA = '${_salonA['slug']}';
       final String slugB = '${_salonB['slug']}';

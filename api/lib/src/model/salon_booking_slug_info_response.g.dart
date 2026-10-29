@@ -45,6 +45,8 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
   final BuiltList<RatingBucket> ratingDistribution;
   @override
   final BuiltList<SalonReviewResponse> latestReviews;
+  @override
+  final BuiltList<SalonServiceCoverage> serviceCoverage;
 
   factory _$SalonBookingSlugInfoResponse(
           [void Function(SalonBookingSlugInfoResponseBuilder)? updates]) =>
@@ -69,7 +71,8 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
       required this.portfolio,
       required this.serviceCategories,
       required this.ratingDistribution,
-      required this.latestReviews})
+      required this.latestReviews,
+      required this.serviceCoverage})
       : super._();
   @override
   SalonBookingSlugInfoResponse rebuild(
@@ -102,7 +105,8 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
         portfolio == other.portfolio &&
         serviceCategories == other.serviceCategories &&
         ratingDistribution == other.ratingDistribution &&
-        latestReviews == other.latestReviews;
+        latestReviews == other.latestReviews &&
+        serviceCoverage == other.serviceCoverage;
   }
 
   @override
@@ -127,6 +131,7 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
     _$hash = $jc(_$hash, serviceCategories.hashCode);
     _$hash = $jc(_$hash, ratingDistribution.hashCode);
     _$hash = $jc(_$hash, latestReviews.hashCode);
+    _$hash = $jc(_$hash, serviceCoverage.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -152,7 +157,8 @@ class _$SalonBookingSlugInfoResponse extends SalonBookingSlugInfoResponse {
           ..add('portfolio', portfolio)
           ..add('serviceCategories', serviceCategories)
           ..add('ratingDistribution', ratingDistribution)
-          ..add('latestReviews', latestReviews))
+          ..add('latestReviews', latestReviews)
+          ..add('serviceCoverage', serviceCoverage))
         .toString();
   }
 }
@@ -251,6 +257,12 @@ class SalonBookingSlugInfoResponseBuilder
   set latestReviews(ListBuilder<SalonReviewResponse>? latestReviews) =>
       _$this._latestReviews = latestReviews;
 
+  ListBuilder<SalonServiceCoverage>? _serviceCoverage;
+  ListBuilder<SalonServiceCoverage> get serviceCoverage =>
+      _$this._serviceCoverage ??= ListBuilder<SalonServiceCoverage>();
+  set serviceCoverage(ListBuilder<SalonServiceCoverage>? serviceCoverage) =>
+      _$this._serviceCoverage = serviceCoverage;
+
   SalonBookingSlugInfoResponseBuilder() {
     SalonBookingSlugInfoResponse._defaults(this);
   }
@@ -277,6 +289,7 @@ class SalonBookingSlugInfoResponseBuilder
       _serviceCategories = $v.serviceCategories.toBuilder();
       _ratingDistribution = $v.ratingDistribution.toBuilder();
       _latestReviews = $v.latestReviews.toBuilder();
+      _serviceCoverage = $v.serviceCoverage.toBuilder();
       _$v = null;
     }
     return this;
@@ -324,6 +337,7 @@ class SalonBookingSlugInfoResponseBuilder
             serviceCategories: serviceCategories.build(),
             ratingDistribution: ratingDistribution.build(),
             latestReviews: latestReviews.build(),
+            serviceCoverage: serviceCoverage.build(),
           );
     } catch (_) {
       late String _$failedField;
@@ -339,6 +353,8 @@ class SalonBookingSlugInfoResponseBuilder
         ratingDistribution.build();
         _$failedField = 'latestReviews';
         latestReviews.build();
+        _$failedField = 'serviceCoverage';
+        serviceCoverage.build();
       } catch (e) {
         throw BuiltValueNestedFieldError(
             r'SalonBookingSlugInfoResponse', _$failedField, e.toString());

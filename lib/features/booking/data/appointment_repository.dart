@@ -615,6 +615,13 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   Failure _mapAppointmentWriteException(DioException e) {
     final statusCode = e.response?.statusCode;
     if (statusCode == 409) {
+      // Phase 425 (backend 398) — the provider blocked this client. Checked
+      // first; the neutral server message is shown as-is.
+      final BookingUnavailableFailure? unavailable = decodeBookingUnavailable(
+        e.response?.data,
+        cause: e,
+      );
+      if (unavailable != null) return unavailable;
       if (_isBookingAlreadyElapsed(e)) {
         return BookingAlreadyElapsedFailure(cause: e);
       }

@@ -30,6 +30,9 @@
 // plain callbacks, so a full screen boot would only add noise between the
 // fixture and the assertion.
 
+import 'package:network_image_mock/network_image_mock.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
+import 'package:beautica_mobile/core/media/beautica_image.dart';
 import 'package:beautica_mobile/features/discovery/presentation/widgets/result_address_block.dart';
 import 'package:beautica_mobile/features/favorites/presentation/widgets/favorite_cards.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -37,6 +40,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/pump_app.dart';
 import 'favorites_test_fixtures.dart';
 
@@ -380,6 +384,139 @@ void main() {
       );
       expect(find.byType(SalonMark), findsOneWidget);
       expect(find.byType(MasterMark), findsNothing);
+      expect(find.byIcon(Icons.storefront_rounded), findsOneWidget);
+    });
+  });
+
+  // The provider's photo (master avatar / salon logo) replaces the initials
+  // disc / storefront well; with no avatar both render exactly as before.
+  group('Identity marks — avatars', () {
+    const String url = 'https://media.test/avatar.webp';
+
+    setUp(() {
+      MediaConfig.debugAllowedHosts = <String>{'media.test'};
+      debugMediaCacheManager = FakeMediaCacheManager(mediaLoadingForever);
+    });
+    tearDown(() {
+      debugMediaCacheManager = null;
+      MediaConfig.debugAllowedHosts = null;
+    });
+
+    testWidgets('a master with an avatar renders a RemoteImage of it', (
+      WidgetTester tester,
+    ) async {
+      // RED WHEN `FavoriteMasterCard` stops passing `imageUrl` to MasterMark.
+      await mockNetworkImagesFor(
+        () => _pumpCard(
+          tester,
+          FavoriteMasterCard(
+            item: favMaster('m1', avatarUrl: url),
+            onOpen: () {},
+            onUnlike: () {},
+          ),
+        ),
+      );
+      final Finder image = find.byKey(
+        const ValueKey<String>('favorite-avatar-master-m1'),
+      );
+      expect(image, findsOneWidget);
+      expect(tester.widget<RemoteImage>(image).url, url);
+    });
+
+    testWidgets('a salon with an avatar renders a RemoteImage clipped to the '
+        'squircle, the storefront well as its fallback', (
+      WidgetTester tester,
+    ) async {
+      // RED WHEN `SalonMark` ignores `imageUrl` or the card stops passing it.
+      await mockNetworkImagesFor(
+        () => _pumpCard(
+          tester,
+          FavoriteSalonCard(
+            item: favSalon('s1', avatarUrl: url),
+            onOpen: () {},
+            onUnlike: () {},
+          ),
+        ),
+      );
+      final Finder image = find.byKey(
+        const ValueKey<String>('favorite-avatar-salon-s1'),
+      );
+      expect(image, findsOneWidget);
+      final RemoteImage remote = tester.widget<RemoteImage>(image);
+      expect(remote.url, url);
+      expect(remote.shape, RemoteImageShape.roundedRect);
+      expect(remote.borderRadius, BorderRadius.circular(15));
+      expect(remote.fallback, isA<SizedBox>());
+    });
+
+    testWidgets('while the avatar LOADS the master shows its initials and the '
+        'salon its storefront well (no pop-in); both decode to cover', (
+      WidgetTester tester,
+    ) async {
+      // RED WHEN the marks stop passing their fallback as the loading
+      // placeholder (an empty box until the first frame) — the media stub
+      // here never finishes loading.
+      await mockNetworkImagesFor(
+        () => _pumpCard(
+          tester,
+          FavoriteMasterCard(
+            item: favMaster('m1', avatarUrl: url),
+            onOpen: () {},
+            onUnlike: () {},
+          ),
+        ),
+      );
+      final Finder master = find.byKey(
+        const ValueKey<String>('favorite-avatar-master-m1'),
+      );
+      expect(
+        find.descendant(of: master, matching: find.text('MH')),
+        findsOneWidget,
+      );
+      expect(tester.widget<RemoteImage>(master).decodeToCover, isTrue);
+
+      await mockNetworkImagesFor(
+        () => _pumpCard(
+          tester,
+          FavoriteSalonCard(
+            item: favSalon('s1', avatarUrl: url),
+            onOpen: () {},
+            onUnlike: () {},
+          ),
+        ),
+      );
+      final Finder salon = find.byKey(
+        const ValueKey<String>('favorite-avatar-salon-s1'),
+      );
+      expect(
+        find.descendant(
+          of: salon,
+          matching: find.byIcon(Icons.storefront_rounded),
+        ),
+        findsOneWidget,
+      );
+      expect(tester.widget<RemoteImage>(salon).decodeToCover, isTrue);
+    });
+
+    testWidgets('no avatar → initials disc / storefront well, no RemoteImage', (
+      WidgetTester tester,
+    ) async {
+      await _pumpCard(
+        tester,
+        FavoriteMasterCard(
+          item: favMaster('m1'),
+          onOpen: () {},
+          onUnlike: () {},
+        ),
+      );
+      expect(find.byType(RemoteImage), findsNothing);
+      expect(find.text('MH'), findsOneWidget);
+
+      await _pumpCard(
+        tester,
+        FavoriteSalonCard(item: favSalon('s1'), onOpen: () {}, onUnlike: () {}),
+      );
+      expect(find.byType(RemoteImage), findsNothing);
       expect(find.byIcon(Icons.storefront_rounded), findsOneWidget);
     });
   });

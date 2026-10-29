@@ -109,6 +109,8 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   // willing to sit through could clear it, and every automatic attempt spends
   // one the user's next deliberate try needs.
   'PasswordResetRateLimitedFailure': false,
+  // 429 from the per-user block-write budget (backend 397, phase 425).
+  'ClientBlockRateLimitedFailure': false,
   'EmailAlreadyRegisteredFailure': false,
   'ProviderMissingCityFailure': false,
   'CategoryAlreadyExistsFailure': false,
@@ -126,6 +128,7 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'ServiceUnassignBlockedFailure': false,
   'ClientBookingConflictFailure': false,
   'BookingAlreadyElapsedFailure': false,
+  'BookingUnavailableFailure': false,
   'ProviderDeclineWindowClosedFailure': false,
   'ProviderCompleteNotStartedFailure': false,
   'ReviewAlreadyExistsFailure': false,
@@ -186,6 +189,7 @@ Map<String, Failure> _instances() {
     ),
     'ResetTokenInvalidFailure': const ResetTokenInvalidFailure(),
     'PasswordResetRateLimitedFailure': const PasswordResetRateLimitedFailure(),
+    'ClientBlockRateLimitedFailure': const ClientBlockRateLimitedFailure(),
     'EmailAlreadyRegisteredFailure': const EmailAlreadyRegisteredFailure(),
     'ProviderMissingCityFailure': const ProviderMissingCityFailure(),
     'CategoryAlreadyExistsFailure': const CategoryAlreadyExistsFailure(),
@@ -220,6 +224,7 @@ Map<String, Failure> _instances() {
       endsAt: at.add(const Duration(hours: 1)),
     ),
     'BookingAlreadyElapsedFailure': const BookingAlreadyElapsedFailure(),
+    'BookingUnavailableFailure': const BookingUnavailableFailure(),
     'ProviderDeclineWindowClosedFailure':
         const ProviderDeclineWindowClosedFailure(),
     'ProviderCompleteNotStartedFailure':
@@ -450,6 +455,7 @@ void main() {
             SettlementSearchRateLimitedFailure(retryAfterSeconds: 12),
         'AccountDeleteRateLimitedFailure': AccountDeleteRateLimitedFailure(),
         'PasswordResetRateLimitedFailure': PasswordResetRateLimitedFailure(),
+        'ClientBlockRateLimitedFailure': ClientBlockRateLimitedFailure(),
         'NotificationsRateLimitedFailure': NotificationsRateLimitedFailure(
           retryAfterSeconds: 30,
         ),

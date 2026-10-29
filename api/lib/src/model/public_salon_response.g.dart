@@ -133,6 +133,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
   final PublicSalonResponseCitySettlementTypeEnum? citySettlementType;
   @override
   final String? cityHromadaNameUk;
+  @override
+  final bool? isFavorite;
 
   factory _$PublicSalonResponse(
           [void Function(PublicSalonResponseBuilder)? updates]) =>
@@ -158,7 +160,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
       this.avgRating,
       this.reviewCount,
       this.citySettlementType,
-      this.cityHromadaNameUk})
+      this.cityHromadaNameUk,
+      this.isFavorite})
       : super._();
   @override
   PublicSalonResponse rebuild(
@@ -192,7 +195,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
         avgRating == other.avgRating &&
         reviewCount == other.reviewCount &&
         citySettlementType == other.citySettlementType &&
-        cityHromadaNameUk == other.cityHromadaNameUk;
+        cityHromadaNameUk == other.cityHromadaNameUk &&
+        isFavorite == other.isFavorite;
   }
 
   @override
@@ -218,6 +222,7 @@ class _$PublicSalonResponse extends PublicSalonResponse {
     _$hash = $jc(_$hash, reviewCount.hashCode);
     _$hash = $jc(_$hash, citySettlementType.hashCode);
     _$hash = $jc(_$hash, cityHromadaNameUk.hashCode);
+    _$hash = $jc(_$hash, isFavorite.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -244,7 +249,8 @@ class _$PublicSalonResponse extends PublicSalonResponse {
           ..add('avgRating', avgRating)
           ..add('reviewCount', reviewCount)
           ..add('citySettlementType', citySettlementType)
-          ..add('cityHromadaNameUk', cityHromadaNameUk))
+          ..add('cityHromadaNameUk', cityHromadaNameUk)
+          ..add('isFavorite', isFavorite))
         .toString();
   }
 }
@@ -338,6 +344,10 @@ class PublicSalonResponseBuilder
   set cityHromadaNameUk(String? cityHromadaNameUk) =>
       _$this._cityHromadaNameUk = cityHromadaNameUk;
 
+  bool? _isFavorite;
+  bool? get isFavorite => _$this._isFavorite;
+  set isFavorite(bool? isFavorite) => _$this._isFavorite = isFavorite;
+
   PublicSalonResponseBuilder() {
     PublicSalonResponse._defaults(this);
   }
@@ -365,6 +375,7 @@ class PublicSalonResponseBuilder
       _reviewCount = $v.reviewCount;
       _citySettlementType = $v.citySettlementType;
       _cityHromadaNameUk = $v.cityHromadaNameUk;
+      _isFavorite = $v.isFavorite;
       _$v = null;
     }
     return this;
@@ -408,6 +419,7 @@ class PublicSalonResponseBuilder
           reviewCount: reviewCount,
           citySettlementType: citySettlementType,
           cityHromadaNameUk: cityHromadaNameUk,
+          isFavorite: isFavorite,
         );
     replace(_$result);
     return _$result;

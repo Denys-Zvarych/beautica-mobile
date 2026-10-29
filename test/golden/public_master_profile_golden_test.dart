@@ -131,7 +131,7 @@ List<Object> _overrides({required PublicMasterProfileData data}) => <Object>[
         clientDisplayName: 'Ірина П.',
         rating: 5,
         comment: 'Дуже задоволена!',
-        createdAt: DateTime(2026, 6, 1),
+        createdAt: goldenReviewCreatedAt(135),
       ),
     ],
   ),

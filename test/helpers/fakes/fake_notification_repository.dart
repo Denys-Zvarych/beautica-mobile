@@ -150,6 +150,21 @@ AppNotification notif(
       ),
 );
 
+/// Phase 428 — a moderation-outcome row as backend 415 sends it: target
+/// `NONE`, params carrying only `contentKind`.
+AppNotification moderationNotif(
+  String id, {
+  required AppNotificationType type,
+  ModeratedContentKind? contentKind,
+  bool read = false,
+}) => notif(
+  id,
+  type: type,
+  read: read,
+  target: const NotificationTarget.none(),
+  params: NotificationParams(contentKind: contentKind),
+);
+
 /// A settled signed-in session for [role] (user id `u1`). `switchSalon` swaps
 /// the user's `salonId` while keeping the same user, which is what «switching
 /// the active salon» does to the session — the feed must not notice.

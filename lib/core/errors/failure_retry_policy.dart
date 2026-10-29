@@ -182,6 +182,7 @@ bool isThrottleFailure(Failure failure) =>
     failure is SalonBoardRateLimitedFailure ||
     failure is SettlementSearchRateLimitedFailure ||
     failure is NotificationsRateLimitedFailure ||
+    failure is ClientBlockRateLimitedFailure ||
     failure is PasswordResetRateLimitedFailure;
 
 /// Whether [failure] can plausibly succeed on a later identical attempt.
@@ -292,6 +293,9 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ServiceUnassignBlockedFailure() => false,
   ClientBookingConflictFailure() => false,
   BookingAlreadyElapsedFailure() => false,
+  // 409 BOOKING_UNAVAILABLE (phase 425) — the provider blocked this client;
+  // an identical retry meets the identical block.
+  BookingUnavailableFailure() => false,
   ProviderDeclineWindowClosedFailure() => false,
   ProviderCompleteNotStartedFailure() => false,
   ReviewAlreadyExistsFailure() => false,
@@ -321,6 +325,9 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   BookingRateLimitedFailure() => false,
   ScheduleOverrideRateLimitedFailure() => false,
   AccountDeleteRateLimitedFailure() => false,
+  // 429 from the per-user block-write budget (backend 397). A deliberate
+  // provider action, never re-issued behind their back.
+  ClientBlockRateLimitedFailure() => false,
   // 429 from the per-IP AuthRateLimitFilter on the password-reset journey.
   // THREE separate buckets, and they are NOT uniform — forgot-password 3 per
   // 60 min and reset-password 10 per 60 min (Retry-After 3600),

@@ -37,7 +37,14 @@
 // root, so the hit test reaches the handler — this is not the
 // `RenderTransform`-swallows-the-tap trap.
 
+import 'dart:async';
+
 import 'package:beautica_mobile/core/errors/failures.dart';
+import '../../../helpers/fakes/fake_favorite_repository.dart';
+import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/routing/route_names.dart';
+import 'package:beautica_mobile/features/favorites/domain/favorite_target.dart';
+import 'package:beautica_mobile/features/favorites/data/favorite_repository_provider.dart';
 import 'package:beautica_mobile/features/favorites/application/favorites_notifier.dart';
 import 'package:beautica_mobile/features/favorites/domain/favorite_item.dart';
 import 'package:beautica_mobile/features/favorites/presentation/favorites_screen.dart';
@@ -979,6 +986,205 @@ void main() {
         );
       },
     );
+  });
+
+  // Audit cycle 3 — a narrowed post-toggle refresh that failed leaves the
+  // (kept-mounted) list STALE; showing «Улюблені» again reloads it whole.
+  group('stale list is repaired when «Улюблені» is shown again', () {
+    Future<(FakeFavoriteRepository, GoRouter)> pumpAtFavorites(
+      WidgetTester tester,
+    ) async {
+      final FakeFavoriteRepository repo = FakeFavoriteRepository()
+        ..masters = <FavoriteItem>[favMaster('m1', name: 'Alpha')]
+        ..salons = <FavoriteItem>[favSalon('s1', name: 'Beta')];
+      final GoRouter router = GoRouter(
+        initialLocation: RouteNames.clientFavorites,
+        routes: <RouteBase>[
+          GoRoute(
+            path: RouteNames.clientFavorites,
+            builder: (BuildContext _, GoRouterState _) =>
+                const Scaffold(body: SafeArea(child: FavoritesScreen())),
+          ),
+          GoRoute(
+            path: '/elsewhere',
+            builder: (BuildContext _, GoRouterState _) => const Scaffold(
+              key: Key('probe-elsewhere'),
+              body: SizedBox.shrink(),
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[favoriteRepositoryProvider.overrideWithValue(repo)],
+      );
+      await tester.pumpAndSettle();
+      return (repo, router);
+    }
+
+    Favorites notifierOf(WidgetTester tester) => ProviderScope.containerOf(
+      tester.element(find.byType(FavoritesScreen)),
+    ).read(favoritesProvider.notifier);
+
+    testWidgets('stale → coming back runs a FULL refresh with fresh rows', (
+      tester,
+    ) async {
+      // RED WHEN `_onRouteChanged` (favorites_screen.dart) is not wired: the
+      // screen stays mounted under the pushed page, so nothing refetches and
+      // the stale rows stay.
+      final (FakeFavoriteRepository repo, GoRouter router) =
+          await pumpAtFavorites(tester);
+      final Favorites notifier = notifierOf(tester);
+
+      repo.mastersResult = const NetworkFailure();
+      await tester.runAsync(
+        () => notifier.refresh(only: FavoriteTargetType.master),
+      );
+      await tester.pump();
+      expect(notifier.isStale, isTrue);
+      expect(find.text('Alpha'), findsOneWidget, reason: 'list kept');
+
+      repo
+        ..mastersResult = null
+        ..masters = <FavoriteItem>[favMaster('m2', name: 'Gamma')];
+      unawaited(router.push('/elsewhere'));
+      await tester.pumpAndSettle();
+      final int salonsBefore = repo.salonsCalls;
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(repo.salonsCalls, salonsBefore + 1, reason: 'a FULL reload');
+      expect(find.text('Gamma'), findsOneWidget);
+      expect(find.text('Alpha'), findsNothing);
+      expect(notifier.isStale, isFalse);
+    });
+
+    testWidgets('an unlike still in its undo window survives the stale '
+        'repair: the DELETE fires and the row stays gone', (tester) async {
+      // RED WHEN the repair goes through `_refresh` (the pull-to-refresh
+      // path): it cancels the undo timer, so no DELETE is ever sent and the
+      // row comes back.
+      final (FakeFavoriteRepository repo, GoRouter router) =
+          await pumpAtFavorites(tester);
+      final Favorites notifier = notifierOf(tester);
+      final FavoritesHarness h = FavoritesHarness();
+
+      repo.mastersResult = const NetworkFailure();
+      await tester.runAsync(
+        () => notifier.refresh(only: FavoriteTargetType.master),
+      );
+      await tester.pump();
+      repo.mastersResult = null;
+      expect(notifier.isStale, isTrue);
+
+      await h.tapHeart(tester, 'favorites-master-m1');
+      await tester.pump();
+      expect(find.byKey(const Key('favorites-dent-m1')), findsOneWidget);
+      final int salonsBefore = repo.salonsCalls;
+
+      unawaited(router.push('/elsewhere'));
+      await tester.pumpUntilFound(find.byKey(const Key('probe-elsewhere')));
+      router.pop();
+      await tester.pump();
+      await tester.pump();
+      expect(repo.salonsCalls, salonsBefore + 1, reason: 'the repair ran');
+      expect(repo.removeCalls, isEmpty, reason: 'still inside the window');
+
+      await h.settleUndoWindow(tester);
+
+      expect(repo.removeCalls, hasLength(1));
+      expect(repo.removeCalls.single.id, 'm1');
+      expect(repo.addCalls, isEmpty);
+      expect(find.byKey(const Key('favorites-master-m1')), findsNothing);
+      expect(find.byKey(const Key('favorites-dent-m1')), findsNothing);
+    });
+
+    testWidgets('an OFFLINE repair keeps the list, stays stale, and a '
+        'pending unlike still commits', (tester) async {
+      // RED WHEN the repair drops `keepRowsOnFailure: true`: its failure
+      // replaces the list with the error screen (whose retry runs `_refresh`
+      // and cancels the undo window).
+      final (FakeFavoriteRepository repo, GoRouter router) =
+          await pumpAtFavorites(tester);
+      final Favorites notifier = notifierOf(tester);
+      final FavoritesHarness h = FavoritesHarness();
+
+      repo.mastersResult = const NetworkFailure();
+      await tester.runAsync(
+        () => notifier.refresh(only: FavoriteTargetType.master),
+      );
+      await tester.pump();
+      expect(notifier.isStale, isTrue);
+
+      await h.tapHeart(tester, 'favorites-master-m1');
+      await tester.pump();
+      final int salonsBefore = repo.salonsCalls;
+
+      // Still offline when coming back.
+      unawaited(router.push('/elsewhere'));
+      await tester.pumpUntilFound(find.byKey(const Key('probe-elsewhere')));
+      router.pop();
+      await tester.pump();
+      await tester.pump();
+      expect(repo.salonsCalls, salonsBefore + 1, reason: 'the repair ran');
+
+      expect(find.byKey(const Key('favorites-error')), findsNothing);
+      expect(find.byKey(const Key('favorites-salon-s1')), findsOneWidget);
+      expect(find.byKey(const Key('favorites-dent-m1')), findsOneWidget);
+      expect(notifier.isStale, isTrue);
+
+      await h.settleUndoWindow(tester);
+      expect(repo.removeCalls, hasLength(1));
+      expect(repo.removeCalls.single.id, 'm1');
+      expect(repo.addCalls, isEmpty);
+    });
+
+    testWidgets('two router notifications in ONE frame → exactly one repair', (
+      tester,
+    ) async {
+      // RED WHEN `_staleRepairScheduled` is dropped: two post-frame repairs,
+      // the second joining the first as a trailing re-run — two full reloads.
+      final (FakeFavoriteRepository repo, GoRouter router) =
+          await pumpAtFavorites(tester);
+      final Favorites notifier = notifierOf(tester);
+
+      repo.mastersResult = const NetworkFailure();
+      await tester.runAsync(
+        () => notifier.refresh(only: FavoriteTargetType.master),
+      );
+      await tester.pump();
+      repo.mastersResult = null;
+      expect(notifier.isStale, isTrue);
+      final int mastersBefore = repo.mastersCalls;
+      final int salonsBefore = repo.salonsCalls;
+
+      // Two notifications before any frame runs.
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      router.routerDelegate.notifyListeners();
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      router.routerDelegate.notifyListeners();
+      await tester.pumpAndSettle();
+
+      expect(repo.mastersCalls, mastersBefore + 1);
+      expect(repo.salonsCalls, salonsBefore + 1);
+      expect(notifier.isStale, isFalse);
+    });
+
+    testWidgets('NOT stale → coming back fetches nothing', (tester) async {
+      final (FakeFavoriteRepository repo, GoRouter router) =
+          await pumpAtFavorites(tester);
+      final int masters = repo.mastersCalls;
+      final int salons = repo.salonsCalls;
+
+      unawaited(router.push('/elsewhere'));
+      await tester.pumpAndSettle();
+      router.pop();
+      await tester.pumpAndSettle();
+
+      expect(repo.mastersCalls, masters);
+      expect(repo.salonsCalls, salons);
+    });
   });
 }
 

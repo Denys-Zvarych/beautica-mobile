@@ -36,6 +36,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/location/data/location_repository.dart';
 import 'package:beautica_mobile/features/location/domain/city.dart';
 import 'package:beautica_mobile/features/location/domain/settlement.dart';
@@ -476,11 +478,21 @@ class _AdminAuthNotifier extends AuthNotifier {
 List<Object> _adminOverrides(FakeSalonRepository repo) => <Object>[
   authProvider.overrideWith(_AdminAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo),
+  // Phase 414 perf — the screen warms the booking-links load for owner /
+  // admin; keep it off the real (Dio) client.
+  bookingLinksRepositoryProvider.overrideWithValue(
+    _CountingBookingLinksRepository(visible: false),
+  ),
 ];
 
 List<Object> _overrides(FakeSalonRepository repo) => <Object>[
   authProvider.overrideWith(_StubAuthNotifier.new),
   salonRepositoryProvider.overrideWithValue(repo),
+  // Phase 414 perf — the screen warms the booking-links load for owner /
+  // admin; keep it off the real (Dio) client.
+  bookingLinksRepositoryProvider.overrideWithValue(
+    _CountingBookingLinksRepository(visible: false),
+  ),
 ];
 
 /// Same as [_overrides], plus a [locationRepositoryProvider] override —
@@ -2804,6 +2816,111 @@ void main() {
       );
     });
   });
+
+  // Phase 414 perf — this screen keeps `bookingLinksVisibleProvider` warm
+  // (listen, no rebuild) for SALON_OWNER / SALON_ADMIN, so the pushed
+  // «Налаштування» shows its «Посилання для запису» row on its FIRST frame
+  // from the SAME cached load — no pop-in, no second `/booking-links/mine`.
+  group('booking-links warm-up', () {
+    const Key linksRow = Key('row-booking-links');
+
+    for (final (String label, AuthNotifier Function() auth)
+        in <(String, AuthNotifier Function())>[
+          ('owner', _StubAuthNotifier.new),
+          ('admin', _AdminAuthNotifier.new),
+        ]) {
+      testWidgets('$label: fetched once here, row present on the settings '
+          'first frame, no refetch', (tester) async {
+        final repo = FakeSalonRepository(salon: _stubSalon);
+        final links = _CountingBookingLinksRepository();
+        await tester.pumpRoutedApp(
+          _router(repo),
+          overrides: <Object>[
+            authProvider.overrideWith(auth),
+            salonRepositoryProvider.overrideWithValue(repo),
+            bookingLinksRepositoryProvider.overrideWithValue(links),
+          ],
+        );
+        await tester.pumpAndSettle();
+        expect(links.getMineCalls, 1, reason: 'warmed by the manage screen');
+
+        await tester.tap(find.byKey(const Key('salon-manage-settings')));
+        await tester.pump(); // push
+        await tester.pump(); // first settings frame
+        expect(find.byKey(linksRow), findsOneWidget);
+
+        await tester.pumpAndSettle();
+        expect(find.byKey(linksRow), findsOneWidget);
+        expect(links.getMineCalls, 1, reason: 'same cached instance');
+      });
+    }
+
+    testWidgets('salon master: no booking-links fetch', (tester) async {
+      final repo = FakeSalonRepository(salon: _stubSalon);
+      final links = _CountingBookingLinksRepository();
+      await tester.pumpRoutedApp(
+        _router(repo),
+        overrides: <Object>[
+          authProvider.overrideWith(_SalonMasterAuthNotifier.new),
+          salonRepositoryProvider.overrideWithValue(repo),
+          bookingLinksRepositoryProvider.overrideWithValue(links),
+        ],
+      );
+      await tester.pumpAndSettle();
+
+      expect(links.getMineCalls, 0);
+    });
+  });
+}
+
+/// Phase 414 perf — counts `/booking-links/mine` reads; by default serves one
+/// visible SALON link so the settings row renders.
+class _CountingBookingLinksRepository implements BookingLinksRepository {
+  _CountingBookingLinksRepository({this.visible = true});
+
+  /// `false` serves the kill-switch-off payload (row hidden).
+  final bool visible;
+  int getMineCalls = 0;
+
+  @override
+  Future<BookingLinks> getMine() async {
+    getMineCalls++;
+    if (!visible) {
+      return const BookingLinks(shareEnabled: false, links: <BookingLink>[]);
+    }
+    return const BookingLinks(
+      shareEnabled: true,
+      links: <BookingLink>[
+        BookingLink(
+          kind: BookingLinkKind.salon,
+          slug: 'velvet-studio',
+          url: 'https://beautica.app/book/s/velvet-studio',
+          displayName: 'Velvet Studio',
+          salonId: _kSalonId,
+          bookable: true,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<BookingLinkMutationOutcome> regenerate(BookingLink link) =>
+      throw UnimplementedError();
+}
+
+class _SalonMasterAuthNotifier extends AuthNotifier {
+  @override
+  Future<AuthSession> build() async => const AuthSession.authenticated(
+    user: User(
+      id: 'master-9',
+      email: 'master@beautica.ua',
+      role: UserRole.salonMaster,
+      firstName: 'Марія',
+      lastName: 'Майстер',
+      salonId: _kSalonId,
+    ),
+    accessToken: 'tok',
+  );
 }
 
 /// Phase 404 — fails the FIRST salon-portfolio read, then serves normally.

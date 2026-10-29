@@ -71,6 +71,12 @@ void main() {
         AppNotificationType.serviceTypeSuggestionApproved,
     'SERVICE_TYPE_SUGGESTION_REJECTED':
         AppNotificationType.serviceTypeSuggestionRejected,
+    // Phase 428 (backend 415) — moderation outcomes.
+    'REPORT_CONTENT_REMOVED': AppNotificationType.reportContentRemoved,
+    'REPORT_NO_VIOLATION': AppNotificationType.reportNoViolation,
+    'REPORT_REVIEWED': AppNotificationType.reportReviewed,
+    'CONTENT_REMOVED': AppNotificationType.contentRemoved,
+    'REVIEW_ABOUT_YOU_REMOVED': AppNotificationType.reviewAboutYouRemoved,
   };
 
   const bookingTarget = <String, Object?>{
@@ -88,7 +94,15 @@ void main() {
       );
     });
 
-    for (final e in wire.entries) {
+    // Moderation outcomes map their TYPE but never keep a target (phase 428 —
+    // see the 'moderation outcomes force NoTarget' group).
+    for (final e in wire.entries.where((e) => e.value.isModerationOutcome)) {
+      test('should_mapType_${e.key}', () {
+        expect(_one(_row(type: e.key)).type, e.value);
+      });
+    }
+
+    for (final e in wire.entries.where((e) => !e.value.isModerationOutcome)) {
       test('should_mapType_${e.key}_withBookingTarget', () {
         final n = _one(_row(type: e.key, target: bookingTarget));
         expect(n.type, e.value);
@@ -223,6 +237,35 @@ void main() {
     });
   });
 
+  // Phase 428 — a moderation outcome never navigates, whatever target the
+  // wire carries (feed AND push).
+  group('moderation outcomes force NoTarget', () {
+    for (final String type in <String>[
+      'REPORT_CONTENT_REMOVED',
+      'REPORT_NO_VIOLATION',
+      'REPORT_REVIEWED',
+      'CONTENT_REMOVED',
+      'REVIEW_ABOUT_YOU_REMOVED',
+    ]) {
+      test('should_yieldNoTarget_for_${type}_evenWithABookingTarget', () {
+        // RED WHEN `isModerationOutcome` is dropped from `fromDto`.
+        final n = _one(_row(type: type, target: bookingTarget));
+        expect(n.target, const NotificationTarget.none());
+      });
+
+      test('should_yieldNoTarget_for_${type}_pushWithABookingTarget', () {
+        // RED WHEN `isModerationOutcome` is dropped from `pushTapFromData`.
+        final tap = NotificationMapper.pushTapFromData(<String, dynamic>{
+          'notificationId': _idOk,
+          'type': type,
+          'targetKind': 'BOOKING',
+          'bookingId': _bk1,
+        });
+        expect(tap?.target, const NotificationTarget.none());
+      });
+    }
+  });
+
   group('params', () {
     test('should_carrySalonNameAndTrimBlanks', () {
       final n = _one(
@@ -270,6 +313,35 @@ void main() {
       final n = _one(_row(params: {'startsAt': '2026-10-01T12:30:00+03:00'}));
       expect(n.params.startsAt, DateTime.utc(2026, 10, 1, 9, 30));
       expect(n.params.startsAt!.isUtc, isTrue);
+    });
+
+    // Phase 428 — `contentKind` (backend 415 D3).
+    const kinds = <String, ModeratedContentKind>{
+      'REVIEW': ModeratedContentKind.review,
+      'CLIENT_REVIEW': ModeratedContentKind.clientReview,
+      'PORTFOLIO_PHOTO': ModeratedContentKind.portfolioPhoto,
+      'PROFILE': ModeratedContentKind.profile,
+    };
+    for (final e in kinds.entries) {
+      test('should_mapContentKind_${e.key}', () {
+        final n = _one(
+          _row(type: 'CONTENT_REMOVED', params: {'contentKind': e.key}),
+        );
+        expect(n.params.contentKind, e.value);
+      });
+    }
+
+    test('should_mapContentKind_toNull_when_unknownOrAbsent', () {
+      expect(
+        _one(
+          _row(type: 'CONTENT_REMOVED', params: {'contentKind': 'MARTIAN'}),
+        ).params.contentKind,
+        isNull,
+      );
+      expect(
+        _one(_row(type: 'CONTENT_REMOVED', params: {})).params.contentKind,
+        isNull,
+      );
     });
   });
 

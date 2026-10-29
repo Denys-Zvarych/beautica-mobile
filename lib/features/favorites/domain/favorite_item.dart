@@ -98,6 +98,7 @@ class FavoriteItem {
     this.street,
     this.buildingNo,
     this.locationNote,
+    this.avatarUrl,
   }) : assert(
          id.length > 0,
          'FavoriteItem.id must never be empty — an empty '
@@ -182,6 +183,13 @@ class FavoriteItem {
   /// wrap (to exactly 2 lines).
   final String? locationNote;
 
+  /// The provider's photo — the master's avatar or the salon's logo — as the
+  /// backend serves it (`FavoriteMasterResponse` / `FavoriteSalonResponse`
+  /// `.avatarUrl`), or null when none is set. Passed through RAW, exactly as
+  /// the search mapper does; `RemoteImage` owns host allow-listing and the
+  /// initials / storefront fallback. ADDITIVE — defaults to null.
+  final String? avatarUrl;
+
   /// True when this row is a master.
   bool get isMaster => kind == FavoriteKind.master;
 
@@ -220,7 +228,8 @@ class FavoriteItem {
           other.districtLabel == districtLabel &&
           other.street == street &&
           other.buildingNo == buildingNo &&
-          other.locationNote == locationNote;
+          other.locationNote == locationNote &&
+          other.avatarUrl == avatarUrl;
 
   @override
   int get hashCode => Object.hash(
@@ -238,5 +247,6 @@ class FavoriteItem {
     street,
     buildingNo,
     locationNote,
+    avatarUrl,
   );
 }

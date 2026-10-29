@@ -325,6 +325,25 @@ abstract class Booking with _$Booking {
     /// PROVIDER branch of «Деталі запису» alone. See
     /// [ClientAuthoredReview]'s own file header for the full contract.
     ClientAuthoredReview? reviewByClient,
+
+    /// Phase 425 — backend 397 `BookingDetailResponse.clientBlocked`: whether
+    /// the viewing provider (independent master, or the salon for an
+    /// owner/admin) has blocked this booking's client. Picks «Заблокувати
+    /// клієнта» vs «Розблокувати» in the client strip's «⋯» sheet.
+    /// Detail-only and provider-only; `false` everywhere else.
+    @Default(false) bool clientBlocked,
+
+    /// Phase 425 — backend 397 `BookingDetailResponse.clientBlockId`: the id
+    /// of the block behind [clientBlocked], the target of the strip's single
+    /// `DELETE /blocks/{blockId}` unblock. `null` whenever [clientBlocked] is
+    /// false.
+    String? clientBlockId,
+
+    /// Phase 425 — backend 397 `BookingDetailResponse.clientBlockable`:
+    /// whether `POST /blocks` would accept this booking's client for the
+    /// viewer (false for a STAFF walk-in, an erased guest, list rows and
+    /// non-provider viewers). Gates «Заблокувати клієнта».
+    @Default(false) bool clientBlockable,
   }) = _Booking;
 
   /// Phase 417 (mobile-security LOW) — redacting `toString`. The freezed

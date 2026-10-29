@@ -32,5 +32,11 @@ abstract class AccountSettingsExtras with _$AccountSettingsExtras {
     /// hairline divider. Fails closed: the row also requires [salonId] to be
     /// non-null before it renders — see `SettingsScreen`'s own doc.
     @Default(false) bool showDeleteSalon,
+
+    /// True when pushed from the salon settings hub's «Загальне» row. A
+    /// SALON_ADMIN arriving from there gets no «Змінити пароль» row — it is a
+    /// personal-account action, kept only on the admin's own-profile settings
+    /// path. The owner keeps it here. Defaults to `false`.
+    @Default(false) bool fromSalonSettings,
   }) = _AccountSettingsExtras;
 }

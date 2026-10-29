@@ -38,6 +38,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 
+import 'no_reported_targets.dart';
 import 'no_unread_notifications.dart';
 
 /// [overrides] is `List<Object>` — the same shape `pumpApp` takes — so callers
@@ -52,7 +53,9 @@ ProviderContainer makeTestContainer({
 }) {
   final ProviderContainer container = ProviderContainer(
     overrides: withDefaultNoPortfolioCacheTtl(
-      withDefaultNoSalonProfileCacheWindow(withDefaultNoUnread(overrides)),
+      withDefaultNoSalonProfileCacheWindow(
+        withDefaultNoReportedTargets(withDefaultNoUnread(overrides)),
+      ),
     ).cast<Override>(),
     retry: retry,
   );

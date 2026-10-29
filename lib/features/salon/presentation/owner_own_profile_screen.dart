@@ -606,7 +606,10 @@ class _OwnerProfileBody extends StatelessWidget {
                                     ),
                             ),
                       ),
-                      _ => MasterReviewsBody(masterId: section.$1.id),
+                      _ => MasterReviewsBody(
+                        masterId: section.$1.id,
+                        reportable: true,
+                      ),
                     },
                   ),
                 ),

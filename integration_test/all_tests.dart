@@ -245,6 +245,9 @@ import 'wishlist_remove_failure_flow_test.dart' as wishlist_remove_failure;
 import 'portfolio_render_flow_test.dart' as portfolio_render;
 import 'portfolio_upload_flow_test.dart' as portfolio_upload;
 import 'portfolio_photo_viewer_flow_test.dart' as portfolio_photo_viewer;
+import 'ugc_report_content_flow_test.dart' as ugc_report_content;
+import 'ugc_profile_report_block_flow_test.dart' as ugc_profile_report_block;
+import 'ugc_blocked_clients_flow_test.dart' as ugc_blocked_clients;
 import 'wishlist_salon_service_redirect_flow_test.dart'
     as wishlist_salon_service_redirect;
 import 'tap_reentrancy_flow_test.dart' as tap_reentrancy;
@@ -832,6 +835,17 @@ void main() {
   // Phase 407 — full-screen portfolio photo viewer: public salon (12 photos,
   // «n / N», swipe, close, «+N»), public master, editor rail, forced logout.
   group('portfolio_photo_viewer_flow', portfolio_photo_viewer.main);
+  // Phase 424 — report a review (incl. «Інше» comment gate, 429 banner)
+  // and a portfolio photo from the viewer; owner rail has no flag.
+  group('ugc_report_content_flow', ugc_report_content.main);
+  // Phase 425 — profile «⋯» report (master + salon), provider blocks the
+  // client from «Деталі запису» (role × guest matrix), 409
+  // BOOKING_UNAVAILABLE neutral banner (independent + salon).
+  group('ugc_profile_report_block_flow', ugc_profile_report_block.main);
+  // Phase 426 — «Заблоковані клієнти» list (role-gated row, CLIENT + GUEST
+  // rows, unblock = ONE DELETE, empty) + «Деталі запису» block / unblock and
+  // 429 on the REAL `/blocks` wire (no repository override).
+  group('ugc_blocked_clients_flow', ugc_blocked_clients.main);
   // Tap re-entrancy (single-flight hardening) — a same-frame 3-tap burst on
   // the five riskiest surfaces opens ONE route / sends ONE request.
   group('tap_reentrancy_flow', tap_reentrancy.main);

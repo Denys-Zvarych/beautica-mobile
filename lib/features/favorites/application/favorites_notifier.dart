@@ -57,6 +57,7 @@ import 'package:beautica_mobile/core/errors/failures.dart';
 
 import '../data/favorite_repository_provider.dart';
 import '../domain/favorite_item.dart';
+import '../domain/favorite_target.dart';
 import 'favorite_toggle_notifier.dart';
 
 part 'favorites_notifier.g.dart';
@@ -130,10 +131,26 @@ class Favorites extends _$Favorites {
       ..removeAt(index);
     state = AsyncData<List<FavoriteItem>>(without);
 
+    // An unfavorite must NEVER become an add. When the toggle map already
+    // holds `isFavorite == false` for this target (it was unliked elsewhere —
+    // a profile or search heart — and this row outlived that, e.g. because
+    // the narrowed refresh failed), `toggle` would flip it to `true` and POST
+    // an add. The server already has no favourite: drop the row locally only.
+    final FavoriteEntry? known = ref.read(favoriteToggleProvider)[item.target];
+    if (known != null && !known.isFavorite) return null;
+
     final notifier = ref.read(favoriteToggleProvider.notifier);
     notifier.primeIfAbsent(item.target, isFavorite: true);
-    final Failure? failure = await notifier.toggle(item.target);
+    // `refreshFavorites: false` — this list already dropped the row above; a
+    // refetch racing that optimistic edit would discard the restore below.
+    final Failure? failure = await notifier.toggle(
+      item.target,
+      refreshFavorites: false,
+    );
 
+    // Disposed while the DELETE was in flight (logout): nothing to restore,
+    // and `state =` on a disposed notifier throws.
+    if (!ref.mounted) return failure;
     if (failure != null) {
       if (kDebugMode) {
         log(
@@ -157,7 +174,42 @@ class Favorites extends _$Favorites {
   /// The refresh currently in flight, or null. See [refresh].
   Future<void>? _refreshing;
 
-  /// Re-fetches both endpoints — the pull-to-refresh handler.
+  /// Whether a [refresh] arrived while [_refreshing] was outstanding — the
+  /// trailing re-run is queued. At most ONE re-run is ever queued, however
+  /// many calls land during the window.
+  bool _rerunQueued = false;
+
+  /// Scope of the queued re-run: one kind, or null for both endpoints. Two
+  /// queued calls with different scopes widen it to null.
+  FavoriteTargetType? _rerunOnly;
+
+  /// Whether the queued re-run is a BACKGROUND one (keeps the rows on
+  /// failure). ANDed across queued calls: one user-facing caller makes the
+  /// re-run user-facing, so its error is shown.
+  bool _rerunKeep = false;
+
+  /// Set when a NARROWED refresh failed and its error was swallowed (the list
+  /// kept its rows — see [_run]): the rows on screen may be out of date. The
+  /// next narrowed [refresh] widens to a full reload, and `FavoritesScreen`
+  /// runs one when the «Улюблені» tab becomes visible again. Cleared
+  /// by any successful full reload. A fresh mount starts clean anyway
+  /// (`autoDispose` builds a new notifier and loads both endpoints).
+  bool _stale = false;
+
+  /// Whether a swallowed narrowed-refresh failure left the list out of date.
+  /// `FavoritesScreen` reads it whenever «Улюблені» is shown again and runs a
+  /// full [refresh] if so — a plain tab switch never costs a round trip.
+  bool get isStale => _stale;
+
+  /// Re-fetches the list — the pull-to-refresh handler, and the post-toggle
+  /// refresh from `FavoriteToggleNotifier.toggle`.
+  ///
+  /// [only] (ADDITIVE) narrows the reload to ONE kind (`master` / `salon`):
+  /// that endpoint is refetched and merged into the current list, the other
+  /// kind's rows are kept as they are. A toggled master must not refetch every
+  /// salon. Null (the default) reloads both, exactly as before. A narrowed
+  /// call against a list with no data yet (loading / error) falls back to a
+  /// full load — there is nothing to merge into.
   ///
   /// Assigns the result directly instead of invalidating (see trap 1 in the
   /// file header). `AsyncValue.guard` so a failed refresh surfaces as an error
@@ -167,38 +219,144 @@ class Favorites extends _$Favorites {
   /// already drawing the spinner, and blanking the list to a skeleton
   /// underneath it makes the rows flash away and back on every pull.
   ///
-  /// **Single-flight.** A second call while one is outstanding returns the
-  /// SAME future instead of starting another fetch. `RefreshIndicator` already
-  /// swallows a second *pull*, so this looked covered — but the error screen's
-  /// retry button routes here directly and is tappable as fast as a finger
-  /// moves. Two concurrent `_load()`s are two independent `Future.wait` pairs
-  /// over four requests that can resolve in any order, and whichever finishes
-  /// LAST wins the `state =` assignment: the client can end up looking at the
-  /// older of two responses, with no signal that it happened. De-duplicating
-  /// at the notifier is the only place that can see both calls.
+  /// **Single-flight with a trailing re-run.** A call while one is
+  /// outstanding never starts a second concurrent fetch (two concurrent loads
+  /// resolve in any order and the LAST one wins `state =`, which can be the
+  /// older response). It returns the SAME future, and marks the in-flight run
+  /// dirty: when the current fetch lands, it runs ONCE more. Without that, a
+  /// toggle that succeeded after the in-flight GET was already answered would
+  /// be missing from the list — the GET predates it. The shared future covers
+  /// the trailing run too, so every caller awaits the newest data.
   ///
-  /// The guard is cleared in a `finally` so a throwing `_load` cannot wedge
-  /// the screen into a permanently-refreshing state — though `AsyncValue.guard`
+  /// The guard is cleared in a `finally` so a throwing load cannot wedge the
+  /// screen into a permanently-refreshing state — though `AsyncValue.guard`
   /// means the failure is captured into `state`, not rethrown, so awaiting a
   /// shared future is safe for every caller.
-  Future<void> refresh() {
+  ///
+  /// **Background refreshes keep the rows on failure.** A narrowed call
+  /// ([only] set — the post-toggle follow-up) and a call with
+  /// [keepRowsOnFailure] (ADDITIVE, default `false` — the screen's automatic
+  /// stale repair) are not user-requested reloads: when one fails while the
+  /// list has data, the current rows stay, the error is only logged, and the
+  /// list is (or stays) [isStale]. A user-requested full refresh
+  /// (pull-to-refresh, the error screen's retry) surfaces its error as before.
+  Future<void> refresh({
+    FavoriteTargetType? only,
+    bool keepRowsOnFailure = false,
+  }) {
+    // Background-ness is the CALLER's intent, decided before a stale list
+    // widens [only] to a full reload below.
+    final bool keep = keepRowsOnFailure || only != null;
+    // A stale list (an earlier narrowed refresh failed) is repaired whole.
+    final FavoriteTargetType? scope = _stale ? null : only;
     final Future<void>? inFlight = _refreshing;
-    if (inFlight != null) return inFlight;
-    final Future<void> started = _run();
+    if (inFlight != null) {
+      if (!_rerunQueued) {
+        _rerunQueued = true;
+        _rerunOnly = scope;
+        _rerunKeep = keep;
+      } else {
+        if (_rerunOnly != scope) _rerunOnly = null;
+        _rerunKeep = _rerunKeep && keep;
+      }
+      return inFlight;
+    }
+    final Future<void> started = _run(scope, keep);
     _refreshing = started;
     return started;
   }
 
   /// The body of [refresh]. Safe to assign `_refreshing` only AFTER calling
   /// this: an `async` body runs synchronously to its first `await`, and the
-  /// first statement here awaits — so the `finally` below cannot possibly
-  /// null the field before [refresh] has set it.
-  Future<void> _run() async {
+  /// first fetch awaits — so the `finally` below cannot possibly null the
+  /// field before [refresh] has set it.
+  ///
+  /// The result is loaded into a local and assigned only while the provider
+  /// is still mounted: a refresh outliving a logout (the provider disposed
+  /// mid-fetch) must not write — `state =` on a disposed provider throws.
+  Future<void> _run(FavoriteTargetType? only, bool keepRows) async {
     try {
-      state = await AsyncValue.guard(_load);
+      FavoriteTargetType? scope = only;
+      bool keep = keepRows;
+      while (true) {
+        final FavoriteTargetType? s = scope;
+        final AsyncValue<List<FavoriteItem>> result = await AsyncValue.guard(
+          () => _reload(s),
+        );
+        if (!ref.mounted) return;
+        if (result is AsyncError<List<FavoriteItem>> &&
+            keep &&
+            state is AsyncData<List<FavoriteItem>>) {
+          // A BACKGROUND refresh (narrowed post-toggle follow-up, or the
+          // screen's automatic stale repair) is not a user-requested reload:
+          // failing it must not swap a good list for the error screen — whose
+          // retry runs the pull-to-refresh path and would cancel pending undo
+          // windows. Keep the current rows, log only. A user-requested full
+          // refresh (pull-to-refresh, retry) still surfaces its error as
+          // before. Marked stale so the next tab visit / narrowed refresh
+          // reloads both endpoints.
+          _stale = true;
+          if (kDebugMode) {
+            log(
+              'background refresh (${s?.name ?? 'full'}) failed — keeping '
+              'the list: '
+              '${result.error.runtimeType}',
+              name: _tag,
+              level: 900,
+            );
+          }
+        } else {
+          state = result;
+          // `_reload(null)` and a narrowed call that fell back (no data) are
+          // both full loads; only a full SUCCESS clears staleness.
+          if (s == null && result is AsyncData<List<FavoriteItem>>) {
+            _stale = false;
+          }
+        }
+        if (!_rerunQueued) break;
+        _rerunQueued = false;
+        scope = _stale ? null : _rerunOnly;
+        keep = _rerunKeep;
+        _rerunOnly = null;
+        _rerunKeep = false;
+      }
     } finally {
       _refreshing = null;
+      _rerunQueued = false;
+      _rerunOnly = null;
+      _rerunKeep = false;
     }
+  }
+
+  /// One fetch for [refresh]: both endpoints when [only] is null (or when
+  /// there is no current list to merge into), else the [only] kind merged
+  /// into the current list in the same masters-then-salons order [_load]
+  /// produces.
+  Future<List<FavoriteItem>> _reload(FavoriteTargetType? only) async {
+    final FavoriteKind? kind = switch (only) {
+      FavoriteTargetType.master => FavoriteKind.master,
+      FavoriteTargetType.salon => FavoriteKind.salon,
+      FavoriteTargetType.service ||
+      FavoriteTargetType.salonService ||
+      null => null,
+    };
+    final List<FavoriteItem>? current = state.value;
+    if (kind == null || current == null) return _load();
+    final repository = ref.read(favoriteRepositoryProvider);
+    final List<FavoriteItem> fresh = kind == FavoriteKind.master
+        ? await repository.getFavoriteMasters()
+        : await repository.getFavoriteSalons();
+    // Disposed mid-fetch: [_run] discards the result; never touch `state`.
+    if (!ref.mounted) return current;
+    // Re-read AFTER the await: an optimistic unfavorite may have landed.
+    final List<FavoriteItem> latest = state.value ?? current;
+    final List<FavoriteItem> others = <FavoriteItem>[
+      for (final FavoriteItem i in latest)
+        if (i.kind != kind) i,
+    ];
+    return kind == FavoriteKind.master
+        ? <FavoriteItem>[...fresh, ...others]
+        : <FavoriteItem>[...others, ...fresh];
   }
 }
 

@@ -65,7 +65,7 @@ class _PublicMasterReviewsScreenState
     final l10n = AppLocalizations.of(context);
     return ProfileScaffold(
       title: l10n.publicMasterReviewsTitle,
-      child: MasterReviewsBody(masterId: widget.masterId),
+      child: MasterReviewsBody(masterId: widget.masterId, reportable: true),
     );
   }
 }

@@ -77,6 +77,22 @@ abstract final class NotificationMapper {
         api.NotificationResponseTypeEnum.SERVICE_TYPE_SUGGESTION_REJECTED) {
       return AppNotificationType.serviceTypeSuggestionRejected;
     }
+    // Phase 428 — moderation outcomes (backend 415).
+    if (dto == api.NotificationResponseTypeEnum.REPORT_CONTENT_REMOVED) {
+      return AppNotificationType.reportContentRemoved;
+    }
+    if (dto == api.NotificationResponseTypeEnum.REPORT_NO_VIOLATION) {
+      return AppNotificationType.reportNoViolation;
+    }
+    if (dto == api.NotificationResponseTypeEnum.REPORT_REVIEWED) {
+      return AppNotificationType.reportReviewed;
+    }
+    if (dto == api.NotificationResponseTypeEnum.CONTENT_REMOVED) {
+      return AppNotificationType.contentRemoved;
+    }
+    if (dto == api.NotificationResponseTypeEnum.REVIEW_ABOUT_YOU_REMOVED) {
+      return AppNotificationType.reviewAboutYouRemoved;
+    }
     return AppNotificationType.unknown;
   }
 
@@ -175,7 +191,9 @@ abstract final class NotificationMapper {
     return PushTap(
       notificationId: id,
       type: type,
-      target: type == AppNotificationType.unknown
+      // Unknown types AND moderation outcomes (phase 428: never navigate,
+      // whatever target the wire carries) lead nowhere.
+      target: type == AppNotificationType.unknown || type.isModerationOutcome
           ? const NotificationTarget.none()
           : targetFromPushData(d),
     );
@@ -196,7 +214,29 @@ abstract final class NotificationMapper {
       masterName: _nonBlank(dto.masterName),
       categoryName: _nonBlank(dto.categoryName),
       decisionReason: _nonBlank(dto.decisionReason),
+      contentKind: contentKindFromDto(dto.contentKind),
     );
+  }
+
+  /// Phase 428 — `null` for an absent or unrecognised wire value (the copy
+  /// then falls back to the review text).
+  static ModeratedContentKind? contentKindFromDto(
+    api.NotificationParamsContentKindEnum? dto,
+  ) {
+    if (dto == null || isOpenApiUnknownDefault(dto)) return null;
+    if (dto == api.NotificationParamsContentKindEnum.REVIEW) {
+      return ModeratedContentKind.review;
+    }
+    if (dto == api.NotificationParamsContentKindEnum.CLIENT_REVIEW) {
+      return ModeratedContentKind.clientReview;
+    }
+    if (dto == api.NotificationParamsContentKindEnum.PORTFOLIO_PHOTO) {
+      return ModeratedContentKind.portfolioPhoto;
+    }
+    if (dto == api.NotificationParamsContentKindEnum.PROFILE) {
+      return ModeratedContentKind.profile;
+    }
+    return null;
   }
 
   /// `null` when the row is unusable (no id / no createdAt).
@@ -232,8 +272,9 @@ abstract final class NotificationMapper {
       type: type,
       createdAt: createdAt.toUtc(),
       read: dto.read ?? false,
-      // An unknown type has no known destination even if `kind` is known.
-      target: type == AppNotificationType.unknown
+      // An unknown type has no known destination even if `kind` is known; a
+      // moderation outcome never navigates (phase 428), whatever it carries.
+      target: type == AppNotificationType.unknown || type.isModerationOutcome
           ? const NotificationTarget.none()
           : targetFromDto(dto.target),
       params: paramsFromDto(dto.params),

@@ -90,6 +90,7 @@ abstract final class SalonMapper {
       coverImageUrl: dto.coverImageUrl,
       avgRating: dto.avgRating?.toDouble(),
       reviewCount: dto.reviewCount ?? 0,
+      isFavorite: dto.isFavorite ?? false,
     );
   }
 
@@ -598,6 +599,7 @@ abstract final class SalonReviewMapper {
           comment: dto.comment ?? '',
           // instant-ok: last-resort fallback for a malformed/absent DTO timestamp
           createdAt: dto.createdAt ?? DateTime.now(),
+          authoredByViewer: dto.authoredByViewer ?? false,
         ),
       );
     }

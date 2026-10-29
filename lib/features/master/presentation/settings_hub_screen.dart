@@ -28,7 +28,7 @@ import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
-import 'package:beautica_mobile/features/booking_links/presentation/booking_links_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/widgets/booking_links_settings_row.dart';
 import 'package:beautica_mobile/features/settings/presentation/logout_action.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -84,9 +84,11 @@ import 'package:beautica_mobile/shared/widgets/app_version_label.dart';
 //     SAME [SettingsRow] destinations resolve per-role without forking the
 //     hub.
 //   * [showBookingLinks] — phase 414: the «Посилання для запису» row between
-//     «Локація» and «Акаунт». Set `true` ONLY by the INDEPENDENT_MASTER
-//     (`masterMenu`), SALON_OWNER (`ownerSettings`) and SALON_ADMIN
-//     (`adminSettings`) routes; SALON_MASTER leaves it `false`. Even when
+//     «Локація» and «Акаунт» (the shared [BookingLinksSettingsRow]). Set
+//     `true` ONLY by the INDEPENDENT_MASTER (`masterMenu`) route; SALON_OWNER
+//     and SALON_ADMIN reach the row from salon «Налаштування» instead (user
+//     decision 2026-10-29), so `ownerSettings` / `adminSettings` /
+//     SALON_MASTER leave it `false`. Even when
 //     `true` the row renders only once `bookingLinksVisibleProvider` says so
 //     (kill-switch on, ≥1 link for the role). Default `false` never reads
 //     the provider at all, so every other caller renders exactly as before.
@@ -306,7 +308,7 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
           // hub never rebuilds on the links load and a hidden row leaves no
           // trace. Reveals with «Акаунт» (shares its interval).
           if (widget.showBookingLinks)
-            _BookingLinksRowSlot(
+            BookingLinksSettingsRow(
               reveal: (Widget child) => _reveal(accountAnim, child),
             ),
           const SizedBox(height: VelvetSpacing.md),
@@ -379,36 +381,6 @@ class _SettingsHubScreenState extends ConsumerState<SettingsHubScreen>
           const AppVersionLabel(),
         ],
       ),
-    );
-  }
-}
-
-/// Phase 414 — the hub's «Посилання для запису» row, present only while
-/// `bookingLinksVisibleProvider` is `true`. Watching here (not in the hub's
-/// `build`) keeps the autoDispose links load scoped to this slot.
-class _BookingLinksRowSlot extends ConsumerWidget {
-  const _BookingLinksRowSlot({required this.reveal});
-
-  final Widget Function(Widget child) reveal;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bool visible = ref.watch(bookingLinksVisibleProvider);
-    if (!visible) return const SizedBox.shrink();
-    final AppLocalizations l10n = AppLocalizations.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const SizedBox(height: VelvetSpacing.md),
-        reveal(
-          SettingsRow(
-            key: const Key('row-booking-links'),
-            icon: Icons.link_rounded,
-            label: l10n.bookingLinksSettingsRow,
-            onTap: () => context.pushOnce(RouteNames.bookingLinks),
-          ),
-        ),
-      ],
     );
   }
 }

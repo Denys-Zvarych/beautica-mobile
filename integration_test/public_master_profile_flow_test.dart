@@ -795,6 +795,63 @@ void main() {
   );
 
   // ──────────────────────────────────────────────────────────────────────────
+  // Pull-to-refresh — a review removed by moderation disappears from an open
+  // public master profile after a pull, without an app restart.
+  // ──────────────────────────────────────────────────────────────────────────
+  testWidgets(
+    'CLIENT pulls down on a master public profile → a review moderation '
+    'removed meanwhile is gone',
+    (tester) async {
+      // RED WHEN the profile has no pull-to-refresh (or it does not reload
+      // the loaded review list): the removed review stays on screen.
+      final fb = FakeBackend()..currentRole = UserRole.client;
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      await AppHarness.loginAs(tester, fb, UserRole.client);
+      await AppHarness.settle(tester);
+
+      unawaited(router.push(RouteNames.masterPublicProfile('master-aaa')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('public-master-profile-tab-2')),
+      );
+      await AppHarness.settle(tester);
+      await tester.tap(find.byKey(const Key('public-master-profile-tab-2')));
+      await AppHarness.pumpUntilFound(
+        tester,
+        find.byKey(const Key('master-review-pub-r2')),
+      );
+      expect(find.byKey(const Key('master-review-pub-r1')), findsOneWidget);
+
+      // Moderation removes pub-r2 server-side while the profile is open.
+      fb.publicMasterRemovedReviewIds.add('pub-r2');
+      final int reviewsBefore = fb.getPublicMasterReviewsCalls;
+
+      // From a point inside the scroll body (the harness screen is 800×600,
+      // so the reviews body's centre is below the fold).
+      await tester.flingFrom(
+        const Offset(400, 200),
+        const Offset(0, 500),
+        1000,
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => fb.getPublicMasterReviewsCalls > reviewsBefore,
+        description: 'the pull to refetch GET /masters/master-aaa/reviews',
+      );
+      await AppHarness.pumpUntilGone(
+        tester,
+        find.byKey(const Key('master-review-pub-r2')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(const Key('master-review-pub-r2')), findsNothing);
+      expect(find.byKey(const Key('master-review-pub-r1')), findsOneWidget);
+      AppHarness.expectLocation(router, '/masters/master-aaa');
+    },
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Flow F — Phase 351 gap-fix (mobile-qa, 2026-09-25): CLIENT view of a
   // master with NO bio. The «Про майстра» tab's empty-bio branch is read-only
   // for a client (the "Both rows" locked decision — only the master's OWN

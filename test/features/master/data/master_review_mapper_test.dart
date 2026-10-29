@@ -48,6 +48,7 @@ ReviewResponse _review({
   String? comment,
   DateTime? createdAt,
   String? serviceName,
+  bool? authoredByViewer,
 }) => ReviewResponse(
   (b) => b
     ..id = id
@@ -55,7 +56,8 @@ ReviewResponse _review({
     ..rating = rating
     ..comment = comment
     ..createdAt = createdAt
-    ..serviceName = serviceName,
+    ..serviceName = serviceName
+    ..authoredByViewer = authoredByViewer,
 );
 
 void main() {
@@ -267,6 +269,32 @@ void main() {
 
       expect(out.single.serviceName, isNull);
       expect(out.single.serviceName, isNot('null'));
+    });
+
+    test('phase 424 — authoredByViewer true/false/absent maps to '
+        'true/false/false', () {
+      final List<MasterReviewItem> out =
+          MasterReviewMapper.reviewsFromDtoList(<ReviewResponse>[
+            _review(
+              id: 'own',
+              rating: 5,
+              createdAt: DateTime.utc(2026),
+              authoredByViewer: true,
+            ),
+            _review(
+              id: 'other',
+              rating: 5,
+              createdAt: DateTime.utc(2026),
+              authoredByViewer: false,
+            ),
+            _review(id: 'legacy', rating: 5, createdAt: DateTime.utc(2026)),
+          ]);
+
+      expect(out.map((MasterReviewItem r) => r.authoredByViewer), <bool>[
+        true,
+        false,
+        false,
+      ]);
     });
   });
 }

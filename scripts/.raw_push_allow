@@ -13,13 +13,13 @@ lib/features/auth/presentation/forgot_password_request_screen.dart:129:context.p
 # bookingRescheduleInFlightProvider guards the whole fetch-then-push.
 lib/features/booking/presentation/reschedule_navigation.dart:260:context.push(
 # NotificationsScreen._opening guards every feed-row tap; push-tap dispatch is not a user tap.
-lib/features/notifications/presentation/notification_navigation.dart:405:GoRouter.of(context).push<Object?>(fallbackRoute)
-lib/features/notifications/presentation/notification_navigation.dart:455:router.push<Object?>(location, extra: extra)
+lib/features/notifications/presentation/notification_navigation.dart:410:GoRouter.of(context).push<Object?>(fallbackRoute)
+lib/features/notifications/presentation/notification_navigation.dart:460:router.push<Object?>(location, extra: extra)
 # ServicesListScreen._opening (held until the pushed screen pops; then refreshes).
 lib/features/services/presentation/services_list_screen.dart:317:context.push<void>(location)
 # _requestingChangePasswordOtp flag guards the OTP request that precedes the push.
-lib/features/settings/presentation/settings_screen.dart:252:context.push(RouteNames.changePassword)
+lib/features/settings/presentation/settings_screen.dart:265:context.push(RouteNames.changePassword)
 # EXCEPTION (NOT a guarded site): user rule 2026-10-15 + phase-262 D5 keep
 # booking_confirm_screen.dart byte-identical to HEAD, so its «Відгуки» link
 # stays a raw push. Remove this entry if that file is ever cleared for pushOnce.
-lib/features/booking/presentation/booking_confirm_screen.dart:931:onTap: () => context.push(
+lib/features/booking/presentation/booking_confirm_screen.dart:932:onTap: () => context.push(
