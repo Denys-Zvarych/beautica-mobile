@@ -22,4 +22,4 @@ lib/features/settings/presentation/settings_screen.dart:265:context.push(RouteNa
 # EXCEPTION (NOT a guarded site): user rule 2026-10-15 + phase-262 D5 keep
 # booking_confirm_screen.dart byte-identical to HEAD, so its «Відгуки» link
 # stays a raw push. Remove this entry if that file is ever cleared for pushOnce.
-lib/features/booking/presentation/booking_confirm_screen.dart:932:onTap: () => context.push(
+lib/features/booking/presentation/booking_confirm_screen.dart:947:onTap: () => context.push(
