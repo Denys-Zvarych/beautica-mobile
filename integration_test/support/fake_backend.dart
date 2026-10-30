@@ -5387,6 +5387,22 @@ final class FakeBackend {
   /// `GET /bookings/me/booked-days` call count (Phase 7.6 day rail).
   int bookedDaysCalls = 0;
 
+  /// See [seedStaleBookedDays]. `null` (the default) keeps the original
+  /// answer — the seeded booking's own day — on every call.
+  List<String>? _freshBookedDays;
+  int _staleBookedDaysRemaining = 0;
+
+  /// Models a STALE dot cache (the 2026-10-30 rail-dot self-heal): the first
+  /// [staleCalls] `GET /bookings/me/booked-days` calls answer an EMPTY set —
+  /// the sweep the app cached before an off-device booking existed — and
+  /// every later call answers [fresh] (`yyyy-MM-dd` days). Pair it with
+  /// [seedManyBookingsDataset] so the day list (date-fenced on that path)
+  /// already returns the booking the dots do not know about yet.
+  void seedStaleBookedDays({required List<String> fresh, int staleCalls = 1}) {
+    _freshBookedDays = List<String>.of(fresh);
+    _staleBookedDaysRemaining = staleCalls;
+  }
+
   /// Phase 383 (24.1f) — the `asMaster` flag of EVERY `GET /bookings/me` and
   /// `GET /bookings/me/booked-days` call, in order (`true` iff the request
   /// carried `asMaster=true`), so a flow can prove the owner master-mode
@@ -5654,9 +5670,25 @@ final class FakeBackend {
   /// rather than as an error, so it read like "no bookings" instead of like a
   /// broken fake. The dataset branch ([_slicedBookingsPageEnvelope]) already
   /// parsed it correctly; only this one did not.
-  Map<String, dynamic> _bookingsPageEnvelope(List<String>? statusFilter) {
+  ///
+  /// [query] carries the inclusive Kyiv-day `from`/`to` window, honoured
+  /// exactly like the real endpoint and [_slicedBookingsPageEnvelope]
+  /// ([_withinDayWindow]). Until 2026-10-30 this branch ignored it, so a
+  /// day-scoped master timeline request for ANY day was handed `booking-1` —
+  /// a list showing a booking on a day the booked-days dot set (correctly)
+  /// did not carry, which made every master flow pay one stale-dot self-heal
+  /// sweep and could mask a day-window bug.
+  Map<String, dynamic> _bookingsPageEnvelope(
+    List<String>? statusFilter, {
+    Map<String, dynamic> query = const <String, dynamic>{},
+  }) {
     final bool matches =
-        statusFilter == null || statusFilter.contains(bookingStatus);
+        (statusFilter == null || statusFilter.contains(bookingStatus)) &&
+        _withinDayWindow(
+          _seededBookingJson(),
+          _dayWindowBound(query, 'from'),
+          _dayWindowBound(query, 'to'),
+        );
     final List<Map<String, dynamic>> rows = matches
         ? <Map<String, dynamic>>[_seededBookingJson()]
         : <Map<String, dynamic>>[];
@@ -10117,10 +10149,20 @@ final class FakeBackend {
         bookedDaysAsMasterFlags.add(
           _asMasterFrom(Map<String, dynamic>.from(req.queryParameters)),
         );
+        final List<String>? fresh = _freshBookedDays;
+        final List<String> days;
+        if (fresh == null) {
+          days = <String>[bookingStartsAt.substring(0, 10)];
+        } else if (_staleBookedDaysRemaining > 0) {
+          _staleBookedDaysRemaining--;
+          days = const <String>[];
+        } else {
+          days = fresh;
+        }
         return <String, dynamic>{
           'success': true,
           'message': 'ok',
-          'data': <String>[bookingStartsAt.substring(0, 10)],
+          'data': days,
         };
       }),
       request: const Request(method: RequestMethods.get),
@@ -10171,6 +10213,7 @@ final class FakeBackend {
         // bare `as String?` cast throws here (see [_bookingsPageEnvelope]).
         return _bookingsPageEnvelope(
           _bookingStatusesFrom(Map<String, dynamic>.from(req.queryParameters)),
+          query: Map<String, dynamic>.from(req.queryParameters),
         );
       }),
       request: const Request(method: RequestMethods.get),
@@ -10871,11 +10914,17 @@ final class FakeBackend {
       return _slicedSalonArchiveEnvelope(query);
     }
 
-    // The BOARD's own day fetch — byte-identical to the pre-345 handler.
-    // A COPY read at REQUEST time; the list is mutable by design.
-    final List<Map<String, dynamic>> rows = List<Map<String, dynamic>>.from(
-      salonBoardBookings.map(Map<String, dynamic>.from),
-    );
+    // The BOARD's own day fetch. A COPY read at REQUEST time; the list is
+    // mutable by design. Honours the inclusive Kyiv-day `from`/`to` window
+    // like the real endpoint ([_withinDayWindow]) — until 2026-10-30 it
+    // handed every seeded row to EVERY day, a list the board's booked-days
+    // dot set (correctly) disagreed with.
+    final DateTime? fromDay = _dayWindowBound(query, 'from');
+    final DateTime? toDay = _dayWindowBound(query, 'to');
+    final List<Map<String, dynamic>> rows = <Map<String, dynamic>>[
+      for (final Map<String, dynamic> b in salonBoardBookings)
+        if (_withinDayWindow(b, fromDay, toDay)) Map<String, dynamic>.from(b),
+    ];
     return _searchEnvelope(
       rows,
       page: 0,
