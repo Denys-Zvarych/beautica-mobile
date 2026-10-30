@@ -20,8 +20,8 @@
 // The exception is [SalonTeamTarget]: «Команда» lives INSIDE salon B's shell,
 // so that one navigates into salon B on purpose.
 //
-// MULTI-SERVICE VISIT: a visit's notification targets its earliest booking; the
-// detail of that booking renders the whole visit. There is no appointment route.
+// MULTI-SERVICE VISIT: opens the earliest booking's detail — that ONE service,
+// not the whole visit (kept on purpose). There is no appointment route.
 
 import 'dart:developer';
 
