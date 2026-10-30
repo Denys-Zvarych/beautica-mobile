@@ -11,10 +11,6 @@
 //
 // Matrix: {320, 360, 414} dp × {textScale 1.0, 1.3} = 6 golden PNGs.
 
-import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
-import 'package:beautica_mobile/features/booking/domain/booking.dart';
-import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
-import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
@@ -36,6 +32,7 @@ import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 
 import '../helpers/clock_instant.dart';
+import '../helpers/stub_bookings_day.dart';
 import 'helpers/golden_pump.dart';
 
 const String _kSalonId = 'salon-owner-golden';
@@ -127,17 +124,10 @@ class _Roster extends SalonManagementProfile {
   );
 }
 
-/// Booked-slots overlay (2026-10-30): the screen watches `bookingsDayProvider`
-/// for the selected day — pinned empty so this golden never reaches real Dio.
-class _NoBookings extends BookingsDayNotifier {
-  @override
-  Future<BookingsDayState> build(BookingsDayQuery query) async =>
-      const BookingsDayState(items: <Booking>[], totalElements: 0);
-}
-
 List<Object> _overrides() => <Object>[
   authProvider.overrideWith(_OwnerAuth.new),
-  bookingsDayProvider.overrideWith2((_) => _NoBookings()),
+  // Booked-slots overlay: pinned empty so this golden never reaches real Dio.
+  stubBookingsDayOverride(),
   effectiveScheduleProvider.overrideWith2((_) => _Days()),
   weeklyScheduleProvider.overrideWith2((_) => _Weekly()),
   mySalonsProvider.overrideWith(_MySalons.new),

@@ -26,11 +26,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
-import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
-import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
-import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/core/network/page_response.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
@@ -74,6 +71,7 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/stub_bookings_day.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -996,7 +994,7 @@ Object _fakeWorkingHours() => workingHoursRepositoryProvider.overrideWithValue(
 /// overrides it so no test ever touches real Dio; [bookings] (default none)
 /// is what EVERY day's query resolves to.
 Object _noBookings([List<Booking> bookings = const <Booking>[]]) =>
-    bookingsDayProvider.overrideWith2((_) => _StubBookingsDay(bookings));
+    stubBookingsDayOverride(bookings);
 
 /// Counts the two day-fetch endpoints the overlay can reach; every day is
 /// empty. Anything else is unimplemented ([Fake] throws).
@@ -1162,19 +1160,6 @@ Future<void> _pumpWithBookingRepo(
     ),
   );
   await tester.pumpAndSettle();
-}
-
-class _StubBookingsDay extends BookingsDayNotifier {
-  _StubBookingsDay(this._bookings);
-
-  final List<Booking> _bookings;
-
-  @override
-  Future<BookingsDayState> build(BookingsDayQuery query) async =>
-      BookingsDayState(
-        items: stableBookingList(_bookings),
-        totalElements: _bookings.length,
-      );
 }
 
 /// Pumps the schedule screen inside the REDIRECT-bearing router, wired over a

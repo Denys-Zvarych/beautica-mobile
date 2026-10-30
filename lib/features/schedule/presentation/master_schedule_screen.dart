@@ -220,7 +220,22 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// behaviour is unchanged; tests that pin `clockProvider` — e.g. the
   /// integration harness's `kFixedNow` — now drive this screen's "today" too).
   /// Read, not watched: the provider's value is a function that never changes.
-  DateTime Function() get _clockFn => widget._clock ?? ref.read(clockProvider);
+  DateTime Function() get _clockFn => widget._clock ?? _providerClock;
+
+  /// [clockProvider]'s value, resolved ONCE in [initState] while the element is
+  /// mounted. Never read through `ref` lazily: [dispose] disposes the `late`
+  /// [_selected], which — when nothing read it before unmount (e.g. a redirect
+  /// away before the first data frame) — runs its initializer
+  /// (`_initialSelection` → [_today] → [_clockFn]) AFTER unmount, and a lazy
+  /// `ref.read` there throws "Using ref when a widget is about to or has been
+  /// unmounted is unsafe" (PR #123 CI).
+  late final DateTime Function() _providerClock;
+
+  @override
+  void initState() {
+    super.initState();
+    _providerClock = ref.read(clockProvider);
+  }
 
   /// The date the calendar opens on: [MasterScheduleScreen.initialDate] when
   /// given (date-only, per that field's doc), else [_today]. Read exactly
