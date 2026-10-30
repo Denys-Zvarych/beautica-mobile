@@ -1,4 +1,5 @@
 import 'package:beautica_mobile/core/config/env_guard.dart';
+import 'package:beautica_mobile/core/media/media_config.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String _prodUrl = 'https://api.beautica.app';
@@ -68,6 +69,86 @@ void main() {
         expect(() => _run(r, m), throwsStateError);
       });
     }
+  });
+
+  group('BEAUTICA_MEDIA_ORIGIN per-flavor allow-list (phase 430)', () {
+    EnvCheckResult media(String flavor, String raw, EnvBuildMode m) =>
+        checkEnvConsistency(
+          flavor: flavor,
+          env: flavor,
+          baseUrl: flavor == 'prod' ? _prodUrl : _stagingUrl,
+          mode: m,
+          mediaHosts: MediaConfig.parseForTest(raw),
+        );
+
+    for (final m in [EnvBuildMode.release, EnvBuildMode.profile]) {
+      test('${m.name}: prod flavor + staging media host -> throws', () {
+        final r = media('prod', 'media-staging.beautica.app', m);
+        expect(r.ok, isFalse);
+        expect(r.errors.single, contains('BEAUTICA_MEDIA_ORIGIN'));
+        expect(() => _run(r, m), throwsStateError);
+      });
+
+      test('${m.name}: prod flavor + prod media host -> ok', () {
+        expect(media('prod', 'media.beautica.app', m).ok, isTrue);
+      });
+
+      test('${m.name}: staging flavor + both staging hosts -> ok', () {
+        final r = media(
+          'staging',
+          'media-staging.beautica.app,'
+              'pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev',
+          m,
+        );
+        expect(r.errors, isEmpty);
+      });
+
+      test('${m.name}: staging flavor + unknown media host -> throws', () {
+        final r = media(
+          'staging',
+          'media-staging.beautica.app,evil.example',
+          m,
+        );
+        expect(r.errors.single, contains('evil.example'));
+        expect(() => _run(r, m), throwsStateError);
+      });
+
+      test('${m.name}: staging flavor + full URL form (deploy script '
+          'STAGING_MEDIA_ORIGIN) -> ok', () {
+        final r = media('staging', 'https://media-staging.beautica.app', m);
+        expect(r.errors, isEmpty);
+      });
+
+      test('${m.name}: empty media set (no define) -> ok', () {
+        expect(media('staging', '', m).ok, isTrue);
+      });
+    }
+
+    test('debug: off-list media host is not reported (local overrides)', () {
+      final r = media('staging', 'pub-devbucket.r2.dev', EnvBuildMode.debug);
+      expect(r.ok, isTrue);
+    });
+
+    test('debug: prod flavor + staging media host -> fatal, throws', () {
+      final r = media('prod', 'media-staging.beautica.app', EnvBuildMode.debug);
+      expect(r.errors.single, contains('BEAUTICA_MEDIA_ORIGIN'));
+      expect(r.fatalInEveryMode, isTrue);
+      expect(() => _run(r, EnvBuildMode.debug), throwsStateError);
+    });
+
+    test('debug: prod flavor + prod media host -> ok', () {
+      expect(
+        media('prod', 'media.beautica.app', EnvBuildMode.debug).ok,
+        isTrue,
+      );
+    });
+
+    test('debug: staging flavor + unknown media host -> allowed, no throw', () {
+      final r = media('staging', 'evil.example', EnvBuildMode.debug);
+      expect(r.ok, isTrue);
+      expect(r.fatalInEveryMode, isFalse);
+      expect(() => _run(r, EnvBuildMode.debug), returnsNormally);
+    });
   });
 
   group('prod flavor refuses dev hosts in EVERY mode', () {

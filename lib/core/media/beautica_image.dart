@@ -182,14 +182,15 @@ void purgeBeauticaDecodedImages() {
 /// Whether [url] is safe to fetch as Beautica media.
 ///
 /// Returns `false` — so the caller renders its local fallback WITHOUT opening a
-/// socket — for anything that is null, empty, unparseable, not `https`, or
-/// whose host is not in the configured allowlist ([MediaConfig]). This is the
+/// socket — for anything that is null, empty, unparseable, not `https`, on an
+/// explicit non-443 port, or whose host is not in the configured allowlist ([MediaConfig]). This is the
 /// single choke point every media site funnels through.
 bool isAllowedMediaUrl(String? url) {
   if (url == null || url.isEmpty) return false;
   final Uri? uri = Uri.tryParse(url);
   if (uri == null) return false;
   if (uri.scheme != 'https') return false;
+  if (uri.hasPort && uri.port != 443) return false;
   final String host = uri.host.toLowerCase();
   if (host.isEmpty) return false;
   return MediaConfig.effectiveAllowedHosts.contains(host);
