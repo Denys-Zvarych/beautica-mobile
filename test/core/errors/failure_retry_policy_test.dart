@@ -128,6 +128,7 @@ const Map<String, bool> _expectedTransience = <String, bool>{
   'ServiceUnassignBlockedFailure': false,
   'ClientBookingConflictFailure': false,
   'BookingAlreadyElapsedFailure': false,
+  'RescheduleLimitReachedFailure': false,
   'BookingUnavailableFailure': false,
   'ProviderDeclineWindowClosedFailure': false,
   'ProviderCompleteNotStartedFailure': false,
@@ -224,6 +225,7 @@ Map<String, Failure> _instances() {
       endsAt: at.add(const Duration(hours: 1)),
     ),
     'BookingAlreadyElapsedFailure': const BookingAlreadyElapsedFailure(),
+    'RescheduleLimitReachedFailure': const RescheduleLimitReachedFailure(),
     'BookingUnavailableFailure': const BookingUnavailableFailure(),
     'ProviderDeclineWindowClosedFailure':
         const ProviderDeclineWindowClosedFailure(),

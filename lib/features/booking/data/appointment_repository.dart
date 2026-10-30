@@ -678,6 +678,11 @@ final class HttpAppointmentRepository implements AppointmentRepository {
   Failure _mapAppointmentItemRescheduleException(DioException e) {
     final statusCode = e.response?.statusCode;
     if (statusCode == 409) {
+      // Phase 431 — provider reschedule of a guest visit item over the 24 h
+      // limit.
+      if (isRescheduleLimitReached(e.response?.data)) {
+        return RescheduleLimitReachedFailure(cause: e);
+      }
       if (_isBookingAlreadyElapsed(e)) {
         return BookingAlreadyElapsedFailure(cause: e);
       }

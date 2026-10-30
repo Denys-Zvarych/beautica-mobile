@@ -78,11 +78,14 @@
 // locationNote — for a solo master that may be a HOME address) — acquires the
 // app-wide screenshot guard in `initState`. Do not remove in a future audit.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/errors/failures.dart';
+import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/security/screen_protection.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -125,6 +128,7 @@ import 'widgets/booking_top_bar.dart';
 import 'widgets/client_booking_conflict_dialog.dart';
 import 'widgets/guest_identity_card.dart';
 import 'widgets/master_strip.dart';
+import 'widgets/reschedule_limit_dialog.dart';
 
 /// Booking flow final review — the single-visit confirm-and-submit screen.
 class BookingConfirmScreen extends ConsumerStatefulWidget {
@@ -620,6 +624,17 @@ class _BookingConfirmScreenState extends ConsumerState<BookingConfirmScreen> {
           returnRoute: widget.args.returnRoute,
         ),
       );
+    } on RescheduleLimitReachedFailure {
+      // Phase 431 — a provider reschedule of a guest booking hit the 24 h
+      // limit. Block with a dialog instead of the inline banner; the user
+      // stays on this screen, the booking is unchanged, nothing is retried.
+      // «Написати в підтримку» pushes the in-app support screen on top.
+      if (!mounted) return;
+      _submitting.value = false;
+      final bool contactSupport =
+          await showRescheduleLimitDialog(context) ?? false;
+      if (!contactSupport || !mounted) return;
+      unawaited(context.pushOnce(RouteNames.contactSupport));
     } on Failure catch (failure) {
       if (!mounted) return;
       // Phase 262 D5 (user-locked narrowing) — clears unconditionally, but

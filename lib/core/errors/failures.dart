@@ -1074,6 +1074,38 @@ final class BookingAlreadyElapsedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
 }
 
+/// Phase 431 (backend PR #176) — a PROVIDER reschedule of a GUEST booking /
+/// visit item returned HTTP **409** with `data.code ==
+/// "RESCHEDULE_LIMIT_REACHED"`: the per-booking 24 h reschedule budget is
+/// spent. Applies to `PATCH /bookings/{id}/reschedule` and
+/// `PATCH /appointments/{id}/services/{bookingId}/reschedule`. The confirm
+/// screen opens a blocking «Зверніться в підтримку» dialog instead of the
+/// inline banner; the booking is unchanged. Not retryable — an identical
+/// request meets the identical limit.
+///
+/// Decoded by [isRescheduleLimitReached], checked in both reschedule mappers
+/// BEFORE the other 409 arms.
+final class RescheduleLimitReachedFailure extends Failure {
+  const RescheduleLimitReachedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrRescheduleLimitReached;
+}
+
+/// The backend's `data.code` for [RescheduleLimitReachedFailure].
+const String kRescheduleLimitReachedCode = 'RESCHEDULE_LIMIT_REACHED';
+
+/// `true` when [body] is the phase-431
+/// `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }` envelope. Hand-decoded
+/// like `BOOKING_UNAVAILABLE` — the code is not in the generated client.
+bool isRescheduleLimitReached(Object? body) {
+  if (body is! Map<String, dynamic>) return false;
+  final Object? data = body['data'];
+  if (data is! Map<String, dynamic>) return false;
+  return data['code'] == kRescheduleLimitReachedCode;
+}
+
 /// Phase 425 (backend 398 D3) — a client booking create returned HTTP **409**
 /// with `data.code == "BOOKING_UNAVAILABLE"`: the provider has blocked this
 /// client. The body is deliberately neutral («Запис до цього майстра/салону

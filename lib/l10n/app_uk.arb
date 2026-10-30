@@ -7474,5 +7474,21 @@
   "notificationBodyReportReviewedProfile": "Дякуємо! Скаргу підтверджено — ми зв'яжемося з власником профілю.",
   "@notificationBodyReportReviewedProfile": {
     "description": "Phase 428 — body of REPORT_REVIEWED when params.contentKind == PROFILE (a confirmed profile report)."
+  },
+  "bookingRescheduleLimitTitle": "Ліміт перенесень",
+  "@bookingRescheduleLimitTitle": {
+    "description": "Phase 431 — title of the dialog shown when a provider reschedule returns HTTP 409 RESCHEDULE_LIMIT_REACHED."
+  },
+  "bookingErrRescheduleLimitReached": "Ви досягли ліміту перенесень для цього запису. Зверніться в підтримку.",
+  "@bookingErrRescheduleLimitReached": {
+    "description": "Phase 431 — HTTP 409 RESCHEDULE_LIMIT_REACHED on a provider reschedule of a guest booking/visit item (6th within 24 h). Dialog body + RescheduleLimitReachedFailure.userMessage."
+  },
+  "bookingRescheduleLimitContactSupport": "Написати в підтримку",
+  "@bookingRescheduleLimitContactSupport": {
+    "description": "Phase 431 — reschedule-limit dialog action; opens the in-app contact-support screen."
+  },
+  "bookingRescheduleLimitDismiss": "Зрозуміло",
+  "@bookingRescheduleLimitDismiss": {
+    "description": "Phase 431 — reschedule-limit dialog quiet dismiss; the user stays on the confirm screen."
   }
 }

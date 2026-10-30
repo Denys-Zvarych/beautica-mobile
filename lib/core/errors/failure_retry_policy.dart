@@ -293,6 +293,9 @@ bool isTransientFailure(Failure failure) => switch (failure) {
   ServiceUnassignBlockedFailure() => false,
   ClientBookingConflictFailure() => false,
   BookingAlreadyElapsedFailure() => false,
+  // 409 RESCHEDULE_LIMIT_REACHED (phase 431) — the 24 h per-booking budget
+  // is spent; an identical retry meets the identical limit.
+  RescheduleLimitReachedFailure() => false,
   // 409 BOOKING_UNAVAILABLE (phase 425) — the provider blocked this client;
   // an identical retry meets the identical block.
   BookingUnavailableFailure() => false,

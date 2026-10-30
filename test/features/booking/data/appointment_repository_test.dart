@@ -590,6 +590,34 @@ void main() {
       },
     );
 
+    // Phase 431 — the 6th provider reschedule of a guest visit item within
+    // 24 h. Checked before the elapsed / client-conflict / plain-409 arms.
+    test(
+      '409 RESCHEDULE_LIMIT_REACHED → RescheduleLimitReachedFailure',
+      () async {
+        when(
+          () => appointmentApi.rescheduleAppointmentItem(
+            appointmentId: 'appt-1',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: any(
+              named: 'appointmentItemRescheduleRequest',
+            ),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _itemReschedulePath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'RESCHEDULE_LIMIT_REACHED'},
+            'message': 'Reschedule limit reached for this booking',
+          }),
+        );
+
+        await expectLater(
+          repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
+          throwsA(isA<RescheduleLimitReachedFailure>()),
+        );
+      },
+    );
+
     // The backend cannot distinguish, on the wire, a sibling-overlap /
     // "master busy" conflict from the "changed concurrently — please retry"
     // guard — both are plain `BusinessException(CONFLICT, …)` and serialize
