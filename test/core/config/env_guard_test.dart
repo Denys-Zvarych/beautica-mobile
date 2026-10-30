@@ -93,14 +93,25 @@ void main() {
         expect(media('prod', 'media.beautica.app', m).ok, isTrue);
       });
 
-      test('${m.name}: staging flavor + both staging hosts -> ok', () {
+      test('${m.name}: staging flavor + staging media host -> ok', () {
+        final r = media('staging', 'media-staging.beautica.app', m);
+        expect(r.errors, isEmpty);
+      });
+
+      test('${m.name}: staging flavor + dropped legacy r2.dev host -> '
+          'throws', () {
         final r = media(
           'staging',
-          'media-staging.beautica.app,'
-              'pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev',
+          'pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev',
           m,
         );
-        expect(r.errors, isEmpty);
+        expect(r.ok, isFalse);
+        expect(r.errors.single, contains('BEAUTICA_MEDIA_ORIGIN'));
+        expect(
+          r.errors.single,
+          contains('pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev'),
+        );
+        expect(() => _run(r, m), throwsStateError);
       });
 
       test('${m.name}: staging flavor + unknown media host -> throws', () {
@@ -113,8 +124,8 @@ void main() {
         expect(() => _run(r, m), throwsStateError);
       });
 
-      test('${m.name}: staging flavor + full URL form (deploy script '
-          'STAGING_MEDIA_ORIGIN) -> ok', () {
+      test('${m.name}: staging flavor + full https URL form of the staging '
+          'media host -> ok (scheme stripped)', () {
         final r = media('staging', 'https://media-staging.beautica.app', m);
         expect(r.errors, isEmpty);
       });

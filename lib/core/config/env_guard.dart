@@ -44,10 +44,7 @@ const Map<String, String> kEnvApiHosts = <String, String>{
 /// builds, and for the `prod` flavor in every mode (fatal) — staging debug
 /// keeps local media overrides working.
 const Map<String, Set<String>> kEnvMediaHosts = <String, Set<String>>{
-  'staging': <String>{
-    'media-staging.beautica.app',
-    'pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev',
-  },
+  'staging': <String>{'media-staging.beautica.app'},
   'prod': <String>{'media.beautica.app'},
 };
 
