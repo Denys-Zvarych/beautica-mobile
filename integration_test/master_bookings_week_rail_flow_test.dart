@@ -595,4 +595,94 @@ void main() {
       expect(fb.lastMyBookingsQuery!['to'], toApiDate(steppedDay));
     },
   );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // mobile-qa (2026-10-30) — the rail-dot SELF-HEAL, end to end (Step 2.7
+  // Rule 3b). User report: a day's list shows bookings but its rail dot stays
+  // missing until the app is reopened. The dot set is a 30-minute cached
+  // sweep (`GET /bookings/me/booked-days`) while the day list re-fetches on
+  // every select, so a booking made OFF this device reaches the list first.
+  // `_refreshDotsIfDayMissing` (bookings_discovery_view.dart) re-sweeps the
+  // dots once when a selected day lists bookings but carries no dot.
+  //
+  // The widget tier (`bookings_discovery_view_reuse_test.dart`, 'stale dot
+  // self-heal') pins every guard against overridden providers; this flow
+  // proves the same heal over the real Dio → repository → provider path.
+  //
+  // FALSIFIED 2026-10-30: with the `ref.listen` in `build` removed, this test
+  // fails at the dot assertion (no dot, booked-days called once).
+  testWidgets(
+    'a rail day whose list has a booking the cached dot set lacks re-fetches '
+    'the dots once, and its dot appears without reopening the screen',
+    (tester) async {
+      final fb = FakeBackend()..currentRole = UserRole.independentMaster;
+      // Booted first: `_kyivToday` reads the zone the harness initialises.
+      final GoRouter router = await AppHarness.boot(tester, fb);
+      // Wednesday of today's own rail week (kFixedNow is a Sunday) — on the
+      // opening page, inside the ±kBookedDaysSpanDays window, not today.
+      final DateTime staleDay = railDayAt(mondayOf(_kyivToday), 2);
+      expect(staleDay, isNot(_kyivToday), reason: 'fixture guard');
+      // The list knows the booking (dataset path is date-fenced, so the
+      // landing day stays empty); the first dot sweep predates it.
+      fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+        fb.datasetBookingRow(
+          id: 'booking-offdevice',
+          status: 'CONFIRMED',
+          // 09:00 UTC == 12:00 Kyiv (UTC+3, summer time).
+          startsAt: DateTime.utc(
+            staleDay.year,
+            staleDay.month,
+            staleDay.day,
+            9,
+          ),
+        ),
+      ]);
+      fb.seedStaleBookedDays(fresh: <String>[toApiDate(staleDay)]);
+      _seedWorkingHours(fb, <DateTime>[_kyivToday, staleDay]);
+
+      await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+      await tester.tap(find.byKey(const Key('master-nav-tile-1')));
+      await AppHarness.settle(tester);
+      expect(
+        AppHarness.location(router),
+        startsWith(RouteNames.masterBookings),
+      );
+
+      expect(
+        fb.bookedDaysCalls,
+        1,
+        reason: 'precondition: one (stale) sweep on landing, no heal on today',
+      );
+      expect(
+        find.byKey(dayDotKey(staleDay)),
+        findsNothing,
+        reason: 'precondition: the cached dot set lacks the off-device day',
+      );
+      expect(find.byKey(dayChipKey(staleDay)), findsOneWidget);
+
+      await tester.tap(find.byKey(dayChipKey(staleDay)));
+      // fixed-wait-ok: advancing past the 220 ms day-tap debounce Timer,
+      // which AppHarness.settle (pumpAndSettle) never fires.
+      await tester.pump(const Duration(milliseconds: 300));
+      await AppHarness.settle(tester);
+
+      expect(
+        fb.lastMyBookingsQuery!['from'],
+        toApiDate(staleDay),
+        reason: 'precondition: the selected day\'s list was fetched',
+      );
+      expect(
+        find.byKey(dayDotKey(staleDay)),
+        findsOneWidget,
+        reason:
+            'the day lists a booking but its rail dot is still missing — the '
+            'stale dot set was never re-fetched (the user-reported bug)',
+      );
+      expect(
+        fb.bookedDaysCalls,
+        2,
+        reason: 'exactly one self-heal sweep — no loop',
+      );
+    },
+  );
 }
