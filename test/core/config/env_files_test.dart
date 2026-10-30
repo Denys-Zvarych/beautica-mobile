@@ -71,23 +71,36 @@ void main() {
     );
   });
 
-  // Phase 430: prod allows exactly ONE media host; staging allows the new
-  // custom domain plus the legacy r2.dev host still held by old staging rows.
+  // Phase 430: prod allows exactly ONE media host; so does staging, now that
+  // every staging photo row points at the custom domain (legacy r2.dev dropped).
   test('prod media allow-list is exactly one host', () {
     expect(MediaConfig.parseForTest(prod['BEAUTICA_MEDIA_ORIGIN']!), <String>{
       'media.beautica.app',
     });
   });
 
-  test('staging media allow-list = new custom domain + legacy r2.dev', () {
+  test('staging media allow-list is exactly the custom domain', () {
     expect(
       MediaConfig.parseForTest(staging['BEAUTICA_MEDIA_ORIGIN']!),
-      <String>{
-        'media-staging.beautica.app',
-        'pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev',
-      },
+      <String>{'media-staging.beautica.app'},
     );
   });
+
+  // Phase 430: each file's media list and kEnvMediaHosts must be the SAME set.
+  // The "passes the env guard" tests below only catch a file host missing from
+  // the guard; this also catches a guard host the file no longer ships.
+  for (final MapEntry<String, Map<String, String>> e
+      in <String, Map<String, String>>{
+        'staging': staging,
+        'prod': prod,
+      }.entries) {
+    test('${e.key} media list equals kEnvMediaHosts[${e.key}]', () {
+      expect(
+        MediaConfig.parseForTest(e.value['BEAUTICA_MEDIA_ORIGIN']!),
+        kEnvMediaHosts[e.key],
+      );
+    });
+  }
 
   test('prod values contain no staging, localhost or private host', () {
     for (final String v in prod.values.where((String v) => v != 'prod')) {

@@ -33,7 +33,8 @@ void main() {
     });
 
     test('a migration pair (new + legacy host) allows both, in order', () {
-      // Phase 430: staging allows its custom domain and the old r2.dev host.
+      // Generic parser behaviour for a domain migration (phase 430 used it
+      // for staging; staging now allows only its custom domain).
       expect(
         MediaConfig.parseForTest(
           'media-staging.beautica.app,pub-abc.r2.dev',
