@@ -5202,6 +5202,41 @@ final class FakeBackend {
 
   bool _rescheduleClientOverlapConflict = false;
 
+  /// Phase 431 — when `true`, `PATCH /bookings/{id}/reschedule` answers HTTP
+  /// **409** with the `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }`
+  /// envelope (`isRescheduleLimitReached`'s exact shape): the per-booking
+  /// 24 h provider reschedule budget for a GUEST booking is spent. The seeded
+  /// booking is left untouched. Off by default; takes precedence over
+  /// [rescheduleClientOverlapConflict]. RE-WIRES ON WRITE, same discipline.
+  bool get rescheduleLimitReached => _rescheduleLimitReached;
+  set rescheduleLimitReached(bool value) {
+    _rescheduleLimitReached = value;
+    _wireRescheduleBooking();
+  }
+
+  bool _rescheduleLimitReached = false;
+
+  /// Phase 431 — the VISIT-ITEM twin of [rescheduleLimitReached]. When
+  /// `true`, `PATCH /appointments/appt-1/services/booking-1/reschedule`
+  /// answers HTTP **409** `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }`
+  /// through the REAL generated `AppointmentControllerApi`; the seeded item
+  /// is left untouched. The route is unregistered by default (every other
+  /// flow hand-fakes `AppointmentRepository`); setting this back to `false`
+  /// re-registers it as a 501 so a stray hit fails loudly instead of
+  /// silently succeeding. Pair with `bookingAppointmentId = 'appt-1'`.
+  bool get appointmentItemRescheduleLimitReached =>
+      _appointmentItemRescheduleLimitReached;
+  set appointmentItemRescheduleLimitReached(bool value) {
+    _appointmentItemRescheduleLimitReached = value;
+    _wireRescheduleAppointmentItem();
+  }
+
+  bool _appointmentItemRescheduleLimitReached = false;
+
+  /// `PATCH /appointments/appt-1/services/booking-1/reschedule` call count
+  /// (only counted once [appointmentItemRescheduleLimitReached] has wired it).
+  int rescheduleAppointmentItemCalls = 0;
+
   /// Track 27.x/MO-6 — the seeded booking's `appointmentId`, `null` by
   /// default (a plain single-service booking). A flow proving the
   /// appointment-child provider-write routing (`BookingDetailScreen`'s
@@ -7032,7 +7067,7 @@ final class FakeBackend {
     _adapter.onRoute(
       '/api/v1/bookings/booking-1/reschedule',
       (server) => server.replyCallback(
-        _rescheduleClientOverlapConflict ? 409 : 200,
+        _rescheduleLimitReached || _rescheduleClientOverlapConflict ? 409 : 200,
         (req) {
           rescheduleBookingCalls++;
           final body = _decodeBody(req.data);
@@ -7040,6 +7075,13 @@ final class FakeBackend {
           lastRescheduleNewStartsAt = newStartsAt;
           lastRescheduleAllowClientOverlap =
               body['allowClientOverlap'] as bool?;
+          if (_rescheduleLimitReached) {
+            return <String, dynamic>{
+              'success': false,
+              'data': <String, dynamic>{'code': 'RESCHEDULE_LIMIT_REACHED'},
+              'message': 'Reschedule limit reached for this booking',
+            };
+          }
           if (_rescheduleClientOverlapConflict) {
             return <String, dynamic>{
               'success': false,
@@ -7065,6 +7107,31 @@ final class FakeBackend {
           return _ok(_seededBookingJson(includeReviewByClient: true));
         },
       ),
+      request: const Request(method: RequestMethods.patch, data: Matchers.any),
+    );
+  }
+
+  /// (Re-)registers `PATCH /api/v1/appointments/appt-1/services/booking-1/
+  /// reschedule` — see [appointmentItemRescheduleLimitReached].
+  void _wireRescheduleAppointmentItem() {
+    final bool limit = _appointmentItemRescheduleLimitReached;
+    _adapter.onRoute(
+      '/api/v1/appointments/appt-1/services/booking-1/reschedule',
+      (server) => server.replyCallback(limit ? 409 : 501, (req) {
+        rescheduleAppointmentItemCalls++;
+        if (limit) {
+          return <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'RESCHEDULE_LIMIT_REACHED'},
+            'message': 'Reschedule limit reached for this booking',
+          };
+        }
+        return <String, dynamic>{
+          'success': false,
+          'data': null,
+          'message': 'visit-item reschedule success is not modelled',
+        };
+      }),
       request: const Request(method: RequestMethods.patch, data: Matchers.any),
     );
   }

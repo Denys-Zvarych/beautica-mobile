@@ -757,6 +757,12 @@ GoRouter _router() => GoRouter(
       builder: (context, state) =>
           BookingSuccessScreen(args: state.extra! as BookingSuccessArgs),
     ),
+    // Phase 431 — the reschedule-limit dialog's «Написати в підтримку» target.
+    GoRoute(
+      path: RouteNames.contactSupport,
+      builder: (context, state) =>
+          const SizedBox.shrink(key: Key('test-contact-support')),
+    ),
   ],
 );
 
@@ -764,6 +770,18 @@ GoRouter _router() => GoRouter(
 /// reflects the actual top-of-stack for both `.go()` and `.push()`).
 String locationOf(GoRouter router) =>
     router.routerDelegate.currentConfiguration.matches.last.matchedLocation;
+
+/// Resolves the session BEFORE the CTA tap so `_submit`'s synchronous
+/// `bookingViewerRoleProvider` read sees the real role (it fails closed onto
+/// the client branch while auth is still loading). Shared by the
+/// client-conflict and phase-431 reschedule-limit groups.
+Future<void> warmAuth(WidgetTester tester) async {
+  final ProviderContainer container = ProviderScope.containerOf(
+    tester.element(find.byType(BookingConfirmScreen)),
+    listen: false,
+  );
+  await container.read(authProvider.future);
+}
 
 void main() {
   group('BookingConfirmScreen', () {
@@ -1983,14 +2001,6 @@ void main() {
       // Every reschedule test below that asserts on the RESOLVED role (the
       // PROVIDER-rethrow test, the role-signal-fix pin) needs this or it is
       // either flaky or silently vacuous — see `_StubAuth`'s own doc.
-      Future<void> warmAuth(WidgetTester tester) async {
-        final ProviderContainer container = ProviderScope.containerOf(
-          tester.element(find.byType(BookingConfirmScreen)),
-          listen: false,
-        );
-        await container.read(authProvider.future);
-      }
-
       testWidgets(
         'client-create: a ClientBookingConflictFailure opens the conflict '
         'dialog and renders NO bottom error banner',
@@ -3756,5 +3766,178 @@ void main() {
         );
       },
     );
+  });
+
+  // Phase 431 — a PROVIDER reschedule of a guest booking/visit item past the
+  // 24 h limit (409 RESCHEDULE_LIMIT_REACHED) blocks with a dialog: no banner,
+  // no navigation, no retry; the booking stays as it was.
+  group('reschedule limit reached (phase 431)', () {
+    /// The dialog's title + body, sourced from the live l10n (never a
+    /// literal) and scoped to the dialog, so a key move or copy change can't
+    /// silently satisfy it elsewhere on screen.
+    void expectLimitDialogCopy(WidgetTester tester) {
+      final Finder dialog = find.byKey(const Key('reschedule-limit-dialog'));
+      final AppLocalizations l10n = AppLocalizations.of(tester.element(dialog));
+      for (final String copy in <String>[
+        l10n.bookingRescheduleLimitTitle,
+        l10n.bookingErrRescheduleLimitReached,
+      ]) {
+        expect(
+          find.descendant(of: dialog, matching: find.text(copy)),
+          findsOneWidget,
+        );
+      }
+    }
+
+    Future<GoRouter> pumpWholeBooking(
+      WidgetTester tester,
+      _RecordingRescheduleRepository bookings,
+    ) async {
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWith((_) => bookings),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          authProvider.overrideWith(_StubAuth.new),
+        ],
+      );
+      unawaited(
+        router.push(RouteNames.bookingConfirm, extra: _rescheduleArgs()),
+      );
+      await tester.pumpAndSettle();
+      await warmAuth(tester);
+      return router;
+    }
+
+    testWidgets(
+      'whole booking: shows the limit dialog, no banner, stays on confirm, '
+      'no retry; «Зрозуміло» closes it and the user stays put',
+      (tester) async {
+        final bookings = _RecordingRescheduleRepository()
+          ..rescheduleErrorToThrow = const RescheduleLimitReachedFailure();
+        final GoRouter router = await pumpWholeBooking(tester, bookings);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('reschedule-limit-dialog')),
+          findsOneWidget,
+        );
+        expectLimitDialogCopy(tester);
+        expect(
+          find.byKey(const Key('booking-confirm-submit-error')),
+          findsNothing,
+          reason: 'the limit opens the dialog INSTEAD of the inline banner',
+        );
+        expect(find.byType(BookingSuccessScreen), findsNothing);
+        expect(locationOf(router), RouteNames.bookingConfirm);
+        expect(bookings.rescheduleCalls, hasLength(1));
+
+        await tester.tap(find.byKey(const Key('reschedule-limit-dismiss')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+        expect(locationOf(router), RouteNames.bookingConfirm);
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+        expect(
+          bookings.rescheduleCalls,
+          hasLength(1),
+          reason: 'dismissing the dialog must never resubmit',
+        );
+      },
+    );
+
+    testWidgets(
+      'whole booking: «Написати в підтримку» opens the support screen',
+      (tester) async {
+        final bookings = _RecordingRescheduleRepository()
+          ..rescheduleErrorToThrow = const RescheduleLimitReachedFailure();
+        final GoRouter router = await pumpWholeBooking(tester, bookings);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const Key('reschedule-limit-contact-support')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+        expect(locationOf(router), RouteNames.contactSupport);
+        expect(bookings.rescheduleCalls, hasLength(1));
+      },
+    );
+
+    testWidgets(
+      'whole booking: a barrier tap closes the dialog — no resubmit, no '
+      'support route, still on confirm',
+      (tester) async {
+        final bookings = _RecordingRescheduleRepository()
+          ..rescheduleErrorToThrow = const RescheduleLimitReachedFailure();
+        final GoRouter router = await pumpWholeBooking(tester, bookings);
+
+        await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const Key('reschedule-limit-dialog')),
+          findsOneWidget,
+        );
+
+        // Top-left corner: outside the centred dialog card, on the barrier.
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+        expect(locationOf(router), RouteNames.bookingConfirm);
+        expect(find.byType(BookingConfirmScreen), findsOneWidget);
+        expect(
+          bookings.rescheduleCalls,
+          hasLength(1),
+          reason: 'a barrier dismissal must never resubmit',
+        );
+      },
+    );
+
+    testWidgets('per-item visit reschedule: shows the same limit dialog', (
+      tester,
+    ) async {
+      final appointments = _FakeAppointmentRepository(
+        rescheduleItemErrorToThrow: const RescheduleLimitReachedFailure(),
+      );
+      final GoRouter router = _router();
+      await tester.pumpRoutedApp(
+        router,
+        overrides: <Object>[
+          appointmentRepositoryProvider.overrideWith((_) => appointments),
+          publicMasterProfileProvider(
+            _kMaster.id,
+          ).overrideWith((ref) => (_kMaster, const <MasterService>[_kService])),
+          authProvider.overrideWith(_StubAuth.new),
+        ],
+      );
+      unawaited(
+        router.push(
+          RouteNames.bookingConfirm,
+          extra: _appointmentItemRescheduleArgs(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await warmAuth(tester);
+
+      await tester.tap(find.byKey(const Key('booking-confirm-submit-cta')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('reschedule-limit-dialog')), findsOneWidget);
+      expectLimitDialogCopy(tester);
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+      );
+      expect(locationOf(router), RouteNames.bookingConfirm);
+      expect(appointments.rescheduleItemCalls, hasLength(1));
+    });
   });
 }
