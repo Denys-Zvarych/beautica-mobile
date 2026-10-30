@@ -43,6 +43,12 @@
 // (M14: a negative assertion that can pass for the wrong reason). No
 // overrides are seeded, so nothing but the template decides this.
 //
+// Until 2026-10-30 (mobile-qa, «Графік» booked-slots cycle 2) the screen read
+// "today" from `DateTime.now()` and IGNORED `kFixedNow`, so the banner held
+// only because the HOST day happened to be a non-working weekday too. The
+// screen now reads the harness's `clockProvider`; the journeys below pin the
+// selected strip day to `kFixedNow`'s Kyiv day before asserting the banner.
+//
 // NO PATROL FLOW: nothing in this journey touches an OS permission dialog, a
 // deep link / app link, FCM or a local notification, a WebView, or a
 // biometric prompt. It is a pure screen / route / provider / GET journey, so
@@ -58,7 +64,11 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/master/presentation/salon_master_profile_screen.dart';
 import 'package:beautica_mobile/features/schedule/presentation/master_schedule_screen.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/day_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/schedule_widgets.dart';
+import 'package:beautica_mobile/features/schedule/presentation/widgets/slot_colors.dart';
+import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/kyiv_day.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:flutter/material.dart';
@@ -132,6 +142,16 @@ void main() {
           find.byType(SlotLegend),
           findsOneWidget,
           reason: 'the slot legend must render',
+        );
+        expect(
+          tester
+              .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+              .singleWhere((WeekStripDay c) => c.selected)
+              .day,
+          kyivToday(() => kFixedNow).day,
+          reason:
+              'the initial selection must be the harness\'s fixed day '
+              '(kFixedNow → 2026-06-14), not the host clock\'s',
         );
         expect(
           find.byType(NoScheduleBanner),
@@ -219,6 +239,13 @@ void main() {
         // Same "today" (2026-06-14, Sunday, no seeded hours) as the
         // SALON_MASTER journey above — the banner is on screen here too,
         // so this is a true positive counterpart, not a different fixture.
+        expect(
+          tester
+              .widgetList<WeekStripDay>(find.byType(WeekStripDay))
+              .singleWhere((WeekStripDay c) => c.selected)
+              .day,
+          kyivToday(() => kFixedNow).day,
+        );
         expect(find.byType(NoScheduleBanner), findsOneWidget);
 
         expect(
@@ -239,4 +266,156 @@ void main() {
       });
     },
   );
+  // ── Booked-slots overlay (2026-10-30, Step 2.7 Rule 3b) ──────────────────
+  //
+  // The widget tier (`master_schedule_screen_test.dart`) stubs
+  // `bookingsDayProvider` wholesale, so it never proves the REAL
+  // `scheduleBookingsQueryFor(OwnScheduleScope)` → `bookingsDayProvider` →
+  // `BookingRepository.getMyBookings` → `GET /bookings/me?from=&to=&status=`
+  // chain, nor the wire-to-domain mapping of `startsAt`/`endsAt` that
+  // `buildDayCells` paints from. This journey does, over the fake backend.
+  //
+  // FIXTURE: today (kFixedNow → 2026-06-14, Kyiv) is seeded as a 09:00–18:00
+  // working day through `seedEffectiveSchedule`, so the 18-cell grid (not the
+  // NO_SCHEDULE banner) renders. Two rows on that day via
+  // `seedManyBookingsDataset`: a CONFIRMED 16:00–17:00 Kyiv (13:00Z, UTC+3)
+  // and a CANCELLED 10:00–11:00 Kyiv. Exactly the 16:00 and 16:30 cells must
+  // read booked; the cancelled hour must stay free. Both clocks are the SAME
+  // pinned clock (M15): fixture `kyivToday(() => kFixedNow)`, app `kFixedNow`.
+  testWidgets(
+    'INDEPENDENT_MASTER «Графік»: a CONFIRMED booking on the shown day paints '
+    'its cells booked over GET /bookings/me, a CANCELLED one paints none, and '
+    'the legend carries the booked entry',
+    (tester) async {
+      // Disposed inside the body (not `addTearDown`): flutter_test verifies
+      // handles BEFORE tear-downs run.
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      try {
+        await mockNetworkImagesFor(() async {
+          final fb = FakeBackend();
+          final GoRouter router = await AppHarness.boot(tester, fb);
+          // Seeded AFTER boot: `kyivToday` needs the tz database the boot
+          // policy initialises, and every route reads its seed at REQUEST time
+          // (nothing schedule- or booking-shaped is fetched before the tap).
+          final DateTime today = kyivToday(() => kFixedNow);
+          fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+            FakeBackend.seedEffectiveScheduleDay(today),
+          ]);
+          fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+            fb.datasetBookingRow(
+              id: 'sched-booked-confirmed',
+              status: 'CONFIRMED',
+              startsAt: DateTime.utc(today.year, today.month, today.day, 13),
+            ),
+            fb.datasetBookingRow(
+              id: 'sched-booked-cancelled',
+              status: 'CANCELLED',
+              startsAt: DateTime.utc(today.year, today.month, today.day, 7),
+            ),
+          ]);
+          await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+          await AppHarness.settle(tester);
+
+          expect(find.byType(MasterProfileScreen), findsOneWidget);
+
+          // Entered through the REAL `?date=` deep entry (the bookings
+          // timeline's «Графік» CTA uses the same route), NOT the nav tile.
+          // Since the 2026-10-30 cycle-2 fix the screen's "today" also comes
+          // from the harness's `clockProvider` (`kFixedNow`); the explicit
+          // `?date=` keeps this journey pinned to the fixture's day even if
+          // that default ever regresses (M15: one clock for fixture + app).
+          final String dateToken =
+              '${today.year.toString().padLeft(4, '0')}-'
+              '${today.month.toString().padLeft(2, '0')}-'
+              '${today.day.toString().padLeft(2, '0')}';
+          router.go('${RouteNames.masterSchedule}?date=$dateToken');
+          await AppHarness.settle(tester);
+          expect(find.byType(MasterScheduleScreen), findsOneWidget);
+          AppHarness.expectLocation(router, RouteNames.masterSchedule);
+
+          // The shown day is a seeded working day → the grid, not the banner, renders
+          // (otherwise "no booked cell" below would be vacuous — M14).
+          expect(find.byType(NoScheduleBanner), findsNothing);
+          await tester.ensureVisible(find.byType(SlotLegend));
+          await AppHarness.settle(tester);
+          expect(find.byType(SlotChip), findsWidgets);
+
+          // The booked state came over the REAL wire for THIS day.
+          expect(fb.getMyBookingsCalls, greaterThanOrEqualTo(1));
+          expect(fb.lastMyBookingsQuery?['from'].toString(), '2026-06-14');
+
+          final List<TimeOfDay> booked = tester
+              .widgetList<SlotChip>(find.byType(SlotChip))
+              .where((SlotChip c) => c.cell.state == SlotState.booked)
+              .map((SlotChip c) => c.cell.time)
+              .toList();
+          expect(
+            booked,
+            const <TimeOfDay>[
+              TimeOfDay(hour: 16, minute: 0),
+              TimeOfDay(hour: 16, minute: 30),
+            ],
+            reason:
+                'exactly the CONFIRMED 16:00–17:00 Kyiv booking paints booked; '
+                'the CANCELLED 10:00 row must not',
+          );
+
+          final AppLocalizations l10n = AppLocalizations.of(
+            tester.element(find.byType(MasterScheduleScreen)),
+          );
+          // The chip's a11y label conveys the state without colour. The selected
+          // day panel merges its descendants into ONE semantics node, so each
+          // chip label is one LINE of that node's label — matched as a whole
+          // line, never as a substring of a neighbouring cell's.
+          expect(
+            find.bySemanticsLabel(
+              _labelLine(
+                l10n,
+                const SlotCell(
+                  time: TimeOfDay(hour: 16, minute: 0),
+                  state: SlotState.booked,
+                ),
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.bySemanticsLabel(
+              _labelLine(
+                l10n,
+                const SlotCell(
+                  time: TimeOfDay(hour: 10, minute: 0),
+                  state: SlotState.available,
+                ),
+              ),
+            ),
+            findsOneWidget,
+            reason: 'the cancelled hour stays free',
+          );
+
+          // Legend: three entries, the booked one among them.
+          expect(
+            find.descendant(
+              of: find.byType(SlotLegend),
+              matching: find.text(l10n.scheduleSlotBooked),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(SlotLegend),
+              matching: find.text(l10n.scheduleSlotWorking),
+            ),
+            findsOneWidget,
+          );
+        });
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
 }
+
+/// [slotCellLabel] as a whole-LINE pattern inside a merged semantics label.
+RegExp _labelLine(AppLocalizations l10n, SlotCell cell) =>
+    RegExp('^${RegExp.escape(slotCellLabel(l10n, cell))}\$', multiLine: true);

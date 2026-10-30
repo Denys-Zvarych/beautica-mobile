@@ -2209,17 +2209,17 @@
   "@scheduleDaySummaryUnset": {
     "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
   },
-  "scheduleSlotWorking": "Робочий час",
+  "scheduleSlotWorking": "Вільно",
   "@scheduleSlotWorking": {
-    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+    "description": "Legend + slot label for a free (working, unbooked) 30-min slot — green (Phase 15.2; renamed 2026-10-30)."
   },
-  "scheduleSlotTimeOff": "Час відпочинку",
-  "@scheduleSlotTimeOff": {
-    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  "scheduleSlotBooked": "Заброньовано",
+  "@scheduleSlotBooked": {
+    "description": "Legend + slot label for a 30-min slot overlapping a confirmed/completed booking — pink (replaces scheduleSlotTimeOff, 2026-10-30)."
   },
   "scheduleSlotOff": "Неробочий час",
   "@scheduleSlotOff": {
-    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+    "description": "Legend + slot label for a non-working slot (outside intervals, breaks, day off, no schedule) — grey (Phase 15.2)."
   },
   "scheduleErrTimeNotAligned": "Час має бути кратним 15 хвилинам",
   "@scheduleErrTimeNotAligned": {

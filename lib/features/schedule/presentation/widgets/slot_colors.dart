@@ -20,41 +20,42 @@ import 'package:flutter/material.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 
-/// The three schedule slot states. This screen defines *when the master works*
-/// — it never shows client bookings. Each state maps to the availability model:
+/// The three schedule slot states (legend order = declaration order):
 ///
-///  • [available]   — a 30-min slot inside a working interval: the master IS
-///                    working then. Green, soft and desaturated to sit on the
+///  • [available]   — «Вільно»: a 30-min slot inside a working interval with no
+///                    booking on it. Green, soft and desaturated to sit on the
 ///                    taupe base.
-///  • [timeOff]     — a per-date Time-Off override (OVERRIDE_DAY_OFF) that
-///                    closes a slot inside an otherwise working day. Pink.
-///  • [unavailable] — outside every working interval for the day (the template
-///                    or override does not cover it, or it is a day off / a
-///                    NO_SCHEDULE gap). Grey.
+///  • [booked]      — «Заброньовано»: the slot overlaps a CONFIRMED / COMPLETED
+///                    booking. Dusty-rose — byte-for-byte the colours of the
+///                    retired `timeOff` («Час відпочинку») state (user decision
+///                    2026-10-30: no new colour).
+///  • [unavailable] — «Неробочий час»: outside every working interval for the
+///                    day — lead-in, a break between intervals, a whole-day
+///                    OVERRIDE_DAY_OFF, or a NO_SCHEDULE gap. Grey.
 ///
 /// Colours are intentionally low-chroma so they read as tints OF the warm base
 /// rather than as foreign accent hues. Each pairs a fill, a border and a text
 /// colour so the state never relies on hue alone (legend + label reinforce it).
 enum SlotState {
   available,
-  timeOff,
+  booked,
   unavailable;
 
   Color get fill => switch (this) {
     SlotState.available => const Color(0xFFE4E7D8), // soft sage tint
-    SlotState.timeOff => const Color(0xFFEEDADB), // soft dusty-rose tint
+    SlotState.booked => const Color(0xFFEEDADB), // soft dusty-rose tint
     SlotState.unavailable => const Color(0xFFDED5C7), // recessed taupe
   };
 
   Color get border => switch (this) {
     SlotState.available => const Color(0xFFBFC9A6),
-    SlotState.timeOff => const Color(0xFFD9B6B8),
+    SlotState.booked => const Color(0xFFD9B6B8),
     SlotState.unavailable => const Color(0xFFCBBEA9),
   };
 
   Color get accent => switch (this) {
     SlotState.available => const Color(0xFF5C7A4A), // == BrandColors.success
-    SlotState.timeOff => const Color(0xFFB0452F), // == BrandColors.error
+    SlotState.booked => const Color(0xFFB0452F), // == BrandColors.error
     SlotState.unavailable => BrandColors.faint,
   };
 }

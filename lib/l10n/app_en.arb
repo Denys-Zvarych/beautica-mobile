@@ -2209,17 +2209,17 @@
   "@scheduleDaySummaryUnset": {
     "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
   },
-  "scheduleSlotWorking": "Working hours",
+  "scheduleSlotWorking": "Free",
   "@scheduleSlotWorking": {
-    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+    "description": "Legend + slot label for a free (working, unbooked) 30-min slot — green (Phase 15.2; renamed 2026-10-30)."
   },
-  "scheduleSlotTimeOff": "Time off",
-  "@scheduleSlotTimeOff": {
-    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  "scheduleSlotBooked": "Booked",
+  "@scheduleSlotBooked": {
+    "description": "Legend + slot label for a 30-min slot overlapping a confirmed/completed booking — pink (replaces scheduleSlotTimeOff, 2026-10-30)."
   },
   "scheduleSlotOff": "Non-working hours",
   "@scheduleSlotOff": {
-    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+    "description": "Legend + slot label for a non-working slot (outside intervals, breaks, day off, no schedule) — grey (Phase 15.2)."
   },
   "scheduleErrTimeNotAligned": "Time must be a multiple of 15 minutes",
   "@scheduleErrTimeNotAligned": {
