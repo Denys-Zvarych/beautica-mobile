@@ -346,6 +346,8 @@ class _ServicesListScreenState extends ConsumerState<ServicesListScreen> {
                   scheduleRoute: widget.navScheduleRoute,
                   profileRoute: widget.navProfileRoute,
                   bookingsRoute: widget.navBookingsRoute,
+                  // INDEPENDENT_MASTER-gated inside the hint providers.
+                  showSetupHints: true,
                 )
           : null,
       floatingActionButton: asyncServices.maybeWhen(
