@@ -358,6 +358,52 @@ void main() {
       );
     });
 
+    test('409 BOOKING_UNAVAILABLE → BookingUnavailableFailure carrying the '
+        'server message (phase 425 / backend 398)', () async {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+          'success': false,
+          'data': <String, dynamic>{'code': 'BOOKING_UNAVAILABLE'},
+          'message': 'Запис до цього майстра зараз недоступний',
+        }),
+      );
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(
+          isA<BookingUnavailableFailure>().having(
+            (f) => f.serverMessage,
+            'serverMessage',
+            'Запис до цього майстра зараз недоступний',
+          ),
+        ),
+      );
+    });
+
+    test('409 with another data.code stays ConflictFailure', () async {
+      when(
+        () => bookingApi.createBooking(
+          createBookingRequest: any(named: 'createBookingRequest'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(
+        _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+          'data': <String, dynamic>{'code': 'SOMETHING_ELSE'},
+          'message': 'x',
+        }),
+      );
+
+      await expectLater(
+        repository.createBooking(req),
+        throwsA(isA<ConflictFailure>()),
+      );
+    });
+
     test('connectionError → NetworkFailure', () async {
       when(
         () => bookingApi.createBooking(
@@ -1538,6 +1584,30 @@ void main() {
         throwsA(isA<BookingAlreadyElapsedFailure>()),
       );
     });
+
+    // Phase 431 — the 6th provider reschedule of a guest booking within 24 h.
+    test(
+      '409 RESCHEDULE_LIMIT_REACHED → RescheduleLimitReachedFailure',
+      () async {
+        when(
+          () => bookingApi.rescheduleBooking(
+            bookingId: 'booking-1',
+            rescheduleBookingRequest: any(named: 'rescheduleBookingRequest'),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _reschedulePath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'RESCHEDULE_LIMIT_REACHED'},
+            'message': 'Reschedule limit reached for this booking',
+          }),
+        );
+
+        await expectLater(
+          repository.rescheduleBooking('booking-1', newStart),
+          throwsA(isA<RescheduleLimitReachedFailure>()),
+        );
+      },
+    );
 
     test(
       'a 409 with an unrelated data.code stays the generic ConflictFailure — '

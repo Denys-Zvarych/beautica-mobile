@@ -43,7 +43,8 @@ class VelvetTopBar extends StatelessWidget {
   final String? backLabel;
 
   /// Opt-in (default `false` = the symmetric-inset layout, untouched). When
-  /// `true` AND [backLabel] + [onBack] are set, the bar lays out with a
+  /// `true` AND [onBack] is set (labelled or not — phase 425), the bar lays
+  /// out with a
   /// [_FitTitleBarDelegate]: the [trailing] row is measured first, the title
   /// gets everything left of it (never truncated in normal cases), and the
   /// «‹ Салон» pill collapses to the bare chevron BEFORE the title is cut. The
@@ -172,7 +173,11 @@ class VelvetTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     // The inset applies only when the labelled pill actually renders.
     final bool labelledBack = backLabel != null && onBack != null;
-    final Widget bar = labelledBack && fitWholeTitle
+    // Phase 425 — `fitWholeTitle` also applies to an UNLABELLED back (the
+    // chevron is simply never widened): the public profile's two-button
+    // trailing [heart, «⋯»] would otherwise paint over a centred title at
+    // 320–360 dp. No pre-existing caller sets it without a label.
+    final Widget bar = fitWholeTitle && onBack != null
         ? _fitBar()
         : labelledBack
         // Phase 383 — only a labelled bar measures: it collapses to the plain

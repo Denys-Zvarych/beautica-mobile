@@ -16,6 +16,9 @@
 // with a fake that always succeeds, plus a CLIENT-authenticated [authProvider]
 // stub (mirrors PublicMasterProfileScreen's test harness).
 
+import 'package:beautica_mobile/features/auth/presentation/auth_selectors.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
 import 'dart:async';
 
 import 'package:beautica_api/beautica_api.dart'
@@ -61,6 +64,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:network_image_mock/network_image_mock.dart';
 
+import '../../../helpers/no_reported_targets.dart';
 import '../../../helpers/fake_media_cache.dart';
 import '../../../helpers/fake_salon_master_coverage.dart';
 import '../../../helpers/pump_app.dart';
@@ -4496,6 +4500,205 @@ void main() {
         );
       },
     );
+  });
+
+  // -------------------------------------------------------------------------
+  // Phase 425 D1 — «⋯» report entry on the cover
+  // -------------------------------------------------------------------------
+
+  group('phase 425 — cover «⋯» report', () {
+    Future<void> pumpLoaded(WidgetTester tester, {UserRole? role}) async {
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: <Object>[
+          ..._overrides(),
+          // The viewer's role only matters through `isClientProvider`.
+          if (role != null)
+            isClientProvider.overrideWith((ref) => role == UserRole.client),
+        ],
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('client: «⋯» far right, heart to its left', (tester) async {
+      await pumpLoaded(tester);
+      final Finder more = find.byKey(PublicSalonProfileScreen.reportKey);
+      final Finder heart = find.byKey(const Key('salon-favorite-toggle'));
+      expect(more, findsOne);
+      expect(heart, findsOne);
+      expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(more).dx));
+    });
+
+    testWidgets('client: «⋯» opens the report sheet directly for the '
+        'SALON_PROFILE', (tester) async {
+      await pumpLoaded(tester);
+      await tester.tap(find.byKey(PublicSalonProfileScreen.reportKey));
+      await tester.pumpAndSettle();
+
+      final ReportSheet sheet = tester.widget(find.byType(ReportSheet));
+      expect(sheet.targetType, ReportTargetType.salonProfile);
+      expect(sheet.targetId, _stubSalon.id);
+      final AppLocalizations l10n = AppLocalizations.of(
+        tester.element(find.byType(ReportSheet)),
+      );
+      expect(sheet.subject, l10n.reportSubjectProfile(_stubSalon.name));
+    });
+
+    testWidgets('phase 428 — a salon the client ALREADY reported has no «⋯»; '
+        'the heart stays', (tester) async {
+      // RED WHEN `_CoverTrailing` stops checking the reported set.
+      await _pumpTall(tester);
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: <Object>[
+          ..._overrides(),
+          reportedTargetsOverride(<ReportedTarget>{
+            (type: ReportTargetType.salonProfile, id: _stubSalon.id),
+          }),
+        ],
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(PublicSalonProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('salon-favorite-toggle')), findsOne);
+    });
+
+    testWidgets('a non-client session (own salon) gets no «⋯»', (tester) async {
+      await pumpLoaded(tester, role: UserRole.salonOwner);
+      expect(find.byKey(PublicSalonProfileScreen.reportKey), findsNothing);
+      expect(find.byKey(const Key('salon-favorite-toggle')), findsOne);
+    });
+  });
+
+  // isFavorite (backend 6d1fcbc9) — the profile seeds the heart from
+  // `PublicSalonResponse.isFavorite`.
+  group('server isFavorite seeds the cover heart', () {
+    testWidgets('isFavorite: true → filled heart; one tap sends a DELETE', (
+      tester,
+    ) async {
+      // RED WHEN `_CoverTrailing` stops passing `initialIsFavorite`: the
+      // heart reads empty and the tap POSTs an ADD.
+      await _pumpTall(tester);
+      final _FakeFavoriteRepository fav = _FakeFavoriteRepository();
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async => _stubSalon.copyWith(isFavorite: true),
+          ),
+          fav: fav,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final Finder heart = find.byKey(const Key('salon-favorite-toggle'));
+      expect(
+        find.descendant(
+          of: heart,
+          matching: find.byIcon(Icons.favorite_rounded),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(heart);
+      await tester.pumpAndSettle();
+
+      expect(fav.calls, <String>['remove:$_kSalonId']);
+    });
+  });
+
+  // Pull-to-refresh — a moderated review/photo must not stay on screen until
+  // restart: pulling down reloads the profile and every section it shows.
+  group('pull-to-refresh', () {
+    testWidgets('pulling down refetches the profile, the portfolio, the review '
+        'summary and the loaded reviews', (tester) async {
+      // RED WHEN the `AppRefreshIndicator` around the body is dropped (no
+      // pull at all) or a section is left out of `_refreshAll`.
+      //
+      // A PHONE-height viewport, not `_pumpTall`: the indicator arms at a
+      // fraction of the viewport, and under this screen's bouncing physics
+      // the overscroll is damped — on a 2600-tall surface no fling arms it,
+      // on a real phone a normal pull does.
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      int salonCalls = 0;
+      int portfolioCalls = 0;
+      int summaryCalls = 0;
+      int reviewsCalls = 0;
+      await tester.pumpApp(
+        const PublicSalonProfileScreen(salonId: _kSalonId),
+        overrides: _overrides(
+          repo: _FakeSalonRepository(
+            salon: () async {
+              salonCalls++;
+              return _stubSalon;
+            },
+            portfolio: () async {
+              portfolioCalls++;
+              return const <PortfolioPhoto>[];
+            },
+            summary: () async {
+              summaryCalls++;
+              return _stubSummary;
+            },
+            reviews: (SalonReviewSort sort) async {
+              reviewsCalls++;
+              return _stubReviews(sort);
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final int salonBefore = salonCalls;
+      final int portfolioBefore = portfolioCalls;
+      expect(salonBefore, greaterThan(0));
+      expect(portfolioBefore, greaterThan(0));
+
+      // Pull on «Про салон»: profile + portfolio.
+      await tester.fling(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 600),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        salonCalls,
+        greaterThan(salonBefore),
+        reason: 'the profile was not refetched',
+      );
+      expect(
+        portfolioCalls,
+        greaterThan(portfolioBefore),
+        reason: 'the portfolio was not refetched',
+      );
+
+      // Pull on «Відгуки»: summary + the loaded review list.
+      await tester.tap(find.byKey(const Key('salon-tab-3')));
+      await tester.pumpAndSettle();
+      final int salonMid = salonCalls;
+      final int summaryBefore = summaryCalls;
+      final int reviewsBefore = reviewsCalls;
+      expect(reviewsBefore, greaterThan(0));
+      await tester.fling(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 600),
+        1000,
+      );
+      await tester.pumpAndSettle();
+      expect(salonCalls, greaterThan(salonMid));
+      expect(
+        summaryCalls,
+        greaterThan(summaryBefore),
+        reason: 'summary not refetched',
+      );
+      expect(
+        reviewsCalls,
+        greaterThan(reviewsBefore),
+        reason: 'reviews not refetched',
+      );
+    });
   });
 }
 

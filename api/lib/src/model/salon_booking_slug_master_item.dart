@@ -11,19 +11,20 @@ part 'salon_booking_slug_master_item.g.dart';
 /// SalonBookingSlugMasterItem
 ///
 /// Properties:
-/// * [masterSlug] - The master's public booking slug; use it with GET /api/v1/book/{slug}/info, /availability and /booking.
+/// * [masterSlug] - The master's personal booking slug (GET /api/v1/book/{slug}/info); null when the master has no live personal link (phase 391) — book them through the salon routes /api/v1/book/s/{slug}/masters/{masterId}/_*.
 /// * [name] - Composed \"First Last\".
 /// * [avatarUrl]
 /// * [professionalTitle]
 /// * [avgRating] - The master's rating as the app's salon master card shows it; null while the master has no reviews (never a fabricated 0).
 /// * [reviewCount]
+/// * [masterId] - Phase 391 — the master's id: the {masterId} of /api/v1/book/s/{slug}/masters/{masterId}/_* and the key serviceCoverage[].masters[].masterId refers to.
 @BuiltValue()
 abstract class SalonBookingSlugMasterItem
     implements
         Built<SalonBookingSlugMasterItem, SalonBookingSlugMasterItemBuilder> {
-  /// The master's public booking slug; use it with GET /api/v1/book/{slug}/info, /availability and /booking.
+  /// The master's personal booking slug (GET /api/v1/book/{slug}/info); null when the master has no live personal link (phase 391) — book them through the salon routes /api/v1/book/s/{slug}/masters/{masterId}/_*.
   @BuiltValueField(wireName: r'masterSlug')
-  String get masterSlug;
+  String? get masterSlug;
 
   /// Composed \"First Last\".
   @BuiltValueField(wireName: r'name')
@@ -41,6 +42,10 @@ abstract class SalonBookingSlugMasterItem
 
   @BuiltValueField(wireName: r'reviewCount')
   int get reviewCount;
+
+  /// Phase 391 — the master's id: the {masterId} of /api/v1/book/s/{slug}/masters/{masterId}/_* and the key serviceCoverage[].masters[].masterId refers to.
+  @BuiltValueField(wireName: r'masterId')
+  String get masterId;
 
   SalonBookingSlugMasterItem._();
 
@@ -72,11 +77,13 @@ class _$SalonBookingSlugMasterItemSerializer
     SalonBookingSlugMasterItem object, {
     FullType specifiedType = FullType.unspecified,
   }) sync* {
-    yield r'masterSlug';
-    yield serializers.serialize(
-      object.masterSlug,
-      specifiedType: const FullType(String),
-    );
+    if (object.masterSlug != null) {
+      yield r'masterSlug';
+      yield serializers.serialize(
+        object.masterSlug,
+        specifiedType: const FullType.nullable(String),
+      );
+    }
     yield r'name';
     yield serializers.serialize(
       object.name,
@@ -108,6 +115,11 @@ class _$SalonBookingSlugMasterItemSerializer
       object.reviewCount,
       specifiedType: const FullType(int),
     );
+    yield r'masterId';
+    yield serializers.serialize(
+      object.masterId,
+      specifiedType: const FullType(String),
+    );
   }
 
   @override
@@ -136,8 +148,9 @@ class _$SalonBookingSlugMasterItemSerializer
         case r'masterSlug':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType(String),
-          ) as String;
+            specifiedType: const FullType.nullable(String),
+          ) as String?;
+          if (valueDes == null) continue;
           result.masterSlug = valueDes;
           break;
         case r'name':
@@ -177,6 +190,13 @@ class _$SalonBookingSlugMasterItemSerializer
             specifiedType: const FullType(int),
           ) as int;
           result.reviewCount = valueDes;
+          break;
+        case r'masterId':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(String),
+          ) as String;
+          result.masterId = valueDes;
           break;
         default:
           unhandled.add(key);

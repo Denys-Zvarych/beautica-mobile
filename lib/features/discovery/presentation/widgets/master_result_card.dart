@@ -210,6 +210,8 @@ class MasterResultCard extends ConsumerWidget {
         type: FavoriteTargetType.master,
         id: master.masterId,
       ),
+      // Server truth syncs the heart (syncFromServer: never overrides a toggle).
+      initialIsFavorite: master.isFavorite,
       semanticAddLabel: l10n.favoriteAddLabel,
       semanticRemoveLabel: l10n.favoriteRemoveLabel,
       onError: onFavoriteError,

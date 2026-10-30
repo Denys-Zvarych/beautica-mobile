@@ -15,9 +15,9 @@ Name | Type | Description | Notes
 **clearBand** | **bool** |  | [optional] 
 **clearDurationOverride** | **bool** |  | [optional] 
 **notEmpty** | **bool** |  | [optional] 
-**clearBandCoherent** | **bool** |  | [optional] 
 **clearDurationOverrideCoherent** | **bool** |  | [optional] 
 **bandLegal** | **bool** |  | [optional] 
+**clearBandCoherent** | **bool** |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)
 

@@ -84,6 +84,8 @@ abstract final class MasterMapper {
       // does not supply it", which only `GET /masters/me` does. See
       // `Master.bookingsThisMonth`.
       bookingsThisMonth: dto.bookingsThisMonth,
+      // The MASTER's own flag — never `dto.salon?.isFavorite` (always false).
+      isFavorite: dto.isFavorite ?? false,
     );
   }
 

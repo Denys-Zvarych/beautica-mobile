@@ -11,6 +11,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:beautica_mobile/features/moderation/domain/client_block_access.dart';
+
 import '../domain/auth_session.dart';
 import '../domain/user.dart';
 import '../domain/user_role.dart';
@@ -140,4 +142,19 @@ bool canSelfDeleteAccount(Ref ref) {
     UserRole.independentMaster => true,
     UserRole.salonOwner => false,
   };
+}
+
+/// Phase 426 D1 — `true` only when the settled session is [Authenticated] as
+/// a role that owns a client block list ([clientBlocksAllowedFor]:
+/// independent master, salon owner, salon admin). Gates the «Акаунт» page's
+/// «Заблоковані клієнти» row. Sibling of [canSelfDeleteAccount] — same
+/// `hasError`-before-`.value` idiom, same fail-closed hardening (see
+/// [isSalonOwner]'s doc).
+@riverpod
+bool canManageClientBlocks(Ref ref) {
+  final AsyncValue<AuthSession> session = ref.watch(authProvider);
+  if (session.hasError) return false;
+  final AuthSession? value = session.value;
+  if (value is! Authenticated) return false;
+  return clientBlocksAllowedFor(value.user.role);
 }

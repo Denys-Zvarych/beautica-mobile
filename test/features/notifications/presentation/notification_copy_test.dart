@@ -907,4 +907,138 @@ void main() {
       });
     });
   });
+
+  // Phase 428 — moderation outcomes: locked UK copy (backend 415 D2), glyphs,
+  // role-agnostic (D6).
+  group('moderation outcomes (phase 428)', () {
+    final AppLocalizationsUk uk = AppLocalizationsUk();
+
+    AppNotification row(
+      AppNotificationType type, {
+      ModeratedContentKind? kind,
+    }) => AppNotification(
+      id: '00000000-0000-4000-8000-000000000001',
+      type: type,
+      createdAt: DateTime.utc(2026, 10, 29, 10),
+      read: false,
+      target: const NotificationTarget.none(),
+      params: NotificationParams(contentKind: kind),
+    );
+
+    const String reporterTitle = 'Скаргу розглянуто';
+    final Map<AppNotificationType, String> reporterBodies =
+        <AppNotificationType, String>{
+          AppNotificationType.reportContentRemoved:
+              'Дякуємо! Ми переглянули вашу скаргу, і вміст видалено.',
+          AppNotificationType.reportNoViolation:
+              'Ми переглянули вашу скаргу і не знайшли порушень правил.',
+          AppNotificationType.reportReviewed:
+              'Дякуємо! Ми переглянули вашу скаргу.',
+        };
+
+    for (final MapEntry<AppNotificationType, String> e
+        in reporterBodies.entries) {
+      test('${e.key.name}: title, body and glyph — same for every role', () {
+        for (final bool isClient in <bool>[true, false]) {
+          expect(
+            NotificationCopy.title(uk, e.key, isClient: isClient),
+            reporterTitle,
+          );
+          expect(
+            NotificationCopy.body(uk, row(e.key), isClient: isClient),
+            e.value,
+          );
+        }
+        expect(NotificationCopy.glyph(e.key), Icons.fact_check_rounded);
+      });
+    }
+
+    test('reportReviewed on a PROFILE says the report was confirmed; every '
+        'other kind keeps the neutral line', () {
+      // RED WHEN the PROFILE branch in `NotificationCopy.body` is dropped.
+      const AppNotificationType t = AppNotificationType.reportReviewed;
+      expect(
+        NotificationCopy.body(
+          uk,
+          row(t, kind: ModeratedContentKind.profile),
+          isClient: true,
+        ),
+        "Дякуємо! Скаргу підтверджено — ми зв'яжемося з власником профілю.",
+      );
+      for (final ModeratedContentKind? kind in <ModeratedContentKind?>[
+        ModeratedContentKind.review,
+        ModeratedContentKind.clientReview,
+        ModeratedContentKind.portfolioPhoto,
+        null,
+      ]) {
+        expect(
+          NotificationCopy.body(uk, row(t, kind: kind), isClient: false),
+          'Дякуємо! Ми переглянули вашу скаргу.',
+          reason: '$kind',
+        );
+      }
+    });
+
+    test('contentRemoved: title, glyph and a body per contentKind', () {
+      const AppNotificationType t = AppNotificationType.contentRemoved;
+      expect(NotificationCopy.title(uk, t, isClient: true), 'Вміст видалено');
+      expect(NotificationCopy.title(uk, t, isClient: false), 'Вміст видалено');
+      expect(NotificationCopy.glyph(t), Icons.gpp_maybe_rounded);
+
+      const String review =
+          'Ваш відгук видалено через порушення правил спільноти.';
+      final Map<ModeratedContentKind?, String> bodies =
+          <ModeratedContentKind?, String>{
+            ModeratedContentKind.review: review,
+            ModeratedContentKind.clientReview:
+                'Ваш відгук про клієнта видалено через порушення правил '
+                'спільноти.',
+            ModeratedContentKind.portfolioPhoto:
+                'Ваше фото видалено через порушення правил спільноти.',
+            // D3 fallback.
+            ModeratedContentKind.profile: review,
+            null: review,
+          };
+      for (final MapEntry<ModeratedContentKind?, String> e in bodies.entries) {
+        expect(
+          NotificationCopy.body(uk, row(t, kind: e.key), isClient: false),
+          e.value,
+          reason: '${e.key}',
+        );
+      }
+    });
+
+    test('reviewAboutYouRemoved: title, glyph and one body for REVIEW and '
+        'CLIENT_REVIEW', () {
+      const AppNotificationType t = AppNotificationType.reviewAboutYouRemoved;
+      expect(NotificationCopy.title(uk, t, isClient: true), 'Відгук видалено');
+      expect(NotificationCopy.title(uk, t, isClient: false), 'Відгук видалено');
+      expect(NotificationCopy.glyph(t), Icons.reviews_rounded);
+      for (final ModeratedContentKind? kind in <ModeratedContentKind?>[
+        ModeratedContentKind.review,
+        ModeratedContentKind.clientReview,
+        null,
+      ]) {
+        expect(
+          NotificationCopy.body(uk, row(t, kind: kind), isClient: true),
+          'Відгук про вас видалено модерацією Beautica: він порушував правила '
+          'спільноти.',
+          reason: '$kind',
+        );
+      }
+    });
+
+    test('none of the 5 renders the «unknown» title', () {
+      for (final AppNotificationType t in <AppNotificationType>[
+        ...reporterBodies.keys,
+        AppNotificationType.contentRemoved,
+        AppNotificationType.reviewAboutYouRemoved,
+      ]) {
+        expect(
+          NotificationCopy.title(uk, t, isClient: true),
+          isNot(uk.notificationTitleUnknown),
+        );
+      }
+    });
+  });
 }

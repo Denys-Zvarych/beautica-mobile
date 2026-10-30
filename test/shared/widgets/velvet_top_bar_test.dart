@@ -1065,4 +1065,81 @@ void main() {
       }
     });
   });
+
+  group('phase 425 — fitWholeTitle with an UNLABELLED back', () {
+    Widget pair() => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        NeumorphicIconButton(
+          key: const Key('t-heart'),
+          icon: Icons.favorite_border_rounded,
+          semanticLabel: 'heart',
+          onTap: () {},
+        ),
+        const SizedBox(width: VelvetSpacing.sm + 4),
+        NeumorphicIconButton(
+          key: const Key('t-more'),
+          icon: Icons.more_horiz_rounded,
+          semanticLabel: 'more',
+          onTap: () {},
+        ),
+      ],
+    );
+
+    testWidgets('a two-button trailing never paints over the title at 320 dp', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _pump(
+        tester,
+        VelvetTopBar(
+          title: 'Профіль майстра', // i18n-finder-ok: fixture title
+          onBack: () {},
+          backKey: const Key('t-back'),
+          fitWholeTitle: true,
+          trailing: pair(),
+        ),
+      );
+      final Rect title = tester.getRect(
+        // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
+        find.text('Профіль майстра'),
+      ); // i18n-finder-ok: fixture title
+      expect(
+        title.right,
+        lessThanOrEqualTo(
+          tester.getRect(find.byKey(const Key('t-heart'))).left,
+        ),
+      );
+      expect(
+        title.left,
+        greaterThanOrEqualTo(
+          tester.getRect(find.byKey(const Key('t-back'))).right,
+        ),
+      );
+    });
+
+    testWidgets('without fitWholeTitle the unlabelled bar is unchanged '
+        '(title centred under the trailing)', (tester) async {
+      tester.view.physicalSize = const Size(320, 200);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await _pump(
+        tester,
+        VelvetTopBar(
+          title: 'Профіль майстра', // i18n-finder-ok: fixture title
+          onBack: () {},
+          trailing: pair(),
+        ),
+      );
+      final Rect title = tester.getRect(
+        // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
+        find.text('Профіль майстра'),
+      ); // i18n-finder-ok: fixture title
+      expect(title.center.dx, moreOrLessEquals(160, epsilon: 0.5));
+    });
+  });
 }

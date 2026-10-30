@@ -28,6 +28,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:beautica_mobile/features/moderation/application/my_reported_targets_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
@@ -35,6 +36,8 @@ import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/features/master/application/master_review_summary_notifier.dart';
 import 'package:beautica_mobile/features/master/application/master_reviews_notifier.dart';
 import 'package:beautica_mobile/features/master/domain/master_review.dart';
+import 'package:beautica_mobile/features/moderation/domain/content_report.dart';
+import 'package:beautica_mobile/features/moderation/presentation/widgets/report_sheet.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/rating_summary_card.dart';
 import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
@@ -48,13 +51,22 @@ import 'master_review_sort_sheet.dart';
 /// Composed of two sibling subtrees so a sort toggle (held in
 /// [_SortableReviewList]) rebuilds ONLY the list — never the summary card.
 class MasterReviewsBody extends StatelessWidget {
-  const MasterReviewsBody({super.key, required this.masterId});
+  const MasterReviewsBody({
+    super.key,
+    required this.masterId,
+    this.reportable = false,
+  });
 
   /// The Master-row id (backend UUID, distinct from the session user id).
   /// Additive-nullable since Phase 354 (D3) — `null` renders
   /// [_ZeroReviewsEmpty] and touches neither provider (no fetch); every
   /// pre-354 caller still passes a non-null id and is unaffected.
   final String? masterId;
+
+  /// ADDITIVE (phase 424 D2): each review card gets a «⋮» that opens the
+  /// report sheet. Hosts set it where the viewer is not the review's author;
+  /// `false` (the default) renders every card exactly as before.
+  final bool reportable;
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +77,7 @@ class MasterReviewsBody extends StatelessWidget {
       children: <Widget>[
         _SummarySection(masterId: id),
         const SizedBox(height: VelvetSpacing.md),
-        _SortableReviewList(masterId: id),
+        _SortableReviewList(masterId: id, reportable: reportable),
       ],
     );
   }
@@ -163,9 +175,10 @@ class _SummarySection extends ConsumerWidget {
 /// here, a toggle rebuilds only this subtree — the sibling [_SummarySection] is
 /// left untouched (PERF LOW).
 class _SortableReviewList extends ConsumerStatefulWidget {
-  const _SortableReviewList({required this.masterId});
+  const _SortableReviewList({required this.masterId, required this.reportable});
 
   final String masterId;
+  final bool reportable;
 
   @override
   ConsumerState<_SortableReviewList> createState() =>
@@ -228,7 +241,33 @@ class _SortableReviewListState extends ConsumerState<_SortableReviewList> {
                   itemCount: reviews.length,
                   itemBuilder: (BuildContext context, int i) {
                     final MasterReviewItem r = reviews[i];
-                    final Widget card = _masterReviewCard(r);
+                    // Never on the viewer's own review (phase 424 D2).
+                    final Widget card = widget.reportable && !r.authoredByViewer
+                        // Phase 428 add-on — report once, ever. Per-card
+                        // Consumer + per-target select: a report flips ONE
+                        // card, never the whole shrink-wrapped list.
+                        ? Consumer(
+                            builder: (BuildContext context, WidgetRef ref, _) =>
+                                _masterReviewCard(
+                                  r,
+                                  onMore:
+                                      watchIsReported(
+                                        ref,
+                                        ReportTargetType.review,
+                                        r.id,
+                                      )
+                                      ? null
+                                      : () => showReportSheet(
+                                          context,
+                                          targetType: ReportTargetType.review,
+                                          targetId: r.id,
+                                          subject: l10n.reportSubjectReview(
+                                            r.clientDisplayName,
+                                          ),
+                                        ),
+                                ),
+                          )
+                        : _masterReviewCard(r, onMore: null);
                     // Gap between cards, not after the last — matches the
                     // previous Column's inter-card SizedBox exactly.
                     if (i == reviews.length - 1) return card;
@@ -299,7 +338,7 @@ class _ReviewListSkeleton extends StatelessWidget {
 /// backend resolved one (backend `92280c3`; mirrors salon's
 /// `_salonReviewCard` in `salon_reviews_section.dart`). The name is rendered
 /// as-is with no label.
-ReviewCard _masterReviewCard(MasterReviewItem item) {
+ReviewCard _masterReviewCard(MasterReviewItem item, {VoidCallback? onMore}) {
   final String? service = item.serviceName;
   return ReviewCard(
     data: ReviewCardData(
@@ -312,5 +351,6 @@ ReviewCard _masterReviewCard(MasterReviewItem item) {
     ),
     keyPrefix: 'master-review',
     serviceName: (service != null && service.isNotEmpty) ? service : null,
+    onMore: onMore,
   );
 }

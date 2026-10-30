@@ -5,7 +5,7 @@ description: "Beautica — beauty services booking platform (Flutter app)"
 publish_to: 'none'
 
 # Version: 1.0.0+1 — bumped via Phase 11.6 release discipline.
-version: 1.3.1+5
+version: 1.4.0+6
 
 environment:
   sdk: ^3.11.5
@@ -239,6 +239,12 @@ dev_dependencies:
   # test/helpers/fake_media_cache.dart.
   file: ^7.0.1
   network_image_mock: ^2.1.1
+
+  # Real XML parser for test/android/notification_icon_contract_test.dart
+  # (namespace-aware, quote/order/whitespace-agnostic manifest checks).
+  # Already transitive; pinned to the locked version, declared for the
+  # direct import (depend_on_referenced_packages).
+  xml: 6.6.1
 
   # Declared so widget tests can swap UrlLauncherPlatform.instance for a mock
   # (mocktail + MockPlatformInterfaceMixin) when asserting launchUrl behavior.

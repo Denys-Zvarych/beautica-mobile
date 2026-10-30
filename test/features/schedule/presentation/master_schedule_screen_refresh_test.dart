@@ -58,6 +58,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
+import '../../../helpers/stub_bookings_day.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stub auth / profile
 // ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +201,7 @@ Future<_CountingFakeScheduleRepository> _pumpScreen(WidgetTester tester) async {
         authProvider.overrideWith(_StubAuthNotifier.new),
         masterProfileProvider.overrideWith(_StubMasterProfile.new),
         scheduleRepositoryProvider.overrideWith((ref, scope) => fakeRepo),
+        stubBookingsDayOverride(),
       ].cast(),
       child: const MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,

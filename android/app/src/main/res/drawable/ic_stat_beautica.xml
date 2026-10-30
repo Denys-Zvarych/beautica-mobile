@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android status-bar / notification small icon (FCM default_notification_icon).
+
+    Android renders small icons from the ALPHA channel only, so this must stay a single
+    flat white silhouette on transparent; any opaque background turns into a white square.
+    Glyph = the Beautica "B" mark traced from assets/branding/launcher_icon_monochrome.png
+    (path in the source 1024px coordinate space, scaled to a 20dp glyph with 2dp margin).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:scaleX="0.054127"
+        android:scaleY="0.054127"
+        android:translateX="-16.2815"
+        android:translateY="-15.7267">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M412,327.5 H525 C588,327.5 635,366 635,423 C635,457 616,484 589,496 C631,507 657,541 657,586 C657,650 606,697 537,697 H412 Q388,697 388,673 V351.5 Q388,327.5 412,327.5 Z M437,372.5 H525 C564,372.5 587.5,393 587.5,424 C587.5,457 562,479 525,479 H437 Z M437,524 H537 C583,524 610,549 610,587 C610,626 583,651.5 537,651.5 H437 Z"/>
+    </group>
+</vector>

@@ -89,6 +89,9 @@ Class | Method | HTTP request | Description
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**validateInvite**](doc/AuthControllerApi.md#validateinvite) | **GET** /api/v1/auth/invite/validate | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyEmail**](doc/AuthControllerApi.md#verifyemail) | **POST** /api/v1/auth/verify-email | 
 [*AuthControllerApi*](doc/AuthControllerApi.md) | [**verifyPasswordResetOtp**](doc/AuthControllerApi.md#verifypasswordresetotp) | **POST** /api/v1/auth/verify-password-reset-otp | 
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**block**](doc/BlockControllerApi.md#block) | **POST** /api/v1/blocks | Block the client of a booking
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**list**](doc/BlockControllerApi.md#list) | **GET** /api/v1/blocks | List blocked clients
+[*BlockControllerApi*](doc/BlockControllerApi.md) | [**unblock**](doc/BlockControllerApi.md#unblock) | **DELETE** /api/v1/blocks/{blockId} | Unblock a client
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**cancelBooking**](doc/BookingControllerApi.md#cancelbooking) | **PATCH** /api/v1/bookings/{bookingId}/cancel | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**completeBooking**](doc/BookingControllerApi.md#completebooking) | **PATCH** /api/v1/bookings/{bookingId}/complete | 
 [*BookingControllerApi*](doc/BookingControllerApi.md) | [**createBooking**](doc/BookingControllerApi.md#createbooking) | **POST** /api/v1/bookings | 
@@ -121,6 +124,9 @@ Class | Method | HTTP request | Description
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listSalonFavorites**](doc/FavoriteControllerApi.md#listsalonfavorites) | **GET** /api/v1/favorites/salons | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**listServiceFavorites**](doc/FavoriteControllerApi.md#listservicefavorites) | **GET** /api/v1/favorites/services | 
 [*FavoriteControllerApi*](doc/FavoriteControllerApi.md) | [**removeFavorite**](doc/FavoriteControllerApi.md#removefavorite) | **DELETE** /api/v1/favorites | 
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**getInvite**](doc/GuestReviewsApi.md#getinvite) | **GET** /api/v1/public/review-invites/{token} | Read a review invite
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**optOut**](doc/GuestReviewsApi.md#optout) | **POST** /api/v1/public/review-invites/{token}/opt-out | Stop review-invite SMS for this phone
+[*GuestReviewsApi*](doc/GuestReviewsApi.md) | [**submit**](doc/GuestReviewsApi.md#submit) | **POST** /api/v1/public/review-invites/{token}/reviews | Submit the guest&#39;s review(s)
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateLocality**](doc/IndependentMasterControllerApi.md#updatelocality) | **PATCH** /api/v1/independent-masters/me | 
 [*IndependentMasterControllerApi*](doc/IndependentMasterControllerApi.md) | [**updateProfile**](doc/IndependentMasterControllerApi.md#updateprofile) | **PATCH** /api/v1/independent-masters/me/profile | 
 [*LocationControllerApi*](doc/LocationControllerApi.md) | [**getCitiesByOblast**](doc/LocationControllerApi.md#getcitiesbyoblast) | **GET** /api/v1/locations/oblasts/{oblastId}/cities | 
@@ -166,6 +172,11 @@ Class | Method | HTTP request | Description
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**reviews**](doc/PublicBookingControllerApi.md#reviews) | **GET** /api/v1/book/{slug}/reviews | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonInfo**](doc/PublicBookingControllerApi.md#saloninfo) | **GET** /api/v1/book/s/{slug}/info | 
 [*PublicBookingControllerApi*](doc/PublicBookingControllerApi.md) | [**salonReviews**](doc/PublicBookingControllerApi.md#salonreviews) | **GET** /api/v1/book/s/{slug}/reviews | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**availability1**](doc/PublicSalonBookingControllerApi.md#availability1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/availability | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**book1**](doc/PublicSalonBookingControllerApi.md#book1) | **POST** /api/v1/book/s/{slug}/masters/{masterId}/booking | 
+[*PublicSalonBookingControllerApi*](doc/PublicSalonBookingControllerApi.md) | [**bookableDays1**](doc/PublicSalonBookingControllerApi.md#bookabledays1) | **GET** /api/v1/book/s/{slug}/masters/{masterId}/bookable-days | 
+[*ReportControllerApi*](doc/ReportControllerApi.md) | [**createReport**](doc/ReportControllerApi.md#createreport) | **POST** /api/v1/reports | Report a review, photo or profile
+[*ReportControllerApi*](doc/ReportControllerApi.md) | [**myReports**](doc/ReportControllerApi.md#myreports) | **GET** /api/v1/reports/mine | My reported targets
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**createReview**](doc/ReviewControllerApi.md#createreview) | **POST** /api/v1/reviews | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMasterReviewSummary**](doc/ReviewControllerApi.md#getmasterreviewsummary) | **GET** /api/v1/masters/{masterId}/reviews/summary | 
 [*ReviewControllerApi*](doc/ReviewControllerApi.md) | [**getMyReviews**](doc/ReviewControllerApi.md#getmyreviews) | **GET** /api/v1/reviews/me | 
@@ -231,6 +242,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseAuthResponse](doc/ApiResponseAuthResponse.md)
  - [ApiResponseAvailableSlotsResponse](doc/ApiResponseAvailableSlotsResponse.md)
  - [ApiResponseAvatarResponse](doc/ApiResponseAvatarResponse.md)
+ - [ApiResponseBlockResponse](doc/ApiResponseBlockResponse.md)
  - [ApiResponseBookingDetailResponse](doc/ApiResponseBookingDetailResponse.md)
  - [ApiResponseBookingLinkResponse](doc/ApiResponseBookingLinkResponse.md)
  - [ApiResponseBookingLinksResponse](doc/ApiResponseBookingLinksResponse.md)
@@ -242,6 +254,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseInvitePreviewResponse](doc/ApiResponseInvitePreviewResponse.md)
  - [ApiResponseInviteResponse](doc/ApiResponseInviteResponse.md)
  - [ApiResponseListApprovedCategoryResponse](doc/ApiResponseListApprovedCategoryResponse.md)
+ - [ApiResponseListBlockResponse](doc/ApiResponseListBlockResponse.md)
  - [ApiResponseListBookableMasterResponse](doc/ApiResponseListBookableMasterResponse.md)
  - [ApiResponseListCatalogCategoryResponse](doc/ApiResponseListCatalogCategoryResponse.md)
  - [ApiResponseListCityDistrictResponse](doc/ApiResponseListCityDistrictResponse.md)
@@ -252,6 +265,7 @@ Class | Method | HTTP request | Description
  - [ApiResponseListMasterWorkingDayResponse](doc/ApiResponseListMasterWorkingDayResponse.md)
  - [ApiResponseListOblastResponse](doc/ApiResponseListOblastResponse.md)
  - [ApiResponseListPlatformServiceTypeResponse](doc/ApiResponseListPlatformServiceTypeResponse.md)
+ - [ApiResponseListReportedTargetResponse](doc/ApiResponseListReportedTargetResponse.md)
  - [ApiResponseListSalonMasterEffectiveScheduleResponse](doc/ApiResponseListSalonMasterEffectiveScheduleResponse.md)
  - [ApiResponseListSalonResponse](doc/ApiResponseListSalonResponse.md)
  - [ApiResponseListSalonStaffMemberResponse](doc/ApiResponseListSalonStaffMemberResponse.md)
@@ -286,6 +300,7 @@ Class | Method | HTTP request | Description
  - [ApiResponsePendingBookingActionsCountResponse](doc/ApiResponsePendingBookingActionsCountResponse.md)
  - [ApiResponsePublicSalonResponse](doc/ApiResponsePublicSalonResponse.md)
  - [ApiResponseRegistrationResponse](doc/ApiResponseRegistrationResponse.md)
+ - [ApiResponseReportResponse](doc/ApiResponseReportResponse.md)
  - [ApiResponseRevenueResponse](doc/ApiResponseRevenueResponse.md)
  - [ApiResponseReviewResponse](doc/ApiResponseReviewResponse.md)
  - [ApiResponseSalonAdminResponse](doc/ApiResponseSalonAdminResponse.md)
@@ -314,6 +329,7 @@ Class | Method | HTTP request | Description
  - [AvailableSlotResponse](doc/AvailableSlotResponse.md)
  - [AvailableSlotsResponse](doc/AvailableSlotsResponse.md)
  - [AvatarResponse](doc/AvatarResponse.md)
+ - [BlockResponse](doc/BlockResponse.md)
  - [BookableMasterResponse](doc/BookableMasterResponse.md)
  - [BookingDetailResponse](doc/BookingDetailResponse.md)
  - [BookingLinkMutationRequest](doc/BookingLinkMutationRequest.md)
@@ -337,9 +353,11 @@ Class | Method | HTTP request | Description
  - [ContactSupportRequest](doc/ContactSupportRequest.md)
  - [ContactSupportResponse](doc/ContactSupportResponse.md)
  - [CreateAppointmentRequest](doc/CreateAppointmentRequest.md)
+ - [CreateBlockRequest](doc/CreateBlockRequest.md)
  - [CreateBookingRequest](doc/CreateBookingRequest.md)
  - [CreateCategoryRequestRequest](doc/CreateCategoryRequestRequest.md)
  - [CreateClientReviewRequest](doc/CreateClientReviewRequest.md)
+ - [CreateReportRequest](doc/CreateReportRequest.md)
  - [CreateReviewRequest](doc/CreateReviewRequest.md)
  - [CreateSalonRequest](doc/CreateSalonRequest.md)
  - [CreateServiceDefinitionRequest](doc/CreateServiceDefinitionRequest.md)
@@ -356,6 +374,9 @@ Class | Method | HTTP request | Description
  - [GuestBookingRequest](doc/GuestBookingRequest.md)
  - [GuestBookingResponse](doc/GuestBookingResponse.md)
  - [GuestClientDto](doc/GuestClientDto.md)
+ - [GuestReviewItemRequest](doc/GuestReviewItemRequest.md)
+ - [GuestReviewSubmitRequest](doc/GuestReviewSubmitRequest.md)
+ - [GuestReviewSubmitResponse](doc/GuestReviewSubmitResponse.md)
  - [GuestTokenResponse](doc/GuestTokenResponse.md)
  - [IndependentMasterUpdateRequest](doc/IndependentMasterUpdateRequest.md)
  - [InviteAcceptRequest](doc/InviteAcceptRequest.md)
@@ -412,6 +433,8 @@ Class | Method | HTTP request | Description
  - [RegisterIndependentMasterRequest](doc/RegisterIndependentMasterRequest.md)
  - [RegisterRequest](doc/RegisterRequest.md)
  - [RegistrationResponse](doc/RegistrationResponse.md)
+ - [ReportResponse](doc/ReportResponse.md)
+ - [ReportedTargetResponse](doc/ReportedTargetResponse.md)
  - [RescheduleBookingRequest](doc/RescheduleBookingRequest.md)
  - [ResendVerificationRequest](doc/ResendVerificationRequest.md)
  - [ResetPasswordRequest](doc/ResetPasswordRequest.md)
@@ -419,6 +442,9 @@ Class | Method | HTTP request | Description
  - [RevenueByMasterDto](doc/RevenueByMasterDto.md)
  - [RevenueByServiceDto](doc/RevenueByServiceDto.md)
  - [RevenueResponse](doc/RevenueResponse.md)
+ - [ReviewInviteItemResponse](doc/ReviewInviteItemResponse.md)
+ - [ReviewInviteOptOutRequest](doc/ReviewInviteOptOutRequest.md)
+ - [ReviewInviteResponse](doc/ReviewInviteResponse.md)
  - [ReviewResponse](doc/ReviewResponse.md)
  - [RotateAdminRequest](doc/RotateAdminRequest.md)
  - [RotateMasterRequest](doc/RotateMasterRequest.md)
@@ -436,6 +462,8 @@ Class | Method | HTTP request | Description
  - [SalonSearchResult](doc/SalonSearchResult.md)
  - [SalonServiceCatalogResponse](doc/SalonServiceCatalogResponse.md)
  - [SalonServiceCategoryGroup](doc/SalonServiceCategoryGroup.md)
+ - [SalonServiceCoverage](doc/SalonServiceCoverage.md)
+ - [SalonServiceMasterRef](doc/SalonServiceMasterRef.md)
  - [SalonStaffMemberResponse](doc/SalonStaffMemberResponse.md)
  - [ScheduleOverrideRequest](doc/ScheduleOverrideRequest.md)
  - [ScheduleOverrideResponse](doc/ScheduleOverrideResponse.md)

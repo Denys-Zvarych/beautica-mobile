@@ -104,6 +104,7 @@ import '../features/home/presentation/client_location_edit_screen.dart';
 import '../features/home/presentation/client_personal_info_edit_screen.dart';
 import '../features/home/presentation/client_settings_hub_screen.dart';
 import '../features/favorites/presentation/favorites_screen.dart';
+import '../features/moderation/presentation/blocked_clients_screen.dart';
 import '../features/home/presentation/home_hub_screen.dart';
 import '../features/passport/presentation/passport_screen.dart';
 import '../features/wishlist/presentation/wishlist_screen.dart';
@@ -951,10 +952,14 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.settings,
         builder: (context, state) {
-          final extras = state.extra as AccountSettingsExtras?;
+          final Object? extra = state.extra;
+          final AccountSettingsExtras? extras = extra is AccountSettingsExtras
+              ? extra
+              : null;
           return SettingsScreen(
             salonId: extras?.salonId,
             showDeleteSalon: extras?.showDeleteSalon ?? false,
+            fromSalonSettings: extras?.fromSalonSettings ?? false,
           );
         },
       ),
@@ -966,6 +971,13 @@ GoRouter appRouter(Ref ref) {
       GoRoute(
         path: RouteNames.bookingLinks,
         builder: (context, state) => const BookingLinkScreen(),
+      ),
+      // Phase 426 — «Заблоковані клієнти». Standalone literal leaf, same
+      // shape as booking links above. Role-gated in `auth_redirect.dart`
+      // (INDEPENDENT_MASTER / SALON_OWNER / SALON_ADMIN only).
+      GoRoute(
+        path: RouteNames.blockedClients,
+        builder: (context, state) => const BlockedClientsScreen(),
       ),
       // Support / contact-us («Напишіть нам»). Pushed from the settings hub's
       // "Допомога" row. MaterialPage (builder:) so the swipe-back gesture works.
@@ -1205,8 +1217,9 @@ GoRouter appRouter(Ref ref) {
           personalInfoRoute: RouteNames.adminEditPersonal,
           contactsRoute: RouteNames.adminEditContacts,
           fallbackHomeRoute: RouteNames.adminOwnProfile,
-          // Phase 414 — SALON_ADMIN shares its salon's link.
-          showBookingLinks: true,
+          // No `showBookingLinks` — SALON_ADMIN reaches «Посилання для
+          // запису» from salon «Налаштування» only (user decision
+          // 2026-10-29).
         ),
       ),
       // Phase 356 — «Особисті дані» edit for a SALON_ADMIN. REUSES
@@ -1235,8 +1248,9 @@ GoRouter appRouter(Ref ref) {
           showContacts: false,
           personalInfoRoute: RouteNames.ownerEditPersonal,
           fallbackHomeRoute: RouteNames.ownerMasterProfile,
-          // Phase 414 — SALON_OWNER shares its salons' links.
-          showBookingLinks: true,
+          // No `showBookingLinks` — SALON_OWNER reaches «Посилання для
+          // запису» from salon «Налаштування» only (user decision
+          // 2026-10-29).
         ),
       ),
       // Phase 367 / 399 — «Особисті дані» for a SALON_OWNER. REUSES

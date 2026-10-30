@@ -636,7 +636,10 @@ class _ProfileBody extends StatelessWidget {
                   child: switch (tab) {
                     0 => _AboutTab(master: master),
                     1 => const _ProfileServicesTabBody(),
-                    _ => MasterReviewsBody(masterId: master.id),
+                    _ => MasterReviewsBody(
+                      masterId: master.id,
+                      reportable: true,
+                    ),
                   },
                 ),
               ),

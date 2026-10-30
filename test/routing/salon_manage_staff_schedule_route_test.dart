@@ -23,6 +23,8 @@
 //      routes (which all require a memberId segment BEFORE their own literal
 //      tail, i.e. two segments after `staff/`).
 
+import 'dart:async';
+
 import 'package:beautica_api/beautica_api.dart';
 import 'package:beautica_mobile/core/app_start_time.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
@@ -33,6 +35,8 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking_links/data/booking_links_repository.dart';
+import 'package:beautica_mobile/features/booking_links/domain/booking_link.dart';
 import 'package:beautica_mobile/features/salon/application/salon_management_profile_notifier.dart';
 import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/features/salon/domain/salon_staff_member.dart';
@@ -88,6 +92,23 @@ class _SettledEmptyRoster extends SalonManagementProfile {
 }
 
 class _MockMasterControllerApi extends Mock implements MasterControllerApi {}
+
+/// Never-completing booking-links source — mirrors
+/// `salon_shell_screen_test.dart`. The salon management screen warms up
+/// `bookingLinksVisibleProvider` (712ea970); without this the REAL repository
+/// issues a Dio request whose timer is still pending at teardown.
+class _PendingBookingLinksRepository implements BookingLinksRepository {
+  _PendingBookingLinksRepository();
+
+  final Completer<BookingLinks> _never = Completer<BookingLinks>();
+
+  @override
+  Future<BookingLinks> getMine() => _never.future;
+
+  @override
+  Future<BookingLinkMutationOutcome> regenerate(BookingLink link) =>
+      throw UnimplementedError();
+}
 
 class _RouterApp extends StatelessWidget {
   const _RouterApp({required this.router});
@@ -177,6 +198,9 @@ void main() {
         // otherwise read through the REAL salon repository → a live Dio
         // request still pending at the timer invariant.
         portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+        bookingLinksRepositoryProvider.overrideWithValue(
+          _PendingBookingLinksRepository(),
+        ),
       ],
     );
     return container;

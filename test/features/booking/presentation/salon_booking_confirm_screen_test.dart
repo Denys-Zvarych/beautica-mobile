@@ -1411,5 +1411,55 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'phase 425 — a 409 BOOKING_UNAVAILABLE shows the neutral VelvetBanner, '
+      'not the generic error card',
+      (tester) async {
+        await _pumpTall(tester);
+        final _FakeBookingRepository bookingRepo = _FakeBookingRepository();
+        final _RecordingAppointmentRepository appointmentRepo =
+            _RecordingAppointmentRepository(
+              responder: (CreateAppointmentRequest req) =>
+                  throw const BookingUnavailableFailure(
+                    serverMessage: 'Запис до цього салону зараз недоступний',
+                  ),
+            );
+        final GoRouter router = _router();
+
+        await tester.pumpRoutedApp(
+          router,
+          overrides: <Object>[
+            ..._baseOverrides(bookingRepo),
+            appointmentRepositoryProvider.overrideWithValue(appointmentRepo),
+          ],
+        );
+        unawaited(
+          router.push(
+            RouteNames.salonBookingConfirm,
+            extra: _singleAppointmentArgs(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('salon-confirm-submit-cta')));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const Key('booking-unavailable-banner')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('salon-confirm-submit-error')),
+          findsNothing,
+        );
+        // i18n-finder-ok: backend message rendered verbatim.
+        expect(
+          // i18n-finder-ok: fixture / verbatim approved copy or server passthrough, asserted literally on purpose
+          find.text('Запис до цього салону зараз недоступний'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

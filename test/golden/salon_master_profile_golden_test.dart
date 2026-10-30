@@ -117,7 +117,7 @@ List<Object> _overrides() => <Object>[
         clientDisplayName: 'Марія К.',
         rating: 5,
         comment: 'Чудова майстриня!',
-        createdAt: DateTime(2026, 6, 1),
+        createdAt: goldenReviewCreatedAt(135),
       ),
     ],
   ),

@@ -26,18 +26,12 @@
 //      defaults (`salonId: null`, `showDeleteSalon: false`) — proven the
 //      same way: constructor fields AND the row staying hidden even for an
 //      owner session.
-//   3. Pushing with a WRONG-TYPED extra throws a `TypeError` — pinning the
-//      established `state.extra as SomeArgs?` convention this router already
-//      uses unguarded at every other `extra`-carrying route (e.g.
-//      `state.extra as ResetPasswordArgs?` at the `/reset-password` route,
-//      `state.extra! as BookingConfirmArgs` on the booking flow). No real
-//      caller in this codebase ever passes a mistyped `extra` to
-//      `RouteNames.settings` — both call sites are literal, compile-time-
-//      checked `AccountSettingsExtras(...)` construction sites — so a loud
-//      crash on a wrong-typed extra is the CORRECT, consistent contract here.
-//      Silently swallowing it (e.g. `extras is AccountSettingsExtras ?
-//      extras : null`) would be a deliberate widening of this route's
-//      contract and is NOT proposed.
+//   3. Pushing with a WRONG-TYPED extra falls back to the same safe
+//      defaults as no extra — the `/settings` builder type-checks
+//      (`extra is AccountSettingsExtras ? extra : null`, commit 49f16c76)
+//      instead of the old unguarded `as AccountSettingsExtras?` cast, so a
+//      stray extra can never crash the account screen or surface owner-only
+//      rows.
 //
 // Layer: Widget (mounts the real router + screen tree).
 
@@ -55,7 +49,6 @@ import 'package:beautica_mobile/features/settings/presentation/settings_screen.d
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/app_router.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -184,47 +177,34 @@ void main() {
       },
     );
 
-    testWidgets('pushing with a WRONG-TYPED extra throws a TypeError from the '
-        'unguarded `as AccountSettingsExtras?` cast — the established, '
-        'intentional contract for every extra-carrying route in this router', (
-      tester,
-    ) async {
-      final router = await pumpRouterAsOwner(tester);
+    testWidgets(
+      'pushing with a WRONG-TYPED extra does NOT throw — the builder\'s '
+      '`is AccountSettingsExtras` check falls back to the safe defaults and '
+      'the delete-salon row stays hidden even for an owner session',
+      (tester) async {
+        final router = await pumpRouterAsOwner(tester);
 
-      // A stray String extra — no real caller does this; every actual call
-      // site is a compile-time-checked AccountSettingsExtras(...) literal
-      // or omits `extra` entirely.
-      unawaited(router.push(RouteNames.settings, extra: 'not-the-right-type'));
+        // A stray String extra — no real caller does this; every actual call
+        // site is a compile-time-checked AccountSettingsExtras(...) literal
+        // or omits `extra` entirely.
+        unawaited(
+          router.push(RouteNames.settings, extra: 'not-the-right-type'),
+        );
+        await tester.pumpAndSettle();
 
-      // The synchronous `as AccountSettingsExtras?` cast throws during the
-      // GoRoute builder's build(), which Flutter surfaces as a FlutterError
-      // recorded by the test binding rather than an escaping exception —
-      // assert on that recorded error instead of wrapping the pump in
-      // `expect(..., throwsA(...))` (which would not observe a build-phase
-      // error at all).
-      final FlutterExceptionHandler? previousOnError = FlutterError.onError;
-      final List<FlutterErrorDetails> caught = [];
-      FlutterError.onError = caught.add;
-      addTearDown(() => FlutterError.onError = previousOnError);
+        // A build-phase throw would be recorded by the binding and surface
+        // here; none may occur.
+        expect(tester.takeException(), isNull);
+        expect(find.byType(SettingsScreen), findsOneWidget);
+        final SettingsScreen screen = tester.widget<SettingsScreen>(
+          find.byType(SettingsScreen),
+        );
+        expect(screen.salonId, isNull);
+        expect(screen.showDeleteSalon, isFalse);
+        expect(screen.fromSalonSettings, isFalse);
 
-      await tester.pumpAndSettle();
-
-      expect(
-        caught,
-        isNotEmpty,
-        reason:
-            'a wrong-typed extra must throw during the /settings builder — '
-            'silently swallowing it would be an undocumented contract '
-            'change',
-      );
-      expect(
-        caught.any((d) => d.exception is TypeError),
-        isTrue,
-        reason:
-            'the thrown error must be a TypeError from the `as '
-            'AccountSettingsExtras?` downcast, matching every other '
-            'unguarded extra cast in this router',
-      );
-    });
+        expect(_rowFinder, findsNothing);
+      },
+    );
   });
 }

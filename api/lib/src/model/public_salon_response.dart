@@ -32,6 +32,7 @@ part 'public_salon_response.g.dart';
 /// * [reviewCount]
 /// * [citySettlementType] - Kind of the settlement behind cityId, so the client can prefix the saved-locality label (м./смт/с./с-ще) exactly as for a GET /settlements row. Resolved at read time; null only if cityId does not resolve.
 /// * [cityHromadaNameUk] - Bare hromada adjective of the settlement behind cityId, populated ONLY when its name is ambiguous within its oblast (same rule as GET /settlements hromadaNameUk); null otherwise. The oblast half of the label is `region`.
+/// * [isFavorite] - Whether the signed-in CLIENT has favourited this salon. Always false for anonymous and non-CLIENT callers, and where this object is nested in another response. Decorated per request, after the cache read.
 @BuiltValue()
 abstract class PublicSalonResponse
     implements Built<PublicSalonResponse, PublicSalonResponseBuilder> {
@@ -101,13 +102,17 @@ abstract class PublicSalonResponse
   @BuiltValueField(wireName: r'cityHromadaNameUk')
   String? get cityHromadaNameUk;
 
+  /// Whether the signed-in CLIENT has favourited this salon. Always false for anonymous and non-CLIENT callers, and where this object is nested in another response. Decorated per request, after the cache read.
+  @BuiltValueField(wireName: r'isFavorite')
+  bool? get isFavorite;
+
   PublicSalonResponse._();
 
   factory PublicSalonResponse([void updates(PublicSalonResponseBuilder b)]) =
       _$PublicSalonResponse;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(PublicSalonResponseBuilder b) => b;
+  static void _defaults(PublicSalonResponseBuilder b) => b..isFavorite = false;
 
   @BuiltValueSerializer(custom: true)
   static Serializer<PublicSalonResponse> get serializer =>
@@ -265,6 +270,13 @@ class _$PublicSalonResponseSerializer
       yield serializers.serialize(
         object.cityHromadaNameUk,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.isFavorite != null) {
+      yield r'isFavorite';
+      yield serializers.serialize(
+        object.isFavorite,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -434,6 +446,13 @@ class _$PublicSalonResponseSerializer
           ) as String?;
           if (valueDes == null) continue;
           result.cityHromadaNameUk = valueDes;
+          break;
+        case r'isFavorite':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.isFavorite = valueDes;
           break;
         default:
           unhandled.add(key);

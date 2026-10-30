@@ -32,6 +32,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'no_reported_targets.dart';
 import 'no_unread_notifications.dart';
 import 'overflow_guard.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
@@ -91,7 +92,9 @@ extension PumpApp on WidgetTester {
         // ProviderScope.overrides accepts List<Override>; we cast so callers
         // can pass a plain list without importing the internal Override type.
         // ignore: avoid_dynamic_calls
-        overrides: withDefaultNoUnread(overrides).cast(),
+        overrides: withDefaultNoReportedTargets(
+          withDefaultNoUnread(overrides),
+        ).cast(),
         retry: retry,
         child: MaterialApp(
           localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -121,7 +124,9 @@ extension PumpApp on WidgetTester {
     installOverflowGuard();
     await pumpWidget(
       ProviderScope(
-        overrides: withDefaultNoUnread(overrides).cast(),
+        overrides: withDefaultNoReportedTargets(
+          withDefaultNoUnread(overrides),
+        ).cast(),
         retry: retry,
         child: MaterialApp.router(
           routerConfig: router,

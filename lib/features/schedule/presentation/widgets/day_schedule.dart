@@ -6,35 +6,41 @@
 // instead of the preview's in-memory `DaySchedule` sample.
 //
 // The 30-min [SlotCell] grid is a PURE RENDER PROJECTION — it is computed from
-// the resolved [EffectiveDay] (template- or override-derived) on every build and
-// is NEVER stored (cf. Phase 15.1 contract + preview README). Each cell carries
-// exactly ONE [SlotState] (solid single-colour chip — no proportional / split /
-// banded fills). The state assigned to a 30-min cell window `[s, s+30)`:
-//   • OVERRIDE_DAY_OFF (whole day off)                → [SlotState.timeOff]
+// the resolved [EffectiveDay] (template- or override-derived) plus the day's
+// BOOKINGS on every build and is NEVER stored (cf. Phase 15.1 contract +
+// preview README). Each cell carries exactly ONE [SlotState] (solid
+// single-colour chip — no proportional / split / banded fills). The state
+// assigned to a 30-min cell window `[s, s+30)`:
+//   • the cell overlaps a CONFIRMED / COMPLETED      → [SlotState.booked]
+//     booking (even by a single minute)                 (wins over every
+//                                                       other state)
+//   • OVERRIDE_DAY_OFF (whole day off)                → [SlotState.unavailable]
 //   • NO_SCHEDULE / no intervals                      → [SlotState.unavailable]
 //   • otherwise (working day, intervals present):
-//       – the cell overlaps an INTERIOR PAUSE (a gap     → [SlotState.timeOff]
-//         between two consecutive working intervals)        (FULLY red — the
-//         even by a single minute → WHOLE-CELL RED            round-up rule)
-//       – else the cell overlaps any working interval   → [SlotState.available]
-//       – else (leading / trailing off)                 → [SlotState.unavailable]
+//       – the cell overlaps any working interval      → [SlotState.available]
+//       – else (leading off, or a BREAK between two   → [SlotState.unavailable]
+//         consecutive intervals)
 //
-// The "round-up" (ceil) pause rule: a 15-min pause paints the ONE 30-min card
-// that contains it fully red; a 45-min pause paints TWO cards fully red. A pause
-// wins over partial work in the same cell (pause beats work when both touch it).
+// Three-state legend (user decision 2026-10-30): «Вільно» / «Заброньовано» /
+// «Неробочий час». Breaks and whole-day OVERRIDE_DAY_OFF are folded into
+// «Неробочий час»; they no longer have a legend state of their own. The booked
+// visual is the former «Час відпочинку» (`timeOff`) dusty-rose swatch,
+// byte-for-byte.
 //
-// A "pause" is derived CLIENT-SIDE: the interior non-working span of a working
-// day (minutes inside `[firstStart, lastEnd)` that fall in no interval). Leading
-// and trailing gaps stay grey "off". No backend change — the wire format is the
-// same minute-precise `List<WorkInterval>`.
-//
-// No client bookings appear on this surface — availability only.
+// Bookings are optional input (`buildDayCells(day, bookings: ...)`): the screen
+// renders the availability grid immediately and repaints once the day's
+// bookings land. CANCELLED / DECLINED / NOT_COMPLETED bookings never paint.
+// Before 2026-10-30 this surface was availability-only (Phase 15.2 design).
 
 import 'package:flutter/material.dart';
+import 'package:timezone/timezone.dart' as tz;
 
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/time/time_zones.dart';
 
 import 'slot_colors.dart';
 
@@ -52,18 +58,17 @@ class SlotCell {
 ///
 /// Deviation from the preview, which hard-coded the Ukrainian strings on the
 /// enum: production routes them through [AppLocalizations] so they satisfy
-/// `no_raw_ui_strings` and stay EN-ready. The Ukrainian wording is byte-for-byte
-/// the approved preview copy ("Робочий час" / "Час відпочинку" / "Неробочий
-/// час").
+/// `no_raw_ui_strings` and stay EN-ready. Wording per the 2026-10-30 user
+/// decision: "Вільно" / "Заброньовано" / "Неробочий час".
 String slotStateLabel(AppLocalizations l10n, SlotState state) =>
     switch (state) {
       SlotState.available => l10n.scheduleSlotWorking,
-      SlotState.timeOff => l10n.scheduleSlotTimeOff,
+      SlotState.booked => l10n.scheduleSlotBooked,
       SlotState.unavailable => l10n.scheduleSlotOff,
     };
 
 /// The localised semantic label for a [cell]: its time + state label (e.g.
-/// "09:00 — Робочий час"). Used for the chip's a11y label so the state is
+/// "09:00 — Вільно"). Used for the chip's a11y label so the state is
 /// conveyed without relying on colour.
 String slotCellLabel(AppLocalizations l10n, SlotCell cell) {
   final String time =
@@ -82,16 +87,23 @@ String slotCellLabel(AppLocalizations l10n, SlotCell cell) {
 /// [day] is the resolved [EffectiveDay] from Phase 15.1. State mapping (which
 /// mirrors the four [EffectiveSource] cases the backend can produce):
 ///   • intervals present (TEMPLATE / OVERRIDE_CUSTOM) → green inside an
-///     interval; the interior gap between intervals is a PAUSE rendered RED
-///     under the whole-cell round-up rule. The lead-in before the first interval
-///     is GREY; the run-out after the last interval is clamped away (no trailing
-///     cells).
-///   • OVERRIDE_DAY_OFF (the master deliberately closed the date — vacation /
-///     holiday / sick / other) → the whole grid reads pink "Час відпочинку",
-///     distinguishing a chosen rest day from a simple gap.
-///   • NO_SCHEDULE (no hours published for the date) → all grey "Неробочий час".
-List<SlotCell> buildDayCells(EffectiveDay day) {
+///     interval; the lead-in before the first interval and any BREAK between
+///     intervals is GREY "Неробочий час"; the run-out after the last interval
+///     is clamped away (no trailing cells).
+///   • OVERRIDE_DAY_OFF / NO_SCHEDULE → all grey "Неробочий час".
+///
+/// [bookings] (default empty — every pre-2026-10-30 caller renders exactly the
+/// availability grid it always did, minus the retired pause/day-off pink): any
+/// cell overlapping a [BookingStatus.confirmed] or [BookingStatus.completed]
+/// booking's Kyiv `[startAt, endAt)` span on [day]'s date is
+/// [SlotState.booked], winning over every other state. Other statuses are
+/// ignored.
+List<SlotCell> buildDayCells(
+  EffectiveDay day, {
+  List<Booking> bookings = const <Booking>[],
+}) {
   final (int gridStartMin, int gridEndMin) = _gridBounds(day.intervals);
+  final List<(int, int)> bookedSpans = _bookedSpans(day.date, bookings);
 
   // Perf (HIGH-2): the projection is a pure function of the day's
   // (date, source, intervals) — recomputing + reallocating the list on every
@@ -99,14 +111,51 @@ List<SlotCell> buildDayCells(EffectiveDay day) {
   // independently of day selection. Memoize a single most-recent result keyed
   // by the resolved day + grid bounds: a day-change recomputes once, a pure
   // strip-highlight repaint (no day change) reuses the cached list verbatim.
-  if (_cachedKey != null &&
-      _cachedKey!.matches(day, gridStartMin, gridEndMin)) {
-    return _cachedCells!;
+  final _DayCellsKey? cachedKey = _cachedKey;
+  final List<SlotCell>? cachedCells = _cachedCells;
+  if (cachedKey != null &&
+      cachedCells != null &&
+      cachedKey.matches(day, gridStartMin, gridEndMin, bookedSpans)) {
+    return cachedCells;
   }
-  final List<SlotCell> cells = _computeDayCells(day, gridStartMin, gridEndMin);
-  _cachedKey = _DayCellsKey(day, gridStartMin, gridEndMin);
+  final List<SlotCell> cells = _computeDayCells(
+    day,
+    gridStartMin,
+    gridEndMin,
+    bookedSpans,
+  );
+  _cachedKey = _DayCellsKey(day, gridStartMin, gridEndMin, bookedSpans);
   _cachedCells = cells;
   return cells;
+}
+
+/// The Kyiv-minute `[start, end)` spans (minutes since [date]'s Kyiv midnight,
+/// clamped to `[0, 1440]`) of every CONFIRMED / COMPLETED booking in
+/// [bookings] that touches [date]. Empty input short-circuits before any
+/// timezone read, so a bookings-less caller never depends on tz init.
+List<(int, int)> _bookedSpans(DateTime date, List<Booking> bookings) {
+  if (bookings.isEmpty) return const <(int, int)>[];
+  final tz.TZDateTime midnight = tz.TZDateTime(
+    beauticaZone,
+    date.year,
+    date.month,
+    date.day,
+  );
+  final List<(int, int)> spans = <(int, int)>[];
+  for (final Booking b in bookings) {
+    if (b.status != BookingStatus.confirmed &&
+        b.status != BookingStatus.completed) {
+      continue;
+    }
+    final int start = toBeauticaTime(
+      b.startAt,
+    ).difference(midnight).inMinutes.clamp(0, 1440);
+    final int end = toBeauticaTime(
+      b.endAt,
+    ).difference(midnight).inMinutes.clamp(0, 1440);
+    if (end > start) spans.add((start, end));
+  }
+  return spans;
 }
 
 /// The grid's `[gridStartMin, gridEndMin)` cell-start window, in minutes from
@@ -146,27 +195,54 @@ _DayCellsKey? _cachedKey;
 List<SlotCell>? _cachedCells;
 
 /// Identity of a [buildDayCells] computation: the resolved day's date + source
-/// + interval shape, plus the grid bounds (minute-based, matching [_gridBounds]).
+/// + interval shape, the grid bounds (minute-based, matching [_gridBounds]),
+/// and the booked-span signature (value-based, so a refetch that returns an
+/// equal day reuses the cache even though the list instance is new).
 /// Two days that resolve to the same key paint an identical grid, so the cached
 /// list can be reused.
 class _DayCellsKey {
-  _DayCellsKey(EffectiveDay day, this.startMin, this.endMin)
-    : date = day.date,
+  _DayCellsKey(
+    EffectiveDay day,
+    this.startMin,
+    this.endMin,
+    List<(int, int)> bookedSpans,
+  ) : date = day.date,
       source = day.source,
-      intervalSig = _intervalSignature(day.intervals);
+      intervalSig = _intervalSignature(day.intervals),
+      bookedSig = _spanSignature(bookedSpans);
 
   final DateTime date;
   final EffectiveSource source;
   final String intervalSig;
+  final String bookedSig;
   final int startMin;
   final int endMin;
 
-  bool matches(EffectiveDay day, int startMin, int endMin) =>
+  bool matches(
+    EffectiveDay day,
+    int startMin,
+    int endMin,
+    List<(int, int)> bookedSpans,
+  ) =>
       this.startMin == startMin &&
       this.endMin == endMin &&
       date == day.date &&
       source == day.source &&
-      intervalSig == _intervalSignature(day.intervals);
+      intervalSig == _intervalSignature(day.intervals) &&
+      bookedSig == _spanSignature(bookedSpans);
+
+  static String _spanSignature(List<(int, int)> spans) {
+    if (spans.isEmpty) return '';
+    final StringBuffer b = StringBuffer();
+    for (final (int start, int end) in spans) {
+      b
+        ..write(start)
+        ..write('-')
+        ..write(end)
+        ..write(';');
+    }
+    return b.toString();
+  }
 
   static String _intervalSignature(List<WorkInterval> intervals) {
     if (intervals.isEmpty) return '';
@@ -186,33 +262,31 @@ List<SlotCell> _computeDayCells(
   EffectiveDay day,
   int gridStartMin,
   int gridEndMin,
+  List<(int, int)> bookedSpans,
 ) {
-  // A whole-day override or an empty day is one uniform state for every cell —
-  // resolve it once and skip the per-cell interval scan.
+  // A whole-day override or an empty day is one uniform availability state for
+  // every cell — resolve it once and skip the per-cell interval scan. (Since
+  // 2026-10-30 a whole-day OVERRIDE_DAY_OFF reads «Неробочий час», not pink.)
   final SlotState? uniform = switch (day.source) {
-    EffectiveSource.overrideDayOff => SlotState.timeOff,
+    EffectiveSource.overrideDayOff => SlotState.unavailable,
     _ when day.intervals.isEmpty => SlotState.unavailable,
     _ => null,
   };
 
-  // For a working day, the interior-pause window is `[firstStart, lastEnd)`:
-  // any minute inside it that falls in no interval is a pause. Intervals are
-  // sorted defensively (the model keeps them ordered, but a malformed payload
-  // must not break the first/last derivation).
+  // Intervals are sorted defensively (the model keeps them ordered, but a
+  // malformed payload must not break the early-exit interval scan).
   final List<WorkInterval> sorted = uniform != null
       ? const <WorkInterval>[]
       : (List<WorkInterval>.of(day.intervals)..sort(
           (WorkInterval a, WorkInterval b) =>
               a.startMinutes.compareTo(b.startMinutes),
         ));
-  final int firstStart = sorted.isEmpty ? 0 : sorted.first.startMinutes;
-  final int lastEnd = sorted.isEmpty ? 0 : sorted.last.endMinutes;
 
   // Iterate cell-start minutes in 30-min steps, emitting a cell while its
   // START is before [gridEndMin]. On a working day [gridEndMin] == lastEnd, so
   // any cell starting at or after lastEnd is dropped — no trailing "off" cards
-  // past the working span. Interior pause cells sit before lastEnd and survive,
-  // their state resolved by [_cellState] (round-up pause rule unchanged).
+  // past the working span. Interior break cells sit before lastEnd and survive,
+  // their state resolved by [_cellState].
   const int cellLen = 30;
   final List<SlotCell> cells = <SlotCell>[];
   for (
@@ -224,43 +298,37 @@ List<SlotCell> _computeDayCells(
       hour: cellStartMin ~/ 60,
       minute: cellStartMin % 60,
     );
-    final SlotState state =
-        uniform ?? _cellState(sorted, cellStartMin, firstStart, lastEnd);
+    final SlotState state = _overlapsBooking(bookedSpans, cellStartMin)
+        ? SlotState.booked
+        : uniform ?? _cellState(sorted, cellStartMin);
     cells.add(SlotCell(time: t, state: state));
   }
   return cells;
 }
 
-/// The single [SlotState] for the 30-min cell window `[cellStartMin,
-/// cellStartMin + 30)` of a WORKING day. Applies the whole-cell round-up rule:
-///
-///   1. if ANY minute of the cell falls in an interior pause → [SlotState.timeOff]
-///      (FULLY red — a pause wins over partial work in the same cell);
-///   2. else if any minute overlaps a working interval       → [SlotState.available];
-///   3. else (leading / trailing off)                        → [SlotState.unavailable].
-SlotState _cellState(
-  List<WorkInterval> sorted,
-  int cellStartMin,
-  int firstStart,
-  int lastEnd,
-) {
+/// Whether the 30-min cell `[cellStartMin, cellStartMin + 30)` overlaps any
+/// booked span by at least one minute (half-open on both sides).
+bool _overlapsBooking(List<(int, int)> bookedSpans, int cellStartMin) {
   const int cellLen = 30;
   final int cellEndMin = cellStartMin + cellLen;
-
-  bool overlapsWork = false;
-  for (int m = cellStartMin; m < cellEndMin; m++) {
-    final bool inInterval = _minuteInAnyInterval(sorted, m);
-    if (inInterval) {
-      overlapsWork = true;
-      continue;
-    }
-    // A pause minute: inside the working span but in no interval. The round-up
-    // rule fires on the FIRST such minute — the whole cell is red.
-    if (m >= firstStart && m < lastEnd) {
-      return SlotState.timeOff;
-    }
+  for (final (int start, int end) in bookedSpans) {
+    if (start < cellEndMin && end > cellStartMin) return true;
   }
-  return overlapsWork ? SlotState.available : SlotState.unavailable;
+  return false;
+}
+
+/// The availability [SlotState] for the 30-min cell window `[cellStartMin,
+/// cellStartMin + 30)` of a WORKING day (bookings are applied by the caller):
+///
+///   1. if any minute overlaps a working interval → [SlotState.available];
+///   2. else (leading off, or a break between intervals) → [SlotState.unavailable].
+SlotState _cellState(List<WorkInterval> sorted, int cellStartMin) {
+  const int cellLen = 30;
+  final int cellEndMin = cellStartMin + cellLen;
+  for (int m = cellStartMin; m < cellEndMin; m++) {
+    if (_minuteInAnyInterval(sorted, m)) return SlotState.available;
+  }
+  return SlotState.unavailable;
 }
 
 /// Whether minute [m] falls inside any working interval (half-open `[start,

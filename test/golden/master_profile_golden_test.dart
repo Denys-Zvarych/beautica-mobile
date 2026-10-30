@@ -10,7 +10,8 @@
 // Reviews tab} = 18 golden PNGs. Replaces the pre-351 6-PNG DATA-only matrix
 // (the old 6-section stacked layout has no tabs to vary against).
 //
-// Clock: MasterProfileScreen shows no date — no clock override needed.
+// Clock: the Reviews tab renders a relative date off the REAL clock —
+// `createdAt` comes from [goldenReviewCreatedAt] so the label never drifts.
 //
 // Strategy:
 //   • Override [masterProfileProvider] with [_StubMasterProfileNotifier]
@@ -147,7 +148,7 @@ List<Object> _overrides() {
           clientDisplayName: 'Ірина П.',
           rating: 5,
           comment: 'Дуже задоволена результатом!',
-          createdAt: DateTime(2026, 6, 1),
+          createdAt: goldenReviewCreatedAt(135),
         ),
       ],
     ),

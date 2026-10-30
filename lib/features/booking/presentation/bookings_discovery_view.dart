@@ -714,6 +714,39 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
   bool get _hasUserFilters =>
       _statuses.isNotEmpty || _serviceIds.isNotEmpty || _masterIds.isNotEmpty;
 
+  /// The last day [_refreshDotsIfDayMissing] invalidated the dot provider
+  /// for. Re-selecting that same day never invalidates again.
+  DateTime? _lastDotRefreshDay;
+
+  /// The last day-list state the self-heal checked — so each loaded state is
+  /// checked once. A `ref.listen` on `bookingsDayProvider` was used before
+  /// and REGRESSED `master_create_booking_test`: the extra listener made a
+  /// COVERED day list refetch eagerly on the walk-in invalidation.
+  BookingsDayState? _lastCheckedDayState;
+
+  /// The dot set the last self-heal acted on — and, once that heal's
+  /// re-fetch settles, the set it PRODUCED. [_refreshDotsIfDayMissing] skips
+  /// any set `identical` to this, so a self-heal's own result is trusted and
+  /// never triggers another sweep: at most ONE self-heal per dot set, however
+  /// the user toggles between undotted days (A→B→A). A set from any other
+  /// refresh (an in-app write's invalidation, the 30-minute TTL) is a new
+  /// instance and may heal once more.
+  Set<DateTime>? _lastHealedDots;
+
+  /// `true` between a self-heal's invalidate and the first settled set the
+  /// dots `Consumer` RENDERS after it — the load that invalidate started —
+  /// which [_adoptHealResult] then adopts as [_lastHealedDots]. Adopted on
+  /// that emission's own rebuild, never at the next list read: an in-app
+  /// write that invalidates the dots AFTER the heal's load finished produces
+  /// a later, separate emission, which therefore stays a new set (free to
+  /// heal once) instead of being mistaken for the heal's result.
+  ///
+  /// Read off the dots `Consumer`'s EXISTING watch, never a separate
+  /// `ref.listen`: a State-level listener is not paused when the route is
+  /// covered, so it made a covered board re-issue its ±180-day sweep on a
+  /// walk-in's invalidation (`salon_create_booking_test` PASS A).
+  bool _dotHealInFlight = false;
+
   /// The live query, rebuilt through [BookingsDayQuery.of] on every change —
   /// the single mutation path, mirroring the retired screen's `_setQuery`
   /// discipline. Never built any other way (`.masterOwn(` directly is banned
@@ -1146,6 +1179,97 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
     };
   }
 
+  /// Self-heals a stale dot set (user-reported 2026-10-30: a day's list shows
+  /// bookings but its rail dot is missing until the app is reopened).
+  ///
+  /// The dot providers hold one ±[kBookedDaysSpanDays]-day sweep for 30
+  /// minutes and refresh only on in-app writes
+  /// (`booking_calendar_invalidation.dart`), whereas the day list re-fetches
+  /// on every day select — so a booking made OUTSIDE this device (guest link,
+  /// client app, another device) reaches the list first. When the list for
+  /// [query] resolves with at least one booking and its day is absent from
+  /// the CURRENT dot set, this invalidates the dot provider for this view's
+  /// scope, dispatched exactly as [_bookedDaysAsync] does.
+  ///
+  /// Guards, in order — every one returns without invalidating:
+  ///   * dots off ([BookingsDiscoveryView.showBookedDayDots]) or a user
+  ///     filter active ([_hasUserFilters]);
+  ///   * the list is not settled data, or has no bookings — one direction
+  ///     only: a dot on an empty day is never "corrected" here;
+  ///   * the day is the one last healed for ([_lastDotRefreshDay]);
+  ///   * the day lies outside the dot window (Kyiv today ±
+  ///     [kBookedDaysSpanDays], from the same `clockProvider` the dot
+  ///     providers read) — such a day can never carry a dot, so a sweep
+  ///     would be pure waste;
+  ///   * the dot provider is loading (Riverpod keeps the previous value
+  ///     during a refresh, so a null check alone would act on the stale set)
+  ///     or has no value yet;
+  ///   * the day already has its dot;
+  ///   * the dot set is `identical` to [_lastHealedDots] — at most one
+  ///     self-heal per dot set.
+  void _refreshDotsIfDayMissing(
+    BookingsDayQuery query,
+    AsyncValue<BookingsDayState> next,
+  ) {
+    if (!widget.showBookedDayDots || _hasUserFilters) return;
+    if (next is! AsyncData<BookingsDayState> || next.value.isEmpty) return;
+    final DateTime day = dateOnly(query.day);
+    if (_lastDotRefreshDay == day) return;
+    // Same window arithmetic as `_bookedDaysWindow` (calendar, not Duration).
+    final DateTime today = kyivToday(ref.read(clockProvider));
+    final DateTime windowFrom = DateTime(
+      today.year,
+      today.month,
+      today.day - kBookedDaysSpanDays,
+    );
+    final DateTime windowTo = DateTime(
+      today.year,
+      today.month,
+      today.day + kBookedDaysSpanDays,
+    );
+    if (day.isBefore(windowFrom) || day.isAfter(windowTo)) return;
+    final AsyncValue<Set<DateTime>> dotsAsync = switch (widget.query) {
+      SalonDayQuery(:final String salonId) => ref.read(
+        salonBookedDaysProvider(salonId),
+      ),
+      MasterOwnDayQuery(asOwnerMaster: true) => ref.read(
+        ownerMasterBookedDaysProvider,
+      ),
+      MasterOwnDayQuery() => ref.read(bookedDaysProvider),
+    };
+    if (dotsAsync.isLoading) return;
+    final Set<DateTime>? dots = dotsAsync.value;
+    if (dots == null) return;
+    if (dots.contains(day) || identical(dots, _lastHealedDots)) return;
+    _lastDotRefreshDay = day;
+    _lastHealedDots = dots;
+    _dotHealInFlight = true;
+    switch (widget.query) {
+      case SalonDayQuery(:final String salonId):
+        ref.invalidate(salonBookedDaysProvider(salonId));
+      case MasterOwnDayQuery(asOwnerMaster: true):
+        ref.invalidate(ownerMasterBookedDaysProvider);
+      case MasterOwnDayQuery():
+        ref.invalidate(bookedDaysProvider);
+    }
+  }
+
+  /// Adopts the result of an in-flight self-heal — see [_dotHealInFlight].
+  /// Called from the dots `Consumer`'s builder; only writes fields (no
+  /// `setState`, no invalidate), so it is safe during build. Skips the
+  /// acted-on set itself ([_lastHealedDots] until adoption), which is what
+  /// the provider still holds before the re-fetch lands or after it fails.
+  /// Ignores loading and error emissions: on an error the provider keeps the
+  /// pre-heal set, which is still [_lastHealedDots], so nothing re-heals
+  /// against it and the flag waits for the next successful load.
+  void _adoptHealResult(AsyncValue<Set<DateTime>>? next) {
+    if (!_dotHealInFlight) return;
+    if (next is! AsyncData<Set<DateTime>> || next.isLoading) return;
+    if (identical(next.value, _lastHealedDots)) return;
+    _dotHealInFlight = false;
+    _lastHealedDots = next.value;
+  }
+
   /// Selecting a rail day narrows to exactly that day. Debounced; see
   /// [_dayDebounce] — a rail flick can land a dozen taps in under a second,
   /// and each one is a new family member and a new request without this.
@@ -1410,6 +1534,12 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
 
   @override
   Widget build(BuildContext context) {
+    // Stale-dot self-heal — see [_refreshDotsIfDayMissing]. Listens to the
+    // SAME member the timeline watches (`_liveQuery`, not `.fetchKey`), so no
+    // extra family member is created and the bookings it sees are exactly the
+    // ones the list renders (the default cancelled/declined exclusion
+    // included). Captured per build so the callback reads the query whose
+    // data it is handed.
     // Built ONCE per `build()` call and threaded through UNCHANGED into
     // `BookingsMonthCalendarPanel`'s `timeline:` slot below — see that call
     // site's comment for why hoisting it here (rather than inside the
@@ -1425,6 +1555,20 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
           final AsyncValue<BookingsDayState> async = ref.watch(
             bookingsDayProvider(_liveQuery),
           );
+          // Stale-dot self-heal off the EXISTING watch (no extra listener —
+          // see [_lastCheckedDayState]); deferred past the frame because it
+          // may invalidate a provider.
+          final BookingsDayState? loaded = async is AsyncData<BookingsDayState>
+              ? async.value
+              : null;
+          if (loaded != null && !identical(loaded, _lastCheckedDayState)) {
+            _lastCheckedDayState = loaded;
+            final BookingsDayQuery checkedQuery = _liveQuery;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              _refreshDotsIfDayMissing(checkedQuery, async);
+            });
+          }
 
           // mobile-perf MEDIUM fix (earlier session): watched HERE,
           // ALONGSIDE `bookingsDayProvider` rather than from inside
@@ -1634,6 +1778,7 @@ class _BookingsDiscoveryViewState extends ConsumerState<BookingsDiscoveryView> {
                   // see [BookingsDiscoveryView.showBookedDayDots].
                   final AsyncValue<Set<DateTime>>? bookedDaysAsync =
                       _bookedDaysAsync(ref);
+                  _adoptHealResult(bookedDaysAsync);
                   final Set<DateTime> bookedDays =
                       bookedDaysAsync?.value ?? const <DateTime>{};
 

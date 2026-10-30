@@ -29,6 +29,7 @@ import 'package:beautica_mobile/features/notifications/presentation/unread_notif
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_feed_parts.dart';
 import 'package:beautica_mobile/features/notifications/presentation/widgets/notification_tile.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/l10n/app_localizations_en.dart';
 import 'package:beautica_mobile/l10n/app_localizations_uk.dart';
 import 'package:beautica_mobile/shared/feedback/velvet_snack.dart';
 import 'package:flutter/material.dart';
@@ -177,6 +178,18 @@ String _iso(String raw) => NotificationCopy.sanitize(raw)!;
 void main() {
   setUp(() => _clockNow = _start);
 
+  // User request 2026-10-29: the provider-side decline title is the short
+  // «Запис скасовано» (was «Запис у вашому дні скасовано»). The rendering
+  // test below reads the title through the key, so it cannot catch a copy
+  // regression on its own — pin the literal here.
+  test('should_useShortProviderDeclineTitle', () {
+    expect(uk.notificationTitleDeclinedProvider, 'Запис скасовано');
+    expect(
+      AppLocalizationsEn().notificationTitleDeclinedProvider,
+      'Booking cancelled',
+    );
+  });
+
   group('rendering', () {
     testWidgets('should_renderEveryType_withItsTitle_forAProvider', (
       WidgetTester tester,
@@ -212,6 +225,81 @@ void main() {
       for (final String title in expected.values) {
         expect(find.text(title), findsOneWidget, reason: title);
       }
+    });
+
+    // Phase 428 — the 4 moderation outcomes render their locked copy and
+    // glyph (never the «unknown» row), for any role (D6).
+    testWidgets('should_renderModerationOutcomes_withLockedCopyAndGlyph', (
+      WidgetTester tester,
+    ) async {
+      final List<AppNotification> items = <AppNotification>[
+        moderationNotif(
+          'm1',
+          type: AppNotificationType.reportContentRemoved,
+          contentKind: ModeratedContentKind.review,
+        ),
+        moderationNotif(
+          'm2',
+          type: AppNotificationType.reportNoViolation,
+          contentKind: ModeratedContentKind.portfolioPhoto,
+        ),
+        moderationNotif(
+          'm3',
+          type: AppNotificationType.reportReviewed,
+          contentKind: ModeratedContentKind.profile,
+        ),
+        moderationNotif(
+          'm4',
+          type: AppNotificationType.contentRemoved,
+          contentKind: ModeratedContentKind.clientReview,
+        ),
+        moderationNotif(
+          'm5',
+          type: AppNotificationType.reviewAboutYouRemoved,
+          contentKind: ModeratedContentKind.review,
+        ),
+        // REPORT_REVIEWED on a non-profile kind keeps the neutral line.
+        moderationNotif(
+          'm6',
+          type: AppNotificationType.reportReviewed,
+          contentKind: ModeratedContentKind.review,
+        ),
+      ];
+      await _pumpFeed(tester, _repoOf(items), width: 400, height: 4000);
+
+      expect(find.text(uk.notificationTitleReportReviewed), findsNWidgets(4));
+      expect(find.text(uk.notificationTitleContentRemoved), findsOneWidget);
+      expect(find.text(uk.notificationTitleUnknown), findsNothing);
+      // Exact locked literals are pinned in notification_copy_test; here each
+      // row must render ITS body (one of each, none swapped).
+      expect(
+        find.text(uk.notificationBodyReportContentRemoved),
+        findsOneWidget,
+      );
+      expect(find.text(uk.notificationBodyReportNoViolation), findsOneWidget);
+      // m3 (PROFILE) → «confirmed»; m6 (REVIEW) → the neutral line.
+      // RED WHEN the PROFILE branch is dropped: two neutral, no «confirmed».
+      expect(
+        find.text(uk.notificationBodyReportReviewedProfile),
+        findsOneWidget,
+      );
+      expect(find.text(uk.notificationBodyReportReviewed), findsOneWidget);
+      expect(
+        find.text(uk.notificationBodyContentRemovedClientReview),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.fact_check_rounded), findsNWidgets(4));
+      expect(find.byIcon(Icons.gpp_maybe_rounded), findsOneWidget);
+      // REVIEW_ABOUT_YOU_REMOVED.
+      expect(
+        find.text(uk.notificationTitleReviewAboutYouRemoved),
+        findsOneWidget,
+      );
+      expect(
+        find.text(uk.notificationBodyReviewAboutYouRemoved),
+        findsOneWidget,
+      );
+      expect(find.byIcon(Icons.reviews_rounded), findsOneWidget);
     });
 
     testWidgets('should_renderClientCopy_forAClient', (

@@ -36,6 +36,8 @@ import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
 import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
 import 'package:beautica_mobile/features/booking/domain/booking.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
+import 'package:beautica_mobile/features/booking/application/master_archive_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/master_archive_query.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
 import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
@@ -112,6 +114,14 @@ class _CountingBookingRepository implements BookingRepository {
   /// told apart from the default `/bookings/me` member with the same statuses.
   final List<bool> asMasterCalls = <bool>[];
 
+  /// Phase 398 — the `partition` of each call, index-aligned with
+  /// [statusCalls]: the «Архів» member is the only caller that sends
+  /// [BookingPartition.history], which is how its refetch is counted.
+  final List<Object?> partitionCalls = <Object?>[];
+
+  int get historyCalls =>
+      partitionCalls.where((Object? p) => p == BookingPartition.history).length;
+
   int callsWithStatusesAndScope(
     Set<BookingStatus> wanted, {
     required bool asMaster,
@@ -150,6 +160,7 @@ class _CountingBookingRepository implements BookingRepository {
   }) async {
     statusCalls.add(statuses.toSet());
     asMasterCalls.add(asMaster);
+    partitionCalls.add(partition);
     return const PageResponse<Booking>(
       items: <Booking>[],
       page: 0,
@@ -258,6 +269,16 @@ final Provider<void Function(String?)> _createdFanOutProvider =
       (Ref ref) =>
           (String? salonId) =>
               invalidateBookingViewsAfterBookingCreated(ref, salonId: salonId),
+    );
+
+/// Phase 398 — same real-`Ref` capture as [_createdFanOutProvider], for
+/// [invalidateBookingViewsAfterBulkCancel] (its only call site,
+/// `ClientBlockController._run`, is typed on `Ref`).
+final Provider<void Function(String?)> _bulkCancelFanOutProvider =
+    Provider<void Function(String?)>(
+      (Ref ref) =>
+          (String? salonId) =>
+              invalidateBookingViewsAfterBulkCancel(ref, salonId: salonId),
     );
 
 void main() {
@@ -2616,6 +2637,97 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await container.read(pendingBookingActionsCountProvider(scope).future);
       expectOneRefetch(repo, 1);
+    });
+  });
+  // Phase 398 — a NEW client block auto-cancels that client's future visits
+  // server-side and returns only their COUNT, so the block controller drops
+  // every provider-side view through [invalidateBookingViewsAfterBulkCancel].
+  // Asserted by repository call COUNT with LIVE listeners (seamless reload
+  // retains `.value`; an unwatched member is dropped, not refetched).
+  group('phase 398 — invalidateBookingViewsAfterBulkCancel', () {
+    final DateTime affected = DateTime(2026, 7, 20);
+
+    test('refetches the live «Архів» member, the live day list and the rail '
+        'dots', () async {
+      int bookedDaysFetches = 0;
+      final _CountingBookingRepository repo = _CountingBookingRepository();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Object>[
+          bookingRepositoryProvider.overrideWithValue(repo),
+          authProvider.overrideWith(_StubAuthNotifier.new),
+          bookedDaysProvider.overrideWith((ref) async {
+            bookedDaysFetches++;
+            return <DateTime>{};
+          }),
+          ownerMasterBookedDaysProvider.overrideWith(
+            (ref) async => <DateTime>{},
+          ),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+      await container.read(authProvider.future);
+
+      final MasterArchiveQuery archiveQuery = MasterArchiveQuery.of();
+      final BookingsDayQuery dayQuery = BookingsDayQuery.dayList(day: affected);
+      final List<ProviderSubscription<Object?>> subs =
+          <ProviderSubscription<Object?>>[
+            container.listen(masterArchiveProvider(archiveQuery), (_, _) {}),
+            container.listen(bookingsDayProvider(dayQuery), (_, _) {}),
+            container.listen(bookedDaysProvider, (_, _) {}),
+          ];
+      addTearDown(() {
+        for (final ProviderSubscription<Object?> s in subs) {
+          s.close();
+        }
+      });
+      await container.read(masterArchiveProvider(archiveQuery).future);
+      await container.read(bookingsDayProvider(dayQuery).future);
+      await container.read(bookedDaysProvider.future);
+      final int dayCallsBefore = repo.callsWithStatusesAndScope(
+        BookingStatus.visibleInDayListByDefault,
+        asMaster: false,
+      );
+      expect(repo.historyCalls, 1, reason: 'sanity: archive fetched once');
+      expect(dayCallsBefore, 1, reason: 'sanity: day list fetched once');
+      expect(bookedDaysFetches, 1);
+
+      container.read(_bulkCancelFanOutProvider)(null);
+      await container.read(masterArchiveProvider(archiveQuery).future);
+      await container.read(bookingsDayProvider(dayQuery).future);
+      await container.read(bookedDaysProvider.future);
+
+      expect(
+        repo.historyCalls,
+        2,
+        reason: 'the newly DECLINED visits belong in «Архів» (HISTORY)',
+      );
+      expect(
+        repo.callsWithStatusesAndScope(
+          BookingStatus.visibleInDayListByDefault,
+          asMaster: false,
+        ),
+        2,
+        reason: 'the cancelled visit must leave the live day list',
+      );
+      expect(bookedDaysFetches, 2, reason: 'rail dots drop too');
+    });
+
+    test('a salonId defers the board half onto the refresh gate (tab not '
+        'selected) exactly like the created fan-out', () async {
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Object>[
+          bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
+        ].cast(),
+      );
+      addTearDown(container.dispose);
+
+      container.read(_bulkCancelFanOutProvider)('salon-1');
+
+      final SalonBoardRefreshGate gate = container.read(
+        salonBoardRefreshGateProvider,
+      );
+      expect(gate.takeStale('salon-1'), isTrue);
+      expect(gate.takeStale('salon-2'), isFalse, reason: 'scoped by salonId');
     });
   });
 }

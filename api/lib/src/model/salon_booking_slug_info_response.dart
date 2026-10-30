@@ -8,6 +8,7 @@ import 'package:beautica_api/src/model/salon_review_response.dart';
 import 'package:built_collection/built_collection.dart';
 import 'package:beautica_api/src/model/media_file_response.dart';
 import 'package:beautica_api/src/model/salon_booking_slug_master_item.dart';
+import 'package:beautica_api/src/model/salon_service_coverage.dart';
 import 'package:beautica_api/src/model/salon_service_category_group.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -36,6 +37,7 @@ part 'salon_booking_slug_info_response.g.dart';
 /// * [serviceCategories] - Bookable services grouped by category — GET /salons/{id}/services, unchanged.
 /// * [ratingDistribution] - Zero-filled 5..1 histogram — GET /salons/{id}/reviews/summary.
 /// * [latestReviews] - The newest 5 reviews — the SalonReviewResponse rows of GET /salons/{id}/reviews.
+/// * [serviceCoverage] - Phase 391 — per service of serviceCategories (same order): the bookable masters who perform it, as {masterId, masterServiceId}; masters follow the roster order and are always roster members. Drives the salon wizard's master step.
 @BuiltValue()
 abstract class SalonBookingSlugInfoResponse
     implements
@@ -109,6 +111,10 @@ abstract class SalonBookingSlugInfoResponse
   /// The newest 5 reviews — the SalonReviewResponse rows of GET /salons/{id}/reviews.
   @BuiltValueField(wireName: r'latestReviews')
   BuiltList<SalonReviewResponse> get latestReviews;
+
+  /// Phase 391 — per service of serviceCategories (same order): the bookable masters who perform it, as {masterId, masterServiceId}; masters follow the roster order and are always roster members. Drives the salon wizard's master step.
+  @BuiltValueField(wireName: r'serviceCoverage')
+  BuiltList<SalonServiceCoverage> get serviceCoverage;
 
   SalonBookingSlugInfoResponse._();
 
@@ -254,6 +260,12 @@ class _$SalonBookingSlugInfoResponseSerializer
     yield serializers.serialize(
       object.latestReviews,
       specifiedType: const FullType(BuiltList, [FullType(SalonReviewResponse)]),
+    );
+    yield r'serviceCoverage';
+    yield serializers.serialize(
+      object.serviceCoverage,
+      specifiedType:
+          const FullType(BuiltList, [FullType(SalonServiceCoverage)]),
     );
   }
 
@@ -425,6 +437,14 @@ class _$SalonBookingSlugInfoResponseSerializer
                 const FullType(BuiltList, [FullType(SalonReviewResponse)]),
           ) as BuiltList<SalonReviewResponse>;
           result.latestReviews.replace(valueDes);
+          break;
+        case r'serviceCoverage':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType(BuiltList, [FullType(SalonServiceCoverage)]),
+          ) as BuiltList<SalonServiceCoverage>;
+          result.serviceCoverage.replace(valueDes);
           break;
         default:
           unhandled.add(key);

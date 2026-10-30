@@ -58,6 +58,7 @@ import 'package:beautica_mobile/features/booking/presentation/widgets/slot_chip.
 import 'package:beautica_mobile/features/master/domain/master.dart';
 import 'package:beautica_mobile/features/master/presentation/master_profile_screen.dart';
 import 'package:beautica_mobile/features/services/domain/master_service.dart';
+import 'package:beautica_mobile/features/support/presentation/contact_support_screen.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart';
@@ -681,6 +682,164 @@ void main() {
             'inside the CLIENT shell',
       );
       AppHarness.expectLocation(router, RouteNames.masterProfile);
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  // Phase 431 — the 24 h provider reschedule limit on a GUEST booking. The
+  // REAL `HttpBookingRepository` decodes FakeBackend's 409
+  // `RESCHEDULE_LIMIT_REACHED` envelope into `RescheduleLimitReachedFailure`,
+  // and the REAL confirm screen opens the blocking dialog instead of the
+  // inline banner: no navigation, no retry, the booking unchanged.
+
+  /// Boots an INDEPENDENT_MASTER over a GUEST `booking-1` with the limit armed,
+  /// walks «Перенести» → date → time → submit, and asserts the dialog is up
+  /// with exactly one PATCH. Returns the router.
+  ///
+  /// [visitItem] seeds `booking-1` as a child of visit `appt-1`, so the submit
+  /// goes to the REAL `HttpAppointmentRepository` →
+  /// `PATCH /appointments/appt-1/services/booking-1/reschedule` instead; the
+  /// caller then asserts the call landed there.
+  Future<GoRouter> reachRescheduleLimitDialog(
+    WidgetTester tester,
+    FakeBackend fb, {
+    bool visitItem = false,
+  }) async {
+    fb
+      ..currentRole = UserRole.independentMaster
+      ..bookingClientIsGuest = true;
+    if (visitItem) fb.bookingAppointmentId = 'appt-1';
+    final GoRouter router = await AppHarness.boot(tester, fb);
+    await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+    if (visitItem) {
+      fb.appointmentItemRescheduleLimitReached = true;
+    } else {
+      fb.rescheduleLimitReached = true;
+    }
+
+    unawaited(router.push(RouteNames.masterBookingDetail('booking-1')));
+    await AppHarness.settle(tester);
+    final Finder reschedule = find.byKey(
+      const Key('booking-detail-provider-reschedule'),
+    );
+    await tester.ensureVisible(reschedule);
+    await AppHarness.settle(tester);
+    await tester.tap(reschedule);
+    await AppHarness.settle(tester);
+
+    await pickNewDateAndTime(tester);
+    expect(find.byType(BookingConfirmScreen), findsOneWidget);
+
+    final Finder submit = find.byKey(const Key('booking-confirm-submit-cta'));
+    await tester.ensureVisible(submit);
+    await AppHarness.settle(tester);
+    await tester.tap(submit);
+    await AppHarness.settle(tester);
+
+    expect(find.byKey(const Key('reschedule-limit-dialog')), findsOneWidget);
+    if (!visitItem) expect(fb.rescheduleBookingCalls, 1);
+    return router;
+  }
+
+  testWidgets(
+    'INDEPENDENT_MASTER reschedules a GUEST booking past the 24 h limit → '
+    'the real 409 RESCHEDULE_LIMIT_REACHED opens «Ліміт перенесень» (no '
+    'banner, no success, no retry); «Зрозуміло» closes it and the master '
+    'stays on the confirm screen with the booking unchanged',
+    (tester) async {
+      final fb = FakeBackend();
+      final String startsBefore = fb.bookingStartsAt;
+      final GoRouter router = await reachRescheduleLimitDialog(tester, fb);
+
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+        reason: 'the limit opens the dialog INSTEAD of the inline banner',
+      );
+      expect(find.byType(BookingSuccessScreen), findsNothing);
+      expect(fb.lastRescheduleNewStartsAt, isNotNull);
+
+      await tester.tap(find.byKey(const Key('reschedule-limit-dismiss')));
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+      expect(
+        fb.rescheduleBookingCalls,
+        1,
+        reason: 'neither the 409 nor dismissing the dialog may resubmit',
+      );
+      expect(
+        fb.bookingStartsAt,
+        startsBefore,
+        reason: 'the booking is unchanged',
+      );
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  testWidgets(
+    'reschedule limit, VISIT ITEM: the real PATCH /appointments/{id}/services/'
+    '{bookingId}/reschedule 409 RESCHEDULE_LIMIT_REACHED opens the same '
+    'dialog — one call on the per-item endpoint, none on the per-booking one; '
+    '«Зрозуміло» leaves the master on confirm with the item unchanged',
+    (tester) async {
+      final fb = FakeBackend();
+      final String startsBefore = fb.bookingStartsAt;
+      final GoRouter router = await reachRescheduleLimitDialog(
+        tester,
+        fb,
+        visitItem: true,
+      );
+
+      expect(fb.rescheduleAppointmentItemCalls, 1);
+      expect(
+        fb.rescheduleBookingCalls,
+        0,
+        reason: 'a visit item must reschedule via the per-item endpoint',
+      );
+      expect(
+        find.byKey(const Key('booking-confirm-submit-error')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const Key('reschedule-limit-dismiss')));
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+      expect(find.byType(BookingConfirmScreen), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.bookingConfirm);
+      expect(fb.rescheduleAppointmentItemCalls, 1, reason: 'no resubmit');
+      expect(fb.bookingStartsAt, startsBefore, reason: 'item unchanged');
+      expect(tester.takeException(), isNull);
+    },
+    timeout: const Timeout(Duration(seconds: 120)),
+  );
+
+  testWidgets(
+    'reschedule limit: «Написати в підтримку» lands on the REAL contact-'
+    'support screen with no resubmit',
+    (tester) async {
+      final fb = FakeBackend();
+      final GoRouter router = await reachRescheduleLimitDialog(tester, fb);
+
+      await tester.tap(
+        find.byKey(const Key('reschedule-limit-contact-support')),
+      );
+      await AppHarness.settle(tester);
+
+      expect(find.byKey(const Key('reschedule-limit-dialog')), findsNothing);
+      expect(find.byType(ContactSupportScreen), findsOneWidget);
+      expect(find.byKey(const Key('support-send')), findsOneWidget);
+      AppHarness.expectLocation(router, RouteNames.contactSupport);
+      expect(
+        fb.rescheduleBookingCalls,
+        1,
+        reason: 'opening support must never resubmit the reschedule',
+      );
       expect(tester.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 120)),

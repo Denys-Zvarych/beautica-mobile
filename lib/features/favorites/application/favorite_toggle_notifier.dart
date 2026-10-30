@@ -98,6 +98,26 @@
 // `_wishlistCacheTtl` comment for why a generous cache window is otherwise the
 // norm here). Do not "fix" this by re-adding a watch to `ServiceSelectorSheet`
 // — that regresses Phase 243's >20-favourites correctness fix.
+//
+// ## Review-trust fix — a successful MASTER/SALON toggle refreshes «Улюблені»
+//
+// `favoritesProvider` (the «Улюблені» list) lives in the client shell's
+// IndexedStack branch 1 (`app_router.dart`). After the first visit it stays
+// MOUNTED and keeps its data, so a heart toggled on a profile or a search card
+// never reached it: the list stayed stale for the rest of the session. [toggle]
+// now refreshes it after a successful MASTER or SALON toggle, gated by
+// [refreshFavorites] (default `true`) and by `ref.exists` — a list that was
+// never opened is not fetched; it loads fresh on its first visit anyway.
+//
+// It calls `Favorites.refresh(only: <kind>)` (assigns state directly,
+// single-flight with a trailing re-run, reloads only the toggled kind), NOT
+// `ref.invalidate`: the list is covered whenever another tab is showing, and
+// invalidating a provider whose only listener is paused DISPOSES it instead of
+// refetching (the offstage-pause trap above). `Favorites.unfavorite` is the one
+// caller that passes `false` — it already removed the row optimistically, and
+// a refetch racing its own edit would discard its restore-on-failure.
+
+import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 // `ProviderListenable.select` (used below to narrow the `authProvider` watch to
@@ -113,6 +133,7 @@ import '../../auth/presentation/auth_notifier.dart';
 import '../../wishlist/application/wishlist_notifier.dart';
 import '../data/favorite_repository_provider.dart';
 import '../domain/favorite_target.dart';
+import 'favorites_notifier.dart';
 
 part 'favorite_toggle_notifier.g.dart';
 
@@ -161,10 +182,42 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
     // Only a different signed-in identity may clear this map — that is the
     // leak this watch was added to close.
     ref.watch(authProvider.select(authUserIdOrNull));
+    // A new session starts with no local decisions (see [syncFromServer]).
+    _locallyToggled.clear();
     return const <FavoriteTarget, FavoriteEntry>{};
   }
 
+  /// Targets the user has SUCCESSFULLY toggled in this session. Their local
+  /// result is authoritative over any server snapshot read afterwards (a
+  /// keepAlive-cached profile, a recycled search card can be minutes old).
+  /// Cleared in [build], i.e. on every session change.
+  final Set<FavoriteTarget> _locallyToggled = <FavoriteTarget>{};
+
+  /// Applies the SERVER's favourite flag for [target] — the path every
+  /// surface that loaded `isFavorite` from the backend uses (profile hearts,
+  /// search cards, service rows via `FavoriteHeartButton`).
+  ///
+  /// Unlike [primeIfAbsent] it can CLEAR a heart (a `false` from a refreshed
+  /// profile empties a stale filled heart), but it never overrides:
+  ///   * a toggle in flight (`pending`) — the call's own result lands next;
+  ///   * a target the user toggled this session — the local result wins over
+  ///     a snapshot that may predate it (an unfavourite must not be re-filled
+  ///     by a 5-minute-old cached profile saying `true`).
+  /// Otherwise the server value is set, `true` or `false`.
+  void syncFromServer(FavoriteTarget target, {required bool isFavorite}) {
+    final FavoriteEntry? current = state[target];
+    if (current != null && current.pending) return;
+    if (_locallyToggled.contains(target)) return;
+    if ((current?.isFavorite ?? false) == isFavorite) return;
+    _set(target, FavoriteEntry(isFavorite: isFavorite));
+  }
+
   /// Seeds [target]'s flag to [isFavorite] only if it is not already tracked.
+  ///
+  /// Kept ONLY for the "this row is a favourite by definition" seed a list
+  /// takes right before its own toggle (`Favorites.unfavorite`,
+  /// `WishlistNotifier.removeService`). Anything that read `isFavorite` from
+  /// the server uses [syncFromServer] instead.
   ///
   /// Cards call this once when they first build so the heart starts in the
   /// correct state (from the search result's own favorited flag, or `false`
@@ -197,9 +250,15 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
   /// every caller except `WishlistNotifier.removeService` refreshes for free.
   /// See the file header ("Audit cycle 3 fix") for why that one call site
   /// passes `false`.
+  ///
+  /// [refreshFavorites] gates the `favoritesProvider` («Улюблені») refresh on a
+  /// successful MASTER/SALON toggle — defaults to `true`; only
+  /// `Favorites.unfavorite` passes `false` (see the file header, "Review-trust
+  /// fix").
   Future<Failure?> toggle(
     FavoriteTarget target, {
     bool refreshWishlist = true,
+    bool refreshFavorites = true,
   }) async {
     final FavoriteEntry current =
         state[target] ?? const FavoriteEntry(isFavorite: false);
@@ -210,15 +269,25 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
     // 1. Optimistic flip + mark pending.
     _set(target, FavoriteEntry(isFavorite: next, pending: true));
 
+    // This notifier is keepAlive and outlives sessions: a logout → login while
+    // the call below is in flight REBUILDS it (the `authProvider` watch in
+    // [build]), which retires this `Ref`. Captured here so the post-await code
+    // can tell — writing the old user's heart (or refreshing their list) into
+    // the new session would leak one account's state into the next.
+    final Ref r = ref;
+
     try {
       // 2. Persist.
       if (next) {
-        await ref.read(favoriteRepositoryProvider).add(target);
+        await r.read(favoriteRepositoryProvider).add(target);
       } else {
-        await ref.read(favoriteRepositoryProvider).remove(target);
+        await r.read(favoriteRepositoryProvider).remove(target);
       }
-      // 3. Success — keep the flipped flag, clear pending.
+      if (!r.mounted) return null;
+      // 3. Success — keep the flipped flag, clear pending. From now on this
+      // session's result beats any server snapshot ([syncFromServer]).
       _set(target, FavoriteEntry(isFavorite: next));
+      _locallyToggled.add(target);
       // Phase 240 fix, widened in audit cycle 3 — a successful SERVICE toggle
       // (add OR remove) tells the wish list to refetch, UNLESS the caller
       // opted out via [refreshWishlist] (see the file header).
@@ -232,8 +301,28 @@ class FavoriteToggleNotifier extends _$FavoriteToggleNotifier {
         // cycle-safe: no back-edge from wishlistProvider to this notifier.
         ref.invalidate(wishlistProvider);
       }
+      if (refreshFavorites &&
+          (target.type == FavoriteTargetType.master ||
+              target.type == FavoriteTargetType.salon) &&
+          ref.exists(favoritesProvider)) {
+        // Assigning, single-flight refresh — never invalidate (the list is a
+        // covered IndexedStack branch; see the file header). favoritesProvider
+        // .build() only ref.watches favoriteRepositoryProvider, never this
+        // notifier — no back-edge. Proved by test/core/
+        // provider_cycle_guard_test.dart's favoritesProvider toggle row.
+        // cycle-safe: no back-edge from favoritesProvider to this notifier.
+        // `only:` — a master toggle refetches masters, never every salon.
+        unawaited(
+          ref.read(favoritesProvider.notifier).refresh(only: target.type),
+        );
+      }
       return null;
     } on Failure catch (failure) {
+      // Session changed mid-call — the map is the new user's; leave it.
+      // Returning `null` (not the Failure) is deliberate: the caller's snack
+      // would report the PREVIOUS account's failed heart to the new account.
+      // Accounts stay apart — do not "fix" this back to `return failure`.
+      if (!r.mounted) return null;
       // 4. Revert to the pre-toggle flag, clear pending.
       _set(target, FavoriteEntry(isFavorite: current.isFavorite));
       return failure;

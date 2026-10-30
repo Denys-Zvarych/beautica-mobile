@@ -8,6 +8,8 @@ part of 'client_authored_review_response.dart';
 
 class _$ClientAuthoredReviewResponse extends ClientAuthoredReviewResponse {
   @override
+  final String? id;
+  @override
   final int? rating;
   @override
   final String? comment;
@@ -16,7 +18,8 @@ class _$ClientAuthoredReviewResponse extends ClientAuthoredReviewResponse {
           [void Function(ClientAuthoredReviewResponseBuilder)? updates]) =>
       (ClientAuthoredReviewResponseBuilder()..update(updates))._build();
 
-  _$ClientAuthoredReviewResponse._({this.rating, this.comment}) : super._();
+  _$ClientAuthoredReviewResponse._({this.id, this.rating, this.comment})
+      : super._();
   @override
   ClientAuthoredReviewResponse rebuild(
           void Function(ClientAuthoredReviewResponseBuilder) updates) =>
@@ -30,6 +33,7 @@ class _$ClientAuthoredReviewResponse extends ClientAuthoredReviewResponse {
   bool operator ==(Object other) {
     if (identical(other, this)) return true;
     return other is ClientAuthoredReviewResponse &&
+        id == other.id &&
         rating == other.rating &&
         comment == other.comment;
   }
@@ -37,6 +41,7 @@ class _$ClientAuthoredReviewResponse extends ClientAuthoredReviewResponse {
   @override
   int get hashCode {
     var _$hash = 0;
+    _$hash = $jc(_$hash, id.hashCode);
     _$hash = $jc(_$hash, rating.hashCode);
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jf(_$hash);
@@ -46,6 +51,7 @@ class _$ClientAuthoredReviewResponse extends ClientAuthoredReviewResponse {
   @override
   String toString() {
     return (newBuiltValueToStringHelper(r'ClientAuthoredReviewResponse')
+          ..add('id', id)
           ..add('rating', rating)
           ..add('comment', comment))
         .toString();
@@ -57,6 +63,10 @@ class ClientAuthoredReviewResponseBuilder
         Builder<ClientAuthoredReviewResponse,
             ClientAuthoredReviewResponseBuilder> {
   _$ClientAuthoredReviewResponse? _$v;
+
+  String? _id;
+  String? get id => _$this._id;
+  set id(String? id) => _$this._id = id;
 
   int? _rating;
   int? get rating => _$this._rating;
@@ -73,6 +83,7 @@ class ClientAuthoredReviewResponseBuilder
   ClientAuthoredReviewResponseBuilder get _$this {
     final $v = _$v;
     if ($v != null) {
+      _id = $v.id;
       _rating = $v.rating;
       _comment = $v.comment;
       _$v = null;
@@ -96,6 +107,7 @@ class ClientAuthoredReviewResponseBuilder
   _$ClientAuthoredReviewResponse _build() {
     final _$result = _$v ??
         _$ClientAuthoredReviewResponse._(
+          id: id,
           rating: rating,
           comment: comment,
         );

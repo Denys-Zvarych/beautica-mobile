@@ -33,6 +33,7 @@ import 'package:flutter/material.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/review/presentation/widgets/review_card.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -50,6 +51,7 @@ class BookingCounterpartyHeader extends StatelessWidget {
     required this.booking,
     required this.viewer,
     this.showPerformingMaster = false,
+    this.onMore,
   });
 
   final Booking booking;
@@ -60,17 +62,26 @@ class BookingCounterpartyHeader extends StatelessWidget {
   /// booking performed by another master; default `false` changes nothing.
   final bool showPerformingMaster;
 
+  /// ADDITIVE (phase 425 D2): provider branch only — renders a quiet «⋯» at
+  /// the end of the client strip that opens the client actions sheet (report
+  /// / block / unblock). `null` (the default) renders the strip exactly as
+  /// before; ignored on the client branch.
+  final VoidCallback? onMore;
+
+  /// Widget key of the client strip's «⋯» hit target.
+  static const Key clientMoreKey = Key('booking-detail-client-more');
+
   @override
   Widget build(BuildContext context) {
     if (!viewer.isProvider) return _MasterStrip(booking: booking);
     if (!showPerformingMaster || booking.masterId.isEmpty) {
-      return _ClientStrip(booking: booking);
+      return _ClientStrip(booking: booking, onMore: onMore);
     }
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        _ClientStrip(booking: booking),
+        _ClientStrip(booking: booking, onMore: onMore),
         const SizedBox(height: VelvetSpacing.sm),
         _PerformingMasterStrip(booking: booking),
       ],
@@ -179,13 +190,17 @@ class _PerformingMasterStrip extends StatelessWidget {
 /// master-worded semantics), whereas the shell is the data-agnostic frame the
 /// task needs. Everything it adds is additive and null-by-default.
 class _ClientStrip extends StatelessWidget {
-  const _ClientStrip({required this.booking});
+  const _ClientStrip({required this.booking, this.onMore});
 
   final Booking booking;
+
+  /// See [BookingCounterpartyHeader.onMore].
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
     final AppLocalizations l10n = AppLocalizations.of(context);
+    final VoidCallback? more = onMore;
 
     // A cancelled/declined booking's counterparty is dimmed — the same
     // `Opacity(0.7)` treatment the master strip gets, so the two branches read
@@ -247,6 +262,14 @@ class _ClientStrip extends StatelessWidget {
         trailing: isGuest
             ? null
             : MasterRatingReadout(avgRating: rating, reviewCount: reviewCount),
+        action: more == null
+            ? null
+            : ReviewMoreButton(
+                tapKey: BookingCounterpartyHeader.clientMoreKey,
+                icon: Icons.more_horiz_rounded,
+                semanticLabel: l10n.clientMoreActions,
+                onTap: more,
+              ),
       ),
     );
   }

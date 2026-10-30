@@ -39,6 +39,11 @@ const Map<String, int> _salonSites = <String, int>{
   'lib/features/salon/application/salon_portfolio_notifier.dart': 1,
   // Phase 404 — «Про салон» in salon management (owner + bound admin).
   'lib/features/salon/presentation/salon_management_profile_screen.dart': 1,
+  // Pull-to-refresh on the public salon profile (`_refreshAll`): ONE
+  // `ref.exists(...)`-guarded `ref.refresh(...)` of the shared portfolio
+  // entry — the key is spelled twice (exists + refresh). It never creates
+  // the entry, so it adds no new portfolio request.
+  'lib/features/salon/presentation/public_salon_profile_screen.dart': 2,
 };
 
 /// Allowed `PortfolioOwner.masterSelf` construction sites → occurrence count.
@@ -57,7 +62,11 @@ const Map<String, int> _salonSites = <String, int>{
 /// `integration_test/portfolio_render_flow_test.dart`.
 const Map<String, int> _masterSites = <String, int>{
   'lib/features/master/presentation/master_profile_screen.dart': 1,
-  'lib/features/master/presentation/public_master_profile_screen.dart': 1,
+  // 2 = the `isIndependent` read-only rail + the pull-to-refresh key in
+  // `_refreshAll`, which only `ref.refresh`es the entry when
+  // `ref.exists(...)` (i.e. the gated rail already built it) — so it cannot
+  // open a portfolio request for a salon master.
+  'lib/features/master/presentation/public_master_profile_screen.dart': 2,
 };
 
 final RegExp _salonRe = RegExp(

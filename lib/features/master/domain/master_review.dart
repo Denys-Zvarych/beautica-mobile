@@ -67,5 +67,10 @@ abstract class MasterReviewItem with _$MasterReviewItem {
     /// The booked service's name, or `null` if the backend couldn't resolve
     /// one — the «послуга:» sub-line is hidden in that case.
     String? serviceName,
+
+    /// Phase 424 — `true` when the signed-in viewer wrote this review
+    /// (backend `ReviewResponse.authoredByViewer`); the card then offers no
+    /// «⋮» report affordance. Absent on the wire → `false`.
+    @Default(false) bool authoredByViewer,
   }) = _MasterReviewItem;
 }

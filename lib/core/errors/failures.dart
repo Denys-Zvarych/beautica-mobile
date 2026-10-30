@@ -1074,6 +1074,96 @@ final class BookingAlreadyElapsedFailure extends Failure {
       AppLocalizations.of(ctx).bookingErrorAlreadyElapsed;
 }
 
+/// Phase 431 (backend PR #176) — a PROVIDER reschedule of a GUEST booking /
+/// visit item returned HTTP **409** with `data.code ==
+/// "RESCHEDULE_LIMIT_REACHED"`: the per-booking 24 h reschedule budget is
+/// spent. Applies to `PATCH /bookings/{id}/reschedule` and
+/// `PATCH /appointments/{id}/services/{bookingId}/reschedule`. The confirm
+/// screen opens a blocking «Зверніться в підтримку» dialog instead of the
+/// inline banner; the booking is unchanged. Not retryable — an identical
+/// request meets the identical limit.
+///
+/// Decoded by [isRescheduleLimitReached], checked in both reschedule mappers
+/// BEFORE the other 409 arms.
+final class RescheduleLimitReachedFailure extends Failure {
+  const RescheduleLimitReachedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).bookingErrRescheduleLimitReached;
+}
+
+/// The backend's `data.code` for [RescheduleLimitReachedFailure].
+const String kRescheduleLimitReachedCode = 'RESCHEDULE_LIMIT_REACHED';
+
+/// `true` when [body] is the phase-431
+/// `{ "data": { "code": "RESCHEDULE_LIMIT_REACHED" } }` envelope. Hand-decoded
+/// like `BOOKING_UNAVAILABLE` — the code is not in the generated client.
+bool isRescheduleLimitReached(Object? body) {
+  if (body is! Map<String, dynamic>) return false;
+  final Object? data = body['data'];
+  if (data is! Map<String, dynamic>) return false;
+  return data['code'] == kRescheduleLimitReachedCode;
+}
+
+/// Phase 425 (backend 398 D3) — a client booking create returned HTTP **409**
+/// with `data.code == "BOOKING_UNAVAILABLE"`: the provider has blocked this
+/// client. The body is deliberately neutral («Запис до цього майстра/салону
+/// зараз недоступний») and never mentions a block; [serverMessage] is that
+/// backend `message`, shown as-is (it picks master vs salon wording). Falls
+/// back to the localized copy when absent. Not retryable — an identical
+/// request meets the identical block.
+///
+/// Decoded by `HttpBookingRepository._mapBookingWriteException` and
+/// `HttpAppointmentRepository._mapAppointmentWriteException` BEFORE every
+/// other 409 arm; any other 409 keeps today's mapping.
+final class BookingUnavailableFailure extends Failure {
+  const BookingUnavailableFailure({this.serverMessage, super.cause});
+
+  /// The backend's localized `message`, or `null`.
+  final String? serverMessage;
+
+  @override
+  String userMessage(BuildContext ctx) {
+    final String? message = serverMessage?.trim();
+    if (message != null && message.isNotEmpty) return message;
+    return AppLocalizations.of(ctx).bookingErrUnavailable;
+  }
+}
+
+/// Phase 425 (backend 397) — `POST /api/v1/blocks` or
+/// `DELETE /api/v1/blocks/{id}` returned HTTP **429**: the caller's per-user
+/// block-write budget (shared by POST and DELETE) is exhausted. Shows its own
+/// «Забагато змін блокувань» copy instead of the generic server error.
+///
+/// **Never auto-retried** — a member of the [isThrottleFailure] family.
+final class ClientBlockRateLimitedFailure extends Failure {
+  const ClientBlockRateLimitedFailure({super.cause});
+
+  @override
+  String userMessage(BuildContext ctx) =>
+      AppLocalizations.of(ctx).clientBlockErrRateLimited;
+}
+
+/// Decodes a backend 398 `BOOKING_UNAVAILABLE` 409 body
+/// (`{ "data": { "code": "BOOKING_UNAVAILABLE" }, "message": "…" }`) into a
+/// [BookingUnavailableFailure], or `null` for any other body. Hand-decoded
+/// like `CLIENT_BOOKING_CONFLICT` — the code is not in the generated client.
+BookingUnavailableFailure? decodeBookingUnavailable(
+  Object? body, {
+  Object? cause,
+}) {
+  if (body is! Map<String, dynamic>) return null;
+  final Object? data = body['data'];
+  if (data is! Map<String, dynamic>) return null;
+  if (data['code'] != 'BOOKING_UNAVAILABLE') return null;
+  final Object? message = body['message'];
+  return BookingUnavailableFailure(
+    serverMessage: message is String ? message : null,
+    cause: cause,
+  );
+}
+
 /// Emitted when `PATCH /bookings/{id}/decline` returns HTTP **409**.
 ///
 /// Historically the backend's Phase 27.1 `BookingTemporalGuard

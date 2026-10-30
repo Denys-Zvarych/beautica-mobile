@@ -597,7 +597,10 @@ class _SalonMasterProfileBody extends StatelessWidget {
                                 ),
                               ],
                             ),
-                    _ => MasterReviewsBody(masterId: master.id),
+                    _ => MasterReviewsBody(
+                      masterId: master.id,
+                      reportable: true,
+                    ),
                   },
                 ),
               ),

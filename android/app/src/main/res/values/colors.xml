@@ -2,6 +2,10 @@
 <resources>
     <color name="ic_launcher_background">#E6DDD0</color>
 
+    <!-- FCM default_notification_color (AndroidManifest.xml): tints the
+         ic_stat_beautica small icon in the shade. VelvetTouch camel accent. -->
+    <color name="notification_accent">#B89A7A</color>
+
     <!-- Phase 071 follow-up: uCrop 2.2.11 resource overrides (app resources win
          over the AAR's). Only what UCrop.Options cannot reach: the bottom state
          bar, the controls panel and its labels. VelvetTouch palette:

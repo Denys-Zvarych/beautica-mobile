@@ -1669,7 +1669,7 @@ void main() {
       // glyph, constructing no `Image` and silently gutting the assertion below.
       // Open the allowlist to exactly the seeded host so the guard lets the URL
       // through and the mark really builds its `Image` (whose fetch still fails
-      // against the discard port, exercising the errorBuilder for real).
+      // against loopback :443, exercising the errorBuilder for real).
       MediaConfig.debugAllowedHosts = <String>{'127.0.0.1'};
       addTearDown(() => MediaConfig.debugAllowedHosts = null);
 
@@ -1724,15 +1724,18 @@ void main() {
           // for real inside a real scrolling timeline. What must survive that
           // is the height — see the assertions below.
           //
-          // 127.0.0.1:9 (discard) rather than a hostname: connection refused
-          // immediately, no DNS, no packet leaves the handset, no dependence
-          // on whether the device has internet. https AND — since 2026-07-24 —
+          // Portless https://127.0.0.1 (loopback :443) rather than a hostname:
+          // nothing listens there, so the connection is refused immediately, no
+          // DNS, no packet leaves the handset, no dependence on whether the
+          // device has internet. It was `127.0.0.1:9` (discard) until PR #122
+          // made `isAllowedMediaUrl` reject any explicit non-443 port — that URL
+          // would now be refused before the network. https AND — since 2026-07-24 —
           // its host `127.0.0.1` is opened on `MediaConfig.debugAllowedHosts`
           // at the top of this test, so the mark's `isAllowedMediaUrl` guard
           // lets it through and an `Image` is actually constructed. An http://
           // URL, or any host absent from that allowlist, would be rejected
           // before the network and would prove nothing.
-          'clientAvatarUrl': 'https://127.0.0.1:9/avatars/client-1.png',
+          'clientAvatarUrl': 'https://127.0.0.1/avatars/client-1.png',
         },
       ]);
 

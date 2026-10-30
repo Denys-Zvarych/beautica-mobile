@@ -102,6 +102,7 @@ import 'package:beautica_mobile/features/salon/domain/salon.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/formatters/street_city_line.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 import 'package:beautica_mobile/features/location/presentation/saved_settlement_label.dart';
 
 import '../application/booking_notifier.dart';
@@ -479,6 +480,18 @@ class _SubmitErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 425 D5 (backend 398) — the provider blocked this client: the
+    // neutral website-`.banner` twin, server message as-is, no retry action.
+    final Failure shown = failure;
+    if (shown is BookingUnavailableFailure) {
+      return VelvetBanner(
+        key: const Key('booking-unavailable-banner'),
+        icon: Icons.error_outline_rounded,
+        color: BrandColors.error,
+        iconSize: VelvetSpacing.lg,
+        message: shown.userMessage(context),
+      );
+    }
     return NeumorphicCard(
       key: const Key('salon-confirm-submit-error'),
       showBorder: true,

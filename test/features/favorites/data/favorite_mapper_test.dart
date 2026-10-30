@@ -71,8 +71,10 @@ FavoriteMasterResponse _masterDto({
   String? street,
   String? buildingNo,
   String? locationNote,
+  String? avatarUrl,
 }) => FavoriteMasterResponse((FavoriteMasterResponseBuilder b) {
   b
+    ..avatarUrl = avatarUrl
     ..masterId = masterId
     ..firstName = firstName
     ..lastName = lastName
@@ -97,8 +99,10 @@ FavoriteSalonResponse _salonDto({
   String? street,
   String? buildingNo,
   String? locationNote,
+  String? avatarUrl,
 }) => FavoriteSalonResponse((FavoriteSalonResponseBuilder b) {
   b
+    ..avatarUrl = avatarUrl
     ..salonId = salonId
     ..name = name
     ..avgRating = avgRating
@@ -230,6 +234,37 @@ void main() {
 
       expect(item.id, 'master-1');
       expect(item.target.id, 'master-1');
+    });
+  });
+
+  group('FavoriteMapper — avatarUrl', () {
+    test('passes the avatar through RAW for both kinds', () {
+      // RED WHEN either `avatarUrl: dto.avatarUrl` line is dropped.
+      const String masterUrl = 'https://media.test/m.webp';
+      const String salonUrl = 'https://media.test/s.webp';
+      expect(
+        _masters(<FavoriteMasterResponse>[
+          _masterDto(avatarUrl: masterUrl),
+        ]).single.avatarUrl,
+        masterUrl,
+      );
+      expect(
+        _salons(<FavoriteSalonResponse>[
+          _salonDto(avatarUrl: salonUrl),
+        ]).single.avatarUrl,
+        salonUrl,
+      );
+    });
+
+    test('a missing avatar stays null for both kinds', () {
+      expect(
+        _masters(<FavoriteMasterResponse>[_masterDto()]).single.avatarUrl,
+        isNull,
+      );
+      expect(
+        _salons(<FavoriteSalonResponse>[_salonDto()]).single.avatarUrl,
+        isNull,
+      );
     });
   });
 

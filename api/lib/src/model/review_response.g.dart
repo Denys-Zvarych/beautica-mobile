@@ -6,6 +6,68 @@ part of 'review_response.dart';
 // BuiltValueGenerator
 // **************************************************************************
 
+const ReviewResponseSource_Enum _$reviewResponseSourceEnum_APP =
+    const ReviewResponseSource_Enum._('APP');
+const ReviewResponseSource_Enum _$reviewResponseSourceEnum_GUEST_LINK =
+    const ReviewResponseSource_Enum._('GUEST_LINK');
+const ReviewResponseSource_Enum
+    _$reviewResponseSourceEnum_unknownDefaultOpenApi =
+    const ReviewResponseSource_Enum._('unknownDefaultOpenApi');
+
+ReviewResponseSource_Enum _$reviewResponseSourceEnumValueOf(String name) {
+  switch (name) {
+    case 'APP':
+      return _$reviewResponseSourceEnum_APP;
+    case 'GUEST_LINK':
+      return _$reviewResponseSourceEnum_GUEST_LINK;
+    case 'unknownDefaultOpenApi':
+      return _$reviewResponseSourceEnum_unknownDefaultOpenApi;
+    default:
+      return _$reviewResponseSourceEnum_unknownDefaultOpenApi;
+  }
+}
+
+final BuiltSet<ReviewResponseSource_Enum> _$reviewResponseSourceEnumValues =
+    BuiltSet<ReviewResponseSource_Enum>(const <ReviewResponseSource_Enum>[
+  _$reviewResponseSourceEnum_APP,
+  _$reviewResponseSourceEnum_GUEST_LINK,
+  _$reviewResponseSourceEnum_unknownDefaultOpenApi,
+]);
+
+Serializer<ReviewResponseSource_Enum> _$reviewResponseSourceEnumSerializer =
+    _$ReviewResponseSource_EnumSerializer();
+
+class _$ReviewResponseSource_EnumSerializer
+    implements PrimitiveSerializer<ReviewResponseSource_Enum> {
+  static const Map<String, Object> _toWire = const <String, Object>{
+    'APP': 'APP',
+    'GUEST_LINK': 'GUEST_LINK',
+    'unknownDefaultOpenApi': 'unknown_default_open_api',
+  };
+  static const Map<Object, String> _fromWire = const <Object, String>{
+    'APP': 'APP',
+    'GUEST_LINK': 'GUEST_LINK',
+    'unknown_default_open_api': 'unknownDefaultOpenApi',
+  };
+
+  @override
+  final Iterable<Type> types = const <Type>[ReviewResponseSource_Enum];
+  @override
+  final String wireName = 'ReviewResponseSource_Enum';
+
+  @override
+  Object serialize(Serializers serializers, ReviewResponseSource_Enum object,
+          {FullType specifiedType = FullType.unspecified}) =>
+      _toWire[object.name] ?? object.name;
+
+  @override
+  ReviewResponseSource_Enum deserialize(
+          Serializers serializers, Object serialized,
+          {FullType specifiedType = FullType.unspecified}) =>
+      ReviewResponseSource_Enum.valueOf(
+          _fromWire[serialized] ?? (serialized is String ? serialized : ''));
+}
+
 class _$ReviewResponse extends ReviewResponse {
   @override
   final String? id;
@@ -21,6 +83,10 @@ class _$ReviewResponse extends ReviewResponse {
   final String? comment;
   @override
   final DateTime? createdAt;
+  @override
+  final bool? authoredByViewer;
+  @override
+  final ReviewResponseSource_Enum? source_;
 
   factory _$ReviewResponse([void Function(ReviewResponseBuilder)? updates]) =>
       (ReviewResponseBuilder()..update(updates))._build();
@@ -32,7 +98,9 @@ class _$ReviewResponse extends ReviewResponse {
       this.serviceName,
       this.rating,
       this.comment,
-      this.createdAt})
+      this.createdAt,
+      this.authoredByViewer,
+      this.source_})
       : super._();
   @override
   ReviewResponse rebuild(void Function(ReviewResponseBuilder) updates) =>
@@ -51,7 +119,9 @@ class _$ReviewResponse extends ReviewResponse {
         serviceName == other.serviceName &&
         rating == other.rating &&
         comment == other.comment &&
-        createdAt == other.createdAt;
+        createdAt == other.createdAt &&
+        authoredByViewer == other.authoredByViewer &&
+        source_ == other.source_;
   }
 
   @override
@@ -64,6 +134,8 @@ class _$ReviewResponse extends ReviewResponse {
     _$hash = $jc(_$hash, rating.hashCode);
     _$hash = $jc(_$hash, comment.hashCode);
     _$hash = $jc(_$hash, createdAt.hashCode);
+    _$hash = $jc(_$hash, authoredByViewer.hashCode);
+    _$hash = $jc(_$hash, source_.hashCode);
     _$hash = $jf(_$hash);
     return _$hash;
   }
@@ -77,7 +149,9 @@ class _$ReviewResponse extends ReviewResponse {
           ..add('serviceName', serviceName)
           ..add('rating', rating)
           ..add('comment', comment)
-          ..add('createdAt', createdAt))
+          ..add('createdAt', createdAt)
+          ..add('authoredByViewer', authoredByViewer)
+          ..add('source_', source_))
         .toString();
   }
 }
@@ -115,6 +189,15 @@ class ReviewResponseBuilder
   DateTime? get createdAt => _$this._createdAt;
   set createdAt(DateTime? createdAt) => _$this._createdAt = createdAt;
 
+  bool? _authoredByViewer;
+  bool? get authoredByViewer => _$this._authoredByViewer;
+  set authoredByViewer(bool? authoredByViewer) =>
+      _$this._authoredByViewer = authoredByViewer;
+
+  ReviewResponseSource_Enum? _source_;
+  ReviewResponseSource_Enum? get source_ => _$this._source_;
+  set source_(ReviewResponseSource_Enum? source_) => _$this._source_ = source_;
+
   ReviewResponseBuilder() {
     ReviewResponse._defaults(this);
   }
@@ -129,6 +212,8 @@ class ReviewResponseBuilder
       _rating = $v.rating;
       _comment = $v.comment;
       _createdAt = $v.createdAt;
+      _authoredByViewer = $v.authoredByViewer;
+      _source_ = $v.source_;
       _$v = null;
     }
     return this;
@@ -157,6 +242,8 @@ class ReviewResponseBuilder
           rating: rating,
           comment: comment,
           createdAt: createdAt,
+          authoredByViewer: authoredByViewer,
+          source_: source_,
         );
     replace(_$result);
     return _$result;

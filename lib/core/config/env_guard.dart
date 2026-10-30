@@ -12,8 +12,8 @@
 //    A missing `appFlavor` (plain `flutter run`, no `--flavor`) is tolerated in
 //    debug only.
 //  - the `prod` flavor additionally refuses, in EVERY mode (debug included), a
-//    loopback / RFC 1918 / `*staging*` host, any host off the allow-list, and a
-//    non-https or explicit-port URL.
+//    loopback / RFC 1918 / `*staging*` host, any host off the allow-list, a
+//    non-https or explicit-port URL, and a media host off its media allow-list.
 //
 // The check itself ([checkEnvConsistency]) is pure — flavor, env, URL and build
 // mode are parameters — so it is unit-testable; [EnvGuard.assertConsistent] wires
@@ -25,6 +25,7 @@ import 'dart:developer';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show appFlavor;
 
+import '../media/media_config.dart';
 import 'app_config.dart';
 
 /// Build mode as seen by the guard (mirrors `kDebugMode` / `kProfileMode` /
@@ -37,6 +38,16 @@ const Map<String, String> kEnvApiHosts = <String, String>{
   'prod': 'api.beautica.app',
 };
 
+/// Allow-list: the media (R2 public bucket) hosts each flavor may load images
+/// from. Mirrors [kEnvApiHosts]; checked against the parsed
+/// `BEAUTICA_MEDIA_ORIGIN` set ([MediaConfig.allowedHosts]) in release/profile
+/// builds, and for the `prod` flavor in every mode (fatal) — staging debug
+/// keeps local media overrides working.
+const Map<String, Set<String>> kEnvMediaHosts = <String, Set<String>>{
+  'staging': <String>{'media-staging.beautica.app'},
+  'prod': <String>{'media.beautica.app'},
+};
+
 /// Outcome of [checkEnvConsistency].
 @immutable
 final class EnvCheckResult {
@@ -46,7 +57,7 @@ final class EnvCheckResult {
   final List<String> errors;
 
   /// True when a violation must throw even in debug (the `prod` flavor
-  /// pointing at a loopback / private / staging host).
+  /// pointing at a loopback / private / staging / off-list API or media host).
   final bool fatalInEveryMode;
 
   bool get ok => errors.isEmpty;
@@ -58,6 +69,7 @@ EnvCheckResult checkEnvConsistency({
   required String env,
   required String baseUrl,
   required EnvBuildMode mode,
+  Set<String> mediaHosts = const <String>{},
 }) {
   final List<String> errors = <String>[];
   var fatal = false;
@@ -125,6 +137,26 @@ EnvCheckResult checkEnvConsistency({
         'base URL host "$host" is not the $flavor API host "$allowedHost"',
       );
     }
+    // Media hosts (already normalised URL→host by MediaConfig's parser): every
+    // one must be on the flavor's media allow-list — in release/profile for
+    // every flavor, and for the prod flavor in EVERY mode (fatal, mirroring the
+    // prod API-host rule above). Staging debug stays exempt so local media
+    // overrides keep working. An empty set is fail-safe (no remote media
+    // fetched) and passes.
+    final Set<String>? allowedMedia = kEnvMediaHosts[flavor];
+    final bool prodFlavor = flavor == 'prod';
+    if ((strict || prodFlavor) && allowedMedia != null) {
+      final List<String> offList =
+          mediaHosts.where((String h) => !allowedMedia.contains(h)).toList()
+            ..sort();
+      if (offList.isNotEmpty) {
+        errors.add(
+          'BEAUTICA_MEDIA_ORIGIN host(s) ${offList.join(', ')} not allowed for '
+          'flavor $flavor (expected ${allowedMedia.join('|')})',
+        );
+        if (prodFlavor) fatal = true;
+      }
+    }
   }
   return EnvCheckResult(errors: errors, fatalInEveryMode: fatal);
 }
@@ -147,6 +179,7 @@ abstract final class EnvGuard {
         env: AppConfig.env,
         baseUrl: AppConfig.baseUrl,
         mode: mode,
+        mediaHosts: MediaConfig.allowedHosts,
       ),
       mode,
     );

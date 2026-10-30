@@ -281,6 +281,35 @@ void main() {
     );
 
     test(
+      '409 BOOKING_UNAVAILABLE → BookingUnavailableFailure (phase 425)',
+      () async {
+        when(
+          () => appointmentApi.createAppointment(
+            createAppointmentRequest: any(named: 'createAppointmentRequest'),
+            idempotencyKey: any(named: 'idempotencyKey'),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _createPath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'BOOKING_UNAVAILABLE'},
+            'message': 'Запис до цього салону зараз недоступний',
+          }),
+        );
+
+        await expectLater(
+          repository.createAppointment(req),
+          throwsA(
+            isA<BookingUnavailableFailure>().having(
+              (f) => f.serverMessage,
+              'serverMessage',
+              'Запис до цього салону зараз недоступний',
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       '409 BOOKING_ALREADY_ELAPSED → BookingAlreadyElapsedFailure',
       () async {
         when(
@@ -557,6 +586,34 @@ void main() {
         await expectLater(
           repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
           throwsA(isA<BookingAlreadyElapsedFailure>()),
+        );
+      },
+    );
+
+    // Phase 431 — the 6th provider reschedule of a guest visit item within
+    // 24 h. Checked before the elapsed / client-conflict / plain-409 arms.
+    test(
+      '409 RESCHEDULE_LIMIT_REACHED → RescheduleLimitReachedFailure',
+      () async {
+        when(
+          () => appointmentApi.rescheduleAppointmentItem(
+            appointmentId: 'appt-1',
+            bookingId: 'b-1',
+            appointmentItemRescheduleRequest: any(
+              named: 'appointmentItemRescheduleRequest',
+            ),
+          ),
+        ).thenThrow(
+          _dioBadResponseWithBody(409, _itemReschedulePath, <String, dynamic>{
+            'success': false,
+            'data': <String, dynamic>{'code': 'RESCHEDULE_LIMIT_REACHED'},
+            'message': 'Reschedule limit reached for this booking',
+          }),
+        );
+
+        await expectLater(
+          repository.rescheduleAppointmentItem('appt-1', 'b-1', newStart),
+          throwsA(isA<RescheduleLimitReachedFailure>()),
         );
       },
     );

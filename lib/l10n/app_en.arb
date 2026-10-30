@@ -2209,17 +2209,17 @@
   "@scheduleDaySummaryUnset": {
     "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
   },
-  "scheduleSlotWorking": "Working hours",
+  "scheduleSlotWorking": "Free",
   "@scheduleSlotWorking": {
-    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+    "description": "Legend + slot label for a free (working, unbooked) 30-min slot — green (Phase 15.2; renamed 2026-10-30)."
   },
-  "scheduleSlotTimeOff": "Time off",
-  "@scheduleSlotTimeOff": {
-    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  "scheduleSlotBooked": "Booked",
+  "@scheduleSlotBooked": {
+    "description": "Legend + slot label for a 30-min slot overlapping a confirmed/completed booking — pink (replaces scheduleSlotTimeOff, 2026-10-30)."
   },
   "scheduleSlotOff": "Non-working hours",
   "@scheduleSlotOff": {
-    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+    "description": "Legend + slot label for a non-working slot (outside intervals, breaks, day off, no schedule) — grey (Phase 15.2)."
   },
   "scheduleErrTimeNotAligned": "Time must be a multiple of 15 minutes",
   "@scheduleErrTimeNotAligned": {
@@ -3381,7 +3381,7 @@
   "@notificationTitleDeclinedClient": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
   },
-  "notificationTitleDeclinedProvider": "A booking in your day was cancelled",
+  "notificationTitleDeclinedProvider": "Booking cancelled",
   "@notificationTitleDeclinedProvider": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
   },
@@ -7186,5 +7186,264 @@
   "accountTermsOfUse": "Terms of use",
   "@accountTermsOfUse": {
     "description": "Account page — row opening https://beautica.app/terms in the external browser."
-  }
+  },
+  "reportSheetTitle": "Report",
+  "@reportSheetTitle": {
+    "description": "Report sheet (phase 424) — sheet title; also the tooltip/semantics verb."
+  },
+  "reportSheetReasonLabel": "What's wrong?",
+  "@reportSheetReasonLabel": {
+    "description": "Report sheet — label above the reason rows."
+  },
+  "reportReasonSpam": "Spam or advertising",
+  "@reportReasonSpam": {
+    "description": "Report reason SPAM."
+  },
+  "reportReasonOffensive": "Offensive content",
+  "@reportReasonOffensive": {
+    "description": "Report reason OFFENSIVE."
+  },
+  "reportReasonHarassment": "Harassment or threats",
+  "@reportReasonHarassment": {
+    "description": "Report reason HARASSMENT."
+  },
+  "reportReasonFalseInfo": "False information",
+  "@reportReasonFalseInfo": {
+    "description": "Report reason FALSE_INFO."
+  },
+  "reportReasonSexualContent": "Explicit or sexual content",
+  "@reportReasonSexualContent": {
+    "description": "Report reason SEXUAL_CONTENT."
+  },
+  "reportReasonOther": "Other",
+  "@reportReasonOther": {
+    "description": "Report reason OTHER (comment required)."
+  },
+  "reportCommentLabelOptional": "Comment (optional)",
+  "@reportCommentLabelOptional": {
+    "description": "Report sheet — comment field label when the comment is optional."
+  },
+  "reportCommentLabelRequired": "Describe the problem",
+  "@reportCommentLabelRequired": {
+    "description": "Report sheet — comment field label when reason «Інше» makes it required."
+  },
+  "reportCommentHint": "What exactly is wrong?",
+  "@reportCommentHint": {
+    "description": "Report sheet — comment field hint."
+  },
+  "reportCommentHelper": "Reports are anonymous — the author won't know who sent it.",
+  "@reportCommentHelper": {
+    "description": "Report sheet — helper under the comment field."
+  },
+  "reportCommentRequiredError": "For «Other», write a few words",
+  "@reportCommentRequiredError": {
+    "description": "Report sheet — inline error when «Інше» has a too-short comment (backend needs >= 5 chars)."
+  },
+  "reportSubmit": "Send report",
+  "@reportSubmit": {
+    "description": "Report sheet — submit CTA."
+  },
+  "reportSent": "Thanks, we'll review the report",
+  "@reportSent": {
+    "description": "Success snack after a report is sent."
+  },
+  "reportErrRateLimited": "Too many reports, try again later",
+  "@reportErrRateLimited": {
+    "description": "Report sheet banner on HTTP 429."
+  },
+  "reportErrGeneric": "Couldn't send the report. This content may have been removed.",
+  "@reportErrGeneric": {
+    "description": "Report sheet banner on 404 / any other failure."
+  },
+  "reportSubjectReview": "Review by {name}",
+  "@reportSubjectReview": {
+    "description": "Report sheet subtitle for a review; name = masked reviewer name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectPortfolioPhoto": "Portfolio photo",
+  "@reportSubjectPortfolioPhoto": {
+    "description": "Report sheet subtitle for a portfolio photo."
+  },
+  "reviewMoreActions": "More review actions",
+  "@reviewMoreActions": {
+    "description": "Semantics label of the «⋮» on a review card."
+  },
+  "portfolioViewerReport": "Report photo",
+  "@portfolioViewerReport": {
+    "description": "Tooltip of the flag button in the portfolio photo viewer."
+  },
+  "bookingErrUnavailable": "Booking with this master/salon is currently unavailable",
+  "@bookingErrUnavailable": {
+    "description": "Client booking create 409 BOOKING_UNAVAILABLE fallback (backend 398) when the server sent no message."
+  },
+  "reportSubjectProfile": "Profile: {name}",
+  "@reportSubjectProfile": {
+    "description": "Report sheet subtitle for a master/salon profile.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectClient": "Client: {name}",
+  "@reportSubjectClient": {
+    "description": "Report sheet subtitle for a client (provider's booking detail).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "profileReportAction": "Report",
+  "@profileReportAction": {
+    "description": "Semantics label of the «⋯» on a public master/salon profile (opens the report sheet)."
+  },
+  "clientMoreActions": "More client actions",
+  "@clientMoreActions": {
+    "description": "Semantics label of the «⋯» on the booking-detail client strip."
+  },
+  "clientActionReport": "Report client",
+  "@clientActionReport": {
+    "description": "Client actions sheet — report row."
+  },
+  "clientActionBlock": "Block client",
+  "@clientActionBlock": {
+    "description": "Client actions sheet — block row."
+  },
+  "clientActionUnblock": "Unblock",
+  "@clientActionUnblock": {
+    "description": "Client actions sheet — unblock row (client already blocked)."
+  },
+  "blockDialogTitle": "Block {name}?",
+  "@blockDialogTitle": {
+    "description": "Block-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "blockDialogBody": "If you block this client, all their upcoming bookings with you will be cancelled automatically, and they won't be able to book with you until you unblock them manually.",
+  "@blockDialogBody": {
+    "description": "Block-client confirm dialog body. Blocking auto-cancels every future booking of this client with the provider."
+  },
+  "blockDialogBodySalon": "If you block this client, all their upcoming bookings at your salon will be cancelled automatically, and they won't be able to book at your salon until you unblock them manually.",
+  "@blockDialogBodySalon": {
+    "description": "Block-client confirm dialog body, salon scope (salon owner/admin block for the whole salon). Blocking auto-cancels every future booking of this client at the salon."
+  },
+  "blockDialogConfirm": "Block",
+  "@blockDialogConfirm": {
+    "description": "Block-client confirm dialog — destructive action."
+  },
+  "blockDialogDismiss": "Cancel",
+  "@blockDialogDismiss": {
+    "description": "Block-client confirm dialog — back-out."
+  },
+  "unblockDialogTitle": "Unblock {name}?",
+  "@unblockDialogTitle": {
+    "description": "Unblock-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "unblockDialogBody": "The client will be able to book with you again.",
+  "@unblockDialogBody": {
+    "description": "Unblock-client confirm dialog body."
+  },
+  "unblockDialogConfirm": "Unblock",
+  "@unblockDialogConfirm": {
+    "description": "Unblock-client confirm dialog — action."
+  },
+  "unblockDialogDismiss": "Cancel",
+  "@unblockDialogDismiss": {
+    "description": "Unblock-client confirm dialog — back-out."
+  },
+  "clientBlockedSnack": "Client blocked",
+  "@clientBlockedSnack": {
+    "description": "Success snack after blocking a client."
+  },
+  "clientBlockCancelledBookingsSnack": "{count, plural, =1{1 booking cancelled} other{{count} bookings cancelled}}",
+  "@clientBlockCancelledBookingsSnack": {
+    "description": "Success snack after blocking a client when the block auto-cancelled future visits (backend 398 BlockResponse.cancelledBookings > 0). Counts VISITS.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "clientUnblockedSnack": "Client unblocked",
+  "@clientUnblockedSnack": {
+    "description": "Success snack after unblocking a client."
+  },
+  "clientBlockErrRateLimited": "Too many block changes, try again later",
+  "@clientBlockErrRateLimited": {
+    "description": "Error snack when block/unblock hits the per-user rate limit (HTTP 429)."
+  },
+  "blockedClientsRowLabel": "Blocked clients",
+  "@blockedClientsRowLabel": {
+    "description": "Phase 426 — «Акаунт» row opening the blocked-clients list (provider roles only)."
+  },
+  "blockedClientsTitle": "Blocked clients",
+  "@blockedClientsTitle": {
+    "description": "Phase 426 — blocked-clients screen title."
+  },
+  "blockedClientsBackSemanticLabel": "Back",
+  "@blockedClientsBackSemanticLabel": {
+    "description": "Phase 426 — blocked-clients back button semantics."
+  },
+  "blockedClientsIntro": "These clients can't book with you. Their future bookings were cancelled automatically. We don't tell them they're blocked.",
+  "@blockedClientsIntro": {
+    "description": "Phase 426 — blocked-clients intro line under the title."
+  },
+  "blockedClientsEmptyTitle": "You haven't blocked any clients",
+  "@blockedClientsEmptyTitle": {
+    "description": "Phase 426 — blocked-clients empty state title."
+  },
+  "blockedClientsEmptyBody": "To block a client, open a booking: client card → «⋯».",
+  "@blockedClientsEmptyBody": {
+    "description": "Phase 426 — blocked-clients empty state body: where blocking happens."
+  },
+  "blockedClientsBlockedOn": "Blocked {date}",
+  "@blockedClientsBlockedOn": {
+    "description": "Phase 426 — blocked-clients row meta line: the day the block was made, e.g. «Заблоковано 12 жовтня».",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "blockedClientsUnblock": "Unblock",
+  "@blockedClientsUnblock": {
+    "description": "Phase 426 — blocked-clients row trailing action."
+  },
+  "blockedClientsUnblockSemantics": "Unblock {name}",
+  "@blockedClientsUnblockSemantics": {
+    "description": "Phase 426 — blocked-clients row unblock action, screen-reader label.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationTitleReportReviewed": "Report reviewed",
+  "notificationTitleContentRemoved": "Content removed",
+  "notificationBodyReportContentRemoved": "Thank you! We reviewed your report and removed the content.",
+  "notificationBodyReportNoViolation": "We reviewed your report and found no rule violations.",
+  "notificationBodyReportReviewed": "Thank you! We reviewed your report.",
+  "notificationBodyContentRemovedReview": "Your review was removed for violating the community guidelines.",
+  "notificationBodyContentRemovedClientReview": "Your review of a client was removed for violating the community guidelines.",
+  "notificationBodyContentRemovedPhoto": "Your photo was removed for violating the community guidelines.",
+  "notificationTitleReviewAboutYouRemoved": "Review removed",
+  "notificationBodyReviewAboutYouRemoved": "A review about you was removed by Beautica moderation for violating the community guidelines.",
+  "notificationBodyReportReviewedProfile": "Thank you! Your report was confirmed — we will contact the profile owner.",
+  "bookingRescheduleLimitTitle": "Reschedule limit",
+  "bookingErrRescheduleLimitReached": "You've reached the reschedule limit for this booking. Please contact support.",
+  "bookingRescheduleLimitContactSupport": "Contact support",
+  "bookingRescheduleLimitDismiss": "Got it"
 }

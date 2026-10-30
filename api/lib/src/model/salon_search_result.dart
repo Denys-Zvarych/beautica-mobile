@@ -24,6 +24,7 @@ part 'salon_search_result.g.dart';
 /// * [buildingNo]
 /// * [locationNote]
 /// * [matchedServiceNames]
+/// * [isFavorite] - Whether the signed-in CLIENT has favourited this salon. Always false for anonymous and non-CLIENT callers. Decorated per request, after the cache read.
 @BuiltValue()
 abstract class SalonSearchResult
     implements Built<SalonSearchResult, SalonSearchResultBuilder> {
@@ -63,13 +64,17 @@ abstract class SalonSearchResult
   @BuiltValueField(wireName: r'matchedServiceNames')
   BuiltList<String>? get matchedServiceNames;
 
+  /// Whether the signed-in CLIENT has favourited this salon. Always false for anonymous and non-CLIENT callers. Decorated per request, after the cache read.
+  @BuiltValueField(wireName: r'isFavorite')
+  bool? get isFavorite;
+
   SalonSearchResult._();
 
   factory SalonSearchResult([void updates(SalonSearchResultBuilder b)]) =
       _$SalonSearchResult;
 
   @BuiltValueHook(initializeBuilder: true)
-  static void _defaults(SalonSearchResultBuilder b) => b;
+  static void _defaults(SalonSearchResultBuilder b) => b..isFavorite = false;
 
   @BuiltValueSerializer(custom: true)
   static Serializer<SalonSearchResult> get serializer =>
@@ -171,6 +176,13 @@ class _$SalonSearchResultSerializer
       yield serializers.serialize(
         object.matchedServiceNames,
         specifiedType: const FullType(BuiltList, [FullType(String)]),
+      );
+    }
+    if (object.isFavorite != null) {
+      yield r'isFavorite';
+      yield serializers.serialize(
+        object.isFavorite,
+        specifiedType: const FullType(bool),
       );
     }
   }
@@ -281,6 +293,13 @@ class _$SalonSearchResultSerializer
             specifiedType: const FullType(BuiltList, [FullType(String)]),
           ) as BuiltList<String>;
           result.matchedServiceNames.replace(valueDes);
+          break;
+        case r'isFavorite':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType: const FullType(bool),
+          ) as bool;
+          result.isFavorite = valueDes;
           break;
         default:
           unhandled.add(key);

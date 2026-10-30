@@ -32,6 +32,17 @@ void main() {
       );
     });
 
+    test('a migration pair (new + legacy host) allows both, in order', () {
+      // Generic parser behaviour for a domain migration (phase 430 used it
+      // for staging; staging now allows only its custom domain).
+      expect(
+        MediaConfig.parseForTest(
+          'media-staging.beautica.app,pub-abc.r2.dev',
+        ).toList(),
+        <String>['media-staging.beautica.app', 'pub-abc.r2.dev'],
+      );
+    });
+
     test('duplicates collapse', () {
       expect(
         MediaConfig.parseForTest('pub-abc.r2.dev,pub-abc.r2.dev'),

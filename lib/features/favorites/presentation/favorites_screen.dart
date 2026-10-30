@@ -243,8 +243,72 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
     return _memoViewModel;
   }
 
+  /// The router whose delegate [_onRouteChanged] listens to. Same device as
+  /// `ClientShell`'s location listener (`client_shell.dart`).
+  GoRouter? _router;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final GoRouter? router = GoRouter.maybeOf(context);
+    if (!identical(router, _router)) {
+      _router?.routerDelegate.removeListener(_onRouteChanged);
+      _router = router;
+      router?.routerDelegate.addListener(_onRouteChanged);
+    }
+  }
+
+  /// Repairs a STALE list the moment «Улюблені» is shown again. This branch
+  /// stays mounted in the client shell's `IndexedStack`, so a narrowed
+  /// post-toggle refresh that failed (and kept the old rows — see
+  /// `Favorites.isStale`) would otherwise linger for the whole session. Runs
+  /// a full `Favorites.refresh()` post-frame (never inside a route-change
+  /// notification), at most once per frame. A no-op unless the list is stale.
+  /// Leaves open undo windows alone (see the callback below).
+  void _onRouteChanged() {
+    final GoRouter? router = _router;
+    if (!mounted || router == null) return;
+    // The DEEPEST match, not `uri`: an imperative `push` (a profile opened
+    // from this list) leaves `uri` at `/favorites`, so a `uri` check would
+    // fire on LEAVING and miss the return.
+    final RouteMatchList config = router.routerDelegate.currentConfiguration;
+    if (config.isEmpty ||
+        config.last.matchedLocation != RouteNames.clientFavorites) {
+      return;
+    }
+    if (!ref.read(favoritesProvider.notifier).isStale) return;
+    // One repair per frame: two router notifications in the same frame would
+    // otherwise queue two callbacks — two full reloads (the second joining the
+    // first as a trailing re-run).
+    if (_staleRepairScheduled) return;
+    _staleRepairScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      _staleRepairScheduled = false;
+      if (mounted && ref.read(favoritesProvider.notifier).isStale) {
+        // `refresh()` DIRECTLY, never [_refresh]: the pull-to-refresh path
+        // cancels every undo window, so an unlike still inside its window
+        // (left the tab, came back) would never send its DELETE and the row
+        // would come back. The pending dents and their timers stay intact; a
+        // timer that fires later still finds its row by kind + id.
+        // `keepRowsOnFailure`: an offline repair must not swap the list for
+        // the error screen (whose retry runs [_refresh] and would cancel the
+        // same undo windows). The list stays stale for the next visit.
+        unawaited(
+          ref.read(favoritesProvider.notifier).refresh(keepRowsOnFailure: true),
+        );
+      }
+    });
+    // A post-frame callback waits for a frame; make sure one comes.
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Whether a stale repair is already queued for the next frame. See
+  /// [_onRouteChanged].
+  bool _staleRepairScheduled = false;
+
   @override
   void dispose() {
+    _router?.routerDelegate.removeListener(_onRouteChanged);
     for (final Timer t in _timers.values) {
       t.cancel();
     }

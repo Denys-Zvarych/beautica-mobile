@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pins resources referenced only from AndroidManifest.xml FCM meta-data against
+     release resource shrinking (isShrinkResources = true). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_beautica,@color/notification_accent"/>

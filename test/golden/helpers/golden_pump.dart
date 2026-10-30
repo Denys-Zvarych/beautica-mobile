@@ -221,3 +221,17 @@ String widthScaleSuffix(double width, double scale) {
       : '${scale.toString().replaceAll('.', '_')}x';
   return '${w}_$s';
 }
+
+/// A review `createdAt` that renders the SAME relative-date label on every
+/// day the suite runs: [daysAgo] days before the real now.
+///
+/// `ReviewCard` formats `createdAt` through `formatRelativeDate` with no
+/// explicit `now`, so it reads the real clock. A fixed literal such as
+/// `DateTime(2026, 6, 1)` therefore drifts across a bucket edge as time passes
+/// («4 місяці тому» → «5 місяців тому» on 2026-10-29), changing the obscured
+/// text block's width and failing every Reviews golden with no code change.
+/// Keep [daysAgo] mid-bucket (e.g. 45 → «1 місяць», 135 → «4 місяці») so a
+/// DST hour or a Kyiv-midnight edge can never move it into the next bucket.
+DateTime goldenReviewCreatedAt(int daysAgo) =>
+    // instant-ok: test fixture relative to the real clock ReviewCard reads
+    DateTime.now().subtract(Duration(days: daysAgo));

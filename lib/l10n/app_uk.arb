@@ -2209,17 +2209,17 @@
   "@scheduleDaySummaryUnset": {
     "description": "Selected-day summary line when the day resolves to NO_SCHEDULE (Phase 15.2)."
   },
-  "scheduleSlotWorking": "Робочий час",
+  "scheduleSlotWorking": "Вільно",
   "@scheduleSlotWorking": {
-    "description": "Legend + slot label for an available (working) 30-min slot — green (Phase 15.2)."
+    "description": "Legend + slot label for a free (working, unbooked) 30-min slot — green (Phase 15.2; renamed 2026-10-30)."
   },
-  "scheduleSlotTimeOff": "Час відпочинку",
-  "@scheduleSlotTimeOff": {
-    "description": "Legend + slot label for a time-off slot (deliberate rest / day-off override) — pink (Phase 15.2)."
+  "scheduleSlotBooked": "Заброньовано",
+  "@scheduleSlotBooked": {
+    "description": "Legend + slot label for a 30-min slot overlapping a confirmed/completed booking — pink (replaces scheduleSlotTimeOff, 2026-10-30)."
   },
   "scheduleSlotOff": "Неробочий час",
   "@scheduleSlotOff": {
-    "description": "Legend + slot label for a non-working slot (outside intervals / no schedule) — grey (Phase 15.2)."
+    "description": "Legend + slot label for a non-working slot (outside intervals, breaks, day off, no schedule) — grey (Phase 15.2)."
   },
   "scheduleErrTimeNotAligned": "Час має бути кратним 15 хвилинам",
   "@scheduleErrTimeNotAligned": {
@@ -3381,7 +3381,7 @@
   "@notificationTitleDeclinedClient": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for the client."
   },
-  "notificationTitleDeclinedProvider": "Запис у вашому дні скасовано",
+  "notificationTitleDeclinedProvider": "Запис скасовано",
   "@notificationTitleDeclinedProvider": {
     "description": "Phase 363 — title of a BOOKING_DECLINED notification for a salon master whose day changed."
   },
@@ -7186,5 +7186,309 @@
   "accountTermsOfUse": "Умови використання",
   "@accountTermsOfUse": {
     "description": "Account page — row opening https://beautica.app/terms in the external browser."
+  },
+  "reportSheetTitle": "Поскаржитися",
+  "@reportSheetTitle": {
+    "description": "Report sheet (phase 424) — sheet title; also the tooltip/semantics verb."
+  },
+  "reportSheetReasonLabel": "Що не так?",
+  "@reportSheetReasonLabel": {
+    "description": "Report sheet — label above the reason rows."
+  },
+  "reportReasonSpam": "Спам або реклама",
+  "@reportReasonSpam": {
+    "description": "Report reason SPAM."
+  },
+  "reportReasonOffensive": "Образливий зміст",
+  "@reportReasonOffensive": {
+    "description": "Report reason OFFENSIVE."
+  },
+  "reportReasonHarassment": "Переслідування або погрози",
+  "@reportReasonHarassment": {
+    "description": "Report reason HARASSMENT."
+  },
+  "reportReasonFalseInfo": "Неправдива інформація",
+  "@reportReasonFalseInfo": {
+    "description": "Report reason FALSE_INFO."
+  },
+  "reportReasonSexualContent": "Відвертий або сексуальний зміст",
+  "@reportReasonSexualContent": {
+    "description": "Report reason SEXUAL_CONTENT."
+  },
+  "reportReasonOther": "Інше",
+  "@reportReasonOther": {
+    "description": "Report reason OTHER (comment required)."
+  },
+  "reportCommentLabelOptional": "Коментар (необовʼязково)",
+  "@reportCommentLabelOptional": {
+    "description": "Report sheet — comment field label when the comment is optional."
+  },
+  "reportCommentLabelRequired": "Опишіть проблему",
+  "@reportCommentLabelRequired": {
+    "description": "Report sheet — comment field label when reason «Інше» makes it required."
+  },
+  "reportCommentHint": "Що саме не так?",
+  "@reportCommentHint": {
+    "description": "Report sheet — comment field hint."
+  },
+  "reportCommentHelper": "Скарга анонімна — автор не дізнається, хто її надіслав.",
+  "@reportCommentHelper": {
+    "description": "Report sheet — helper under the comment field."
+  },
+  "reportCommentRequiredError": "Для «Інше» напишіть кілька слів",
+  "@reportCommentRequiredError": {
+    "description": "Report sheet — inline error when «Інше» has a too-short comment (backend needs >= 5 chars)."
+  },
+  "reportSubmit": "Надіслати скаргу",
+  "@reportSubmit": {
+    "description": "Report sheet — submit CTA."
+  },
+  "reportSent": "Дякуємо, ми перевіримо скаргу",
+  "@reportSent": {
+    "description": "Success snack after a report is sent."
+  },
+  "reportErrRateLimited": "Забагато скарг, спробуйте пізніше",
+  "@reportErrRateLimited": {
+    "description": "Report sheet banner on HTTP 429."
+  },
+  "reportErrGeneric": "Не вдалося надіслати скаргу. Можливо, цей вміст уже видалено.",
+  "@reportErrGeneric": {
+    "description": "Report sheet banner on 404 / any other failure."
+  },
+  "reportSubjectReview": "Відгук від {name}",
+  "@reportSubjectReview": {
+    "description": "Report sheet subtitle for a review; name = masked reviewer name.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectPortfolioPhoto": "Фото з портфоліо",
+  "@reportSubjectPortfolioPhoto": {
+    "description": "Report sheet subtitle for a portfolio photo."
+  },
+  "reviewMoreActions": "Більше дій з відгуком",
+  "@reviewMoreActions": {
+    "description": "Semantics label of the «⋮» on a review card."
+  },
+  "portfolioViewerReport": "Поскаржитися на фото",
+  "@portfolioViewerReport": {
+    "description": "Tooltip of the flag button in the portfolio photo viewer."
+  },
+  "bookingErrUnavailable": "Запис до цього майстра/салону зараз недоступний",
+  "@bookingErrUnavailable": {
+    "description": "Client booking create 409 BOOKING_UNAVAILABLE fallback (backend 398) when the server sent no message."
+  },
+  "reportSubjectProfile": "Профіль: {name}",
+  "@reportSubjectProfile": {
+    "description": "Report sheet subtitle for a master/salon profile.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "reportSubjectClient": "Клієнт: {name}",
+  "@reportSubjectClient": {
+    "description": "Report sheet subtitle for a client (provider's booking detail).",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "profileReportAction": "Поскаржитися",
+  "@profileReportAction": {
+    "description": "Semantics label of the «⋯» on a public master/salon profile (opens the report sheet)."
+  },
+  "clientMoreActions": "Більше дій з клієнтом",
+  "@clientMoreActions": {
+    "description": "Semantics label of the «⋯» on the booking-detail client strip."
+  },
+  "clientActionReport": "Поскаржитися на клієнта",
+  "@clientActionReport": {
+    "description": "Client actions sheet — report row."
+  },
+  "clientActionBlock": "Заблокувати клієнта",
+  "@clientActionBlock": {
+    "description": "Client actions sheet — block row."
+  },
+  "clientActionUnblock": "Розблокувати",
+  "@clientActionUnblock": {
+    "description": "Client actions sheet — unblock row (client already blocked)."
+  },
+  "blockDialogTitle": "Заблокувати {name}?",
+  "@blockDialogTitle": {
+    "description": "Block-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "blockDialogBody": "Якщо ви заблокуєте цього клієнта, усі його майбутні записи до вас буде автоматично скасовано, і він не зможе записатися до вас, доки ви його не розблокуєте вручну.",
+  "@blockDialogBody": {
+    "description": "Block-client confirm dialog body. Blocking auto-cancels every future booking of this client with the provider."
+  },
+  "blockDialogBodySalon": "Якщо ви заблокуєте цього клієнта, усі його майбутні записи до вашого салону буде автоматично скасовано, і він не зможе записатися до вашого салону, доки ви його не розблокуєте вручну.",
+  "@blockDialogBodySalon": {
+    "description": "Block-client confirm dialog body, salon scope (salon owner/admin block for the whole salon). Blocking auto-cancels every future booking of this client at the salon."
+  },
+  "blockDialogConfirm": "Заблокувати",
+  "@blockDialogConfirm": {
+    "description": "Block-client confirm dialog — destructive action."
+  },
+  "blockDialogDismiss": "Скасувати",
+  "@blockDialogDismiss": {
+    "description": "Block-client confirm dialog — back-out."
+  },
+  "unblockDialogTitle": "Розблокувати {name}?",
+  "@unblockDialogTitle": {
+    "description": "Unblock-client confirm dialog title.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "unblockDialogBody": "Клієнт знову зможе записатися до вас.",
+  "@unblockDialogBody": {
+    "description": "Unblock-client confirm dialog body."
+  },
+  "unblockDialogConfirm": "Розблокувати",
+  "@unblockDialogConfirm": {
+    "description": "Unblock-client confirm dialog — action."
+  },
+  "unblockDialogDismiss": "Скасувати",
+  "@unblockDialogDismiss": {
+    "description": "Unblock-client confirm dialog — back-out."
+  },
+  "clientBlockedSnack": "Клієнта заблоковано",
+  "@clientBlockedSnack": {
+    "description": "Success snack after blocking a client."
+  },
+  "clientBlockCancelledBookingsSnack": "{count, plural, one{Скасовано {count} запис} few{Скасовано {count} записи} many{Скасовано {count} записів} other{Скасовано {count} записів}}",
+  "@clientBlockCancelledBookingsSnack": {
+    "description": "Success snack after blocking a client when the block auto-cancelled future visits (backend 398 BlockResponse.cancelledBookings > 0). Counts VISITS.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "clientUnblockedSnack": "Клієнта розблоковано",
+  "@clientUnblockedSnack": {
+    "description": "Success snack after unblocking a client."
+  },
+  "clientBlockErrRateLimited": "Забагато змін блокувань, спробуйте пізніше",
+  "@clientBlockErrRateLimited": {
+    "description": "Error snack when block/unblock hits the per-user rate limit (HTTP 429)."
+  },
+  "blockedClientsRowLabel": "Заблоковані клієнти",
+  "@blockedClientsRowLabel": {
+    "description": "Phase 426 — «Акаунт» row opening the blocked-clients list (provider roles only)."
+  },
+  "blockedClientsTitle": "Заблоковані клієнти",
+  "@blockedClientsTitle": {
+    "description": "Phase 426 — blocked-clients screen title."
+  },
+  "blockedClientsBackSemanticLabel": "Назад",
+  "@blockedClientsBackSemanticLabel": {
+    "description": "Phase 426 — blocked-clients back button semantics."
+  },
+  "blockedClientsIntro": "Ці клієнти не можуть записатися до вас. Їхні майбутні записи скасовано автоматично. Про блокування їм не повідомляємо.",
+  "@blockedClientsIntro": {
+    "description": "Phase 426 — blocked-clients intro line under the title."
+  },
+  "blockedClientsEmptyTitle": "Ви не заблокували жодного клієнта",
+  "@blockedClientsEmptyTitle": {
+    "description": "Phase 426 — blocked-clients empty state title."
+  },
+  "blockedClientsEmptyBody": "Заблокувати клієнта можна з запису: картка клієнта → «⋯».",
+  "@blockedClientsEmptyBody": {
+    "description": "Phase 426 — blocked-clients empty state body: where blocking happens."
+  },
+  "blockedClientsBlockedOn": "Заблоковано {date}",
+  "@blockedClientsBlockedOn": {
+    "description": "Phase 426 — blocked-clients row meta line: the day the block was made, e.g. «Заблоковано 12 жовтня».",
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "blockedClientsUnblock": "Розблокувати",
+  "@blockedClientsUnblock": {
+    "description": "Phase 426 — blocked-clients row trailing action."
+  },
+  "blockedClientsUnblockSemantics": "Розблокувати {name}",
+  "@blockedClientsUnblockSemantics": {
+    "description": "Phase 426 — blocked-clients row unblock action, screen-reader label.",
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "notificationTitleReportReviewed": "Скаргу розглянуто",
+  "@notificationTitleReportReviewed": {
+    "description": "Phase 428 — title of REPORT_CONTENT_REMOVED / REPORT_NO_VIOLATION / REPORT_REVIEWED (to the reporter)."
+  },
+  "notificationTitleContentRemoved": "Вміст видалено",
+  "@notificationTitleContentRemoved": {
+    "description": "Phase 428 — title of CONTENT_REMOVED (to the author)."
+  },
+  "notificationBodyReportContentRemoved": "Дякуємо! Ми переглянули вашу скаргу, і вміст видалено.",
+  "@notificationBodyReportContentRemoved": {
+    "description": "Phase 428 — body of REPORT_CONTENT_REMOVED (locked, backend 415 D2)."
+  },
+  "notificationBodyReportNoViolation": "Ми переглянули вашу скаргу і не знайшли порушень правил.",
+  "@notificationBodyReportNoViolation": {
+    "description": "Phase 428 — body of REPORT_NO_VIOLATION (locked, backend 415 D2)."
+  },
+  "notificationBodyReportReviewed": "Дякуємо! Ми переглянули вашу скаргу.",
+  "@notificationBodyReportReviewed": {
+    "description": "Phase 428 — body of REPORT_REVIEWED (profile report, neutral)."
+  },
+  "notificationBodyContentRemovedReview": "Ваш відгук видалено через порушення правил спільноти.",
+  "@notificationBodyContentRemovedReview": {
+    "description": "Phase 428 — body of CONTENT_REMOVED for a review (locked; also the fallback)."
+  },
+  "notificationBodyContentRemovedClientReview": "Ваш відгук про клієнта видалено через порушення правил спільноти.",
+  "@notificationBodyContentRemovedClientReview": {
+    "description": "Phase 428 — body of CONTENT_REMOVED for a provider's review of a client."
+  },
+  "notificationBodyContentRemovedPhoto": "Ваше фото видалено через порушення правил спільноти.",
+  "@notificationBodyContentRemovedPhoto": {
+    "description": "Phase 428 — body of CONTENT_REMOVED for a portfolio photo."
+  },
+  "notificationTitleReviewAboutYouRemoved": "Відгук видалено",
+  "@notificationTitleReviewAboutYouRemoved": {
+    "description": "Phase 428 — title of REVIEW_ABOUT_YOU_REMOVED (to the reviewed provider / client)."
+  },
+  "notificationBodyReviewAboutYouRemoved": "Відгук про вас видалено модерацією Beautica: він порушував правила спільноти.",
+  "@notificationBodyReviewAboutYouRemoved": {
+    "description": "Phase 428 — body of REVIEW_ABOUT_YOU_REMOVED (locked; same for REVIEW and CLIENT_REVIEW)."
+  },
+  "notificationBodyReportReviewedProfile": "Дякуємо! Скаргу підтверджено — ми зв'яжемося з власником профілю.",
+  "@notificationBodyReportReviewedProfile": {
+    "description": "Phase 428 — body of REPORT_REVIEWED when params.contentKind == PROFILE (a confirmed profile report)."
+  },
+  "bookingRescheduleLimitTitle": "Ліміт перенесень",
+  "@bookingRescheduleLimitTitle": {
+    "description": "Phase 431 — title of the dialog shown when a provider reschedule returns HTTP 409 RESCHEDULE_LIMIT_REACHED."
+  },
+  "bookingErrRescheduleLimitReached": "Ви досягли ліміту перенесень для цього запису. Зверніться в підтримку.",
+  "@bookingErrRescheduleLimitReached": {
+    "description": "Phase 431 — HTTP 409 RESCHEDULE_LIMIT_REACHED on a provider reschedule of a guest booking/visit item (6th within 24 h). Dialog body + RescheduleLimitReachedFailure.userMessage."
+  },
+  "bookingRescheduleLimitContactSupport": "Написати в підтримку",
+  "@bookingRescheduleLimitContactSupport": {
+    "description": "Phase 431 — reschedule-limit dialog action; opens the in-app contact-support screen."
+  },
+  "bookingRescheduleLimitDismiss": "Зрозуміло",
+  "@bookingRescheduleLimitDismiss": {
+    "description": "Phase 431 — reschedule-limit dialog quiet dismiss; the user stays on the confirm screen."
   }
 }

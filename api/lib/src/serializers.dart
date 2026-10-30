@@ -19,6 +19,7 @@ import 'package:beautica_api/src/model/api_response_appointment_detail_response.
 import 'package:beautica_api/src/model/api_response_auth_response.dart';
 import 'package:beautica_api/src/model/api_response_available_slots_response.dart';
 import 'package:beautica_api/src/model/api_response_avatar_response.dart';
+import 'package:beautica_api/src/model/api_response_block_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_detail_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_link_response.dart';
 import 'package:beautica_api/src/model/api_response_booking_links_response.dart';
@@ -30,6 +31,7 @@ import 'package:beautica_api/src/model/api_response_guest_token_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_preview_response.dart';
 import 'package:beautica_api/src/model/api_response_invite_response.dart';
 import 'package:beautica_api/src/model/api_response_list_approved_category_response.dart';
+import 'package:beautica_api/src/model/api_response_list_block_response.dart';
 import 'package:beautica_api/src/model/api_response_list_bookable_master_response.dart';
 import 'package:beautica_api/src/model/api_response_list_catalog_category_response.dart';
 import 'package:beautica_api/src/model/api_response_list_city_district_response.dart';
@@ -40,6 +42,7 @@ import 'package:beautica_api/src/model/api_response_list_master_service_response
 import 'package:beautica_api/src/model/api_response_list_master_working_day_response.dart';
 import 'package:beautica_api/src/model/api_response_list_oblast_response.dart';
 import 'package:beautica_api/src/model/api_response_list_platform_service_type_response.dart';
+import 'package:beautica_api/src/model/api_response_list_reported_target_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_master_effective_schedule_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_list_salon_staff_member_response.dart';
@@ -74,6 +77,7 @@ import 'package:beautica_api/src/model/api_response_passport_response.dart';
 import 'package:beautica_api/src/model/api_response_pending_booking_actions_count_response.dart';
 import 'package:beautica_api/src/model/api_response_public_salon_response.dart';
 import 'package:beautica_api/src/model/api_response_registration_response.dart';
+import 'package:beautica_api/src/model/api_response_report_response.dart';
 import 'package:beautica_api/src/model/api_response_revenue_response.dart';
 import 'package:beautica_api/src/model/api_response_review_response.dart';
 import 'package:beautica_api/src/model/api_response_salon_admin_response.dart';
@@ -102,6 +106,7 @@ import 'package:beautica_api/src/model/auth_response.dart';
 import 'package:beautica_api/src/model/available_slot_response.dart';
 import 'package:beautica_api/src/model/available_slots_response.dart';
 import 'package:beautica_api/src/model/avatar_response.dart';
+import 'package:beautica_api/src/model/block_response.dart';
 import 'package:beautica_api/src/model/bookable_master_response.dart';
 import 'package:beautica_api/src/model/booking_detail_response.dart';
 import 'package:beautica_api/src/model/booking_link_mutation_request.dart';
@@ -125,9 +130,11 @@ import 'package:beautica_api/src/model/client_review_response.dart';
 import 'package:beautica_api/src/model/contact_support_request.dart';
 import 'package:beautica_api/src/model/contact_support_response.dart';
 import 'package:beautica_api/src/model/create_appointment_request.dart';
+import 'package:beautica_api/src/model/create_block_request.dart';
 import 'package:beautica_api/src/model/create_booking_request.dart';
 import 'package:beautica_api/src/model/create_category_request_request.dart';
 import 'package:beautica_api/src/model/create_client_review_request.dart';
+import 'package:beautica_api/src/model/create_report_request.dart';
 import 'package:beautica_api/src/model/create_review_request.dart';
 import 'package:beautica_api/src/model/create_salon_request.dart';
 import 'package:beautica_api/src/model/create_service_definition_request.dart';
@@ -144,6 +151,9 @@ import 'package:beautica_api/src/model/forgot_password_request.dart';
 import 'package:beautica_api/src/model/guest_booking_request.dart';
 import 'package:beautica_api/src/model/guest_booking_response.dart';
 import 'package:beautica_api/src/model/guest_client_dto.dart';
+import 'package:beautica_api/src/model/guest_review_item_request.dart';
+import 'package:beautica_api/src/model/guest_review_submit_request.dart';
+import 'package:beautica_api/src/model/guest_review_submit_response.dart';
 import 'package:beautica_api/src/model/guest_token_response.dart';
 import 'package:beautica_api/src/model/independent_master_update_request.dart';
 import 'package:beautica_api/src/model/invite_accept_request.dart';
@@ -200,6 +210,8 @@ import 'package:beautica_api/src/model/register_device_token_request.dart';
 import 'package:beautica_api/src/model/register_independent_master_request.dart';
 import 'package:beautica_api/src/model/register_request.dart';
 import 'package:beautica_api/src/model/registration_response.dart';
+import 'package:beautica_api/src/model/report_response.dart';
+import 'package:beautica_api/src/model/reported_target_response.dart';
 import 'package:beautica_api/src/model/reschedule_booking_request.dart';
 import 'package:beautica_api/src/model/resend_verification_request.dart';
 import 'package:beautica_api/src/model/reset_password_request.dart';
@@ -207,6 +219,9 @@ import 'package:beautica_api/src/model/revenue_by_date_dto.dart';
 import 'package:beautica_api/src/model/revenue_by_master_dto.dart';
 import 'package:beautica_api/src/model/revenue_by_service_dto.dart';
 import 'package:beautica_api/src/model/revenue_response.dart';
+import 'package:beautica_api/src/model/review_invite_item_response.dart';
+import 'package:beautica_api/src/model/review_invite_opt_out_request.dart';
+import 'package:beautica_api/src/model/review_invite_response.dart';
 import 'package:beautica_api/src/model/review_response.dart';
 import 'package:beautica_api/src/model/rotate_admin_request.dart';
 import 'package:beautica_api/src/model/rotate_master_request.dart';
@@ -224,6 +239,8 @@ import 'package:beautica_api/src/model/salon_search_request.dart';
 import 'package:beautica_api/src/model/salon_search_result.dart';
 import 'package:beautica_api/src/model/salon_service_catalog_response.dart';
 import 'package:beautica_api/src/model/salon_service_category_group.dart';
+import 'package:beautica_api/src/model/salon_service_coverage.dart';
+import 'package:beautica_api/src/model/salon_service_master_ref.dart';
 import 'package:beautica_api/src/model/salon_staff_member_response.dart';
 import 'package:beautica_api/src/model/schedule_override_request.dart';
 import 'package:beautica_api/src/model/schedule_override_response.dart';
@@ -265,6 +282,7 @@ part 'serializers.g.dart';
   ApiResponseAuthResponse,
   ApiResponseAvailableSlotsResponse,
   ApiResponseAvatarResponse,
+  ApiResponseBlockResponse,
   ApiResponseBookingDetailResponse,
   ApiResponseBookingLinkResponse,
   ApiResponseBookingLinksResponse,
@@ -276,6 +294,7 @@ part 'serializers.g.dart';
   ApiResponseInvitePreviewResponse,
   ApiResponseInviteResponse,
   ApiResponseListApprovedCategoryResponse,
+  ApiResponseListBlockResponse,
   ApiResponseListBookableMasterResponse,
   ApiResponseListCatalogCategoryResponse,
   ApiResponseListCityDistrictResponse,
@@ -286,6 +305,7 @@ part 'serializers.g.dart';
   ApiResponseListMasterWorkingDayResponse,
   ApiResponseListOblastResponse,
   ApiResponseListPlatformServiceTypeResponse,
+  ApiResponseListReportedTargetResponse,
   ApiResponseListSalonMasterEffectiveScheduleResponse,
   ApiResponseListSalonResponse,
   ApiResponseListSalonStaffMemberResponse,
@@ -320,6 +340,7 @@ part 'serializers.g.dart';
   ApiResponsePendingBookingActionsCountResponse,
   ApiResponsePublicSalonResponse,
   ApiResponseRegistrationResponse,
+  ApiResponseReportResponse,
   ApiResponseRevenueResponse,
   ApiResponseReviewResponse,
   ApiResponseSalonAdminResponse,
@@ -348,6 +369,7 @@ part 'serializers.g.dart';
   AvailableSlotResponse,
   AvailableSlotsResponse,
   AvatarResponse,
+  BlockResponse,
   BookableMasterResponse,
   BookingDetailResponse,
   BookingLinkMutationRequest,
@@ -371,9 +393,11 @@ part 'serializers.g.dart';
   ContactSupportRequest,
   ContactSupportResponse,
   CreateAppointmentRequest,
+  CreateBlockRequest,
   CreateBookingRequest,
   CreateCategoryRequestRequest,
   CreateClientReviewRequest,
+  CreateReportRequest,
   CreateReviewRequest,
   CreateSalonRequest,
   CreateServiceDefinitionRequest,
@@ -390,6 +414,9 @@ part 'serializers.g.dart';
   GuestBookingRequest,
   GuestBookingResponse,
   GuestClientDto,
+  GuestReviewItemRequest,
+  GuestReviewSubmitRequest,
+  GuestReviewSubmitResponse,
   GuestTokenResponse,
   IndependentMasterUpdateRequest,
   InviteAcceptRequest,
@@ -446,6 +473,8 @@ part 'serializers.g.dart';
   RegisterIndependentMasterRequest,
   RegisterRequest,
   RegistrationResponse,
+  ReportResponse,
+  ReportedTargetResponse,
   RescheduleBookingRequest,
   ResendVerificationRequest,
   ResetPasswordRequest,
@@ -453,6 +482,9 @@ part 'serializers.g.dart';
   RevenueByMasterDto,
   RevenueByServiceDto,
   RevenueResponse,
+  ReviewInviteItemResponse,
+  ReviewInviteOptOutRequest,
+  ReviewInviteResponse,
   ReviewResponse,
   RotateAdminRequest,
   RotateMasterRequest,
@@ -470,6 +502,8 @@ part 'serializers.g.dart';
   SalonSearchResult,
   SalonServiceCatalogResponse,
   SalonServiceCategoryGroup,
+  SalonServiceCoverage,
+  SalonServiceMasterRef,
   SalonStaffMemberResponse,
   ScheduleOverrideRequest,
   ScheduleOverrideResponse,

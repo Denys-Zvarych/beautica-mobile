@@ -84,21 +84,29 @@ final class FakeFavoriteRepository implements FavoriteRepository {
   int mastersCalls = 0;
   int salonsCalls = 0;
 
+  /// ADDITIVE: when `true`, each list call returns the rows as they were when
+  /// the call STARTED (a real GET answers with the server state at request
+  /// time), not when its `*Delay` releases. `false` (the default) keeps the
+  /// read-after-delay behaviour every existing test relies on.
+  bool snapshotRowsAtCall = false;
+
   @override
   Future<List<FavoriteItem>> getFavoriteMasters() async {
     mastersCalls++;
+    final List<FavoriteItem> atCall = masters;
     if (mastersDelay != null) await mastersDelay!;
     final Failure? failure = mastersResult;
     if (failure != null) throw failure;
-    return masters;
+    return snapshotRowsAtCall ? atCall : masters;
   }
 
   @override
   Future<List<FavoriteItem>> getFavoriteSalons() async {
     salonsCalls++;
+    final List<FavoriteItem> atCall = salons;
     if (salonsDelay != null) await salonsDelay!;
     final Failure? failure = salonsResult;
     if (failure != null) throw failure;
-    return salons;
+    return snapshotRowsAtCall ? atCall : salons;
   }
 }

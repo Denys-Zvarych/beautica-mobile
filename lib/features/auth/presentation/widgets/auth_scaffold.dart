@@ -3,8 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
-import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
+import 'package:beautica_mobile/shared/widgets/velvet_banner.dart';
 
 /// Shared screen chrome for the auth flow: safe-area aware, scrollable so the
 /// keyboard never clips fields, with an optional inset back button.
@@ -89,65 +89,8 @@ class AuthScaffold extends StatelessWidget {
   }
 }
 
-/// A dismissible inline banner for form-level (non-field) feedback such as the
-/// login "email not verified" state. Pairs an icon + text + optional action so
-/// meaning never relies on color alone.
-class AuthBanner extends StatelessWidget {
-  const AuthBanner({
-    super.key,
-    required this.icon,
-    required this.message,
-    required this.color,
-    this.actionLabel,
-    this.onAction,
-  });
-
-  final IconData icon;
-  final String message;
-  final Color color;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      liveRegion: true,
-      container: true,
-      child: NeumorphicCard(
-        padding: const EdgeInsets.all(VelvetSpacing.md),
-        shadows: VelvetShadows.extrudedSmall,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: VelvetSpacing.sm + 2),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    message,
-                    style: VelvetText.feedback(
-                      BrandColors.text,
-                    ).copyWith(height: 1.45),
-                  ),
-                  if (actionLabel != null && onAction != null) ...<Widget>[
-                    const SizedBox(height: VelvetSpacing.sm),
-                    GestureDetector(
-                      key: const ValueKey<String>('auth_banner_action'),
-                      onTap: onAction,
-                      child: Text(
-                        actionLabel!,
-                        style: VelvetText.link().copyWith(color: color),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+/// The auth flow's inline banner — PROMOTED (REUSE-FIRST, phase 424) to
+/// `shared/widgets/velvet_banner.dart` as [VelvetBanner] so the moderation
+/// report sheet renders the same banner. This alias keeps every auth call site
+/// and test (`find.byType(AuthBanner)`) pointing at the one shared class.
+typedef AuthBanner = VelvetBanner;

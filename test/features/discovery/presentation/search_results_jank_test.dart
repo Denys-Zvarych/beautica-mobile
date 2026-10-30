@@ -114,6 +114,7 @@ class _FlipFavoriteToggle extends FavoriteToggleNotifier {
   Future<Failure?> toggle(
     FavoriteTarget target, {
     bool refreshWishlist = true,
+    bool refreshFavorites = true,
   }) async {
     final bool now = state[target]?.isFavorite ?? false;
     state = <FavoriteTarget, FavoriteEntry>{

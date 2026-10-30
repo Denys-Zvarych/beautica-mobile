@@ -11,6 +11,7 @@ import 'package:beautica_api/src/auth/bearer_auth.dart';
 import 'package:beautica_api/src/auth/oauth.dart';
 import 'package:beautica_api/src/api/appointment_controller_api.dart';
 import 'package:beautica_api/src/api/auth_controller_api.dart';
+import 'package:beautica_api/src/api/block_controller_api.dart';
 import 'package:beautica_api/src/api/booking_controller_api.dart';
 import 'package:beautica_api/src/api/booking_links_api.dart';
 import 'package:beautica_api/src/api/category_request_controller_api.dart';
@@ -19,6 +20,7 @@ import 'package:beautica_api/src/api/client_review_controller_api.dart';
 import 'package:beautica_api/src/api/dashboard_controller_api.dart';
 import 'package:beautica_api/src/api/device_controller_api.dart';
 import 'package:beautica_api/src/api/favorite_controller_api.dart';
+import 'package:beautica_api/src/api/guest_reviews_api.dart';
 import 'package:beautica_api/src/api/independent_master_controller_api.dart';
 import 'package:beautica_api/src/api/location_controller_api.dart';
 import 'package:beautica_api/src/api/master_controller_api.dart';
@@ -26,6 +28,8 @@ import 'package:beautica_api/src/api/media_controller_api.dart';
 import 'package:beautica_api/src/api/notifications_api.dart';
 import 'package:beautica_api/src/api/phone_otp_controller_api.dart';
 import 'package:beautica_api/src/api/public_booking_controller_api.dart';
+import 'package:beautica_api/src/api/public_salon_booking_controller_api.dart';
+import 'package:beautica_api/src/api/report_controller_api.dart';
 import 'package:beautica_api/src/api/review_controller_api.dart';
 import 'package:beautica_api/src/api/salon_controller_api.dart';
 import 'package:beautica_api/src/api/salon_master_controller_api.dart';
@@ -119,6 +123,12 @@ class BeauticaApi {
     return AuthControllerApi(dio, serializers);
   }
 
+  /// Get BlockControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  BlockControllerApi getBlockControllerApi() {
+    return BlockControllerApi(dio, serializers);
+  }
+
   /// Get BookingControllerApi instance, base route and serializer can be overridden by a given but be careful,
   /// by doing that all interceptors will not be executed
   BookingControllerApi getBookingControllerApi() {
@@ -167,6 +177,12 @@ class BeauticaApi {
     return FavoriteControllerApi(dio, serializers);
   }
 
+  /// Get GuestReviewsApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  GuestReviewsApi getGuestReviewsApi() {
+    return GuestReviewsApi(dio, serializers);
+  }
+
   /// Get IndependentMasterControllerApi instance, base route and serializer can be overridden by a given but be careful,
   /// by doing that all interceptors will not be executed
   IndependentMasterControllerApi getIndependentMasterControllerApi() {
@@ -207,6 +223,18 @@ class BeauticaApi {
   /// by doing that all interceptors will not be executed
   PublicBookingControllerApi getPublicBookingControllerApi() {
     return PublicBookingControllerApi(dio, serializers);
+  }
+
+  /// Get PublicSalonBookingControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  PublicSalonBookingControllerApi getPublicSalonBookingControllerApi() {
+    return PublicSalonBookingControllerApi(dio, serializers);
+  }
+
+  /// Get ReportControllerApi instance, base route and serializer can be overridden by a given but be careful,
+  /// by doing that all interceptors will not be executed
+  ReportControllerApi getReportControllerApi() {
+    return ReportControllerApi(dio, serializers);
   }
 
   /// Get ReviewControllerApi instance, base route and serializer can be overridden by a given but be careful,

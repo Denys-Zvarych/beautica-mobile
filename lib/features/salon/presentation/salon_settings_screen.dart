@@ -59,6 +59,7 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/widgets/booking_links_settings_row.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -192,6 +193,9 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
       extra: AccountSettingsExtras(
         salonId: widget.salonId,
         showDeleteSalon: isOwner,
+        // The account page hides «Змінити пароль» for a SALON_ADMIN on this
+        // path only (see `SettingsScreen._showChangePasswordRow`).
+        fromSalonSettings: true,
       ),
     );
   }
@@ -285,6 +289,16 @@ class _SalonSettingsScreenState extends ConsumerState<SalonSettingsScreen>
                 RouteNames.salonPendingInvites(widget.salonId),
               ),
             ),
+          ),
+          // «Посилання для запису» — owner AND admin (outside the owner-only
+          // block; user decision 2026-10-29: salons reach booking links ONLY
+          // from here, never from the personal / master-mode hubs). The
+          // shared [BookingLinksSettingsRow] hides itself (no trace) unless
+          // `bookingLinksVisibleProvider` is `true`, and owns its LEADING
+          // gap — hence it sits after «Надіслані запрошення», ahead of the
+          // gap before «Загальне». Reveals with «Загальне».
+          BookingLinksSettingsRow(
+            reveal: (Widget child) => _reveal(_animGeneral, child),
           ),
           const SizedBox(height: VelvetSpacing.md),
 

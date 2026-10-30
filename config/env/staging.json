@@ -1,5 +1,5 @@
 {
   "BEAUTICA_ENV": "staging",
   "BEAUTICA_BASE_URL": "https://beautica-backend-staging.up.railway.app",
-  "BEAUTICA_MEDIA_ORIGIN": "pub-6d1bb68a80bf4d5da719f8154f3c1c4c.r2.dev"
+  "BEAUTICA_MEDIA_ORIGIN": "media-staging.beautica.app"
 }

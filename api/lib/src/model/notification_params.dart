@@ -22,6 +22,7 @@ part 'notification_params.g.dart';
 /// * [subjectRole]
 /// * [categoryName]
 /// * [decisionReason]
+/// * [contentKind]
 @BuiltValue()
 abstract class NotificationParams
     implements Built<NotificationParams, NotificationParamsBuilder> {
@@ -55,6 +56,10 @@ abstract class NotificationParams
 
   @BuiltValueField(wireName: r'decisionReason')
   String? get decisionReason;
+
+  @BuiltValueField(wireName: r'contentKind')
+  NotificationParamsContentKindEnum? get contentKind;
+  // enum contentKindEnum {  REVIEW,  CLIENT_REVIEW,  PORTFOLIO_PHOTO,  PROFILE,  };
 
   NotificationParams._();
 
@@ -151,6 +156,14 @@ class _$NotificationParamsSerializer
       yield serializers.serialize(
         object.decisionReason,
         specifiedType: const FullType.nullable(String),
+      );
+    }
+    if (object.contentKind != null) {
+      yield r'contentKind';
+      yield serializers.serialize(
+        object.contentKind,
+        specifiedType:
+            const FullType.nullable(NotificationParamsContentKindEnum),
       );
     }
   }
@@ -258,6 +271,15 @@ class _$NotificationParamsSerializer
           if (valueDes == null) continue;
           result.decisionReason = valueDes;
           break;
+        case r'contentKind':
+          final valueDes = serializers.deserialize(
+            value,
+            specifiedType:
+                const FullType.nullable(NotificationParamsContentKindEnum),
+          ) as NotificationParamsContentKindEnum?;
+          if (valueDes == null) continue;
+          result.contentKind = valueDes;
+          break;
         default:
           unhandled.add(key);
           unhandled.add(value);
@@ -316,4 +338,32 @@ class NotificationParamsSubjectRoleEnum extends EnumClass {
       _$notificationParamsSubjectRoleEnumValues;
   static NotificationParamsSubjectRoleEnum valueOf(String name) =>
       _$notificationParamsSubjectRoleEnumValueOf(name);
+}
+
+class NotificationParamsContentKindEnum extends EnumClass {
+  @BuiltValueEnumConst(wireName: r'REVIEW')
+  static const NotificationParamsContentKindEnum REVIEW =
+      _$notificationParamsContentKindEnum_REVIEW;
+  @BuiltValueEnumConst(wireName: r'CLIENT_REVIEW')
+  static const NotificationParamsContentKindEnum CLIENT_REVIEW =
+      _$notificationParamsContentKindEnum_CLIENT_REVIEW;
+  @BuiltValueEnumConst(wireName: r'PORTFOLIO_PHOTO')
+  static const NotificationParamsContentKindEnum PORTFOLIO_PHOTO =
+      _$notificationParamsContentKindEnum_PORTFOLIO_PHOTO;
+  @BuiltValueEnumConst(wireName: r'PROFILE')
+  static const NotificationParamsContentKindEnum PROFILE =
+      _$notificationParamsContentKindEnum_PROFILE;
+  @BuiltValueEnumConst(wireName: r'unknown_default_open_api', fallback: true)
+  static const NotificationParamsContentKindEnum unknownDefaultOpenApi =
+      _$notificationParamsContentKindEnum_unknownDefaultOpenApi;
+
+  static Serializer<NotificationParamsContentKindEnum> get serializer =>
+      _$notificationParamsContentKindEnumSerializer;
+
+  const NotificationParamsContentKindEnum._(String name) : super(name);
+
+  static BuiltSet<NotificationParamsContentKindEnum> get values =>
+      _$notificationParamsContentKindEnumValues;
+  static NotificationParamsContentKindEnum valueOf(String name) =>
+      _$notificationParamsContentKindEnumValueOf(name);
 }

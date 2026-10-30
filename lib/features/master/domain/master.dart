@@ -153,6 +153,12 @@ abstract class Master with _$Master {
     /// renders «—» for it — do NOT coalesce to `0`, which would tell a master
     /// with a full calendar that they have no bookings (Qase defect #25).
     int? bookingsThisMonth,
+
+    /// Whether the signed-in CLIENT has favourited this master — the server's
+    /// `isFavorite` (backend `6d1fcbc9`). Seeds the heart's initial state via
+    /// `FavoriteToggleNotifier.syncFromServer`. ADDITIVE, defaults to `false`
+    /// (also what the backend sends to anonymous and non-client callers).
+    @Default(false) bool isFavorite,
   }) = _Master;
 
   /// The master's settlement as a [Settlement], for
