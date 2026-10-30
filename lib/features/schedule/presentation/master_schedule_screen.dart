@@ -28,12 +28,18 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
+import 'package:beautica_mobile/core/time/clock_provider.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
 import 'package:beautica_mobile/core/widgets/neumorphic.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/bookings_day_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_query.dart';
+import 'package:beautica_mobile/features/booking/domain/bookings_day_state.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
@@ -141,6 +147,43 @@ class MasterScheduleScreen extends ConsumerStatefulWidget {
       _MasterScheduleScreenState();
 }
 
+/// The booking statuses that occupy schedule time (2026-10-30 booked-slots
+/// overlay). CANCELLED / DECLINED / NOT_COMPLETED never paint.
+const Set<BookingStatus> _kBookedStatuses = <BookingStatus>{
+  BookingStatus.confirmed,
+  BookingStatus.completed,
+};
+
+/// The `bookingsDayProvider` family key whose bookings paint [day]'s grid as
+/// «Заброньовано» for [scope], or `null` when there is no master to read
+/// bookings for (an unresolved / non-master own scope — owner, admin, client).
+///
+/// * [OwnScheduleScope] (INDEPENDENT_MASTER, SALON_MASTER self-view) →
+///   `GET /bookings/me` for the day, server-filtered to [_kBookedStatuses].
+/// * [SalonMasterScheduleScope] (owner/admin viewing a roster master, and the
+///   owner's own master mode) → `GET /bookings/salon/{salonId}?masterId=…`,
+///   narrowed client-side. It derives from the unfiltered `(day, salon,
+///   masterId)` member ([BookingsDayQuery.fetchKey]), so it shares a fetch
+///   only with a salon board narrowed to that SAME master — never with the
+///   whole-salon board (`masterId: null`, a different key).
+BookingsDayQuery? scheduleBookingsQueryFor(ScheduleScope scope, DateTime day) =>
+    switch (scope) {
+      OwnScheduleScope(:final String masterId) when masterId.isEmpty => null,
+      OwnScheduleScope() => BookingsDayQuery.of(
+        day: day,
+        statuses: _kBookedStatuses,
+      ),
+      SalonMasterScheduleScope(:final String masterId) when masterId.isEmpty =>
+        null,
+      SalonMasterScheduleScope(:final String salonId, :final String masterId) =>
+        BookingsDayQuery.salonOf(
+          day: day,
+          salonId: salonId,
+          masterId: masterId,
+          statuses: _kBookedStatuses,
+        ),
+    };
+
 class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   static const _tag = 'feature.schedule.masterschedule';
 
@@ -162,7 +205,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// freezing the mount-time date. The initial calendar anchors ([_selected],
   /// [_visibleMonth], [_weekStart]) intentionally capture this once on mount.
   ///
-  /// [kyivDayOf], not the local [_dateOnly] helper: this is the one call site
+  /// [kyivToday], not the local [_dateOnly] helper: this is the one call site
   /// that derives "today" from a raw clock instant, so it is the one that
   /// must go through Kyiv. [_dateOnly] itself stays — its OTHER callers
   /// ([_mondayOf], [_isPast]) normalise values that are already date tokens
@@ -170,8 +213,29 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   /// not a fix (see `shared/time/kyiv_day.dart`'s ILLEGAL list).
   ///
   /// NOT read directly by [_isPast] any more — see [_todayCache].
-  // instant-ok: feeds kyivDayOf below, not used as a bare device-day anchor
-  DateTime get _today => kyivDayOf(widget._clock?.call() ?? DateTime.now());
+  DateTime get _today => kyivToday(_clockFn);
+
+  /// The live "now" source: [MasterScheduleScreen]'s injected `clock` when
+  /// given, else the app-wide [clockProvider] (production: `DateTime.now`, so
+  /// behaviour is unchanged; tests that pin `clockProvider` — e.g. the
+  /// integration harness's `kFixedNow` — now drive this screen's "today" too).
+  /// Read, not watched: the provider's value is a function that never changes.
+  DateTime Function() get _clockFn => widget._clock ?? _providerClock;
+
+  /// [clockProvider]'s value, resolved ONCE in [initState] while the element is
+  /// mounted. Never read through `ref` lazily: [dispose] disposes the `late`
+  /// [_selected], which — when nothing read it before unmount (e.g. a redirect
+  /// away before the first data frame) — runs its initializer
+  /// (`_initialSelection` → [_today] → [_clockFn]) AFTER unmount, and a lazy
+  /// `ref.read` there throws "Using ref when a widget is about to or has been
+  /// unmounted is unsafe" (PR #123 CI).
+  late final DateTime Function() _providerClock;
+
+  @override
+  void initState() {
+    super.initState();
+    _providerClock = ref.read(clockProvider);
+  }
 
   /// The date the calendar opens on: [MasterScheduleScreen.initialDate] when
   /// given (date-only, per that field's doc), else [_today]. Read exactly
@@ -430,7 +494,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
       initialTimes: day.times,
       // Thread the LIVE clock so the sheet's submit-time past-date guard sees a
       // midnight rollover that happens while the sheet is open.
-      clock: widget._clock,
+      clock: _clockFn,
     );
     // Plain dismiss (close / barrier / validation bail) → nothing changed.
     if (changed == null || !mounted) return;
@@ -769,7 +833,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         const SizedBox(height: VelvetSpacing.lg + 4),
         SectionHeader(title: l10n.scheduleCalendarSection),
         const SizedBox(height: VelvetSpacing.md),
-        _calendarCard(l10n, editable, index, reloading: reloading),
+        _calendarCard(l10n, editable, index, scope, reloading: reloading),
       ],
     );
 
@@ -805,10 +869,28 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
         // keepalive-safe: AppRefreshIndicator.onRefresh — pre-existing invalidate-then-immediate-read idiom (self-key, invalidate followed by ref.read(...future) at line 686); predates this track, left alone per instruction. Line renumbered from 648 (Phase 309/310 D4/D2 inserted code earlier in build(), a net +34 lines, not +32); site and reasoning unchanged.
         ref.invalidate(effectiveScheduleProvider(scope, _range));
         ref.invalidate(weeklyScheduleProvider(scope));
+        // Booked-slots overlay (2026-10-30): refresh the selected day's
+        // bookings too, so a booking made since the day was cached appears.
+        // `.fetchKey`, not the overlay query itself (mobile-perf P1): on the
+        // SALON member the status-narrowed query DERIVES from the unfiltered
+        // one and issues no request, so invalidating it would only re-derive
+        // over the same cached base. `fetchKey` is identity on the own
+        // (`/bookings/me`) member — same pattern as
+        // `bookings_discovery_view.dart`'s slow-load retry.
+        final BookingsDayQuery? bookingsQuery = scheduleBookingsQueryFor(
+          scope,
+          _dateOnly(_selected.value),
+        )?.fetchKey;
+        if (bookingsQuery != null) {
+          // keepalive-safe: AppRefreshIndicator.onRefresh — self-key invalidate followed by the immediate ref.read(...future) in the Future.wait below (the proven remedy), same idiom as the effective-schedule refresh above.
+          ref.invalidate(bookingsDayProvider(bookingsQuery));
+        }
         try {
           await Future.wait([
             ref.read(effectiveScheduleProvider(scope, _range).future),
             ref.read(weeklyScheduleProvider(scope).future),
+            if (bookingsQuery != null)
+              ref.read(bookingsDayProvider(bookingsQuery).future),
           ]);
         } on Object {
           // Errors surface through the normal AsyncError → _ErrorBody path.
@@ -931,7 +1013,8 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
   Widget _calendarCard(
     AppLocalizations l10n,
     bool editable,
-    _DayIndex index, {
+    _DayIndex index,
+    ScheduleScope scope, {
     bool reloading = false,
   }) {
     return NeumorphicCard(
@@ -991,6 +1074,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
                     weekdayFull: _weekdayFull(day.date),
                     onAddHours: _openTemplateEditor,
                     onDayOverride: () => _openDayOverride(day),
+                    bookingsQuery: scheduleBookingsQueryFor(scope, day.date),
                   ),
                   if (!dayOff) ...<Widget>[
                     const SizedBox(height: VelvetSpacing.lg),
@@ -1460,9 +1544,17 @@ class _SelectedDayView extends StatelessWidget {
     required this.weekdayFull,
     required this.onAddHours,
     required this.onDayOverride,
+    this.bookingsQuery,
   });
 
   final EffectiveDay day;
+
+  /// 2026-10-30 booked-slots overlay — the day's bookings family key (see
+  /// [scheduleBookingsQueryFor]). `null` renders the availability-only grid.
+  /// Watched in a [Consumer] scoped to the grid alone, so the grid paints
+  /// immediately and repaints when bookings land; a loading or failed fetch
+  /// simply paints no booked cells.
+  final BookingsDayQuery? bookingsQuery;
 
   /// A settled day off: no working intervals AND not the unset/uncovered
   /// NO_SCHEDULE state. Computed once by the caller ([_calendarCard]) so the
@@ -1519,7 +1611,7 @@ class _SelectedDayView extends StatelessWidget {
           _DiscreteTimesView(times: day.times)
         // Working INTERVAL day → the 42-cell hour grid (unchanged).
         else
-          RepaintBoundary(child: _timeGrid(l10n)),
+          RepaintBoundary(child: _bookedTimeGrid(l10n)),
       ],
     );
   }
@@ -1617,9 +1709,25 @@ class _SelectedDayView extends StatelessWidget {
     );
   }
 
+  Widget _bookedTimeGrid(AppLocalizations l10n) {
+    final BookingsDayQuery? query = bookingsQuery;
+    if (query == null) return _timeGrid(l10n, const <Booking>[]);
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? _) {
+        final List<Booking> bookings = ref.watch(
+          bookingsDayProvider(query).select(
+            (AsyncValue<BookingsDayState> s) =>
+                s.value?.items ?? const <Booking>[],
+          ),
+        );
+        return _timeGrid(l10n, bookings);
+      },
+    );
+  }
+
   // ── Two-column time grid (read-only render projection) ─────────────────────
-  Widget _timeGrid(AppLocalizations l10n) {
-    final List<SlotCell> cells = buildDayCells(day);
+  Widget _timeGrid(AppLocalizations l10n, List<Booking> bookings) {
+    final List<SlotCell> cells = buildDayCells(day, bookings: bookings);
     final List<Widget> rows = <Widget>[];
     for (int i = 0; i < cells.length; i += 2) {
       final SlotCell left = cells[i];

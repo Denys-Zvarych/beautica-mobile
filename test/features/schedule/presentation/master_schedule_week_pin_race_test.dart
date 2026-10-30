@@ -60,6 +60,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../helpers/keepalive_pin_race_harness.dart';
+import '../../../helpers/stub_bookings_day.dart';
 
 const User _stubUser = User(
   id: 'u-1',
@@ -257,6 +258,7 @@ void main() {
           scheduleRepositoryProvider.overrideWith(
             (ref, scope) => _FakeScheduleRepository(),
           ),
+          stubBookingsDayOverride(),
         ].cast(),
         child: MaterialApp.router(
           localizationsDelegates: AppLocalizations.localizationsDelegates,

@@ -1,10 +1,11 @@
 // Phase 15.2 — Unit tests for the day-grid slot projection (`buildDayCells`).
 //
 // The grid is a PURE RENDER PROJECTION of a resolved [EffectiveDay] (Phase
-// 15.1). These tests pin the SlotState mapping the screen relies on:
-//   • inside a working interval                 → SlotState.available
-//   • OVERRIDE_DAY_OFF (whole-day time-off)      → SlotState.timeOff
-//   • outside every interval / NO_SCHEDULE gap   → SlotState.unavailable
+// 15.1) plus the day's bookings. These tests pin the SlotState mapping the
+// screen relies on (3-state legend, user decision 2026-10-30):
+//   • overlaps a CONFIRMED / COMPLETED booking    → SlotState.booked
+//   • inside a working interval                   → SlotState.available
+//   • OVERRIDE_DAY_OFF / break / NO_SCHEDULE gap  → SlotState.unavailable
 // and the 30-minute cell boundaries (half-open [start, end) interval edges).
 //
 // No widget tree — this is the pure-Dart projection used by both the legend and
@@ -13,6 +14,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
 import 'package:beautica_mobile/features/schedule/domain/schedule_model.dart';
 import 'package:beautica_mobile/features/schedule/domain/weekly_schedule.dart';
 import 'package:beautica_mobile/features/schedule/presentation/widgets/day_schedule.dart';
@@ -47,12 +50,39 @@ SlotCell _cellAt(List<SlotCell> cells, TimeOfDay time) {
 bool _hasCellAt(List<SlotCell> cells, TimeOfDay time) =>
     _cellAtOrNull(cells, time) != null;
 
-/// Times of every cell painted [SlotState.timeOff], in grid order. Asserting on
-/// this list pins both HOW MANY cells reddened and WHICH ones.
-List<TimeOfDay> timeOffTimes(List<SlotCell> cells) => cells
-    .where((SlotCell c) => c.state == SlotState.timeOff)
+/// Times of every cell painted [state], in grid order. Asserting on this list
+/// pins both HOW MANY cells took the state and WHICH ones.
+List<TimeOfDay> _timesIn(List<SlotCell> cells, SlotState state) => cells
+    .where((SlotCell c) => c.state == state)
     .map((SlotCell c) => c.time)
     .toList();
+
+/// A booking on [_day]'s date (2026-06-08, Kyiv summer time UTC+3) from Kyiv
+/// wall-clock [sh]:[sm] for [minutes].
+Booking _booking({
+  required int sh,
+  required int sm,
+  int minutes = 30,
+  BookingStatus status = BookingStatus.confirmed,
+  String id = 'b-1',
+}) {
+  final DateTime startAt = DateTime.utc(2026, 6, 8, sh - 3, sm);
+  return Booking(
+    id: id,
+    masterId: 'master-1',
+    masterFirstName: 'Оля',
+    masterLastName: 'Коваль',
+    masterType: 'INDEPENDENT_MASTER',
+    serviceId: 'service-1',
+    serviceName: 'Манікюр',
+    durationMinutes: minutes,
+    price: 500,
+    startAt: startAt,
+    endAt: startAt.add(Duration(minutes: minutes)),
+    status: status,
+    canReview: false,
+  );
+}
 
 WorkInterval _interval(int sh, int sm, int eh, int em) => WorkInterval(
   start: TimeOfDay(hour: sh, minute: sm),
@@ -104,15 +134,15 @@ void main() {
       },
     );
 
-    test('OVERRIDE_DAY_OFF paints every cell as timeOff', () {
+    test('OVERRIDE_DAY_OFF paints every cell as unavailable', () {
       final EffectiveDay day = _day(source: EffectiveSource.overrideDayOff);
 
       final List<SlotCell> cells = buildDayCells(day);
 
       expect(
-        cells.every((SlotCell c) => c.state == SlotState.timeOff),
+        cells.every((SlotCell c) => c.state == SlotState.unavailable),
         isTrue,
-        reason: 'a whole-day time-off override tints the entire grid pink',
+        reason: 'a whole-day day-off override reads «Неробочий час» (grey)',
       );
     });
 
@@ -124,7 +154,7 @@ void main() {
       expect(
         cells.every((SlotCell c) => c.state == SlotState.unavailable),
         isTrue,
-        reason: 'a NO_SCHEDULE gap reads all-grey (never time-off)',
+        reason: 'a NO_SCHEDULE gap reads all-grey (never booked)',
       );
     });
 
@@ -230,7 +260,7 @@ void main() {
       );
     });
 
-    test('a lunch gap between two intervals reads timeOff (pause)', () {
+    test('a lunch gap between two intervals reads unavailable (break)', () {
       final EffectiveDay day = _day(
         source: EffectiveSource.template,
         intervals: <WorkInterval>[
@@ -241,12 +271,12 @@ void main() {
 
       final List<SlotCell> cells = buildDayCells(day);
 
-      // 13:00–14:00 lunch gap → timeOff (fully red) under the pause round-up
-      // rule; the two work blocks → available.
+      // 13:00–14:00 lunch gap → unavailable (grey «Неробочий час»); the two
+      // work blocks → available.
       expect(
         _cellAt(cells, const TimeOfDay(hour: 13, minute: 30)).state,
-        SlotState.timeOff,
-        reason: 'the gap between two working intervals is a pause (timeOff)',
+        SlotState.unavailable,
+        reason: 'the gap between two working intervals is non-working time',
       );
       expect(
         _cellAt(cells, const TimeOfDay(hour: 14, minute: 0)).state,
@@ -260,146 +290,73 @@ void main() {
   });
 
   // ───────────────────────────────────────────────────────────────────────────
-  // The PAUSE ROUND-UP rule (the new behaviour to guard). An interior pause —
-  // the gap between two consecutive working intervals — paints EVERY 30-min cell
-  // it touches FULLY red, even on a single-minute (partial) overlap. So a 15-min
-  // pause reddens ONE cell, a 45-min pause reddens TWO. The exact cell COUNT is
-  // the contract these tests pin; counting `timeOff` cells (not eyeballing one
-  // cell) is what catches a regression that over- or under-rounds.
+  // BREAKS (2026-10-30). The gap between two consecutive working intervals is
+  // non-working time: a cell lying ENTIRELY in a break reads unavailable; a
+  // cell that still overlaps work by at least a minute stays available (the
+  // retired pink pause round-up no longer applies).
   // ───────────────────────────────────────────────────────────────────────────
-  group('buildDayCells — interior pause round-up (cell-count contract)', () {
-    test('15-min pause [09:00–12:15, 12:30–18:00] → exactly ONE timeOff cell '
-        '(12:00)', () {
+  group('buildDayCells — breaks read unavailable', () {
+    test('30-min break [09:00–12:00, 12:30–18:00] → exactly ONE unavailable '
+        'cell (12:00)', () {
       final EffectiveDay day = _day(
         source: EffectiveSource.template,
         intervals: <WorkInterval>[
-          _interval(9, 0, 12, 15),
+          _interval(9, 0, 12, 0),
           _interval(12, 30, 18, 0),
         ],
       );
 
       final List<SlotCell> cells = buildDayCells(day);
 
-      // The pause is 12:15–12:30 — it lives entirely inside the 12:00 cell
-      // window [12:00, 12:30). Round-up: that ONE cell goes fully red, no more.
-      expect(
-        timeOffTimes(cells),
-        <TimeOfDay>[const TimeOfDay(hour: 12, minute: 0)],
-        reason: 'a 15-min interior pause reddens exactly one 30-min cell',
+      expect(_timesIn(cells, SlotState.unavailable), <TimeOfDay>[
+        const TimeOfDay(hour: 12, minute: 0),
+      ]);
+      expect(_timesIn(cells, SlotState.booked), isEmpty);
+    });
+
+    test('45-min break [09:00–12:00, 12:45–18:00] → 12:00 unavailable, the '
+        'partly-working 12:30 cell stays available', () {
+      final EffectiveDay day = _day(
+        source: EffectiveSource.template,
+        intervals: <WorkInterval>[
+          _interval(9, 0, 12, 0),
+          _interval(12, 45, 18, 0),
+        ],
       );
-      // Flanking cells stay green; the 12:30 cell (work resumes) is green too.
-      expect(
-        _cellAt(cells, const TimeOfDay(hour: 11, minute: 30)).state,
-        SlotState.available,
-      );
+
+      final List<SlotCell> cells = buildDayCells(day);
+
+      expect(_timesIn(cells, SlotState.unavailable), <TimeOfDay>[
+        const TimeOfDay(hour: 12, minute: 0),
+      ]);
       expect(
         _cellAt(cells, const TimeOfDay(hour: 12, minute: 30)).state,
         SlotState.available,
       );
     });
 
-    test('45-min pause [09:00–12:00, 12:45–18:00] → exactly TWO timeOff cells '
-        '(12:00 and 12:30)', () {
+    test('15-min break inside one cell [09:00–12:15, 12:30–18:00] → no '
+        'unavailable cell (the 12:00 cell still overlaps work)', () {
       final EffectiveDay day = _day(
         source: EffectiveSource.template,
         intervals: <WorkInterval>[
-          _interval(9, 0, 12, 0),
-          _interval(12, 45, 18, 0),
-        ],
-      );
-
-      final List<SlotCell> cells = buildDayCells(day);
-
-      // The pause is 12:00–12:45. It fully fills the 12:00 cell and partially
-      // overlaps the 12:30 cell (12:30–12:45) → BOTH round up to red.
-      expect(
-        timeOffTimes(cells),
-        <TimeOfDay>[
-          const TimeOfDay(hour: 12, minute: 0),
-          const TimeOfDay(hour: 12, minute: 30),
-        ],
-        reason: 'a 45-min interior pause reddens exactly two consecutive cells',
-      );
-      // 13:00 (work resumed by then) is green again.
-      expect(
-        _cellAt(cells, const TimeOfDay(hour: 13, minute: 0)).state,
-        SlotState.available,
-      );
-    });
-
-    test('30-min pause [09:00–12:00, 12:30–18:00] → exactly ONE timeOff cell '
-        '(12:00)', () {
-      final EffectiveDay day = _day(
-        source: EffectiveSource.template,
-        intervals: <WorkInterval>[
-          _interval(9, 0, 12, 0),
+          _interval(9, 0, 12, 15),
           _interval(12, 30, 18, 0),
         ],
       );
 
       final List<SlotCell> cells = buildDayCells(day);
 
-      // The pause is exactly the 12:00 cell window [12:00, 12:30) → one red cell.
+      expect(_timesIn(cells, SlotState.unavailable), isEmpty);
       expect(
-        timeOffTimes(cells),
-        <TimeOfDay>[const TimeOfDay(hour: 12, minute: 0)],
-        reason: 'a 30-min pause aligned to the grid reddens exactly one cell',
-      );
-    });
-
-    test('pause straddling the :30 boundary [09:00–12:15, 12:45–18:00] → TWO '
-        'timeOff cells (12:00 and 12:30)', () {
-      final EffectiveDay day = _day(
-        source: EffectiveSource.template,
-        intervals: <WorkInterval>[
-          _interval(9, 0, 12, 15),
-          _interval(12, 45, 18, 0),
-        ],
-      );
-
-      final List<SlotCell> cells = buildDayCells(day);
-
-      // Pause 12:15–12:45 straddles the :30 boundary: it touches the 12:00 cell
-      // (12:15–12:30) AND the 12:30 cell (12:30–12:45) → both round up to red.
-      expect(
-        timeOffTimes(cells),
-        <TimeOfDay>[
-          const TimeOfDay(hour: 12, minute: 0),
-          const TimeOfDay(hour: 12, minute: 30),
-        ],
-        reason: 'a pause spanning the :30 boundary reddens both touched cells',
-      );
-    });
-
-    test('multiple pauses each round up independently (two distinct gaps)', () {
-      // 11:00–11:15 (→ 11:00 cell) and 14:00–14:45 (→ 14:00 + 14:30 cells).
-      final EffectiveDay day = _day(
-        source: EffectiveSource.template,
-        intervals: <WorkInterval>[
-          _interval(9, 0, 11, 0),
-          _interval(11, 15, 14, 0),
-          _interval(14, 45, 18, 0),
-        ],
-      );
-
-      final List<SlotCell> cells = buildDayCells(day);
-
-      expect(
-        timeOffTimes(cells),
-        <TimeOfDay>[
-          const TimeOfDay(hour: 11, minute: 0),
-          const TimeOfDay(hour: 14, minute: 0),
-          const TimeOfDay(hour: 14, minute: 30),
-        ],
-        reason: 'each interior gap rounds up to its own touched cells',
+        cells.every((SlotCell c) => c.state == SlotState.available),
+        isTrue,
       );
     });
 
     test(
-      'no interior pause → no timeOff; leading + trailing tails are clamped',
+      'single interval → no unavailable; leading + trailing tails are clamped',
       () {
-        // A single interval 10:00–16:00: the grid clamps to [10:00, 16:00). The
-        // 09:00/09:30 lead-in and the 16:00.. run-out are no longer generated.
         final EffectiveDay day = _day(
           source: EffectiveSource.template,
           intervals: <WorkInterval>[_interval(10, 0, 16, 0)],
@@ -407,62 +364,126 @@ void main() {
 
         final List<SlotCell> cells = buildDayCells(day);
 
-        // No interior gap exists, so nothing reddens.
-        expect(
-          timeOffTimes(cells),
-          isEmpty,
-          reason: 'a single interval has no interior pause → no timeOff cells',
-        );
-        // The clamped grid starts at 10:00 and ends at 16:00 (exclusive).
+        expect(_timesIn(cells, SlotState.unavailable), isEmpty);
         expect(cells.first.time, const TimeOfDay(hour: 10, minute: 0));
         expect(cells.last.time, const TimeOfDay(hour: 15, minute: 30));
-        // Leading gap clamped away (grid starts at the first interval).
-        expect(
-          _hasCellAt(cells, const TimeOfDay(hour: 9, minute: 0)),
-          isFalse,
-          reason: 'grid starts at 10:00 — the 09:00 lead-in is clamped',
-        );
         expect(
           _hasCellAt(cells, const TimeOfDay(hour: 9, minute: 30)),
           isFalse,
         );
-        // Trailing tail clamped away (grid ends exactly at lastEnd).
         expect(
           _hasCellAt(cells, const TimeOfDay(hour: 16, minute: 30)),
           isFalse,
-          reason: 'grid ends at 16:00 — the trailing run-out is clamped',
-        );
-        expect(
-          _hasCellAt(cells, const TimeOfDay(hour: 19, minute: 0)),
-          isFalse,
         );
       },
+    );
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // BOOKINGS (2026-10-30). A cell overlapping a CONFIRMED / COMPLETED booking
+  // is booked and wins over every availability state; other statuses ignored.
+  // ───────────────────────────────────────────────────────────────────────────
+  group('buildDayCells — booked cells', () {
+    final EffectiveDay workingDay = _day(
+      source: EffectiveSource.template,
+      intervals: <WorkInterval>[_interval(9, 0, 13, 0)],
     );
 
     test(
-      'noSchedule has no interior pause → zero timeOff cells (all grey)',
+      'a 10:00–10:30 CONFIRMED booking → exactly the 10:00 cell is booked',
       () {
-        final EffectiveDay day = _day(source: EffectiveSource.noSchedule);
+        final List<SlotCell> cells = buildDayCells(
+          workingDay,
+          bookings: <Booking>[_booking(sh: 10, sm: 0)],
+        );
 
-        final List<SlotCell> cells = buildDayCells(day);
-
-        expect(timeOffTimes(cells), isEmpty);
+        expect(_timesIn(cells, SlotState.booked), <TimeOfDay>[
+          const TimeOfDay(hour: 10, minute: 0),
+        ]);
         expect(
-          cells.every((SlotCell c) => c.state == SlotState.unavailable),
-          isTrue,
+          _cellAt(cells, const TimeOfDay(hour: 9, minute: 30)).state,
+          SlotState.available,
+        );
+        expect(
+          _cellAt(cells, const TimeOfDay(hour: 10, minute: 30)).state,
+          SlotState.available,
         );
       },
     );
 
-    test('overrideDayOff reddens the WHOLE grid (not the pause path)', () {
-      final EffectiveDay day = _day(source: EffectiveSource.overrideDayOff);
+    test('a COMPLETED booking also paints booked; a 45-min one rounds up to '
+        'two cells', () {
+      final List<SlotCell> cells = buildDayCells(
+        workingDay,
+        bookings: <Booking>[
+          _booking(sh: 11, sm: 0, minutes: 45, status: BookingStatus.completed),
+        ],
+      );
 
-      final List<SlotCell> cells = buildDayCells(day);
+      expect(_timesIn(cells, SlotState.booked), <TimeOfDay>[
+        const TimeOfDay(hour: 11, minute: 0),
+        const TimeOfDay(hour: 11, minute: 30),
+      ]);
+    });
 
-      // Every cell is timeOff — regression guard that a day-off override is a
-      // uniform fill, distinct from the interior-pause round-up.
-      expect(timeOffTimes(cells), hasLength(cells.length));
-      expect(cells.every((SlotCell c) => c.state == SlotState.timeOff), isTrue);
+    for (final BookingStatus ignored in <BookingStatus>[
+      BookingStatus.cancelled,
+      BookingStatus.declined,
+      BookingStatus.notCompleted,
+    ]) {
+      test(
+        'a ${ignored.name} 10:00–10:30 booking leaves the cells available',
+        () {
+          final List<SlotCell> cells = buildDayCells(
+            workingDay,
+            bookings: <Booking>[_booking(sh: 10, sm: 0, status: ignored)],
+          );
+
+          expect(_timesIn(cells, SlotState.booked), isEmpty);
+          expect(
+            _cellAt(cells, const TimeOfDay(hour: 10, minute: 0)).state,
+            SlotState.available,
+          );
+        },
+      );
+    }
+
+    test('a booking inside a break paints booked over unavailable', () {
+      final EffectiveDay day = _day(
+        source: EffectiveSource.template,
+        intervals: <WorkInterval>[
+          _interval(9, 0, 12, 0),
+          _interval(13, 0, 18, 0),
+        ],
+      );
+
+      final List<SlotCell> cells = buildDayCells(
+        day,
+        bookings: <Booking>[_booking(sh: 12, sm: 0)],
+      );
+
+      expect(
+        _cellAt(cells, const TimeOfDay(hour: 12, minute: 0)).state,
+        SlotState.booked,
+      );
+      expect(
+        _cellAt(cells, const TimeOfDay(hour: 12, minute: 30)).state,
+        SlotState.unavailable,
+      );
+    });
+
+    test('memo: the same day re-projected with/without bookings never serves '
+        'a stale grid', () {
+      final List<SlotCell> plain = buildDayCells(workingDay);
+      final List<SlotCell> booked = buildDayCells(
+        workingDay,
+        bookings: <Booking>[_booking(sh: 10, sm: 0)],
+      );
+      final List<SlotCell> plainAgain = buildDayCells(workingDay);
+
+      expect(_timesIn(plain, SlotState.booked), isEmpty);
+      expect(_timesIn(booked, SlotState.booked), hasLength(1));
+      expect(_timesIn(plainAgain, SlotState.booked), isEmpty);
     });
   });
 
@@ -471,7 +492,7 @@ void main() {
   // "outside working hours" cells past the master's last interval end (e.g.
   // 18:00–19:30 cards on a day ending at 18:00). The fix made `_gridBounds`
   // minute-based and clamps the grid end EXACTLY to lastEnd. These cases pin
-  // that no card renders at or after the working end, while interior pauses
+  // that no card renders at or after the working end, while interior breaks
   // (inside the working span) still survive.
   // ───────────────────────────────────────────────────────────────────────────
   group('buildDayCells — trailing-tail clamp regression', () {
@@ -508,11 +529,11 @@ void main() {
       },
     );
 
-    test('interior pause survives while the trailing tail is clamped '
+    test('interior break survives while the trailing tail is clamped '
         '([09:00–12:00, 12:30–18:00])', () {
-      // The 12:00 pause cell ([12:00, 12:30) — work resumes at 12:30) must
-      // still paint timeOff, proving the clamp suppresses ONLY the non-working
-      // tail, not interior pauses inside [firstStart, lastEnd).
+      // The 12:00 break cell ([12:00, 12:30) — work resumes at 12:30) must
+      // still be emitted (unavailable), proving the clamp suppresses ONLY the
+      // non-working tail, not interior breaks inside [firstStart, lastEnd).
       final EffectiveDay day = _day(
         source: EffectiveSource.template,
         intervals: <WorkInterval>[
@@ -523,16 +544,16 @@ void main() {
 
       final List<SlotCell> cells = buildDayCells(day);
 
-      // Interior pause preserved.
+      // Interior break preserved.
       expect(
         _cellAt(cells, const TimeOfDay(hour: 12, minute: 0)).state,
-        SlotState.timeOff,
-        reason: 'the interior pause cell survives the clamp',
+        SlotState.unavailable,
+        reason: 'the interior break cell survives the clamp',
       );
       expect(
-        timeOffTimes(cells),
+        _timesIn(cells, SlotState.unavailable),
         <TimeOfDay>[const TimeOfDay(hour: 12, minute: 0)],
-        reason: 'exactly one interior pause cell — no spurious timeOff cells',
+        reason: 'exactly one interior break cell — no spurious grey cells',
       );
       // Trailing tail past 18:00 clamped away.
       expect(

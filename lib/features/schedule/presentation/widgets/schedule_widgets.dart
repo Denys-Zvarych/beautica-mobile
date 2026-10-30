@@ -393,8 +393,8 @@ class SlotChip extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         // Each cell is ONE solid colour — never a split / banded / gradient
-        // fill. A pause cell is fully [SlotState.timeOff] (pink) under the
-        // round-up rule applied in `buildDayCells`.
+        // fill. A cell touching a booking is fully [SlotState.booked] (pink),
+        // resolved in `buildDayCells`.
         child: Container(
           height: 46,
           alignment: Alignment.center,
@@ -410,8 +410,8 @@ class SlotChip extends StatelessWidget {
                     color: BrandColors.faint,
                   ),
                 )
-              // Time-off slots are conveyed by the pink fill + border ALONE;
-              // the legend ("Час відпочинку") carries the meaning. No in-chip
+              // Booked slots are conveyed by the pink fill + border ALONE;
+              // the legend ("Заброньовано") carries the meaning. No in-chip
               // tag.
               : Text(
                   _timeLabel,

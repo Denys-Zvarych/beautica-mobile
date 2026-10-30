@@ -26,6 +26,15 @@ import 'package:beautica_mobile/features/auth/domain/auth_session.dart';
 import 'package:beautica_mobile/features/auth/domain/user.dart';
 import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/domain/booking.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_status.dart';
+import 'package:beautica_mobile/core/network/page_response.dart';
+import 'package:beautica_mobile/core/widgets/app_refresh_indicator.dart';
+import 'package:beautica_mobile/features/booking/data/booking_providers.dart';
+import 'package:beautica_mobile/features/booking/data/booking_repository.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_partition.dart';
+import 'package:beautica_mobile/features/booking/domain/booking_sort.dart';
+import 'package:dio/dio.dart' show CancelToken;
 import 'package:beautica_mobile/features/calendar/data/working_hours_repository.dart';
 import 'package:beautica_mobile/features/calendar/data/working_hours_repository_provider.dart';
 import 'package:beautica_mobile/features/calendar/domain/working_hours.dart';
@@ -62,6 +71,7 @@ import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
 import '../../../helpers/pump_app.dart';
+import '../../../helpers/stub_bookings_day.dart';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Date anchoring helpers — every fake is built relative to the device "today"
@@ -951,11 +961,16 @@ GoRouter _redirectRouter(
 Future<void> _pump(
   WidgetTester tester, {
   required List<Object> overrides,
+  List<Booking> bookings = const <Booking>[],
 }) async {
   await tester.pumpWidget(
     ProviderScope(
       retry: beauticaProviderRetry,
-      overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
+      overrides: <Object>[
+        ...overrides,
+        _fakeWorkingHours(),
+        _noBookings(bookings),
+      ].cast(),
       child: MaterialApp.router(
         routerConfig: _router(),
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -974,6 +989,179 @@ Object _fakeWorkingHours() => workingHoursRepositoryProvider.overrideWithValue(
   _FakeWorkingHoursRepository(),
 );
 
+/// Booked-slots overlay (2026-10-30) — the screen now watches
+/// `bookingsDayProvider` for the selected day. Every pump in this file
+/// overrides it so no test ever touches real Dio; [bookings] (default none)
+/// is what EVERY day's query resolves to.
+Object _noBookings([List<Booking> bookings = const <Booking>[]]) =>
+    stubBookingsDayOverride(bookings);
+
+/// Counts the two day-fetch endpoints the overlay can reach; every day is
+/// empty. Anything else is unimplemented ([Fake] throws).
+class _CountingBookingRepository extends Fake implements BookingRepository {
+  /// [rows] (default none) is the day's booking table. The salon endpoint
+  /// narrows it by its `masterId` param exactly as the real server does (all
+  /// rows when absent); `/bookings/me` serves it unfiltered.
+  _CountingBookingRepository([this.rows = const <Booking>[]]);
+
+  final List<Booking> rows;
+  int salonFetches = 0;
+  int myFetches = 0;
+  String? lastSalonMasterId;
+  Set<BookingStatus>? lastMyStatuses;
+
+  static const PageResponse<Booking> _empty = PageResponse<Booking>(
+    items: <Booking>[],
+    page: 0,
+    totalPages: 0,
+    totalElements: 0,
+  );
+
+  @override
+  Future<PageResponse<Booking>> getSalonBookings({
+    required String salonId,
+    DateTime? from,
+    DateTime? to,
+    String? masterId,
+    Iterable<BookingStatus>? statuses,
+    BookingPartition? partition,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    CancelToken? cancelToken,
+  }) async {
+    salonFetches++;
+    lastSalonMasterId = masterId;
+    final List<Booking> narrowed = <Booking>[
+      for (final Booking b in rows)
+        if (masterId == null || b.masterId == masterId) b,
+    ];
+    if (narrowed.isEmpty) return _empty;
+    return PageResponse<Booking>(
+      items: narrowed,
+      page: 0,
+      totalPages: 1,
+      totalElements: narrowed.length,
+    );
+  }
+
+  @override
+  Future<PageResponse<Booking>> getMyBookings({
+    required Iterable<BookingStatus> statuses,
+    required int page,
+    int size = kBookingsPageSize,
+    BookingSort? sort,
+    Iterable<String>? serviceIds,
+    DateTime? from,
+    DateTime? to,
+    BookingPartition? partition,
+    CancelToken? cancelToken,
+    bool asMaster = false,
+  }) async {
+    myFetches++;
+    lastMyStatuses = statuses.toSet();
+    if (rows.isEmpty) return _empty;
+    return PageResponse<Booking>(
+      items: rows,
+      page: 0,
+      totalPages: 1,
+      totalElements: rows.length,
+    );
+  }
+}
+
+/// A 30-min [status] booking for [masterId] starting at [kyivHour]:00 Kyiv on
+/// `_today` (2026-06-13, summer UTC+3 → `kyivHour - 3` UTC).
+Booking _dayBooking(
+  String id, {
+  required String masterId,
+  required int kyivHour,
+  BookingStatus status = BookingStatus.confirmed,
+}) {
+  final DateTime start = DateTime.utc(
+    _today.year,
+    _today.month,
+    _today.day,
+    kyivHour - 3,
+  );
+  return Booking(
+    id: id,
+    masterId: masterId,
+    masterFirstName: 'Оля',
+    masterLastName: 'Коваль',
+    masterType: 'SALON_MASTER',
+    serviceId: 'svc-1',
+    serviceName: 'Манікюр',
+    durationMinutes: 30,
+    price: 500,
+    startAt: start,
+    endAt: start.add(const Duration(minutes: 30)),
+    status: status,
+    canReview: false,
+  );
+}
+
+/// The start times of every booked [SlotChip] on screen, in grid order.
+List<TimeOfDay> _bookedChipTimes(WidgetTester tester) => tester
+    .widgetList<SlotChip>(find.byType(SlotChip))
+    .where((SlotChip c) => c.cell.state == SlotState.booked)
+    .map((SlotChip c) => c.cell.time)
+    .toList();
+
+/// Pumps the screen on a working week with the REAL `bookingsDayProvider`
+/// over [repo] (no `_StubBookingsDay`), so the overlay's query → repository
+/// wiring is what is under test. [scope] null → the own scope
+/// (`ownScheduleScopeProvider` forced to `msst-test-master`).
+Future<void> _pumpWithBookingRepo(
+  WidgetTester tester, {
+  required _CountingBookingRepository repo,
+  required UserRole role,
+  ScheduleScope? scope,
+}) async {
+  final days = _weekWith(todayDay: _working, filler: _working);
+  final GoRouter router = GoRouter(
+    initialLocation: '/s',
+    routes: <RouteBase>[
+      GoRoute(
+        path: '/s',
+        builder: (context, state) => MasterScheduleScreen(
+          clock: () => asClockInstant(_today),
+          scope: scope,
+        ),
+      ),
+    ],
+  );
+  addTearDown(router.dispose);
+  await tester.pumpWidget(
+    ProviderScope(
+      retry: beauticaProviderRetry,
+      overrides: <Object>[
+        authProvider.overrideWith(() => _FixedAuth(role)),
+        ownScheduleScopeProvider.overrideWithValue(
+          const ScheduleScope.own(masterId: 'msst-test-master'),
+        ),
+        effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+        weeklyScheduleProvider.overrideWith2(
+          (_) => _WeeklyData(<WeeklySchedule>[_template()]),
+        ),
+        mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
+        salonManagementProfileProvider.overrideWith2(
+          (_) => _SettledSalonRosterWithMaster(),
+        ),
+        _fakeWorkingHours(),
+        bookingRepositoryProvider.overrideWithValue(repo),
+      ].cast(),
+      child: MaterialApp.router(
+        routerConfig: router,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        locale: const Locale('uk'),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 /// Pumps the schedule screen inside the REDIRECT-bearing router, wired over a
 /// fresh [ProviderContainer] seeded with [overrides] (which must include an
 /// `authProvider` override so the guard resolves a settled session). Returns the
@@ -988,7 +1176,11 @@ Future<ProviderContainer> _pumpGuarded(
 }) async {
   final container = ProviderContainer(
     retry: beauticaProviderRetry,
-    overrides: <Object>[...overrides, _fakeWorkingHours()].cast(),
+    overrides: <Object>[
+      ...overrides,
+      _fakeWorkingHours(),
+      _noBookings(),
+    ].cast(),
   );
   await tester.pumpWidget(
     UncontrolledProviderScope(
@@ -1209,6 +1401,58 @@ void main() {
         matchesGoldenFile('goldens/schedule_templated_working_day.png'),
       );
     });
+
+    testWidgets(
+      'booked-slots overlay: a CONFIRMED 10:00–10:30 booking on the selected '
+      'day paints exactly the 10:00 chip booked; a CANCELLED one paints none',
+      (tester) async {
+        final days = _weekWith(todayDay: _working, filler: _working);
+        // 10:00 Kyiv on _today (2026-06-13, summer UTC+3) == 07:00Z.
+        Booking booking(String id, BookingStatus status) {
+          final DateTime start = DateTime.utc(
+            _today.year,
+            _today.month,
+            _today.day,
+            7,
+          );
+          return Booking(
+            id: id,
+            masterId: 'msst-test-master',
+            masterFirstName: 'Оля',
+            masterLastName: 'Коваль',
+            masterType: 'INDEPENDENT_MASTER',
+            serviceId: 'svc-1',
+            serviceName: 'Манікюр',
+            durationMinutes: 30,
+            price: 500,
+            startAt: start,
+            endAt: start.add(const Duration(minutes: 30)),
+            status: status,
+            canReview: false,
+          );
+        }
+
+        await _pump(
+          tester,
+          overrides: _editableData(days),
+          bookings: <Booking>[
+            booking('b-confirmed', BookingStatus.confirmed),
+            booking('b-cancelled', BookingStatus.cancelled),
+          ],
+        );
+
+        final List<SlotChip> booked = tester
+            .widgetList<SlotChip>(find.byType(SlotChip))
+            .where((SlotChip c) => c.cell.state == SlotState.booked)
+            .toList();
+        expect(booked, hasLength(1));
+        expect(booked.single.cell.time, const TimeOfDay(hour: 10, minute: 0));
+        // The legend carries the booked + free labels.
+        final AppLocalizations l10n = _l10n(tester);
+        expect(find.text(l10n.scheduleSlotBooked), findsOneWidget);
+        expect(find.text(l10n.scheduleSlotWorking), findsOneWidget);
+      },
+    );
 
     testWidgets('day-off date renders the day-off empty state, not a time grid', (
       tester,
@@ -1685,6 +1929,7 @@ void main() {
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
+              _noBookings(),
             ].cast(),
             child: MaterialApp.router(
               routerConfig: _router(),
@@ -1789,6 +2034,7 @@ void main() {
             ),
             scheduleRepositoryProvider.overrideWith((ref, scope) => repo),
             _fakeWorkingHours(),
+            _noBookings(),
           ].cast(),
         );
         addTearDown(container.dispose);
@@ -2064,6 +2310,7 @@ void main() {
                 _template(),
               ]),
               _fakeWorkingHours(),
+              _noBookings(),
             ].cast(),
             child: MaterialApp.router(
               routerConfig: router,
@@ -3163,12 +3410,12 @@ void main() {
       (tester) async {
         // Today opens with a SOLID 09:00–18:00 day (NO interior pause). The
         // override save splits it into 09:00–13:00 · 14:00–18:00 (a 13:00–14:00
-        // pause). Pre-save the panel must show ZERO interior timeOff cells;
+        // pause). Pre-save the panel must show ZERO interior break cells;
         // post-save it must show some — proving the fresh data is rendered.
         final container = await _pumpOverrideFlow(tester, edited: _today);
 
         // Pre-save: the selected (today) panel has NO interior pause.
-        expect(_interiorTimeOffCount(tester), 0);
+        expect(_interiorBreakCount(tester), 0);
 
         await _editSelectedDayAddingPause(tester);
 
@@ -3177,10 +3424,10 @@ void main() {
         // Selection stayed on the edited date.
         expect(find.byKey(const Key('schedule-day-pencil')), findsOneWidget);
         // Post-save: the panel now renders the FRESH override — the 13:00–14:00
-        // pause is present as interior timeOff cells. A regression that served
+        // pause is present as interior break cells. A regression that served
         // the stale `_lastDays` snapshot would still show zero here.
         expect(
-          _interiorTimeOffCount(tester),
+          _interiorBreakCount(tester),
           greaterThan(0),
           reason:
               'the just-saved pause must be visible immediately; a stale '
@@ -3212,7 +3459,7 @@ void main() {
         // re-reads it fresh.
         await _selectStripDay(tester, future.day);
         // Pre-save the future day is a solid 09:00–18:00 (no pause).
-        expect(_interiorTimeOffCount(tester), 0);
+        expect(_interiorBreakCount(tester), 0);
 
         await _editSelectedDayAddingPause(tester);
 
@@ -3228,7 +3475,7 @@ void main() {
         // The panel header now shows the edited (future) date's fresh override:
         // the interior pause is rendered.
         expect(
-          _interiorTimeOffCount(tester),
+          _interiorBreakCount(tester),
           greaterThan(0),
           reason:
               'after save the panel must focus the edited date and show its '
@@ -3343,7 +3590,7 @@ void main() {
       (tester) async {
         // Today opens as a SOLID 09:00–18:00 day (zero interior pauses). The
         // override adds a 13:00–14:00 pause → post-save the day has interior
-        // timeOff cells. The post-save effective fetch is parked on a Completer.
+        // break cells. The post-save effective fetch is parked on a Completer.
         final repo = _CompleterScheduleRepository(
           targetDate: _today,
           preSave: _solidWorking(_today),
@@ -3386,7 +3633,7 @@ void main() {
 
         // Pre-save: the selected (today) panel renders the SOLID day — zero
         // interior pauses.
-        expect(_interiorTimeOffCount(tester), 0);
+        expect(_interiorBreakCount(tester), 0);
 
         // Open the override sheet for today, add the break, and save. The sheet's
         // own provider reload (`listOverrides`) settles synchronously; only the
@@ -3426,7 +3673,7 @@ void main() {
         // spinner gate is up (no SlotChips) OR — if any chips render — they are
         // never the pre-save solid composition. The robust, locale-independent
         // signal is the absence of the pre-save grid's full 18-cell solid
-        // availability with zero timeOff while NOT yet showing the fresh pause.
+        // availability with zero breaks while NOT yet showing the fresh pause.
         final bool spinnerUp = find
             .byType(CircularProgressIndicator)
             .evaluate()
@@ -3434,7 +3681,7 @@ void main() {
         if (!spinnerUp) {
           // If content is on screen at all during the in-flight reload, it must
           // not be the stale pre-save solid day (which had availableCount==18,
-          // timeOff==0). The fresh pause has not resolved yet, so the only way
+          // breaks==0). The fresh pause has not resolved yet, so the only way
           // to avoid the stale render is the loading gate → this branch should
           // not be reached on the fixed code. Fail loudly if it is.
           fail(
@@ -3444,7 +3691,7 @@ void main() {
           );
         }
         // The pre-save solid grid is NOT on screen during the in-flight reload.
-        expect(_interiorTimeOffCount(tester), 0);
+        expect(_interiorBreakCount(tester), 0);
         expect(find.byType(SlotChip), findsNothing);
 
         // ── Complete the parked refetch → the FRESH override resolves ─────────
@@ -3454,10 +3701,10 @@ void main() {
         await tester.pumpAndSettle();
 
         // Now the panel renders the fresh override: the 13:00–14:00 pause shows
-        // as interior timeOff cells. A regression that served the retained
+        // as interior break cells. A regression that served the retained
         // pre-save snapshot would still show zero here.
         expect(
-          _interiorTimeOffCount(tester),
+          _interiorBreakCount(tester),
           greaterThan(0),
           reason:
               'once the genuine refetch resolves the just-saved pause must '
@@ -3517,7 +3764,7 @@ void main() {
         // Capture the fetch count at the moment of the first (pre-save) render so
         // we can prove a SECOND, post-write fetch fired.
         final int fetchesBeforeSave = repo.effectiveFetchCount;
-        expect(_interiorTimeOffCount(tester), 0);
+        expect(_interiorBreakCount(tester), 0);
 
         await tester.tap(find.byKey(const Key('schedule-day-pencil')));
         await tester.pumpAndSettle();
@@ -3553,7 +3800,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          _interiorTimeOffCount(tester),
+          _interiorBreakCount(tester),
           greaterThan(0),
           reason:
               'the rendered grid must be the refetched post-write '
@@ -4274,6 +4521,7 @@ void main() {
             overrides: <Object>[
               ..._editableData(days),
               _fakeWorkingHours(),
+              _noBookings(),
             ].cast(),
             child: MaterialApp.router(
               routerConfig: router,
@@ -4385,6 +4633,7 @@ void main() {
             overrides: <Object>[
               ..._editableData(boundaryDays),
               _fakeWorkingHours(),
+              _noBookings(),
             ].cast(),
             child: MaterialApp.router(
               routerConfig: router,
@@ -4612,6 +4861,7 @@ void main() {
               (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
             _fakeWorkingHours(),
+            _noBookings(),
           ],
         );
         await tester.pumpAndSettle();
@@ -4646,6 +4896,7 @@ void main() {
               (_) => _WeeklyData(<WeeklySchedule>[_template()]),
             ),
             _fakeWorkingHours(),
+            _noBookings(),
           ],
         );
         await tester.pumpAndSettle();
@@ -4682,6 +4933,7 @@ void main() {
             (_) => _WeeklyData(<WeeklySchedule>[_template()]),
           ),
           _fakeWorkingHours(),
+          _noBookings(),
         ],
       );
       await tester.pumpAndSettle();
@@ -4712,6 +4964,140 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(stripDays(tester), <int>[23, 24, 25, 26, 27, 28, 29]);
+    });
+  });
+
+  // ── Booked-slots overlay: pull-to-refresh refetches the salon base day ────
+  //
+  // mobile-perf P1 (2026-10-30): on a [ScheduleScope.salonMaster] the overlay
+  // query is a status-narrowed SALON member that DERIVES from the unfiltered
+  // `fetchKey` member and issues no request of its own. Refresh must
+  // invalidate + read the `fetchKey` member, or no network call ever fires.
+  group('MasterScheduleScreen — booked-slots refresh (salon scope)', () {
+    testWidgets('owner viewing a roster master: pull-to-refresh re-issues GET '
+        '/bookings/salon for the selected day', (tester) async {
+      const ScheduleScope scope = ScheduleScope.salonMaster(
+        salonId: 'salon-owner-test',
+        masterId: 'msst-test-master',
+      );
+      final days = _weekWith(todayDay: _working, filler: _working);
+      final _CountingBookingRepository repo = _CountingBookingRepository();
+      final GoRouter router = GoRouter(
+        initialLocation: '/s',
+        routes: <RouteBase>[
+          GoRoute(
+            path: '/s',
+            builder: (context, state) => MasterScheduleScreen(
+              clock: () => asClockInstant(_today),
+              scope: scope,
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          retry: beauticaProviderRetry,
+          overrides: <Object>[
+            authProvider.overrideWith(() => _FixedAuth(UserRole.salonOwner)),
+            effectiveScheduleProvider.overrideWith2((_) => _DataSchedule(days)),
+            weeklyScheduleProvider.overrideWith2(
+              (_) => _WeeklyData(<WeeklySchedule>[_template()]),
+            ),
+            mySalonsProvider.overrideWith(_SettledMySalonsOwning.new),
+            salonManagementProfileProvider.overrideWith2(
+              (_) => _SettledSalonRosterWithMaster(),
+            ),
+            _fakeWorkingHours(),
+            bookingRepositoryProvider.overrideWithValue(repo),
+          ].cast(),
+          child: MaterialApp.router(
+            routerConfig: router,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
+            locale: const Locale('uk'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SlotChip), findsWidgets);
+      expect(repo.salonFetches, 1, reason: 'mount fetches the base day once');
+
+      await tester
+          .widget<AppRefreshIndicator>(find.byType(AppRefreshIndicator))
+          .onRefresh();
+      await tester.pumpAndSettle();
+
+      expect(
+        repo.salonFetches,
+        2,
+        reason:
+            'refresh must invalidate the fetchKey (base) member — the '
+            'derived narrowed member alone issues no request',
+      );
+      expect(repo.myFetches, 0);
+    });
+
+    testWidgets('owner viewing a roster master: the overlay asks the server '
+        'for THAT master only and paints only their booking', (tester) async {
+      final _CountingBookingRepository repo =
+          _CountingBookingRepository(<Booking>[
+            _dayBooking('b-viewed', masterId: 'msst-test-master', kyivHour: 10),
+            _dayBooking('b-other', masterId: 'msst-other-master', kyivHour: 14),
+          ]);
+      await _pumpWithBookingRepo(
+        tester,
+        repo: repo,
+        role: UserRole.salonOwner,
+        scope: const ScheduleScope.salonMaster(
+          salonId: 'salon-owner-test',
+          masterId: 'msst-test-master',
+        ),
+      );
+
+      expect(repo.lastSalonMasterId, 'msst-test-master');
+      expect(
+        _bookedChipTimes(tester),
+        const <TimeOfDay>[TimeOfDay(hour: 10, minute: 0)],
+        reason: 'another master\'s 14:00 booking must never paint here',
+      );
+      expect(repo.myFetches, 0);
+    });
+  });
+
+  // ── Booked-slots overlay: own scope reads GET /bookings/me ────────────────
+  group('MasterScheduleScreen — booked-slots overlay (own scope)', () {
+    testWidgets('INDEPENDENT_MASTER: /bookings/me is asked for CONFIRMED + '
+        'COMPLETED only, paints its booking, and pull-to-refresh refetches '
+        'it', (tester) async {
+      final _CountingBookingRepository repo = _CountingBookingRepository(
+        <Booking>[
+          _dayBooking('b-own', masterId: 'msst-test-master', kyivHour: 11),
+        ],
+      );
+      await _pumpWithBookingRepo(
+        tester,
+        repo: repo,
+        role: UserRole.independentMaster,
+      );
+
+      expect(repo.myFetches, 1);
+      expect(repo.lastMyStatuses, <BookingStatus>{
+        BookingStatus.confirmed,
+        BookingStatus.completed,
+      });
+      expect(_bookedChipTimes(tester), const <TimeOfDay>[
+        TimeOfDay(hour: 11, minute: 0),
+      ]);
+
+      await tester
+          .widget<AppRefreshIndicator>(find.byType(AppRefreshIndicator))
+          .onRefresh();
+      await tester.pumpAndSettle();
+
+      expect(repo.myFetches, 2, reason: 'refresh refetches the own day');
+      expect(repo.salonFetches, 0);
     });
   });
 
@@ -4784,6 +5170,7 @@ void main() {
               (_) => _SettledSalonRosterWithMaster(),
             ),
             _fakeWorkingHours(),
+            _noBookings(),
           ].cast(),
           child: MaterialApp.router(
             routerConfig: router,
@@ -5014,14 +5401,18 @@ Future<void> _editSelectedDayAddingPause(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// Counts the rendered selected-day grid's interior timeOff cells (the visual
-/// signature of a pause). Locale-independent (M2): asserts on `SlotChip.cell`
-/// state, not on the summary string.
-int _interiorTimeOffCount(WidgetTester tester) {
+/// Counts the rendered selected-day grid's interior break cells (the visual
+/// signature of a pause). Since 2026-10-30 a break reads
+/// [SlotState.unavailable]; the grid is clamped to the working span, so on an
+/// interval day every unavailable cell IS an interior break. Locale-independent
+/// (M2): asserts on `SlotChip.cell` state, not on the summary string.
+int _interiorBreakCount(WidgetTester tester) {
   final Iterable<SlotChip> chips = tester.widgetList<SlotChip>(
     find.byType(SlotChip),
   );
-  return chips.where((SlotChip c) => c.cell.state == SlotState.timeOff).length;
+  return chips
+      .where((SlotChip c) => c.cell.state == SlotState.unavailable)
+      .length;
 }
 
 /// The day-of-month of the currently-selected week-strip cell (the lone

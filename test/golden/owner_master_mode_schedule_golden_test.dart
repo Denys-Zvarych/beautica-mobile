@@ -32,6 +32,7 @@ import 'package:beautica_mobile/shared/widgets/velvet_bottom_nav_bar.dart';
 import 'package:flutter/material.dart' show TimeOfDay;
 
 import '../helpers/clock_instant.dart';
+import '../helpers/stub_bookings_day.dart';
 import 'helpers/golden_pump.dart';
 
 const String _kSalonId = 'salon-owner-golden';
@@ -125,6 +126,8 @@ class _Roster extends SalonManagementProfile {
 
 List<Object> _overrides() => <Object>[
   authProvider.overrideWith(_OwnerAuth.new),
+  // Booked-slots overlay: pinned empty so this golden never reaches real Dio.
+  stubBookingsDayOverride(),
   effectiveScheduleProvider.overrideWith2((_) => _Days()),
   weeklyScheduleProvider.overrideWith2((_) => _Weekly()),
   mySalonsProvider.overrideWith(_MySalons.new),
