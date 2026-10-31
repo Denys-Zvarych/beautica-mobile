@@ -47,6 +47,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/fakes/fake_service_repository.dart';
@@ -124,6 +126,10 @@ class _StubAuthNotifier extends AuthNotifier {
 List<Object> _overrides() {
   final repo = _MockMasterRepository();
   return <Object>[
+    // The master nav's setup-hint dots (2026-10-30) are covered by
+    // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so this
+    // suite never reaches the real schedule/catalogue APIs through them.
+    masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
     // Phase 404 — portfolio held in its D2 LOADING state: placeholder tiles,
     // i.e. the pre-404 render. This baseline is the screen-level proof that
     // the rail's placeholder path is unchanged; real-photo / empty-state
