@@ -34,6 +34,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 class _MockMasterRepository extends Mock implements MasterRepository {}
 
@@ -109,6 +111,10 @@ ProviderScope _buildApp({
   return ProviderScope(
     retry: beauticaProviderRetry,
     overrides: [
+      // Setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+      // real schedule/catalogue reads (5-min cache timers) never run.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       authProvider.overrideWith(_StubAuthNotifier.new),
       masterProfileProvider.overrideWith(
         () => _StubMasterProfileNotifier(master),

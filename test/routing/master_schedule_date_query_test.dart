@@ -35,6 +35,8 @@ import 'package:beautica_mobile/shared/formatters/api_date.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../helpers/pump_app.dart';
 
@@ -96,6 +98,10 @@ GoRouter _router({required String location}) => GoRouter(
 );
 
 List<Object> _overrides() => <Object>[
+  // Setup-hint dots (2026-10-30) are covered by
+  // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+  // real schedule/catalogue reads (5-min cache timers) never run.
+  masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
   authProvider.overrideWith(() => _FixedAuth()),
   effectiveScheduleProvider.overrideWith2((_) => _EmptySchedule()),
   weeklyScheduleProvider.overrideWith2((_) => _EmptyWeekly()),

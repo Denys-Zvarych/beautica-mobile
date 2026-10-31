@@ -1243,6 +1243,73 @@ final class FakeBackend {
   void seedEffectiveSchedule(List<Map<String, dynamic>> days) =>
       _effectiveScheduleOverride = days;
 
+  /// 2026-10-30 (mobile-qa, setup-hint dots) — opt-in, default `false` (every
+  /// pre-existing flow keeps the empty / [seedEffectiveSchedule] answer
+  /// byte-for-byte). When `true` and no [seedEffectiveSchedule] override is
+  /// set, the hard-wired `GET …/effective-schedule` routes DERIVE their answer
+  /// from the live [_weeklySchedule] (so a weekly POST / PUT is reflected on
+  /// the next read), via [_weeklyEffectiveDays]. Needed by any flow asserting
+  /// the backend bookability rule ("some working day in the next 180 Kyiv
+  /// days") reacting to a weekly save — e.g. the master-nav «Графік» dot.
+  // Default stays OFF: 12+ flows (master bookings timeline / working-hours
+  // window, salon board, create-booking, …) pin the empty payload; the cost is
+  // that independent-master flows render the «Графік» setup dot (harmless).
+  bool deriveEffectiveScheduleFromWeekly = false;
+
+  /// TEMPLATE days over the request's `from`..`to` from [_weeklySchedule]:
+  /// for each date, the LAST template whose `validFrom`..`validTo` (inclusive,
+  /// `validTo` null = open-ended) covers it, and a day only when that
+  /// template's weekday has intervals. Overrides are not modelled (the
+  /// hard-wired overrides routes answer `[]`). CALENDAR-day stepping, never
+  /// `+Duration(days: 1)` (the DST trap).
+  List<Map<String, dynamic>> _weeklyEffectiveDays(Map<String, dynamic> query) {
+    final DateTime? from = DateTime.tryParse(
+      _scalarQueryParam(query, 'from') ?? '',
+    );
+    final DateTime? to = DateTime.tryParse(
+      _scalarQueryParam(query, 'to') ?? '',
+    );
+    if (from == null || to == null) return const <Map<String, dynamic>>[];
+    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+    for (
+      DateTime d = DateTime(from.year, from.month, from.day);
+      !d.isAfter(to);
+      d = DateTime(d.year, d.month, d.day + 1)
+    ) {
+      Map<String, dynamic>? template;
+      for (final Map<String, dynamic> t in _weeklySchedule) {
+        final DateTime? vf = DateTime.tryParse('${t['validFrom']}');
+        final DateTime? vt = t['validTo'] == null
+            ? null
+            : DateTime.tryParse('${t['validTo']}');
+        if (vf != null && d.isBefore(vf)) continue;
+        if (vt != null && d.isAfter(vt)) continue;
+        template = t;
+      }
+      if (template == null) continue;
+      for (final dynamic raw
+          in template['days'] as List<dynamic>? ?? <dynamic>[]) {
+        final Map<String, dynamic> day = raw as Map<String, dynamic>;
+        final List<dynamic> intervals =
+            day['intervals'] as List<dynamic>? ?? <dynamic>[];
+        if (day['dayOfWeek'] != d.weekday || intervals.isEmpty) continue;
+        out.add(
+          seedEffectiveScheduleDay(
+            d,
+            intervals: <(String, String)>[
+              for (final dynamic i in intervals)
+                (
+                  (i as Map<String, dynamic>)['startTime'] as String,
+                  i['endTime'] as String,
+                ),
+            ],
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
   /// Builds one `EffectiveDayResponse` JSON entry for [seedEffectiveSchedule]
   /// — an INTERVAL day (never EXPLICIT_TIMES) with a single working interval
   /// `[startTime, endTime)` when [intervals] is omitted, or a settled day-off
@@ -9803,7 +9870,12 @@ final class FakeBackend {
         path,
         (server) => server.replyCallback(
           200,
-          (_) => _okList(_effectiveScheduleOverride ?? const <dynamic>[]),
+          (req) => _okList(
+            _effectiveScheduleOverride ??
+                (deriveEffectiveScheduleFromWeekly
+                    ? _weeklyEffectiveDays(req.queryParameters)
+                    : const <dynamic>[]),
+          ),
         ),
         request: const Request(method: RequestMethods.get),
       );

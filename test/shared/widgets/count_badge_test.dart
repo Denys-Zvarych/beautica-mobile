@@ -104,4 +104,75 @@ void main() {
     expect(find.text('99+'), findsOneWidget);
     expect(find.text('100'), findsNothing);
   });
+
+  // ── CountBadge.dot (2026-10-30, master-nav setup hints) ──────────────────
+  group('CountBadge.dot', () {
+    const Key dotKey = Key('count-badge-dot');
+
+    testWidgets('renders an 8 dp mocha dot with no digit', (t) async {
+      await _pump(t, const CountBadge.dot());
+      expect(find.byKey(dotKey), findsOneWidget);
+      expect(t.getSize(find.byKey(dotKey)), const Size(8, 8));
+      expect(CountBadge.dotSize, 8);
+      expect(find.byType(Text), findsNothing);
+      final Container c = t.widget<Container>(find.byKey(dotKey));
+      final BoxDecoration d = c.decoration! as BoxDecoration;
+      expect(d.color, BrandColors.accentDeep, reason: 'mocha, never red');
+      expect((d.border! as Border).top.color, BrandColors.base);
+    });
+
+    testWidgets('applies a custom colour and routes a custom key', (t) async {
+      await _pump(
+        t,
+        const CountBadge.dot(color: BrandColors.muted, key: Key('d')),
+      );
+      expect(find.byKey(dotKey), findsNothing);
+      final Container c = t.widget<Container>(find.byKey(const Key('d')));
+      expect((c.decoration! as BoxDecoration).color, BrandColors.muted);
+    });
+
+    testWidgets('excludes the dot from semantics', (t) async {
+      await _pump(t, const CountBadge.dot());
+      expect(
+        find.descendant(
+          of: find.byType(CountBadge),
+          matching: find.byType(ExcludeSemantics),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('anchor dot: shown at count 0, replaces the pill at count 3, '
+        'tucked at -1 dp on the corner', (t) async {
+      await _pump(
+        t,
+        const CountBadgeAnchor(
+          count: 0,
+          dot: true,
+          badgeKey: Key('x'),
+          child: SizedBox(width: 40, height: 40),
+        ),
+      );
+      expect(find.byKey(const Key('x')), findsOneWidget);
+      final Positioned p = t.widget<Positioned>(
+        find.ancestor(
+          of: find.byKey(const Key('x')),
+          matching: find.byType(Positioned),
+        ),
+      );
+      expect((p.top, p.right), (-1.0, -1.0));
+
+      await _pump(
+        t,
+        const CountBadgeAnchor(
+          count: 3,
+          dot: true,
+          badgeKey: Key('x'),
+          child: SizedBox(width: 40, height: 40),
+        ),
+      );
+      expect(find.byKey(const Key('x')), findsOneWidget);
+      expect(find.text('3'), findsNothing, reason: 'dot wins over the pill');
+    });
+  });
 }

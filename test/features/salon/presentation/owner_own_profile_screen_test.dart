@@ -86,6 +86,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../../../core/media/pick/scripted_pick_gateway.dart';
 import '../../../helpers/fakes/fake_auth_repository.dart';
@@ -130,6 +132,10 @@ const _services = <MasterService>[
 ];
 
 List<Object> _overrides(OwnerOwnProfileData data) => <Object>[
+  // Setup-hint dots (2026-10-30) are covered by
+  // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+  // real schedule/catalogue reads (5-min cache timers) never run.
+  masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
   ownerOwnProfileProvider.overrideWith((ref) async => data),
   approvedCategoriesProvider.overrideWith(
     (ref) async => const <ServiceCategoryOption>[],
@@ -244,6 +250,10 @@ ProviderContainer _makeRouterContainer(
   final container = makeTestContainer(
     retry: (_, _) => null,
     overrides: [
+      // Setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+      // real schedule/catalogue reads (5-min cache timers) never run.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       authProvider.overrideWith(
         () => _FixedAuthNotifier(
           AsyncData<AuthSession>(
@@ -700,6 +710,12 @@ void main() {
     await tester.pumpApp(
       const _VisibilityHost(),
       overrides: <Object>[
+        // Setup-hint dots (2026-10-30) are covered by
+        // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+        // real schedule/catalogue reads (5-min cache timers) never run.
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
         ownerOwnProfileProvider.overrideWith((ref) => pending.future),
         approvedCategoriesProvider.overrideWith(
           (ref) async => const <ServiceCategoryOption>[],
@@ -820,6 +836,12 @@ void main() {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(embedded: true),
         overrides: <Object>[
+          // Setup-hint dots (2026-10-30) are covered by
+          // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+          // real schedule/catalogue reads (5-min cache timers) never run.
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
           ownerOwnProfileProvider.overrideWith((ref) => pending.future),
           approvedCategoriesProvider.overrideWith(
             (ref) async => const <ServiceCategoryOption>[],
@@ -849,6 +871,12 @@ void main() {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(embedded: true),
         overrides: <Object>[
+          // Setup-hint dots (2026-10-30) are covered by
+          // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+          // real schedule/catalogue reads (5-min cache timers) never run.
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
           // ASYNC throw (`async` body), never `thenThrow`/a synchronous throw:
           // a Dio-backed repository always fails asynchronously, and a
           // synchronous throw during a provider build short-circuits Riverpod's
@@ -895,6 +923,12 @@ void main() {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(embedded: true),
         overrides: <Object>[
+          // Setup-hint dots (2026-10-30) are covered by
+          // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+          // real schedule/catalogue reads (5-min cache timers) never run.
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
           clientEditProfileProvider.overrideWith(
             () => _FlakyClientEditProfile(log),
           ),
@@ -1417,6 +1451,12 @@ void _avatarUploadNoReloadTests() {
       await tester.pumpApp(
         const OwnerOwnProfileScreen(embedded: true),
         overrides: <Object>[
+          // Setup-hint dots (2026-10-30) are covered by
+          // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+          // real schedule/catalogue reads (5-min cache timers) never run.
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
           authProvider.overrideWith(() => _AvatarAuth(_owner)),
           clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
           // cycle-stub-ok: leaf data dep of the loader under test.

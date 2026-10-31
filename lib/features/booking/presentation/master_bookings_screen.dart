@@ -263,7 +263,7 @@ class MasterBookingsScreen extends ConsumerWidget {
       navServicesRoute == null &&
           navScheduleRoute == null &&
           navProfileRoute == null
-      ? const VelvetBottomNavBar(activeIndex: 1)
+      ? const VelvetBottomNavBar(activeIndex: 1, showSetupHints: true)
       : VelvetBottomNavBar(
           activeIndex: 1,
           servicesRoute: navServicesRoute,

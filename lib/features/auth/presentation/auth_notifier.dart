@@ -1580,11 +1580,18 @@ class AuthNotifier extends _$AuthNotifier {
       // transitively does — see `effective_schedule_notifier.dart`'s
       // `invalidateAllEffectiveScheduleWindows` doc for the full reasoning
       // and why the two families need two different invalidation shapes.
-      // `weeklyScheduleProvider` is bare-invalidated: neither of its two
-      // watch sites (`master_schedule_screen.dart`, `salon_staff_profile_
+      // `weeklyScheduleProvider` is bare-invalidated: none of its watch
+      // sites (`master_schedule_screen.dart`, `salon_staff_profile_
       // screen.dart`) keys it off LOCAL mutable state, and `@Riverpod
       // (keepAlive: true)` never actually disposes on zero listeners, so
-      // there is no queued-disposal race a bare invalidate could hit.
+      // there is no queued-disposal race a bare invalidate could hit. The
+      // readiness chain (`master_nav_setup_hints_provider` →
+      // `booking_link_setup_hints_provider`) watched it as a third site until
+      // 2026-10-30; it now reads `effectiveScheduleProvider` over the fixed
+      // 180-day readiness window instead (also not local mutable state), which
+      // the `invalidateAllEffectiveScheduleWindows` sweep below covers, and it
+      // returns before any upstream read once the session is
+      // `Unauthenticated`.
       // keepalive-safe: session-boundary sweep (logout) — weeklyScheduleProvider is never watched via local mutable state (see comment above) and @Riverpod(keepAlive:true) never disposes on zero listeners, so invalidateSelf's queued-disposal race this guard protects against cannot occur here
       // cycle-safe: weeklyScheduleProvider only watches scheduleRepositoryProvider(scope), which watches masterApiProvider -> dioProvider — none of which watch authProvider, so no back-edge into this notifier, no cycle. Proven on the real graph by provider_cycle_guard_test.dart's "authProvider.notifier.logout() -> weeklyScheduleProvider + effectiveScheduleProvider" entrypoint.
       ref.invalidate(weeklyScheduleProvider);

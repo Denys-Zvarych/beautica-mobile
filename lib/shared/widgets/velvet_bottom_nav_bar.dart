@@ -16,11 +16,15 @@
 // `VelvetColors.*` → `BrandColors.*`.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
+import 'package:beautica_mobile/shared/widgets/count_badge.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 
@@ -106,9 +110,22 @@ class VelvetBottomNavBar extends StatelessWidget {
     this.profileRoute,
     this.servicesRoute,
     this.bookingsRoute,
+    this.showSetupHints = false,
   });
 
   final int activeIndex;
+
+  /// 2026-10-30 — additive, default `false` (every caller that does not pass
+  /// it renders exactly as before: no `Consumer`, no provider watch, no dot).
+  /// `true` lets tiles 0 («Послуги») and 2 («Графік») show a small mocha
+  /// [CountBadge.dot] plus a semantics hint while that setup step is missing,
+  /// driven by [masterNavSetupHintsProvider] (the phase 416 booking-link
+  /// readiness rule). That provider is itself INDEPENDENT_MASTER-only and
+  /// "nothing missing" while loading or errored, so passing `true` on a
+  /// role-shared screen is safe. The owner master-mode bars
+  /// (`_kOwnerMasterNavBars`) deliberately leave it off — the owner's own
+  /// catalogue/schedule are not what that provider reads.
+  final bool showSetupHints;
 
   /// Phase 310 D1 — additive override for tile 2's («Графік») destination.
   /// `null` (every current caller) means `RouteNames.masterSchedule`,
@@ -143,6 +160,35 @@ class VelvetBottomNavBar extends StatelessWidget {
   final String? bookingsRoute;
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
+
+  _VelvetNavTile _buildTile(int i, {bool setupHint = false}) => _VelvetNavTile(
+    key: Key('master-nav-tile-$i'),
+    item: _navItems[i],
+    index: i,
+    active: i == activeIndex,
+    scheduleRoute: scheduleRoute,
+    profileRoute: profileRoute,
+    servicesRoute: servicesRoute,
+    bookingsRoute: bookingsRoute,
+    setupHint: setupHint,
+  );
+
+  /// Tiles 0 and 2 watch their setup-hint provider ONLY when
+  /// [showSetupHints] is on; every other tile — and every tile when it is
+  /// off — is the plain pre-2026-10-30 tile.
+  Widget _tile(int i) {
+    if (!showSetupHints || (i != 0 && i != 2)) return _buildTile(i);
+    return Consumer(
+      builder: (BuildContext context, WidgetRef ref, Widget? _) => _buildTile(
+        i,
+        setupHint: ref.watch(
+          masterNavSetupHintsProvider.select(
+            (BookingLinkSetupHints h) => i == 0 ? h.services : h.schedule,
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -195,18 +241,7 @@ class VelvetBottomNavBar extends StatelessWidget {
                 child: Row(
                   children: <Widget>[
                     for (int i = 0; i < _navItems.length; i++)
-                      Expanded(
-                        child: _VelvetNavTile(
-                          key: Key('master-nav-tile-$i'),
-                          item: _navItems[i],
-                          index: i,
-                          active: i == activeIndex,
-                          scheduleRoute: scheduleRoute,
-                          profileRoute: profileRoute,
-                          servicesRoute: servicesRoute,
-                          bookingsRoute: bookingsRoute,
-                        ),
-                      ),
+                      Expanded(child: _tile(i)),
                   ],
                 ),
               ),
@@ -228,6 +263,7 @@ class _VelvetNavTile extends StatelessWidget {
     this.profileRoute,
     this.servicesRoute,
     this.bookingsRoute,
+    this.setupHint = false,
   });
 
   final _NavItem item;
@@ -237,6 +273,9 @@ class _VelvetNavTile extends StatelessWidget {
   final String? profileRoute;
   final String? servicesRoute;
   final String? bookingsRoute;
+
+  /// Show the setup-hint dot + semantics hint (tiles 0 and 2 only).
+  final bool setupHint;
 
   /// Resolves the go_router path for a nav-bar [index]. Every index maps to
   /// its real destination; tapping the already-active tile resolves to
@@ -265,10 +304,24 @@ class _VelvetNavTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color color = active ? BrandColors.accentDeep : BrandColors.muted;
     final String? route = _routeFor(index);
-    final String label = item.label(AppLocalizations.of(context));
+    final AppLocalizations l10n = AppLocalizations.of(context);
+    final String label = item.label(l10n);
+    final String? hint = !setupHint
+        ? null
+        : switch (index) {
+            0 => l10n.masterNavSetupHintServices,
+            2 => l10n.masterNavSetupHintSchedule,
+            _ => null,
+          };
+    final Widget icon = Icon(
+      active ? item.activeIcon : item.icon,
+      size: 22,
+      color: color,
+    );
 
     return Semantics(
       label: label,
+      hint: hint,
       selected: active,
       button: true,
       child: GestureDetector(
@@ -329,7 +382,15 @@ class _VelvetNavTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            Icon(active ? item.activeIcon : item.icon, size: 22, color: color),
+            if (hint == null)
+              icon
+            else
+              CountBadgeAnchor(
+                count: 0,
+                dot: true,
+                badgeKey: Key('master-nav-setup-dot-$index'),
+                child: icon,
+              ),
             const SizedBox(height: 2),
             Text(
               label,

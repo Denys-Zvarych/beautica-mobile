@@ -6685,6 +6685,14 @@
   "@masterNavTabProfile": {
     "description": "VelvetBottomNavBar tile 3 label on the master surface."
   },
+  "masterNavSetupHintServices": "Додайте послуги",
+  "@masterNavSetupHintServices": {
+    "description": "Semantics hint on the master nav «Послуги» tile while its setup dot shows (INDEPENDENT_MASTER with no active services)."
+  },
+  "masterNavSetupHintSchedule": "Налаштуйте розклад",
+  "@masterNavSetupHintSchedule": {
+    "description": "Semantics hint on the master nav «Графік» tile while its setup dot shows (INDEPENDENT_MASTER with no working day in the next 180 days — the backend bookability rule)."
+  },
   "salonBookingsTitle": "Записи салону",
   "@salonBookingsTitle": {
     "description": "Phase 21.12 — header title of the salon-wide owner/admin bookings board (the «Записи» tab of the salon shell). The salon's own name renders as the subtitle beneath it."

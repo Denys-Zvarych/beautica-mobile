@@ -667,6 +667,7 @@ class _MasterScheduleScreenState extends ConsumerState<MasterScheduleScreen> {
             profileRoute: profileRoute,
             servicesRoute: servicesRoute,
             bookingsRoute: bookingsRoute,
+            showSetupHints: !isSalonMaster,
           ),
       body: SafeArea(
         child: Column(
