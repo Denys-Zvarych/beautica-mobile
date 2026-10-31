@@ -90,6 +90,8 @@ import 'package:mocktail/mocktail.dart';
 import '../../helpers/no_unread_notifications.dart';
 import '../../helpers/overflow_guard.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 // ---------------------------------------------------------------------------
 // Never-resolving fakes — the bar is static chrome rendered OUTSIDE every
@@ -165,7 +167,14 @@ Future<void> _pumpWithBottomInset(
       key: UniqueKey(),
       // Phase 363 — «Мій профіль» now mounts the live notification bell; pin the
       // global count to zero so its real notifier starts no poll timer.
-      overrides: withDefaultNoUnread(overrides).cast(),
+      // Setup-hint dots (2026-10-30) pinned off: the real schedule/catalogue
+      // reads would leave 5-min cache timers pending.
+      overrides: withDefaultNoUnread(<Object>[
+        masterNavSetupHintsProvider.overrideWithValue(
+          BookingLinkSetupHints.none,
+        ),
+        ...overrides,
+      ]).cast(),
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,

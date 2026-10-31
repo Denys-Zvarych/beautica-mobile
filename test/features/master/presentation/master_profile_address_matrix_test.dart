@@ -52,6 +52,8 @@ import 'package:beautica_mobile/features/services/data/service_repository.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 import '../../../golden/helpers/golden_pump.dart' show kGoldenTextScales;
 import '../../../helpers/fakes/fake_secure_storage.dart';
@@ -111,6 +113,10 @@ class _StubAuthNotifier extends AuthNotifier {
 }
 
 List<Object> _overrides() => <Object>[
+  // Setup-hint dots (2026-10-30) are covered by
+  // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+  // real schedule/catalogue reads (5-min cache timers) never run.
+  masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
   authProvider.overrideWith(_StubAuthNotifier.new),
   masterProfileProvider.overrideWith(_StubMasterProfileNotifier.new),
   masterRepositoryProvider.overrideWithValue(_MockMasterRepository()),

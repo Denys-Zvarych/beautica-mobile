@@ -71,6 +71,8 @@ import 'package:mocktail/mocktail.dart';
 import '../../../helpers/booking_fixture_dates.dart';
 import '../../../helpers/pump_app.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 // Fixture identities injected BY these tests — NOT app copy, and
 // locale-invariant by construction (a person's name is not translated). This
@@ -262,6 +264,10 @@ Future<void> _pump(
     ),
     retry: retry,
     overrides: <Object>[
+      // Setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+      // real schedule/catalogue reads (5-min cache timers) never run.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
       bookingRepositoryProvider.overrideWithValue(repo),
       bookedDaysProvider.overrideWith((ref) async => bookedDays),
@@ -322,6 +328,10 @@ Future<GoRouter> _pumpWithNavRoutes(
   await tester.pumpRoutedApp(
     router,
     overrides: <Object>[
+      // Setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+      // real schedule/catalogue reads (5-min cache timers) never run.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       // Phase 329 — see [_IndependentMasterAuthNotifier].
       authProvider.overrideWith(_IndependentMasterAuthNotifier.new),
       screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
@@ -1882,6 +1892,12 @@ void main() {
       await tester.pumpApp(
         const MasterBookingsScreen(),
         overrides: <Object>[
+          // Setup-hint dots (2026-10-30) are covered by
+          // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+          // real schedule/catalogue reads (5-min cache timers) never run.
+          masterNavSetupHintsProvider.overrideWithValue(
+            BookingLinkSetupHints.none,
+          ),
           screenProtectionProvider.overrideWithValue(protection),
           bookingRepositoryProvider.overrideWithValue(repo),
           bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),
@@ -1948,6 +1964,12 @@ void main() {
         await tester.pumpRoutedApp(
           router,
           overrides: <Object>[
+            // Setup-hint dots (2026-10-30) are covered by
+            // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+            // real schedule/catalogue reads (5-min cache timers) never run.
+            masterNavSetupHintsProvider.overrideWithValue(
+              BookingLinkSetupHints.none,
+            ),
             screenProtectionProvider.overrideWithValue(_NoOpScreenProtection()),
             bookingRepositoryProvider.overrideWithValue(repo),
             bookedDaysProvider.overrideWith((ref) async => <DateTime>{}),

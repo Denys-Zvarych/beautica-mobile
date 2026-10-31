@@ -59,6 +59,8 @@ import '../helpers/fakes/fake_auth_repository.dart';
 import '../helpers/fakes/fake_secure_storage.dart';
 import '../helpers/test_container.dart';
 import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
+import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 
 /// The exact legacy literal — deliberately NOT a `RouteNames` constant (the
 /// old `RouteNames.masterReceivedReviews` was deleted in the same phase; see
@@ -130,6 +132,10 @@ Future<GoRouter> _pumpRouterApp(
   final ProviderContainer container = makeTestContainer(
     retry: beauticaProviderRetry,
     overrides: <Object>[
+      // Setup-hint dots (2026-10-30) are covered by
+      // `velvet_bottom_nav_bar_setup_hints_test.dart`; pinned off here so the
+      // real schedule/catalogue reads (5-min cache timers) never run.
+      masterNavSetupHintsProvider.overrideWithValue(BookingLinkSetupHints.none),
       authProvider.overrideWith(() => _FixedAuthNotifier(user)),
       authRepositoryProvider.overrideWith((_) => FakeAuthRepository()),
       secureStorageProvider.overrideWith((_) => FakeSecureStorage()),
