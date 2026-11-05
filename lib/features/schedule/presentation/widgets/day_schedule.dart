@@ -97,13 +97,19 @@ String slotCellLabel(AppLocalizations l10n, SlotCell cell) {
 /// cell overlapping a [BookingStatus.confirmed] or [BookingStatus.completed]
 /// booking's Kyiv `[startAt, endAt)` span on [day]'s date is
 /// [SlotState.booked], winning over every other state. Other statuses are
-/// ignored.
+/// ignored. A booked span that falls OUTSIDE the clamped bounds (e.g. a
+/// booking outside a day's custom hours) widens the grid to cover it, the extra
+/// cells reading booked or «Неробочий час»; with no such span the bounds are
+/// exactly the clamped ones above.
 List<SlotCell> buildDayCells(
   EffectiveDay day, {
   List<Booking> bookings = const <Booking>[],
 }) {
-  final (int gridStartMin, int gridEndMin) = _gridBounds(day.intervals);
-  final List<(int, int)> bookedSpans = _bookedSpans(day.date, bookings);
+  final List<(int, int)> spans = bookedSpans(day.date, bookings);
+  final (int gridStartMin, int gridEndMin) = _widenForBookings(
+    _gridBounds(day.intervals),
+    spans,
+  );
 
   // Perf (HIGH-2): the projection is a pure function of the day's
   // (date, source, intervals) — recomputing + reallocating the list on every
@@ -115,16 +121,16 @@ List<SlotCell> buildDayCells(
   final List<SlotCell>? cachedCells = _cachedCells;
   if (cachedKey != null &&
       cachedCells != null &&
-      cachedKey.matches(day, gridStartMin, gridEndMin, bookedSpans)) {
+      cachedKey.matches(day, gridStartMin, gridEndMin, spans)) {
     return cachedCells;
   }
   final List<SlotCell> cells = _computeDayCells(
     day,
     gridStartMin,
     gridEndMin,
-    bookedSpans,
+    spans,
   );
-  _cachedKey = _DayCellsKey(day, gridStartMin, gridEndMin, bookedSpans);
+  _cachedKey = _DayCellsKey(day, gridStartMin, gridEndMin, spans);
   _cachedCells = cells;
   return cells;
 }
@@ -133,7 +139,11 @@ List<SlotCell> buildDayCells(
 /// clamped to `[0, 1440]`) of every CONFIRMED / COMPLETED booking in
 /// [bookings] that touches [date]. Empty input short-circuits before any
 /// timezone read, so a bookings-less caller never depends on tz init.
-List<(int, int)> _bookedSpans(DateTime date, List<Booking> bookings) {
+///
+/// Shared by the interval grid ([buildDayCells]) and the EXPLICIT_TIMES chip
+/// view (`_DiscreteTimesView` in `master_schedule_screen.dart`) — one booked-
+/// span projection for both day kinds.
+List<(int, int)> bookedSpans(DateTime date, List<Booking> bookings) {
   if (bookings.isEmpty) return const <(int, int)>[];
   final tz.TZDateTime midnight = tz.TZDateTime(
     beauticaZone,
@@ -188,6 +198,24 @@ List<(int, int)> _bookedSpans(DateTime date, List<Booking> bookings) {
   final int startMin = ((firstStart ~/ cellLen) * cellLen).clamp(0, 1440);
   final int endMin = lastEnd.clamp(0, 1440);
   return (startMin, endMin);
+}
+
+/// Widens [bounds] to also cover every booked span that falls OUTSIDE it (a
+/// booking outside the day's — e.g. custom — working hours must still get a
+/// cell instead of vanishing). The start floors to the enclosing 30-min cell,
+/// the end stays exact (same rules as [_gridBounds]). When no span falls
+/// outside, [bounds] is returned unchanged, so every booking-free / in-window
+/// grid keeps exactly the bounds it always had.
+(int, int) _widenForBookings((int, int) bounds, List<(int, int)> spans) {
+  final (int startMin, int endMin) = bounds;
+  int start = startMin;
+  int end = endMin;
+  const int cellLen = 30;
+  for (final (int s, int e) in spans) {
+    if (s < start) start = (s ~/ cellLen) * cellLen;
+    if (e > end) end = e;
+  }
+  return (start, end);
 }
 
 // Single-entry memo for [buildDayCells] (the calendar shows one day at a time).
@@ -298,7 +326,7 @@ List<SlotCell> _computeDayCells(
       hour: cellStartMin ~/ 60,
       minute: cellStartMin % 60,
     );
-    final SlotState state = _overlapsBooking(bookedSpans, cellStartMin)
+    final SlotState state = overlapsBooking(bookedSpans, cellStartMin)
         ? SlotState.booked
         : uniform ?? _cellState(sorted, cellStartMin);
     cells.add(SlotCell(time: t, state: state));
@@ -306,10 +334,15 @@ List<SlotCell> _computeDayCells(
   return cells;
 }
 
-/// Whether the 30-min cell `[cellStartMin, cellStartMin + 30)` overlaps any
-/// booked span by at least one minute (half-open on both sides).
-bool _overlapsBooking(List<(int, int)> bookedSpans, int cellStartMin) {
-  const int cellLen = 30;
+/// Whether the cell `[cellStartMin, cellStartMin + cellLen)` overlaps any
+/// booked span by at least one minute (half-open on both sides). [cellLen]
+/// defaults to the grid's 30-min cell; `cellLen: 1` asks whether a span covers
+/// the start minute itself (the EXPLICIT_TIMES chip view).
+bool overlapsBooking(
+  List<(int, int)> bookedSpans,
+  int cellStartMin, {
+  int cellLen = 30,
+}) {
   final int cellEndMin = cellStartMin + cellLen;
   for (final (int start, int end) in bookedSpans) {
     if (start < cellEndMin && end > cellStartMin) return true;

@@ -414,6 +414,218 @@ void main() {
       }
     },
   );
+
+  // ── Booked overlay on CUSTOM-override days (hotfix 2026-11-06, Rule 3b) ───
+  //
+  // Bug: on an «окремі години» (EXPLICIT_TIMES) day every start chip rendered
+  // available even when a CONFIRMED booking covered it, and on a custom-hours
+  // day a booking OUTSIDE the hours vanished past the clamped grid edge. The
+  // widget tier stubs the effective-schedule and bookings providers; these
+  // journeys prove the REAL `GET …/effective-schedule` (`OVERRIDE_CUSTOM`,
+  // non-empty `times` → `isExplicitTimes`) + `GET /bookings/me` chain paints
+  // it. Same pinned clock for fixture and app (M15). Kyiv is UTC+3 in June.
+  testWidgets(
+    'INDEPENDENT_MASTER «Графік»: on an EXPLICIT_TIMES override day the start '
+    'chip a CONFIRMED booking covers reads booked; the other chips stay free',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        final DateTime today = kyivToday(() => kFixedNow);
+        fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...FakeBackend.seedEffectiveScheduleDay(today),
+            'source': 'OVERRIDE_CUSTOM',
+            'intervals': const <dynamic>[],
+            'times': const <String>['09:00:00', '13:00:00', '15:00:00'],
+          },
+        ]);
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: 'sched-discrete-confirmed',
+            status: 'CONFIRMED',
+            // 13:00–14:00 Kyiv.
+            startsAt: DateTime.utc(today.year, today.month, today.day, 10),
+          ),
+        ]);
+
+        await _openOwnScheduleOn(tester, fb, router, today);
+
+        final Finder discrete = find.byKey(
+          const Key('schedule-discrete-times'),
+        );
+        expect(discrete, findsOneWidget);
+        await tester.ensureVisible(discrete);
+        await AppHarness.settle(tester);
+
+        final AppLocalizations l10n = AppLocalizations.of(
+          tester.element(find.byType(MasterScheduleScreen)),
+        );
+        SlotChip chipAt(String hhmm) => tester.widget<SlotChip>(
+          find.descendant(
+            of: find.byKey(Key('schedule-discrete-chip-$hhmm')),
+            matching: find.byType(SlotChip),
+          ),
+        );
+        const SlotCell booked = SlotCell(
+          time: TimeOfDay(hour: 13, minute: 0),
+          state: SlotState.booked,
+        );
+        expect(chipAt('13:00').cell.state, SlotState.booked);
+        expect(
+          chipAt('13:00').stateLabel,
+          slotCellLabel(l10n, booked),
+          reason: 'the booked chip carries the booked label, not «Робочий»',
+        );
+        expect(chipAt('09:00').cell.state, SlotState.available);
+        expect(chipAt('15:00').cell.state, SlotState.available);
+      });
+    },
+  );
+
+  testWidgets(
+    'INDEPENDENT_MASTER «Графік»: on an EXPLICIT_TIMES override day a CONFIRMED '
+    'booking covering NO start chip (10:00 on a 09/13/15 day) gets an extra '
+    'booked 10:00 chip; the other chips stay free',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        final DateTime today = kyivToday(() => kFixedNow);
+        fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...FakeBackend.seedEffectiveScheduleDay(today),
+            'source': 'OVERRIDE_CUSTOM',
+            'intervals': const <dynamic>[],
+            'times': const <String>['09:00:00', '13:00:00', '15:00:00'],
+          },
+        ]);
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: 'sched-discrete-offchip',
+            status: 'CONFIRMED',
+            // 10:00–11:00 Kyiv — between the 09:00 and 13:00 chips.
+            startsAt: DateTime.utc(today.year, today.month, today.day, 7),
+          ),
+        ]);
+
+        await _openOwnScheduleOn(tester, fb, router, today);
+
+        final Finder discrete = find.byKey(
+          const Key('schedule-discrete-times'),
+        );
+        expect(discrete, findsOneWidget);
+        await tester.ensureVisible(discrete);
+        await AppHarness.settle(tester);
+
+        final List<(TimeOfDay, SlotState)> chips = tester
+            .widgetList<SlotChip>(
+              find.descendant(of: discrete, matching: find.byType(SlotChip)),
+            )
+            .map((SlotChip c) => (c.cell.time, c.cell.state))
+            .toList();
+        expect(chips, const <(TimeOfDay, SlotState)>[
+          (TimeOfDay(hour: 9, minute: 0), SlotState.available),
+          (TimeOfDay(hour: 10, minute: 0), SlotState.booked),
+          (TimeOfDay(hour: 13, minute: 0), SlotState.available),
+          (TimeOfDay(hour: 15, minute: 0), SlotState.available),
+        ]);
+        expect(
+          find.byKey(const Key('schedule-discrete-chip-10:00')),
+          findsOneWidget,
+        );
+      });
+    },
+  );
+
+  testWidgets(
+    'INDEPENDENT_MASTER «Графік»: on a custom-hours override day (10:00–14:00) '
+    'a CONFIRMED booking at 15:00 still gets a visible booked cell',
+    (tester) async {
+      await mockNetworkImagesFor(() async {
+        final fb = FakeBackend();
+        final GoRouter router = await AppHarness.boot(tester, fb);
+        final DateTime today = kyivToday(() => kFixedNow);
+        fb.seedEffectiveSchedule(<Map<String, dynamic>>[
+          <String, dynamic>{
+            ...FakeBackend.seedEffectiveScheduleDay(
+              today,
+              intervals: const <(String, String)>[('10:00:00', '14:00:00')],
+            ),
+            'source': 'OVERRIDE_CUSTOM',
+          },
+        ]);
+        fb.seedManyBookingsDataset(<Map<String, dynamic>>[
+          fb.datasetBookingRow(
+            id: 'sched-outside-confirmed',
+            status: 'CONFIRMED',
+            // 15:00–16:00 Kyiv — outside the 10:00–14:00 custom hours.
+            startsAt: DateTime.utc(today.year, today.month, today.day, 12),
+          ),
+        ]);
+
+        await _openOwnScheduleOn(tester, fb, router, today);
+
+        expect(find.byKey(const Key('schedule-discrete-times')), findsNothing);
+        await tester.ensureVisible(find.byType(SlotLegend));
+        await AppHarness.settle(tester);
+
+        final Finder bookedCell = find.byWidgetPredicate(
+          (Widget w) =>
+              w is SlotChip &&
+              w.cell.state == SlotState.booked &&
+              w.cell.time == const TimeOfDay(hour: 15, minute: 0),
+        );
+        expect(bookedCell, findsOneWidget);
+        await tester.ensureVisible(bookedCell);
+        await AppHarness.settle(tester);
+        expect(
+          tester
+              .getRect(bookedCell)
+              .overlaps(tester.getRect(find.byType(MasterScheduleScreen))),
+          isTrue,
+          reason: 'the out-of-hours booked cell is on screen, not clipped',
+        );
+        // The in-hours cells are untouched; the gap reads non-working.
+        final Map<TimeOfDay, SlotState> byTime = <TimeOfDay, SlotState>{
+          for (final SlotChip c in tester.widgetList<SlotChip>(
+            find.byType(SlotChip),
+          ))
+            c.cell.time: c.cell.state,
+        };
+        expect(
+          byTime[const TimeOfDay(hour: 10, minute: 0)],
+          SlotState.available,
+        );
+        expect(
+          byTime[const TimeOfDay(hour: 14, minute: 0)],
+          SlotState.unavailable,
+        );
+      });
+    },
+  );
+}
+
+/// Logs in as INDEPENDENT_MASTER and opens the REAL «Графік» on [day] via the
+/// `?date=` deep entry, asserting the real bookings + schedule wire ran.
+Future<void> _openOwnScheduleOn(
+  WidgetTester tester,
+  FakeBackend fb,
+  GoRouter router,
+  DateTime day,
+) async {
+  await AppHarness.loginAs(tester, fb, UserRole.independentMaster);
+  await AppHarness.settle(tester);
+  final String token =
+      '${day.year.toString().padLeft(4, '0')}-'
+      '${day.month.toString().padLeft(2, '0')}-'
+      '${day.day.toString().padLeft(2, '0')}';
+  router.go('${RouteNames.masterSchedule}?date=$token');
+  await AppHarness.settle(tester);
+  expect(find.byType(MasterScheduleScreen), findsOneWidget);
+  expect(find.byType(NoScheduleBanner), findsNothing);
+  expect(fb.getMyBookingsCalls, greaterThanOrEqualTo(1));
+  expect(fb.lastMyBookingsQuery?['from'].toString(), token);
 }
 
 /// [slotCellLabel] as a whole-LINE pattern inside a merged semantics label.
