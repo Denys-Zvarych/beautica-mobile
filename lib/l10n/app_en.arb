@@ -2937,6 +2937,14 @@
   "@accountNotificationsOffSubtitle": {
     "description": "Account page notifications row subtitle while the Android notification permission is off; tapping the switch opens Android settings."
   },
+  "accountCrashReportsLabel": "Send crash reports",
+  "@accountCrashReportsLabel": {
+    "description": "Phase 410 — Account page switch row: send anonymous crash reports to Sentry (on by default, opt-out)."
+  },
+  "accountCrashReportsSubtitle": "Anonymous: no name, phone, email or bookings",
+  "@accountCrashReportsSubtitle": {
+    "description": "Phase 410 — subtitle under the crash-reports switch: what is NOT sent."
+  },
 
   "discreteTimesSegmentInterval": "Interval",
   "@discreteTimesSegmentInterval": {

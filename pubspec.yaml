@@ -40,9 +40,17 @@ dependencies:
 
   # Push notifications — Android only (phase 066). Config comes from the
   # git-ignored android/app/google-services.json injected at build time; no
-  # firebase_options.dart. No analytics / crashlytics.
+  # firebase_options.dart. No analytics / crashlytics (crash reporting is
+  # Sentry, below).
   firebase_core: ^4.15.0
   firebase_messaging: ^16.7.0
+
+  # Crash reporting — phase 410 (R.3). Pinned EXACT: 10.x needs Dart 3.12 /
+  # Flutter 3.44 (repo is on Dart 3.11). No sentry_dio (it would wrap the
+  # cert-pinning adapter) and no sentry_logging — see
+  # lib/core/diagnostics/crash_reporting.dart and
+  # scripts/forbid_sentry_pii_options.sh.
+  sentry_flutter: 9.30.1
 
   # Design system — Comfortaa + Nunito via google_fonts, served from the bundled
   # assets/fonts/ TTFs (runtime fetching is off; both carry full Cyrillic).

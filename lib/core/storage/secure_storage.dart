@@ -97,6 +97,22 @@ abstract interface class SecureStorage {
   Future<void> deleteAll();
 }
 
+/// The ONE [FlutterSecureStorage] configuration of the app. Shared by
+/// [FlutterSecureStorageImpl] and the phase-410 diagnostics store
+/// (`core/diagnostics/install_id.dart`) so both live in the same keystore
+/// namespace — which is why [StorageKeys.deviceScoped] lists the diagnostics
+/// keys: [SecureStorage.deleteAll] wipes the whole namespace.
+const FlutterSecureStorage beauticaFlutterSecureStorage = FlutterSecureStorage(
+  // Android: flutter_secure_storage 10.x uses custom ciphers backed by the
+  // Android Keystore by default. The former `encryptedSharedPreferences: true`
+  // option was removed in v11 and is now a no-op / deprecated in v10 — omit
+  // it entirely.
+  aOptions: AndroidOptions(),
+  iOptions: IOSOptions(
+    accessibility: KeychainAccessibility.first_unlock_this_device,
+  ),
+);
+
 /// Production [SecureStorage] backed by [FlutterSecureStorage].
 ///
 /// Android: RSA-OAEP-wrapped AES-256-GCM, Keystore-resident (not
@@ -109,18 +125,7 @@ abstract interface class SecureStorage {
 /// fake used in unit tests).
 final class FlutterSecureStorageImpl implements SecureStorage {
   FlutterSecureStorageImpl([FlutterSecureStorage? storage])
-    : _storage =
-          storage ??
-          const FlutterSecureStorage(
-            // Android: flutter_secure_storage 10.x uses custom ciphers backed
-            // by the Android Keystore by default. The former
-            // `encryptedSharedPreferences: true` option was removed in v11
-            // and is now a no-op / deprecated in v10 — omit it entirely.
-            aOptions: AndroidOptions(),
-            iOptions: IOSOptions(
-              accessibility: KeychainAccessibility.first_unlock_this_device,
-            ),
-          );
+    : _storage = storage ?? beauticaFlutterSecureStorage;
 
   final FlutterSecureStorage _storage;
 

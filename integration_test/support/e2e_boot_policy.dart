@@ -50,6 +50,8 @@
 // mirror.
 
 import 'package:beautica_mobile/core/app_start_time.dart';
+import 'package:beautica_mobile/core/diagnostics/crash_reporting_enabled_provider.dart';
+import 'package:beautica_mobile/core/diagnostics/install_id.dart';
 import 'package:beautica_mobile/core/network/dio_provider.dart';
 import 'package:beautica_mobile/core/storage/secure_storage_provider.dart';
 import 'package:beautica_mobile/core/theme/app_theme.dart';
@@ -62,6 +64,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../test/helpers/fakes/fake_diagnostics_store.dart';
 import '../../test/helpers/fakes/fake_secure_storage.dart';
 import '../../test/helpers/overflow_guard.dart';
 import 'fake_backend.dart';
@@ -244,15 +247,26 @@ Future<void> resetE2eBootPolicy() async {
 /// calendar day disagrees with the UTC one — [kFixedNow] (noon UTC) sits
 /// nowhere near that boundary by design (see its own doc comment), so it
 /// cannot serve that case.
+///
+/// [diagnostics] (phase 410) backs `diagnosticsStoreProvider` — the
+/// production value is `SecureDiagnosticsStore`, a platform channel the test
+/// binding cannot serve. Defaults to a fresh in-memory fake per boot; pass
+/// one instance to every boot when a flow must keep the crash-report opt-out
+/// across a relaunch (and to assert on it). Never override
+/// `diagnosticsStoreProvider` again via extras (double-override throw).
 List<Object> e2eProviderOverrides({
   required FakeBackend fakeBackend,
   required FakeSecureStorage storage,
   DateTime Function()? clock,
+  DiagnosticsStore? diagnostics,
 }) {
   return <Object>[
     dioProvider.overrideWithValue(fakeBackend.dio),
     secureStorageProvider.overrideWithValue(storage),
     clockProvider.overrideWithValue(clock ?? () => kFixedNow),
+    diagnosticsStoreProvider.overrideWithValue(
+      diagnostics ?? FakeDiagnosticsStore(),
+    ),
   ];
 }
 

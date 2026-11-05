@@ -6,7 +6,8 @@
 // fonts, certPinning (fully finished BEFORE the ProviderContainer slice
 // starts), container.
 //
-// Also pins that `AppConfig.assertSecureUrl` runs BEFORE the first slice (via
+// Also pins that `AppConfig.assertSecureUrl` runs BEFORE the first slice
+// after the phase-410 `crashReporting` slice (via
 // the assert-only `AppConfig.debugOnAssertSecureUrl` hook), and that boot never touches
 // the network: a recording `HttpOverrides` fails loudly if main() ever gains a
 // startup HTTP call (even one a `catch` would swallow).
@@ -67,13 +68,19 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
 
     expect(networkAttempts, isEmpty, reason: _kNoNetworkMessage);
-    // The secure-URL guard must run before the first timed slice.
-    expect(events.first, '+$kAssertSecureUrlEvent');
+    // Phase 410 (R.3 D3) — crash reporting is the first timed slice (after
+    // the await-free EnvGuard), and the secure-URL guard runs right after it,
+    // before every other slice.
+    expect(events.take(3).toList(), <String>[
+      '+boot:crashReporting',
+      '-boot:crashReporting',
+      '+$kAssertSecureUrlEvent',
+    ]);
     expect(
       events.where((String e) => e.contains(kAssertSecureUrlEvent)).length,
       1,
     );
-    expect(events.skip(1).toList(), <String>[
+    expect(events.skip(3).toList(), <String>[
       '+boot:timezones',
       '-boot:timezones',
       '+boot:fonts',

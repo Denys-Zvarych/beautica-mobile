@@ -132,6 +132,7 @@ import 'clock_skew_warning_interceptor.dart';
 import 'error_mapper_interceptor.dart';
 import 'logging_interceptor.dart';
 import 'refresh_interceptor.dart';
+import 'request_id_interceptor.dart';
 
 part 'dio_provider.g.dart';
 
@@ -272,6 +273,9 @@ Dio dio(Ref ref) {
   );
 
   d.interceptors.addAll([
+    // Phase 410 (R.3 D5) — FIRST: stamps `X-Request-Id` before anything can
+    // reject or replay the request; adds the scrubbed `http` breadcrumb.
+    RequestIdInterceptor(),
     AuthInterceptor(ref),
     if (kDebugMode) LoggingInterceptor(),
     if (kDebugMode) ClockSkewWarningInterceptor(),

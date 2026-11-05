@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:beautica_mobile/core/diagnostics/crash_reporting.dart';
 import 'package:beautica_mobile/core/navigation/single_flight.dart';
 
 import '../features/auth/presentation/accept_invite_screen.dart';
@@ -572,6 +573,9 @@ GoRouter appRouter(Ref ref) {
 
   return GoRouter(
     initialLocation: RouteNames.splash,
+    // Phase 410 (R.3 D7) — Sentry navigation breadcrumbs, only when crash
+    // reporting is configured for this build; an empty list otherwise.
+    observers: CrashReporting.navigatorObservers(),
     refreshListenable: refresh,
     redirect: (ctx, state) => authRedirect(ref.read(authProvider), state),
     // Phase 380 — branded not-found handling. Without a handler, a location
