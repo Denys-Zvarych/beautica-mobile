@@ -22,6 +22,8 @@ import 'package:go_router/go_router.dart';
 import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
+import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/booking_link_setup_hints_provider.dart';
 import 'package:beautica_mobile/features/booking_links/presentation/master_nav_setup_hints_provider.dart';
 import 'package:beautica_mobile/shared/widgets/count_badge.dart';
@@ -111,9 +113,29 @@ class VelvetBottomNavBar extends StatelessWidget {
     this.servicesRoute,
     this.bookingsRoute,
     this.showSetupHints = false,
+    this.showBookingsBadge = false,
+    this.bookingsBadgeAsOwnerMaster = false,
   });
 
   final int activeIndex;
+
+  /// 2026-11-05 — additive, default `false` (every caller that does not pass
+  /// it renders exactly as before: no `Consumer`, no provider watch, no
+  /// badge). `true` puts the red «Архів» pending-actions count on tile 1
+  /// («Записи») — the same [CountBadgeAnchor] spec, the same
+  /// [pendingBookingActionsCountProvider] family key the «Архів» icon reads
+  /// (so both share one request and every existing invalidation refreshes
+  /// both). The scope is resolved from the SESSION ROLE by
+  /// [pendingActionsScopeForRole]; any role it maps to `null` (SALON_MASTER,
+  /// a SALON_OWNER without [bookingsBadgeAsOwnerMaster], a still-settling
+  /// session) gets no badge and NO request — so `true` is safe on a
+  /// role-shared screen, but the SALON_MASTER bars leave it off regardless.
+  final bool showBookingsBadge;
+
+  /// With [showBookingsBadge]: `true` on the owner master-mode bars
+  /// (`_kOwnerMasterNavBars`), so a SALON_OWNER reads its own-row
+  /// `.me(asMaster: true)` count. Ignored when [showBookingsBadge] is off.
+  final bool bookingsBadgeAsOwnerMaster;
 
   /// 2026-10-30 — additive, default `false` (every caller that does not pass
   /// it renders exactly as before: no `Consumer`, no provider watch, no dot).
@@ -161,7 +183,11 @@ class VelvetBottomNavBar extends StatelessWidget {
 
   static const BorderRadius _pillRadius = BorderRadius.all(Radius.circular(28));
 
-  _VelvetNavTile _buildTile(int i, {bool setupHint = false}) => _VelvetNavTile(
+  _VelvetNavTile _buildTile(
+    int i, {
+    bool setupHint = false,
+    int pendingCount = 0,
+  }) => _VelvetNavTile(
     key: Key('master-nav-tile-$i'),
     item: _navItems[i],
     index: i,
@@ -171,12 +197,37 @@ class VelvetBottomNavBar extends StatelessWidget {
     servicesRoute: servicesRoute,
     bookingsRoute: bookingsRoute,
     setupHint: setupHint,
+    pendingCount: pendingCount,
   );
 
   /// Tiles 0 and 2 watch their setup-hint provider ONLY when
   /// [showSetupHints] is on; every other tile — and every tile when it is
   /// off — is the plain pre-2026-10-30 tile.
+  ///
+  /// Tile 1 watches the pending-actions count ONLY when [showBookingsBadge]
+  /// is on AND the session role resolves a scope (never for SALON_MASTER).
   Widget _tile(int i) {
+    if (i == 1 && showBookingsBadge) {
+      return Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) {
+          final PendingActionsScope? scope = pendingActionsScopeForRole(
+            ref.watch(authProvider.select(authUserRoleSettledOrNull)),
+            asOwnerMaster: bookingsBadgeAsOwnerMaster,
+          );
+          if (scope == null) return _buildTile(i);
+          return _buildTile(
+            i,
+            pendingCount:
+                ref.watch(
+                  pendingBookingActionsCountProvider(
+                    scope,
+                  ).select(pendingActionsBadgeCount),
+                ) ??
+                0,
+          );
+        },
+      );
+    }
     if (!showSetupHints || (i != 0 && i != 2)) return _buildTile(i);
     return Consumer(
       builder: (BuildContext context, WidgetRef ref, Widget? _) => _buildTile(
@@ -264,6 +315,7 @@ class _VelvetNavTile extends StatelessWidget {
     this.servicesRoute,
     this.bookingsRoute,
     this.setupHint = false,
+    this.pendingCount = 0,
   });
 
   final _NavItem item;
@@ -276,6 +328,9 @@ class _VelvetNavTile extends StatelessWidget {
 
   /// Show the setup-hint dot + semantics hint (tiles 0 and 2 only).
   final bool setupHint;
+
+  /// Pending-actions count for the red badge (tile 1 only); `0` = no badge.
+  final int pendingCount;
 
   /// Resolves the go_router path for a nav-bar [index]. Every index maps to
   /// its real destination; tapping the already-active tile resolves to
@@ -313,6 +368,10 @@ class _VelvetNavTile extends StatelessWidget {
             2 => l10n.masterNavSetupHintSchedule,
             _ => null,
           };
+    // The red badge is excluded from semantics; the hint announces it.
+    final String? semanticsHint = pendingCount > 0
+        ? l10n.navBookingsPendingHint(pendingCount)
+        : hint;
     final Widget icon = Icon(
       active ? item.activeIcon : item.icon,
       size: 22,
@@ -321,7 +380,7 @@ class _VelvetNavTile extends StatelessWidget {
 
     return Semantics(
       label: label,
-      hint: hint,
+      hint: semanticsHint,
       selected: active,
       button: true,
       child: GestureDetector(
@@ -382,7 +441,15 @@ class _VelvetNavTile extends StatelessWidget {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            if (hint == null)
+            if (pendingCount > 0)
+              CountBadgeAnchor(
+                count: pendingCount,
+                badgeColor: BrandColors.notificationBadge,
+                maxCount: 99,
+                badgeKey: const Key('master-nav-bookings-badge'),
+                child: icon,
+              )
+            else if (hint == null)
               icon
             else
               CountBadgeAnchor(

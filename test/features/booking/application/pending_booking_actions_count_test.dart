@@ -461,4 +461,50 @@ void main() {
       expect(fetchCount(), 1, reason: 'single refetch, new user only');
     });
   });
+
+  // 2026-11-05 — promoted scope resolver shared by «Архів» + nav «Записи».
+  group('pendingActionsScopeForRole', () {
+    test('INDEPENDENT_MASTER → .me(asMaster: false) either way', () {
+      expect(
+        pendingActionsScopeForRole(
+          UserRole.independentMaster,
+          asOwnerMaster: false,
+        ),
+        const PendingActionsScope.me(asMaster: false),
+      );
+      expect(
+        pendingActionsScopeForRole(
+          UserRole.independentMaster,
+          asOwnerMaster: true,
+        ),
+        const PendingActionsScope.me(asMaster: false),
+      );
+    });
+
+    test('SALON_OWNER → .me(asMaster: true) only in owner master mode', () {
+      expect(
+        pendingActionsScopeForRole(UserRole.salonOwner, asOwnerMaster: true),
+        const PendingActionsScope.me(asMaster: true),
+      );
+      expect(
+        pendingActionsScopeForRole(UserRole.salonOwner, asOwnerMaster: false),
+        isNull,
+      );
+    });
+
+    for (final UserRole role in <UserRole>[
+      UserRole.salonMaster,
+      UserRole.salonAdmin,
+      UserRole.client,
+    ]) {
+      test('${role.name} → null (no badge, no request)', () {
+        expect(pendingActionsScopeForRole(role, asOwnerMaster: false), isNull);
+        expect(pendingActionsScopeForRole(role, asOwnerMaster: true), isNull);
+      });
+    }
+
+    test('unsettled (null) role → null', () {
+      expect(pendingActionsScopeForRole(null, asOwnerMaster: true), isNull);
+    });
+  });
 }

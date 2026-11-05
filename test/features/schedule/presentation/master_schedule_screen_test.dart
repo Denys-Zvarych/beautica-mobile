@@ -72,6 +72,7 @@ import 'package:beautica_mobile/core/errors/failure_retry_policy.dart';
 import 'package:beautica_mobile/shared/time/kyiv_day.dart' show kyivAddDays;
 
 import '../../../helpers/clock_instant.dart';
+import '../../../helpers/no_pending_booking_actions.dart';
 import '../../../helpers/pump_app.dart';
 import '../../../helpers/stub_bookings_day.dart';
 
@@ -976,6 +977,7 @@ Future<void> _pump(
         masterNavSetupHintsProvider.overrideWithValue(
           BookingLinkSetupHints.none,
         ),
+        kNoPendingBookingActionsOverride,
         _fakeWorkingHours(),
         _noBookings(bookings),
       ].cast(),
@@ -2321,6 +2323,7 @@ void main() {
               masterNavSetupHintsProvider.overrideWithValue(
                 BookingLinkSetupHints.none,
               ),
+              kNoPendingBookingActionsOverride,
               ..._withWeekly(UserRole.salonMaster, days, <WeeklySchedule>[
                 _template(),
               ]),
@@ -2782,6 +2785,7 @@ void main() {
               masterNavSetupHintsProvider.overrideWithValue(
                 BookingLinkSetupHints.none,
               ),
+              kNoPendingBookingActionsOverride,
               authProvider.overrideWith(
                 () => _FixedAuth(UserRole.independentMaster),
               ),
@@ -2852,6 +2856,7 @@ void main() {
             masterNavSetupHintsProvider.overrideWithValue(
               BookingLinkSetupHints.none,
             ),
+            kNoPendingBookingActionsOverride,
             authProvider.overrideWith(
               () => _FixedAuth(UserRole.independentMaster),
             ),

@@ -54,6 +54,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/core/media/portfolio/portfolio_notifier.dart';
 import 'package:beautica_mobile/core/errors/failures.dart';
 import 'package:beautica_mobile/core/media/beautica_image.dart';
@@ -79,6 +80,7 @@ import 'package:beautica_mobile/features/salon/presentation/owner_own_profile_sc
 import 'package:beautica_mobile/features/salon/presentation/salon_management_profile_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/salon_shell_screen.dart';
 import 'package:beautica_mobile/features/salon/presentation/widgets/salon_shell_tab_placeholder.dart';
+import 'package:beautica_mobile/features/salon/application/salon_manage_capability.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/profile_tab_bar.dart';
@@ -87,6 +89,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
@@ -184,6 +187,8 @@ Object _bookingLinksOverride() => bookingLinksRepositoryProvider
 List<Object> _ownerOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  // «Записи» nav badge (2026-11-05): no real Dio count request.
+  pendingBookingActionsCountProvider.overrideWith((ref, scope) async => 0),
   _bookingLinksOverride(),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_OwnedMySalons.new),
@@ -207,6 +212,8 @@ class _SettledClientEditProfile extends ClientEditProfile {
 List<Object> _adminOverrides() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  // «Записи» nav badge (2026-11-05): no real Dio count request.
+  pendingBookingActionsCountProvider.overrideWith((ref, scope) async => 0),
   _bookingLinksOverride(),
   authProvider.overrideWith(_AdminAuthNotifier.new),
   clientEditProfileProvider.overrideWith(_SettledClientEditProfile.new),
@@ -237,6 +244,8 @@ class _MultiOwnedMySalons extends MySalons {
 List<Object> _ownerOverridesMultiSalon() => <Object>[
   // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
   portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+  // «Записи» nav badge (2026-11-05): no real Dio count request.
+  pendingBookingActionsCountProvider.overrideWith((ref, scope) async => 0),
   _bookingLinksOverride(),
   authProvider.overrideWith(_OwnerAuthNotifier.new),
   mySalonsProvider.overrideWith(_MultiOwnedMySalons.new),
@@ -1620,6 +1629,10 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          // «Записи» nav badge (2026-11-05): no real Dio count request.
+          pendingBookingActionsCountProvider.overrideWith(
+            (ref, scope) async => 0,
+          ),
           _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -1753,6 +1766,10 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          // «Записи» nav badge (2026-11-05): no real Dio count request.
+          pendingBookingActionsCountProvider.overrideWith(
+            (ref, scope) async => 0,
+          ),
           _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -1917,6 +1934,10 @@ void main() {
         overrides: [
           // Phase 404 — timer-free portfolio (the real notifier's keep-alive timer / Dio read would outlive the test).
           portfolioProvider.overrideWith2((_) => FixedPortfolioNotifier()),
+          // «Записи» nav badge (2026-11-05): no real Dio count request.
+          pendingBookingActionsCountProvider.overrideWith(
+            (ref, scope) async => 0,
+          ),
           _bookingLinksOverride(),
           secureStorageProvider.overrideWith((_) => storage),
           authRepositoryProvider.overrideWith((_) => repo),
@@ -2325,6 +2346,100 @@ void main() {
       expect(find.byType(SalonShellScreen), findsNothing);
       expect(find.byKey(const Key('shell-bounce-target')), findsOneWidget);
       await drainReviewTimers(tester);
+    });
+  });
+
+  // 2026-11-05 — «Записи» nav red pending-actions badge (salon owner/admin).
+  group('«Записи» nav pending-actions badge', () {
+    const Key badge = Key('salon-nav-bookings-badge');
+    const Key bookingsTile = Key('salon-nav-tile-1');
+    late List<PendingActionsScope> requested;
+    late int count;
+
+    setUp(() {
+      requested = <PendingActionsScope>[];
+      count = 4;
+    });
+
+    /// [base] with its default `0` count override swapped for a counting one.
+    List<Object> withCount(List<Object> base, {bool? canManage}) => <Object>[
+      ...base.where(
+        (Object o) =>
+            !(o is Override && o.origin == pendingBookingActionsCountProvider),
+      ),
+      pendingBookingActionsCountProvider.overrideWith((ref, scope) async {
+        requested.add(scope);
+        return count;
+      }),
+      if (canManage != null)
+        canManageSalonProvider(_kSalonId).overrideWithValue(canManage),
+    ];
+
+    Finder badgeText(String text) =>
+        find.descendant(of: find.byKey(badge), matching: find.text(text));
+
+    Future<void> pumpShell(WidgetTester tester, List<Object> overrides) async {
+      await tester.pumpApp(
+        const SalonShellScreen(salonId: _kSalonId),
+        overrides: overrides,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('owner → badge «4» on «Записи», read with .salon(id)', (
+      tester,
+    ) async {
+      await pumpShell(tester, withCount(_ownerOverrides()));
+
+      expect(
+        find.descendant(
+          of: find.byKey(bookingsTile),
+          matching: find.byKey(badge),
+        ),
+        findsOneWidget,
+      );
+      expect(badgeText('4'), findsOneWidget);
+      expect(requested, <PendingActionsScope>[
+        const PendingActionsScope.salon(_kSalonId),
+      ]);
+    });
+
+    testWidgets('admin → badge «4» on «Записи»', (tester) async {
+      await pumpShell(tester, withCount(_adminOverrides()));
+      expect(badgeText('4'), findsOneWidget);
+      expect(requested, <PendingActionsScope>[
+        const PendingActionsScope.salon(_kSalonId),
+      ]);
+    });
+
+    testWidgets('count 0 → no badge', (tester) async {
+      count = 0;
+      await pumpShell(tester, withCount(_ownerOverrides()));
+      expect(find.byKey(badge), findsNothing);
+    });
+
+    testWidgets('count 250 → caps at «99+»', (tester) async {
+      count = 250;
+      await pumpShell(tester, withCount(_ownerOverrides()));
+      expect(badgeText('99+'), findsOneWidget);
+    });
+
+    testWidgets('semantics hint announces the count', (tester) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      await pumpShell(tester, withCount(_ownerOverrides()));
+      expect(
+        tester.getSemantics(find.byKey(bookingsTile)).hint,
+        lookupAppLocalizations(const Locale('uk')).navBookingsPendingHint(4),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('canManageSalon false → no badge and NO count request', (
+      tester,
+    ) async {
+      await pumpShell(tester, withCount(_ownerOverrides(), canManage: false));
+      expect(find.byKey(badge), findsNothing);
+      expect(requested, isEmpty);
     });
   });
 }

@@ -31,6 +31,7 @@ import 'package:beautica_mobile/core/theme/brand_colors.dart';
 import 'package:beautica_mobile/core/theme/velvet_geometry.dart';
 import 'package:beautica_mobile/core/theme/velvet_text.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
+import 'package:beautica_mobile/shared/widgets/count_badge.dart';
 
 /// The «Команда» destination's index inside [SalonBottomNav.ownerAdminItems].
 ///
@@ -86,9 +87,21 @@ class SalonNavItem {
     this.activeIcon,
     this.svgIcon,
     this.svgActiveIcon,
+    this.badgeCount = 0,
+    this.badgeKey,
   });
 
   final String label;
+
+  /// 2026-11-05 — additive, default `0` (every current item renders exactly
+  /// as before: no badge, no `Stack`). A positive count puts the red
+  /// pending-actions badge (the «Архів» spec: [BrandColors.notificationBadge],
+  /// capped at `99+`) on the icon and announces it as the tile's semantics
+  /// hint. The host owns the count — this bar stays purely presentational.
+  final int badgeCount;
+
+  /// Key on the badge pill (present only while [badgeCount] > 0).
+  final Key? badgeKey;
 
   /// Inactive (outline) glyph. Ignored when [svgIcon] is set.
   final IconData? icon;
@@ -146,34 +159,42 @@ class SalonBottomNav extends StatelessWidget {
   /// A method (not a `static const` list, unlike the preview source) because
   /// labels come from [AppLocalizations] — never hard-coded Ukrainian in
   /// shipped `lib/` source (`no_raw_ui_strings` is CI-fatal).
-  static List<SalonNavItem> ownerAdminItems(AppLocalizations l10n) =>
-      <SalonNavItem>[
-        SalonNavItem(
-          label: l10n.salonShellTabSalon,
-          svgIcon: BeauticaAssetIcons.homeOutline,
-          svgActiveIcon: BeauticaAssetIcons.homeFilled,
-        ),
-        SalonNavItem(
-          label: l10n.salonShellTabBookings,
-          // Matches the independent-master shell's «Мої записи» tab glyph —
-          // `velvet_bottom_nav_bar.dart` lines 45–58.
-          icon: Icons.event_note_outlined,
-          activeIcon: Icons.event_note_rounded,
-        ),
-        SalonNavItem(
-          label: l10n.salonShellTabTeam,
-          svgIcon: BeauticaAssetIcons.teamOutline,
-          svgActiveIcon: BeauticaAssetIcons.teamFilled,
-        ),
-        SalonNavItem(
-          label: l10n.salonShellTabProfile,
-          // Matches the independent-master shell's «Профіль» tab glyph —
-          // `velvet_bottom_nav_bar.dart` lines 45–58 (note: `person_outline`,
-          // not `person_outline_rounded`, to match exactly).
-          icon: Icons.person_outline,
-          activeIcon: Icons.person_rounded,
-        ),
-      ];
+  ///
+  /// [bookingsBadgeCount] (2026-11-05, additive, default `0` = the exact
+  /// pre-badge list) is the red pending-actions count on «Записи»
+  /// ([kSalonBookingsNavTab]).
+  static List<SalonNavItem> ownerAdminItems(
+    AppLocalizations l10n, {
+    int bookingsBadgeCount = 0,
+  }) => <SalonNavItem>[
+    SalonNavItem(
+      label: l10n.salonShellTabSalon,
+      svgIcon: BeauticaAssetIcons.homeOutline,
+      svgActiveIcon: BeauticaAssetIcons.homeFilled,
+    ),
+    SalonNavItem(
+      label: l10n.salonShellTabBookings,
+      // Matches the independent-master shell's «Мої записи» tab glyph —
+      // `velvet_bottom_nav_bar.dart` lines 45–58.
+      icon: Icons.event_note_outlined,
+      activeIcon: Icons.event_note_rounded,
+      badgeCount: bookingsBadgeCount,
+      badgeKey: const Key('salon-nav-bookings-badge'),
+    ),
+    SalonNavItem(
+      label: l10n.salonShellTabTeam,
+      svgIcon: BeauticaAssetIcons.teamOutline,
+      svgActiveIcon: BeauticaAssetIcons.teamFilled,
+    ),
+    SalonNavItem(
+      label: l10n.salonShellTabProfile,
+      // Matches the independent-master shell's «Профіль» tab glyph —
+      // `velvet_bottom_nav_bar.dart` lines 45–58 (note: `person_outline`,
+      // not `person_outline_rounded`, to match exactly).
+      icon: Icons.person_outline,
+      activeIcon: Icons.person_rounded,
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -276,10 +297,30 @@ class _NavCellState extends State<_NavCell> {
         ? VelvetText.shellNavLabelActive
         : VelvetText.shellNavLabelInactive;
 
+    final int badgeCount = widget.item.badgeCount;
+    final Widget icon = widget.item.isSvg
+        ? AppIcon(
+            active
+                ? (widget.item.svgActiveIcon ?? widget.item.svgIcon!)
+                : widget.item.svgIcon!,
+            size: 22,
+            color: color,
+          )
+        : Icon(
+            (active ? widget.item.activeIcon : widget.item.icon) ??
+                Icons.circle,
+            size: 22,
+            color: color,
+          );
+
     return Semantics(
       button: true,
       selected: active,
       label: widget.item.label,
+      // The red badge is excluded from semantics; the hint announces it.
+      hint: badgeCount > 0
+          ? AppLocalizations.of(context).navBookingsPendingHint(badgeCount)
+          : null,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapDown: (_) => setState(() => _pressed = true),
@@ -306,21 +347,16 @@ class _NavCellState extends State<_NavCell> {
                     ? _pillActiveDecoration
                     : _pillInactiveDecoration,
               ),
-              if (widget.item.isSvg)
-                AppIcon(
-                  active
-                      ? (widget.item.svgActiveIcon ?? widget.item.svgIcon!)
-                      : widget.item.svgIcon!,
-                  size: 22,
-                  color: color,
+              if (badgeCount > 0)
+                CountBadgeAnchor(
+                  count: badgeCount,
+                  badgeColor: BrandColors.notificationBadge,
+                  maxCount: 99,
+                  badgeKey: widget.item.badgeKey,
+                  child: icon,
                 )
               else
-                Icon(
-                  (active ? widget.item.activeIcon : widget.item.icon) ??
-                      Icons.circle,
-                  size: 22,
-                  color: color,
-                ),
+                icon,
               const SizedBox(height: 2),
               SizedBox(
                 height: _labelBoxHeight,

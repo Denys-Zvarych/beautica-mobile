@@ -77,6 +77,11 @@ void main() {
         // ── Landing ──────────────────────────────────────────────────────
         expect(find.byType(SalonMasterProfileScreen), findsOneWidget);
         AppHarness.expectLocation(router, RouteNames.salonMasterProfile);
+        expect(
+          find.byKey(const Key('master-nav-bookings-badge')),
+          findsNothing,
+        );
+        expect(fb.getPendingActionsCountCalls, 0);
 
         // ── Tap the REAL «Записи» nav tile ──────────────────────────────
         await AppHarness.tapVisible(
@@ -125,6 +130,13 @@ void main() {
         );
         expect(
           find.byKey(const Key('master-bookings-archive-badge')),
+          findsNothing,
+        );
+        // 2026-11-05 — nor on the «Записи» NAV tile (the SALON_MASTER bars
+        // leave `showBookingsBadge` off). The tile itself is drawn.
+        expect(find.byKey(const Key('master-nav-tile-1')), findsOneWidget);
+        expect(
+          find.byKey(const Key('master-nav-bookings-badge')),
           findsNothing,
         );
         expect(

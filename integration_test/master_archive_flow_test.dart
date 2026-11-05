@@ -757,6 +757,28 @@ void main() {
       await AppHarness.pumpUntilFound(tester, badgeText('2'));
       expect(fb.getPendingActionsCountCalls, greaterThanOrEqualTo(1));
 
+      // 2026-11-05 — the «Записи» NAV tile badge reads the SAME family key,
+      // so it shows the same count, from the same single request.
+      final Finder navBadge = find.byKey(
+        const Key('master-nav-bookings-badge'),
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('master-nav-tile-1')),
+          matching: navBadge,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: navBadge, matching: find.text('2')),
+        findsOneWidget,
+      );
+      expect(
+        fb.getPendingActionsCountCalls,
+        1,
+        reason: 'nav badge + «Архів» badge share one request',
+      );
+
       // ── Archive: complete booking-1 (2 -> 2), rate both clients. ─────────
       await tester.tap(find.byKey(const Key('master-bookings-open-archive')));
       await AppHarness.settle(tester);
@@ -794,6 +816,17 @@ void main() {
         tester,
         () => badge.evaluate().isEmpty,
         description: 'the archive badge to clear after everything is closed',
+      );
+      await AppHarness.pumpUntilCondition(
+        tester,
+        () => navBadge.evaluate().isEmpty,
+        description: 'the nav «Записи» badge to clear with the archive badge',
+      );
+      expect(
+        find.byKey(const Key('master-nav-tile-1')),
+        findsOneWidget,
+        reason:
+            'anti-vacuity: the nav tile is still there, only its badge left',
       );
       expect(
         find.byKey(const Key('master-bookings-open-archive')),

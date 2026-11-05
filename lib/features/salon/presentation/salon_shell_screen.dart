@@ -107,12 +107,14 @@ import 'package:beautica_mobile/features/auth/domain/user_role.dart';
 import 'package:beautica_mobile/features/auth/presentation/auth_notifier.dart';
 import 'package:beautica_mobile/features/booking/application/booking_calendar_invalidation.dart'
     show drainSalonBoardRefresh;
+import 'package:beautica_mobile/features/booking/application/pending_booking_actions_count.dart';
 import 'package:beautica_mobile/l10n/app_localizations.dart';
 import 'package:beautica_mobile/routing/role_home.dart';
 import 'package:beautica_mobile/routing/route_names.dart';
 import 'package:beautica_mobile/shared/widgets/salon_bottom_nav.dart';
 
 import '../application/my_salons_notifier.dart';
+import '../application/salon_manage_capability.dart';
 import '../application/salon_shell_provider.dart';
 import '../domain/last_visited_salon.dart';
 import '../domain/salon.dart';
@@ -158,6 +160,7 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
 
   List<SalonNavItem>? _navItemsCache;
   AppLocalizations? _navItemsCacheL10n;
+  int _navItemsCacheBadge = 0;
 
   /// Phase 391 — source of route-local state instances. Never `0` (that is the
   /// shared per-salon state every other caller addresses).
@@ -298,10 +301,22 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
   /// the result only ever changes when [l10n] itself changes (a locale
   /// switch). Cached against the exact `AppLocalizations` instance so a real
   /// locale change still picks up fresh labels.
-  List<SalonNavItem> _navItems(AppLocalizations l10n) {
-    if (_navItemsCache == null || _navItemsCacheL10n != l10n) {
+  ///
+  /// 2026-11-05 — also keyed on [bookingsBadgeCount] (the «Записи» red
+  /// pending-actions badge), which changes only when the count settles anew.
+  List<SalonNavItem> _navItems(
+    AppLocalizations l10n, {
+    int bookingsBadgeCount = 0,
+  }) {
+    if (_navItemsCache == null ||
+        _navItemsCacheL10n != l10n ||
+        _navItemsCacheBadge != bookingsBadgeCount) {
       _navItemsCacheL10n = l10n;
-      _navItemsCache = SalonBottomNav.ownerAdminItems(l10n);
+      _navItemsCacheBadge = bookingsBadgeCount;
+      _navItemsCache = SalonBottomNav.ownerAdminItems(
+        l10n,
+        bookingsBadgeCount: bookingsBadgeCount,
+      );
     }
     return _navItemsCache!;
   }
@@ -620,16 +635,33 @@ class _SalonShellScreenState extends ConsumerState<SalonShellScreen> {
       backgroundColor: BrandColors.base,
       // STACK SLOT here…
       body: IndexedStack(index: stackSlot, children: children),
-      bottomNavigationBar: SalonBottomNav(
-        key: const Key('salon-shell-bottom-nav'),
-        // …but the NAV index here: the highlight tracks the destination the
-        // user chose, which stays 0..3 even though «Салон» and «Команда»
-        // resolve to the same stack slot. Passing `stackSlot` would light up
-        // «Салон» while standing on «Команда» — the exact desync this chain
-        // just fixed.
-        currentIndex: navIndex,
-        items: _navItems(l10n),
-        onSelect: _onNavSelected,
+      // 2026-11-05 — a `Consumer` so the «Записи» pending-actions badge
+      // rebuilds only the bar, never the IndexedStack. Same gate and the same
+      // family key as the board's own «Архів» badge: owner/admin only, via the
+      // fail-CLOSED `canManageSalonProvider` (no request while it is false).
+      bottomNavigationBar: Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) {
+          final int bookingsBadgeCount =
+              ref.watch(canManageSalonProvider(widget.salonId))
+              ? ref.watch(
+                      pendingBookingActionsCountProvider(
+                        PendingActionsScope.salon(widget.salonId),
+                      ).select(pendingActionsBadgeCount),
+                    ) ??
+                    0
+              : 0;
+          return SalonBottomNav(
+            key: const Key('salon-shell-bottom-nav'),
+            // …but the NAV index here: the highlight tracks the destination
+            // the user chose, which stays 0..3 even though «Салон» and
+            // «Команда» resolve to the same stack slot. Passing `stackSlot`
+            // would light up «Салон» while standing on «Команда» — the exact
+            // desync this chain just fixed.
+            currentIndex: navIndex,
+            items: _navItems(l10n, bookingsBadgeCount: bookingsBadgeCount),
+            onSelect: _onNavSelected,
+          );
+        },
       ),
     );
   }
